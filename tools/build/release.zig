@@ -27,7 +27,7 @@ pub fn register(
             @tagName(target.result.cpu.arch), @tagName(target.result.os.tag),
         },
     );
-    const release_pack_run = addInstalledSystemRun(b, &.{
+    const release_pack_run = addInstalledSystemRun(b, .build_tool, &.{
         "sh", "-ec",
         b.fmt(
             \\rm -rf zig-out/release

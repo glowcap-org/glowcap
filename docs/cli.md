@@ -1,8 +1,7 @@
 # CapTP CLI
 
 Call a capability from your shell, script CapTP with JSON, or drop pancake
-into an agent via MCP. The binary holds the same library as the Zig package,
-not a second protocol stack.
+into an agent via MCP. The binary links the same library as the Zig package.
 
 Flags, CapTP verbs, exit codes, environment, and wait budgets live in the
 binary: `pancake help` (and `help ocapn`, `-h` on any command).
@@ -36,13 +35,26 @@ pancake help
 While iterating without installing: `zig build pancake -- <command> …` runs the
 same binary through the build graph.
 
-## Round-trip in two terminals
+## Encrypted conversation
 
-This uses the same demo greeter as the README and the Zig examples, a tiny actor
-that lives only in the CLI adapter (`cli/ocapn/builtins.zig`) rather than in
-`libpancake_*`. Its `greet` verb formats `Hello, <arg>`. Its `cowsay`,
-`pancakesay`, and `goblinsay` verbs return a speech balloon for the same string
-argument: a cow, a faced pancake stack, or a friendly goblin doodle.
+Native rooms traffic rides [iroh](https://www.iroh.computer/):
+
+```sh
+pancake app rooms-peer
+```
+
+The peer prints a locator. `reply --dm PEER` delivers through directory
+introduction. Details are under [Sit in a room](#sit-in-a-room).
+
+## Lab round-trip
+
+`ocapn listen` binds loopback `tcp`, the testing transport: a cleartext
+`host:port` with no identity proof.
+
+This uses the same demo greeter as the Zig examples, a tiny actor that lives
+only in the CLI adapter (`cli/ocapn/builtins.zig`) rather than in
+`libpancake_*`. Its `greet` verb formats `Hello, <arg>`. Other verbs are listed
+by `pancake help`.
 
 Each peer needs its own identity. Use a separate `PANCAKE_STATE` per terminal.
 
@@ -249,7 +261,7 @@ and a local WSS relay
 ([known limitations](boundaries.md#browser-reachability)):
 
 ```sh
-export PANCAKE_RENDEZVOUS=ws://127.0.0.1:8000/relay
+export PANCAKE_RENDEZVOUS=wss://relay.example/relay
 pancake --json ocapn call "ocapn://<key>.keyed-relay" greeter greet world
 ```
 
@@ -260,8 +272,8 @@ holds an inbound socket at the registration endpoint and prints a
 
 ```sh
 pancake --json ocapn listen \
-  --rendezvous ws://127.0.0.1:8000/register \
-  --rendezvous-relay ws://relay.example:8000/relay \
+  --rendezvous wss://relay.example/register \
+  --rendezvous-relay wss://relay.example/relay \
   --publish greeter
 ```
 

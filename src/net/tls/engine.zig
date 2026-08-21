@@ -9,6 +9,7 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
+const carrier_detail = @import("../carrier_detail.zig");
 
 pub const Phase = enum {
     handshake,
@@ -26,14 +27,8 @@ pub const Interest = packed struct(u2) {
     }
 };
 
-/// Engine-specific evidence retained without exporting a vendor type. Fields
-/// coexist because a verification refusal can also carry a peer alert and the
-/// engine's exact numeric cause.
-pub const Detail = struct {
-    verification_flags: u32 = 0,
-    peer_alert: ?u8 = null,
-    engine_code: ?i32 = null,
-};
+/// Engine-specific evidence retained without exporting a vendor type.
+pub const Detail = carrier_detail.Detail;
 
 pub const Failure = struct {
     phase: Phase,

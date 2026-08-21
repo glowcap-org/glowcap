@@ -1,4 +1,5 @@
 const std = @import("std");
+const execution = @import("execution.zig");
 
 /// Build one executable over the public `pancake` module.
 pub fn pancakeExecutable(
@@ -21,13 +22,14 @@ pub fn pancakeExecutable(
 /// Run a pancake executable from the repository root with side effects.
 pub fn addPancakeRun(
     b: *std.Build,
+    posture: execution.Posture,
     lib_mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     name: []const u8,
     root_source: []const u8,
 ) *std.Build.Step.Run {
-    const run = b.addRunArtifact(pancakeExecutable(
+    const run = execution.addArtifact(b, posture, pancakeExecutable(
         b,
         lib_mod,
         target,
@@ -43,11 +45,18 @@ pub fn addPancakeRun(
 /// Run a system command from the repository root.
 pub fn addRootedSystemCommand(
     b: *std.Build,
+    posture: execution.Posture,
     argv: []const []const u8,
 ) *std.Build.Step.Run {
-    const run = b.addSystemCommand(argv);
+    const run = execution.addSystemCommand(b, posture, argv);
     run.setCwd(b.path("."));
     return run;
+}
+
+/// Absolute path under the repository root, for environment variables passed
+/// to subprocesses that cannot consume a `LazyPath`.
+pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {
+    return b.root.joinString(b.allocator, sub_path) catch @panic("OOM");
 }
 
 pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
@@ -118,8 +127,8 @@ pub fn linkRustSidecar(
 /// A sibling-step system command that needs the installed archive set and its
 /// headers and runs from the repository root with side effects, the shape
 /// every cross-language interop and demo orchestrator shares.
-pub fn addInstalledSystemRun(b: *std.Build, argv: []const []const u8) *std.Build.Step.Run {
-    const run = addRootedSystemCommand(b, argv);
+pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []const []const u8) *std.Build.Step.Run {
+    const run = addRootedSystemCommand(b, posture, argv);
     run.step.dependOn(b.getInstallStep());
     run.has_side_effects = true;
     return run;

@@ -109,7 +109,7 @@ test "keyed-relay completion loop reclaims a wrapped connect failure unopened" {
     );
     defer loop.deinit();
 
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
     _ = try loop.dialLocator(.{
         .transport = keyed_relay.transport_name,
         .designator = &designator,
@@ -164,7 +164,7 @@ test "keyed-relay completion loop: evented cold dial fetches through relay" {
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
 
-    const identity = crypto.SecretKey.fromSeed([_]u8{0x71} ** crypto.SEED_BYTES);
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x71)));
 
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,

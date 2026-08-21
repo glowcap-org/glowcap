@@ -2,8 +2,9 @@
 
 use crate::{Error, FailureEvent, FailureLayer, FailureScope};
 
-pub(crate) const RUNTIME_FAILURE_CAP: usize = 64;
-pub(crate) const FAILURE_PAYLOAD_CAP: usize = 512;
+pub(crate) use crate::abi_constants::{
+	DEFAULT_FAILURE_CAPACITY as RUNTIME_FAILURE_CAP, DEFAULT_FAILURE_PAYLOAD_CAP as FAILURE_PAYLOAD_CAP,
+};
 
 pub(crate) struct RuntimeFailureJournal {
 	failures: std::collections::VecDeque<FailureEvent>,

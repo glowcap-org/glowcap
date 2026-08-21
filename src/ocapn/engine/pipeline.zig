@@ -129,18 +129,19 @@ pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool
 /// Drain the local consequences of settlement: pipelined calls,
 /// anchored projections, then listeners — in that order (ADR-0007 § Queue
 /// ownership and drain; ADR-0050 for projections).
-pub fn drainResolveConsequences(peer: *Peer, resolve: model.Resolve) !void {
-    return drainAnswerConsequences(peer, .fromWire(resolve.answer), resolve.resolution);
-}
-
-pub fn drainAnswerConsequences(
+pub fn drainAnswerConsequencesTarget(
     peer: *Peer,
-    answer: model.AnswerName,
+    target: session.AnswerTarget,
+    payload: *session.AnswerPayload,
     resolution: model.Resolution,
 ) !void {
-    try drainPipelinedCalls(peer, answer, resolution);
-    try drainProjections(peer, answer, resolution);
-    try listener_drain.fireListenersOnAnswer(peer, answer, resolution);
+    if (peer.session_state.answerPayloadForTarget(target) == payload and
+        peer.session_state.inboundAnswerRowIdNamed(target.name) == target.row_id)
+    {
+        try drainPipelinedCalls(peer, target.name, resolution);
+        try drainProjections(peer, target.name, resolution);
+    }
+    try listener_drain.fireListenersOnAnswer(peer, target, payload, resolution);
 }
 
 fn drainPipelinedCalls(peer: *Peer, answer: model.AnswerName, resolution: model.Resolution) !void {
@@ -255,8 +256,9 @@ fn anchorProjection(peer: *Peer, source: model.AnswerName, projection: session.P
         // is equivalent to reading the flag and never rests on the `.?`). Absent
         // means still pending, install the projection and let the answer's own
         // resolve drain it (`drainProjections`); present means project now.
-        // Mirrors `installProjection`, `installAnswerListener`, and
-        // `Peer.stepInner`, every other settled-answer reader.
+        // Mirrors `installProjection`, `installAnswerListener`, and the
+        // inbound dispatch owned by `Peer.step`, every other settled-answer
+        // reader.
         const resolution = peer.session_state.peekResolutionNamed(current) orelse
             return peer.session_state.installProjectionNamed(current, moving);
         switch (projectResolution(resolution.*, moving.kind)) {
@@ -419,6 +421,12 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
         .codec = peer.session_state.codec,
         .captp_version = peer.session_state.captp_version,
         .answer_override = answer_override,
+        .deliver_answer_target = if (rewritten.deliver.answer) |answer|
+            peer.session_state.answerTargetNamed(.fromWire(answer))
+        else switch (answer_override) {
+            .virtual_deliver => |answer| peer.session_state.answerTargetNamed(.fromVirtual(answer)),
+            else => null,
+        },
         .allocator = peer.allocator,
     });
     peer.local_delivery_depth += 1;

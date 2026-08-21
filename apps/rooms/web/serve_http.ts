@@ -4,6 +4,7 @@
 
 import { classifyRelayTarget, onionDesignator, type RelayTarget } from "./relay_target.ts";
 import { pipeVizSocket } from "./viz_proxy.ts";
+import { icePolicy } from "./ice_policy.ts";
 import {
 	bridgeRendezvous,
 	isRendezvousDesignator,
@@ -34,6 +35,16 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	const VIZ_PORT = opts.vizPort;
 	const stop = opts.stop;
 	const roomLocator = () => opts.locator();
+	// Public STUN configuration and the private TURN issuer contract are startup
+	// state. Parse them before the listener makes a malformed or over-broad
+	// answer reachable. Short-lived credentials themselves are minted per `/ice`
+	// request; the issuer bearer token never crosses this server boundary.
+	const ICE_POLICY = icePolicy({
+		stunServers: Deno.env.get("PANCAKE_ROOMS_ICE_SERVERS"),
+		turnCredentialsUrl: Deno.env.get("PANCAKE_ROOMS_TURN_CREDENTIALS_URL"),
+		turnBearerToken: Deno.env.get("PANCAKE_ROOMS_TURN_BEARER_TOKEN"),
+		turnTtlSeconds: Deno.env.get("PANCAKE_ROOMS_TURN_TTL_SECONDS"),
+	});
 
 	// One same-origin door per timeline leg: refuse a foreign page, upgrade,
 	// and carry the socket to the endpoint with the path and query intact.
@@ -199,6 +210,24 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 			headers: { "content-type": type, "cache-control": "no-store" },
 		});
 	}
+
+	async function serveIcePolicy(): Promise<Response> {
+		try {
+			return new Response(JSON.stringify(await ICE_POLICY.servers()), {
+				headers: {
+					"content-type": "application/json; charset=utf-8",
+					"cache-control": "no-store",
+				},
+			});
+		} catch (err) {
+			// Never fall back to STUN-only after a deployment configured TURN: that
+			// would make restrictive-NAT failures look intermittent and would conceal
+			// an unavailable credential authority. The browser loader retries this
+			// explicit failure, while the long-lived issuer token remains server-side.
+			console.error(`rooms: could not mint TURN credentials: ${reasonOf(err)}`);
+			return new Response("rooms: ICE configuration unavailable\n", { status: 503 });
+		}
+	}
 	// The typefaces ui/tokens.css names, by exact filename. Fonts are immutable once
 	// published, so unlike the page assets they are cached hard.
 	const FONTS = new Set([
@@ -353,6 +382,13 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 			// CapTP peers (rooms-peer) bootstrap the live ocapn:// locator over HTTP
 			// on the shared Docker network, then dial via iroh Discovery — not CapTP
 			// over this port.
+			// What a browser peer needs to find a path to another browser peer.
+			// Served rather than built into the page, because the set names hosts
+			// this deployment chose to depend on. A process restart applies a new
+			// deployment choice without rebuilding the browser bundle.
+			if (url.pathname === "/ice") {
+				return serveIcePolicy();
+			}
 			if (url.pathname === "/locator") {
 				if (!roomLocator()) {
 					return new Response("rooms: locator not ready\n", { status: 503 });

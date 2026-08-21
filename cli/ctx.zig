@@ -8,7 +8,9 @@ const relay_runtime = @import("ocapn/relay_runtime.zig");
 const crypto = pancake.foundation.crypto;
 const FailureChain = pancake.foundation.FailureChain;
 const Session = pancake.driver.Session;
+const OperationFailure = pancake.driver.OperationFailure;
 const Io = std.Io;
+const exit_codes = @import("exit_codes.zig");
 
 pub const JsonMode = enum { human, json };
 
@@ -51,6 +53,10 @@ pub const Ctx = struct {
     state_guard: ?state_lock.Guard = null,
     /// Borrowed argv `std.process.Init` for leaves that need the full process handle (rooms-peer).
     argv_init: ?*const std.process.Init = null,
+    /// Callerless Runtime leftovers delivered through `unhandled_failure` after
+    /// the last deterministic close return. Drained by session finish and
+    /// `closeOwned`; not a second journal.
+    callerless: ?FailureChain = null,
 
     fn statePosture(self: *const Ctx) @import("operability/xdg.zig").StatePosture {
         return if (self.front == .mcp) .mcp_local else .product;
@@ -142,6 +148,7 @@ pub const Ctx = struct {
             };
             s.deinit();
             self.session = null;
+            if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
         }
         return failure;
     }
@@ -162,29 +169,68 @@ pub const Ctx = struct {
     /// session refusal as primary and provider retirement as a consequence.
     pub fn closeSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
         var failure = self.closeHeldSession(pending);
-        if (self.closeRelayProvider()) |cleanup| {
-            if (failure) |*primary|
-                primary.noteChain(cleanup)
-            else
-                failure = cleanup;
-        }
+        if (self.closeRelayProvider()) |cleanup| self.retainCleanup(&failure, cleanup);
         return failure;
     }
 
-    /// Stop the background listener's accept thread and free it. Idempotent.
-    pub fn closeBackgroundListener(self: *Ctx) void {
-        if (self.background_listener) |handle| {
-            handle.shutdown(self);
-            self.background_listener = null;
+    /// Stop the background listener's accept thread. Consuming success (or a
+    /// consumed server close) clears the slot; a non-consuming relay refusal
+    /// keeps this handle as the retry owner.
+    pub fn closeBackgroundListener(self: *Ctx) ?FailureChain {
+        const handle = self.background_listener orelse return null;
+        const outcome = handle.shutdown(self);
+        if (outcome.consumed) self.background_listener = null;
+        return outcome.failure;
+    }
+
+    /// One close of every process-owned CapTP resource: listener, then session,
+    /// then relay. The first refusal is primary; later ones are consequences.
+    pub fn closeOwned(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+        var failure = self.closeBackgroundListener();
+        if (self.closeSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);
+        if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
+        return failure;
+    }
+
+    /// Keep `later` as the primary when `failure` is empty; otherwise note it
+    /// as a cleanup consequence of the already-authoritative refusal.
+    pub fn retainCleanup(_: *const Ctx, failure: *?FailureChain, later: FailureChain) void {
+        if (failure.*) |*primary| {
+            primary.noteChain(later);
+        } else {
+            failure.* = later;
         }
     }
 
-    pub fn deinit(self: *Ctx) void {
-        self.closeBackgroundListener();
-        if (self.closeSession(.cancel)) |failure| self.logErr(
-            "context cleanup: {s} (and {d} later failure(s))",
-            .{ failure.primaryName(), failure.secondary_count },
+    pub fn takeCallerless(self: *Ctx) ?FailureChain {
+        const failure = self.callerless;
+        self.callerless = null;
+        return failure;
+    }
+
+    pub fn reportUnhandledFailure(raw: *anyopaque, failure: OperationFailure) void {
+        const self: *Ctx = @ptrCast(@alignCast(raw));
+        self.retainCleanup(&self.callerless, failure.toChain());
+    }
+
+    pub fn logCloseFailure(self: *Ctx, comptime what: []const u8, failure: FailureChain) void {
+        self.logErr(
+            "{s}: {s} (and {d} later failure(s))",
+            .{ what, failure.primaryName(), failure.secondary_count },
         );
+    }
+
+    pub fn mapCloseErr(_: *const Ctx, err: anyerror) u8 {
+        return switch (err) {
+            error.HandshakeTimedOut, error.WaitTimedOut, error.CloseTimedOut => exit_codes.timeout,
+            error.OutOfMemory => exit_codes.internal,
+            error.Busy => exit_codes.busy,
+            else => exit_codes.dial,
+        };
+    }
+
+    pub fn deinit(self: *Ctx) void {
+        if (self.closeOwned(.cancel)) |failure| self.logCloseFailure("context cleanup", failure);
         if (self.last_locator) |loc| {
             self.gpa.free(loc);
             self.last_locator = null;

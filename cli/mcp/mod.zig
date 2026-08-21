@@ -396,13 +396,14 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
         .max_session_ms = max_session_ms,
     };
     var caps_future = try ctx.io.concurrent(CapsWatch.run, .{&caps});
+    var code: u8 = exit_codes.ok;
     defer {
         signals.requestStop();
         caps_future.await(ctx.io);
-        if (ctx.closeSession(.cancel)) |failure| ctx.logErr(
-            "mcp close: {s} (and {d} later failure(s))",
-            .{ failure.primaryName(), failure.secondary_count },
-        );
+        if (ctx.closeOwned(.cancel)) |failure| {
+            ctx.logCloseFailure("mcp close", failure);
+            if (code == exit_codes.ok) code = ctx.mapCloseErr(failure.cause);
+        }
     }
 
     var read_buf: [65536]u8 = undefined;
@@ -473,7 +474,7 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
             try writeError(ctx.io, ctx.gpa, id_json, -32601, "method not found");
         }
     }
-    return exit_codes.ok;
+    return code;
 }
 
 test "the version a client asks for comes back when we speak it" {

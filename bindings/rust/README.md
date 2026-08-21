@@ -1,7 +1,7 @@
 # Rust binding
 
-This crate is an in-tree consumer of pancake's C ABI. It is not published
-(`publish = false`); use it from a pinned checkout after running `zig build`.
+This crate is an in-tree consumer of pancake's C ABI (`publish = false`). Pin
+a checkout, run `zig build`, and use it from the tree.
 
 Enable the `async` feature for the application session API:
 
@@ -29,7 +29,7 @@ runtime.close(PendingWork::Cancel).await?;
 The handshake budget is a Runtime-wide setting; use
 `RuntimeConfig::with_handshake_timeout` when the default is not appropriate.
 
-A bounded `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`, or routed relay dial or listener rides
+A bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener rides
 the driver archive (`libpancake_driver`, ADR-0112). The loop owns socket
 or multiplexed readiness, handshake admission, pumping, and session release. A
 quiescent `Host` supplied by the application transfers to that same loop before

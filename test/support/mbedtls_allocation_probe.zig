@@ -1,8 +1,6 @@
 //! Test-only view of the private Mbed TLS allocation-accounting build.
 
-const c = @cImport({
-    @cInclude("mbedtls_allocation_probe.h");
-});
+const c = @import("allocation_probe_c");
 
 pub const Snapshot = struct {
     current_bytes: usize,

@@ -3,6 +3,7 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
+const omit = shared.symbols.omit_reason;
 pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
@@ -21,8 +22,8 @@ pub const symbols = [_]Symbol{
     .{
         .name = "pancake_relay_runtime_new_in",
         .out_params = &.{2},
-        .ts_omit = "unused: the TypeScript binding keeps transport runtimes on the library allocator",
-        .python_omit = "unused: the Python binding keeps transport runtimes on the library allocator",
-        .racket_omit = "unused: the Racket binding keeps transport runtimes on the library allocator",
+        .ts_omit = omit.ts_transport_runtime_allocator,
+        .python_omit = omit.python_transport_runtime_allocator,
+        .racket_omit = omit.racket_transport_runtime_allocator,
     },
 };

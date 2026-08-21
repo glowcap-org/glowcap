@@ -364,7 +364,7 @@
                  (list (car r) (list-ref r 1)
                        (~r (or (list-ref r 2) 0) #:precision 2) (commas (or (list-ref r 3) 0))
                        (list-ref r 4) (list-ref r 5) (~r (or (list-ref r 6) 0) #:precision 1))))
-   "\n<p class=\"bench-note\">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost, not a language race; the Goblins row is the reference CapTP implementation dialing in, not a pancake binding.</p>"))
+   "\n<p class=\"bench-note\">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost. The Goblins row is the reference CapTP implementation dialing in.</p>"))
 
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
 ;; `system` returns #f on a non-zero exit without raising; check it so a failed

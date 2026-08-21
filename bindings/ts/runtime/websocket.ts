@@ -10,18 +10,24 @@ import type { Channel } from "./session.ts";
 import { recordProcessBindingFailure } from "./context.ts";
 import { retainSecondaryFailure } from "./errors.ts";
 import { cancellationError } from "./internal/cancellation.ts";
+import {
+	BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS,
+	BINDING_WEBSOCKET_DRAIN_POLL_MS,
+	BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES,
+	BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES,
+} from "@pancake/abi";
 
 // A `WebSocket` has no drain event, so `write` gates outbound flow by polling
 // `bufferedAmount` down below this high-water before it resolves: a producer
 // outrunning its partner stops being read from until its send buffer drains,
 // which closes the far side's flow-control window instead of growing tab memory.
-const wsSendHighWaterBytes = 1 << 20; // 1 MiB
-const wsDrainPollMs = 4;
-const defaultWsCloseTimeoutMs = 5_000;
+const wsSendHighWaterBytes = BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES;
+const wsDrainPollMs = BINDING_WEBSOCKET_DRAIN_POLL_MS;
+const defaultWsCloseTimeoutMs = BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS;
 // A WebSocket message is a transport chunk, not a CapTP frame: it may contain
 // several canonical outer frames. Keep this budget independent from the frame
 // cap so transport coalescing stays byte-transparent.
-const defaultWsInboundHighWaterBytes = 1 << 20; // 1 MiB
+const defaultWsInboundHighWaterBytes = BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES;
 
 export interface WebSocketChannelOptions {
 	/** Maximum bytes retained while the consumer is behind. Browser WebSockets

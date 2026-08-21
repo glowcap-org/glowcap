@@ -16,10 +16,10 @@ const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
 const CountIssuer = union(enum) {
-    session: *engine.bootstrap.GiftRegistry,
+    session: *engine.bootstrap.gifts.GiftRegistry,
     node_v1: engine.NodeServices,
 
-    fn prepare(self: CountIssuer) !engine.bootstrap.PreparedHandoffCount {
+    fn prepare(self: CountIssuer) !engine.bootstrap.gifts.PreparedHandoffCount {
         return switch (self) {
             .session => |registry| registry.prepareEmittedCount(),
             .node_v1 => |services| services.prepareV1EmittedHandoffCount(),
@@ -97,7 +97,7 @@ pub fn signedReceiveFromGiveBytes(
     var result: SignedReceive = .{
         .receiving_session = receiving_session,
         .receiving_side = our_side,
-        .signature = [_]u8{0} ** crypto.SIGNATURE_BYTES,
+        .signature = @as([crypto.SIGNATURE_BYTES]u8, @splat(0)),
         .give = give,
         .handoff_count = handoff_count,
     };

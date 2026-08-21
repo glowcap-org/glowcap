@@ -144,7 +144,7 @@ const Port = struct {
         var answerer = try target.resident.newPeer(false);
         errdefer answerer.deinit();
         try answerer.setRemoteOffer(sdp);
-        var answer_buf: [16 * 1024]u8 = undefined;
+        var answer_buf: [webrtc.max_signal_bytes]u8 = undefined;
         var answer_len: usize = 0;
         const answer = try answerer.createAnswer(&answer_buf, &answer_len);
         // The exchange is scoped to the offerer's durable identity: the

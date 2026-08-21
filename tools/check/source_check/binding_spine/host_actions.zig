@@ -300,8 +300,8 @@ pub fn checkBindingHostActionSpine(
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/host-action-gen.rkt", &.{
         "host-dispatch-action!",
     });
-    // Ticket-only DIAL: each dial module clones the complete pending locator
-    // before reporting the ticket (no URI re-parse or hint projection).
+    // Ticket-only DIAL: each binding clones the complete pending locator before
+    // reporting the ticket (no URI re-parse or hint projection).
     try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/dial.ts", &.{
         "pancake_host_pending_dial",
         "runDialTicket",
@@ -320,7 +320,11 @@ pub fn checkBindingHostActionSpine(
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/dial.rkt", &.{
         "pancake_host_pending_dial",
         "run-dial!",
-        "clone-locator-view",
+        "call-with-owned-locator-handle",
+    });
+    try expectFileContains(io, gpa, root, violations, "bindings/racket/private/ffi-host.rkt", &.{
+        "pancake_host_pending_dial",
+        "pancake_locator_clone",
     });
     // Shared codec order spine: both encode paths must import codec_order.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/syrup/encode.zig", &.{
@@ -362,6 +366,9 @@ pub fn checkBindingHostActionSpine(
         \\};
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
+        "pub const PendingDialView = redeem_dials.PendingDialView;",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
         "pub const PendingDialView = model.PeerLocator;",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
@@ -369,7 +376,7 @@ pub fn checkBindingHostActionSpine(
         "out_locator: ?*c.PancakeLocatorView",
         "out_hint_count: ?*usize",
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host_plan.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/plan.zig", &.{
         "shared.locator_adapter.project(view, hints)",
     });
     for ([_][]const u8{
@@ -386,7 +393,7 @@ pub fn checkBindingHostActionSpine(
         "pub fn tcpConnectHostPort",
         "pub fn firstDirectAddress",
     });
-    try expectFileContains(io, gpa, root, violations, "src/net/transport/tcp_addressing.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/tcp/addressing.zig", &.{
         "model.uri.connectHostPort",
     });
     try expectFileContains(io, gpa, root, violations, "src/driver/core/dial_plan.zig", &.{
@@ -437,7 +444,15 @@ pub fn checkBindingHostActionSpine(
     // HOST-ACTION-* discriminant match outside the action + generated modules.
     const hosts = [_]struct { path: []const u8, banned: []const u8 }{
         .{ .path = "bindings/ts/runtime/host.ts", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/ts/runtime/host/state.ts", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/ts/runtime/host/application.ts", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/ts/runtime/host/drive.ts", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/pancake/_host/__init__.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/pancake/_host/finalizer.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/pancake/_host/progress.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/pancake/_host/publication.py", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/rust/src/host.rs", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/racket/private/host.rkt", .banned = "HOST-ACTION-" },
     };

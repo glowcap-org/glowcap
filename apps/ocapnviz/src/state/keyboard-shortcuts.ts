@@ -1,7 +1,8 @@
 /**
  * Keyboard shortcut table — the one authority for what each key
  * commands. A shortcut is a data row: the key, the guard facts that
- * must hold (modifier contract, Build-only), and the action.
+ * must hold (modifier contract, Build-only, Live-forbidden), and the
+ * action.
  * `dispatchShortcut` is the whole interpreter, so adding or
  * changing a shortcut is editing one row, and the table is
  * unit-testable without a browser or React.
@@ -91,6 +92,11 @@ type ShortcutRow = {
   alt?: ModifierContract;
   /** Row exists only while Build holds mutation authority. */
   buildOnly?: boolean;
+  /** Live has no transport: the clock auto-plays while events
+   *  append, and seeking or pausing it desyncs the stage from the
+   *  feed. The on-screen controls already hide; this keeps the
+   *  keyboard from reaching them anyway. */
+  liveForbidden?: boolean;
   /** Perform the action. Returns whether the browser default
    *  should be prevented. */
   run: (b: KeyboardShortcutBindings, ev: KeyEventFacts) => boolean;
@@ -102,11 +108,12 @@ const strideOf = (ev: KeyEventFacts): number => (ev.shift ? 1000 : 100);
 const SHORTCUTS: readonly ShortcutRow[] = [
   // ── Transport ────────────────────────────────────────────────
   {
-    // Space toggles the transport the timeline offers in every
-    // mode. Over the stage it never gets here: the `space-pan`
-    // gesture claims the press and `resolveKeyDown` returns before
-    // reaching this table.
+    // Space toggles the transport Play and Build offer. Over the
+    // stage it never gets here: the `space-pan` gesture claims the
+    // press and `resolveKeyDown` returns before reaching this table.
+    // Live is excluded: the clock is already playing the feed.
     key: " ",
+    liveForbidden: true,
     run: (b) => {
       b.engine.enqueue({ kind: "toggle" });
       return true;
@@ -115,6 +122,7 @@ const SHORTCUTS: readonly ShortcutRow[] = [
   {
     key: "r",
     cmd: "forbidden",
+    liveForbidden: true,
     run: (b) => {
       b.engine.enqueue({ kind: "restart" });
       return false;
@@ -123,6 +131,7 @@ const SHORTCUTS: readonly ShortcutRow[] = [
   // ── Arrows: nudge in Build (a mutation), else scrub ──────────
   {
     key: "arrowleft",
+    liveForbidden: true,
     run: (b, ev) => {
       if (
         b.mode === "build" && b.onNudgeSelection(-1, 0, { shift: ev.shift })
@@ -136,6 +145,7 @@ const SHORTCUTS: readonly ShortcutRow[] = [
   },
   {
     key: "arrowright",
+    liveForbidden: true,
     run: (b, ev) => {
       if (
         b.mode === "build" && b.onNudgeSelection(1, 0, { shift: ev.shift })
@@ -328,6 +338,7 @@ export function dispatchShortcut(
     if (row.alt === "required" && !ev.alt) continue;
     if (row.alt === "forbidden" && ev.alt) continue;
     if (row.buildOnly && b.mode !== "build") continue;
+    if (row.liveForbidden && b.mode === "live") continue;
     return row.run(b, ev);
   }
   return false;

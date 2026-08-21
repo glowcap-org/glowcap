@@ -10,13 +10,6 @@
 export * from "@pancake/abi";
 export * from "./abi.ts";
 
-// The driver generator currently emits these event values in the C header and
-// layout mirror, but not in the target-independent binding constants inventory.
-// Keep the binding's event decoder named until that inventory catches up.
-export const DRIVER_EVENT_LISTENER_READY = 5;
-export const DRIVER_EVENT_LISTENER_FAILED = 6;
-export const DRIVER_DEFAULT_LISTENER_SETUP_MS = 10000;
-
 // Cycle break message when a local Forward chain exceeds MAX_LOCAL_FORWARD_HOPS
 // (from abi.ts / PANCAKE_MAX_LOCAL_FORWARD_HOPS). Binding-local string — not a
 // C ABI constant.

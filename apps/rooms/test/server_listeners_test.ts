@@ -45,15 +45,16 @@ import {
 } from "./support/rooms_server.ts";
 import { TRANSPORT_KEYED_TCP } from "@pancake/runtime";
 import type { Ref, Session } from "@pancake/runtime";
+import { spawnOwned, stopOwned } from "./support/children.ts";
 
 function spawnAdminServer(stateDir: string, extraEnv: Record<string, string> = {}): Deno.ChildProcess {
-	return new Deno.Command("deno", {
+	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--admin-listeners"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir, ...extraEnv },
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 }
 
 async function takeAdmin(session: Session, stateDir: string): Promise<{ cap: Ref; rows: ListenerRow[] }> {
@@ -75,7 +76,7 @@ function liveCount(rows: readonly ListenerRow[]): number {
 /** The reference relay from `@pancake/relay`, spawned for the rendezvous
  * round trip; it prints `DENO-RELAY-READY <port>` once listening. */
 async function spawnRelay(): Promise<{ proc: Deno.ChildProcess; url: string }> {
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [
 			"run",
 			"--allow-net",
@@ -88,7 +89,7 @@ async function spawnRelay(): Promise<{ proc: Deno.ChildProcess; url: string }> {
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "inherit",
-	}).spawn();
+	});
 	const reader = proc.stdout.getReader();
 	let text = "";
 	const decoder = new TextDecoder();
@@ -292,13 +293,9 @@ roomsTest("a keyed-relay seat registers at a live relay and comes down again", a
 	} finally {
 		await stopServer(proc);
 		// The scratch relay is a fixture with nothing to save, and its graceful
-		// path lingers on the sockets the downed listener left; end it outright.
-		try {
-			relay.proc.kill("SIGKILL");
-		} catch {
-			// already gone
-		}
-		await relay.proc.status;
+		// path lingers on the sockets the downed listener left, so it gets no
+		// grace: the polite signal is followed straight away by the hard one.
+		await stopOwned(relay.proc, 0);
 		await Deno.remove(stateDir, { recursive: true });
 	}
 });
@@ -312,13 +309,13 @@ roomsTest("a loopback tcp listener rides up and down at runtime", async () => {
 	// runs on a server whose boot listener is iroh: `up("tcp")` then has the
 	// tcp seat free, and the brought-up listener serves the same directory.
 	const stateDir = await Deno.makeTempDir();
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "--transport=iroh", "--admin-listeners"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir },
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		const uri = await readAnnounce(proc, 20_000);
 		const session = await dial(uri);
@@ -371,13 +368,13 @@ roomsTest("no listener capability exists without the flag", async () => {
 	} finally {
 		await stopServer(proc);
 	}
-	proc = new Deno.Command("deno", {
+	proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir },
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		const port = await readPort(proc);
 		const session = await dial(loopbackTcpDesignator(port));

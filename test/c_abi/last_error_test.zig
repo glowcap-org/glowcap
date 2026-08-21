@@ -20,7 +20,7 @@ test "last abort projection retains bounded secondary diagnostics" {
 
 test "last-error overflow is visibly truncated" {
     const truncated_suffix = "... [truncated]";
-    const oversized = "x" ** 512;
+    const oversized = @as([512]u8, @splat('x'));
     c.setLastError("cause: {s}", .{oversized});
     defer c.lastErrorClear();
 

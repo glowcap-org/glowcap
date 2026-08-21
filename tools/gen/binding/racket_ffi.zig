@@ -259,8 +259,8 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
                 // Every out-bearing iroh row has exactly one trailing cell.
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(ci, row.name))).@"fn";
-                comptime std.debug.assert(slots[0] == info.params.len - 1);
-                const cell = comptime render.slotCell(info.params[slots[0]].type.?).?;
+                comptime std.debug.assert(slots[0] == info.param_types.len - 1);
+                const cell = comptime render.slotCell(info.param_types[slots[0]].?).?;
                 try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
             }
         }
@@ -313,8 +313,8 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
                 // Every out-bearing webrtc row has exactly one trailing cell.
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(cw, row.name))).@"fn";
-                comptime std.debug.assert(slots[0] == info.params.len - 1);
-                const cell = comptime render.slotCell(info.params[slots[0]].type.?).?;
+                comptime std.debug.assert(slots[0] == info.param_types.len - 1);
+                const cell = comptime render.slotCell(info.param_types[slots[0]].?).?;
                 try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
             }
         }

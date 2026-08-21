@@ -9,16 +9,19 @@ pub const model = pancake.ocapn.model;
 pub const actors = pancake.actors;
 pub const driver = pancake.driver;
 pub const net = pancake.net;
+pub const crypto = pancake.foundation.crypto;
 
 pub const Host = driver.core.Host;
 pub const HostSession = driver.core.HostSession;
-pub const RoomsBackend = iroh.CompletionBackend(net.KeyedRelayBackend);
-pub const RoomsDialResolver = iroh.CompositeDialResolver(net.KeyedRelayBackend, net.relay.DialResolver);
+pub const RoomsRelayResolver = net.noise_completion.DialResolver(net.NoiseRelayBackend, net.relay.DialResolver);
+pub const RoomsBackend = iroh.CompletionBackend(net.NoiseRelayBackend);
+pub const RoomsDialResolver = iroh.CompositeDialResolver(net.NoiseRelayBackend, RoomsRelayResolver);
 pub const RoomsLoop = net.completion.Loop(RoomsBackend, RoomsDialResolver);
 pub const RoomsBridge = driver.Bridge(RoomsLoop);
 
 pub const frame_cap: usize = 1 << 16;
-/// One room leg plus direct iroh/keyed-relay legs, all admitted by one Loop.
+/// One room leg plus direct iroh/keyed-relay/noise-relay legs, all admitted by
+/// one Loop.
 pub const max_sessions: usize = 32;
 /// One slot belongs exclusively to the room-control dial. Direct accepts and
 /// handoff dials cannot consume it, so room recovery remains possible at the
@@ -41,9 +44,10 @@ pub const default_locator = "http://pancake-rooms:8000/locator";
 pub const reply_placeholder = "YOUR REPLY HERE";
 pub const replied_cap: usize = 1200;
 
-/// Derive a dial-only keyed-relay rendezvous URL from an `http://host:port/…`
+/// Derive a dial-only relay rendezvous URL from an `http://host:port/…`
 /// rooms locator bootstrap (`ws://host:port/relay`). Returns null for
-/// `https://` (native keyed-relay speaks cleartext `ws://` only), non-http
+/// `https://` (this derived local route speaks cleartext `ws://` under the
+/// end-to-end Noise channel), non-http
 /// locators, or a host:port the relay URL grammar refuses. The caller owns the
 /// returned string for the resident's life (`RelayUrl` borrows it).
 pub fn deriveRendezvousUrl(gpa: Allocator, locator: []const u8) Allocator.Error!?[]u8 {
@@ -73,8 +77,8 @@ pub fn resolveRendezvousUrl(gpa: Allocator, environ_rendezvous: ?[]const u8, loc
 }
 
 /// Admit a `ws://` relay URL by the relay URL grammar alone: IP literals and
-/// validated DNS names both pass through verbatim, because the keyed-relay
-/// resident resolves a name at dial time and keeps the resolution failure a
+/// validated DNS names both pass through verbatim, because the relay resident
+/// resolves a name at dial time and keeps the resolution failure a
 /// dial failure (`docs/shipped.md`). Resolving here as well would be a second
 /// resolver whose failures could only become null. The caller owns the
 /// returned string.

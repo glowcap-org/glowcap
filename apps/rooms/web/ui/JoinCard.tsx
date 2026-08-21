@@ -10,13 +10,15 @@
 
 import { useActionState, useRef } from "react";
 import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
-import { directoryName, tooLong } from "./text.ts";
+import { tooLong } from "./text.ts";
 import { identifierField } from "./field.ts";
 import { usePeer } from "./peer.ts";
+import { useSuggest } from "./Suggest.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Button } from "./Button.tsx";
 import { Icon } from "./icons.tsx";
 import {
+	destination,
 	JOIN_DEFAULT_NICK,
 	JOIN_DEFAULT_ROOM,
 	type JoinAnswers,
@@ -24,10 +26,11 @@ import {
 	joinLocatorPlaceholder,
 	thisDirectoryLocator,
 } from "./joining.ts";
+import { DirectoryPicks, typeAnotherAddress } from "./DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
-import { MenuList, MenuRow, useMenu } from "./Menu.tsx";
+import { useMenu } from "./Menu.tsx";
 import { Said } from "./Said.tsx";
-import { type DirId, dirMark, type DirView } from "./types.ts";
+import { type DirId, type DirView } from "./types.ts";
 import { WorkingAction } from "./WorkingAction.tsx";
 
 type JoinError = { field: "room" | "nick" | "form"; text: string } | null;
@@ -81,8 +84,33 @@ export function JoinCard(
 			if (halt.current === run) halt.current = null;
 		}
 	}, null);
-	const aimed = destination(locator, peer.directoryId(locator.trim()), dirs, homeDir);
+	// The card's top stripe stays accent into teal for home, matching Settings,
+	// and swaps only the teal stop for a foreign directory's mark. The rail's
+	// room panel is aimed by the same field, and asks the same question of the
+	// same answer.
+	const field = useRef<HTMLInputElement>(null);
+	const aimed = destination(locator, peer.directoryId(locator.trim()), dirs, homeDir, "this page's directory");
 	const who = nick.trim() || JOIN_DEFAULT_NICK;
+	// The same names the rail's room panel offers, because this field and that
+	// one name one room: they share a draft and a lock, and offering in one and
+	// not the other would make the same words behave differently depending on
+	// which half of the pair the reader happened to be typing in.
+	//
+	// Rooms on the directory this card is aimed at, which moves with the locator
+	// above: a name advertised somewhere else would open a different room.
+	const aimedAt = peer.directoryId(locator.trim()) ?? homeDir;
+	const roomOffers = [...(aimedAt == null ? [] : dirs.get(aimedAt)?.liveRooms.keys() ?? [])];
+	const suggest = useSuggest({
+		id: "room",
+		label: "Room",
+		offers: roomOffers,
+		value: room,
+		sigil: "#",
+		onTake: (name) => {
+			peer.editJoin({ room: name });
+			field.current?.focus();
+		},
+	});
 
 	return (
 		<div className="join-wrap" id="joinScreen" hidden={!shown}>
@@ -101,33 +129,52 @@ export function JoinCard(
 						onType={(next) => peer.editJoin({ locator: next })}
 					/>
 					<label htmlFor="room">{secret ? "Private room" : "Room"}</label>
-					<JoinField invalid={error?.field === "room"}>
-						<JoinPrefix
-							id="joinPrivate"
-							label={secret
-								? "Making a private room: only people you hand it to can reach it"
-								: "Make this room private, so only people you hand it to can reach it"}
-							aria-pressed={secret}
-							onMouseDown={(event) => event.preventDefault()}
-							onClick={() => peer.editJoin({ secret: !secret })}
-						>
-							{secret
-								? <Icon name="lock" size={18} />
-								: <span className="join-hash" aria-hidden="true">#</span>}
-						</JoinPrefix>
-						<input
-							id="room"
-							name="room"
-							placeholder={JOIN_DEFAULT_ROOM}
-							enterKeyHint="next"
-							aria-describedby={error?.field === "room" ? "joinError" : undefined}
-							aria-invalid={error?.field === "room"}
-							maxLength={MAX_ROOM}
-							value={room}
-							onChange={(e) => peer.editJoin({ room: e.target.value })}
-							{...identifierField}
-						/>
-					</JoinField>
+					{
+						/* The list hangs off this box rather than off the field, so it
+					    lines up with the field's outer edge and not with the inside
+					    of the lock that stands before it. */
+					}
+					<div className="join-field-wrap">
+						<JoinField invalid={error?.field === "room"}>
+							<JoinPrefix
+								id="joinPrivate"
+								label={secret
+									? "Making a private room: only people you hand it to can reach it"
+									: "Make this room private, so only people you hand it to can reach it"}
+								aria-pressed={secret}
+								onMouseDown={(event) => event.preventDefault()}
+								onClick={() => peer.editJoin({ secret: !secret })}
+							>
+								{secret
+									? <Icon name="lock" size={18} />
+									: <span className="join-hash" aria-hidden="true">#</span>}
+							</JoinPrefix>
+							<input
+								ref={field}
+								id="room"
+								name="room"
+								placeholder={JOIN_DEFAULT_ROOM}
+								enterKeyHint="next"
+								aria-describedby={error?.field === "room" ? "joinError" : undefined}
+								aria-invalid={error?.field === "room"}
+								maxLength={MAX_ROOM}
+								value={room}
+								{...suggest.aria}
+								onChange={(e) => {
+									peer.editJoin({ room: e.target.value });
+									suggest.typed();
+								}}
+								onKeyDown={(e) => {
+									// The list first: while a row is picked, the arrows,
+									// Enter and Escape are the list's rather than the form's,
+									// and Enter here would otherwise submit the card.
+									suggest.keyDown(e);
+								}}
+								{...identifierField}
+							/>
+						</JoinField>
+						{suggest.list}
+					</div>
 					<label htmlFor="nick">Display name</label>
 					<JoinField invalid={error?.field === "nick"}>
 						<JoinPrefix label="A picture of you. Choosing one is not offered yet.">
@@ -171,36 +218,6 @@ export function JoinCard(
 	);
 }
 
-/** Where this card is aimed, as both the mark it wears and the words it uses.
- *
- * One classification rather than two, because the stripe and the opening line
- * are answering the same question and would drift apart asking it separately.
- * The field is empty or names this page's directory, it names another this tab
- * holds, or it names something else; the answer is by identity — `typedAs` is
- * what the text resolves to — so a hinted route and a bare authority are one
- * destination. The card's top stripe stays accent into teal for home, matching
- * Settings, and swaps only the teal stop for a foreign directory's mark. */
-function destination(
-	locator: string,
-	typedAs: DirId | null,
-	dirs: ReadonlyMap<DirId, DirView>,
-	homeDir: DirId | null,
-): { mark: "home" | string | undefined; name: string } {
-	const typed = thisDirectoryLocator(locator, homeDir);
-	if (typed === "" || (homeDir != null && typedAs === homeDir)) {
-		return {
-			mark: homeDir != null ? dirMark(homeDir, homeDir, undefined) : undefined,
-			name: "this page's directory",
-		};
-	}
-	const held = typedAs != null ? dirs.get(typedAs) : undefined;
-	if (held != null) return { mark: dirMark(held.id, homeDir, held.slot), name: directoryName(held.id, homeDir) };
-	// Not a directory this tab holds. It may still be a perfectly good address,
-	// so it is named the way any directory is named rather than read back as
-	// the forty characters somebody pasted.
-	return { mark: undefined, name: typedAs != null ? directoryName(typedAs, homeDir) : "that directory" };
-}
-
 function JoinLocator(
 	{ locator, dirs, homeDir, onPick, onType }: {
 		locator: string;
@@ -212,9 +229,6 @@ function JoinLocator(
 ) {
 	const peer = usePeer();
 	const { open, setOpen, holder, trigger } = useMenu();
-	const others = [...dirs.values()].filter((dir) => dir.id !== homeDir);
-	const typedAs = peer.directoryId(locator.trim());
-	const here = thisDirectoryLocator(locator, homeDir) === "" || (homeDir != null && typedAs === homeDir);
 	return (
 		<div className="join-field-wrap" ref={holder}>
 			<JoinField>
@@ -247,41 +261,22 @@ function JoinLocator(
 				    of these was typed or pasted once already; the only reason the field
 				    is empty on the way back to it is that the field is where a *new* one
 				    goes. Leaving it empty means this page's own directory, so that one
-				    clears rather than fills. */
+				    clears rather than fills. The last row is the way to an address that
+				    is in none of them, and here it is the short way: the field it hands
+				    over is the one this menu hangs from. */
 			}
 			{open && (
-				<MenuList className="locator-picks">
-					<MenuRow
-						className="line-menu-row"
-						first
-						marked={here}
-						onPick={() => {
-							setOpen(false);
-							onPick("");
-						}}
-					>
-						this directory
-					</MenuRow>
-					{others.map((dir) => (
-						// A pick fills the field with the full hinted route, the same
-						// address every share surface hands out, because the field's
-						// value is what a submit dials and the hints are part of what
-						// makes it dialable. Matching is by identity, so the row stays
-						// marked whether the field holds the route or the bare
-						// authority.
-						<MenuRow
-							key={dir.id}
-							className="line-menu-row"
-							marked={typedAs === dir.id}
-							onPick={() => {
-								setOpen(false);
-								onPick(peer.dirAddress(dir.id));
-							}}
-						>
-							{directoryName(dir.id, homeDir)}
-						</MenuRow>
-					))}
-				</MenuList>
+				<DirectoryPicks
+					className="locator-picks"
+					locator={locator}
+					dirs={dirs}
+					homeDir={homeDir}
+					onPick={(picked) => {
+						setOpen(false);
+						onPick(picked);
+					}}
+					onElsewhere={() => typeAnotherAddress(() => setOpen(false))}
+				/>
 			)}
 		</div>
 	);

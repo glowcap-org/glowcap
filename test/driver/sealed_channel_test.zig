@@ -40,7 +40,7 @@ fn sealedHost(
     return test_host.initWithRoot(
         allocator,
         durable_seed,
-        [_]u8{root_byte} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(root_byte)),
         Host.Options.withFrameCap(frame_cap),
     );
 }
@@ -70,7 +70,7 @@ fn moveSealedWire(
     if (to.sealed) |channel| {
         if (channel.hasStagedInbound()) {
             const staged_before = channel.staged.len;
-            try to_host.feedBytes(to, &.{});
+            try to.resumeFeed();
             if (to.sealed.?.staged.len != staged_before) moved = true;
         }
     }
@@ -147,8 +147,8 @@ const Greeter = struct {
 
 test "sealed channel: a noise-tcp pair opens over fed bytes and both legs report the channel proof" {
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x61} ** 32;
-    const seed_b = [_]u8{0x62} ** 32;
+    const seed_a = @as([32]u8, @splat(0x61));
+    const seed_b = @as([32]u8, @splat(0x62));
     var a = sealedHost(allocator, seed_a, 0xa1);
     defer a.deinit();
     var b = sealedHost(allocator, seed_b, 0xb1);
@@ -190,15 +190,15 @@ test "sealed channel: a noise-tcp pair opens over fed bytes and both legs report
 
 test "sealed host consumes a coalesced read larger than one Noise record" {
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x41} ** 32;
-    const seed_b = [_]u8{0x42} ** 32;
+    const seed_a = @as([32]u8, @splat(0x41));
+    const seed_b = @as([32]u8, @splat(0x42));
     var options_a = Host.Options.withFrameCap(frame_cap);
     options_a.limits.max_frame_bytes = 100_000;
-    var a = test_host.initWithRoot(allocator, seed_a, [_]u8{0xa2} ** 32, options_a);
+    var a = test_host.initWithRoot(allocator, seed_a, @as([32]u8, @splat(0xa2)), options_a);
     defer a.deinit();
     var options_b = Host.Options.withFrameCap(frame_cap);
     options_b.limits.max_frame_bytes = 100_000;
-    var b = test_host.initWithRoot(allocator, seed_b, [_]u8{0xb2} ** 32, options_b);
+    var b = test_host.initWithRoot(allocator, seed_b, @as([32]u8, @splat(0xb2)), options_b);
     defer b.deinit();
     const pair = try openSealedPair(allocator, &a, seed_a, &b, seed_b, null, null);
 
@@ -229,8 +229,8 @@ test "sealed channel: the same pair over keyed-tcp reports unauthenticated" {
     // channel. The keyed dial demands the same durable key, yet nothing on a
     // cleartext socket proves it, so the honest report stays unauthenticated.
     const allocator = std.testing.allocator;
-    const seed_c = [_]u8{0x63} ** 32;
-    const seed_d = [_]u8{0x64} ** 32;
+    const seed_c = @as([32]u8, @splat(0x63));
+    const seed_d = @as([32]u8, @splat(0x64));
     var c = test_host.init(allocator, seed_c, Host.Options.withFrameCap(frame_cap));
     defer c.deinit();
     var d = test_host.init(allocator, seed_d, Host.Options.withFrameCap(frame_cap));
@@ -256,8 +256,8 @@ test "sealed channel: the same pair over keyed-tcp reports unauthenticated" {
 
 test "sealed channel: a recorded handshake replayed onto a fresh responder is refused" {
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x65} ** 32;
-    const seed_b = [_]u8{0x66} ** 32;
+    const seed_a = @as([32]u8, @splat(0x65));
+    const seed_b = @as([32]u8, @splat(0x66));
 
     // Record the dialing side's wire, frame by frame, from a completed run.
     var recorded: std.ArrayList([]u8) = .empty;
@@ -329,9 +329,9 @@ test "sealed channel: a responder that holds a different key than the one dialed
     // static. Message one is encrypted to the key the dialer named, so the
     // substitute cannot even read it, and no session it could read exists.
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x67} ** 32;
-    const seed_b = [_]u8{0x68} ** 32;
-    const seed_m = [_]u8{0x69} ** 32;
+    const seed_a = @as([32]u8, @splat(0x67));
+    const seed_b = @as([32]u8, @splat(0x68));
+    const seed_m = @as([32]u8, @splat(0x69));
     var a = sealedHost(allocator, seed_a, 0xa4);
     defer a.deinit();
     var mitm = sealedHost(allocator, seed_m, 0xc4);
@@ -358,11 +358,11 @@ test "sealed channel: a responder that holds a different key than the one dialed
 
 test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator static" {
     const allocator = std.testing.allocator;
-    const initiator_identity = crypto.SecretKey.fromSeed([_]u8{0x6d} ** 32);
-    const responder_identity = crypto.SecretKey.fromSeed([_]u8{0x6e} ** 32);
+    const initiator_identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x6d)));
+    const responder_identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x6e)));
     const initiator_static = crypto.x25519FromSecretKey(&initiator_identity).?;
     const responder_static = crypto.x25519FromSecretKey(&responder_identity).?;
-    const initiator_ephemeral = crypto.X25519KeyMaterial.fromSecret([_]u8{0x6f} ** 32).?;
+    const initiator_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x6f))).?;
 
     const responder_designator = responder_identity.publicKey().toDesignator();
     var prologue_buf: [96]u8 = undefined;
@@ -383,7 +383,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     defer malicious.deinit();
     var responder = try pancake.foundation.sealed.SealedChannel.initResponder(
         &responder_identity,
-        [_]u8{0x70} ** 32,
+        @as([32]u8, @splat(0x70)),
         noise_tcp,
     );
     defer responder.deinit(allocator);
@@ -410,7 +410,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
         &crypto.x25519FromPeerKey(actual).?,
         &crypto.x25519FromPeerKey(alias).?,
     );
-    payload = [_]u8{0} ** payload.len;
+    payload = @splat(0);
     payload[0..crypto.PEER_KEY_BYTES].* = alias.bytes;
     const msg3 = try malicious.writeMessage(&payload, &wire);
     try std.testing.expectError(error.IdentityMismatch, responder.ingest(allocator, msg3));
@@ -419,7 +419,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
 
 test "sealed channel: a whole plaintext frame cannot bypass the channel" {
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x6a} ** 32;
+    const seed_a = @as([32]u8, @splat(0x6a));
     var a = sealedHost(allocator, seed_a, 0xa5);
     defer a.deinit();
     try a.setAdvertisedLocator(noiseLocator(&keyedDesignator(seed_a)));
@@ -437,18 +437,18 @@ test "sealed channel: a frame larger than one record spans records intact" {
     // capacity crosses as several records whose reassembled plaintext is the
     // outer-framed original.
     const allocator = std.testing.allocator;
-    const secret_a = crypto.SecretKey.fromSeed([_]u8{0x71} ** 32);
-    const secret_b = crypto.SecretKey.fromSeed([_]u8{0x72} ** 32);
+    const secret_a = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x71)));
+    const secret_b = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x72)));
     var initiator = try sealed.SealedChannel.initInitiator(
         &secret_a,
         secret_b.publicKey(),
-        [_]u8{0x73} ** 32,
+        @as([32]u8, @splat(0x73)),
         noise_tcp,
     );
     defer initiator.deinit(allocator);
     var responder = try sealed.SealedChannel.initResponder(
         &secret_b,
-        [_]u8{0x74} ** 32,
+        @as([32]u8, @splat(0x74)),
         noise_tcp,
     );
     defer responder.deinit(allocator);
@@ -540,10 +540,10 @@ test "sealed channel: a frame larger than one record spans records intact" {
 
 test "sealed channel: a split handshake retains only the consumed prefix" {
     const allocator = std.testing.allocator;
-    const identity = crypto.SecretKey.fromSeed([_]u8{0x75} ** 32);
+    const identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x75)));
     var channel = try sealed.SealedChannel.initResponder(
         &identity,
-        [_]u8{0x76} ** 32,
+        @as([32]u8, @splat(0x76)),
         noise_tcp,
     );
     defer channel.deinit(allocator);
@@ -560,15 +560,15 @@ test "sealed channel: a split handshake retains only the consumed prefix" {
 
 test "sealed channel: allocation failure after a split record header consumes no retry bytes" {
     const allocator = std.testing.allocator;
-    const seed_a = [_]u8{0x77} ** 32;
-    const seed_b = [_]u8{0x78} ** 32;
+    const seed_a = @as([32]u8, @splat(0x77));
+    const seed_b = @as([32]u8, @splat(0x78));
     var a = sealedHost(allocator, seed_a, 0xa6);
     defer a.deinit();
     var b = sealedHost(allocator, seed_b, 0xb6);
     defer b.deinit();
     const pair = try openSealedPair(allocator, &a, seed_a, &b, seed_b, null, null);
 
-    var plaintext: [4096]u8 = undefined;
+    var plaintext: [4097]u8 = undefined;
     for (&plaintext, 0..) |*byte, i| byte.* = @truncate(i *% 29);
     var wire: std.ArrayList(u8) = .empty;
     defer wire.deinit(allocator);
@@ -579,9 +579,13 @@ test "sealed channel: allocation failure after a split record header consumes no
     try std.testing.expectEqual(sealed.SealedChannel.Event.need_input, first.event);
     try std.testing.expectEqual(@as(usize, 1), pair.b.sealed.?.staged.len);
 
-    // The staged-buffer growth succeeds; plaintext-scratch growth fails. The
-    // remaining borrowed slice must still be retryable in full.
-    var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 1 });
+    // The staged-buffer capacity growth succeeds; plaintext-scratch capacity
+    // growth fails. The remaining borrowed slice must still be retryable in
+    // full.
+    var failing = std.testing.FailingAllocator.init(allocator, .{
+        .fail_index = 0,
+        .resize_fail_index = 1,
+    });
     try std.testing.expectError(
         error.OutOfMemory,
         pair.b.sealed.?.ingest(failing.allocator(), wire.items[1..]),

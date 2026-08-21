@@ -3,7 +3,7 @@ import { noise, provider } from "@pancake/relay";
 
 // Noise_XK seals the session end to end; the relay forwards ciphertext.
 const peerKey = "<64 lowercase hex characters from the server>";
-const relayUrl = "ws://192.0.2.10:8080/relay";
+const relayUrl = "wss://relay.example/relay";
 const partner = noise.locator(peerKey, relayUrl);
 
 await using runtime = await Runtime.open({

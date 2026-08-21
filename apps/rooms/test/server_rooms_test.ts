@@ -59,18 +59,34 @@ roomsTest("rooms directory opens a room and rejects opening it twice", async () 
 roomsTest("a connection cannot open rooms without limit", async () => {
 	// An empty room is reclaimed only when its creator leaves, so a loop of
 	// opens is memory the caller spends until then. Private opens never collide,
-	// which is the sharpest form; the ceiling holds regardless.
+	// which is the sharpest form. A durable link is another way to create a live
+	// room, and must spend the same budget rather than bypassing it.
 	await withServer(async (port) => {
 		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
 			const directory = await session.fetch(DIRECTORY);
+			const linkedRef = await session.send(directory, OPEN, ["linked-limit"]);
+			assert(linkedRef instanceof Ref, "opening the room to link should answer a room");
+			const linked = await Room.subscribe(
+				session,
+				linkedRef,
+				"linker",
+			);
+			const link = await linked.link(loopbackTcpDesignator(port));
+			await linked.leave();
 			for (let i = 0; i < MAX_ROOMS_PER_CREATOR; i += 1) {
 				const room = await session.send(directory, OPEN, [`room-${i}`, true]);
 				assert(room instanceof Ref, `open ${i} should answer a room`);
 			}
 			const refused = await refusalCode(() => session.send(directory, OPEN, ["one-too-many", true]));
 			assert(refused === TOO_MANY_ROOMS, `the ${MAX_ROOMS_PER_CREATOR + 1}th open should refuse, got ${refused}`);
+			const coldLinkedRef = await session.enliven(link);
+			const linkedRefused = await refusalCode(() => Room.subscribe(session, coldLinkedRef, "overflow"));
+			assert(
+				linkedRefused === TOO_MANY_ROOMS,
+				`a cold durable room bypassed the creator ceiling: ${linkedRefused}`,
+			);
 		} finally {
 			session.close();
 			await session.serve().catch(() => {});
@@ -179,12 +195,12 @@ roomsTest("rooms server removes members that close cleanly", async () => {
 	await withServer(async (port) => {
 		assertMatch(
 			await subscribeOnce(port, "general", "first"),
-			/1 in the room: first$/,
+			/^in the room: first$/,
 		);
 
 		await waitForMatch(
 			() => subscribeOnce(port, "general", "second"),
-			/1 in the room: second$/,
+			/^in the room: second$/,
 		);
 	});
 });
@@ -195,7 +211,7 @@ roomsTest("rooms server removes every membership for a closed connection", async
 
 		await waitForMatch(
 			() => subscribeOnce(port, "general", "second"),
-			/1 in the room: second$/,
+			/^in the room: second$/,
 		);
 	});
 });

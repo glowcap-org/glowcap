@@ -466,9 +466,13 @@ test "a loop built over a counting context releases every byte it took" {
         0,
         &host,
     ));
-    errdefer _ = cd.pancake_host_release(host);
+    var host_owned = true;
+    errdefer if (host_owned) {
+        _ = cd.pancake_host_release(host);
+    };
     var loop: ?*cdrv.PancakeDriverLoop = null;
     try expectOk(cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop));
+    host_owned = false;
     try installTcp(loop);
     // An in-flight dial and a live listener both belong to loop release.
     var ticket: u64 = 0;

@@ -9,7 +9,7 @@ const pancake = @import("pancake");
 const Ctx = cli.ctx.Ctx;
 
 fn testSecret(seed: u8) pancake.foundation.crypto.SecretKey {
-    return pancake.foundation.crypto.SecretKey.fromSeed([_]u8{seed} ** 32);
+    return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(seed)));
 }
 
 fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Environ.Map, seed: u8) Ctx {
@@ -270,6 +270,38 @@ fn waitListenLocator(host: *Ctx, host_future: anytype, io: std.Io) ![]const u8 {
     }
 }
 
+fn drainCaptpQueue(
+    queue: *cli.repl_await_queue.Queue,
+    ctx: *Ctx,
+    store: *cli.repl_blocks.Store,
+    progress: *cli.repl_teach.Progress,
+    complete_state: *cli.repl_complete.State,
+) !void {
+    var spins: usize = 0;
+    while (queue.busy() and spins < 1_000) : (spins += 1) {
+        _ = try queue.tick(ctx, store, progress, complete_state);
+    }
+    try std.testing.expect(!queue.busy());
+}
+
+fn expectConnectionDeath(store: *const cli.repl_blocks.Store) !void {
+    var saw_death = false;
+    for (store.items.items) |block| {
+        if (block.kind != .error_line) continue;
+        try std.testing.expect(std.mem.indexOf(u8, block.summary, "WaitTimedOut") == null);
+        try std.testing.expect(std.mem.indexOf(u8, block.summary, "wait timed out") == null);
+        // Clean close names `session closing` on the vow; a transport fault
+        // is `ConnectionLost` or the break string `connection failed`.
+        if (std.mem.indexOf(u8, block.summary, "session closing") != null or
+            std.mem.indexOf(u8, block.summary, "ConnectionLost") != null or
+            std.mem.indexOf(u8, block.summary, "connection failed") != null)
+        {
+            saw_death = true;
+        }
+    }
+    try std.testing.expect(saw_death);
+}
+
 test "listen exits promptly on requestStop while accepting" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
@@ -400,15 +432,72 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     defer queue.deinit();
 
     try queue.enqueue(&client, "call greeter greet boom", &store, &progress);
-    var spins: usize = 0;
-    while (queue.busy() and spins < 1_000) : (spins += 1) {
-        _ = queue.tick(&client, &store, &progress, &complete_state) catch {};
-    }
-    try std.testing.expect(!queue.busy());
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
 
     // Closing the session fires every listener still on the vat; a wait that
     // died above must have taken its listener with it, not left one aimed at
     // the freed Active.
+    _ = client.closeSession(.cancel);
+}
+
+test "await queue finishes a dropped socket as connection failure" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    cli.signals.resetForTest();
+    defer cli.signals.resetForTest();
+
+    var host = makeCtx(io, gpa, &environ, 73);
+    defer host.deinit();
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
+    host.sink = .{ .buffer = &host_capture };
+
+    var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer listen_parsed.deinit();
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
+
+    var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
+    var host_future = try io.concurrent(runListen, .{&listen_args});
+    const uri = try waitListenLocator(&host, &host_future, io);
+
+    var client = makeCtx(io, gpa, &environ, 74);
+    defer client.deinit();
+    client.front = .repl;
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
+    client.sink = .{ .buffer = &client_capture };
+
+    client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
+        .handshake = .{ .ms = 2_000 },
+        .settle = .{ .ms = 2_000 },
+    });
+
+    cli.signals.requestStop();
+    try std.testing.expectEqual(cli.exit_codes.ok, try host_future.await(io));
+
+    var store = cli.repl_blocks.Store.init(gpa);
+    defer store.deinit();
+    var progress = cli.repl_teach.Progress{ .has_session = true };
+    var complete_state = cli.repl_complete.State.init(gpa);
+    defer complete_state.deinit();
+    var queue = cli.repl_await_queue.Queue.init(gpa);
+    defer queue.deinit();
+
+    try queue.enqueue(&client, "fetch never-published", &store, &progress);
+
+    // TUI order: wake-step (the site that used to `catch {}`), then tick.
+    if (queue.busy()) {
+        try queue.advanceSession(client.session.?, &store, cli.repl_await_queue.frame_ms);
+    }
+    try drainCaptpQueue(&queue, &client, &store, &progress, &complete_state);
+    try expectConnectionDeath(&store);
     _ = client.closeSession(.cancel);
 }
 

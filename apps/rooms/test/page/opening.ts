@@ -7,6 +7,9 @@
 
 import type { Browser, Page } from "playwright";
 import { fail } from "./harness.ts";
+import { railQuestions } from "./filter_form.ts";
+import { inkContrast } from "../ink_contrast.ts";
+import * as linked from "./linked.ts";
 
 export async function run(tab: Page, httpPort: number, browser: Browser): Promise<void> {
 	// ── The opening screen ───────────────────────────────────────────────
@@ -315,14 +318,58 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	const catalog = await tab.evaluate(() => {
 		const sink = document.getElementById("kitchenSink");
 		return {
-			banner: sink?.querySelector(".banner.error") != null,
+			standing: sink?.querySelector(".rwhere-how") != null,
 			said: sink?.querySelector(".said") != null,
 			toast: sink?.querySelector(".toast") != null,
 			crash: sink?.querySelector(".crash") != null,
+			// The controls that carry a choice, all three of them. A control drawn
+			// only where it is used is judged against the panel around it rather
+			// than against its siblings, which is how one comes to have a look of
+			// its own without anybody deciding it should.
+			chosen: ["switch", "checkbox", "segmented"]
+				.filter((control) => sink?.querySelector("." + control) == null),
 		};
 	});
-	if (!catalog.banner || !catalog.said || !catalog.toast || !catalog.crash) {
+	if (!catalog.standing || !catalog.said || !catalog.toast || !catalog.crash) {
 		fail("the parts catalog is missing an answer treatment");
+	}
+	if (catalog.chosen.length > 0) {
+		fail(`the parts catalog does not stand ${catalog.chosen.join(" and ")} beside the rest of the controls`);
+	}
+	// The segmented row is drawn nowhere else, so the catalog is the only place it
+	// can be held to anything. What it owes a reader is that it says so. A gallery
+	// is shopped from, and an entry that does not say whether anything uses it is
+	// an invitation to adopt whatever state it happens to be in. It is finished
+	// now, which changes what the entry has to say and not whether it has to say
+	// something: a reader picking it up should know they will be the first.
+	const parked = await tab.evaluate(() => {
+		const track = document.getElementById("kitchenSegmentedWrap");
+		const sample = track?.closest(".kitchen-sample");
+		if (track === null || sample == null) return null;
+		const cells = [...track.querySelectorAll(".segment")];
+		return {
+			cells: cells.length,
+			// It stays on one line whatever it is given, because a row that breaks
+			// onto a second is a short stack of buttons rather than a segmented
+			// row, and staying on one line is the reason to reach for this at all.
+			// Held here because the catalog is where the control is squeezed.
+			lines: new Set(cells.map((cell) => Math.round(cell.getBoundingClientRect().top))).size,
+			// And it does not push its way out of what holds it: it shrinks its
+			// cells and cuts their words instead.
+			overflows: Math.round(track.getBoundingClientRect().width) >
+				Math.round((track.parentElement?.getBoundingClientRect().width ?? 0) + 1),
+			said: (sample.textContent ?? "").toLowerCase(),
+		};
+	});
+	if (parked === null) fail("the parts catalog does not stand the segmented row at the rail's own width");
+	else if (parked.lines !== 1) {
+		fail(`the segmented row broke onto ${parked.lines} lines, which is a stack of buttons and not this control`);
+	} else if (parked.overflows) {
+		fail(
+			`the segmented row pushed out of what holds it rather than cutting its answers: ${JSON.stringify(parked)}`,
+		);
+	} else if (!parked.said.includes("draws one yet")) {
+		fail("the catalog offers the segmented row without saying that nothing in the page uses one");
 	}
 	await tab.click("#kitchenBack");
 	await tab.waitForFunction(() => document.getElementById("kitchenSink") === null)
@@ -357,6 +404,38 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	).catch(() => fail("the Settings tabs did not move selection and focus together"));
 	await tab.keyboard.press("ArrowRight");
 	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+
+	// The chosen tab's own word, against the pill under it, in both appearances.
+	// That pill is paper with better than a quarter of the accent poured into it,
+	// and the ink named for paper sat at 3.71 to 1 on it, under the 4.5 small
+	// text needs at this size and weight. Nothing in the stylesheet says so, and
+	// the tab bar is only ever on screen with this dialog open, so it is measured
+	// here or nowhere.
+	{
+		await tab.mouse.move(0, 0);
+		await tab.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+		const wasTheme = await tab.getAttribute("html", "data-theme");
+		const tooFaint: string[] = [];
+		for (const appearance of ["light", "dark"] as const) {
+			await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
+			await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+			const measured = await inkContrast(tab, '.tabs .tab[aria-selected="true"]');
+			// A refusal is a failure of its own: the bar is on screen here, so
+			// "could not measure" means the measuring broke, and a measurement
+			// that quietly stops answering looks exactly like a pass.
+			if (measured === null) tooFaint.push(`the chosen tab could not be measured in ${appearance}`);
+			else if (measured.ratio < 4.5) {
+				tooFaint.push(`the chosen tab is ${measured.ratio.toFixed(2)}:1 in ${appearance} (${measured.saw})`);
+			}
+		}
+		await tab.evaluate((t) => {
+			if (t === null) document.documentElement.removeAttribute("data-theme");
+			else document.documentElement.setAttribute("data-theme", t);
+		}, wasTheme);
+		if (tooFaint.length > 0) {
+			fail(`the chosen tab does not clear 4.5 to 1 for small text: ${tooFaint.join("; ")}`);
+		}
+	}
 	const defaultDm = await tab.evaluate(() =>
 		(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 	);
@@ -384,36 +463,12 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await relayTab.close();
 	}
 
-	// With the join card on screen, the rail's room field is the same form:
-	// one draft, one lock, one submission. Typed text shows in both, the two
-	// locks are one lock, and Enter in the rail submits the card itself —
-	// which is how the join below happens.
-	await tab.click("#newRoomBtn");
-	await tab.fill("#newRoomInput", "linked");
-	const mirrored = await tab.inputValue("#room");
-	if (mirrored !== "linked") {
-		fail(`typing in the rail did not reach the join card (its room field says ${JSON.stringify(mirrored)})`);
-	}
-	await tab.click(".newroom-private");
-	if (await tab.getAttribute("#joinPrivate", "aria-pressed") !== "true") {
-		fail("the rail's lock did not press the join card's");
-	}
-	await tab.click("#joinPrivate");
-	if (await tab.getAttribute(".newroom-private", "aria-pressed") !== "false") {
-		fail("unpressing the join card's lock did not release the rail's");
-	}
-	await tab.fill("#room", "half");
-	await tab.click("#newRoomBtn");
-	const mirroredBack = await tab.inputValue("#newRoomInput");
-	if (mirroredBack !== "half") {
-		fail(`typing in the join card did not reach the rail (its field says ${JSON.stringify(mirroredBack)})`);
-	}
+	await linked.run(tab);
 
 	// Join a room as a real peer: the name goes into the card, and the room
 	// into the rail's field, whose Enter submits the card — locator and name
 	// included.
 	await tab.fill("#nick", "web-alice");
-	await tab.click("#newRoomBtn");
 	await tab.fill("#newRoomInput", "lobby");
 	await tab.press("#newRoomInput", "Enter");
 
@@ -440,6 +495,87 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		line,
 		{ timeout: 30_000 },
 	).catch(() => fail("the sent line never came back from the room over the capability stream"));
+
+	// ── One directory draws the rail it always drew ──────────────────────
+	// Everything about several directories — the line on a row saying which
+	// directory it is on, the color it wears — arrives only when there is more
+	// than one to tell apart. With one, a reader must get exactly what they got
+	// before any of it existed, and this is the moment to say so: this tab holds
+	// the directory that served the page and nothing else, and it will hold a
+	// second one two scenes from now.
+	//
+	// Asserted as an exact inventory rather than as "nothing looks new", because
+	// the ways to break this are all additive: a box around some of the rows, a
+	// heading over them, a second field, a row naming the only directory there
+	// is. Each of those draws a rail that reads fine and is not this one.
+	const alone = await tab.evaluate(() => ({
+		lists: {
+			rooms: document.getElementById("roomList")?.tagName ?? "",
+			dms: document.getElementById("dmList")?.tagName ?? "",
+		},
+		boxes: document.querySelectorAll("#roomList > :not(li), #dmList > :not(li)").length,
+		named: document.querySelectorAll("#roomList .rwhere, #dmList .rwhere").length,
+		// A row says how its directory is doing when there is something to say,
+		// whether this tab holds one directory or several. Counted here because a
+		// connected directory has nothing to say and this one is connected: the
+		// line arrives with the news and goes with it, so a rail that carries one
+		// now is a rail that would carry it for the life of the tab.
+		standings: document.querySelectorAll("#roomList .rwhere-how, #dmList .rwhere-how").length,
+		colored: document.querySelectorAll("#roomList li[data-dir], #dmList li[data-dir]").length,
+		heads: document.querySelectorAll(".section-head").length,
+		filters: document.querySelectorAll(".rail-filter").length,
+		fields: document.querySelectorAll(".newroom").length,
+		status: document.querySelectorAll("#status").length,
+	}));
+	const extra = [
+		alone.lists.rooms !== "UL" && `the rooms list is a ${alone.lists.rooms} rather than the list it was`,
+		alone.lists.dms !== "UL" && `the direct list is a ${alone.lists.dms} rather than the list it was`,
+		alone.boxes !== 0 && `${alone.boxes} boxes stand between the rail's lists and their rows`,
+		alone.named !== 0 && `${alone.named} rows name the only directory there is`,
+		alone.standings !== 0 && `${alone.standings} rows report a standing for a directory that is connected`,
+		alone.colored !== 0 && `${alone.colored} rows wear a directory's color with nothing to tell apart`,
+		alone.heads !== 2 && `the rail has ${alone.heads} section headings rather than its two`,
+		// The one piece of chrome the rail has gained since this inventory was
+		// written, counted here deliberately rather than left out of it. One
+		// control, on the rooms heading, because how much of the rail a reader
+		// is looking at is one question and not one per list. Two would be the
+		// scoping this control does not have, and none would mean a reader on
+		// one directory had lost a way to narrow a long list of rooms.
+		alone.filters !== 1 && `the rail holds ${alone.filters} filter controls rather than one for both lists`,
+		alone.fields !== 2 && `the rail holds ${alone.fields} name fields rather than one per list`,
+		alone.status !== 1 && `the rail's foot reports ${alone.status} states rather than one`,
+	].filter((said) => said !== false);
+	if (extra.length > 0) {
+		fail(`one directory does not draw the rail it always drew: ${extra.join("; ")}`);
+	}
+
+	// The filter asks the same questions whatever this tab holds. A tab on one
+	// directory is still asked which directory, for the same reason a tab in one
+	// room is still asked for a name: a question with one answer today is a
+	// question all the same, and a control that dropped it would change shape
+	// under a reader as they joined things. What a reader gets from the answer
+	// is a different matter and not this control's to decide for them.
+	await tab.click("#railFilter");
+	await tab.waitForSelector("#railFilterPanel", { timeout: 5_000 })
+		.catch(() => fail("the rail's filter opened nothing while this tab held one directory"));
+	const asked = await tab.evaluate(() =>
+		[...document.querySelectorAll("#railFilterPanel .filter-ask")].map((ask) => ({
+			label: ask.querySelector(".filter-label")?.textContent?.trim() ?? "",
+			choices: ask.querySelectorAll(".filter-choice").length,
+		}))
+	);
+	const directory = asked.find((ask) => ask.label === "Directory");
+	if (asked.length !== railQuestions.length) {
+		fail(
+			`with one directory held the rail's filter asks ${JSON.stringify(asked.map((ask) => ask.label))} ` +
+				`rather than ${JSON.stringify(railQuestions)}`,
+		);
+	} else if (directory === undefined || directory.choices !== 1) {
+		fail(`with one directory held the filter offers ${JSON.stringify(directory)} to filter by`);
+	}
+	await tab.keyboard.press("Escape");
+	await tab.waitForSelector("#railFilterPanel", { state: "detached", timeout: 5_000 })
+		.catch(() => fail("Escape did not put the rail's filter panel away"));
 
 	// And now that this directory has granted a name, the same row answers the
 	// question that name raises. It is a registration this directory can refuse,

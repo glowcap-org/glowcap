@@ -205,7 +205,7 @@ export async function runChange(
 	for (const theme of ["light", "dark"] as const) {
 		await tab.evaluate((theme) => document.documentElement.setAttribute("data-theme", theme), theme);
 		const ratio = await bubbleInkContrast(tab, ".row.mine .attach-file .icon-button");
-		if (ratio === null || ratio < 4.5) {
+		if (!("ratio" in ratio) || ratio.ratio < 4.5) {
 			const style = await tab.evaluate(() => {
 				const action = document.querySelector(".row.mine .attach-file .icon-button") as HTMLElement;
 				const bubble = action.closest(".bubble") as HTMLElement;
@@ -217,15 +217,19 @@ export async function runChange(
 				};
 			});
 			fail(
-				`the ${theme} authored-file action falls to ${ratio?.toFixed(2) ?? "unknown"}:1 on hover: ${
-					JSON.stringify(style)
-				}`,
+				`the ${theme} authored-file action falls to ${
+					"ratio" in ratio ? ratio.ratio.toFixed(2) : `unmeasurable (${ratio.why})`
+				}:1 on hover: ${JSON.stringify(style)}`,
 			);
 		}
 		for (const selector of [".row.mine .attach-file .glyph", ".row.mine .attach-file .sub"]) {
 			const inkRatio = await bubbleInkContrast(tab, selector, ".attach-file");
-			if (inkRatio === null || inkRatio < 4.5) {
-				fail(`${theme} ${selector} falls to ${inkRatio?.toFixed(2) ?? "unknown"}:1 in an authored file`);
+			if (!("ratio" in inkRatio) || inkRatio.ratio < 4.5) {
+				fail(
+					`${theme} ${selector} falls to ${
+						"ratio" in inkRatio ? inkRatio.ratio.toFixed(2) : `unmeasurable (${inkRatio.why})`
+					}:1 in an authored file`,
+				);
 			}
 		}
 	}

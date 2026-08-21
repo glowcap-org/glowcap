@@ -71,7 +71,7 @@ const bindings = [_]Binding{
             "bindings/racket/pancake-inproc.rkt",
         },
         .ffi_tier = &.{ "ffi-host-gen.rkt", "ffi-host.rkt", "ffi-shared.rkt" },
-        .proof = &.{ "bindings/racket/zig-smoke.rkt", "bindings/racket/relay.rkt" },
+        .proof = &.{ "bindings/racket/zig-smoke.rkt", "bindings/racket/test/zig-smoke", "bindings/racket/relay.rkt" },
     },
 };
 

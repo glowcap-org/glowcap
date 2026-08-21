@@ -2,17 +2,122 @@
 // The data layer reads `mentionsYou` from here, which is why the pieces that
 // build elements live next door in `RichText.tsx` instead.
 
-import type { DirId, SessionPhase } from "./types.ts";
+import { type DirId, dirMarkIn, dirsAreNamed, type DirView, type SessionPhase } from "./types.ts";
 import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "../../lib/limits.ts";
 
 /** How a directory's connection reads in words. The dot beside it carries the
- * same fact in shape and colour; this is what a reader who has neither gets. */
+ * same fact in shape and color; this is what a reader who has neither gets.
+ *
+ * The one wording of a phase. Everything that says one in a sentence asks
+ * `phaseWord` for it, so a row cannot read out the raw token while the card
+ * about the same directory reads out the written phrase.
+ *
+ * None of them names a directory, because every surface that draws one is
+ * already standing on the directory it is about: the row whose caption carries
+ * it, and the card that caption opens. A phase that carried the name would say
+ * it twice wherever it is said at all. */
 export const PHASE_SAID: Record<SessionPhase, string> = {
 	connected: "Connected",
 	connecting: "Connecting…",
 	reconnecting: "Reconnecting…",
 	disconnected: "Not connected",
 };
+
+/** The same phase inside a sentence, where a capital would start a new one:
+ * "…, directory not connected". */
+export function phaseWord(session: SessionPhase): string {
+	return PHASE_SAID[session].toLowerCase();
+}
+
+/** What one directory's connection is saying: the phase in words, and the
+ * sentence beside it while that directory is doing something the phase word
+ * does not already cover.
+ *
+ * One derivation for every surface that reports a directory, because a reader
+ * who compares two of them is comparing two readings of one connection, and two
+ * derivations would eventually hand them two answers. The card that answers for
+ * a directory has room for both parts and says both. */
+export interface DirConnection {
+	/** The phase in words. */
+	said: string;
+	/** What this directory is doing, when that says more than the phase word
+	 * already does, and empty otherwise. */
+	why: string;
+}
+
+export function dirConnection(session: SessionPhase, statusText: string): DirConnection {
+	return {
+		said: PHASE_SAID[session],
+		why: statusText !== "" && statusText !== phaseWord(session) ? statusText : "",
+	};
+}
+
+/** How a directory is doing, as a row on that directory says so, and empty
+ * while it is connected.
+ *
+ * A room's directory is a property of that room, the way its name and its lock
+ * are, and how that directory is doing is a property of the same thing. So it
+ * is said on the row, on the caption line that already names the directory,
+ * where a reader who cannot reach the room is looking anyway. Every row on a
+ * directory says it, so which directory it is about is settled by where it is
+ * drawn rather than by a sentence having to name one.
+ *
+ * Quiet is the answer that matters. A line saying "Connected" under every row
+ * for the life of the tab is furniture, and furniture is what a reader stops
+ * reading, so the line arrives when a directory has something to say and goes
+ * when it stops.
+ *
+ * The phase and not the sentence beside it. The caption line is already spent
+ * naming the directory, and that name is what attributes the news, so a
+ * sentence long enough to push the name off the line would take the
+ * attribution with it. What the directory is actually doing is one press away
+ * in the card the same caption opens, which has room for both. */
+export function dirStanding(session: SessionPhase): string {
+	return session === "connected" ? "" : PHASE_SAID[session];
+}
+
+/** What the caption that opens a directory's card announces itself as: the
+ * directory it is about, and how that directory is doing when there is
+ * something to say. Written once for the three kinds of row that carry one, so
+ * a listening reader is told the same thing on each. */
+export function dirCaptionSaid(name: string, session: SessionPhase): string {
+	return "About " + name + (session === "connected" ? "" : ", " + phaseWord(session));
+}
+
+/** A directory named, and the color that goes with the name.
+ *
+ * One value rather than two, and this is the whole of "never by color alone": a
+ * mark is reachable only through a name, so a surface that wears a color has
+ * already said which directory it is on. The color is still undefined past the
+ * ramp, where no directory wears one. */
+export interface DirNamed {
+	name: string;
+	/** The `data-dir` that names the same directory in color. */
+	mark: string | undefined;
+}
+
+/** Where a row is, as the row speaks it: the directory in words, and the color
+ * that goes with them, or nothing at all while this tab holds one directory and
+ * saying so would be noise.
+ *
+ * A union rather than a nullable pair, so the broken state — a color with no
+ * name behind it — stays unspellable. */
+export type DirWhere = DirNamed | { name: null; mark: undefined };
+
+/** The name and color of a directory a surface has already been told about.
+ *
+ * For a surface that has already been told which directory it is about and that
+ * a name is worth saying: the card describing one is opened from a row that
+ * only names its directory when there is more than one. Everything that could
+ * be looking at a single directory asks `dirWhere` instead. */
+export function dirNamed(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId, DirView>): DirNamed {
+	return { name: directoryName(dir, home), mark: dirMarkIn(dir, home, dirs) };
+}
+
+export function dirWhere(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId, DirView>): DirWhere {
+	if (!dirsAreNamed(dirs)) return { name: null, mark: undefined };
+	return dirNamed(dir, home, dirs);
+}
 
 /** The rail foot's state row, said under the reader's own name.
  *
@@ -39,9 +144,9 @@ export function footState(
 	standing: string,
 	named: boolean,
 ): FootState {
-	if (session !== "connected") return { said: PHASE_SAID[session].toLowerCase(), away: false };
+	if (session !== "connected") return { said: phaseWord(session), away: false };
 	if (standing !== "") return { said: standing, away: true };
-	return { said: named ? "here" : PHASE_SAID.connected.toLowerCase(), away: false };
+	return { said: named ? "here" : phaseWord("connected"), away: false };
 }
 
 // A stable per-name avatar tint, so every speaker keeps one colour. The ten values

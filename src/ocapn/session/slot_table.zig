@@ -3,7 +3,7 @@
 //! Name plate: `ExportTable` / `ImportTable` (and their shared `SlotTable`
 //! core). Not `slot.zig` (the CapTP `Slot` sum alone). CapTP keeps export,
 //! import, and answer as separate position namespaces — answer rows live in
-//! `answers.zig`; these tables own the export and import namespaces.
+//! `answers/store.zig`; these tables own the export and import namespaces.
 //!
 //! Each live row holds the authoritative `slot.Slot` for that position plus the
 //! ADR-0008 wire-delta refcount. `Session.exportSlot` / `importSlot` read the

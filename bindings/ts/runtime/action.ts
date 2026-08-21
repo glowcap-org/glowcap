@@ -32,6 +32,24 @@ export interface ActionHost {
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: PancakeError }): void;
 }
 
+/** Complete one gift-id effect without letting a rejected native completion
+ * masquerade as entropy failure. Package-internal and exported for the pure
+ * binding-boundary regression. */
+export function answerGiftId(
+	draw: () => Uint8Array,
+	provide: (id: Uint8Array) => void,
+	failed: () => void,
+): void {
+	let id: Uint8Array;
+	try {
+		id = draw();
+	} catch {
+		failed();
+		return;
+	}
+	provide(id);
+}
+
 /** Pop every pending embedder action (`pancake_host_next_action` until
  * WOULD_BLOCK); return them decoded, in queue order. A popped action's byte
  * views are host-owned and valid only until the next pop frees them, so
@@ -104,17 +122,17 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			session.finishClose(a.result);
 		},
 		needGiftId: (a) => {
-			try {
-				const id = crypto.getRandomValues(new Uint8Array(32));
-				checkHost(hostS.pancake_host_provide_gift_id(
-					host.raw,
-					a.ticket,
-					ab(id),
-					32n,
-				));
-			} catch {
-				checkHost(hostS.pancake_host_gift_id_failed(host.raw, a.ticket));
-			}
+			answerGiftId(
+				() => crypto.getRandomValues(new Uint8Array(32)),
+				(id) =>
+					checkHost(hostS.pancake_host_provide_gift_id(
+						host.raw,
+						a.ticket,
+						ab(id),
+						32n,
+					)),
+				() => checkHost(hostS.pancake_host_gift_id_failed(host.raw, a.ticket)),
+			);
 		},
 		settle: (a) => {
 			host.settleVow(a.ticket, { ok: a.value });

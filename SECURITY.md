@@ -13,8 +13,9 @@ thing.
 The core bounds inbound frames, nesting, and partner-driven session tables.
 A deployment still has to:
 
-- choose the channel it needs: TCP and keyed TCP are cleartext; iroh and
-  WebRTC are encrypted;
+- choose the channel it needs: `tcp`, `keyed-tcp`, and `keyed-relay` carry
+  cleartext CapTP; iroh, WebRTC, `noise-tcp`, `noise-relay`, and `onion` encrypt
+  the session bytes;
 - provide sound entropy for identity seeds and protect long-lived secrets;
 - set finite handshake and settlement deadlines (`.unbounded` waits forever);
 - enforce application authorization, rate limits, and request deadlines.
@@ -51,9 +52,9 @@ to trigger:
   variant, table position, kind, or pipeline path — so one table row is read as
   two references, or two rows as one.
 - **Inbound frames are attacker-controlled.** A frame escapes the resource caps
-  (frame size, table bounds, nesting depth, validation comparison work) to
-  exhaust memory or CPU, or to overflow the stack, instead of failing loud with
-  a typed abort.
+  (frame size, table count and retained-byte bounds, nesting depth, validation
+  comparison work) to exhaust memory or CPU, or to overflow the stack, instead
+  of failing loud with a typed abort.
 
 pancake proves that a target reached directly and through three-party handoff
 compares Equal when both paths converge on the same live exporter session. It

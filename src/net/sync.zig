@@ -3,8 +3,8 @@
 //! hash-map removal — never for a wait that could block.
 //!
 //! These live here rather than in `foundation` because `foundation` is `core =
-//! true` under the arch-check, which bans `std.atomic`. Every consumer is in
-//! `net` (transports, completion loop bridge), so this is their shared home.
+//! true` under the arch-check, which bans `std.atomic`. Adapter consumers in
+//! `net` and transport C-ABI packages share this home.
 
 const std = @import("std");
 

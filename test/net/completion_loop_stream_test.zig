@@ -39,6 +39,10 @@ const ScriptBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *ScriptBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     /// The per-connection inbound script (the same bytes for every
     /// connection), set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
@@ -299,6 +303,10 @@ const HeldSendBackend = struct {
 
     pub fn applyKeepalive(_: *HeldSendBackend, _: Fd, _: completion.Keepalive) !void {
         return error.OperationUnsupported;
+    }
+
+    pub fn wireFraming(_: *HeldSendBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
     }
 
     /// The inbound wire script, set by the test before `Loop.init`.

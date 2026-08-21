@@ -23,7 +23,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_page_test.ts`.
 
 import { chromium } from "playwright";
-import { freePort, ROOT, waitForHttp, WEB } from "./page/harness.ts";
+import { fail, freePort, ROOT, waitForHttp, WEB } from "./page/harness.ts";
 import * as opening from "./page/opening.ts";
 import * as rails from "./page/rails.ts";
 import * as completion from "./page/completion.ts";
@@ -33,6 +33,7 @@ import * as foreign from "./page/foreign.ts";
 import * as directories from "./page/directories.ts";
 import * as standing from "./page/standing.ts";
 import * as operations from "./page/operations.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const httpPort = freePort();
 // The Operations scene needs the room server started with every operator
@@ -59,10 +60,7 @@ const holding = (async () => {
 // relay is explicitly allowed to reach this one TCP peer for the scenario;
 // production cross-server joins use authenticated iroh, whose destinations do
 // not need an address allow-list.
-// The second server, stood back up so a retry has somewhere to land.
-let foreignAgain: Deno.ChildProcess | null = null;
-
-const foreignRoom = new Deno.Command("deno", {
+const foreignRoom = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -75,9 +73,9 @@ const foreignRoom = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "null",
 	stderr: "inherit",
-}).spawn();
+});
 
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -103,25 +101,13 @@ const web = new Deno.Command("deno", {
 	},
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
-// The scenario's own deadline. It cannot go through `fail`: a throw inside a
-// timer does not reach the try below, so it tears the room server down itself
-// before leaving, for the same reason `fail` throws rather than exits.
-const deadline = setTimeout(() => {
-	console.error("FAIL: web-page scenario timed out after 150s");
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	try {
-		foreignRoom.kill();
-	} catch {
-		// already gone
-	}
-	Deno.exit(1);
-}, 150_000);
+// The scenario's own deadline. A throw from a timer does not reach the try
+// below, so the `finally` there cleans up nothing on this path. What reaps the
+// servers instead is `support/children.ts`, which answers the uncaught error
+// this raises.
+const deadline = setTimeout(() => fail("web-page scenario timed out after 150s"), 150_000);
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
@@ -139,7 +125,15 @@ try {
 	const descendersIntact = await files.run(tab, second);
 	await layout.run(tab, second, descendersIntact);
 	const foreignLocator = await foreign.run(tab, httpPort, foreignRoomPort, hangPort);
-	foreignAgain = await directories.run(tab, foreignLocator, foreignRoom, foreignRoomPort);
+	await directories.run(
+		tab,
+		second,
+		foreignLocator,
+		foreignRoom,
+		foreignRoomPort,
+		roomPort,
+		descendersIntact,
+	);
 	await standing.run(tab, foreignLocator, httpPort, browser, second);
 	await operations.run(tab, opsState);
 
@@ -165,26 +159,7 @@ try {
 	}
 	await holding.catch(() => {});
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 	await Deno.remove(opsState, { recursive: true }).catch(() => {});
-	try {
-		foreignRoom.kill();
-	} catch {
-		// already gone
-	}
-	await foreignRoom.status;
-	if (foreignAgain !== null) {
-		try {
-			foreignAgain.kill();
-		} catch {
-			// already gone
-		}
-		await foreignAgain.status;
-	}
 }
 Deno.exit(0);

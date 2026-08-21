@@ -21,8 +21,12 @@ impl PeerConnectionEventHandler for PeerEvents {
 			return;
 		}
 		if let Ok(text) = serde_json::to_string(&init) {
-			self.shared.local_candidates.lock().unwrap().push_back(text);
-			self.shared.endpoint.signal(self.shared.id, EV_CANDIDATE);
+			let admitted = self.shared.local_candidates.lock().unwrap().admit(text);
+			if admitted {
+				self.shared.endpoint.signal(self.shared.id, EV_CANDIDATE);
+			} else {
+				publish_peer_failed(&self.shared);
+			}
 		}
 	}
 
@@ -31,8 +35,10 @@ impl PeerConnectionEventHandler for PeerEvents {
 		// ICE can fail before any DataChannel close event exists. The once-only
 		// publication path is unit-tested; forcing a real ICE timeout would make
 		// the sidecar suite wait on network retry timers.
-		if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
-			publish_peer_closed(&self.shared);
+		match state {
+			RTCPeerConnectionState::Failed => publish_peer_failed(&self.shared),
+			RTCPeerConnectionState::Closed => publish_peer_closed(&self.shared),
+			_ => {}
 		}
 	}
 
@@ -48,7 +54,7 @@ pub(crate) async fn install_remote_channel(shared: Arc<PeerShared>, dc: Arc<dyn 
 	let label = match dc.label().await {
 		Ok(label) => label,
 		Err(_) => {
-			publish_peer_closed(&shared);
+			publish_peer_failed(&shared);
 			return;
 		}
 	};
@@ -107,8 +113,8 @@ pub(crate) async fn pump_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShare
 				if incoming_len == 0 {
 					continue;
 				}
-				if incoming_len > INBOUND_BUFFER_BOUND {
-					publish_peer_closed(&shared);
+				if incoming_len > MAX_PACKET_BYTES {
+					publish_peer_failed(&shared);
 					let _ = dc.close().await;
 					return;
 				}
@@ -116,13 +122,21 @@ pub(crate) async fn pump_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShare
 					return;
 				}
 				let (lock, cvar) = &*shared.inbound;
-				lock.lock().unwrap().buf.extend(msg.data.iter().copied());
+				{
+					let mut inbound = lock.lock().unwrap();
+					inbound.queued_bytes += incoming_len;
+					inbound.packets.push_back(msg.data);
+				}
 				cvar.notify_all();
 				shared.endpoint.signal(shared.id, EV_READABLE);
 			}
 			DataChannelEvent::OnBufferedAmountLow => {}
-			DataChannelEvent::OnClose | DataChannelEvent::OnClosing | DataChannelEvent::OnError => {
+			DataChannelEvent::OnClose | DataChannelEvent::OnClosing => {
 				publish_peer_closed(&shared);
+				return;
+			}
+			DataChannelEvent::OnError => {
+				publish_peer_failed(&shared);
 				return;
 			}
 			DataChannelEvent::OnBufferedAmountHigh => {}
@@ -137,39 +151,32 @@ pub(crate) async fn pump_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShare
 /// storage.
 pub(crate) async fn drain_outbound(dc: Arc<dyn DataChannel>, shared: Arc<PeerShared>) {
 	loop {
-		let mut batch = loop {
+		let packet = loop {
 			let next = {
 				let mut state = shared.outbound.lock().unwrap();
 				if state.closed {
 					return;
 				}
-				if state.buf.is_empty() {
-					None
-				} else {
-					Some(std::mem::take(&mut state.buf))
-				}
+				state.packets.pop_front()
 			};
-			if let Some(batch) = next {
-				break batch;
+			if let Some(packet) = next {
+				break packet;
 			}
 			shared.outbound_ready.notified().await;
 		};
 
-		while !batch.is_empty() {
-			let len = batch.len().min(STEADY_BUFFER_BYTES);
-			let bytes = batch.split_to(len);
-			if dc.send(bytes).await.is_err() {
-				publish_peer_closed(&shared);
-				return;
-			}
-			let writable = {
-				let mut state = shared.outbound.lock().unwrap();
-				state.queued_bytes = state.queued_bytes.saturating_sub(len);
-				state.queued_bytes < OUTBOUND_BUFFER_BOUND
-			};
-			if writable {
-				shared.endpoint.signal(shared.id, EV_WRITABLE);
-			}
+		let len = packet.len();
+		if dc.send(packet).await.is_err() {
+			publish_peer_failed(&shared);
+			return;
+		}
+		let writable = {
+			let mut state = shared.outbound.lock().unwrap();
+			state.queued_bytes = state.queued_bytes.saturating_sub(len);
+			state.queued_bytes < OUTBOUND_BUFFER_BOUND
+		};
+		if writable {
+			shared.endpoint.signal(shared.id, EV_WRITABLE);
 		}
 	}
 }
@@ -189,7 +196,7 @@ pub(crate) async fn await_inbound_room(
 	drained: &Notify,
 	incoming_len: usize,
 ) -> bool {
-	if incoming_len > INBOUND_BUFFER_BOUND {
+	if incoming_len > MAX_PACKET_BYTES || incoming_len > INBOUND_BUFFER_BOUND {
 		return false;
 	}
 	loop {
@@ -199,7 +206,7 @@ pub(crate) async fn await_inbound_room(
 			if guard.closed {
 				return false;
 			}
-			if guard.buf.len() <= INBOUND_BUFFER_BOUND - incoming_len {
+			if guard.queued_bytes <= INBOUND_BUFFER_BOUND - incoming_len {
 				return true;
 			}
 		}
@@ -210,19 +217,23 @@ pub(crate) async fn await_inbound_room(
 	}
 }
 
-/// Close the inbound staging area and wake every blocking or async waiter.
-/// Returns true only for the first terminal transition, so `EV_CLOSED` is
-/// emitted once.
-pub(crate) fn mark_peer_closed(shared: &PeerShared) -> bool {
-	let first = {
+/// Close the peer and wake every blocking or async waiter. `failed` is read-side
+/// terminal cause only: orderly close returns EOF, failure returns `ERR`.
+/// Returns true only for the first transition, so `EV_CLOSED` is emitted once.
+pub(crate) fn mark_peer_closed(shared: &PeerShared, failed: bool) -> bool {
+	let (first, terminal_failed) = {
 		let mut state = shared.open.lock().unwrap();
 		let first = !state.closed;
-		state.closed = true;
-		first
+		if first {
+			state.closed = true;
+			state.failed = failed;
+		}
+		(first, state.failed)
 	};
 	{
 		let (lock, cvar) = &*shared.inbound;
 		let mut state = lock.lock().unwrap();
+		state.failed = terminal_failed;
 		state.closed = true;
 		cvar.notify_all();
 	}
@@ -236,35 +247,49 @@ pub(crate) fn mark_peer_closed(shared: &PeerShared) -> bool {
 
 /// Publish the peer's terminal readiness exactly once, regardless of whether
 /// close arrives from the channel poller, a failed send, explicit close, or
-/// handle release. `OpenGate.closed` is the single terminal authority.
+/// handle release. `OpenGate.closed` owns once-only publication.
 pub(crate) fn publish_peer_closed(shared: &PeerShared) {
-	if mark_peer_closed(shared) {
+	if mark_peer_closed(shared, false) {
 		shared.endpoint.signal(shared.id, EV_CLOSED);
 	}
 }
 
-/// Copy a contiguous prefix out of the inbound staging deque. When a burst drains,
-/// return its excess capacity so one slow-reader episode does not pin the
-/// 1 MiB high-water mark for the peer's lifetime.
-pub(crate) fn take_inbound(state: &mut Inbound, dest: &mut [u8]) -> usize {
-	let n = state.buf.len().min(dest.len());
-	let (front, back) = state.buf.as_slices();
-	let from_front = front.len().min(n);
-	dest[..from_front].copy_from_slice(&front[..from_front]);
-	if from_front < n {
-		dest[from_front..n].copy_from_slice(&back[..n - from_front]);
+pub(crate) fn publish_peer_failed(shared: &PeerShared) {
+	if mark_peer_closed(shared, true) {
+		shared.endpoint.signal(shared.id, EV_CLOSED);
+		close_shared_async(shared);
 	}
-	state.buf.drain(..n);
-	if state.buf.is_empty() && state.buf.capacity() > STEADY_BUFFER_BYTES {
-		state.buf.shrink_to(STEADY_BUFFER_BYTES);
-	}
-	n
 }
 
-/// Admit as much of one try-write as currently fits. Returning a prefix instead
-/// of rejecting every slice larger than the bound guarantees that a caller which
-/// advances by the returned count can always make progress once the drain frees
-/// room.
+/// Copy exactly one inbound packet. A too-small destination leaves the packet
+/// queued for retry, because splitting it would change the DataChannel message
+/// boundary the Host profile relies on.
+pub(crate) fn take_inbound_packet(state: &mut Inbound, dest: &mut [u8]) -> isize {
+	let packet = match state.packets.front() {
+		Some(packet) => packet,
+		None => return 0,
+	};
+	if packet.len() > dest.len() {
+		return BUFFER_TOO_SMALL as isize;
+	}
+	let packet = state.packets.pop_front().unwrap();
+	dest[..packet.len()].copy_from_slice(&packet);
+	state.queued_bytes = state.queued_bytes.saturating_sub(packet.len());
+	packet.len() as isize
+}
+
+pub(crate) fn terminal_read_result(state: &Inbound) -> isize {
+	if state.failed {
+		ERR as isize
+	} else if state.closed {
+		0
+	} else {
+		WOULD_BLOCK as isize
+	}
+}
+
+/// Admit one whole packet. A prefix would become a distinct DataChannel message,
+/// so a packet either enters complete or the caller retries it unchanged.
 pub(crate) fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {
 	if state.closed {
 		return ERR as isize;
@@ -272,26 +297,35 @@ pub(crate) fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {
 	if bytes.is_empty() {
 		return 0;
 	}
+	if bytes.len() > MAX_PACKET_BYTES {
+		return BUFFER_TOO_SMALL as isize;
+	}
 	let room = OUTBOUND_BUFFER_BOUND.saturating_sub(state.queued_bytes);
-	if room == 0 {
+	if room < bytes.len() {
 		return WOULD_BLOCK as isize;
 	}
-	let accepted = room.min(bytes.len());
-	state.buf.extend_from_slice(&bytes[..accepted]);
-	state.queued_bytes += accepted;
-	accepted as isize
+	state.packets.push_back(BytesMut::from(bytes));
+	state.queued_bytes += bytes.len();
+	bytes.len() as isize
 }
 
 /// Start the crate-level close without waiting on the caller's thread. Terminal
 /// state and readiness are published before this runs, so the task only performs
 /// WebRTC teardown; it owns an `Arc` to the connection until that finishes.
 pub(crate) fn close_peer_async(peer: &PancakeWebrtcPeer) {
-	if peer.shared.close_started.swap(true, Ordering::AcqRel) {
+	close_shared_async(&peer.shared);
+}
+
+pub(crate) fn close_shared_async(shared: &PeerShared) {
+	let pc = shared.pc.lock().unwrap().as_ref().and_then(|pc| pc.upgrade());
+	let Some(pc) = pc else {
+		return;
+	};
+	if shared.close_started.swap(true, Ordering::AcqRel) {
 		return;
 	}
-	let pc = peer.pc.clone();
-	let permit = peer.shared.endpoint.close_tasks.acquire();
-	peer.shared.endpoint.runtime().handle().spawn(async move {
+	let permit = shared.endpoint.close_tasks.acquire();
+	shared.endpoint.runtime().handle().spawn(async move {
 		if tokio::time::timeout(PEER_CLOSE_TIMEOUT, pc.close())
 			.await
 			.is_ok_and(|result| result.is_ok())

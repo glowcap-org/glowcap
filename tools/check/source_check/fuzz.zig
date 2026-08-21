@@ -1,9 +1,6 @@
 //! Checks on the fuzzing setup.
 //!
-//! Three things need holding.
-//!
-//! The vendored copy of Zig's test runner has to stay exactly what it claims to
-//! be, and it has to disappear the moment Zig no longer needs patching.
+//! Two things need holding.
 //!
 //! Every crash input sitting in the regressions directory has to be wired into
 //! the replay, because a regression test nobody runs is worse than no test at
@@ -19,123 +16,6 @@ const std = @import("std");
 const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
-
-/// The call in Zig's own test runner that does not compile in fuzz mode. It
-/// hands an error-return trace to a function expecting a different struct.
-const upstream_call = "std.debug.writeStackTrace(trace, stderr)";
-/// The neighbouring function that takes exactly the type in hand. Zig's own
-/// `debug.zig` uses it for this same job everywhere else.
-const patched_call = "std.debug.writeErrorReturnTrace(trace, stderr)";
-
-const vendored_path = "tools/fuzz/test_runner.zig";
-const upstream_path = "compiler/test_runner.zig";
-/// Everything above this line in the vendored file is pancake's own note about
-/// where the rest came from; everything below it is Zig's file with one call
-/// renamed. Comparing from offset zero left no room for that note, so the copy
-/// could not say whose it was — which is the thing a reader most needs it to
-/// say, and the thing a licence asks it to say.
-const upstream_marker = "// ---- Zig's file begins here ----\n";
-const notice_path = "LICENSE-THIRD-PARTY";
-
-/// Hold the vendored test runner's licence notice, and the notice's place in
-/// the package manifest.
-///
-/// Separate from the drift comparison below on purpose: an unreadable notice
-/// must not double as an excuse to skip checking whether the copy still
-/// matches the toolchain. One failure reporting two things, and silencing the
-/// load-bearing one, is how a gate quietly stops gating.
-pub fn checkVendoredRunnerLicense(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    if (root.readFileAlloc(io, notice_path, gpa, .limited(1 << 20))) |notice| {
-        defer gpa.free(notice);
-        const notice_needles = [_][]const u8{
-            "`tools/fuzz/test_runner.zig`",
-            "Copyright (c) Zig contributors",
-            "MIT-only",
-        };
-        for (notice_needles) |needle| {
-            if (std.mem.indexOf(u8, notice, needle) == null) {
-                try appendViolation(gpa, violations, "{s}: missing `{s}` required by the vendored Zig test runner's license scope", .{ notice_path, needle });
-            }
-        }
-    } else |err| {
-        try appendViolation(gpa, violations, "{s}: {s} is vendored but its Zig MIT notice cannot be read ({s})", .{ vendored_path, notice_path, @errorName(err) });
-    }
-
-    const manifest_path = "build.zig.zon";
-    if (root.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20))) |manifest| {
-        defer gpa.free(manifest);
-        if (std.mem.indexOf(u8, manifest, "\"" ++ notice_path ++ "\"") == null) {
-            try appendViolation(gpa, violations, "{s}: package includes {s} but omits {s}; source distributions would lose Zig's MIT notice", .{ manifest_path, vendored_path, notice_path });
-        }
-    } else |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read package manifest to verify {s} ships with the vendored source ({s})", .{ manifest_path, notice_path, @errorName(err) });
-    }
-}
-
-/// Hold the vendored test runner against the toolchain's own copy.
-///
-/// The vendored file is upstream's, with one call renamed and nothing else
-/// changed. Comparing it that way, rather than looking for a marker inside it,
-/// means the check can tell three situations apart and say something useful
-/// about each: the copy is exactly right, Zig changed the file and the copy
-/// needs remaking, or Zig fixed the call and the copy should be deleted.
-///
-/// That last case is the reason this check earns its place. Vendored code
-/// outlives its excuse unless something notices.
-pub fn checkVendoredTestRunner(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-    zig_lib_path: []const u8,
-) !void {
-    var lib = std.Io.Dir.cwd().openDir(io, zig_lib_path, .{}) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot open the Zig library directory `{s}` to compare the vendored test runner ({s})", .{ vendored_path, zig_lib_path, @errorName(err) });
-        return;
-    };
-    defer lib.close(io);
-
-    const upstream = lib.readFileAlloc(io, upstream_path, gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read `{s}/{s}` to compare against ({s})", .{ vendored_path, zig_lib_path, upstream_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(upstream);
-
-    const vendored = root.readFileAlloc(io, vendored_path, gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read the vendored copy ({s})", .{ vendored_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(vendored);
-
-    switch (std.mem.count(u8, upstream, upstream_call)) {
-        0 => {
-            try appendViolation(gpa, violations, "{s}: this Zig no longer contains `{s}`, so the bug the copy works around looks fixed. Delete {s}, remove the `.test_runner` line from the fuzz artifact in build.zig, and delete this check.", .{ vendored_path, upstream_call, vendored_path });
-            return;
-        },
-        1 => {},
-        else => |n| {
-            try appendViolation(gpa, violations, "{s}: expected one `{s}` in this Zig's test runner, found {d}. Work out which one needs patching before re-vendoring.", .{ vendored_path, upstream_call, n });
-            return;
-        },
-    }
-
-    const marker_at = std.mem.indexOf(u8, vendored, upstream_marker) orelse {
-        try appendViolation(gpa, violations, "{s}: has no `{s}` line. That line separates pancake's note about where this file came from from the file itself; without it there is no way to tell the two apart.", .{ vendored_path, upstream_marker });
-        return;
-    };
-    const copied = vendored[marker_at + upstream_marker.len ..];
-
-    const expected = try std.mem.replaceOwned(u8, gpa, upstream, upstream_call, patched_call);
-    defer gpa.free(expected);
-    if (!std.mem.eql(u8, expected, copied)) {
-        try appendViolation(gpa, violations, "{s}: below the marker, does not match this Zig's `{s}` with `{s}` renamed to `{s}`. Copy the file again, keep the note above the marker, and redo that one rename.", .{ vendored_path, upstream_path, upstream_call, patched_call });
-    }
-}
 
 /// Every crash input in every target's regressions directory must be replayed.
 ///
@@ -161,9 +41,7 @@ pub fn checkFuzzRegressionSeeds(
 
     // Null, not an early return: an unreadable canonical README costs the
     // README comparison below and nothing else. Returning here would silence
-    // the seed-replay walk this function exists for, which is the same
-    // one-failure-hides-another shape `checkVendoredRunnerLicense` was split
-    // out to remove.
+    // the seed-replay walk this function exists for.
     const canonical_readme: ?[]const u8 = root.readFileAlloc(io, canonical_regressions_readme_path, gpa, .limited(1 << 20)) catch |err| blk: {
         try appendViolation(gpa, violations, "{s}: cannot read the canonical fuzz-regression README ({s})", .{ canonical_regressions_readme_path, @errorName(err) });
         break :blk null;

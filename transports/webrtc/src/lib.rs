@@ -18,19 +18,18 @@
 //!   them. Peer creation and signaling submissions are synchronous control-plane
 //!   calls; the readiness path begins once those inputs are submitted.
 //! * The `RTCDataChannel` is pollable and exposes send-side backpressure.
-//!   C-facing try-writes admit into a bounded sidecar staging buffer, then an
-//!   async drain task sends through `DataChannel::send` without parking the
-//!   caller's reactor thread. The private blocking byte calls remain only for
-//!   the Zig `BlockingSession` connection; public evented consumers use
-//!   readiness.
-//! * One channel, labelled `ocapn`, ordered and reliable, carries the whole
-//!   OCapN session byte-for-byte. The offerer creates it; the answerer receives
-//!   it through `on_data_channel`.
+//!   C-facing try-writes admit one bounded packet into the sidecar staging
+//!   buffer, then an async drain task sends that packet as one DataChannel
+//!   message without parking the caller's reactor thread.
+//! * One channel, labelled `ocapn`, ordered and reliable, carries one bare
+//!   OCapN codec frame per DataChannel message. The offerer creates it; the
+//!   answerer receives it through `on_data_channel`.
 //! * No panic crosses the FFI boundary: every entry point runs under
 //!   `catch_unwind` and maps a panic to the function's error return.
 //!
 mod channel;
 mod conn;
+mod constants_gen;
 mod lifecycle;
 mod peer_connection;
 mod signaling;
@@ -42,16 +41,15 @@ use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 
 use bytes::BytesMut;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit};
-use webrtc::error::Error as WebrtcError;
 use webrtc::peer_connection::{
-	PeerConnection, PeerConnectionEventHandler, RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
-	RTCSessionDescription,
+	PeerConnection, PeerConnectionEventHandler, RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent,
+	RTCPeerConnectionState, RTCSessionDescription,
 };
 
 use lifecycle::{CloseTasks, RuntimeOwner};
@@ -92,6 +90,11 @@ const WOULD_BLOCK: i32 = -2;
 /// A string out-parameter whose buffer was too small; `*out_len` is set to the
 /// length the caller must provide, and nothing is written.
 const BUFFER_TOO_SMALL: i32 = -3;
+/// A signaling string exceeded Pancake's hard signaling cap; retrying with a
+/// larger caller buffer cannot make it valid.
+const SIGNAL_TOO_LARGE: i32 = -4;
+/// A peer reached an orderly terminal state before opening.
+const CLOSED: i32 = -5;
 
 /// Readiness bits shared with the Zig resident and public C ABI. One drained
 /// record may carry several bits for the same stable endpoint-scoped peer id.
@@ -101,16 +104,34 @@ const EV_READABLE: u32 = 4;
 const EV_WRITABLE: u32 = 8;
 const EV_CLOSED: u32 = 16;
 
+/// Borrowed UTF-8 text in the sidecar ABI.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeWebrtcStringView {
+	pub ptr: *const u8,
+	pub len: usize,
+}
+
+/// One ICE server record. Each endpoint copies these borrowed fields into
+/// endpoint-owned WebRTC configuration during construction.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeWebrtcIceServer {
+	pub urls: *const PancakeWebrtcStringView,
+	pub url_count: usize,
+	pub username: PancakeWebrtcStringView,
+	pub credential: PancakeWebrtcStringView,
+}
+
 /// One endpoint's configuration, passed by pointer so a new setting is a field
 /// rather than a wider signature every caller has to agree on. What the setting
 /// means is documented once, on the C ABI's `PancakeWebrtcConfig`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PancakeWebrtcEndpointConfig {
-	/// Comma-separated ICE server URLs, borrowed for the call. Null or empty is
-	/// host candidates only.
-	pub ice_servers: *const u8,
-	pub ice_servers_len: usize,
+	/// Borrowed ICE server records. Null or empty is host candidates only.
+	pub ice_servers: *const PancakeWebrtcIceServer,
+	pub ice_server_count: usize,
 	/// Nonzero offers loopback ICE candidates, which is what lets two peers in
 	/// one process or on one host connect with no STUN.
 	pub include_loopback_candidates: u32,
@@ -127,51 +148,104 @@ pub struct PancakeWebrtcReadyEvent {
 	pub events: u32,
 }
 
-/// How many unread inbound bytes may pile up in the C-facing staging buffer
-/// before the sidecar pauses its channel poller.
-const INBOUND_BUFFER_BOUND: usize = 1 << 20;
+/// Largest DataChannel message pancake sends or admits. The Zig transport
+/// profile publishes the same ceiling so the Host narrows the session frame cap
+/// before traffic starts.
+const MAX_PACKET_BYTES: usize = constants_gen::TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
+
+/// Largest SDP string accepted through the signaling calls.
+const MAX_SIGNAL_BYTES: usize = constants_gen::MAX_SIGNAL_BYTES;
+/// Largest ICE-candidate JSON string accepted or retained by the signaling
+/// calls. It aliases the signaling cap in Zig, but keeps the retained candidate
+/// budget named at the Rust sidecar boundary.
+const MAX_ICE_CANDIDATE_BYTES: usize = constants_gen::MAX_ICE_CANDIDATE_BYTES;
+
+/// Locally gathered ICE candidates waiting for the signaling owner. These are
+/// control-plane strings, not CapTP bytes, but they are still retained state.
+const MAX_PENDING_LOCAL_CANDIDATES: usize = constants_gen::MAX_PENDING_ICE_CANDIDATES;
+const LOCAL_CANDIDATE_QUEUE_BYTES: usize = constants_gen::PENDING_ICE_CANDIDATE_QUEUE_BYTES;
+
+/// How many unread inbound packet bytes may pile up in the C-facing staging
+/// buffer before the sidecar pauses its channel poller.
+const INBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;
 
 /// The SCTP receive window bound passed to `webrtc` 0.20. It is separate from
 /// the C-facing staging bound above: the crate may hold bytes it has received
 /// but not yet yielded as `DataChannelEvent::OnMessage`.
-const SCTP_RECEIVE_BUFFER_BOUND: usize = 1 << 20;
+const SCTP_RECEIVE_BUFFER_BOUND: usize = constants_gen::SCTP_RECEIVE_BUFFER_BYTES;
 
 /// Per-peer outbound byte bound. C-facing try-writes may stage up to this much
 /// in the sidecar, and the crate's own send buffer is configured to the same
 /// limit so the async drain task is backpressured too.
-const OUTBOUND_BUFFER_BOUND: usize = 1 << 20;
+const OUTBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;
 
-/// Capacity retained after an inbound burst drains, and the largest DataChannel
-/// message the writer emits. This matches the 16 KiB steady buffers in the Zig
-/// completion loop and stays within the WebRTC crate's documented browser-safe
-/// message size. Larger writes are a byte stream here: they are split across
-/// messages and concatenated again by the inbound queue.
-const STEADY_BUFFER_BYTES: usize = 16 * 1024;
+/// ICE configuration limits mirrored from the Zig WebRTC resident. They keep
+/// the private sidecar FFI boundary bounded when it is called directly.
+const MAX_ICE_SERVERS: usize = constants_gen::MAX_ICE_SERVERS;
+const MAX_ICE_URLS_PER_SERVER: usize = constants_gen::MAX_ICE_URLS_PER_SERVER;
+const MAX_ICE_URL_BYTES: usize = constants_gen::MAX_ICE_URL_BYTES;
+const MAX_ICE_CREDENTIAL_BYTES: usize = constants_gen::MAX_ICE_CREDENTIAL_BYTES;
 
-/// Inbound bytes staged from polled data-channel messages, drained by C-facing
-/// reads. `closed` latches when the channel closes or the peer tears down, so a
-/// reader parked on the condvar wakes and returns clean end of stream.
+/// Inbound packets staged from polled data-channel messages, drained by
+/// C-facing reads. Terminal state wakes parked readers; `failed` decides
+/// whether an empty terminal read is EOF or `ERR`.
 struct Inbound {
-	buf: VecDeque<u8>,
+	packets: VecDeque<BytesMut>,
+	queued_bytes: usize,
 	closed: bool,
+	failed: bool,
 }
 
-/// Channel establishment state read by the non-blocking open check. `closed` is
-/// also the peer's single terminal-transition authority.
+/// Channel establishment state read by the non-blocking open check. `closed`
+/// and `failed` are the peer's single terminal transition and cause.
 struct OpenGate {
 	open: bool,
 	closed: bool,
+	failed: bool,
 }
 
 struct Outbound {
-	/// Bytes accepted from C try-writers but not yet handed to WebRTC. The C ABI
-	/// is synchronous, while `DataChannel::try_send` still awaits the crate's
+	/// Packets accepted from C try-writers but not yet handed to WebRTC. The C
+	/// ABI is synchronous, while `DataChannel::send` still awaits the crate's
 	/// async core lock, so this queue is the nonblocking boundary.
-	buf: BytesMut,
+	packets: VecDeque<BytesMut>,
 	/// Includes bytes currently being sent by the async drain task, so the bound
 	/// covers both queued and in-flight sidecar storage.
 	queued_bytes: usize,
 	closed: bool,
+}
+
+struct LocalCandidates {
+	items: VecDeque<String>,
+	queued_bytes: usize,
+}
+
+impl LocalCandidates {
+	fn new() -> Self {
+		Self {
+			items: VecDeque::new(),
+			queued_bytes: 0,
+		}
+	}
+
+	fn admit(&mut self, text: String) -> bool {
+		if text.is_empty()
+			|| text.len() > MAX_ICE_CANDIDATE_BYTES
+			|| self.items.len() >= MAX_PENDING_LOCAL_CANDIDATES
+			|| self.queued_bytes > LOCAL_CANDIDATE_QUEUE_BYTES.saturating_sub(text.len())
+		{
+			return false;
+		}
+		self.queued_bytes += text.len();
+		self.items.push_back(text);
+		true
+	}
+
+	fn release_front(&mut self) {
+		if let Some(text) = self.items.pop_front() {
+			self.queued_bytes = self.queued_bytes.saturating_sub(text.len());
+		}
+	}
 }
 
 struct PeerShared {
@@ -181,6 +255,10 @@ struct PeerShared {
 	/// connection close and final peer release may arrive, but only the first
 	/// starts work owned by the endpoint barrier.
 	close_started: AtomicBool,
+	/// Weak to avoid the handler cycle: PeerConnection owns its handler, the
+	/// handler owns PeerShared, and failure publication still needs to start the
+	/// endpoint-owned close task.
+	pc: Mutex<Option<Weak<dyn PeerConnection>>>,
 	/// Created immediately for an offerer, installed by the event handler for an
 	/// answerer. Blocking writers clone it for direct `DataChannel::send`;
 	/// try-writers use the bounded outbound staging queue.
@@ -196,7 +274,7 @@ struct PeerShared {
 	open: Arc<Mutex<OpenGate>>,
 	/// Locally gathered ICE candidates, serialized as JSON, awaiting the caller
 	/// to drain and ferry to the far peer.
-	local_candidates: Arc<Mutex<VecDeque<String>>>,
+	local_candidates: Arc<Mutex<LocalCandidates>>,
 }
 /// One shared WebRTC runtime and readiness namespace. Peers retain this inner
 /// value so a misuse that releases the endpoint first cannot strand runtime
@@ -213,10 +291,10 @@ struct EndpointInner {
 	readiness: Arc<Readiness>,
 	driver_readiness: Mutex<Option<Arc<Readiness>>>,
 	next_peer_id: AtomicUsize,
-	/// ICE server URLs every peer this endpoint creates offers to ICE. Empty is
-	/// host candidates only, which reaches a peer on the same host or the same
+	/// ICE server records every peer this endpoint creates offers to ICE. Empty
+	/// is host candidates only, which reaches a peer on the same host or the same
 	/// network and nothing beyond it.
-	ice_servers: Vec<String>,
+	ice_servers: Vec<RTCIceServer>,
 	/// Whether peers offer loopback ICE candidates, which is what connects two
 	/// peers on one host with no STUN.
 	include_loopback: bool,
@@ -245,6 +323,79 @@ impl EndpointInner {
 	}
 }
 
+unsafe fn view_text(view: PancakeWebrtcStringView, max_len: usize) -> Option<String> {
+	if view.len == 0 {
+		return Some(String::new());
+	}
+	if view.len > max_len {
+		return None;
+	}
+	if view.ptr.is_null() {
+		return None;
+	}
+	std::str::from_utf8(std::slice::from_raw_parts(view.ptr, view.len))
+		.ok()
+		.map(str::to_owned)
+}
+
+fn ice_url_is_turn(url: &str) -> Option<bool> {
+	if starts_with_ascii_ignore_case(url, "stun:") || starts_with_ascii_ignore_case(url, "stuns:") {
+		return Some(false);
+	}
+	if starts_with_ascii_ignore_case(url, "turn:") || starts_with_ascii_ignore_case(url, "turns:") {
+		return Some(true);
+	}
+	None
+}
+
+fn starts_with_ascii_ignore_case(value: &str, prefix: &str) -> bool {
+	value
+		.get(..prefix.len())
+		.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+unsafe fn ice_servers_from_config(cfg: &PancakeWebrtcEndpointConfig) -> Option<Vec<RTCIceServer>> {
+	if cfg.ice_server_count == 0 {
+		return Some(Vec::new());
+	}
+	if cfg.ice_server_count > MAX_ICE_SERVERS {
+		return None;
+	}
+	if cfg.ice_servers.is_null() {
+		return None;
+	}
+	let records = std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_server_count);
+	let mut out = Vec::with_capacity(records.len());
+	for record in records {
+		if record.url_count == 0 || record.url_count > MAX_ICE_URLS_PER_SERVER || record.urls.is_null() {
+			return None;
+		}
+		let url_views = std::slice::from_raw_parts(record.urls, record.url_count);
+		let mut urls = Vec::with_capacity(url_views.len());
+		let mut has_turn = false;
+		for url in url_views {
+			let text = view_text(*url, MAX_ICE_URL_BYTES)?;
+			if text.is_empty() {
+				return None;
+			}
+			has_turn |= ice_url_is_turn(&text)?;
+			urls.push(text);
+		}
+		let username = view_text(record.username, MAX_ICE_CREDENTIAL_BYTES)?;
+		let credential = view_text(record.credential, MAX_ICE_CREDENTIAL_BYTES)?;
+		let has_credentials = !username.is_empty() || !credential.is_empty();
+		if (!has_turn && has_credentials) || (has_turn && (username.is_empty() || credential.is_empty())) {
+			return None;
+		}
+		out.push(RTCIceServer {
+			urls,
+			username,
+			credential,
+		});
+	}
+	Some(out)
+}
+
 /// Opaque endpoint handle. One resident owns one of these and creates every
 /// peer it multiplexes from it.
 pub struct PancakeWebrtcEndpoint {
@@ -268,22 +419,12 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
 		if config.is_null() {
 			return std::ptr::null_mut();
 		}
-		// Safety: the contract requires a readable config when non-null, and a
-		// non-empty URL list to be that many readable bytes.
+		// Safety: the caller supplies readable memory; `ice_servers_from_config`
+		// bounds every count and length before forming nested slices.
 		let cfg = unsafe { &*config };
-		let ice_servers: Vec<String> = if cfg.ice_servers.is_null() || cfg.ice_servers_len == 0 {
-			Vec::new()
-		} else {
-			let bytes = unsafe { std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_servers_len) };
-			match std::str::from_utf8(bytes) {
-				Ok(urls) => urls
-					.split(',')
-					.map(str::trim)
-					.filter(|url| !url.is_empty())
-					.map(str::to_owned)
-					.collect(),
-				Err(_) => return std::ptr::null_mut(),
-			}
+		let ice_servers = match unsafe { ice_servers_from_config(cfg) } {
+			Some(servers) => servers,
+			None => return std::ptr::null_mut(),
 		};
 		let readiness = match Readiness::new() {
 			Some(readiness) => readiness,

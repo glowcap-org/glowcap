@@ -62,7 +62,7 @@ pub const Event = union(enum) {
     session_open: struct {
         /// This producer's own handle for the session. Local, and not the
         /// OCapN Session ID below — nothing outside this host can read it.
-        session: engine.PeerId,
+        session: engine.PeerHandle,
         /// OCapN: the partner's **Designator** — the name inside the
         /// netlayer, a key spelling or an address.
         designator: []const u8,
@@ -89,7 +89,7 @@ pub const Event = union(enum) {
     /// outbound drain), so a near send — in-process, never encoded — is
     /// deliberately not a message fact.
     message: struct {
-        session: engine.PeerId,
+        session: engine.PeerHandle,
         outbound: bool,
         verb: []const u8,
         frame: []const u8,
@@ -112,7 +112,7 @@ pub const Event = union(enum) {
     /// The session was released or condemned. Emitted only for sessions
     /// whose open was reported.
     session_close: struct {
-        session: engine.PeerId,
+        session: engine.PeerHandle,
     },
 };
 

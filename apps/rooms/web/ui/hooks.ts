@@ -64,7 +64,15 @@ export function useDismissOnClickOutside(
 	useEffect(() => {
 		if (!open) return;
 		const dismiss = (e: MouseEvent) => {
-			if (!(e.target as Element | null)?.closest?.(within)) close();
+			// Asked of the path the press was dispatched along, not of where its
+			// target sits now. A handler that runs before this one can re-render
+			// the pressed element out of the document, which a toggle swapping
+			// its own icon does every time it is pressed, and a detached node has
+			// no ancestors left to find. Reading its `closest` therefore called
+			// such a press an outside one and dismissed whatever was open, which
+			// is the opposite of what pressing a control inside means.
+			const path = e.composedPath();
+			if (!path.some((node) => node instanceof Element && node.matches(within))) close();
 		};
 		document.addEventListener("click", dismiss);
 		return () => document.removeEventListener("click", dismiss);

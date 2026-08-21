@@ -53,7 +53,7 @@ browser proof cannot run.
 
 The browsers belong to the devcontainer image, and .devcontainer/pins.sh has
 moved past the one baked into the container you are in. Rebuild it (Dev
-Containers: Rebuild Container) and .devcontainer/install-playwright.sh will
+Containers: Rebuild Container) and .devcontainer/image/playwright.sh will
 fetch the browser this version asks for.
 
 Playwright is about to suggest \`npx playwright install\`. Do not run it: it
@@ -66,7 +66,7 @@ fi
 cat >&2 <<EOF
 No Playwright Chromium under ${browsers}, so this browser proof cannot run.
 
-The devcontainer carries one in its image: .devcontainer/install-playwright.sh
+The devcontainer carries one in its image: .devcontainer/image/playwright.sh
 installs the browser that Playwright ${PLAYWRIGHT_VERSION} asks for. If you are in the
 container, rebuild it (Dev Containers: Rebuild Container).
 

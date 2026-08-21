@@ -13,15 +13,16 @@
          "ffi-shared.rkt"
          "ffi-host.rkt"
          "errors.rkt"
-         "host.rkt"
+         "host/state.rkt"
          "value.rkt"
-         "abi-value.rkt")
+         "abi-value.rkt"
+         "session/state.rkt")
 
-;; `session-host` / pump / guard live in session/pump. Lazy-require breaks the
-;; session ↔ promise and promise ↔ pump cycles (session eagerly requires this
-;; module; pump lazy-requires session).
+;; Session state owns `session-host` / guard; pump owns the read path. The lazy
+;; imports break the session ↔ promise and promise ↔ pump cycles (session
+;; eagerly requires this module; pump lazy-requires session).
 (lazy-require
- ["session.rkt" (session-host session-ptr guard-open session-flush!)]
+ ["session.rkt" (session-flush!)]
  ["pump.rkt" (pump-until)]
  ["gc.rkt" (session-gc-enabled? track-argument!)])
 

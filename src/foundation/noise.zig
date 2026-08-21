@@ -130,7 +130,7 @@ pub const CipherState = struct {
     /// leaves that to the protocol above, and the sealed channel does not
     /// reset it either.
     pub fn rekey(self: *CipherState) void {
-        const zeros = [_]u8{0} ** KEY_BYTES;
+        const zeros = @as([KEY_BYTES]u8, @splat(0));
         var sealed: [KEY_BYTES]u8 = undefined;
         defer std.crypto.secureZero(u8, &sealed);
         var tag: [TAG_BYTES]u8 = undefined;
@@ -157,7 +157,7 @@ pub const CipherState = struct {
     /// The ChaCha20-Poly1305 nonce layout the specification fixes: four zero
     /// bytes then the counter, little-endian.
     fn nonceBytes(n: u64) [Aead.nonce_length]u8 {
-        var out = [_]u8{0} ** Aead.nonce_length;
+        var out = @as([Aead.nonce_length]u8, @splat(0));
         std.mem.writeInt(u64, out[4..12], n, .little);
         return out;
     }

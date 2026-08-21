@@ -4,7 +4,7 @@
 // introduction that opened it. The page reaches these through `store.ts`.
 
 import type { Conv, ConvBase, DirId, DirView, DmConv, DmLine, RoomConv, Unread } from "../types.ts";
-import { set, type State, state } from "./core.ts";
+import { letLinesGo, set, type State, state } from "./core.ts";
 import { isSelf } from "./dirs.ts";
 
 // ── Conversations ─────────────────────────────────────────────────────────
@@ -216,8 +216,18 @@ export function closeDmsWith(dir: DirId, peer: string): string[] {
 
 /** Drop a conversation. If it was the one on screen, nothing is on screen now:
  * the caller chooses where to go next, but it cannot leave `activeKey` naming a
- * conversation that no longer exists. */
+ * conversation that no longer exists.
+ *
+ * Its lines go the way every other line goes, through the release seam, and
+ * they go before the row does: the seam finds the session by asking this store
+ * which directory the conversation was on, so a conversation deleted first is
+ * one whose lines can no longer be given back. Both callers used to hand their
+ * history over themselves, immediately before calling this. That worked and
+ * was one caller away from not working, which is the same shape as any
+ * invariant kept by everybody remembering rather than by the seam that owns
+ * it. */
 export function forgetConv(key: string): void {
+	letLinesGo(key, state.convs.get(key)?.history ?? []);
 	const convs = new Map(state.convs);
 	convs.delete(key);
 	// The draft goes with it. What was half-written to a room is addressed to

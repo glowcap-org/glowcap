@@ -6,6 +6,7 @@
 //! policy or a diagnostic journal.
 
 const foundation = @import("foundation");
+const carrier_detail = @import("carrier_detail.zig");
 
 pub const Phase = enum(u8) {
     resolve,
@@ -18,13 +19,7 @@ pub const Phase = enum(u8) {
     shutdown,
 };
 
-/// Vendor-neutral detail. Zero/null means that the selected carrier cannot
-/// observe the fact; adapters must not invent it.
-pub const Detail = struct {
-    verification_flags: u32 = 0,
-    peer_alert: ?u8 = null,
-    engine_code: ?i32 = null,
-};
+pub const Detail = carrier_detail.Detail;
 
 pub const Failure = struct {
     phase: Phase,

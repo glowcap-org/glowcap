@@ -205,8 +205,8 @@ const GiveCapture = struct {
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
     const crypto = pancake.foundation.crypto;
     const allocator = std.testing.allocator;
-    const recipient_seed = [_]u8{9} ** crypto.SEED_BYTES;
-    const partner_seed = [_]u8{10} ** crypto.SEED_BYTES;
+    const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(9));
+    const partner_seed = @as([crypto.SEED_BYTES]u8, @splat(10));
     var pair = try engine.pairing.pairedWithKeys(allocator, recipient_seed, partner_seed);
     defer pair.deinit();
 
@@ -233,9 +233,9 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 
     // A genuine signed give whose exporter location is a verbatim locator
     // record, exactly what a gifter node would have minted.
-    const gifter_secret = crypto.SecretKey.fromSeed([_]u8{7} ** crypto.SEED_BYTES);
+    const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(7)));
     const recipient_key = crypto.SecretKey.fromSeed(recipient_seed).publicKey().asBytes();
-    const exporter_key = crypto.SecretKey.fromSeed([_]u8{8} ** crypto.SEED_BYTES).publicKey().asBytes();
+    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(8))).publicKey().asBytes();
     const location = try engine.encodePeerLocatorRecord(allocator, .{
         .transport = "tcp",
         .designator = "127.0.0.1:9070",
@@ -245,7 +245,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     const gifter_side = try engine.handoff_recipient.sideName(gifter_secret.publicKey().asBytes());
     const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
     const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
-    const gift_id = [_]u8{0x5a} ** 32;
+    const gift_id = @as([32]u8, @splat(0x5a));
     const give = try engine.handoff_gifter.buildSignedGive(
         allocator,
         gifter_secret,
@@ -257,7 +257,10 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     );
     defer allocator.free(give);
 
-    try pair.p2.sendResolveHandoffGive(.fromWire(answer), give);
+    try pair.p2.sendResolveHandoffGive(
+        pair.p2.session_state.answerTargetNamed(.fromWire(answer)).?,
+        give,
+    );
     try shuttle(&pair.p2, &pair.p1);
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
@@ -280,7 +283,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 const ClaimBigReplies = struct {
     claimed: usize = 0,
 
-    fn fire(ctx: ?*anyopaque, _: model.AnswerName, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
+    fn fire(ctx: ?*anyopaque, _: engine.AnswerTarget, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
         const self: *ClaimBigReplies = @ptrCast(@alignCast(ctx.?));
         // `.claimed` claims the reply (the interceptor owns resolving it);
         // `.resolve` passes the value through for the vat to resolve as-is.

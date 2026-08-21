@@ -21,11 +21,11 @@ const Peer = engine.Peer;
 
 const abort_projection = @import("abort_projection.zig");
 const bootstrap = @import("bootstrap.zig");
+const deliver_route = @import("inbound/deliver_route.zig");
 const events = @import("events.zig");
 const outbound = @import("outbound.zig");
 const pipeline = @import("pipeline.zig");
 const shortening = @import("inbound_shortening.zig");
-const v1_0 = @import("v1_0.zig");
 
 const codec = @import("codec");
 
@@ -201,7 +201,7 @@ pub fn applyDecodedOwnedFrame(
     var node_resolver_callback: ?model.ExportPosition = null;
     var bootstrap_request: ?bootstrap.Request = null;
     if (decoded_body == .deliver) {
-        switch (try classifyInboundDeliver(self, decoded_body.deliver, &introduced)) {
+        switch (try deliver_route.classify(self, decoded_body.deliver, &introduced)) {
             // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
             // a *borrowed* view over the deliver's args, applied through the
             // session's resolver-callback seam below — no owned
@@ -406,6 +406,10 @@ pub fn applyDecodedOwnedFrame(
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
         if (node_resolver_callback) |resolver|
             self.session_state.completeNodeSettlingResolverCallback(resolver);
+        self.events.backPtr().?.deliver_answer_target = if (try self.events.backPtr().?.deliverAnswerName()) |answer|
+            self.session_state.answerTargetNamed(answer)
+        else
+            null;
     } else {
         try self.session_state.recordRecvView(decoded_body);
     }
@@ -447,7 +451,7 @@ pub fn applyDecodedOwnedFrame(
     if (bootstrap_request) |action| {
         switch (action) {
             .fetch => |req| {
-                const scope = if (self.node_services) |services| services.peer_id else null;
+                const scope = if (self.node_services) |services| services.peer_handle else null;
                 try outbound.enqueueAnswerResolutionOwned(
                     self,
                     req.answer,
@@ -455,7 +459,7 @@ pub fn applyDecodedOwnedFrame(
                 );
             },
             .deposit_gift => |req| {
-                const scope = if (self.node_services) |services| services.peer_id else null;
+                const scope = if (self.node_services) |services| services.peer_handle else null;
                 const response = try bootstrap.resolveForDeposit(&self.session_state, self.giftRegistry(), self.localObjectProjection(), scope, req);
                 if (self.node_services) |services| services.giftDeposited(req.gift_id);
                 if (response) |resolution| {
@@ -463,7 +467,7 @@ pub fn applyDecodedOwnedFrame(
                 }
             },
             .withdraw_gift => |req| {
-                const scope = if (self.node_services) |services| services.peer_id else null;
+                const scope = if (self.node_services) |services| services.peer_handle else null;
                 if (self.pendingWithdrawCount() >= self.session_state.limits.max_pending_withdraws) {
                     const gifter = bootstrap.liveGifterSession(self.gifterSessionResolver(), req.receive.signed_give);
                     if (gifter == null or !gifter.?.gifts.giftLive(req.receive.signed_give.gift_id)) {
@@ -483,7 +487,7 @@ pub fn applyDecodedOwnedFrame(
                         }
                         var receive = admission.receive;
                         errdefer receive.deinit(self.allocator);
-                        try self.parkPendingWithdraw(receive, req.answer, admission.gifter_peer_id);
+                        try self.parkPendingWithdraw(receive, req.answer, admission.gifter_peer_handle);
                     },
                 }
             },
@@ -491,120 +495,9 @@ pub fn applyDecodedOwnedFrame(
     }
 }
 
-/// The one route an inbound `op:deliver` takes, decided by
-/// `classifyInboundDeliver`. The variants are mutually exclusive by
-/// construction: a resolver-callback targets a resolver export, a pipelined
-/// call targets a `desc:answer` promise, and a bootstrap deliver targets the
-/// bootstrap export, three disjoint target shapes.
-const InboundDeliverClass = union(enum) {
-    /// A deliver to one of our resolver exports, settling the outbound answer
-    /// carried here; the frame surfaces as a semantic `Resolve`.
-    resolver_callback_resolve: model.AnswerPosition,
-    /// A next-profile shortening-only callback. It advances private session
-    /// routing and is consumed before the application event queue.
-    shortening_callback: model.ExportPosition,
-    /// A resolver callback that raced with local answer release. Its arguments
-    /// are admitted and immediately released, with no application event.
-    retired_resolver_callback: model.ExportPosition,
-    /// A Node-only settling callback. It remains a deliver event for the Host's
-    /// Node composition hook, while session authority retires it as one-shot.
-    node_resolver_callback: model.ExportPosition,
-    /// Pipelined against an answer we owe (ADR-0007): the call was queued or
-    /// redirected during classification, so the frame surfaces nothing.
-    pipelined,
-    /// A bootstrap-protocol deliver (ADR-0006): the caller applies the
-    /// action after authority records the deliver.
-    bootstrap: bootstrap.Request,
-    /// An ordinary deliver, surfaced to the application. The optional answer
-    /// is the virtual inbound answer the V1.0 classifier allocated for a
-    /// resolver-only deliver (a `resolve_me_desc` with no wire
-    /// answer-position); the surfaced deliver carries it so the
-    /// application's reply routes back through the resolver callback. Null
-    /// for an ordinary deliver whose answer (if any) the frame already
-    /// carries.
-    ordinary: ?model.VirtualAnswer,
-};
-
-/// Classify an inbound `op:deliver` into the one route it takes. The four
-/// special-case probes live here in their load-bearing order, so the
-/// precedence is data at the call site rather than comment-enforced
-/// sequencing:
-///
-/// 1. The resolver-export probe runs first, and runs on every session
-///    (ADR-0095). A deliver to an export we minted as a resolver settles the
-///    answer that export was bound to, whatever else the position might also
-///    look like.
-/// 2. Ordinary deliver validation runs next, before any deliver-specific
-///    authority mutation.
-/// 3. V1.0 resolver registration then installs the partner's
-///    advertised resolver as a side effect, and a pipelined deliver carrying
-///    `resolve_me_desc` needs that resolver installed before its frame is
-///    released, so the V1.0 translation finds it when the drained call
-///    resolves later.
-/// 4. Pipelining runs after that registration: an inbound deliver whose target
-///    is a still-pending answer is queued until that answer resolves
-///    (ADR-0007).
-/// 5. The bootstrap probe runs last, so a pipelined call is never mistaken
-///    for a bootstrap fetch, and a resolver-only fetch has its virtual
-///    answer installed before the bootstrap action is computed.
-fn classifyInboundDeliver(
-    self: *Peer,
-    deliver: model.view.Deliver,
-    introduced: *session.validate.IntroducedImports,
-) !InboundDeliverClass {
-    // A resolver export settles by an `['fulfill|'break, payload]` deliver on
-    // every negotiated version, so this probe carries no version gate: the
-    // V1.0 resolver callback and the `op:listen` notification a listener
-    // export receives are the same wire shape (ADR-0095). Only a `.near`
-    // reaches the link, so a partner-named `.far` in the same integer space
-    // cannot key it.
-    if (deliver.target.exportPosition()) |position| {
-        if (self.session_state.sourceForShorteningResolver(position)) |state| {
-            return switch (state) {
-                .pending => .{ .shortening_callback = position },
-                .complete => session.Error.UnexpectedMessage,
-            };
-        }
-        if (self.session_state.isNodeSettlingResolver(position)) {
-            _ = try events.resolutionFromResolverCallback(deliver.args);
-            try self.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .node_resolver_callback = position };
-        }
-        if (self.session_state.retiredResolverState(position)) |state| {
-            if (state == .complete) return session.Error.UnexpectedMessage;
-            _ = try events.resolutionFromResolverCallback(deliver.args);
-            try self.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .retired_resolver_callback = position };
-        }
-        if (self.session_state.answerForResolverExport(position)) |answer| {
-            return .{ .resolver_callback_resolve = answer };
-        }
-    }
-    // Every remaining route has ordinary deliver semantics. Validate the full
-    // target, answer, resolver descriptor, and argument tree before resolver
-    // registration or pipeline retention can mutate session authority.
-    try self.session_state.validateInboundDeliverView(deliver, introduced);
-    // A resolver-only deliver (no wire answer) has a virtual answer
-    // allocated here; carry it to the `.ordinary` surface so a deliver to a
-    // local object can be replied to. A pipelined or bootstrap deliver
-    // consumes the answer through its own path (the queued call's answer,
-    // `answerForResolverImport`), so the override only matters for ordinary.
-    var ordinary_answer: ?model.VirtualAnswer = null;
-    if (self.session_state.needsV1_0Translation()) {
-        ordinary_answer = try v1_0.registerPartnerResolver(self, deliver);
-    }
-    if (try pipeline.maybeEnqueuePipelinedCall(self, deliver)) {
-        return .pipelined;
-    }
-    if (try bootstrap.pendingBootstrapAction(deliver, &self.session_state)) |action| {
-        return .{ .bootstrap = action };
-    }
-    return .{ .ordinary = ordinary_answer };
-}
-
 /// The `EventKind` a decoded body surfaces as, a 1:1 body-tag mapping. The one
 /// re-tag (a V1.0 resolver-callback deliver surfacing as `.resolve`) is decided
-/// by the inbound classifier (`classifyInboundDeliver`), not here.
+/// by the inbound deliver-route classifier, not here.
 fn eventKindFromBody(body: model.view.Body) events.EventKind {
     return switch (body) {
         .deliver => .deliver,

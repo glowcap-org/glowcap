@@ -41,10 +41,6 @@ pub const FailureChain = struct {
         return .{ .cause = cause, .cause_name = name };
     }
 
-    pub fn initClassified(cause: anyerror, name: []const u8, classification: Classification) FailureChain {
-        return .{ .cause = cause, .cause_name = name, .classification = classification };
-    }
-
     pub fn primaryName(self: FailureChain) []const u8 {
         return self.cause_name orelse @errorName(self.cause);
     }

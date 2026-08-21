@@ -2,11 +2,11 @@
 // to end (ADR-0088 capability 5, the native-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
 // its durable identity and a held inbound socket at the relay serve.ts runs, and
-// advertises a `keyed-relay` locator to the room. The native peer — a plain
+// advertises a `noise-relay` locator to the room. The native peer — a plain
 // Deno process on the dlopen runtime, no browser anywhere near its side — joins
 // the same room, redeems the room's introduction, and its Host cold-dials the
-// browser's identity through the explicitly composed relay provider. The keyed
-// OCapN session opens end to end between
+// browser's identity through the explicitly composed relay provider. The
+// Noise-sealed OCapN session opens end to end between
 // the native process and the tab, the room out of the message path, the relay
 // blind to both. The tab answers over that same arriving connection
 // (`currentSession`), so a tab that never listens still replies.
@@ -29,12 +29,13 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_native_dial_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
-import { formatPeerUri, Runtime, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
+import { formatPeerUri, Runtime, TRANSPORT_NOISE_RELAY } from "@pancake/runtime";
 import * as relay from "@pancake/relay";
 import * as tcp from "@pancake/tcp";
 import { dial, roomsHost } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -130,7 +131,7 @@ const roomPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the proof needs no cargo.
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -146,7 +147,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 let browser: Browser | null = null;
 let carolDirectory: Directory | null = null;
@@ -157,11 +158,11 @@ try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// The browser member joins first. Joining registers its durable identity at
-	// the relay's rendezvous and advertises a `keyed-relay` locator to the room,
+	// the relay's rendezvous and advertises a `noise-relay` locator to the room,
 	// so it appears in the DM-able roster.
 	const bob = await joinAs(browser, httpPort, "web-bob");
 
-	// The native peer composes TCP for the room and keyed-relay for direct dials.
+	// The native peer composes TCP for the room and noise-relay for direct dials.
 	const carolHost = roomsHost();
 	const runtime = await Runtime.open({
 		adoptHost: carolHost,
@@ -180,7 +181,7 @@ try {
 	// must ride the connection her DM arrives on.
 	await carol.register(
 		"native-carol",
-		formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()),
+		formatPeerUri(TRANSPORT_NOISE_RELAY, carolHost.designator()),
 	);
 
 	// Wait until the directory says web-bob is introducible.
@@ -192,7 +193,7 @@ try {
 
 	// Cold-dial: opening the DM redeems the room's introduction, and the Host
 	// dials web-bob's identity through the relay rendezvous, off-room. The
-	// keyed-relay session opens native-to-tab; her line lands on the tab's giftable.
+	// noise-relay session opens native-to-tab; her line lands on the tab's giftable.
 	const replies: string[] = [];
 	const line = await DirectMessage.open(carol, "web-bob", (text) => {
 		replies.push(text);
@@ -214,8 +215,8 @@ try {
 	console.log(
 		"PASS: a native peer cold-dialed a browser member by relay rendezvous — the tab " +
 			"registered its durable identity, the native Host redeemed a room introduction and " +
-			"bridged onto the held socket through its configured relay provider, the keyed-relay " +
-			"session opened native-to-tab off-room, and the reply rode back over the same " +
+			"bridged onto the held socket through its configured relay provider, the noise-relay " +
+			"session opened sealed native-to-tab off-room, and the reply rode back over the same " +
 			"arriving connection to a sender that never listens",
 	);
 } finally {
@@ -223,11 +224,6 @@ try {
 	if (browser) await browser.close().catch(() => {});
 	await carolDirectory?.close().catch(() => {});
 	await carolRuntime?.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

@@ -48,8 +48,8 @@ pub fn main(init: std.process.Init) !void {
     // Listen on a designator, the peer's name on its transport: for tcp a
     // `host:port`, with port 0 letting the OS pick one.
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
-        .handshake = .{ .ms = 10_000 },
-        .settle = .{ .ms = 10_000 },
+        .handshake = driver.default_handshake_budget,
+        .settle = driver.default_settle_budget,
     });
     defer server.deinit();
 
@@ -72,8 +72,8 @@ pub fn main(init: std.process.Init) !void {
             pancake.net.tcp.locator(designator),
             .ephemeral,
             .{
-                .handshake = .{ .ms = 10_000 },
-                .settle = .{ .ms = 10_000 },
+                .handshake = driver.default_handshake_budget,
+                .settle = driver.default_settle_budget,
             },
         );
         defer session.deinit();

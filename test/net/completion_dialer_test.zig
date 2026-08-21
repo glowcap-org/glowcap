@@ -300,6 +300,10 @@ const FailingConnectBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *FailingConnectBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     var open_sockets: usize = 0;
     var closed_fds: usize = 0;
 

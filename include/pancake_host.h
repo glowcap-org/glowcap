@@ -25,8 +25,8 @@ extern "C" {
 /* A PancakeHost is the multi-session CapTP host for an embedder that
    owns its own loop, sockets, and entropy (ADR-0072). The library owns every
    decision — routing, three-party redeem, gift origination — and the embedder
-   moves bytes: feed inbound frames with pancake_host_session_feed, write what
-   pancake_host_session_take_outbound drains, and honor the action queue.
+   moves transport packets: feed inbound packets with pancake_host_session_feed_packet,
+   write what pancake_host_session_take_packet drains, and honor the action queue.
    examples/c/host_embedder_pump.c is a complete embedder built from exactly
    these calls, and the host section of docs/consuming-from-c.md is the
    guided route; read one before wiring the action queue below.
@@ -46,7 +46,7 @@ extern "C" {
    (pancake_host_session_open_dialed_locator), drive
    its session open, then report pancake_host_dialed (or
    pancake_host_dial_failed); FLUSH — drain
-   take_outbound on that session until WOULD_BLOCK and write the frames;
+   that session's transport output until WOULD_BLOCK and write it;
    NEED_GIFT_ID — draw 32 random bytes and call pancake_host_provide_gift_id,
    or call pancake_host_gift_id_failed when entropy cannot be provided;
    SETTLE / FAIL — route the outcome to whatever awaits the vow the action's
@@ -61,8 +61,9 @@ extern "C" {
    vow_send/vow_index/vow_untag/vow_get, the turn verbs (with the callback's own turn),
    ref_release, session_set_exporter_location, session_is_open, the error
    readers — and their effects encode and pump when the enclosing call
-   unwinds. The host-driving verbs (feed, feed_bytes, take_outbound,
-   next_action, dialed/dial_failed/provide_gift_id, open_*, publish/spawn,
+   unwinds. The host-driving verbs (feed, feed_bytes, feed_packet,
+   resume_feed, take_packet, take_outbound, next_action,
+   dialed/dial_failed/provide_gift_id, open_*, publish/spawn,
    fetch/enliven, break_far_vows, transport_closed, release) are refused there with
    PANCAKE_ERR_INVALID_ARGUMENT. */
 
@@ -157,7 +158,7 @@ typedef void (*PancakeTraceCallback)(void *ctx, const PancakeTraceEvent *event);
 
 /* PancakeHostAction.kind: dial the exporter named by ticket (borrow the pending view with pancake_host_pending_dial), then report pancake_host_dialed / pancake_host_dial_failed. */
 #define PANCAKE_HOST_ACTION_DIAL 0
-/* PancakeHostAction.kind: drain pancake_host_session_take_outbound on session until WOULD_BLOCK and write the frames. */
+/* PancakeHostAction.kind: drain the session's transport-ready output until WOULD_BLOCK and write it. */
 #define PANCAKE_HOST_ACTION_FLUSH 1
 /* PancakeHostAction.kind: draw 32 random bytes and feed them to pancake_host_provide_gift_id with the ticket, or report failure through pancake_host_gift_id_failed. */
 #define PANCAKE_HOST_ACTION_NEED_GIFT_ID 2
@@ -197,9 +198,9 @@ typedef void (*PancakeTraceCallback)(void *ctx, const PancakeTraceEvent *event);
 #define PANCAKE_DEFAULT_FRAME_CAP 1048576
 /* Bound on one turn's synchronous local Forward chase (caretaker over attenuator). Hop N+1 breaks the answer instead of spinning. */
 #define PANCAKE_MAX_LOCAL_FORWARD_HOPS 256
-/* Discovery-posture dial retry interval in milliseconds (ADR-0082). Keep lockstep with driver.discovery_retry_ms. */
+/* Discovery-posture dial retry interval in milliseconds, projected from the shared driver_core default. */
 #define PANCAKE_DISCOVERY_DIAL_RETRY_MS 3000
-/* Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts. */
+/* Discovery-posture dial attempt budget, including the first attempt. */
 #define PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS 24
 /* PancakePartnerIdentity.provenance: a lower layer proved the partner holds the durable key it claims, and that key names the far end of the byte channel this session runs over, so the partner and the endpoint this session is encrypted to are one node. */
 #define PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT 0
@@ -455,12 +456,12 @@ typedef struct PancakeDialPlan {
    caller-owned hint_storage array. On PANCAKE_OK, *out_hint_count is the number
    of initialized hints and the locator plus all nested byte views remain
    Host-owned until pancake_host_dialed / pancake_host_dial_failed consumes the
-   ticket (or Host teardown); hint_storage remains caller-owned. When
-   hint_capacity is too small, returns PANCAKE_ERR_BUFFER_TOO_SMALL, writes the
-   required capacity to *out_hint_count, and leaves *out_locator untouched. The
-   locator was parsed and retained once when the give was accepted; no URI is
-   reparsed and no hint is discarded. Unknown tickets return
-   PANCAKE_ERR_INVALID_ARGUMENT. */
+   ticket (or Host teardown); hint_storage remains caller-owned. A null
+   hint_storage with hint_capacity 0 is the size probe: when hints exist the call
+   returns PANCAKE_ERR_BUFFER_TOO_SMALL, writes the exact required capacity to
+   *out_hint_count, and leaves *out_locator untouched. The locator was parsed and
+   retained once when the give was accepted; no URI is reparsed and no hint is
+   discarded. Unknown tickets return PANCAKE_ERR_INVALID_ARGUMENT. */
 int32_t pancake_host_pending_dial(PancakeHost *host, uint64_t ticket, PancakeLocatorHintView *hint_storage, size_t hint_capacity, PancakeLocatorView *out_locator, size_t *out_hint_count);
 /* Write the live session homing remote reference into *out_session, or NULL for
    a local, stale, foreign-Host, or closed-session capability. Bindings compare
@@ -526,16 +527,37 @@ int32_t pancake_host_session_feed(PancakeHostSession *session, const PancakeFram
    order, each body exactly as pancake_host_session_feed. Dispatch pauses at the
    frame that completes the keyed handshake: frames coalesced behind the hello
    wait in the session's tail while you act on the fresh session (publish, fetch),
-   and your next call — an empty chunk (len 0, bytes may be NULL) works — feeds
-   them. PANCAKE_ERR_WOULD_BLOCK is the preflight high-water refusal and consumes
-   no bytes from this call. Internal pressure after any prefix commits is retained
-   in the session tail and returns success; PANCAKE_ERR_INTERNAL with no last-abort
-   therefore means the first direct frame was not admitted and the same chunk is
-   retryable. A recorded last-abort means the input was consumed and the session
-   is closing; drain the typed abort and release it. A declared body exceeding the
-   session's frame cap is PANCAKE_ERR_FRAME_TOO_LARGE; malformed or non-canonical
-   outer syntax is a codec error. */
+   and pancake_host_session_resume_feed feeds them once that post-open authority
+   is installed. PANCAKE_ERR_WOULD_BLOCK is the preflight high-water refusal and
+   consumes no bytes from this call. Internal pressure after any prefix commits is
+   retained in the session tail and returns success; PANCAKE_ERR_INTERNAL with no
+   last-abort therefore means the first direct frame was not admitted and the same
+   chunk is retryable. A recorded last-abort means the input was consumed and the
+   session is closing; drain the typed abort and release it. A declared body
+   exceeding the session's frame cap is PANCAKE_ERR_FRAME_TOO_LARGE; malformed or
+   non-canonical outer syntax is a codec error. */
 int32_t pancake_host_session_feed_bytes(PancakeHostSession *session, const uint8_t *bytes, size_t len);
+/* Feed one transport packet (borrowed for the call). Byte-stream transports pass
+   arbitrary chunks carrying ADR-0110's outer Syrup byte-string envelope;
+   message-framed transports pass one bare codec frame per packet. The Host
+   transport profile owns that choice, so embedders do not branch on concrete
+   transport names. A real empty message-framed packet is malformed because it is
+   not a codec frame; use pancake_host_session_resume_feed to resume retained
+   byte-stream input without supplying new transport bytes. */
+int32_t pancake_host_session_feed_packet(PancakeHostSession *session, const uint8_t *bytes, size_t len);
+/* Resume input retained by an earlier feed, without treating an empty transport
+   packet as new input. Byte-stream sessions may dispatch a held tail; message-
+   framed sessions have no hidden tail and no-op. Refused inside a callback. */
+int32_t pancake_host_session_resume_feed(PancakeHostSession *session);
+/* Drain one transport-ready packet. Write
+   out_prefix[0..*out_prefix_len] and then the owned out_frame bytes. Byte-stream
+   sessions return their canonical outer Syrup prefix; message-framed sessions
+   return an empty prefix and one bare codec frame. Free out_frame through
+   pancake_managed_frame_release. prefix_cap must be at least
+   PANCAKE_HOST_OUTBOUND_PREFIX_CAP; undersizing is refused before the payload
+   leaves the queue. Returns PANCAKE_OK with outputs set, or
+   PANCAKE_ERR_WOULD_BLOCK with outputs untouched. Refused inside a callback. */
+int32_t pancake_host_session_take_packet(PancakeHostSession *session, PancakeManagedFrame *out_frame, uint8_t *out_prefix, size_t prefix_cap, size_t *out_prefix_len);
 /* Drain one transport-ready byte-stream vector. Write
    out_prefix[0..*out_prefix_len] and then the owned out_frame bytes. Clear
    sessions return their canonical outer Syrup prefix; sealed sessions return an

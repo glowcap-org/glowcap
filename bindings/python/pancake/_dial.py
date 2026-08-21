@@ -13,6 +13,7 @@ import ctypes
 from typing import Optional, TYPE_CHECKING
 
 from . import _constants as _abi
+from ._abi_value import _DEFAULT_CODEC
 from ._errors import PancakeError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
@@ -171,7 +172,7 @@ class Runtime:
             selected_connectors,
             adopt_host=adopt_host,
             seed=seed,
-            codec=codec if codec is not None else "syrup",
+            codec=codec if codec is not None else _DEFAULT_CODEC,
             handshake_timeout_ms=handshake_timeout_ms,
         )
 
@@ -372,8 +373,19 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
     try:
         if host.released:
             return
-        capacity = 8
-        while True:
+        view = _LocatorView()
+        count = ctypes.c_size_t()
+        hints = None
+        rc = _host.pancake_host_pending_dial(
+            host.raw,
+            ticket,
+            None,
+            0,
+            ctypes.byref(view),
+            ctypes.byref(count),
+        )
+        if rc == _abi.ERR_BUFFER_TOO_SMALL:
+            capacity = count.value
             hints = (_LocatorHintView * capacity)()
             view = _LocatorView()
             count = ctypes.c_size_t()
@@ -385,10 +397,7 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
                 ctypes.byref(view),
                 ctypes.byref(count),
             )
-            if rc != _abi.ERR_BUFFER_TOO_SMALL:
-                _check_host(rc)
-                break
-            capacity = count.value
+        _check_host(rc)
         with _OwnedLocator.clone_view(ctypes.cast(ctypes.byref(view), ctypes.c_void_p)) as owned:
             locator = owned.value()
         session = await dial_exporter(locator, host)

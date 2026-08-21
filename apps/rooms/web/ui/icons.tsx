@@ -189,6 +189,11 @@ const paths = {
 			<rect x="3.5" y="13.5" width="17" height="6" rx="2" />
 		</>
 	),
+	// A funnel, for the rail's filter: a wide mouth narrowing to a spout, which
+	// is the one glyph that says "less of this" rather than "find one of these".
+	// A magnifier would promise a search across everything, and the rail's
+	// filter only ever narrows the rows already in front of the reader.
+	filter: <path d="M3.8 5.2h16.4l-6.4 7.4v5.6l-3.6 2.6v-8.2z" />,
 	gear: (
 		<>
 			<path d="M4 7h16M4 12h16M4 17h16" />

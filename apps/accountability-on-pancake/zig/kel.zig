@@ -72,7 +72,7 @@ pub fn mintRotation(
     allocator: std.mem.Allocator,
     parts: RotationParts,
 ) Error!struct { said: [SAID_LEN]u8, bytes: []u8 } {
-    const draft = try renderRotation(allocator, parts, .{blank} ** SAID_LEN, .{blank} ** SIG_LEN);
+    const draft = try renderRotation(allocator, parts, @splat(blank), @splat(blank));
     defer allocator.free(draft);
     const said = saidOf(draft);
 

@@ -81,6 +81,7 @@ const ListenerCapture = struct {
 const ImmediateClosedExternalResident = struct {
     wake: net.wake_channel.WakeChannel,
     close_calls: usize = 0,
+    close_ready: bool = false,
 
     const transport = "external-close";
     const conn_id: usize = 9;
@@ -107,8 +108,12 @@ const ImmediateClosedExternalResident = struct {
         return of(ctx).wake.read;
     }
 
-    fn drainReady(_: *anyopaque, _: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
-        return 0;
+    fn drainReady(ctx: *anyopaque, out: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
+        const self = of(ctx);
+        self.wake.drain() catch return error.ProviderContract;
+        if (!self.close_ready or out.len == 0) return 0;
+        out[0] = .{ .subject = conn_id, .events = net.multiplexed_resident.ev_closed };
+        return 1;
     }
 
     fn claimExternal(_: *anyopaque, subject: usize) net.MultiplexedExternalClaimRawOutcome {
@@ -124,15 +129,19 @@ const ImmediateClosedExternalResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) ?pancake.foundation.FailureChain {
+    fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
         std.debug.assert(conn == conn_id);
-        of(ctx).close_calls += 1;
-        return null;
+        const self = of(ctx);
+        self.close_calls += 1;
+        if (!self.close_ready) return .pending;
+        var failure = pancake.foundation.FailureChain.init(error.ResidentCloseFailed);
+        failure.note(error.ResidentCloseCleanupFailed);
+        return .{ .failed = failure };
     }
 
     fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
         std.debug.assert(conn == conn_id);
-        return pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0x5d} ** 32).publicKey();
+        return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x5d))).publicKey();
     }
 };
 
@@ -315,10 +324,59 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     try std.testing.expect(observed.failure == null);
 
     _ = try runtime.stepAny(0);
-    try std.testing.expectEqual(@as(usize, 0), observed.reservations);
-    try std.testing.expectEqual(driver.Error.ConnectionClosed, observed.failure.?);
-    try std.testing.expectEqual(@as(usize, 0), observed.close_events);
+    try std.testing.expectEqual(@as(usize, 2), observed.reservations);
+    try std.testing.expect(observed.failure == null);
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+
+    resident.close_ready = true;
+    _ = try resident.wake.nudge();
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(@as(usize, 0), observed.reservations);
+    try std.testing.expectEqual(error.ResidentCloseFailed, observed.failure.?);
+    try std.testing.expectEqualStrings("ResidentCloseCleanupFailed", observed.failure_detail.?.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), observed.failure_detail.?.secondary_count);
+    try std.testing.expectEqual(@as(usize, 0), observed.close_events);
+    try std.testing.expectEqual(@as(usize, 2), resident.close_calls);
+}
+
+test "message resident adoption sizes reads from the transport packet cap" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+
+    var resident = ImmediateClosedExternalResident{
+        .wake = try net.wake_channel.WakeChannel.open(),
+    };
+    defer resident.wake.deinit();
+
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    const packet_cap = frame_cap + 2048;
+    _ = try runtime.addResident(.{
+        .symbol = ImmediateClosedExternalResident.transport,
+        .designator_scheme = .key,
+        .wire_framing = .message,
+        .max_packet_bytes = packet_cap,
+    }, resident.multiplexedResident());
+
+    var observed = ObservedOpen{};
+    try runtime.startAdoptExternal(
+        ImmediateClosedExternalResident.transport,
+        ImmediateClosedExternalResident.conn_id,
+        .dialed,
+        41,
+        .{
+            .ctx = &observed,
+            .reserve = ObservedOpen.reserve,
+            .release = ObservedOpen.release,
+            .opened = ObservedOpen.opened,
+            .failed = ObservedOpen.failed,
+        },
+    );
+
+    const session = runtime.pending_opens.items[0].session;
+    const wire = runtime.wires.get(session.peer_handle).?;
+    try std.testing.expectEqual(packet_cap, wire.link.resident.read_buf.len);
 }
 
 test "bindListener cancels pending provider setup when readiness fails" {

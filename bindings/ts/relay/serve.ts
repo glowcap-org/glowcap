@@ -31,10 +31,11 @@ import {
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
+import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@pancake/abi";
 
 // Liveness is the idle timeout; the per-session byte total is a runaway backstop
 // over the session's life, not a memory bound (instantaneous memory is bounded
-// by the backpressure on both legs). Both are set far above any real session.
+// by the backpressure on both legs). Defaults come from generated binding policy.
 // The conformance idle-timeout proof sets `PANCAKE_RELAY_IDLE_MS` low; a
 // production run leaves it unset and gets the 60s default.
 function idleTimeoutMsFromEnv(): number {
@@ -44,11 +45,11 @@ function idleTimeoutMsFromEnv(): number {
 	} catch {
 		// no --allow-env; fall through to the default
 	}
-	return 60_000;
+	return BINDING_RELAY_IDLE_TIMEOUT_MS;
 }
 const relayConfig: RelayConfig = {
 	idleTimeoutMs: idleTimeoutMsFromEnv(),
-	maxBytesPerSession: 1024 * 1024 * 1024, // 1 GiB
+	maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION,
 };
 
 // The cold-dial rendezvous table (ADR-0088): identity → held inbound sockets.

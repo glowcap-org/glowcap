@@ -25,7 +25,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "inline gift staging refuses a complete message that exceeds the recipient budget" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x70} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x70)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -36,14 +36,14 @@ test "inline gift staging refuses a complete message that exceeds the recipient 
         allocator,
         &node,
         recipient,
-        [_]u8{0x71} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x71)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        [_]u8{0x72} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x72)),
     );
     defer exporter_counterpart.deinit();
 
@@ -68,7 +68,7 @@ test "inline gift staging refuses a complete message that exceeds the recipient 
 
 test "inline gift occurrence admission is aggregate per recipient" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x73} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x73)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{ .limits = .{ .queue_cap = 2 } });
@@ -79,14 +79,14 @@ test "inline gift occurrence admission is aggregate per recipient" {
         allocator,
         &node,
         recipient,
-        [_]u8{0x74} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x74)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        [_]u8{0x75} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x75)),
     );
     defer exporter_counterpart.deinit();
 
@@ -105,10 +105,14 @@ test "inline gift occurrence admission is aggregate per recipient" {
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
     try node.giftIdFailed(first);
-    // Failing either admitted batch consumes only its ticket and terminalizes
-    // the recipient. The sibling batch is retired by the session-close seam.
+    // The batch ticket tombstone pass must not consume a sibling batch's row.
+    try std.testing.expect(!node.hasPendingGift(first));
+    try std.testing.expect(node.hasPendingGift(second));
+    try std.testing.expectEqual(@as(usize, 1), node.pendingGiftEffects());
+    // Failing either admitted batch terminalizes the recipient. The sibling
+    // batch is then retired by the session-close seam.
     const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_id);
+    try std.testing.expectEqual(recipient_id, failure.peer_handle);
     recipient.closeSession();
     try node.giftIdFailed(second); // stale after recipient retirement
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
@@ -117,7 +121,7 @@ test "inline gift occurrence admission is aggregate per recipient" {
 
 test "same-exporter inline deposits share one cumulative outbound reservation" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x76} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x76)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -128,14 +132,14 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
         allocator,
         &node,
         recipient,
-        [_]u8{0x77} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x77)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        [_]u8{0x78} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x78)),
     );
     defer exporter_counterpart.deinit();
 
@@ -145,7 +149,7 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
     const foreign = try node.enrollForeign(exporter_id, wire);
     const one_deposit: model.Message = .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
-        .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &([_]u8{0} ** model.HANDOFF_GIFT_ID_BYTES) }, .{ .reference = wire } },
+        .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0))) }, .{ .reference = wire } },
         .answer = null,
     } };
     const one_charge = try model.measureMessageOwnedBytes(one_deposit);
@@ -157,13 +161,13 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
     } });
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
-    const first_id = [_]u8{0x79} ** model.HANDOFF_GIFT_ID_BYTES;
-    const second_id = [_]u8{0x7a} ** model.HANDOFF_GIFT_ID_BYTES;
+    const first_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x79));
+    const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x7a));
     try node.provideGiftId(first, &first_id);
     try node.provideGiftId(second, &second_id);
 
     const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_id);
+    try std.testing.expectEqual(recipient_id, failure.peer_handle);
     recipient.closeSession();
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
@@ -172,7 +176,7 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
 
 test "nested foreign promises share one prepared home listener" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x7b} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x7b)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -183,14 +187,14 @@ test "nested foreign promises share one prepared home listener" {
         allocator,
         &node,
         recipient,
-        [_]u8{0x7c} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x7c)),
     );
     defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         home,
-        [_]u8{0x7d} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x7d)),
     );
     defer home_counterpart.deinit();
 
@@ -208,10 +212,10 @@ test "nested foreign promises share one prepared home listener" {
     var home_flushes: usize = 0;
     var recipient_flushes: usize = 0;
     while (node.nextAction()) |action| switch (action) {
-        .flush => |peer_id| {
-            if (peer_id == home_id) {
+        .flush => |peer_handle| {
+            if (peer_handle == home_id) {
                 home_flushes += 1;
-            } else if (peer_id == recipient_id) {
+            } else if (peer_handle == recipient_id) {
                 recipient_flushes += 1;
             } else {
                 return error.UnexpectedNodeAction;
@@ -262,8 +266,8 @@ test "nested foreign promises share one prepared home listener" {
     try std.testing.expectEqualStrings("settled", second_settlement.fulfill.bytes);
     var settlement_flushes: usize = 0;
     while (node.nextAction()) |action| switch (action) {
-        .flush => |peer_id| {
-            try std.testing.expectEqual(recipient_id, peer_id);
+        .flush => |peer_handle| {
+            try std.testing.expectEqual(recipient_id, peer_handle);
             settlement_flushes += 1;
         },
         else => return error.UnexpectedNodeAction,

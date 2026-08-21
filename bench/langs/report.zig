@@ -27,7 +27,7 @@ pub fn report(ctx: *Ctx, rows: []const Row, skipped: []const Skip) !void {
     // Terminal summary.
     var term: std.ArrayList(u8) = .empty;
     defer term.deinit(ctx.gpa);
-    try term.appendSlice(ctx.gpa, "pancake per-language consumer cost (NOT a leaderboard)\n");
+    try term.appendSlice(ctx.gpa, "pancake per-language consumer cost\n");
     try term.print(ctx.gpa, "mode={s} lat_n={d} tput_n={d} conns={d} cold_samples={d} local_n={d}\n\n", .{ mode_str, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
     for (rows) |r| {
         try term.print(ctx.gpa, "  {s} ({s})  p50={s}ms p99={s}ms p999={s}ms mean={s}ms rps={s} setup={s}ms/conn per_conn={s}kB cold={s}ms local={s}ns local_p99={s}ns via_host={s}ns via_p99={s}ns via/local={s}\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms, r.local_in_ns, r.local_in_p99_ns, r.local_via_ns, r.local_via_p99_ns, r.local_ratio });
@@ -156,7 +156,7 @@ fn renderMarkdown(ctx: *Ctx, rows: []const Row, mode: []const u8, stamp: i64) ![
     const a = ctx.arena;
     try s.appendSlice(a, "# pancake per-language consumer cost\n\n");
     try s.print(a, "Mode **{s}** \u{b7} latency n={d} \u{b7} throughput n={d} \u{b7} connections={d} \u{b7} cold-start samples={d} \u{b7} local n={d}. One native Zig host, the client language swapped per row, over real loopback TCP.\n\n", .{ mode, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
-    try s.appendSlice(a, "> This is **not** a language leaderboard. Each row is a whole consumer stack — runtime, that language's binding, the app rewritten in it, and its garbage collector — over one pancake host. A faster row does not mean pancake's wire is faster in that language; it means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, then read the [benchmark guide](../../bench/langs/README.md) and [methodology](../../bench/langs/methodology.md).\n\n");
+    try s.appendSlice(a, "> Each row is a whole consumer stack: runtime, that language's binding, the app rewritten in it, and its garbage collector, over one pancake host. A faster row means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, then read the [benchmark guide](../../bench/langs/README.md) and [methodology](../../bench/langs/methodology.md).\n\n");
     try s.appendSlice(a, "## Results\n\n");
     try s.appendSlice(a, "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms | local ns/turn | local p99 ns | via-host ns/turn | via-host p99 ns | via/local |\n");
     try s.appendSlice(a, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");

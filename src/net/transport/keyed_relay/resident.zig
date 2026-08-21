@@ -245,20 +245,6 @@ pub const Resident = struct {
         };
     }
 
-    /// Provider-worker form of `dialRaw`. The task's `std.Io` cancellation
-    /// interrupts socket operations; `stop_requested` also bounds the raw-poll
-    /// upgrade loop, which is not a `std.Io` cancellation point.
-    pub fn dialRawCancelable(
-        self: *Resident,
-        locator: model.PeerLocator,
-        stop_requested: *const std.atomic.Value(bool),
-    ) DialError!RawConnection {
-        return switch (self.dialRawOutcomeWithCancellation(locator, stop_requested)) {
-            .connected => |raw| raw,
-            .failed => |failure| failure.classification,
-        };
-    }
-
     pub fn dialRawOutcome(self: *Resident, locator: model.PeerLocator) RawConnectionDialOutcome(RawConnection) {
         return self.dialRawOutcomeWithCancellation(locator, null);
     }

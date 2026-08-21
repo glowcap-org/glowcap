@@ -46,7 +46,7 @@ own authority_.
 ### Table-blind decode flip
 
 `readReference` in
-[`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig)
+[`src/ocapn/codec/syrup/decode/values.zig`](../../../src/ocapn/codec/syrup/decode/values.zig)
 maps each payload-position wire tag (the sender's perspective) to exactly one
 receiver-perspective model `Reference`, consulting no table:
 

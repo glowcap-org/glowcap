@@ -134,7 +134,7 @@ test "the TCP archive installs its complete profile package atomically" {
         try advertiseParts(loop, plain_listener, "tcp", "not-an-address", ""),
     );
 
-    const wrong_key = [_]u8{'0'} ** pancake.foundation.crypto.PeerKey.designator_len;
+    const wrong_key = @as([pancake.foundation.crypto.PeerKey.designator_len]u8, @splat('0'));
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
         try advertiseParts(loop, keyed_listener, "keyed-tcp", &wrong_key, "203.0.113.2:7448"),

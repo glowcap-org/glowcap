@@ -132,8 +132,8 @@ pub fn slotIndexes(comptime M: type, comptime row: anytype) []const usize {
     @setEvalBranchQuota(1_000_000);
     const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
     comptime var idx: []const usize = &.{};
-    inline for (info.params, 0..) |p, i| {
-        if (slotCell(p.type.?) != null and inOut(row, i)) idx = idx ++ &[_]usize{i};
+    inline for (info.param_types, 0..) |param_type, i| {
+        if (slotCell(param_type.?) != null and inOut(row, i)) idx = idx ++ &[_]usize{i};
     }
     return idx;
 }
@@ -147,7 +147,7 @@ fn rowClass(comptime M: type, comptime row: anytype, comptime hand_wrapped: []co
     const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
     const slots = comptime slotIndexes(M, row);
     if (slots.len == 0) return .plain;
-    if (slots.len == 1 and slots[0] == info.params.len - 1) return .wrap1;
+    if (slots.len == 1 and slots[0] == info.param_types.len - 1) return .wrap1;
     return .multi;
 }
 
@@ -161,8 +161,8 @@ pub fn funSig(comptime M: type, comptime row: anytype, comptime specials: []cons
     const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
     comptime var s: []const u8 = "(_fun ";
     if (row.blocking) s = s ++ "#:blocking? #t ";
-    inline for (info.params) |p| {
-        s = s ++ comptime rktParamType(p.type.?, specials) ++ " ";
+    inline for (info.param_types) |param_type| {
+        s = s ++ comptime rktParamType(param_type.?, specials) ++ " ";
     }
     return s ++ "-> " ++ comptime rktReturnType(info.return_type.?) ++ ")";
 }
@@ -255,7 +255,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
                 },
                 .wrap1 => {
                     const info = @typeInfo(@TypeOf(@field(cfg.M, row.name))).@"fn";
-                    const cell = comptime slotCell(info.params[info.params.len - 1].type.?).?;
+                    const cell = comptime slotCell(info.param_types[info.param_types.len - 1].?).?;
                     try out.print(gpa, "({s} {s}*\n  {s}\n  #:c-id {s})\n", .{ cfg.definer, row.name, sig, row.name });
                     const wrap_width = 10 + row.name.len + 12 + row.name.len + 1 + cell.ctype.len + cell.init.len + 4;
                     if (wrap_width <= 120) {
@@ -297,10 +297,10 @@ pub fn renderMultiWrapper(
     const names = (try headerParamNames(gpa, header, row.name)) orelse
         return error.PrototypeMissingFromHeader;
     defer gpa.free(names);
-    if (names.len != info.params.len) return error.HeaderParamCountMismatch;
+    if (names.len != info.param_types.len) return error.HeaderParamCountMismatch;
 
     try out.print(gpa, "(define ({s}", .{row.name});
-    inline for (info.params, 0..) |_, i| {
+    inline for (info.param_types, 0..) |_, i| {
         if (comptime !inSlots(slots, i)) {
             try out.appendSlice(gpa, " ");
             try writeRacketized(gpa, out, names[i]);
@@ -314,7 +314,7 @@ pub fn renderMultiWrapper(
     }
     try out.appendSlice(gpa, "  (call/outs (list");
     inline for (slots) |i| {
-        const cell = comptime slotCell(info.params[i].type.?).?;
+        const cell = comptime slotCell(info.param_types[i].?).?;
         try out.print(gpa, " (cons {s} {s})", .{ cell.ctype, cell.init });
     }
     try out.appendSlice(gpa, ")\n             (lambda (");
@@ -324,7 +324,7 @@ pub fn renderMultiWrapper(
     }
     try out.appendSlice(gpa, ")\n               ");
     try out.print(gpa, "({s}*", .{row.name});
-    inline for (info.params, 0..) |_, i| {
+    inline for (info.param_types, 0..) |_, i| {
         try out.appendSlice(gpa, " ");
         if (comptime inSlots(slots, i)) {
             try out.print(gpa, "out{d}", .{comptime slotPos(slots, i)});

@@ -1,8 +1,8 @@
 # Room links, directory peering, and the IRC gateway
 
-Status: active plan. Tier 1 room joins and several rooms at once ship; direct
-room sturdyrefs, the multi-directory session model, directory peering, and both
-IRC adapters remain. This plan extends the rooms
+Status: active plan. Tier 1 room joins, several rooms at once, direct room
+sturdyrefs, and the multi-directory session model ship; directory peering and
+both IRC adapters remain. This plan extends the rooms
 application described in [`apps/rooms/README.md`](../../apps/rooms/README.md)
 and [`apps/rooms/developing.md`](../../apps/rooms/developing.md). The one-line
 direction already recorded there ("IRC is a front, not a netlayer") is expanded
@@ -61,8 +61,10 @@ encrypted path needs no relay change. The TCP relay stays pinned to its own
 rooms server; joining across machines is a feature of the encrypted transport,
 and the cleartext path keeps its existing boundary.
 
-**Tier 2, a sturdyref per room.** The shareable room link: one OCapN sturdyref
-that redeems directly into the room capability, with no name-passing step.
+**Tier 2, a sturdyref per room (shipped).** The shareable room link: one OCapN
+sturdyref that redeems directly into the room capability, with no name-passing
+step. It names its own peer, so a front that holds the link needs no prior
+relationship with the directory hosting the room.
 
 ```text
 ocapn://<node-designator>.<transport>/s/<swissnum>
@@ -73,12 +75,14 @@ says who it is, and the swissnum designates the room. This is a feature of all
 rooms, not an IRC feature. A native room wants a pasteable link for the same
 reason a bridged one does, and one design serves both.
 
-The hosting server can mint room swissnums without storing a table. The
-swissnum encodes the room name together with an HMAC of that name under a
-server secret. Redemption verifies the MAC and reads the room name out of the
-swissnum itself, so the mint is stateless, survives restarts, and gives the
-same room a stable ref. The swissnum stays unguessable to anyone without the
-secret, so the OCapN sturdyref contract holds.
+The hosting server keeps a small durable record of the rooms it has been asked
+to link, and derives each one's swissnum from its own retained key. Deriving
+rather than storing the swissnum is what makes a link survive a restart: the
+server reads back the names it published and republishes the same refs, so a
+link keeps working across a stop. The swissnum stays unguessable to anyone
+without that key, so the OCapN sturdyref contract holds. A room nobody has asked
+to link has no durable name at all, and the record is bounded, so the durable
+set cannot grow without limit.
 
 A room link promises that the hosting peer will enliven the room. It does not
 promise the room is lively, and for a bridged room it does not promise the far
@@ -103,7 +107,7 @@ That lands on one directory. **The singleton that gates everything after it is
 the session**: the page holds one `Live`, and one `Live` holds one directory. A
 locator chooses which directory that is, and choosing a different one replaces
 the session rather than adding to it. So a tab cannot hold rooms on two servers
-at once, and the interface has nothing to group by.
+at once, and the interface has no two directories to tell apart.
 
 Splitting it is the enabling move, and the split is along a line the fields
 already suggest. A few are the tab's, being keyed by something the tab mints:
@@ -143,43 +147,70 @@ else, because giving it up would give up an identity and a reachability, not a
 view.
 
 Rooms and direct lines stay the rail's two lists. They are different kinds of
-thing rather than different places, and grouping by place does not change that.
-**Inside each list, a directory is a group, and the grouping appears only when
-there is more than one.** With a single directory the rail draws exactly what it
-draws today, with no heading and no extra chrome, so the structure arrives when
-it starts carrying information and not before.
+thing rather than different places. **A directory is a property of a row, not a
+box that owns a list of rows.** Every row says which directory it is on, in a
+quiet line under the name it is called by, and pressing that line opens what is
+known about that directory. Grouping the rows by directory instead was tried and
+taken out: a grouping is a view, a view belongs to the reader, and structuring
+the rail by directory took a decision away from them and gave it to the layout.
 
-A directory is told apart by colour, but never only by colour. The colour is the
-glance, and it marks the group and each of its rows; the name lives in the group
-heading and in every row's accessible label, so nothing depends on seeing it. A
-locator is not a label either — `ocapn://` URIs are unreadable at a glance — so a
-directory is named by what distinguishes it, the server that served the page
-saying so in words, a TCP peer showing host and port, an iroh peer a shortened
-node id, with the exact locator one copy away.
+With a single directory the rail says nothing about directories at all and draws
+exactly what it drew before any of this, so a name arrives when it starts
+carrying information and not before.
 
-The foot of the rail reports one status per directory once there are several.
-One line cannot say that one directory is reconnecting while another is fine,
-and that is exactly the state holding several makes ordinary.
+**How much of the rail a reader is looking at is theirs to say**, and that is a
+filter over the properties a room has rather than a structure the rail is built
+out of. One quiet line over both lists opens it, and it asks three questions:
+what the row is called, which directory it is on, and whether a room is public
+or private. They are peers. Which directory a row is on is one property among
+them rather than the axis the others hang off, which is the same reading that
+took the grouping out.
 
-**The "+" belongs to a group, not to the list.** With more than one directory,
-"create a room called `general`" has no answer until you say where, and a field
-that sits inside a directory's group has already answered it. That is also what
-keeps the cheap path cheap: naming a room on a directory already open stays one
-field and one Enter. Reaching a room somewhere new is a step up from that same
-field into the join card, carrying whatever has been typed. Nothing typed is
-dropped moving between the two surfaces, which is the rule the current field
-already holds when it fills the card behind it.
+The filter hides rows and does nothing else. It never groups and it never
+reorders, so what is left is the reader's own order with rows taken out of it,
+and a row hidden and shown again comes back where it was. A row the question
+does not apply to stays in view, which is what lets a direct line sit under a
+question about who can get into a room. Unread and joined are the obvious next
+two questions and are not here yet.
 
-The phone is the one place this drills rather than groups. Vertical space is
-scarce there, the narrow layout already slides between the list and the
-conversation, and wide and narrow navigation are already separate state on
-purpose. A level for directories is that layout's own idiom, not an exception.
+What a reader has asked lives in the rail for as long as the page is open and no
+longer. A reload starts with nothing hidden, deliberately: a saved filter would
+be a tab that opens missing rooms, with the reason for their absence behind a
+control the reader has to think to press. The question of whether some of it
+should outlive a reload is a real one and belongs to whichever packet also
+decides where a reader's other view state is kept, since one answer should cover
+all of it rather than the rail growing a store of its own.
 
-A room reached by a link belongs under the peer that hosts it, because a link
-names that peer. Its heading says whether this tab is registered there, which is
-also the honest answer to why direct messages work under one heading and not
-another: a sturdyref reaches a room, while a nickname, an introduction, and the
-live list are all the directory's.
+A directory is told apart by color, but never only by color. The color is the
+glance, and it marks each row; the name lives on the row itself and in every
+row's accessible label, so nothing depends on seeing it. A locator is not a label
+either, since `ocapn://` URIs are unreadable at a glance, so a directory is named
+by what distinguishes it: the server that served the page saying so in words, a
+TCP peer showing host and port, an iroh peer a shortened node id, with the exact
+locator one copy away.
+
+A directory says how it is doing on the rows that are on it. One line for the
+page cannot say that one directory is reconnecting while another is fine, and
+holding several is exactly the state that makes ordinary. A room whose directory
+is away is a room this reader cannot reach, which is a fact about that room, so
+it is said on the caption line that already names the directory and opens the
+card about it. The foot under the lists is not the place for it, because the
+foot is about the reader rather than about what they hold.
+
+**The "+" belongs to the list, and it says where the room will land.** With more
+than one directory, "create a room called `general`" has no answer until you say
+where, so the field states its destination on the line under it and offers to
+change it there. That keeps the cheap path cheap: naming a room on the directory
+you are standing in stays one field and one Enter. Reaching a room somewhere new
+is a step up from that same field into the join card, carrying whatever has been
+typed. Nothing typed is dropped moving between the two surfaces, which is the
+rule that field already holds when it fills the card behind it.
+
+A room reached by a link is on the peer that hosts it, because a link names that
+peer, and its row says so. What the card behind that row says is whether this tab
+is registered there, which is also the honest answer to why direct messages work
+on one directory and not another: a sturdyref reaches a room, while a nickname,
+an introduction, and the live list are all the directory's.
 
 ### Leaving a directory is not leaving its rooms
 
@@ -196,17 +227,21 @@ offered to give up, free it for the next person who asks, and take that
 directory's direct lines with it. None of that is recoverable by rejoining, and
 none of it was asked for.
 
-So the group heading carries the leave, beside the status it already carries,
-and it says what goes: the rooms under it, the direct lines it introduced, and
-the name. Leaving its rooms is a consequence of leaving it rather than a
-separate act, which is the opposite of the room case and the reason the two
-controls must not look alike.
+So the card about a directory carries the leave, behind a confirmation that says
+what goes: the rooms on it, the direct lines it introduced, and the name. Leaving
+its rooms is a consequence of leaving it rather than a separate act, which is the
+opposite of the room case and the reason the two controls must not look alike.
+Nor does it belong on the rail's filter: a filter says which rows you are
+looking at, and giving up a session is not a change of view. Turning a directory
+off there hides its rows and leaves the session, the name, and everything
+reachable through it exactly where they were.
 
 The affordance implies its opposite. Once a directory can be left, a tab can
 hold zero rooms on one, or none at all, so **adding a directory has to be
 expressible without naming a room** — the join card asks for a room today, and a
 "connect to this server" that stops short of entering anything has nowhere to be
-said. A rail that can draw an empty directory group needs a way to make one.
+said. A rail that can draw a directory with nothing open on it needs a way to
+make one.
 
 ## Part 2: directory peering
 
@@ -328,25 +363,30 @@ late would mean building on a shape that has to be torn out.
 2. **Profile-correct sturdyrefs** (shipped). C and every binding require the
    CapTP profile that owns the swiss-number path spelling, so a rooms peer can
    redeem the same `pancake-next` link it formats.
-3. **Room links, Tier 2.** The room-ref mint and its durable state on the
-   server, then redeeming a pasted link in the web UI. The mint half needs no
-   interface at all and can land against the server tests alone.
-4. **The multi-directory session model.** Split the one live session into per-tab
-   tables and a map of directory sessions, and key room conversations and the
-   live-room list by their directory in the same change. Reconnection becomes
-   one backoff per directory, because one directory being unreachable says
-   nothing about the others. Everything under Part 2 waits on this.
-5. **The directory in the rail.** Grouping each list by directory, one status per
-   directory in the foot, a colour per directory, and the add-a-room field moving
-   into its group. This follows the session model rather than leading it: the
-   grouping is drawn only when there is more than one directory, so until there
-   can be, there is nothing to show. What can land first, and should, is sorting
-   the rooms this tab holds above the rest of the list, which is worth having
-   with one directory.
+3. **Room links, Tier 2** (shipped). The room-ref mint and its durable state on
+   the server, then redeeming a pasted link in the web UI. A link names its own
+   peer, so redeeming one opens that directory when the tab does not already
+   hold it.
+4. **The multi-directory session model** (shipped). Split the one live session
+   into per-tab tables and a map of directory sessions, and key room
+   conversations and the live-room list by their directory in the same change.
+   Reconnection becomes one backoff per directory, because one directory being
+   unreachable says nothing about the others. Everything under Part 2 waits on this.
+5. **The directory in the rail** (shipped). Every row says which directory it is
+   on and wears that directory's mark, and pressing those words opens the card
+   about it, which is where the leave lives. A directory with nothing open on it
+   keeps a row of its own, and an invitation names the directory that granted it.
+   One directory draws exactly the rail it always drew, because the naming
+   arrives only when there is more than one directory to tell apart. The rail
+   also carries a filter over its rows by the properties a room has, asked as
+   three peer questions and never reordering what it narrows. Every row also
+   says how its directory is doing whenever that is not simply connected, so a
+   directory reaching or gone is said on the rooms it is about rather than in
+   one notice speaking for the page.
 6. **Directory peering**, generalizing introductions from members to rooms. Its
    server half is the same three-party handoff the direct-message path already
-   ships and needs no interface; the interface half is one more group in a rail
-   that already groups.
+   ships and needs no interface; the interface half is one more directory in a
+   rail that already tells them apart.
 7. **Read-only bridge** publishing `libera/#ocapn`, checked against the scripted
    IRC fixture, demoed live as an opt-in step.
 8. **Two-way bridge**, adding the outbound relay, throttling, and the prefix

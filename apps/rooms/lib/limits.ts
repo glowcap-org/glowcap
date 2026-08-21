@@ -1,3 +1,5 @@
+import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
+
 // Transport-neutral wire shapes the rooms app shares: the caps a room enforces
 // on names, lines, files, and the bring-ups it carries between members, the
 // waits it will not exceed, and the presence-change shape a room line carries.
@@ -124,17 +126,9 @@ export function nickRefusal(nick: string): string | null {
 	return null;
 }
 
-/** What a line spends of that allowance: its UTF-8 bytes.
- *
- * Bytes rather than characters because that is what the wire counts. An emoji is
- * one thing to type, a `length` of two in JavaScript, and four bytes on the
- * wire, so a line measured any other way passes one side and is refused by the
- * other. It lives beside the cap because both sides count with it: the composer
- * that warns while somebody types, and the room that refuses — and the room is
- * the one that has to, since a client's own check is a courtesy to its reader
- * and nothing a room may rely on. */
+/** What room-carried text spends on the wire: its UTF-8 bytes. */
 export function lineCost(text: string): number {
-	return new TextEncoder().encode(text).length;
+	return utf8ByteLengthUpTo(text);
 }
 /** The longest topic a room accepts. Shorter than a line because a topic is
  * read at a glance, above every message, on a phone as well as a screen. */
@@ -197,13 +191,12 @@ export const PLAIN_AWAY = "away";
 export const MAX_ROOM_LINKS = 4096;
 /** How many rooms one connection may have open at once.
  *
- * `open` is the one room-making verb a peer drives, and a private open never
- * collides and a public open with a generated name never does either — so a
- * connection could call it in a loop, each call a room record and a spawned
- * export reclaimed only when that connection ends. Every other peer-drivable
- * table here carries a ceiling; this is the one that did not. Generous, because
- * a legitimate host (a bot serving many rooms) is a real shape; past it, `open`
- * refuses by name. */
+ * A private `open` never collides, a public open with a generated name need not,
+ * and each durable room link can reconstruct an empty room — so a connection
+ * could drive any of those in a loop, each call a room record reclaimed only
+ * when its membership ends or the connection leaves. Every room-creation path
+ * spends this one registry-owned budget. Generous, because a legitimate host (a
+ * bot serving many rooms) is a real shape; past it, creation refuses by name. */
 export const MAX_ROOMS_PER_CREATOR = 256;
 
 /** Attachment caps.
@@ -341,20 +334,10 @@ export const MAX_DM_INBOXES = 256;
  * caller experiences as a failed dial, not a wedged directory. */
 export const MAX_SIGNAL_EXCHANGES = 64;
 
-/** How much of a bring-up the directory will carry between two members.
- *
- * An offer, an answer, and each candidate pass through the directory verbatim,
- * which makes the room the one place a member can reach another member with a
- * string of their choosing. The exchange itself is bounded and expires, and the
- * ownership rules say who may put what into it — but nothing said how large it
- * could be, so one registered member could push whatever they liked at another
- * and make the room carry it both ways.
- *
- * A session description is a few kilobytes of text with its candidates bundled
- * in; one candidate is a line. Both are set well above what a browser produces
- * and far below what a room should relay, and the candidate bound is the one the
- * browser binding already holds its own staging to. */
-export const MAX_SIGNAL_SDP = 16 * 1024;
+/** How much WebRTC bring-up text the directory will carry between two members.
+ * A description follows the sidecar's signal bound; one ICE candidate stays a
+ * smaller room relay policy. Both limits are bytes, not UTF-16 code units. */
+export const MAX_SIGNAL_SDP = WEBRTC_MAX_SIGNAL_BYTES;
 export const MAX_SIGNAL_CANDIDATE = 4096;
 
 /** How long the directory's own handle for a bring-up may be, and the key
@@ -372,9 +355,35 @@ export const MAX_SIGNAL_ID = 128;
  * differ — the room refuses out loud, a member drops a message it cannot use —
  * but the rule does not. */
 export function relayedSignalFits(kind: "description" | "candidate", id: string, payload: string): boolean {
-	if (id.length === 0 || id.length > MAX_SIGNAL_ID) return false;
+	if (id.length === 0 || !utf8Fits(id, MAX_SIGNAL_ID)) return false;
 	if (payload.length === 0) return false;
-	return payload.length <= (kind === "description" ? MAX_SIGNAL_SDP : MAX_SIGNAL_CANDIDATE);
+	return utf8Fits(payload, kind === "description" ? MAX_SIGNAL_SDP : MAX_SIGNAL_CANDIDATE);
+}
+
+export function utf8Fits(text: string, maxBytes: number): boolean {
+	return utf8ByteLengthUpTo(text, maxBytes) <= maxBytes;
+}
+
+function utf8ByteLengthUpTo(text: string, stopAfter?: number): number {
+	let bytes = 0;
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		if (code < 0x80) bytes += 1;
+		else if (code < 0x800) bytes += 2;
+		else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+			const next = text.charCodeAt(i + 1);
+			if (next >= 0xdc00 && next <= 0xdfff) {
+				bytes += 4;
+				i++;
+			} else {
+				bytes += 3;
+			}
+		} else {
+			bytes += 3;
+		}
+		if (stopAfter != null && bytes > stopAfter) return bytes;
+	}
+	return bytes;
 }
 
 /** A directory exchange that has not been explicitly retired by its offerer

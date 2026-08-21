@@ -30,7 +30,7 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::host::{check_host, drain_pending_releases, host_last_error};
+use crate::host::{check_host, host_last_error};
 use crate::promise::CmdTarget;
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
@@ -336,7 +336,7 @@ pub(crate) fn run_hosted(shared: &SessionShared, ref_id: u64, verb: &str, args: 
 	// The marker dropped before anything can await (the callers' own
 	// Forward-to-far send comes after this returns): run the parked
 	// releases and kick the drain, mirroring the feed path.
-	drain_pending_releases();
+	crate::finalizer::drain();
 	if let Err(error) = shared.host.schedule_kick() {
 		shared.host.fail_pending_vows(error.code(), &error.to_string());
 	}

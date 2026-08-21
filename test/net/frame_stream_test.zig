@@ -14,8 +14,8 @@ const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const net = pancake.net;
 
-const zero_pubkey = [_]u8{0} ** 32;
-const zero_sig = [_]u8{0} ** 64;
+const zero_pubkey = @as([32]u8, @splat(0));
+const zero_sig = @as([64]u8, @splat(0));
 const max_frame = 4096;
 
 fn startSessionFrame(allocator: std.mem.Allocator, codec_id: model.CodecId) !pancake.foundation.Frame {
@@ -327,7 +327,7 @@ test "Spill absorb moves a reader's buffered bytes and leaves the reader empty" 
 
 test "readFrameFrom accepts a length prefix and body split one byte at a time" {
     const allocator = std.testing.allocator;
-    var wire = try startSessionFrameWithDesignator(allocator, .syrup, &([_]u8{'a'} ** 64));
+    var wire = try startSessionFrameWithDesignator(allocator, .syrup, &(@as([64]u8, @splat('a'))));
     defer wire.deinit();
     var framed: std.ArrayList(u8) = .empty;
     defer framed.deinit(allocator);

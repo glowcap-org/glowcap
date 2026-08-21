@@ -114,7 +114,7 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
             switch (action) {
                 .flush => {},
                 .need_gift_id => |n| {
-                    const gift_id = [_]u8{0x5a} ** 32;
+                    const gift_id = @as([32]u8, @splat(0x5a));
                     try host.provideGiftId(n.ticket, &gift_id);
                     did_work = true;
                 },
@@ -199,17 +199,17 @@ pub fn retireClosingSession(host: *Host, session: *HostSession) !void {
     var saw_flush = false;
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {
-        .flush => |peer_id| {
-            try std.testing.expectEqual(session.peer_id, peer_id);
+        .flush => |peer_handle| {
+            try std.testing.expectEqual(session.peer_handle, peer_handle);
             while (try session.takeOutbound()) |frame_value| {
                 var frame = frame_value;
                 frame.deinit();
             }
             saw_flush = true;
         },
-        .close => |peer_id| {
+        .close => |peer_handle| {
             try std.testing.expect(saw_flush);
-            try std.testing.expectEqual(session.peer_id, peer_id);
+            try std.testing.expectEqual(session.peer_handle, peer_handle);
             try host.releaseSession(session);
             saw_close = true;
         },
@@ -222,18 +222,18 @@ pub fn retireClosingSession(host: *Host, session: *HostSession) !void {
 /// Drain one session's terminal effects without requiring its Host to close;
 /// sibling sessions remain owned by the same Host.
 pub fn retireClosedSession(host: *Host, session: *HostSession) !void {
-    const closing_peer = session.peer_id;
+    const closing_peer = session.peer_handle;
     var saw_flush = false;
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {
-        .flush => |peer_id| if (peer_id == closing_peer) {
+        .flush => |peer_handle| if (peer_handle == closing_peer) {
             while (try session.takeOutbound()) |frame_value| {
                 var frame = frame_value;
                 frame.deinit();
             }
             saw_flush = true;
         },
-        .close => |peer_id| if (peer_id == closing_peer) {
+        .close => |peer_handle| if (peer_handle == closing_peer) {
             try std.testing.expect(saw_flush);
             try host.releaseSession(session);
             saw_close = true;
@@ -290,13 +290,13 @@ pub fn keyedDesignator(seed: [32]u8) [crypto.PeerKey.designator_len]u8 {
 pub const TraceLog = struct {
     /// Compact rows: kind letter + detail, enough to assert order and facts.
     buf: [16][96]u8 = undefined,
-    lens: [16]usize = .{0} ** 16,
+    lens: [16]usize = @splat(0),
     n: usize = 0,
     /// Each open's wire name, kept whole rather than folded into the row
     /// above: the claim it carries is an equality between two hosts, not an
     /// order or a spelling.
     wires: [8][64]u8 = undefined,
-    wire_lens: [8]usize = .{0} ** 8,
+    wire_lens: [8]usize = @splat(0),
     wire_n: usize = 0,
 
     pub fn emit(ctx: ?*anyopaque, event: driver.core.trace.Event) void {

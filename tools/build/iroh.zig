@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 const addRootedSystemCommand = common.addRootedSystemCommand;
 const addInstalledSystemRun = common.addInstalledSystemRun;
 const irohDriverModule = common.irohDriverModule;
@@ -82,7 +83,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
     step.dependOn(&header.step);
 
     if (ctx.target.result.ofmt == .elf) {
-        const export_check = common.addRootedSystemCommand(b, &.{ "bash", "tools/check/sidecar-exports.sh" });
+        const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
         export_check.addFileArg(shared.getEmittedBin());
         export_check.addArg("pancake_iroh_");
         export_check.addArg("pancake_iroh_sidecar_");
@@ -138,7 +139,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // with direct-address hints. The staticlib is also linked by hermetic CLI
     // tests under `check`, so its build is offline there; live sidecar tests
     // remain sibling steps with their own external-runtime posture.
-    const iroh_lib = addRootedSystemCommand(b, &.{
+    const iroh_lib = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "build", "--offline", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
@@ -147,9 +148,13 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // The sidecar's own Rust unit tests, chief among them the positive-fire proof
     // that a caller-set connect timeout trips fast against a bound-but-silent UDP
     // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
-    const iroh_sidecar_test = addRootedSystemCommand(b, &.{
+    const iroh_sidecar_test = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
+    const iroh_sidecar_test_compile = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "test", "--no-run", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+    });
+    iroh_sidecar_test.step.dependOn(&iroh_sidecar_test_compile.step);
     const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
     iroh_sidecar_test_step.dependOn(&iroh_sidecar_test.step);
 
@@ -202,13 +207,14 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         exe_name: []const u8,
         root_source: []const u8,
         forwards_args: bool = false,
+        posture: execution.Posture,
     }{
-        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)", .exe_name = "pancake-iroh-interop", .root_source = "interop/iroh_interop/driver.zig" },
-        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig" },
-        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig" },
-        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig" },
-        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a pancake peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "pancake-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig" },
-        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true },
+        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)", .exe_name = "pancake-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a pancake peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "pancake-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 } },
+        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
     };
     for (iroh_drivers) |drv| {
         // Hermetic compile-only object (no sidecar), rides `check`.
@@ -223,13 +229,12 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         linkIrohSidecar(b, run_mod, target);
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
         exe.step.dependOn(&iroh_lib.step);
-        const run = b.addRunArtifact(exe);
+        const live_step = b.step(drv.step_name, drv.description);
+        const run = execution.addArtifact(b, drv.posture, exe);
         run.setCwd(b.path("."));
         run.has_side_effects = true;
-        if (drv.forwards_args) {
-            if (b.args) |args| run.addArgs(args);
-        }
-        b.step(drv.step_name, drv.description).dependOn(&run.step);
+        if (drv.forwards_args) run.addPassthruArgs();
+        live_step.dependOn(&run.step);
     }
 
     // ── ADR-0112 seam proof: the driver archive drives iroh through the C
@@ -272,7 +277,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         linkIrohSidecar(b, seam_run_mod, target);
         const seam_exe = b.addExecutable(.{ .name = "pancake-iroh-driver-provider", .root_module = seam_run_mod });
         seam_exe.step.dependOn(&iroh_lib.step);
-        const seam_run = b.addRunArtifact(seam_exe);
+        const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
         b.step("iroh-driver-provider", "Live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)").dependOn(&seam_run.step);
@@ -322,8 +327,54 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .name = "iroh-locator",
         .root_module = iroh_locator_test_mod,
     });
-    const run_iroh_locator_test = b.addRunArtifact(iroh_locator_test);
+    const run_iroh_locator_test = execution.addZigTest(b, iroh_locator_test, .{ .deterministic = 30 });
     ctx.site_zig_examples_check.dependOn(&run_iroh_locator_test.step);
+
+    // Internal resident evidence links a scripted sidecar directly. It imports
+    // only the supported facade, so no test-only leaf is re-exported through
+    // the consumer namespace.
+    const iroh_resident_internal_mod = b.createModule(.{
+        .root_source_file = b.path("test/net/iroh_resident_internal_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_resident_internal_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
+    iroh_resident_internal_mod.addImport("model", host_mods[layerIndex("model")]);
+    iroh_resident_internal_mod.addImport("engine", host_mods[layerIndex("engine")]);
+    iroh_resident_internal_mod.addImport("net", host_mods[layerIndex("net")]);
+    iroh_resident_internal_mod.addImport("iroh", iroh_resident_mod);
+    iroh_resident_internal_mod.addImport("c_abi_shared", host_mods[layerIndex("c_abi_shared")]);
+    iroh_resident_internal_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
+    const iroh_resident_internal_test = b.addTest(.{
+        .name = "iroh-resident-internal-test",
+        .root_module = iroh_resident_internal_mod,
+    });
+    const run_iroh_resident_internal_test = execution.addZigTest(b, iroh_resident_internal_test, .{ .deterministic = 30 });
+    check_step.dependOn(&run_iroh_resident_internal_test.step);
+    ctx.site_zig_examples_check.dependOn(&run_iroh_resident_internal_test.step);
+
+    // The ABI-layout proof imports the internal owner directly in a separate
+    // build-only test graph. It neither re-exports the leaf through the iroh
+    // facade nor loads the same source file under two module identities.
+    const iroh_sidecar_owner_mod = b.createModule(.{
+        .root_source_file = b.path("src/net/transport/iroh/sidecar.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_sidecar_owner_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
+    const iroh_sidecar_internal_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/net/iroh_sidecar_internal_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_sidecar_internal_test_mod.addImport("iroh_sidecar_internal", iroh_sidecar_owner_mod);
+    const iroh_sidecar_internal_test = b.addTest(.{
+        .name = "iroh-sidecar-internal-test",
+        .root_module = iroh_sidecar_internal_test_mod,
+    });
+    const run_iroh_sidecar_internal_test = execution.addZigTest(b, iroh_sidecar_internal_test, .{ .deterministic = 30 });
+    check_step.dependOn(&run_iroh_sidecar_internal_test.step);
+    ctx.site_zig_examples_check.dependOn(&run_iroh_sidecar_internal_test.step);
 
     const iroh_abi = registerAbi(.{
         .b = b,
@@ -339,15 +390,19 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const iroh_abi_install = iroh_abi.install;
     const iroh_abi_step = iroh_abi.step;
 
-    const iroh_constructor_diagnostic = addRootedSystemCommand(b, &.{
+    const iroh_constructor_diagnostic = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                                 "test", "--allow-ffi", "--allow-read", "--allow-env", "--unstable-ffi",
         "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
     });
+    const iroh_constructor_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
+    });
+    iroh_constructor_diagnostic.step.dependOn(&iroh_constructor_cache.step);
     iroh_constructor_diagnostic.step.dependOn(&iroh_abi_install.step);
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
     iroh_constructor_diagnostic.setEnvironmentVariable(
         "PANCAKE_LIB_DIR",
-        b.pathFromRoot("zig-out/lib"),
+        common.rootPath(b, "zig-out/lib"),
     );
     const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI, including off-thread constructor diagnostics (needs cargo + deno)");
     iroh_abi_test_step.dependOn(&iroh_constructor_diagnostic.step);

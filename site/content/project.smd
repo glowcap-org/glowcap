@@ -1,8 +1,7 @@
 ---
 .title = "Project & status",
 .description = "Current support, known limitations, verification, and the route to pancake 1.0.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -12,7 +11,7 @@ security audit, and it should not carry data you cannot afford to lose.
 [SECURITY.md](https://github.com/jimisaacs/pancake/blob/main/SECURITY.md)
 defines the current security posture and the private reporting process.
 
-## Explore the current build
+# Explore the current build
 
 - **[Start building]($link.page('start'))** installs the Zig package and makes
   a complete call, with routes to the C ABI and every binding.
@@ -24,7 +23,7 @@ defines the current security posture and the private reporting process.
   allocation, footprint, transport, and binding measurements with their
   methods.
 
-## Project records
+# Project records
 
 The repository keeps the detailed project record: [what ships
 today](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md), [known

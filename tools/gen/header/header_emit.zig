@@ -88,7 +88,7 @@ pub fn Emit(comptime Spec: type) type {
                     .pointer => |p| blk: {
                         const child = cType(p.child);
                         if (child.len > 0 and child[child.len - 1] == '*') break :blk child ++ "*";
-                        const prefix = if (p.is_const) "const " else "";
+                        const prefix = if (p.attrs.@"const") "const " else "";
                         break :blk prefix ++ child ++ " *";
                     },
                     .@"struct", .@"opaque" => baseName(T),
@@ -118,18 +118,18 @@ pub fn Emit(comptime Spec: type) type {
             if (@typeInfo(FieldT) == .optional) {
                 const child = @typeInfo(FieldT).optional.child;
                 if (@typeInfo(child) == .pointer and @typeInfo(child).pointer.child == Owner) {
-                    const prefix = if (@typeInfo(child).pointer.is_const) "const " else "";
+                    const prefix = if (@typeInfo(child).pointer.attrs.@"const") "const " else "";
                     return prefix ++ "struct " ++ name ++ " *";
                 }
             }
             return cType(FieldT);
         }
 
-        fn fieldType(comptime Owner: type, comptime field: std.builtin.Type.StructField, comptime name: []const u8) []const u8 {
+        fn fieldType(comptime Owner: type, comptime field_name: []const u8, comptime FieldT: type, comptime name: []const u8) []const u8 {
             if (@hasDecl(Spec, "specialField")) {
-                if (Spec.specialField(Owner, field.name)) |s| return s;
+                if (Spec.specialField(Owner, field_name)) |s| return s;
             }
-            return selfRef(Owner, field.type, name);
+            return selfRef(Owner, FieldT, name);
         }
 
         /// Coverage guard, both directions: every `pub fn <prefix>*` in the module
@@ -138,14 +138,14 @@ pub fn Emit(comptime Spec: type) type {
         /// the module in the failure text.
         pub fn guardFns(comptime module_name: []const u8, comptime prefix: []const u8) void {
             @setEvalBranchQuota(40000);
-            for (@typeInfo(c).@"struct".decls) |decl| {
-                if (!std.mem.startsWith(u8, decl.name, prefix)) continue;
-                if (@typeInfo(@TypeOf(@field(c, decl.name))) != .@"fn") continue;
+            for (@typeInfo(c).@"struct".decl_names) |decl_name| {
+                if (!std.mem.startsWith(u8, decl_name, prefix)) continue;
+                if (@typeInfo(@TypeOf(@field(c, decl_name))) != .@"fn") continue;
                 var found = false;
                 for (emitted_fns) |name| {
-                    if (std.mem.eql(u8, name, decl.name)) found = true;
+                    if (std.mem.eql(u8, name, decl_name)) found = true;
                 }
-                if (!found) @compileError("function in " ++ module_name ++ " but not emitted: " ++ decl.name);
+                if (!found) @compileError("function in " ++ module_name ++ " but not emitted: " ++ decl_name);
             }
             for (emitted_fns) |name| {
                 if (!@hasDecl(c, name)) @compileError("emitted_fns lists '" ++ name ++ "' but " ++ module_name ++ " has no such declaration");
@@ -232,7 +232,8 @@ pub fn Emit(comptime Spec: type) type {
             comptime type_names: ?[]const []const u8,
             comptime use_typedef: bool,
         ) !void {
-            const fields = @typeInfo(T).@"struct".fields;
+            const info = @typeInfo(T).@"struct";
+            const fields = info.field_names;
             if (docs.len != fields.len) @compileError("field doc count mismatch for " ++ name);
             if (type_names) |names| if (names.len != fields.len)
                 @compileError("field type count mismatch for " ++ name);
@@ -241,18 +242,18 @@ pub fn Emit(comptime Spec: type) type {
             } else {
                 try line(b, gpa, "struct {s} {{", .{name});
             }
-            inline for (fields, docs, 0..) |f, doc, i| {
+            inline for (fields, info.field_types, docs, 0..) |field_name, FieldT, doc, i| {
                 if (doc.len != 0) try line(b, gpa, "    /* {s} */", .{doc});
                 const ty = comptime if (type_names) |names|
                     if (names[i].len != 0)
                         names[i]
                     else
-                        fieldType(T, f, name)
+                        fieldType(T, field_name, FieldT, name)
                 else
-                    fieldType(T, f, name);
+                    fieldType(T, field_name, FieldT, name);
                 const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
-                const suffix = comptime arraySuffix(f.type);
-                try line(b, gpa, "    {s}{s}{s}{s};", .{ ty, space, f.name, suffix });
+                const suffix = comptime arraySuffix(FieldT);
+                try line(b, gpa, "    {s}{s}{s}{s};", .{ ty, space, field_name, suffix });
             }
             if (use_typedef) {
                 try line(b, gpa, "}} {s};", .{name});
@@ -291,15 +292,15 @@ pub fn Emit(comptime Spec: type) type {
                     @compileError("prototype '" ++ fn_name ++ "' doc contains /* or */, which breaks the emitted block comment");
             }
             const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
-            if (info.params.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);
+            if (info.param_types.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);
             try emitDoc(b, gpa, doc);
 
             try b.print(gpa, "{s} {s}(", .{ comptime cType(info.return_type.?), fn_name });
             // A zero-parameter C prototype must spell `(void)`: a bare `()` is a
             // K&R-style unchecked parameter list, not "no parameters".
-            if (info.params.len == 0) try b.appendSlice(gpa, "void");
-            inline for (info.params, param_names, 0..) |p, pname, i| {
-                const ty = comptime cType(p.type.?);
+            if (info.param_types.len == 0) try b.appendSlice(gpa, "void");
+            inline for (info.param_types, param_names, 0..) |param_type, pname, i| {
+                const ty = comptime cType(param_type.?);
                 const sep = if (i == 0) "" else ", ";
                 const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
                 try b.print(gpa, "{s}{s}{s}{s}", .{ sep, ty, space, pname });

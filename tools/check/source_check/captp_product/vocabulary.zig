@@ -64,8 +64,8 @@ pub fn checkCaptpVocabulary(
 
     const positive = [_]struct { path: []const u8, needle: []const u8, what: []const u8 }{
         .{ .path = "src/driver/core/host.zig", .needle = "pub const HostSession", .what = "the byte-fed CapTP session Zig type (aligns with PancakeHostSession)" },
-        .{ .path = "src/ocapn/engine/node.zig", .needle = "pub const PeerId", .what = "the engine's Peer routing id" },
-        .{ .path = "src/ocapn/engine/node.zig", .needle = "pub fn registerPeer", .what = "the Node registers Peers" },
+        .{ .path = "src/ocapn/engine/node.zig", .needle = "pub const PeerHandle", .what = "the engine's Node-scoped registered-session handle" },
+        .{ .path = "src/ocapn/engine/node.zig", .needle = "pub const registerPeer", .what = "the Node registers Peers" },
     };
     for (positive) |p| {
         const contents = root.readFileAlloc(io, p.path, gpa, .limited(4 << 20)) catch |err| {

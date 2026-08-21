@@ -40,30 +40,3 @@ pub fn requestStop() void {
 pub fn resetForTest() void {
     g_stop.store(false, .release);
 }
-
-/// Sleep until stop, then invoke `on_stop` exactly once (via the atomic).
-/// Prefer poll loops (`waitAcceptable` / `stepReadable`) when the blocked
-/// resource can wake without a cross-thread close; use this when the wake is
-/// closing an unrelated seat (e.g. MCP stdin).
-pub fn StopWatch(comptime Context: type) type {
-    return struct {
-        io: std.Io,
-        ctx: Context,
-        fired: std.atomic.Value(bool) = .init(false),
-        on_stop: *const fn (Context) void,
-
-        const Self = @This();
-
-        pub fn fireOnce(self: *Self) void {
-            if (self.fired.swap(true, .acq_rel)) return;
-            self.on_stop(self.ctx);
-        }
-
-        pub fn run(self: *Self) void {
-            while (!stopRequested()) {
-                std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(poll_ms), .real) catch {};
-            }
-            self.fireOnce();
-        }
-    };
-}

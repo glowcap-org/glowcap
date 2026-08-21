@@ -26,6 +26,7 @@
 //!   `catch_unwind` and maps a panic to the function's error return.
 
 mod conn;
+mod constants_gen;
 mod connect;
 mod lifecycle;
 #[cfg(test)]
@@ -171,24 +172,20 @@ const DIAL_BUSY: i32 = 7;
 const NB_BUFFER_BOUND: usize = 1 << 20;
 
 /// The steady per-direction buffer capacity a connection retains once a burst
-/// drains, mirroring the Zig posture (`default_read_buffer_bytes` in
-/// `src/net/completion/loop.zig` and `steady_outbound_bytes` in
-/// `src/net/frame_stream.zig`, both 16 KiB):
-/// burst capacity frees on drain so one slow episode never pins its high-water
-/// bytes for the connection's lifetime, while steady-sized capacity is retained
-/// so ordinary traffic never reallocates.
-const NB_STEADY_BYTES: usize = 16 * 1024;
+/// drains. Generated from `steady_outbound_bytes`, the Zig owner of the same
+/// burst-frees-on-drain posture.
+const NB_STEADY_BYTES: usize = constants_gen::NB_STEADY_BYTES;
 
 /// Cap on one `read_chunk` segment in the reader task. The chunk is a zero-copy
 /// borrow of the QUIC reassembly buffer, so the cap costs no memory. The reader
 /// further limits every request to the queue's exact remaining budget, keeping
 /// `NB_BUFFER_BOUND` an actual bound rather than a threshold with overshoot.
-const READ_CHUNK_BYTES: usize = 64 * 1024;
+const READ_CHUNK_BYTES: usize = constants_gen::READ_CHUNK_BYTES;
 
 /// Accepted loop connections retained by the sidecar before Zig claims them.
-/// This mirrors `src/net/transport/iroh.zig`'s accept stash: both producer and
-/// consumer queues have the same admission posture.
-const ACCEPT_QUEUE_BOUND: usize = 128;
+/// This mirrors the Zig backend's accept stash: both producer and consumer
+/// queues have the same admission posture.
+const ACCEPT_QUEUE_BOUND: usize = constants_gen::ACCEPT_QUEUE_BOUND;
 
 /// Outbound dials retained as Tokio tasks or terminal results until the caller
 /// consumes them. A caller controls request ids and completion consumption, so

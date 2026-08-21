@@ -24,6 +24,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_foreign_room_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -48,7 +49,7 @@ function freePort(): number {
 // anywhere and cleartext TCP only where it is told, and the visitor's page is
 // the one that has to reach the room it is visiting.
 function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.ChildProcess {
-	return new Deno.Command("deno", {
+	return spawnOwned("deno", {
 		env: reaches === undefined ? {} : { PANCAKE_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
 		args: [
 			"run",
@@ -65,7 +66,7 @@ function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.
 		cwd: ROOT,
 		stdout: "null",
 		stderr: "inherit",
-	}).spawn();
+	});
 }
 
 // The directory locator a page is serving, once it has one — which is also how
@@ -144,8 +145,8 @@ const hostRoom = freePort();
 const visitorHttp = freePort();
 const visitorRoom = freePort();
 
-const hostPage = serveRooms(hostHttp, hostRoom);
-const visitorPage = serveRooms(visitorHttp, visitorRoom, hostRoom);
+serveRooms(hostHttp, hostRoom);
+serveRooms(visitorHttp, visitorRoom, hostRoom);
 
 let browser: Browser | null = null;
 try {
@@ -167,9 +168,8 @@ try {
 	// And the precondition this proof exists for: bo is holding two directories,
 	// his own page's and ada's. Holding one would make this the scenario the
 	// sibling proofs already run, and a green result here would mean nothing.
-	// The rail says so on its own: a room row names the directory it is in only
-	// while a tab holds more than one, since with one there is nothing to tell
-	// apart.
+	// The rail says so on its own: a row names the directory it is on only while
+	// a tab holds more than one, since with one there is nothing to tell apart.
 	await bo.tab.locator("#roomList .rwhere").first().waitFor({ state: "attached", timeout: 30_000 })
 		.catch(async () => {
 			const rail = (await bo.tab.textContent("#roomList").catch(() => "?")) ?? "?";
@@ -197,13 +197,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	for (const page of [hostPage, visitorPage]) {
-		try {
-			page.kill();
-		} catch {
-			// already gone
-		}
-		await page.status;
-	}
+	await reapOwned();
 }
 Deno.exit(0);

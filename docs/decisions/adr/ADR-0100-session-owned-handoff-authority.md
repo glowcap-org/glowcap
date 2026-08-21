@@ -23,7 +23,7 @@ already parked on another session wakes and breaks when its required
 Gifter–Exporter Peer closes.
 
 The scheduler route is also shipped. Pending admission registers one
-`(Gifter–Exporter PeerId, 128-bit gift digest)` dependency per receiver group
+`(Gifter–Exporter PeerHandle, 128-bit gift digest)` dependency per receiver group
 before replay authority advances. A deposit marks only that exact group;
 protocol/session close marks each still-live group rooted in the closing
 gifter. Both transitions allocate nothing. Each receiver indexes its parked
@@ -103,8 +103,8 @@ guarantee across reconnects.
 
 `Peer.deinit` frees every unconsumed gift and destroys both scalar counters.
 `Node` and `Host` own no gift or replay table. `Node` does own
-authority-neutral scheduler dependencies keyed by Gifter–Exporter `PeerId`
-plus a 128-bit BLAKE3 tag of the gift id, then receiver `PeerId`. A receiver
+authority-neutral scheduler dependencies keyed by Gifter–Exporter `PeerHandle`
+plus a 128-bit BLAKE3 tag of the gift id, then receiver `PeerHandle`. A receiver
 owns one pending group for that key; multiple receives for the same gift share
 it. The relation stores no attacker-sized gift bytes, key, receive, or
 capability. The digest is not authority: a collision can only cause an extra

@@ -410,6 +410,10 @@ export function useLiveConnection(input: {
 }): {
   /** The trace capability is subscribed. Says nothing about recording. */
   connected: boolean;
+  /** At least one record has arrived on this dial. Independent of
+   *  `connected`: a quiet feed that has spoken is not a new endpoint
+   *  still waiting for its first observation. */
+  observed: boolean;
   /** The engine capturing arriving events, or null when nothing is
    * recording. Its document is what Stop claims as the buffer. */
   captureEngine: Engine | null;
@@ -417,11 +421,13 @@ export function useLiveConnection(input: {
   const { sturdyref, recording } = input;
   const [captureEngine, setCaptureEngine] = useState<Engine | null>(null);
   const [connected, setConnected] = useState(false);
+  const [observed, setObserved] = useState(false);
 
   useEffect(() => {
     if (!sturdyref) {
       setCaptureEngine(null);
       setConnected(false);
+      setObserved(false);
       return;
     }
     // A sturdyref that cannot be parsed, dialed, or enlivened is the user's
@@ -434,17 +440,27 @@ export function useLiveConnection(input: {
     // appender folding arrivals into it (`startLiveMode`); idle is the dial
     // and nothing else (`dialLiveFeed`). They differ in what they hand back,
     // never in how they subscribe, so the capability act is spelled once.
-    const dial = { sturdyref, onConnectionChange: setConnected, onError };
+    const dial = {
+      sturdyref,
+      onConnectionChange: (up: boolean) => {
+        setConnected(up);
+        if (!up) setObserved(false);
+      },
+      onError,
+    };
     const handle: {
       engine: Engine | null;
       feed: LiveFeed;
       dispose: () => void;
     } = recording ? startLiveMode(dial) : { ...dialLiveFeed(dial), engine: null };
     setCaptureEngine(handle.engine);
+    const unsubObserved = handle.feed.subscribe(() => setObserved(true));
     return () => {
+      unsubObserved();
       handle.dispose();
       setCaptureEngine(null);
       setConnected(false);
+      setObserved(false);
     };
     // Deps: the sturdyref, because a different capability is a different feed, and
     // `recording`, because starting and stopping a capture each re-dial
@@ -452,5 +468,5 @@ export function useLiveConnection(input: {
     // one of them throws a running capture away.
   }, [sturdyref, recording]);
 
-  return { connected, captureEngine };
+  return { connected, observed, captureEngine };
 }

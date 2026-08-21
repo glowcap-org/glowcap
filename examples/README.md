@@ -1,11 +1,10 @@
 # Learn pancake by example
 
-Numbered chapters teach the API. Start at 01 and continue in order. The first
-two use the application APIs over TCP; later chapters open the layers
-underneath. Rooms and the other apps in the table below are complete programs
-on this same API.
-
-Every chapter and helper is a runnable build target:
+Numbered chapters teach the API, starting at 01 over a local TCP socket so
+the session operations stay visible. The rooms app and
+[Start building](https://jimisaacs.github.io/pancake/start/) are the first look:
+encrypted peers and a complete program. Every chapter and helper is a runnable
+build target:
 
 ```sh
 zig build examples
@@ -15,7 +14,7 @@ zig build examples
 
 | Chapter | What you will learn |
 | --- | --- |
-| [01: connect and serve](zig/01_connect_and_serve.zig) | Listen, publish a greeter, connect, fetch it by name, and call it through `driver.Session`. Start here. |
+| [01: connect and serve](zig/01_connect_and_serve.zig) | Listen, publish a greeter, connect, fetch it by name, and call it through `driver.Session`. |
 | [02: introduce and redeem](zig/02_introduce_and_redeem.zig) | Let one peer introduce two others, then make the direct call without keeping the introducer in the path. |
 | [03: actor far send](zig/03_actor_far_send.zig) | Export an actor, send to it from another peer, and settle the returned vow. |
 | [04: look up by name](zig/04_look_up_by_name.zig) | See how `fetch("name")` uses the bootstrap object and a swiss number underneath. |
@@ -23,7 +22,7 @@ zig build examples
 | [06: pipeline and attenuate](zig/06_pipeline_and_attenuate.zig) | Send dependent calls before the first answer arrives, then restrict the returned capability to selected methods. |
 
 The source of each chapter begins with a longer explanation of the scenario.
-Chapter 01 is the best template for an application. Chapter 05 is for an
+Chapter 01 is the smallest application template. Chapter 05 is for an
 embedder that intends to own the event loop and protocol peer directly.
 
 For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
@@ -51,7 +50,8 @@ README has its standalone commands.
 ## Small mechanics
 
 - [`readme_quick_start.zig`](zig/readme_quick_start.zig) compiles the exact
-  client shown in the root README and supplies the greeter it calls.
+  sealed `noise-tcp` client shown in the root README and supplies the greeter
+  it calls.
 - [`connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig) repeats
   chapter 01 with caller-owned buffers and the lower-level blocking API.
 - [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats

@@ -65,6 +65,12 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_FEATURE_BASELINE 15
 #define PANCAKE_FEATURE_FULL 31
 #define PANCAKE_FRAME_SHAPE_BYTE 0
+/* Default codec selector for byte-fed Host constructors. */
+#define PANCAKE_DEFAULT_CODEC 1
+/* Default CapTP profile selector for byte-fed Host constructors. */
+#define PANCAKE_DEFAULT_CAPTP_VERSION 0
+/* Default feature bitmask for byte-fed Host constructors. */
+#define PANCAKE_DEFAULT_FEATURES 31
 #define PANCAKE_FRAME_SHAPE_WORD 1
 #define PANCAKE_ARG_INTEGER 0
 #define PANCAKE_ARG_FLOAT64 1
@@ -87,6 +93,14 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_ABORT_DOMAIN_CODEC 0
 #define PANCAKE_ABORT_DOMAIN_SESSION 1
 #define PANCAKE_ABORT_DOMAIN_FOREIGN 2
+
+/* ── Resource limits ── */
+/* Default max_frame_bytes for direct blocking transport frame-shuttle helpers. */
+#define PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP 4096
+/* Default records retained by a Context diagnostic queue. */
+#define PANCAKE_DEFAULT_FAILURE_CAPACITY 64
+/* Default aggregate text bytes retained per Context diagnostic record. */
+#define PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP 512
 
 /* ── Frames ── */
 typedef struct PancakeFrame {
@@ -320,9 +334,16 @@ int32_t pancake_uri_parse_peer_in(PancakeContext *context, const uint8_t *uri, s
 int32_t pancake_uri_parse_sturdyref(uint32_t captp_version, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
 /* Parse a sturdyref URI under the selected PANCAKE_CAPTP_* profile through context. */
 int32_t pancake_uri_parse_sturdyref_in(PancakeContext *context, uint32_t captp_version, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
-/* Format a peer locator into a caller-owned buffer. */
+/* Format a peer locator into a caller-owned buffer. out_len is mandatory and
+   receives the required byte length, excluding any NUL terminator. A null output
+   is allowed only with cap == 0 to query that length; a short buffer reports the
+   required length and returns PANCAKE_ERR_BUFFER_TOO_SMALL. */
 int32_t pancake_uri_format_peer(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
-/* Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a caller-owned buffer. */
+/* Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a
+   caller-owned buffer. out_len is mandatory and receives the required byte length,
+   excluding any NUL terminator. A null output is allowed only with cap == 0 to
+   query that length; a short buffer reports the required length and returns
+   PANCAKE_ERR_BUFFER_TOO_SMALL. */
 int32_t pancake_uri_format_sturdyref(uint32_t captp_version, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *swissnum, size_t swissnum_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
 /* Construct an owned OCapN peer locator. */
 int32_t pancake_locator_new(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, uint32_t hint_wire_form, PancakeLocator **out_locator);

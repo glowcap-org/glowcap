@@ -53,9 +53,9 @@ test "partner identity: each leg reports the fact it holds, not the transport's 
     // was handed a verified remote by the code that realized the connection,
     // and the acceptor has no channel proof.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    const server_seed = [_]u8{0x3d} ** 32;
+    const server_seed = @as([32]u8, @splat(0x3d));
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -85,7 +85,7 @@ test "partner identity: each leg reports the fact it holds, not the transport's 
     const unproved = try server.partnerIdentity(pair.b);
     try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, unproved.provenance);
     try std.testing.expect(!unproved.durableIdentityAuthenticated());
-    try std.testing.expectEqualStrings(&keyedDesignator([_]u8{0x3c} ** 32), unproved.designator);
+    try std.testing.expectEqualStrings(&keyedDesignator(@as([32]u8, @splat(0x3c))), unproved.designator);
 }
 
 test "verified channel key: an embedder's testimony reaches provenance on both legs" {
@@ -94,10 +94,10 @@ test "verified channel key: an embedder's testimony reaches provenance on both l
     // hosting its own iroh listener holds and had no way to state. Both legs,
     // because the proof belongs to the connection rather than to a direction.
     const allocator = std.testing.allocator;
-    const client_seed = [_]u8{0x4c} ** 32;
+    const client_seed = @as([32]u8, @splat(0x4c));
     var client = test_host.init(allocator, client_seed, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    const server_seed = [_]u8{0x4d} ** 32;
+    const server_seed = @as([32]u8, @splat(0x4d));
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -149,12 +149,12 @@ test "verified channel key: an embedder's testimony reaches provenance on both l
 
 test "partner identity: a session that does not verify its partner reports no identity" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2a} ** 32, .{
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .verify_partner = false,
     });
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x2b} ** 32, .{
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .verify_partner = false,
     });
@@ -177,7 +177,7 @@ test "partner identity: a session that does not verify its partner reports no id
 
 test "partner identity: a session whose partner has not spoken yet reports no identity" {
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
 
     // Accepted, but no partner bytes have been fed, so no `op:start-session`

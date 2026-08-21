@@ -3,18 +3,24 @@
 // A browser WebRTC peer: an RTCPeerConnection and its single reliable, ordered
 // `ocapn` DataChannel, the browser sibling of the native sidecar's `Peer`
 // (ADR-0089). It drives the signaling exchange (offer, answer, ICE) and, once
-// the channel opens, presents it as a byte `Channel` a keyed OCapN session runs
-// over. Signaling itself is carried by an OCapN capability (a room), not this
-// module; the `RtcPeer` only produces and consumes the SDP and candidate
-// strings, mirroring the native sidecar's signaling surface.
+// the channel opens, presents it as an opaque packet channel. Signaling itself
+// is carried by an OCapN capability (a room), not this module; the `RtcPeer`
+// only produces and consumes the SDP and candidate strings, mirroring the
+// native sidecar's signaling surface.
 
 import type { Channel } from "@pancake/runtime";
+import {
+	WEBRTC_MAX_ICE_CANDIDATE_BYTES,
+	WEBRTC_MAX_PENDING_ICE_CANDIDATES,
+	WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES,
+} from "@pancake/abi";
 import { rtcChannel } from "./channel.ts";
+import { assertSignalBytes, utf8ByteLengthUpTo } from "./signal.ts";
 
 const CHANNEL_LABEL = "ocapn";
-const MAX_PENDING_ICE_CANDIDATES = 256;
-const MAX_ICE_CANDIDATE_TEXT_UNITS = 4 * 1024;
-const MAX_PENDING_ICE_TEXT_UNITS = 64 * 1024;
+const MAX_PENDING_ICE_CANDIDATES = WEBRTC_MAX_PENDING_ICE_CANDIDATES;
+const MAX_ICE_CANDIDATE_BYTES = WEBRTC_MAX_ICE_CANDIDATE_BYTES;
+const MAX_PENDING_ICE_CANDIDATE_BYTES = WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES;
 
 export interface RtcPeerInit {
 	/** The offerer creates the data channel and the SDP offer; the answerer
@@ -29,7 +35,7 @@ type RemoteDescriptionState = "pending" | "installing" | "installed" | "failed" 
 
 interface IceCandidateSnapshot {
 	readonly candidate: RTCIceCandidateInit;
-	readonly textUnits: number;
+	readonly textBytes: number;
 }
 
 interface PendingRemoteCandidate extends IceCandidateSnapshot {
@@ -42,15 +48,15 @@ function snapshotCandidate(value: unknown): IceCandidateSnapshot {
 		throw new TypeError("webrtc: ICE candidate must be an object");
 	}
 	const snapshot: RTCIceCandidateInit = {};
-	let textUnits = 0;
+	let textBytes = 0;
 	for (const field of ["candidate", "sdpMid", "usernameFragment"] as const) {
 		const text: unknown = Reflect.get(value, field);
 		if (text == null) continue;
 		if (typeof text !== "string") {
 			throw new TypeError(`webrtc: ICE candidate ${field} must be a string or null`);
 		}
-		textUnits += text.length;
-		if (textUnits > MAX_ICE_CANDIDATE_TEXT_UNITS) {
+		textBytes += utf8ByteLengthUpTo(text, MAX_ICE_CANDIDATE_BYTES - textBytes);
+		if (textBytes > MAX_ICE_CANDIDATE_BYTES) {
 			throw new Error("webrtc: ICE candidate is too large");
 		}
 		snapshot[field] = text;
@@ -64,24 +70,25 @@ function snapshotCandidate(value: unknown): IceCandidateSnapshot {
 		}
 		snapshot.sdpMLineIndex = line;
 	}
-	return { candidate: snapshot, textUnits };
+	return { candidate: snapshot, textBytes };
 }
 
 export class RtcPeer {
 	readonly #pc: RTCPeerConnection;
 	#dc: RTCDataChannel | null = null;
+	#channel: Channel | null = null;
 	readonly #open: Promise<void>;
 	#markOpen!: () => void;
 	#markOpenFailed!: (reason: unknown) => void;
 	#openSettled = false;
 	readonly #pendingLocal: RTCIceCandidateInit[] = [];
-	#pendingLocalTextUnits = 0;
+	#pendingLocalBytes = 0;
 	#candidateSink: ((candidate: RTCIceCandidateInit) => void) | null = null;
 	#remoteDescriptionState: RemoteDescriptionState = "pending";
 	#remoteDescriptionFailure: unknown = null;
 	readonly #pendingRemote: PendingRemoteCandidate[] = [];
 	#remoteCandidateCount = 0;
-	#remoteCandidateTextUnits = 0;
+	#remoteCandidateBytes = 0;
 	#remoteCandidateTail: Promise<void> = Promise.resolve();
 
 	constructor(init: RtcPeerInit) {
@@ -114,13 +121,13 @@ export class RtcPeer {
 			}
 			if (
 				this.#pendingLocal.length >= MAX_PENDING_ICE_CANDIDATES ||
-				this.#pendingLocalTextUnits + queued.textUnits > MAX_PENDING_ICE_TEXT_UNITS
+				this.#pendingLocalBytes + queued.textBytes > MAX_PENDING_ICE_CANDIDATE_BYTES
 			) {
 				this.#closeWithError(new Error("webrtc: too many pending local ICE candidates"));
 				return;
 			}
 			this.#pendingLocal.push(queued.candidate);
-			this.#pendingLocalTextUnits += queued.textUnits;
+			this.#pendingLocalBytes += queued.textBytes;
 		};
 		if (init.offerer) {
 			this.#wireChannel(this.#pc.createDataChannel(CHANNEL_LABEL, { ordered: true }));
@@ -130,41 +137,53 @@ export class RtcPeer {
 	}
 
 	#wireChannel(dc: RTCDataChannel): void {
-		if (dc.label !== CHANNEL_LABEL || this.#dc != null) {
+		const unreliable = dc.maxPacketLifeTime != null || dc.maxRetransmits != null;
+		if (dc.label !== CHANNEL_LABEL || this.#dc != null || !dc.ordered || unreliable) {
 			dc.close();
-			this.#closeWithError(new Error("webrtc: expected exactly one ocapn data channel"));
+			this.#closeWithError(new Error("webrtc: expected exactly one reliable ordered ocapn data channel"));
 			return;
 		}
 		this.#dc = dc;
+		this.#channel = rtcChannel(dc);
 		if (dc.readyState === "open") this.#markOpen();
-		else dc.onopen = () => this.#markOpen();
-		dc.onclose = () => this.#markOpenFailed(new Error("webrtc: data channel closed before opening"));
-		dc.onerror = () => this.#markOpenFailed(new Error("webrtc: data channel failed before opening"));
+		else dc.addEventListener("open", () => this.#markOpen(), { once: true });
+		dc.addEventListener(
+			"close",
+			() => this.#markOpenFailed(new Error("webrtc: data channel closed before opening")),
+			{ once: true },
+		);
+		dc.addEventListener(
+			"error",
+			() => this.#markOpenFailed(new Error("webrtc: data channel failed before opening")),
+			{ once: true },
+		);
 	}
 
 	/** Produce the SDP offer and set it as the local description. Offerer only. */
 	async createOffer(): Promise<string> {
 		const offer = await this.#pc.createOffer();
+		const sdp = assertSignalBytes("SDP", offer.sdp ?? "");
 		await this.#pc.setLocalDescription(offer);
-		return offer.sdp ?? "";
+		return sdp;
 	}
 
 	/** Produce the SDP answer and set it as the local description. Answerer only,
 	 * after `setRemoteOffer`. */
 	async createAnswer(): Promise<string> {
 		const answer = await this.#pc.createAnswer();
+		const sdp = assertSignalBytes("SDP", answer.sdp ?? "");
 		await this.#pc.setLocalDescription(answer);
-		return answer.sdp ?? "";
+		return sdp;
 	}
 
 	/** Set the far offerer's SDP offer as the remote description. Answerer side. */
 	setRemoteOffer(sdp: string): Promise<void> {
-		return this.#setRemoteDescription({ type: "offer", sdp });
+		return this.#setRemoteDescription({ type: "offer", sdp: assertSignalBytes("SDP", sdp) });
 	}
 
 	/** Set the far answerer's SDP answer as the remote description. Offerer side. */
 	setRemoteAnswer(sdp: string): Promise<void> {
-		return this.#setRemoteDescription({ type: "answer", sdp });
+		return this.#setRemoteDescription({ type: "answer", sdp: assertSignalBytes("SDP", sdp) });
 	}
 
 	/** Add one ICE candidate the far peer gathered. Candidates that arrive before
@@ -194,18 +213,18 @@ export class RtcPeer {
 		const queued = snapshotCandidate(candidate);
 		if (
 			this.#remoteCandidateCount >= MAX_PENDING_ICE_CANDIDATES ||
-			this.#remoteCandidateTextUnits + queued.textUnits > MAX_PENDING_ICE_TEXT_UNITS
+			this.#remoteCandidateBytes + queued.textBytes > MAX_PENDING_ICE_CANDIDATE_BYTES
 		) {
 			throw new Error("webrtc: too many pending ICE candidates");
 		}
 		this.#remoteCandidateCount++;
-		this.#remoteCandidateTextUnits += queued.textUnits;
+		this.#remoteCandidateBytes += queued.textBytes;
 		return queued;
 	}
 
 	#releaseRemoteCandidate(candidate: IceCandidateSnapshot): void {
 		this.#remoteCandidateCount--;
-		this.#remoteCandidateTextUnits -= candidate.textUnits;
+		this.#remoteCandidateBytes -= candidate.textBytes;
 	}
 
 	async #setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
@@ -259,7 +278,7 @@ export class RtcPeer {
 	onLocalCandidate(sink: (candidate: RTCIceCandidateInit) => void): void {
 		this.#candidateSink = sink;
 		const pending = this.#pendingLocal.splice(0);
-		this.#pendingLocalTextUnits = 0;
+		this.#pendingLocalBytes = 0;
 		for (const candidate of pending) sink(candidate);
 	}
 
@@ -268,11 +287,11 @@ export class RtcPeer {
 		return this.#open;
 	}
 
-	/** The open channel as a byte `Channel` a keyed session runs over. Call after
-	 * `waitOpen` reports the channel open. */
+	/** The open channel a keyed session runs over. Call after `waitOpen`
+	 * reports the DataChannel open. */
 	channel(): Channel {
-		if (!this.#dc) throw new Error("webrtc: data channel not established");
-		return rtcChannel(this.#dc);
+		if (!this.#channel) throw new Error("webrtc: data channel not established");
+		return this.#channel;
 	}
 
 	/** Close the peer connection and its channel. Idempotent. */
@@ -292,7 +311,7 @@ export class RtcPeer {
 		}
 		this.#remoteDescriptionState = "closed";
 		this.#pendingLocal.length = 0;
-		this.#pendingLocalTextUnits = 0;
+		this.#pendingLocalBytes = 0;
 		this.#candidateSink = null;
 		this.#markOpenFailed(closed);
 		this.#pc.close();

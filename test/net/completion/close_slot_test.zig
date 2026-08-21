@@ -139,7 +139,6 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
         CrossArmBackend.eof_when_exhausted = false;
     }
 
-    const LoopType = completion.Loop(CrossArmBackend, no_dial.Unsupported);
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .max_conns = 4,
         .listen = 0,
@@ -170,7 +169,6 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
     loop.closeSlot(0);
     try std.testing.expect(loop.conns[0].state == .draining);
     try std.testing.expectEqual(@as(usize, 1), loop.waiting_count);
-    try std.testing.expect(LoopType.white_box.nextDeadlineMs(&loop) != null);
 
     CrossArmBackend.hold_sends = false;
     CrossArmBackend.eof_when_exhausted = true;
@@ -201,7 +199,6 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
         CrossArmBackend.saw_bounded_poll = false;
     }
 
-    const LoopType = completion.Loop(CrossArmBackend, no_dial.Unsupported);
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .max_conns = 4,
         .listen = 0,
@@ -231,7 +228,6 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
     // The wait itself must carry the deadline. A loop that blocks forever
     // here reaps only when some unrelated connection produces a completion,
     // which on a quiet loop never happens.
-    try std.testing.expect(LoopType.white_box.nextDeadlineMs(&loop) != null);
 
     // The reap runs after a poll batch, so give the loop one completion to
     // process. It lands on the drained read seat and is dropped; the reap

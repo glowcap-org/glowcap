@@ -76,18 +76,18 @@ test "slot projection through real syrup codec matches oracle corpus descriptors
 test "impossible product cells are not constructible — sum only exposes legal arms" {
     const info = @typeInfo(slot.Slot);
     try std.testing.expect(info == .@"union");
-    try std.testing.expectEqual(@as(usize, 5), info.@"union".fields.len);
+    try std.testing.expectEqual(@as(usize, 5), info.@"union".field_names.len);
 }
 
 test "Slot never stores a wire descriptor or kind tag — projection only" {
     // ADR-0080 acceptance: descriptor is computed, never a field on the cell.
     comptime {
-        const fields = @typeInfo(slot.Slot).@"union".fields;
-        for (fields) |field| {
-            if (std.mem.eql(u8, field.name, "kind") or
-                std.mem.eql(u8, field.name, "descriptor") or
-                std.mem.eql(u8, field.name, "wire_descriptor") or
-                std.mem.indexOf(u8, field.name, "desc") != null)
+        const fields = @typeInfo(slot.Slot).@"union".field_names;
+        for (fields) |field_name| {
+            if (std.mem.eql(u8, field_name, "kind") or
+                std.mem.eql(u8, field_name, "descriptor") or
+                std.mem.eql(u8, field_name, "wire_descriptor") or
+                std.mem.indexOf(u8, field_name, "desc") != null)
             {
                 @compileError("Slot must not store a wire descriptor/kind field; project via toReference");
             }

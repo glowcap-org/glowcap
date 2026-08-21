@@ -22,12 +22,12 @@ const max_lines: usize = 650;
 
 /// How many files are still over the limit. Exact, and it only ever goes down:
 /// retiring one lowers it, and nothing may raise it, because the list is closed.
-const exception_count: usize = 40;
+const exception_count: usize = 0;
 
 /// Every line the exceptions below hold above `max_lines`, added up. Exact, like
 /// the ceilings it sums: a split lowers it, and nothing raises it, so a
 /// reduction cannot be quietly spent by a later diff.
-const exception_debt_lines: usize = 39866;
+const exception_debt_lines: usize = 0;
 
 const Exception = struct {
     path: []const u8,
@@ -37,48 +37,7 @@ const Exception = struct {
 /// Closed legacy debt, sorted largest first so the next split target is visible.
 /// Never add a row. A ceiling is an exact maximum for non-additive corrections,
 /// never headroom; any shrink must pin the lower count in this table.
-const exceptions = [_]Exception{
-    .{ .path = "src/driver/host_runtime.zig", .ceiling = 4528 },
-    .{ .path = "src/driver/core/host.zig", .ceiling = 4237 },
-    .{ .path = "src/ocapn/engine/node.zig", .ceiling = 4237 },
-    .{ .path = "bindings/racket/zig-smoke.rkt", .ceiling = 3453 },
-    .{ .path = "src/net/completion/loop.zig", .ceiling = 2511 },
-    .{ .path = "bindings/rust/src/session_tests.rs", .ceiling = 2299 },
-    .{ .path = "bindings/rust/src/host.rs", .ceiling = 2225 },
-    .{ .path = "src/ocapn/engine/mod.zig", .ceiling = 1939 },
-    .{ .path = "bindings/rust/src/driver_loop.rs", .ceiling = 1799 },
-    .{ .path = "src/c_abi/net_transport/onion/mod.zig", .ceiling = 1766 },
-    .{ .path = "bindings/rust/src/lib.rs", .ceiling = 1747 },
-    .{ .path = "src/ocapn/codec/syrup/decode.zig", .ceiling = 1746 },
-    .{ .path = "src/c_abi/driver/provider_registry.zig", .ceiling = 1727 },
-    .{ .path = "src/ocapn/session/mod.zig", .ceiling = 1666 },
-    .{ .path = "bindings/python/pancake/_host.py", .ceiling = 1565 },
-    .{ .path = "bindings/python/pancake/_loop.py", .ceiling = 1542 },
-    .{ .path = "src/actors/vat/mod.zig", .ceiling = 1525 },
-    .{ .path = "src/c_abi/shared/mod.zig", .ceiling = 1488 },
-    .{ .path = "bindings/ts/runtime/driver_loop.ts", .ceiling = 1450 },
-    .{ .path = "src/net/transport/webrtc.zig", .ceiling = 1433 },
-    .{ .path = "src/net/transport/iroh.zig", .ceiling = 1410 },
-    .{ .path = "src/c_abi/driver/loop.zig", .ceiling = 1302 },
-    .{ .path = "bindings/ts/runtime/host.ts", .ceiling = 1300 },
-    .{ .path = "bindings/ts/runtime/session.ts", .ceiling = 1285 },
-    .{ .path = "src/c_abi/net_transport/iroh/mod.zig", .ceiling = 1283 },
-    .{ .path = "bindings/racket/private/loop.rkt", .ceiling = 1136 },
-    .{ .path = "src/c_abi/net_transport/tcp/mod.zig", .ceiling = 1116 },
-    .{ .path = "bindings/python/pancake/_session.py", .ceiling = 1115 },
-    .{ .path = "bindings/racket/private/session.rkt", .ceiling = 1099 },
-    .{ .path = "src/ocapn/engine/bootstrap.zig", .ceiling = 1076 },
-    .{ .path = "src/ocapn/codec/capnp/decode.zig", .ceiling = 1014 },
-    .{ .path = "src/ocapn/session/validate.zig", .ceiling = 979 },
-    .{ .path = "bindings/python/smoke/lifecycle.py", .ceiling = 912 },
-    .{ .path = "src/oracle/mod.zig", .ceiling = 912 },
-    .{ .path = "bindings/rust/src/session.rs", .ceiling = 911 },
-    .{ .path = "src/net/transport/onion/completion.zig", .ceiling = 882 },
-    .{ .path = "src/net/transport/noise_completion.zig", .ceiling = 865 },
-    .{ .path = "bindings/racket/private/host.rkt", .ceiling = 843 },
-    .{ .path = "bindings/python/smoke/verbs.py", .ceiling = 817 },
-    .{ .path = "bindings/racket/private/iroh.rkt", .ceiling = 726 },
-};
+const exceptions: []const Exception = &.{};
 
 const trees = [_][]const u8{
     ".agents",
@@ -158,13 +117,25 @@ fn exceptionIndex(path: []const u8) ?usize {
     return null;
 }
 
+fn exceptionAt(rows: []const Exception, index: usize) Exception {
+    return rows[index];
+}
+
+fn hasDuplicateBefore(rows: []const Exception, index: usize) bool {
+    const current = exceptionAt(rows, index);
+    for (rows[0..index]) |earlier| {
+        if (std.mem.eql(u8, current.path, earlier.path)) return true;
+    }
+    return false;
+}
+
 fn checkFile(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
-    seen: *[exceptions.len]bool,
+    seen: []bool,
 ) !void {
     if (!isSource(path) or ignored(path)) return;
     const contents = root.readFileAlloc(io, path, gpa, .limited(16 << 20)) catch |err| {
@@ -194,7 +165,7 @@ fn checkFile(
         try appendViolation(gpa, violations, "{s}: has {d} lines; the exception inventory is closed, so split it by subject below the {d}-line project limit", .{ path, lines, max_lines });
         return;
     };
-    const ceiling = exceptions[i].ceiling;
+    const ceiling = exceptionAt(exceptions, i).ceiling;
     if (lines > ceiling) {
         try appendViolation(gpa, violations, "{s}: grew from its explicit {d}-line ceiling to {d}; split it instead of growing the exception", .{ path, ceiling, lines });
     } else if (lines < ceiling) {
@@ -208,7 +179,7 @@ pub fn check(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var seen = [_]bool{false} ** exceptions.len;
+    var seen: [exceptions.len]bool = @splat(false);
 
     // The per-file ceiling alone lets a diff pay a toll instead of a debt: add
     // three lines, delete three of your own comments, and the file is exactly as
@@ -234,17 +205,15 @@ pub fn check(
         if (exception.ceiling <= max_lines) {
             try appendViolation(gpa, violations, "{s}: file-length exception ceiling {d} is not above the {d}-line project limit; remove it", .{ exception.path, exception.ceiling, max_lines });
         }
-        if (i > 0 and exception.ceiling > exceptions[i - 1].ceiling) {
+        if (i > 0 and exception.ceiling > exceptionAt(exceptions, i - 1).ceiling) {
             try appendViolation(gpa, violations, "{s}: file-length exceptions must stay largest-first so the next split target remains visible", .{exception.path});
         }
-        for (exceptions[0..i]) |earlier| {
-            if (std.mem.eql(u8, exception.path, earlier.path)) {
-                try appendViolation(gpa, violations, "{s}: duplicate file-length exception", .{exception.path});
-            }
+        if (hasDuplicateBefore(exceptions, i)) {
+            try appendViolation(gpa, violations, "{s}: duplicate file-length exception", .{exception.path});
         }
     }
 
-    for (root_files) |path| try checkFile(io, gpa, root, violations, path, &seen);
+    for (root_files) |path| try checkFile(io, gpa, root, violations, path, seen[0..]);
     for (trees) |tree| {
         var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for the file-length check with {s}", .{ tree, @errorName(err) });
@@ -261,7 +230,7 @@ pub fn check(
             if (entry.kind != .file) continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
-            try checkFile(io, gpa, root, violations, path, &seen);
+            try checkFile(io, gpa, root, violations, path, seen[0..]);
         }
     }
 
@@ -277,4 +246,17 @@ test "lineCount includes an unterminated final line" {
     try std.testing.expectEqual(@as(usize, 1), lineCount("one"));
     try std.testing.expectEqual(@as(usize, 1), lineCount("one\n"));
     try std.testing.expectEqual(@as(usize, 2), lineCount("one\ntwo"));
+}
+
+test "exception helpers remain valid with an empty live inventory" {
+    try std.testing.expectEqual(@as(usize, 0), exceptions.len);
+
+    const sample = [_]Exception{
+        .{ .path = "first.zig", .ceiling = 900 },
+        .{ .path = "second.zig", .ceiling = 800 },
+        .{ .path = "first.zig", .ceiling = 700 },
+    };
+    try std.testing.expectEqualStrings("second.zig", exceptionAt(&sample, 1).path);
+    try std.testing.expect(!hasDuplicateBefore(&sample, 1));
+    try std.testing.expect(hasDuplicateBefore(&sample, 2));
 }

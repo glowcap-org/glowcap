@@ -56,7 +56,7 @@ gate() {
 # Sourcing for the test above stops here; everything below is the sequence.
 if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
 
-gate bash .devcontainer/post-create.sh
+gate bash .devcontainer/hooks/post-create.sh
 # The deadline wrapper bounds every gate below, and this sequence branches on
 # the codes it returns, so its behaviour is checked before anything relies on
 # it: exit codes, the signal a child actually receives, and no survivors.

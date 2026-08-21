@@ -1,21 +1,21 @@
 //! The reflected FFI surface: every reflected symbol wired in each binding,
 //! the coarse ABI-signature parity between hand-spelled sidecar surfaces,
-//! sidecar steady-byte pins, and the iroh sidecar's constant pins.
+//! sidecar steady-byte pins, and sidecar constant pins.
 
 const std = @import("std");
 const util = @import("../util.zig");
 
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
-/// The iroh sidecar C ABI is spelled three times by hand — the Rust
+/// The iroh sidecar C ABI is spelled four times by hand — the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
-/// (`transports/iroh/include/pancake_iroh_sidecar.h`), and the Zig resident's
-/// externs (`src/net/transport/iroh.zig`) — and the hermetic gate never links
-/// them, so a
+/// (`transports/iroh/include/pancake_iroh_sidecar.h`), the Zig transport's
+/// externs (`src/net/transport/iroh/sidecar.zig`), and the hermetic linker stub
+/// (`tools/gen/stub/iroh_sidecar.zig`) — and the hermetic gate never links the
+/// real sidecar, so a
 /// drifted spelling would surface only as a crash in the cargo-equipped
 /// `iroh-interop` run, or not at all for a silent width change. The coarse
 /// shape below is the strongest contract three syntaxes share.
@@ -71,7 +71,18 @@ const DeclaredDeferredFfi = struct {
     reason: []const u8,
 };
 
-const declared_deferred_ffi = [_]DeclaredDeferredFfi{};
+const declared_deferred_ffi = [_]DeclaredDeferredFfi{
+    .{
+        .binding = "rust",
+        .symbol = "pancake_host_session_feed_packet",
+        .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
+    },
+    .{
+        .binding = "rust",
+        .symbol = "pancake_host_session_take_packet",
+        .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
+    },
+};
 
 fn declaredDeferredReason(binding: []const u8, symbol: []const u8) ?[]const u8 {
     for (declared_deferred_ffi) |d| {
@@ -403,7 +414,25 @@ pub fn checkIrohSidecarAbi(
             .ret_end = '{',
         },
         .{ .paths = &.{"transports/iroh/include/pancake_iroh_sidecar.h"}, .anchor = null, .ret_end = ';' },
-        .{ .paths = &.{"src/net/transport/iroh.zig"}, .anchor = "extern fn ", .ret_end = ';' },
+        .{ .paths = &.{"src/net/transport/iroh/sidecar.zig"}, .anchor = "pub extern fn ", .ret_end = ';' },
+        .{ .paths = &.{"tools/gen/stub/iroh_sidecar.zig"}, .anchor = "export fn ", .ret_end = '{' },
+    });
+
+    // Function parity sees the config as one pointer. Pin the pointed-to
+    // representation separately so adding an endpoint knob cannot make a
+    // shorter C caller or hermetic stub read beyond its object.
+    try expectFileContains(io, gpa, root, violations, "transports/iroh/include/pancake_iroh_sidecar.h", &.{
+        "typedef struct pancake_iroh_sidecar_endpoint_config {\n  uint32_t reachability;\n  uint64_t connect_timeout_ms;\n  uint64_t idle_timeout_ms;\n  uint32_t worker_threads;\n} pancake_iroh_sidecar_endpoint_config;",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/iroh/sidecar.zig", &.{
+        "pub const CEndpointConfig = extern struct {\n    reachability: u32,\n    connect_timeout_ms: u64,\n    idle_timeout_ms: u64,\n    worker_threads: u32,\n};",
+    });
+    try expectFileContains(io, gpa, root, violations, "tools/gen/stub/iroh_sidecar.zig", &.{
+        "const EndpointConfig = extern struct {\n    reachability: u32,\n    connect_timeout_ms: u64,\n    idle_timeout_ms: u64,\n    worker_threads: u32,\n};",
+    });
+    try expectFileContains(io, gpa, root, violations, "transports/iroh/src/lib.rs", &.{
+        "pub reachability: u32,\n\t/// Stream-establishment deadline in milliseconds, 0 for the default.\n\tpub connect_timeout_ms: u64,",
+        "pub idle_timeout_ms: u64,\n\t/// Worker threads for this endpoint's runtime; 0 takes `WORKER_THREADS`.\n\tpub worker_threads: u32,",
     });
 }
 
@@ -427,16 +456,16 @@ pub fn checkWebrtcSidecarAbi(
             .anchor = "extern \"C\" fn ",
             .ret_end = '{',
         },
-        .{ .paths = &.{"src/net/transport/webrtc.zig"}, .anchor = "extern fn ", .ret_end = ';' },
+        .{ .paths = &.{"src/net/transport/webrtc/sidecar.zig"}, .anchor = "extern fn ", .ret_end = ';' },
     });
 }
 
-/// Hold the steady-buffer bound the Zig loop and the Rust sidecar each keep.
+/// Hold the steady-buffer bound the Zig loop keeps and the Rust sidecar mirrors.
 ///
 /// Both sides retain the same per-connection steady capacity and free the
 /// burst above it (ADR-0042's posture, ADR-0057's sidecar). The two constants
-/// live in different languages and nothing links them, so the 500k footprint
-/// budget could split between them silently: the sidecar's buffer is
+/// live in different languages, so the 500k footprint budget could split
+/// between them silently without the generated mirror: the sidecar's buffer is
 /// per-connection too, and a number raised on one side is a withdrawal the
 /// ladder never sees.
 pub fn checkSidecarSteadyBytes(
@@ -447,26 +476,60 @@ pub fn checkSidecarSteadyBytes(
 ) !void {
     const zig_path = "src/net/frame_stream.zig";
     const rust_path = "transports/iroh/src/lib.rs";
+    const gen_path = "tools/gen/iroh_sidecar_constants.zig";
+    const constants_path = "transports/iroh/src/constants_gen.rs";
     const zig_needle = "pub const steady_outbound_bytes: usize = 16 * 1024;";
-    const rust_needle = "const NB_STEADY_BYTES: usize = 16 * 1024;";
 
     if (root.readFileAlloc(io, zig_path, gpa, .limited(1 << 20))) |contents| {
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, zig_needle) == null) {
-            try appendViolation(gpa, violations, "{s}: `steady_outbound_bytes` moved off 16 KiB; {s}'s `NB_STEADY_BYTES` mirrors it by hand, so move both and re-weigh the ladder's per-connection budget", .{ zig_path, rust_path });
+            try appendViolation(gpa, violations, "{s}: `steady_outbound_bytes` moved off 16 KiB; re-weigh the ladder's per-connection budget and regenerate {s}", .{ zig_path, constants_path });
         }
     } else |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for steady-bytes parity with {s}", .{ zig_path, @errorName(err) });
     }
 
-    if (root.readFileAlloc(io, rust_path, gpa, .limited(2 << 20))) |contents| {
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, rust_needle) == null) {
-            try appendViolation(gpa, violations, "{s}: `NB_STEADY_BYTES` moved off 16 KiB; it mirrors `steady_outbound_bytes` in {s} by hand, so move both and re-weigh the ladder's per-connection budget", .{ rust_path, zig_path });
-        }
-    } else |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for steady-bytes parity with {s}", .{ rust_path, @errorName(err) });
-    }
+    try expectFileContains(io, gpa, root, violations, gen_path, &.{
+        "const frame_stream = @import(\"frame_stream\");",
+        "const steady_outbound_bytes = comptime frame_stream.steady_outbound_bytes;",
+        "\\\\pub(crate) const NB_STEADY_BYTES: usize = {d};",
+    });
+    try expectFileContains(io, gpa, root, violations, constants_path, &.{
+        "GENERATED by `zig build gen-iroh-sidecar-constants` from",
+        "src/net/transport/iroh/policy.zig and src/net/frame_stream.zig.",
+        "pub(crate) const NB_STEADY_BYTES: usize =",
+    });
+    try expectFileContains(io, gpa, root, violations, rust_path, &.{
+        "const NB_STEADY_BYTES: usize = constants_gen::NB_STEADY_BYTES;",
+    });
+}
+
+/// Iroh accepts are produced in the Rust sidecar and consumed by the Zig
+/// completion backend. One policy value owns both queues so an accept-burst
+/// footprint change cannot land on only one side of the sidecar seam.
+pub fn checkIrohAcceptQueueBound(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/iroh/policy.zig", &.{
+        "pub const accept_queue_bound: usize = 128;",
+        "pub const read_chunk_bytes: usize = 64 * 1024;",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/iroh/backend.zig", &.{
+        "const max_accept_stash = policy.accept_queue_bound;",
+    });
+    try expectFileContains(io, gpa, root, violations, "transports/iroh/src/constants_gen.rs", &.{
+        "GENERATED by `zig build gen-iroh-sidecar-constants` from",
+        "pub(crate) const ACCEPT_QUEUE_BOUND: usize =",
+        "pub(crate) const READ_CHUNK_BYTES: usize =",
+    });
+    try expectFileContains(io, gpa, root, violations, "transports/iroh/src/lib.rs", &.{
+        "mod constants_gen;",
+        "const ACCEPT_QUEUE_BOUND: usize = constants_gen::ACCEPT_QUEUE_BOUND;",
+        "const READ_CHUNK_BYTES: usize = constants_gen::READ_CHUNK_BYTES;",
+    });
 }
 
 /// ADR-0055 commits the sidecar to reproducible dependency resolution: the

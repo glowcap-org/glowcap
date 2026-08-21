@@ -22,6 +22,7 @@ import {
 	within,
 	withServer,
 } from "./support/rooms_server.ts";
+import { spawnOwned, stopOwned } from "./support/children.ts";
 
 roomsTest(
 	"racket one-shot client exits by its deadline while unrelated traffic continues",
@@ -29,7 +30,7 @@ roomsTest(
 		if (!(await onPath("racket"))) return;
 
 		await withServer(async (port) => {
-			const proc = new Deno.Command("racket", {
+			const proc = spawnOwned("racket", {
 				args: [
 					"-y",
 					RACKET_CLIENT,
@@ -43,7 +44,7 @@ roomsTest(
 				cwd: ROOT,
 				stdout: "piped",
 				stderr: "piped",
-			}).spawn();
+			});
 
 			let keepNoising = true;
 			const noise = (async () => {
@@ -64,12 +65,7 @@ roomsTest(
 			keepNoising = false;
 			await noise;
 			if ("kind" in result) {
-				try {
-					proc.kill("SIGTERM");
-				} catch {
-					// Already gone.
-				}
-				await proc.status;
+				await stopOwned(proc);
 				throw new Error(
 					"racket client did not exit when the roster could not complete",
 				);

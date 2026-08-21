@@ -1,6 +1,7 @@
 import { Connector, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
 import { abortable } from "@pancake/runtime/transport";
 import { RtcPeer } from "./peer.ts";
+import { assertSignalBytes } from "./signal.ts";
 
 /** Signaling authority used to establish one WebRTC DataChannel. */
 export interface SignalingAuthority {
@@ -15,13 +16,27 @@ export async function acceptRemoteCandidate(
 	peer: { addRemoteCandidate(candidate: RTCIceCandidateInit): Promise<void> },
 	ice: string,
 ): Promise<void> {
-	await peer.addRemoteCandidate(JSON.parse(ice));
+	await peer.addRemoteCandidate(JSON.parse(assertSignalBytes("signaling message", ice)));
 }
 
-/** Configure an explicit WebRTC byte connector over caller-owned signaling. */
-export function connector(signaling: SignalingAuthority): Connector {
+/** How a connector reaches a peer it cannot address directly. */
+export interface ConnectorOptions {
+	/** ICE servers (STUN/TURN) this side offers candidates through. Omitted or
+	 * empty gathers host candidates only, which reach a peer on the same network
+	 * and no other. A source is asked once per connection so short-lived TURN
+	 * credentials are never frozen at connector construction. The answering side
+	 * must be given the same kind of reach, or only one of the two can describe
+	 * itself in terms the other can dial. */
+	iceServers?: RTCIceServer[] | (() => Promise<RTCIceServer[]>);
+}
+
+/** Configure an explicit WebRTC connector over caller-owned signaling. */
+export function connector(signaling: SignalingAuthority, options: ConnectorOptions = {}): Connector {
 	return new Connector([TRANSPORT_WEBRTC], async (host, locator, request) => {
-		const peer = new RtcPeer({ offerer: true });
+		const configuredIce = typeof options.iceServers === "function"
+			? await options.iceServers()
+			: options.iceServers;
+		const peer = new RtcPeer({ offerer: true, iceServers: configuredIce });
 		const bringup = new AbortController();
 		const forwardAbort = (): void => {
 			if (!bringup.signal.aborted) bringup.abort();

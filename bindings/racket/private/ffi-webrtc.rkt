@@ -18,6 +18,11 @@
 (provide webrtc-fn
          _PancakeWebrtcReadyEvent
          PancakeWebrtcReadyEvent-subject PancakeWebrtcReadyEvent-events
+         _PancakeWebrtcStringView
+         PancakeWebrtcStringView-ptr PancakeWebrtcStringView-len
+         _PancakeWebrtcIceServer
+         PancakeWebrtcIceServer-urls PancakeWebrtcIceServer-url-count
+         PancakeWebrtcIceServer-username PancakeWebrtcIceServer-credential
          _PancakeWebrtcConfig _PancakeWebrtcConfig-pointer make-PancakeWebrtcConfig
          WEBRTC-EV-OPEN WEBRTC-EV-CANDIDATE WEBRTC-EV-READABLE
          WEBRTC-EV-WRITABLE WEBRTC-EV-CLOSED)
@@ -27,9 +32,23 @@
 (pin-layout! '_PancakeWebrtcReadyEvent _PancakeWebrtcReadyEvent
              PANCAKE-WEBRTC-READY-EVENT-SIZE PANCAKE-WEBRTC-READY-EVENT-LAYOUT)
 
+(define-cstruct _PancakeWebrtcStringView ([ptr _pointer] [len _size])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeWebrtcStringView _PancakeWebrtcStringView
+             PANCAKE-WEBRTC-STRING-VIEW-SIZE PANCAKE-WEBRTC-STRING-VIEW-LAYOUT)
+
+(define-cstruct _PancakeWebrtcIceServer
+  ([urls _pointer]
+   [url-count _size]
+   [username _PancakeWebrtcStringView]
+   [credential _PancakeWebrtcStringView])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeWebrtcIceServer _PancakeWebrtcIceServer
+             PANCAKE-WEBRTC-ICE-SERVER-SIZE PANCAKE-WEBRTC-ICE-SERVER-LAYOUT)
+
 (define-cstruct _PancakeWebrtcConfig
   ([ice-servers _pointer]
-   [ice-servers-len _size]
+   [ice-server-count _size]
    [include-loopback-candidates _uint32]
    [worker-threads _uint32])
   #:malloc-mode 'atomic-interior)

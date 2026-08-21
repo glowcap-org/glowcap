@@ -150,17 +150,24 @@ fn checkSiteContentLinksInFile(
     }
 }
 
-/// Match the heading ids minted by `base.shtml`'s table-of-contents script:
-/// lowercase ASCII word characters and hyphens, punctuation removed,
-/// whitespace collapsed to one hyphen, then limited to sixty bytes.
+/// Match the heading ids minted by `base.shtml`'s table-of-contents script.
+/// The site sets `supermd.headings_h2`, so authored `#` and `##` headings
+/// render as the h2/h3 entries included in the table of contents.
 fn siteHeadingHasFragment(contents: []const u8, fragment: []const u8) bool {
     var lines = std.mem.splitScalar(u8, contents, '\n');
+    var in_fence = false;
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
-        const title = if (std.mem.startsWith(u8, line, "## "))
+        if (std.mem.startsWith(u8, line, "```") or std.mem.startsWith(u8, line, "~~~")) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if (in_fence) continue;
+
+        const title = if (std.mem.startsWith(u8, line, "# "))
+            line[2..]
+        else if (std.mem.startsWith(u8, line, "## "))
             line[3..]
-        else if (std.mem.startsWith(u8, line, "### "))
-            line[4..]
         else
             continue;
 
@@ -190,9 +197,12 @@ fn siteHeadingHasFragment(contents: []const u8, fragment: []const u8) bool {
 
 test "site heading fragments follow the browser slug rule" {
     const page =
-        \\## In Zig
-        \\## Time-travel: snapshot and restore
-        \\### The `Host` API
+        \\# In Zig
+        \\# Time-travel: snapshot and restore
+        \\```sh
+        \\# old-name
+        \\```
+        \\## The `Host` API
     ;
     try std.testing.expect(siteHeadingHasFragment(page, "in-zig"));
     try std.testing.expect(siteHeadingHasFragment(page, "time-travel-snapshot-and-restore"));

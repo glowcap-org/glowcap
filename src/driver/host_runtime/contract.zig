@@ -9,6 +9,7 @@ const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
 const Budget = driver_core.Budget;
 const Error = driver_core.Error;
+const default_frame_cap = (driver_core.Host.Options{}).limits.max_frame_bytes;
 
 /// Canonicalize a provider's portable locator claim at the driver authority
 /// that composes transport realization with Host semantics. Extensions retain
@@ -22,6 +23,8 @@ pub fn canonicalProviderProfile(profile: model.transport.Metadata) !model.transp
         profile.symbol,
         profile.designator_scheme,
         profile.sealed_channel,
+        profile.wire_framing,
+        profile.max_packet_bytes,
     ) catch |err| switch (err) {
         error.InvalidTransportSymbol => error.InvalidTransportName,
         error.TransportSemanticsConflict => error.TransportSemanticsConflict,
@@ -49,17 +52,17 @@ pub fn Vocabulary(
         /// infinite wait can strand a process. Callers that intentionally
         /// accept no deadline spell `.unbounded` at construction.
         pub const Options = struct {
-            frame_cap: usize = 1 << 16,
+            frame_cap: usize = default_frame_cap,
             /// Bytes retained for each stream read/write buffer and each
             /// multiplexed resident read-staging buffer.
             wire_buffer_bytes: usize = default_wire_buffer_bytes,
             /// Shared bound for transport connects and CapTP handshakes that
             /// have been admitted but have not yet opened.
             max_pending_opens: usize = default_max_pending_opens,
-            codec: model.CodecId = model.Preference.baseline.codec,
+            codec: model.CodecId = model.Preference.default_offer.codec,
             /// Offered CapTP profile. Version and codec negotiate as separate
             /// axes, so callers normally set both but neither implies the other.
-            captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
+            captp_version: model.CaptpVersion = model.Preference.default_offer.captp_version,
             /// Per-read deadline during the keyed handshake and redeem dial.
             handshake: Budget,
             /// Wall-clock deadline for externally paced listener construction.

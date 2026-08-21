@@ -20,6 +20,7 @@ import {
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
+import { BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@pancake/abi";
 import { type RelayTarget } from "./relay_target.ts";
 
 export { isRendezvousDesignator };
@@ -37,8 +38,8 @@ const idleTimeoutMs = 0;
 // @pancake/relay; this per-session byte total is only a runaway backstop over the
 // session's life, set far above any real chat session's traffic so a peer sitting
 // in a room for hours is never dropped mid-conversation.
-const maxBytesPerSession = 1024 * 1024 * 1024;
-const tcpDialTimeoutMs = 5_000;
+const maxBytesPerSession = BINDING_RELAY_MAX_BYTES_PER_SESSION;
+const tcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
 // The admission caps are a deployment knob, not pancake's scale claim. Each live
 // relayed session costs the relay two file descriptors (the browser WebSocket and
 // the socket it forwards to); each held cold-dial registration costs one. So the

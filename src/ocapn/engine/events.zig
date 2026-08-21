@@ -8,6 +8,7 @@ const std = @import("std");
 const codec = @import("codec");
 const foundation = @import("foundation");
 const model = @import("model");
+const session = @import("session");
 
 pub const StepOutcome = enum {
     idle,
@@ -68,6 +69,10 @@ pub const Event = struct {
     /// (ADR-0010). A sum, not two optionals: illegal combinations (both set,
     /// or set under the wrong tag) are unrepresentable.
     answer_override: AnswerOverride = .none,
+    /// Stable identity of the answer this deliver may settle. Captured after
+    /// Session admission and carried independently from the reusable wire
+    /// position, so deferred application work cannot answer a later question.
+    deliver_answer_target: ?session.AnswerTarget = null,
     /// The allocator that owns `introduced_far_imports`, when set. Every
     /// `Event` the engine surfaces carries the same peer-lifetime allocator
     /// here regardless of whether that field is populated, so `deinit` has
@@ -138,6 +143,11 @@ pub const Event = struct {
             else
                 null,
         };
+    }
+
+    pub fn deliverAnswerTarget(self: *const Event) ?session.AnswerTarget {
+        if (self.tag != .deliver) return null;
+        return self.deliver_answer_target;
     }
 
     /// Materialize an owned codec-neutral message from the retained frame. Only

@@ -91,13 +91,17 @@ the vision itself when a tradeoff between them is unclear.
   surfaces, small modules, sharp tests, and boring public APIs. Agent economy
   follows the same rule: spend fewer tokens through progressive disclosure,
   focused reads, and deterministic automation, never by weakening code, tests,
-  boundaries, ownership, or cost evidence.
+  boundaries, ownership, or cost evidence. The maintainer's biography, a
+  line-audit claim, and the destination's ambition stay out of human docs;
+  they steer the work, they are not copy.
 
 ## Release Bar
 
-Work toward a 1.0 where the shape feels inevitable, a reader should not be able
-to imagine a cleaner OCapN implementation at this layer without breaking what
-pancake protects (performance, architecture, cross-binding interop).
+Work toward a 1.0 where the shape feels inevitable: the networking library a
+competent reader would pick at this layer, not a polite CapTP port. A reader
+should not be able to imagine a cleaner one without breaking what pancake
+protects (performance, architecture, cross-binding interop). Write that
+ambition as the work's shape. It is not a slogan for a first-read page.
 
 - **Assess, then act or prove inaction.** Substantial work uses the
   [work skill](../skills/work/SKILL.md): fix what the assessment finds, or show

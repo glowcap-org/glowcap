@@ -231,6 +231,6 @@ test "a frame larger than the write window survives would_block and resumes in o
 
     // The window really refused mid-frame, and nothing stayed retained.
     try std.testing.expect(fake.write_blocks > 0);
-    const wire = runtime.wires.get(session.peer_id).?;
+    const wire = runtime.wires.get(session.peer_handle).?;
     try std.testing.expect(wire.link.resident.pending == null);
 }

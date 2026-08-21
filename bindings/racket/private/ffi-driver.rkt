@@ -7,7 +7,7 @@
 ;; is a stepping `driver.HostRuntime` behind one readiness descriptor and one
 ;; event queue.
 ;;
-;; The loop tier over these verbs lives in `private/loop.rkt`: park on the
+;; The loop tier over these verbs lives in `private/loop/`: park on the
 ;; readiness fd, step zero-timeout, drain `pancake_driver_next_event` until
 ;; WOULD-BLOCK. Behavior callbacks fire inside `pancake_driver_step` exactly
 ;; as they fire inside a byte-fed feed, on the calling Racket thread.

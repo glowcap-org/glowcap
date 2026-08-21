@@ -1,8 +1,7 @@
 ---
 .title = "Why OCapN",
 .description = "OCapN held against the protocols you already run. If you know what a bearer token is, this page has all the background it assumes.",
-.date = @date("2026-07-25T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-25T00:00:00"),
 .layout = "why.shtml",
 .draft = false,
 ---
@@ -10,7 +9,7 @@
 pancake speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
 token is, this page has the background it assumes.
 
-## How today's protocols authorize
+# How today's protocols authorize
 
 When a program calls a service today, it identifies itself first. An HTTP
 request carries a bearer token, a cookie, or an API key. An SSH client logs in
@@ -27,7 +26,7 @@ bearer token rarely means one album, read only, for an hour; it usually means
 everything your account can do, until someone rotates it. Whatever you hand
 your credential to becomes you.
 
-## Watch the difference
+# The same story twice
 
 The walkthrough tells one story twice, first with a bearer token, then with
 capabilities.
@@ -211,7 +210,7 @@ capabilities.
 </figure>
 ```
 
-## Why a reference is not a bearer token
+# How a reference travels
 
 The reference must cross the network as bytes, and stolen bytes are how tokens
 leak. The difference is that the bytes are not the permission. When two
@@ -318,7 +317,7 @@ on, authority moves by passing references inside sessions. The sturdyref is
 the one string that does behave like a bearer secret, and it names the one
 thing its maker chose to publish, never an account.
 
-## Where the idea comes from
+# Where the idea comes from
 
 Every step above rests on one rule: holding a reference is the permission.
 Memory-safe languages already enforce it inside one process. An object
@@ -330,20 +329,21 @@ out of the E language, carries the rule across a network between mutually
 suspicious programs. OCapN standardizes CapTP, under the
 [Spritely Institute](https://spritely.institute/) and a community group.
 
-## What OCapN is
+# What OCapN is
 
 OCapN is the standard that grew out of CapTP: one message model over a choice
-of wire encodings and transports, so the same references travel over TCP,
-QUIC, or a browser connection. Calls return promises you can keep calling
+of wire encodings and transports, so the same references travel over encrypted
+QUIC, a sealed TCP stream, or a browser DataChannel. Calls return promises you can keep calling
 through, which lets a chain of dependent calls cross the network once instead
 of once per call. pancake checks its outside interoperability against
-[Spritely Goblins](https://spritely.institute/goblins/).
+[Spritely Goblins](https://spritely.institute/goblins/) on signed CapTP 1.0
+over Syrup.
 
 You can watch a three-party introduction in the
 [rooms demo]($link.page('examples')): asking a room to message a member gives
 you a direct reference to that member, and the room leaves the path.
 
-## Keep going
+# Keep going
 
 - [Concepts]($link.page('concepts')) explains the mechanisms one level down:
   locators and sturdyrefs, pipelining on the wire, the handoff stages, and

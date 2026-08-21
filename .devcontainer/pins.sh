@@ -3,11 +3,17 @@
 # every variable is consumed by the scripts that source this file.
 # shellcheck disable=SC2034
 # Install, verify, Dockerfile ENV, and devcontainer.json must stay aligned.
-# check-env-sync.sh enforces path consistency across those surfaces.
+# test/env-sync.sh enforces path consistency across those surfaces.
 
-# --- Zig (ZLS must match the compiler generation) ---
-ZIG_VERSION="0.16.0"
-ZLS_VERSION="0.16.0"
+# --- Zig ---
+ZIG_VERSION="0.17.0-dev.1818+7051f8e73"
+# ZLS currently refuses the pinned Zig 0.17 compiler. Keep its upstream source
+# pin recorded for update checks, but do not build or advertise it until
+# upstream supports this compiler generation.
+ZLS_ENABLED="false"
+ZLS_VERSION="0.17.0-dev"
+ZLS_SOURCE_REVISION="8da87d4f3305a550e7b739bad764e34bf1e46a08"
+ZLS_SOURCE_SHA256="621bbf0eddfcd909499338767a6d48941a9ab3d6fd3302ce72f0ccf3ebba4d43"
 
 # --- Rust (C ABI dogfood) ---
 RUST_VERSION="1.97.1"

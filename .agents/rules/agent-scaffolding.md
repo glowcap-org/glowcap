@@ -112,7 +112,8 @@ bans.
 Committed guidance carries explicit protocol vocabulary, ownership, boundaries,
 and evidence, never names of people an agent was asked to emulate. Live humans
 stay out of rules and human docs except for copyright attribution; examples use
-generic nicks such as `Alice`.
+generic nicks such as `Alice`. The destination's ambition and the maintainer's
+biography steer choices; they are not slogans or copy for a first-read page.
 
 Commit messages describe only what their diff demonstrates and why. Keep the
 subject short, omit session machinery and persona names, and put durable design

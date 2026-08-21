@@ -1,8 +1,7 @@
 ---
 .title = "Concepts",
 .description = "Follow a reference through a CapTP session: how peers get one, call it, pass it to a third peer, agree on a dialect, and release it.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -11,7 +10,7 @@ If capabilities are new, read [Why OCapN]($link.page('why')) first. This page
 assumes the why and explains the machinery. To see where `Session`, `Host`, and
 `Peer` fit, use [modules]($link.page('modules')).
 
-## A capability is a reference
+# A capability is a reference
 
 The whole protocol rests on the ordinary object reference. Code that holds a
 reference to an object can call it. Code that was never handed one cannot,
@@ -28,7 +27,7 @@ delegated. Wrap one in an object that only forwards some methods, hand out
 the wrapper, and you have attenuated. Cut the wrapper and you have revoked.
 [Why OCapN]($link.page('why')) walks all three with pictures.
 
-[A capability is a reference, not a copy. Pass it as an argument and the partner can call it; without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
+[A capability is a reference. Pass it as an argument and the partner can call it; without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
 
 A call itself is a two-beat exchange. Your deliver goes out and you are
 immediately holding a promise for the answer; the partner's resolve, whenever
@@ -36,7 +35,7 @@ it lands, settles that promise into a result.
 
 [A single call, start to finish: you deliver it and immediately hold a promise, and the partner's resolve settles that promise to a result.]($image.siteAsset('diagram-call.svg'))
 
-## Getting the first reference: locators and sturdyrefs
+# Getting the first reference: locators and sturdyrefs
 
 References only come from other references, which makes the very first one a
 special problem. That is the locator's job. A locator is an address string:
@@ -45,10 +44,11 @@ special problem. That is the locator's job. A locator is an address string:
 ocapn://<designator>.<transport>
 ```
 
-The **designator** names the peer: a `host:port` for `tcp`, a public key for
-the keyed transports. Optional `?key=value` **hints** carry routing help,
-like the socket address for a keyed listener. Hints can only help you reach
-a peer; they carry no authority of their own.
+The **designator** names the peer: an iroh node id, a public key for Noise
+and keyed transports, a Tor service id, or a `host:port` for testing-only
+`tcp`. Optional `?key=value` **hints** carry routing help, like the socket
+address for a keyed listener. Hints can only help you reach a peer; they
+carry no authority of their own.
 
 Dialing a locator opens a session. The **bootstrap object** is the one
 capability available at first. You fetch a
@@ -56,7 +56,7 @@ published name from it and get back a live reference. From there you are in
 the reference-passing world and the locator has done its whole job.
 
 A **sturdyref** is a locator with a **swiss number** on the end, and it names
-one object rather than a peer. It is the form you can write in a config file.
+one object. It is the form you can write in a config file.
 pancake does not persist the object for you: after a restart, the application
 must restore the same identity and register the same swiss number. Redeeming
 one is a dial and fetch aimed at that object. The standard `Host` does not
@@ -81,7 +81,7 @@ go deeper, and [Transports]($link.page('transports')) explains what a netlayer
 is. [Choosing a transport]($link.page('transports/choosing')) lists the ones a
 locator can name.
 
-## Promise pipelining
+# Promise pipelining
 
 A remote call hands back a **promise** before any bytes return, and you can
 call methods on that promise right away. Those calls travel to the peer and
@@ -95,7 +95,7 @@ runs exactly that, and the
 [promises and pipelining](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
 diagrams draw the flow the code is checked against.
 
-## Three-party handoff
+# Three-party handoff
 
 Alice holds a reference to Carol's object and wants Bob to have it. Routing
 Bob through Alice forever would leave Alice proxying a relationship she has
@@ -122,7 +122,7 @@ runs the whole exchange, and the
 [handoffs](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/06-handoffs.md)
 diagrams draw it.
 
-## Which dialect answers
+# Which dialect answers
 
 Two peers have to agree on a CapTP **version** and a **codec** before
 anything else can happen. Each side carries a ranked menu of what it can
@@ -147,7 +147,7 @@ with Cap'n Proto. Application code cannot tell the difference.
 
 [A friendly goblin sizing up a stack of pancakes. pancake tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('pancake-goblin-512.png'))
 
-## Distributed GC
+# Distributed GC
 
 Export table slots carry reference counts, and answer slots hold a single
 reference that is released outright. With GC enabled on a binding, dropping a

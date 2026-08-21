@@ -235,7 +235,7 @@ export async function tellFar(
 		ab(refStruct(target)),
 		ab(verbBytes),
 		BigInt(verbBytes.length),
-		args.length ? ab(argsBuf) : new Uint8Array(0),
+		ab(argsBuf),
 		BigInt(args.length),
 	));
 	await h.kickActions();
@@ -391,7 +391,7 @@ function settleReply(
 			ab(refStruct(result.target)),
 			ab(verbBytes),
 			BigInt(verbBytes.length),
-			result.args.length ? ab(argsBuf) : new Uint8Array(0),
+			ab(argsBuf),
 			BigInt(result.args.length),
 			outReply,
 		);

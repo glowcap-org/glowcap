@@ -3,7 +3,7 @@ id: ADR-0056
 status: superseded
 date: 2026-06-11
 tags: [handoff, three-party, gift-registry, engine, session]
-decision: "The vat-scoped `engine.bootstrap.GiftRegistry` is the single gift and handoff-count authority. The session's gift tables and gift methods are deleted; every `Peer` owns a private registry and a host serving several direct sessions to one vat shares one across its peers. Re-depositing a gift id replaces the prior row (replay stays blocked by the monotonic handoff count). A `withdraw-gift` whose gift has no live deposit parks on the peer and settles once the deposit lands. The registry carries no lock: the engine is externally synchronized, and a host that shares a registry across threads owns the locking."
+decision: "The vat-scoped `engine.bootstrap.gifts.GiftRegistry` is the single gift and handoff-count authority. The session's gift tables and gift methods are deleted; every `Peer` owns a private registry and a host serving several direct sessions to one vat shares one across its peers. Re-depositing a gift id replaces the prior row (replay stays blocked by the monotonic handoff count). A `withdraw-gift` whose gift has no live deposit parks on the peer and settles once the deposit lands. The registry carries no lock: the engine is externally synchronized, and a host that shares a registry across threads owns the locking."
 supersedes: [ADR-0009]
 superseded_by: [ADR-0100]
 amends: []
@@ -22,7 +22,7 @@ amended_by: [ADR-0096]
 Three-party gift authority existed twice. The session carried per-session
 `gifts` / `handoff_counts` tables with deposit / withdraw methods
 ([ADR-0009](ADR-0009-three-party-handoff-substrate.md) § Session-owned gift
-table), and `engine.bootstrap.GiftRegistry` carried the same tables vat-scoped,
+table), and `engine.bootstrap.gifts.GiftRegistry` carried the same tables vat-scoped,
 because a gifter deposits on its own session while the recipient withdraws on a
 _different_ session: the per-session table cannot serve the spec's
 cross-session flow. The engine dispatcher branched between the two at runtime,
@@ -41,7 +41,7 @@ wire roles; pancake is not the exporter-side registry in those checks.
 
 ## Decision
 
-`engine.bootstrap.GiftRegistry` is the only gift / handoff-count authority.
+`engine.bootstrap.gifts.GiftRegistry` is the only gift / handoff-count authority.
 Every `Peer` owns a private registry (`Peer.own_gift_registry`, freed in
 `deinit`); a host serving several direct sessions to one vat points its peers at
 one shared registry through `Peer.shared_gift_registry`, and

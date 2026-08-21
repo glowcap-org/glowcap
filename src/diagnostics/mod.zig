@@ -82,7 +82,7 @@ pub const Claim = struct {
 };
 
 const Field = enum { operation, primary_name, primary_message, secondary_name, secondary_message };
-const field_count = @typeInfo(Field).@"enum".fields.len;
+const field_count = @typeInfo(Field).@"enum".field_names.len;
 
 const Slot = struct {
     sequence: u64 = 0,
@@ -198,7 +198,7 @@ pub const Journal = struct {
             @memcpy(buf[slot.payload_len .. slot.payload_len + copied], source[0..copied]);
             slot.lengths[field_index] = copied;
             slot.payload_len += copied;
-            if (copied != source.len) slot.flags |= flagFor(@enumFromInt(field_index));
+            if (copied != source.len) slot.flags |= flagFor(@fromBackingInt(@intCast(field_index)));
         }
         self.slots[index] = slot;
         self.len += 1;
@@ -246,11 +246,11 @@ pub const Journal = struct {
             .secondary_result = slot.secondary_result,
             .secondary_count = slot.secondary_count,
             .flags = slot.flags,
-            .operation = views[@intFromEnum(Field.operation)],
-            .primary_name = views[@intFromEnum(Field.primary_name)],
-            .primary_message = views[@intFromEnum(Field.primary_message)],
-            .secondary_name = views[@intFromEnum(Field.secondary_name)],
-            .secondary_message = views[@intFromEnum(Field.secondary_message)],
+            .operation = views[@backingInt(Field.operation)],
+            .primary_name = views[@backingInt(Field.primary_name)],
+            .primary_message = views[@backingInt(Field.primary_message)],
+            .secondary_name = views[@backingInt(Field.secondary_name)],
+            .secondary_message = views[@backingInt(Field.secondary_message)],
         };
         self.head = (self.head + 1) % self.slots.len;
         self.len -= 1;

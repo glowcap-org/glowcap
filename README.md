@@ -22,14 +22,20 @@ where the name comes from: you can't have pancakes without syrup.
 
 It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
-and encryption belong to the transport adapters. The plain TCP transport below
-is cleartext and authenticates nobody, so use it to learn the API and for
-cleartext testing against
-[Spritely Goblins](https://spritely.institute/goblins/). For unmodified Goblins
-over Tor, use onion; [iroh](https://www.iroh.computer/) carries the same
-sessions over encrypted QUIC.
-[`docs/boundaries.md`](docs/boundaries.md) says what each transport proves.
-Every place a frame is copied, allocated, or borrowed is visible in the API.
+and encryption belong to the transport adapters.
+
+pancake is built with AI coding assistants. The maintainer directs the work
+and is answerable for what lands.
+[`PROVENANCE.md`](PROVENANCE.md) records how, including the upstream-contact
+limits that follow.
+
+[iroh](https://www.iroh.computer/) and `noise-tcp` are pancake-to-pancake
+paths: encrypted QUIC with discovery, and a sealed TCP route that proves the
+dialed key. Unmodified Goblins over Tor uses onion; that meeting is on demand.
+Plain `tcp` is a testing transport: cleartext, no identity proof, used for the
+recurring Goblins TCP suite. [`docs/boundaries.md`](docs/boundaries.md) says
+what each transport proves. Every place a frame is copied, allocated, or
+borrowed is visible in the API.
 
 If capabilities are new to you,
 [`docs/capabilities.md`](docs/capabilities.md) starts from zero and carries
@@ -52,33 +58,22 @@ const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("pancake", pancake.module("pancake"));
 ```
 
-The base module has no TLS dependency. A native program that wants the built-in
-`ws` and `wss` relay provider imports the separately composed module:
-
-```zig
-exe.root_module.addImport(
-    "pancake_native_relay",
-    pancake.module("pancake_native_relay"),
-);
-```
-
-That module owns both `keyed-relay` and `noise-relay` views over one carrier and
-one immutable trust snapshot. It builds Pancake's pinned Mbed TLS engine; a
-program that does not import it does not link Mbed TLS.
-
-Then dial a peer, fetch a capability by name, and call it. This is the body of
-a function whose caller supplies `io`, `allocator`, and `designator`, the
-peer's `host:port`; the compilable whole is
+Then dial a peer over `noise-tcp`, fetch a capability by name, and call it.
+This is the body of a function whose caller supplies `io`, `allocator`, the
+peer's durable key, and the `host:port` hint; the compilable whole is
 [`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig).
+[Start building](https://jimisaacs.github.io/pancake/start/) leads with iroh,
+for discovery and NAT traversal.
 
 ```zig
 const std = @import("std");
 const pancake = @import("pancake");
 
-// Plain TCP uses a cleartext `host:port` locator.
-var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
-const partner = pancake.net.tcp.locator(designator);
+// Noise_XK seals the CapTP stream and proves the dialed key.
+var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
+const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
+var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+const partner = pancake.net.tcp.noise.locator(peer_key, address, &hint_storage);
 
 const session = try pancake.driver.connect(
     allocator,
@@ -86,7 +81,10 @@ const session = try pancake.driver.connect(
     partner,
     .ephemeral,
     // Never leave a network wait unbounded.
-    .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
+    .{
+        .handshake = pancake.driver.default_handshake_budget,
+        .settle = pancake.driver.default_settle_budget,
+    },
 );
 defer session.deinit();
 
@@ -96,24 +94,26 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 switch (settled) {
     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+    .broken => |reason| {
+        std.debug.print("the greeter refused: {s}\n", .{reason});
+        return error.GreeterRefused;
+    },
 }
 ```
 
 `fetch` asks the peer's bootstrap object for a name that side published. A peer
 that never published `"greeter"` cannot be fetched that way.
 
-For a live peer to dial, `zig build` puts the `pancake` CLI in `zig-out/bin`,
-and `pancake ocapn listen --publish greeter` serves the same greeter this
-client fetches and prints its locator. [`docs/cli.md`](docs/cli.md) covers the
-CLI, including the REPL, `--json` scripting, and MCP.
+[Start building](https://jimisaacs.github.io/pancake/start/) is the listen half
+and the other languages. `zig build` puts the `pancake` CLI in `zig-out/bin`;
+`pancake app rooms-peer` is an encrypted conversation over iroh.
+[`docs/cli.md`](docs/cli.md) covers the REPL, `--json` scripting, MCP, and the
+cleartext lab round-trip.
 
-Both halves of the conversation are in
-[`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig),
-and [`examples/README.md`](examples/README.md) lists the rest of the chapters
-and demos. [Start building](https://jimisaacs.github.io/pancake/start/) is the
-longer walkthrough, covering iroh, C, and the language bindings. C consumers
-start at
+The numbered API walk starts at
+[`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig)
+over a local TCP socket and says so. [`examples/README.md`](examples/README.md)
+lists the rest of the chapters and the rooms app. C consumers start at
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md), and the Rust,
 TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
@@ -122,13 +122,19 @@ TypeScript, Python, and Racket bindings live in
 
 pancake is tested against the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and holds live
-sessions with [Spritely Goblins](https://spritely.institute/goblins/):
+sessions with Goblins. The recurring outside claim is signed CapTP 1.0 over
+Syrup:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a pancake peer
 zig build goblins-interop    # live Goblins over cleartext TCP (repo testing adapter)
-zig build goblins-iroh       # live Goblins over iroh (repo adapter; needs cargo)
+```
+
+On demand, not in that recurring set:
+
+```sh
 zig build goblins-onion      # live Goblins over Tor (upstream onion netlayer; needs tor)
+zig build goblins-iroh       # live Goblins over iroh (repo adapter; needs cargo)
 ```
 
 Set up the submodules once with `bash conformance/bootstrap-submodules.sh`.
@@ -136,8 +142,6 @@ The suite needs `uv`, and the live peer needs Racket with the Goblins
 collection; the devcontainer has both.
 [`docs/community-review.md`](docs/community-review.md) lists every interop
 check and what each one does and does not prove.
-[`PROVENANCE.md`](PROVENANCE.md) describes how this project is built,
-including its use of generative-AI tools.
 
 <p align="center">
   <img src="site/assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
@@ -145,7 +149,7 @@ including its use of generative-AI tools.
 
 ## Build
 
-pancake builds with Zig 0.16.0. `build.zig.zon` pins the minimum, and
+pancake builds with Zig 0.17. `build.zig.zon` pins the exact minimum, and
 [`.devcontainer/pins.sh`](.devcontainer/pins.sh) pins every other toolchain.
 
 ```sh

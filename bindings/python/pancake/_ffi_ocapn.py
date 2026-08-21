@@ -29,6 +29,7 @@ from ._lib_resolve import _lib_path
 # inventory (``zig build gen-binding-python-ffi``); this module hands it the
 # ``Structure`` types it declares below.
 from ._sigs_gen import ocapn_sigs
+from ._constants_gen import FRAME_SHAPE_BYTE
 
 # The layout gate for the hand-mirrored ctypes.Structure types below, held
 # against sizes and offsets reflected off the real Zig C ABI types
@@ -217,22 +218,27 @@ def _read_last_error(fn) -> str | None:
 
 
 def _str_buf(text: str):
-    """Encode ``text`` to UTF-8 in a fresh ctypes buffer, returning ``(buf,
-    length)``. The buffer is the caller's to keep alive across the synchronous C
-    call that borrows it."""
+    """Encode ``text`` to UTF-8, returning ``(owner, length)``. The owner keeps
+    the bytes live across the synchronous C call that borrows it."""
     data = text.encode()
-    return ctypes.create_string_buffer(data, len(data)), len(data)
+    owner, _ptr = _borrowed_byte_ptr(data)
+    return owner, len(data)
 
 
 def _byte_buf(data: bytes):
-    """A kept-alive ctypes buffer over ``data`` plus its non-null pointer —
-    non-null even for empty bytes (a methodless positional send's zero-length
-    verb), which the C side would otherwise refuse as a NULL pointer. Returns
-    ``(buf, ptr)``; the caller keeps ``buf`` alive across the synchronous C
-    call that borrows it. The one borrowed-bytes helper every module shares;
-    do not hand-roll ``create_string_buffer`` for a borrowed input."""
-    buf = ctypes.create_string_buffer(data if data else b"\0", len(data) or 1)
-    return buf, ctypes.cast(buf, ctypes.c_void_p)
+    """Borrow ``data`` as a non-null pointer for one synchronous C call."""
+    return _borrowed_byte_ptr(data)
+
+
+def _borrowed_byte_ptr(data: bytes) -> tuple[ctypes.c_char_p, ctypes.c_void_p]:
+    owner = ctypes.c_char_p(data)
+    return owner, ctypes.cast(owner, ctypes.c_void_p)
+
+
+def _borrowed_byte_frame(data: bytes) -> tuple[_Frame, ctypes.c_char_p]:
+    """Borrow a byte-shaped frame for one synchronous C call."""
+    owner, ptr = _borrowed_byte_ptr(data)
+    return _Frame(ptr, len(data), FRAME_SHAPE_BYTE), owner
 
 
 def _load():

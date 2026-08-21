@@ -34,8 +34,8 @@ const BudgetFact = struct {
 const budget_facts = [_]BudgetFact{
     .{
         .label = "per-connection slot overhead",
-        .source_path = "src/net/completion/loop.zig",
-        .decl = "const conn_slot_overhead_bytes: usize = ",
+        .source_path = "src/net/completion/loop/state.zig",
+        .decl = "pub const conn_slot_overhead_bytes: usize = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
             .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
@@ -44,7 +44,7 @@ const budget_facts = [_]BudgetFact{
     },
     .{
         .label = "Host-session budget",
-        .source_path = "src/driver/core/host.zig",
+        .source_path = "src/driver/core/host/session.zig",
         .decl = "pub const host_session_struct_budget_bytes = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
@@ -65,10 +65,10 @@ const budget_facts = [_]BudgetFact{
     },
     .{
         .label = "steady queue retention",
-        .source_path = "src/ocapn/engine/mod.zig",
-        .decl = "const steady_queue_bytes = ",
+        .source_path = "src/ocapn/engine/peer/queue.zig",
+        .decl = "pub const steady_retain_bytes: usize = ",
         .quotes = &.{
-            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_queue_bytes = ", .suffix = "`" },
+            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_retain_bytes: usize = ", .suffix = "`" },
         },
     },
     .{

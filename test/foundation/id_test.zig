@@ -4,7 +4,7 @@ const pancake = @import("pancake");
 const foundation = pancake.foundation;
 
 test "peer ids are fixed 32-byte values" {
-    const bytes = [_]u8{0x01} ** 32;
+    const bytes = @as([32]u8, @splat(0x01));
     const peer_id = foundation.PeerId.fromBytes(bytes);
 
     try std.testing.expectEqualSlices(u8, &bytes, peer_id.asBytes());
@@ -17,8 +17,8 @@ test "peer ids and session ids are distinct types" {
 }
 
 test "session ids compare by value" {
-    const a_bytes = [_]u8{0xaa} ** 32;
-    const b_bytes = [_]u8{0xbb} ** 32;
+    const a_bytes = @as([32]u8, @splat(0xaa));
+    const b_bytes = @as([32]u8, @splat(0xbb));
 
     const a = foundation.SessionId.fromBytes(a_bytes);
     const a_again = foundation.SessionId.fromBytes(a_bytes);

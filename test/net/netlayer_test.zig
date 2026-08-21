@@ -152,6 +152,10 @@ test "consumed operation shells refuse a second finish without trapping" {
     try std.testing.expect(claimed.borrow() == null);
     try std.testing.expect(claimed.take() == null);
 
+    const pending_teardown: net.multiplexed_resident.TeardownOutcome = .pending;
+    const pending_failure = pending_teardown.requireComplete().?;
+    try std.testing.expectEqualStrings("ProviderContract", pending_failure.primaryName());
+
     const empty_vtable: net.netlayer.Netlayer.VTable = .{
         .profile = model.transport.Known.tcp.metadata(),
         .dial = null,

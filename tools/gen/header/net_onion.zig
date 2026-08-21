@@ -164,7 +164,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   The key cap bounds Tor's ED25519-V3: private-key form with room to
         \\   spare. */
         \\#define PANCAKE_ONION_SERVICE_ID_LEN 56u
-        \\#define PANCAKE_ONION_SERVICE_KEY_CAP 256u
+    );
+    try b.print(gpa, "\n#define PANCAKE_ONION_SERVICE_KEY_CAP {d}u\n", .{c.PANCAKE_ONION_SERVICE_KEY_CAP});
+    try b.appendSlice(gpa,
         \\
         \\/* Everything the netlayer needs to reach Tor, and what to ask for when
         \\   hosting. Zero-initialize the whole struct and set the fields you use, so a

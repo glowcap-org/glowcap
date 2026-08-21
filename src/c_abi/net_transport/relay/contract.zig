@@ -29,7 +29,7 @@ pub const PancakeRelayTrustSummary = extern struct {
 };
 
 pub const Profile = net.relay.ChannelProfile;
-pub const profile_count = @typeInfo(Profile).@"enum".fields.len;
+pub const profile_count = @typeInfo(Profile).@"enum".field_names.len;
 
 pub fn metadata(profile: Profile) model.transport.Metadata {
     return profile.known().metadata();

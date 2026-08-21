@@ -21,9 +21,27 @@ pub fn checkDriverEventFailureProjection(
 ) !void {
     const paths = [_][]const u8{
         "bindings/rust/src/driver_loop.rs",
-        "bindings/python/pancake/_loop.py",
-        "bindings/ts/runtime/driver_loop.ts",
-        "bindings/racket/private/loop.rkt",
+        "bindings/rust/src/driver_loop/close.rs",
+        "bindings/rust/src/driver_loop/native.rs",
+        "bindings/rust/src/driver_loop/progress.rs",
+        "bindings/rust/src/driver_loop/provider.rs",
+        "bindings/rust/src/driver_loop/sessions.rs",
+        "bindings/python/pancake/_loop/__init__.py",
+        "bindings/python/pancake/_loop/configuration.py",
+        "bindings/python/pancake/_loop/dialing.py",
+        "bindings/python/pancake/_loop/errors.py",
+        "bindings/python/pancake/_loop/lifecycle.py",
+        "bindings/python/pancake/_loop/listeners.py",
+        "bindings/python/pancake/_loop/progress.py",
+        "bindings/python/pancake/_loop/sessions.py",
+        "bindings/ts/runtime/driver_loop/state.ts",
+        "bindings/ts/runtime/driver_loop/lifecycle.ts",
+        "bindings/ts/runtime/driver_loop/drive.ts",
+        "bindings/ts/runtime/driver_loop/connections.ts",
+        "bindings/racket/private/loop/core.rkt",
+        "bindings/racket/private/loop/dial.rkt",
+        "bindings/racket/private/loop/listeners.rkt",
+        "bindings/racket/private/loop/lifecycle.rkt",
     };
     const error_names = [_][]const u8{
         "HandshakeTimedOut",
@@ -55,9 +73,9 @@ pub fn checkDriverRetirementAuthority(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const forbidden = [_]struct { path: []const u8, needles: []const []const u8 }{
-        .{ .path = "bindings/ts/runtime/driver_loop.ts", .needles = &.{"#openSessions"} },
-        .{ .path = "bindings/python/pancake/_loop.py", .needles = &.{ "_open_sessions", "_close_requested" } },
-        .{ .path = "bindings/racket/private/loop.rkt", .needles = &.{ "driver-loop-retire-when-idle!", "retirement-scheduled" } },
+        .{ .path = "bindings/ts/runtime/driver_loop/state.ts", .needles = &.{"_openSessions"} },
+        .{ .path = "bindings/python/pancake/_loop/__init__.py", .needles = &.{ "_open_sessions", "_close_requested" } },
+        .{ .path = "bindings/racket/private/loop/listeners.rkt", .needles = &.{ "driver-loop-retire-when-idle!", "retirement-scheduled" } },
     };
     for (forbidden) |entry| {
         const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -83,12 +101,18 @@ pub fn checkBindingCloseProjectionAuthority(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const paths = [_][]const u8{
-        "bindings/ts/runtime/driver_loop.ts",
-        "bindings/ts/runtime/host.ts",
-        "bindings/python/pancake/_host.py",
-        "bindings/python/pancake/_loop.py",
+        "bindings/ts/runtime/driver_loop/state.ts",
+        "bindings/ts/runtime/driver_loop/lifecycle.ts",
+        "bindings/ts/runtime/driver_loop/drive.ts",
+        "bindings/ts/runtime/driver_loop/connections.ts",
+        "bindings/ts/runtime/host/state.ts",
+        "bindings/ts/runtime/host/lifecycle.ts",
+        "bindings/ts/runtime/host/application.ts",
+        "bindings/ts/runtime/host/drive.ts",
+        "bindings/python/pancake/_host/lifecycle.py",
+        "bindings/python/pancake/_loop/lifecycle.py",
         "bindings/racket/private/host.rkt",
-        "bindings/racket/private/loop.rkt",
+        "bindings/racket/private/loop/lifecycle.rkt",
     };
     for (paths) |path| {
         if (try fileContains(io, gpa, root, path, "close left")) {
@@ -111,7 +135,7 @@ pub fn checkBindingCloseProjectionAuthority(
         anchor: []const u8,
         forbidden: []const u8,
     }{
-        .{ .path = "bindings/ts/runtime/host.ts", .anchor = "assertHandle(): void {", .forbidden = "#releaseStarted" },
+        .{ .path = "bindings/ts/runtime/host/state.ts", .anchor = "assertHandle(): void {", .forbidden = "_releaseStarted" },
         .{ .path = "bindings/rust/src/host.rs", .anchor = "pub(crate) fn guard_handle", .forbidden = "closing()" },
         .{ .path = "bindings/rust/src/session_shared.rs", .anchor = "pub(crate) fn guard_open", .forbidden = "closing()" },
     };
@@ -136,11 +160,11 @@ pub fn checkBindingCloseProjectionAuthority(
         .{ .path = "bindings/racket/private/host.rkt", .needle = "release-request" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(cons options pending)" },
         .{ .path = "bindings/racket/private/action.rkt", .needle = "(define (drive-host-close! m options" },
-        .{ .path = "bindings/racket/private/loop.rkt", .needle = "(define (drive-loop-close! lp options" },
-        .{ .path = "bindings/ts/runtime/host.ts", .needle = "#doClose(options:" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "#driveClose(options:" },
-        .{ .path = "bindings/ts/runtime/driver_loop.ts", .needle = "#doClose(options:" },
-        .{ .path = "bindings/python/pancake/_host.py", .needle = "_drive_release(self, options)" },
+        .{ .path = "bindings/racket/private/loop/lifecycle.rkt", .needle = "(define (drive-loop-close! lp options" },
+        .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .needle = "_doClose(options:" },
+        .{ .path = "bindings/ts/runtime/session/lifecycle.ts", .needle = "#driveClose(options:" },
+        .{ .path = "bindings/ts/runtime/driver_loop/lifecycle.ts", .needle = "_doClose(options:" },
+        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .needle = "_drive_release(self, options)" },
     };
     for (retained_policy) |entry| {
         if (try fileContains(io, gpa, root, entry.path, entry.needle)) {
@@ -178,14 +202,17 @@ pub fn checkBindingClosePolicyAuthority(
         "driver_core.PendingWorkInput",
         ").resolve()",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/driver_loop.ts", &.{
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/driver_loop/finalizer.ts", &.{
         "new FinalizationRegistry<DriverLoopFinalizerState>",
         "const outcome = driverCall(",
         "\"driver-loop.finalizer.release\"",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_loop.py", &.{
+    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_driver/release.py", &.{
         "weakref.finalize(",
-        "self, _release_driver_finalizer_state",
-        "_release(_driver, handle, \"driver-loop.finalize.release\")",
+        "wrapper, _release_driver_finalizer_state",
+    });
+    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_driver/finalizer.py", &.{
+        "self.operation = \"driver-loop.finalize.release\"",
+        "outcome = _release(_driver, handle, state.operation)",
     });
 }

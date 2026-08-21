@@ -4,8 +4,9 @@ First-party applications live here. They use the same public
 `connect`/`publish`/`fetch`/`send`/`serve` API as the language bindings, not
 private `libpancake_*` calls.
 
-- [`rooms/`](rooms/): capability-secure chat, with the browser UI
-  (`zig build rooms-web`, `demo-rooms`).
+- [`rooms/`](rooms/): capability-secure chat. The browser UI
+  (`zig build rooms-web`) rides encrypted iroh; `demo-rooms` is the
+  cross-language room without a browser.
 - [`tasks/`](tasks/): a shared task board (`zig build demo-tasks`).
 - [`tools/`](tools/): the delegation/attenuation/revocation showcase for AI
   agent harnesses (`zig build demo-tools`).

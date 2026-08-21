@@ -387,7 +387,8 @@ test "the provider ABI preserves typed locators and holds one package lease" {
         c.PANCAKE_ERR_BUFFER_TOO_SMALL,
         cdrv.pancake_driver_listener_restoration_state(loop, listener, &short, short.len, &restoration_len),
     );
-    try std.testing.expectEqualSlices(u8, &([_]u8{0xa5} ** short.len), &short);
+    const expected_short: [short.len]u8 = @splat(0xa5);
+    try std.testing.expectEqualSlices(u8, &expected_short, &short);
     var restoration: ["typed-restoration-state".len]u8 = undefined;
     try expectOk(cdrv.pancake_driver_listener_restoration_state(
         loop,

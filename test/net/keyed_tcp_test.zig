@@ -40,7 +40,7 @@ test "key-addressed profiles build borrowed direct-address locators" {
 }
 
 test "toDesignator/fromDesignator round-trip byte-for-byte" {
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x5a} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5a)));
     const key = secret.publicKey();
     const designator = key.toDesignator();
     try std.testing.expectEqual(crypto.PeerKey.designator_len, designator.len);
@@ -49,7 +49,7 @@ test "toDesignator/fromDesignator round-trip byte-for-byte" {
 }
 
 test "fromDesignator is strict: length, case, and non-hex are all refused" {
-    const key = crypto.SecretKey.fromSeed([_]u8{0x5b} ** crypto.SEED_BYTES).publicKey();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5b))).publicKey();
     var designator = key.toDesignator();
 
     // Wrong length: one short, one long, empty.
@@ -78,7 +78,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x5c} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5c)));
     var resident = net.tcp.keyed.Resident{ .io = io };
     const nl = resident.netlayer();
     try std.testing.expectEqual(net.netlayer.DesignatorScheme.key, nl.designatorScheme());
@@ -135,7 +135,7 @@ test "keyed-tcp listener close wakes and joins a blocked readiness wait" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x5d} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5d)));
     var resident = net.tcp.keyed.Resident{ .io = io };
     const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",

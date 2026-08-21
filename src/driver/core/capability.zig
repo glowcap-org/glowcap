@@ -29,7 +29,7 @@ pub const Ref = struct {
     id: CapabilityId,
 
     pub fn raw(self: Ref) u64 {
-        return @intFromEnum(self.id);
+        return @backingInt(self.id);
     }
 
     pub fn eql(self: Ref, other: Ref) bool {
@@ -46,7 +46,7 @@ pub const Target = union(enum) {
     local: u64,
     /// One real import on its owning session.
     remote: struct {
-        peer_id: engine.PeerId,
+        peer_handle: engine.PeerHandle,
         far: model.FarRef,
         /// Host-monotonic stamp for this live import-row incarnation. A partner
         /// may reuse the numeric position after release; the stamp prevents the
@@ -58,10 +58,10 @@ pub const Target = union(enum) {
     /// opaque application identity and retain count.
     deferred: PromiseId,
 
-    fn peerId(self: Target) ?engine.PeerId {
+    fn peerHandle(self: Target) ?engine.PeerHandle {
         return switch (self) {
             .local, .deferred => null,
-            .remote => |remote| remote.peer_id,
+            .remote => |remote| remote.peer_handle,
         };
     }
 
@@ -69,7 +69,7 @@ pub const Target = union(enum) {
         return switch (self) {
             .local => |actor_id| .{ .local = actor_id },
             .remote => |remote| .{ .remote = .{
-                .peer_id = remote.peer_id,
+                .peer_handle = remote.peer_handle,
                 .kind = remote.far.kind,
                 .position = remote.far.import_position.int(),
                 .incarnation = remote.incarnation,
@@ -82,7 +82,7 @@ pub const Target = union(enum) {
 const Key = union(enum) {
     local: u64,
     remote: struct {
-        peer_id: engine.PeerId,
+        peer_handle: engine.PeerHandle,
         kind: model.RefKind,
         position: u64,
         incarnation: u64,
@@ -155,7 +155,7 @@ pub const Registry = struct {
     free_head: ?u32 = null,
     by_target: std.AutoHashMapUnmanaged(Key, Ref) = .empty,
     by_id: std.AutoHashMapUnmanaged(CapabilityId, u32) = .empty,
-    peer_heads: std.AutoHashMapUnmanaged(engine.PeerId, u32) = .empty,
+    peer_heads: std.AutoHashMapUnmanaged(engine.PeerHandle, u32) = .empty,
     id_issuer: ?IdIssuer = null,
     next_local_id: u64 = ref_base,
 
@@ -232,20 +232,20 @@ pub const Registry = struct {
 
         try self.by_target.ensureUnusedCapacity(allocator, 1);
         try self.by_id.ensureUnusedCapacity(allocator, 1);
-        if (target.peerId()) |peer_id| if (!self.peer_heads.contains(peer_id))
+        if (target.peerHandle()) |peer_handle| if (!self.peer_heads.contains(peer_handle))
             try self.peer_heads.ensureUnusedCapacity(allocator, 1);
         const id = try self.nextId();
         const acquired = try self.acquireSlot(allocator);
-        const prior_head = if (target.peerId()) |peer_id| self.peer_heads.get(peer_id) else null;
+        const prior_head = if (target.peerHandle()) |peer_handle| self.peer_heads.get(peer_handle) else null;
         acquired.slot.state = .{ .live = .{
             .id = id,
             .target = target,
             .retains = 1,
             .peer_next = prior_head,
         } };
-        if (target.peerId()) |peer_id| {
+        if (target.peerHandle()) |peer_handle| {
             if (prior_head) |head| self.liveEntryAt(head).peer_prev = acquired.index;
-            self.peer_heads.putAssumeCapacity(peer_id, acquired.index);
+            self.peer_heads.putAssumeCapacity(peer_handle, acquired.index);
         }
         const ref = Ref{ .registry = self, .id = id };
         self.by_id.putAssumeCapacity(id, acquired.index);
@@ -288,7 +288,7 @@ pub const Registry = struct {
     /// application handle can release its outstanding unit; `resolve` still
     /// refuses every use. A fully released or foreign id stays stale.
     pub fn refForRaw(self: *const Registry, raw: u64) ?Ref {
-        const id: CapabilityId = @enumFromInt(raw);
+        const id: CapabilityId = @fromBackingInt(@intCast(raw));
         if (!self.by_id.contains(id)) return null;
         return .{ .registry = self, .id = id };
     }
@@ -320,26 +320,26 @@ pub const Registry = struct {
         }
     }
 
-    /// Invalidate every capability homed on `peer_id` without scanning rows
+    /// Invalidate every capability homed on `peer_handle` without scanning rows
     /// belonging to other sessions. The target and canonical index disappear
     /// immediately; a release-only row survives until every already-issued
     /// application retain settles. Returns the number invalidated.
-    pub fn invalidatePeer(self: *Registry, peer_id: engine.PeerId) usize {
+    pub fn invalidatePeer(self: *Registry, peer_handle: engine.PeerHandle) usize {
         var count: usize = 0;
-        while (self.peer_heads.get(peer_id)) |slot_index| {
+        while (self.peer_heads.get(peer_handle)) |slot_index| {
             const slot = &self.slots.items[slot_index];
             const entry = switch (slot.state) {
                 .live => |entry| entry,
                 .free, .retired => unreachable,
             };
-            std.debug.assert(entry.target.peerId().? == peer_id);
+            std.debug.assert(entry.target.peerHandle().? == peer_handle);
             std.debug.assert(entry.peer_prev == null);
             std.debug.assert(self.by_target.remove(entry.target.key()));
             if (entry.peer_next) |next| {
                 self.liveEntryAt(next).peer_prev = null;
-                self.peer_heads.putAssumeCapacity(peer_id, next);
+                self.peer_heads.putAssumeCapacity(peer_handle, next);
             } else {
-                std.debug.assert(self.peer_heads.remove(peer_id));
+                std.debug.assert(self.peer_heads.remove(peer_handle));
             }
             slot.state = .{ .retired = .{ .id = entry.id, .retains = entry.retains } };
             count += 1;
@@ -393,13 +393,13 @@ pub const Registry = struct {
 
         std.debug.assert(self.by_target.remove(entry.target.key()));
         std.debug.assert(self.by_id.remove(entry.id));
-        if (entry.target.peerId()) |peer_id| {
+        if (entry.target.peerHandle()) |peer_handle| {
             if (entry.peer_prev) |prev| {
                 self.liveEntryAt(prev).peer_next = entry.peer_next;
             } else if (entry.peer_next) |next| {
-                self.peer_heads.putAssumeCapacity(peer_id, next);
+                self.peer_heads.putAssumeCapacity(peer_handle, next);
             } else {
-                std.debug.assert(self.peer_heads.remove(peer_id));
+                std.debug.assert(self.peer_heads.remove(peer_handle));
             }
             if (entry.peer_next) |next| self.liveEntryAt(next).peer_prev = entry.peer_prev;
         }
@@ -426,7 +426,7 @@ pub const Registry = struct {
     }
 
     pub fn refFromRaw(self: *const Registry, raw: u64) Ref {
-        return .{ .registry = self, .id = @enumFromInt(raw) };
+        return .{ .registry = self, .id = @fromBackingInt(@intCast(raw)) };
     }
 
     fn slotFor(self: *const Registry, ref: Ref) ?u32 {
@@ -440,7 +440,7 @@ pub const Registry = struct {
             while (attempts < 16) : (attempts += 1) {
                 const raw = try issuer.next(issuer.ctx);
                 if (raw == 0) continue;
-                const id: CapabilityId = @enumFromInt(raw);
+                const id: CapabilityId = @fromBackingInt(@intCast(raw));
                 // A truncated opaque token may collide; retry before
                 // publication instead of replacing live authority. The bound
                 // also keeps a broken custom issuer from hanging the Host.
@@ -455,6 +455,6 @@ pub const Registry = struct {
             break :local current;
         };
         if (raw == 0) return error.CapabilitySpaceExhausted;
-        return @enumFromInt(raw);
+        return @fromBackingInt(@intCast(raw));
     }
 };

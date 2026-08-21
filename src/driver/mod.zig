@@ -117,8 +117,12 @@ const session = @import("session.zig");
 /// builds it explicitly.
 const host_runtime = @import("host_runtime.zig");
 pub const HostRuntime = host_runtime.HostRuntime;
+pub const default_handshake_timeout_ms = driver_core.default_handshake_timeout_ms;
+pub const default_handshake_budget = driver_core.default_handshake_budget;
 pub const default_wire_buffer_bytes = host_runtime.default_wire_buffer_bytes;
 pub const default_listener_setup_ms = host_runtime.default_listener_setup_ms;
+pub const default_settle_ms = host_runtime.default_settle_ms;
+pub const default_settle_budget: driver_core.Budget = .{ .ms = @intCast(host_runtime.default_settle_ms) };
 pub const default_max_pending_opens = host_runtime.default_max_pending_opens;
 /// The owning, one-call application session `connect`/`listen` hand back
 /// (see `session.zig`), re-exported so callers reach them as
@@ -149,5 +153,5 @@ pub const DialPolicy = dial_retry.DialPolicy;
 pub const DialOutcome = dial_retry.DialOutcome;
 pub const OnDialOutcome = dial_retry.OnDialOutcome;
 pub const isTransientDialError = dial_retry.isTransient;
-pub const discovery_retry_ms = dial_retry.discovery_retry_ms;
-pub const discovery_max_attempts = dial_retry.discovery_max_attempts;
+pub const discovery_retry_ms = driver_core.discovery_retry_ms;
+pub const discovery_max_attempts = driver_core.discovery_max_attempts;

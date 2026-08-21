@@ -25,8 +25,8 @@
 extern "C" {
 #endif
 /* Orientation: the WebRTC transport is a peer-to-peer DataChannel that
-   carries one keyed OCapN session byte-for-byte, at least one end of which
-   is usually a browser. Unlike iroh, a peer has no dialable address, so
+   carries one bare OCapN codec frame per DataChannel message, at least
+   one end of which is usually a browser. Unlike iroh, a peer has no dialable address, so
    there is no connect(addr). The channel comes up through an out-of-band
    signaling exchange you drive:
 
@@ -46,9 +46,9 @@ extern "C" {
 
    When the fd wakes, call pancake_webrtc_netlayer_drain_ready and route its
    stable peer-id records. Drain local candidates on CANDIDATE, check channel
-   state on OPEN, use pancake_webrtc_peer_try_read / _try_write for raw
-   session bytes on READABLE / WRITABLE, and stop on CLOSED. You frame the
-   raw bytes yourself. On loopback and on a LAN the peers reach each other
+   state on OPEN, use pancake_webrtc_peer_try_receive_packet /
+   _try_send_packet for whole DataChannel packets on READABLE / WRITABLE,
+   and stop on CLOSED. On loopback and on a LAN the peers reach each other
    on host candidates alone, with no STUN or TURN.
 
    Threading: a netlayer and its peers are single-owner. Signaling submissions
@@ -69,6 +69,15 @@ typedef struct PancakeWebrtcPeer PancakeWebrtcPeer;
 #define PANCAKE_WEBRTC_EV_READABLE 4u
 #define PANCAKE_WEBRTC_EV_WRITABLE 8u
 #define PANCAKE_WEBRTC_EV_CLOSED 16u
+#define PANCAKE_WEBRTC_MAX_SIGNAL_BYTES 16384u
+#define PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES 16384u
+#define PANCAKE_WEBRTC_MAX_ICE_SERVERS 16u
+#define PANCAKE_WEBRTC_MAX_ICE_URLS_PER_SERVER 16u
+#define PANCAKE_WEBRTC_MAX_ICE_URL_BYTES 2048u
+#define PANCAKE_WEBRTC_MAX_ICE_CREDENTIAL_BYTES 4096u
+#define PANCAKE_WEBRTC_MAX_PENDING_ICE_CANDIDATES 256u
+#define PANCAKE_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES 65536u
+#define PANCAKE_WEBRTC_DATA_CHANNEL_QUEUE_BYTES 1048576u
 /* One readiness record from pancake_webrtc_netlayer_drain_ready. subject
    is the stable identity returned by pancake_webrtc_peer_id. */
 typedef struct PancakeWebrtcReadyEvent {
@@ -76,39 +85,40 @@ typedef struct PancakeWebrtcReadyEvent {
   uint32_t events;
 } PancakeWebrtcReadyEvent;
 
-/* One WebRTC endpoint's configuration, passed to pancake_webrtc_netlayer_new /
-   _new_in.
-   ice_servers is a comma-separated list of ICE server URLs, borrowed for the
-   call, and it decides how far a peer created from this endpoint can reach.
-   NULL or empty offers host candidates only, which connects two peers on one
-   network and nothing beyond it, because neither end can discover the address a
-   NAT gave it. A deployment crossing NAT names STUN servers here
-   (stun:host:port). Credentialed TURN relaying is not expressible yet; see
-   ADR-0089.
-   include_loopback_candidates (nonzero) offers loopback addresses too, which is
-   what lets two peers in one process or on one host connect with no STUN. It is
-   off unless asked for: a test wants it and says so, while a deployment neither
-   needs it nor wants to advertise addresses a partner can never reach.
-   worker_threads sizes this endpoint's runtime; 0 takes pancake's two, which is
-   pancake's number rather than the runtime's own core-count. It is a per-endpoint
-   cost, so a process holding many endpoints, or one endpoint
-   holding many peers, is the caller that should name it.
-   There is no establishment deadline here, unlike the iroh endpoint's
-   connect_timeout_ms, and the difference is deliberate. That sidecar performs a
-   dial on your behalf and is the only party that can see it fail, so it must
-   bound it. This one runs a state machine you feed, and publishes every terminal
-   outcome as a readiness event, including a connection that fails to establish.
-   You already own the wall clock, and a second deadline here would be a second
-   authority for the same fact.
-   Zero-initialize the whole struct before filling the fields you set (e.g.
-   `PancakeWebrtcConfig cfg = {0};`), so a field added in a later version
-   defaults to 0 rather than reading stack garbage. */
+/* Borrowed UTF-8 text in WebRTC configuration records. A zero length may use
+   NULL. */
+typedef struct PancakeWebrtcStringView {
+  const uint8_t *ptr;
+  size_t len;
+} PancakeWebrtcStringView;
+
+/* One STUN or TURN record. urls points to url_count borrowed URL views.
+   username and credential are empty for ordinary STUN and set together for
+   credentialed TURN. */
+typedef struct PancakeWebrtcIceServer {
+  const PancakeWebrtcStringView *urls;
+  size_t url_count;
+  PancakeWebrtcStringView username;
+  PancakeWebrtcStringView credential;
+} PancakeWebrtcIceServer;
+
+/* One WebRTC endpoint's configuration. Zero-initialize before filling fields.
+   ice_servers is a borrowed array of STUN/TURN records; NULL or empty gathers
+   host candidates only. Each record has 1-PANCAKE_WEBRTC_MAX_ICE_URLS_PER_SERVER
+   non-empty UTF-8 stun:, stuns:, turn:, or turns: URLs, and a config has at
+   most PANCAKE_WEBRTC_MAX_ICE_SERVERS records. TURN records require both
+   username and credential; STUN-only records must leave them empty. Provider
+   tokens, expiry, and refresh policy stay outside this ABI.
+   include_loopback_candidates offers loopback candidates for same-host tests.
+   worker_threads sizes this endpoint's runtime; 0 selects pancake's default.
+   Establishment deadlines belong to the caller that drives signaling. */
 typedef struct PancakeWebrtcConfig {
-  const uint8_t *ice_servers;
-  size_t ice_servers_len;
+  const PancakeWebrtcIceServer *ice_servers;
+  size_t ice_server_count;
   uint32_t include_loopback_candidates;
   uint32_t worker_threads;
-} PancakeWebrtcConfig;/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT before any other call. */
+} PancakeWebrtcConfig;
+/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT before any other call. */
 uint64_t pancake_webrtc_archive_fingerprint(void);
 /* Create the shared WebRTC runtime/readiness endpoint. Release it after every peer
    created from it has been released. config carries the endpoint's settings; a
@@ -133,42 +143,56 @@ int32_t pancake_webrtc_peer_new_in(PancakeContext *context, PancakeWebrtcNetlaye
 /* Produce the offerer's SDP offer into out (cap bytes), writing the SDP length to
    out_len and setting it as the local description. PANCAKE_ERR_BUFFER_TOO_SMALL
    still writes the required length to out_len, so retry with a buffer that size.
+   PANCAKE_ERR_INVALID_ARGUMENT means the generated SDP exceeds
+   PANCAKE_WEBRTC_MAX_SIGNAL_BYTES and no larger buffer can make it valid.
    Offerer only. */
 int32_t pancake_webrtc_peer_create_offer(PancakeWebrtcPeer *peer, uint8_t *out, size_t cap, size_t *out_len);
-/* Bind the durable key authorized by the signaling authority before the channel opens. */
+/* Bind the durable key authorized by the signaling authority before the channel
+   opens. designator is the borrowed canonical lowercase-hex durable key;
+   PANCAKE_ERR_INVALID_ARGUMENT leaves the peer unchanged. */
 int32_t pancake_webrtc_peer_authorize_remote(PancakeWebrtcPeer *peer, const uint8_t *designator, size_t designator_len);
 /* Produce the answerer's SDP answer into out (cap bytes), writing the SDP length
    to out_len and setting it as the local description. Answerer only, after
    pancake_webrtc_peer_set_remote_offer. PANCAKE_ERR_BUFFER_TOO_SMALL still writes
-   the required length. */
+   the required length. PANCAKE_ERR_INVALID_ARGUMENT means the generated SDP
+   exceeds PANCAKE_WEBRTC_MAX_SIGNAL_BYTES and no larger buffer can make it valid. */
 int32_t pancake_webrtc_peer_create_answer(PancakeWebrtcPeer *peer, uint8_t *out, size_t cap, size_t *out_len);
 /* Set the far offerer's SDP offer (sdp/sdp_len, borrowed UTF-8) as the remote
-   description. Answerer side. */
+   description. Answerer side. PANCAKE_ERR_INVALID_ARGUMENT means the description
+   exceeds PANCAKE_WEBRTC_MAX_SIGNAL_BYTES and the sidecar state is unchanged. */
 int32_t pancake_webrtc_peer_set_remote_offer(PancakeWebrtcPeer *peer, const uint8_t *sdp, size_t sdp_len);
 /* Set the far answerer's SDP answer (sdp/sdp_len, borrowed UTF-8) as the remote
-   description. Offerer side. */
+   description. Offerer side. PANCAKE_ERR_INVALID_ARGUMENT means the description
+   exceeds PANCAKE_WEBRTC_MAX_SIGNAL_BYTES and the sidecar state is unchanged. */
 int32_t pancake_webrtc_peer_set_remote_answer(PancakeWebrtcPeer *peer, const uint8_t *sdp, size_t sdp_len);
 /* Add one remote ICE candidate (cand/cand_len, the borrowed JSON the far peer's
-   pancake_webrtc_peer_next_local_candidate produced). */
+   pancake_webrtc_peer_next_local_candidate produced). PANCAKE_ERR_INVALID_ARGUMENT
+   means the candidate exceeds PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES and the sidecar
+   state is unchanged. */
 int32_t pancake_webrtc_peer_add_remote_candidate(PancakeWebrtcPeer *peer, const uint8_t *cand, size_t cand_len);
 /* Drain the next locally gathered ICE candidate into out (cap bytes) as JSON,
    writing its length to out_len; carry it to the far peer's
    pancake_webrtc_peer_add_remote_candidate. PANCAKE_ERR_WOULD_BLOCK when none is
-   pending yet; PANCAKE_ERR_BUFFER_TOO_SMALL still writes the required length. */
+   pending yet; PANCAKE_ERR_BUFFER_TOO_SMALL still writes the required length.
+   PANCAKE_ERR_INVALID_ARGUMENT means the local candidate exceeds
+   PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES and no larger buffer can make it valid. */
 int32_t pancake_webrtc_peer_next_local_candidate(PancakeWebrtcPeer *peer, uint8_t *out, size_t cap, size_t *out_len);
 /* Return the peer's stable, nonzero readiness identity, or zero for NULL. */
 size_t pancake_webrtc_peer_id(PancakeWebrtcPeer *peer);
 /* Check channel establishment without blocking: PANCAKE_OK once open,
-   PANCAKE_ERR_WOULD_BLOCK while pending, PANCAKE_ERR_CLOSED after close. */
+   PANCAKE_ERR_WOULD_BLOCK while pending, PANCAKE_ERR_CLOSED after clean close,
+   or PANCAKE_ERR_IO when setup faulted. */
 int32_t pancake_webrtc_peer_is_open(PancakeWebrtcPeer *peer);
-/* Non-blocking read of raw inbound bytes: PANCAKE_OK with the count in out_read,
+/* Non-blocking receive of one inbound packet: PANCAKE_OK with the packet length
+   in out_read, PANCAKE_ERR_BUFFER_TOO_SMALL with the packet still queued,
    PANCAKE_ERR_WOULD_BLOCK until READABLE, PANCAKE_ERR_CLOSED at clean EOF, or
    PANCAKE_ERR_IO on fault. */
-int32_t pancake_webrtc_peer_try_read(PancakeWebrtcPeer *peer, uint8_t *buf, size_t len, size_t *out_read);
-/* Copy a prefix into the bounded send queue and return immediately. Advance by
-   out_written; on PANCAKE_ERR_WOULD_BLOCK retry the remaining slice after
-   WRITABLE. */
-int32_t pancake_webrtc_peer_try_write(PancakeWebrtcPeer *peer, const uint8_t *buf, size_t len, size_t *out_written);
+int32_t pancake_webrtc_peer_try_receive_packet(PancakeWebrtcPeer *peer, uint8_t *buf, size_t len, size_t *out_read);
+/* Copy one whole packet into the bounded send queue and return immediately.
+   out_written is len on success. On PANCAKE_ERR_WOULD_BLOCK retry the same packet
+   after WRITABLE; PANCAKE_ERR_BUFFER_TOO_SMALL means the packet exceeds this
+   transport's packet cap. */
+int32_t pancake_webrtc_peer_try_send_packet(PancakeWebrtcPeer *peer, const uint8_t *buf, size_t len, size_t *out_written);
 /* Close the channel without releasing the handle and report CLOSED readiness.
    Idempotent; pancake_webrtc_peer_release is still required afterward. */
 void pancake_webrtc_peer_close(PancakeWebrtcPeer *peer);

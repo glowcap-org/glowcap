@@ -9,7 +9,16 @@ import { addressDesignator, listen, locator as tcpLocator, type Server } from "@
 // byte pipe from a browser (which has no socket API).
 
 import { CAPTP_VERSION, CODEC } from "./protocol.ts";
-import { designatorHostPort, Host, type Locator, parseLocator, type Session, TRANSPORT_IROH } from "@pancake/runtime";
+import {
+	designatorHostPort,
+	formatLocatorUri,
+	Host,
+	type Locator,
+	parseLocator,
+	type Session,
+	TRANSPORT_IROH,
+	TRANSPORT_TCP,
+} from "@pancake/runtime";
 import { TRANSPORT_ONION } from "@pancake/abi";
 
 /** Whether `locator` is an `ocapn://` URI (iroh) rather than a `hostname:port`. */
@@ -71,6 +80,19 @@ export function roomsLocator(locator: string): Locator {
 	if (isUriLocator(locator)) return parseLocator(locator);
 	const { hostname, port } = designatorHostPort(locator);
 	return tcpLocator(hostname, port);
+}
+
+/** Say a parsed locator back in the spelling a rooms peer dials.
+ *
+ * The inverse of `roomsLocator`, and here beside it because the two spellings
+ * are one decision: a caller that reads an address out of somewhere else — the
+ * locator inside a room link, say — needs it back in the form `dial` accepts,
+ * and a second place deciding that would be a second grammar. A TCP peer is
+ * written as the `host:port` shorthand, which is exactly its designator and
+ * carries the whole address; every other transport is written as its complete
+ * URI, hints and all, because the hints are part of what makes it dialable. */
+export function roomsAddress(locator: Locator): string {
+	return locator.transport === TRANSPORT_TCP ? locator.designator : formatLocatorUri(locator);
 }
 
 /** Mint a Host for a rooms peer.

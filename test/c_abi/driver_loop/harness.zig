@@ -120,6 +120,8 @@ pub fn providerProfile(name: []const u8) cdrv.PancakeTransportProfile {
         .transport_name_len = name.len,
         .designator_scheme = cdrv.PANCAKE_DESIGNATOR_SCHEME_ADDRESS,
         .sealed_channel = cdrv.PANCAKE_SEALED_CHANNEL_NONE,
+        .wire_framing = cdrv.PANCAKE_WIRE_FRAMING_BYTE_STREAM,
+        .max_packet_bytes = 0,
     };
 }
 

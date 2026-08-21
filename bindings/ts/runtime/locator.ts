@@ -357,7 +357,7 @@ export function formatPeerUri(
 	designator: string,
 	hints: Map<string, string> = new Map(),
 ): string {
-	return formatUri(transport, designator, null, hints, "formatPeerUri");
+	return formatUri(transport, designator, null, hints);
 }
 
 /** Add opaque swiss authority to a typed peer locator and render a sturdyref. */
@@ -382,7 +382,6 @@ export function formatSturdyRef(
 		locator.designator,
 		bytes,
 		hints,
-		"formatSturdyRef",
 		captpVersion,
 	);
 }
@@ -392,7 +391,6 @@ function formatUri(
 	designator: string,
 	swissnum: Uint8Array<ArrayBuffer> | null,
 	hints: Map<string, string>,
-	operation: string,
 	captpVersion: CaptpVersion | null = null,
 ): string {
 	const enc = new TextEncoder();
@@ -403,18 +401,14 @@ function formatUri(
 		keys.push(enc.encode(k));
 		vals.push(enc.encode(v));
 	}
-	// Size with a generous buffer; the call reports the exact length, so a
-	// too-small buffer is retried at the reported size. The pointer/length
-	// arrays are rebuilt per attempt: a `pointerOf` address is only promised
-	// across the next outermost call, so a retry must re-stage rather than
-	// carry addresses across two calls (the wasm adapter frees stale stagings
-	// at call entry).
-	let cap = 256;
-	for (let attempt = 0; attempt < 2; attempt++) {
+	function callFormat(
+		out: Uint8Array<ArrayBuffer> | null,
+		cap: number,
+		outLen: Uint8Array<ArrayBuffer>,
+	): number {
 		const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
 		const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
-		const out = new Uint8Array(cap), outLen = new Uint8Array(8);
-		const rc = swissnum === null
+		return swissnum === null
 			? s.pancake_uri_format_peer(
 				ab(t),
 				BigInt(t.length),
@@ -425,7 +419,7 @@ function formatUri(
 				valPtrs,
 				valLens,
 				BigInt(keys.length),
-				ab(out),
+				out,
 				BigInt(cap),
 				ab(outLen),
 			)
@@ -442,10 +436,21 @@ function formatUri(
 				valPtrs,
 				valLens,
 				BigInt(keys.length),
-				ab(out),
+				out,
 				BigInt(cap),
 				ab(outLen),
 			);
+	}
+	const probeLen = new Uint8Array(8);
+	const probeRc = callFormat(null, 0, ab(probeLen));
+	let cap = Number(outUsize(probeLen));
+	if (probeRc !== BUFFER_TOO_SMALL) {
+		check(probeRc);
+		if (cap === 0) return "";
+	}
+	for (;;) {
+		const out = new Uint8Array(cap), outLen = new Uint8Array(8);
+		const rc = callFormat(ab(out), cap, ab(outLen));
 		const need = Number(outUsize(outLen));
 		if (rc === OK) return new TextDecoder().decode(out.subarray(0, need));
 		if (rc === BUFFER_TOO_SMALL && need > cap) {
@@ -454,10 +459,6 @@ function formatUri(
 		}
 		check(rc);
 	}
-	throw new PancakeError(
-		INVALID_ARGUMENT,
-		`${operation}: could not size buffer for ${transport}/${designator}`,
-	);
 }
 
 // Build a `const uint8_t **` array of pointers into the given byte buffers, and

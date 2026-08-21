@@ -35,7 +35,12 @@ Deno.test("a line costs what it costs to carry, not what it looks like", () => {
 	assertEquals(lineCost("🚀"), 4, "an emoji");
 	assertEquals("🚀".length, 2, "which is not what JavaScript would have said");
 	assertEquals(lineCost("é"), 2, "an accent");
+	assertEquals(lineCost("\ud800"), 3, "a lone high surrogate");
+	assertEquals(lineCost("\udc00"), 3, "a lone low surrogate");
 	assertEquals(lineCost(""), 0, "nothing");
+	for (const text of ["hello", "🚀", "é", "\ud800", "\udc00", "a🚀é\ud800"]) {
+		assertEquals(lineCost(text), new TextEncoder().encode(text).length, `TextEncoder agrees for ${text}`);
+	}
 });
 
 Deno.test("a room with nothing to say about it is capped exactly as before", () => {
@@ -189,7 +194,14 @@ Deno.test("a relayed bring-up is held to a size at both ends of the relay", () =
 	assertEquals(relayedSignalFits("candidate", "x1", '{"candidate":"a=candidate:1 1 udp"}'), true);
 
 	assertEquals(relayedSignalFits("description", "x1", "v".repeat(MAX_SIGNAL_SDP + 1)), false);
+	assertEquals(relayedSignalFits("description", "x1", "é".repeat(MAX_SIGNAL_SDP / 2)), true);
+	assertEquals(relayedSignalFits("description", "x1", "é".repeat(Math.floor(MAX_SIGNAL_SDP / 2) + 1)), false);
 	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_CANDIDATE + 1)), false);
+	assertEquals(relayedSignalFits("candidate", "x1", "é".repeat(MAX_SIGNAL_CANDIDATE / 2)), true);
+	assertEquals(
+		relayedSignalFits("candidate", "x1", "é".repeat(Math.floor(MAX_SIGNAL_CANDIDATE / 2) + 1)),
+		false,
+	);
 	// A candidate is a line, a description is a document: the looser bound is not
 	// the one a candidate gets.
 	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_SDP)), false);
@@ -200,5 +212,11 @@ Deno.test("a relayed bring-up is held to a size at both ends of the relay", () =
 		false,
 		"a handle longer than one may be became a key",
 	);
+	assertEquals(
+		relayedSignalFits("description", "é".repeat(Math.floor(MAX_SIGNAL_ID / 2) + 1), "v=0"),
+		false,
+		"a byte-long handle became a key",
+	);
+	assertEquals(relayedSignalFits("description", "é".repeat(MAX_SIGNAL_ID / 2), "v=0"), true);
 	assertEquals(relayedSignalFits("candidate", "x1", ""), false, "an empty candidate was acted on");
 });

@@ -150,9 +150,11 @@ pub fn checkPathIoCopies(
     }
 }
 
-/// Host and image scripts under `.devcontainer/` are top-level `*.sh` files so
-/// `post-create.sh`'s shellcheck glob sees them. Extensionless or nested bash
-/// files there are unlinted scripts.
+/// Every bash file under `.devcontainer/` is linted. `hooks/post-create.sh`
+/// runs shellcheck over every `*.sh` in the tree, so those are covered wherever
+/// they sit; a bash file under any other name has to be named on that command
+/// line, or nothing reads it. The pane runtime's host half is the case in
+/// point: zsh's own half fixes its name, and the bash half matches it.
 pub fn checkDevcontainerBashScripts(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -160,6 +162,13 @@ pub fn checkDevcontainerBashScripts(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const dir_path = ".devcontainer";
+    const lint_path = ".devcontainer/hooks/post-create.sh";
+    const lint_source = root.readFileAlloc(io, lint_path, gpa, .limited(1 << 16)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read ({s})", .{ lint_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(lint_source);
+
     var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to open ({s})", .{ dir_path, @errorName(err) });
         return;
@@ -171,32 +180,36 @@ pub fn checkDevcontainerBashScripts(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (std.mem.startsWith(u8, entry.path, "patches/")) continue;
+        if (std.mem.endsWith(u8, entry.path, ".sh")) continue;
         const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
         defer gpa.free(path);
-        if (std.mem.endsWith(u8, entry.path, ".sh")) {
-            if (std.mem.indexOfScalar(u8, entry.path, '/') == null) continue;
-            try appendViolation(
-                gpa,
-                violations,
-                "{s}: bash scripts must stay at the top of .devcontainer/ so post-create.sh lints them",
-                .{path},
-            );
-            continue;
-        }
-        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 16)) catch |err| {
+        // Only the first line decides, and the tree also holds generated shell
+        // state (zsh's compiled completion dump) far larger than any script, so
+        // read a head rather than a whole file: reading whole made a generated
+        // blob's size look like a file this check could not inspect.
+        var head: [512]u8 = undefined;
+        var file = root.openFile(io, path, .{}) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to inspect ({s})", .{ path, @errorName(err) });
             continue;
         };
-        defer gpa.free(contents);
+        defer file.close(io);
+        const head_len = file.readPositionalAll(io, &head, 0) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to inspect ({s})", .{ path, @errorName(err) });
+            continue;
+        };
+        const contents = head[0..head_len];
         const line_end = std.mem.indexOfScalar(u8, contents, '\n') orelse contents.len;
         const first = contents[0..line_end];
-        if (!std.mem.startsWith(u8, first, "#!")) continue;
-        if (std.mem.indexOf(u8, first, "bash") == null) continue;
+        const shebang_bash = std.mem.startsWith(u8, first, "#!") and
+            std.mem.indexOf(u8, first, "bash") != null;
+        const declared_bash = std.mem.indexOf(u8, first, "shellcheck shell=bash") != null;
+        if (!shebang_bash and !declared_bash) continue;
+        if (std.mem.indexOf(u8, lint_source, entry.path) != null) continue;
         try appendViolation(
             gpa,
             violations,
-            "{s}: bash scripts in .devcontainer/ must be top-level *.sh files so post-create.sh lints them",
-            .{path},
+            "{s}: a bash file that is not *.sh must be named in {s}, or nothing lints it",
+            .{ path, lint_path },
         );
     }
 }

@@ -88,7 +88,8 @@ one loop thread plus the sidecar's fixed runtime threads**, not N×2 blocking
 threads or a blocking-pool hop per dial. The Netlayer
 (ADR-0043) and `BlockingSession` (ADR-0053) contracts above are untouched; this is
 a new _source_ below them, the iroh sibling of the kernel-fd completion source.
-I/O lives as `iroh.Backend` in the resident (`src/net/transport/iroh.zig`);
+I/O lives as `iroh.Backend` behind the facade, owned by
+`src/net/transport/iroh/backend.zig`;
 CapTP fan-out rides pure-Zig `driver.Bridge` + Host (ADR-0076). The Backend
 stays in the resident module because it links the Rust staticlib; the sidecar
 surface is in `transports/iroh/` (see Consequences for the placement rationale).
@@ -171,8 +172,9 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/check/source_check.zig`
   parity check, like the rest of the seam) and a non-blocking variant of the
   resident's stream wrappers driven by `iroh.Backend` + Bridge.
-- **The loop consumer lives in the resident (`src/net/transport/iroh.zig`), not
-  pure-Zig `src/driver/`.** `iroh.Backend` registers the sidecar readiness fd,
+- **The loop consumer lives in the internal iroh transport package
+  (`src/net/transport/iroh/backend.zig`), not pure-Zig `src/driver/`.**
+  `iroh.Backend` registers the sidecar readiness fd,
   drains the ready-queue, and drives non-blocking frame I/O on each connection's
   `engine.Peer`, so it must link the Rust staticlib and cannot sit in
   `src/driver/`. It is the iroh sibling of the kernel-fd loop in spirit; the

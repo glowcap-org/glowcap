@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Native entry point. Racket + Spritely Goblins come from the devcontainer
-# (.devcontainer/install-racket-goblins.sh) and are on PATH.
+# (.devcontainer/image/racket-goblins.sh) and are on PATH.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/racket"
 case "${1:-seven-caps-peer}" in

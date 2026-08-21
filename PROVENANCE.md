@@ -1,14 +1,13 @@
 # How pancake is built
 
 pancake began as the capability-secure substrate for an agent orchestrator.
-The project is written with heavy use of AI coding agents. Assume every commit
-was produced that way unless it says otherwise. There is no earlier,
+The maintainer builds it with AI coding assistants, authors every commit,
+directs the work, and is answerable for what lands. There is no earlier,
 human-only codebase; the first commit is from June 2026.
 
-The maintainer authors every commit, directs the work, and is answerable for
-what lands. `Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers
-corroborate the disclosure, but they are not the disclosure: different tools
-emit different trailers, and some emit none.
+`Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers corroborate
+the disclosure, but they are not the disclosure: different tools emit different
+trailers, and some emit none.
 
 ## Upstream policies
 
@@ -19,25 +18,26 @@ accompanying post, [Protecting our FLOSS commons from
 LLMs](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html),
 also discusses projects built and maintained with heavy LLM use.
 
-The [Zig project](https://ziglang.org/) does not accept LLM-assisted
-contributions, including issues and comments. pancake therefore sends no
-generated patches, reports, or discussion upstream to Zig or to any project
-with a comparable policy. If pancake finds a Zig bug, the report is written
-without AI assistance or not filed.
+The [Zig project](https://ziglang.org/code-of-conduct/#strict-no-llm-no-ai-policy)
+does not accept LLM-assisted contributions and also excludes LLM-assisted bug
+finding. pancake therefore sends no generated patches, reports, or discussion
+upstream to Zig or to any project with a comparable policy. An issue found in
+an agent-assisted pancake session is not reported by pancake; only an
+independently discovered issue may be handled under the target project's
+policy.
 
-## The copied Zig test runner
+The pinned OCapN repository has its own [generative-AI
+policy](https://github.com/ocapn/ocapn#generative-ai-policy): specifications,
+suite, official tooling, and surrounding communication must be human-authored,
+and generated issues and pull requests are rejected. pancake's implementation
+may use agents; its messages to OCapN may not. Any finding or review request is
+independently understood and written by the maintainer rather than forwarded
+from an agent-produced packet.
 
-`tools/fuzz/test_runner.zig` is copied from the pinned Zig toolchain under its
-MIT licence. Zig's fuzz-mode test runner passes an error-return trace to
-`std.debug.writeStackTrace`, which expects another type. pancake changes that
-single call to `std.debug.writeErrorReturnTrace`, the function that accepts the
-value. The file itself records its origin and edit;
-[`LICENSE-THIRD-PARTY`](LICENSE-THIRD-PARTY) carries Zig's notice.
-
-`zig build source-check` compares the copied body with the installed toolchain.
 It will fail if Zig changes the source, including when the upstream fix makes
-the copy unnecessary. Anyone may report the bug or carry the fix upstream;
-this project will not send it.
+the copy unnecessary. Do not forward this project's description or patch
+upstream. Any upstream report or change must be independently derived under
+the target project's policy.
 
 ## Responsibility and licensing
 
@@ -79,7 +79,7 @@ Racket's `--auto` still resolves transitive packages through its catalogs; the
 direct source pins prevent those roots from moving but do not make that graph a
 lockfile.
 GitHub workflow actions use immutable commit SHAs, with the corresponding
-major tag left only as a review aid; upgrades deliberately change both together.
+major tag left only as a review aid; upgrades change both together.
 
 [Community review](docs/community-review.md) distinguishes in-tree evidence
 from outside evidence. [Known boundaries](docs/boundaries.md) records what the

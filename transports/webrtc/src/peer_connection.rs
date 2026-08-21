@@ -14,7 +14,7 @@ use crate::lifecycle::RuntimeOwner;
 pub(crate) fn build(
 	runtime: &RuntimeOwner,
 	handler: Arc<dyn PeerConnectionEventHandler>,
-	ice_servers: &[String],
+	ice_servers: &[RTCIceServer],
 	include_loopback: bool,
 	receive_buffer_bound: usize,
 	send_buffer_bound: usize,
@@ -26,14 +26,7 @@ pub(crate) fn build(
 	media_engine.register_default_codecs()?;
 	let registry = register_default_interceptors(Registry::new(), &mut media_engine)?;
 	let config = RTCConfigurationBuilder::new()
-		.with_ice_servers(if ice_servers.is_empty() {
-			Vec::new()
-		} else {
-			vec![RTCIceServer {
-				urls: ice_servers.to_vec(),
-				..Default::default()
-			}]
-		})
+		.with_ice_servers(ice_servers.to_vec())
 		.build();
 	let udp_addrs = udp_bind_addrs(include_loopback);
 	runtime.block_on(async move {

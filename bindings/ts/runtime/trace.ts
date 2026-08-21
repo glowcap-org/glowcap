@@ -32,6 +32,7 @@ import { type Context, recordCallerlessFailure } from "./context.ts";
 import { PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 import {
+	BINDING_TRACE_PAYLOAD_CAP_BYTES,
 	CAPTP_NEXT,
 	CAPTP_V1_0,
 	CODEC_CAPNP,
@@ -42,7 +43,7 @@ import {
 	TRACE_SESSION_CLOSE,
 	TRACE_SESSION_OPEN,
 } from "@pancake/abi";
-import { type DurableProvenance, provenanceFromAbi } from "./session.ts";
+import { type DurableProvenance, provenanceFromAbi } from "./session/identity.ts";
 
 export type TraceCodec = "syrup" | "capnp";
 export type TraceCaptpVersion = "1.0" | "pancake-next";
@@ -172,7 +173,7 @@ let sink: TraceSink | null = null;
 let selfLabel: string | null = null;
 let t0 = 0;
 /** Payload bytes forwarded per message; 0 disables payload capture. */
-let payloadCap = 4096;
+let payloadCap = BINDING_TRACE_PAYLOAD_CAP_BYTES;
 /** How many facts a host's ring holds before it starts dropping. One drain
  * runs on every action-queue unwind, so this only has to cover one pump's
  * worth of traffic. */
@@ -381,7 +382,7 @@ export function enableTrace(
 ): () => void {
 	sink = next;
 	selfLabel = options?.selfLabel ?? null;
-	payloadCap = options?.payloadCap ?? 4096;
+	payloadCap = options?.payloadCap ?? BINDING_TRACE_PAYLOAD_CAP_BYTES;
 	queueDepth = options?.queueDepth ?? 512;
 	t0 = performance.now();
 	for (const raw of hosts.keys()) installQueue(raw);

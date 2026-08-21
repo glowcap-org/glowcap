@@ -7,10 +7,10 @@
 ;; core's stream delimiter (`pancake_host_session_feed_bytes`, which owns framing),
 ;; write what `take_outbound` drains, the feed-refusal path (`last_abort` /
 ;; abort), and the EOF teardown that `transport_closed` reports to the core.
-;; CapTP verbs stay in `private/session.rkt`; the host action switch
-;; (`drain-host-actions!`) lives in `private/action.rkt`. This module is
-;; required by session; the public barrel reaches pump only through session
-;; verbs / dogfood plumbing.
+;; The CapTP surface stays in the `private/session` module family; the host
+;; action switch (`drain-host-actions!`) lives in `private/action.rkt`. This
+;; module is required by that family; the public barrel reaches pump only
+;; through session verbs / dogfood plumbing.
 
 (require ffi/unsafe
          racket/lazy-require
@@ -23,36 +23,25 @@
          "value.rkt"
          "async.rkt"
          "pending-writes.rkt"
-         "host.rkt"
-         "vat.rkt")
+         "host/state.rkt"
+         "vat.rkt"
+         "session/state.rkt")
 
-;; Session owns the `session` type and the lock-drain choreography
-;; (`with-host-drain` / `drain-host!` / …); action owns the drain switch.
-;; Lazy-require breaks the session ↔ pump and action ↔ pump cycles: session
-;; and action eagerly require this module for the byte path / FLUSH arm.
+;; `session/state.rkt` owns the `session` type; this module owns the shared
+;; lock-drain choreography (`with-host-drain` / `drain-host!` / …), and action
+;; owns the drain switch.
+;; Lazy-require breaks the session ↔ pump, action ↔ pump, and gc ↔ pump cycles:
+;; session and action eagerly require this module for the byte path / FLUSH arm.
 (lazy-require
  ["session.rkt"
-  (session-ptr
-   session-async
-   session-host
-   session-pending-writes
-   session-write-gate
-   session-transport-lost?
-   session-released?
-   session-closing?
-   session-open?
-   guard-open
-   record-session-wire-failure!
-   record-session-outbound-failure!
-   raise-session-wire-failure!
-   close-session-transport!
-   abandon-session!
-   with-host-drain
-   with-session-drain
-   drain-host!
-   run-drain-effects!)]
+  (abandon-session!
+   retire-session-wire-failure!)]
  ["action.rkt"
-  (drain-host-actions!)])
+  (drain-host-actions!)]
+ ["gc.rkt"
+  (drain-host-gc!)]
+ ["trampoline.rkt"
+  (inside-turn?)])
 
 (provide drain-effects
          drain-effects-touched
@@ -64,6 +53,10 @@
          no-drain-effects
          current-defer-drain-effects
          without-deferred-drain-effects
+         with-host-drain
+         with-session-drain
+         drain-host!
+         run-drain-effects!
          current-deliver-session
          HANDSHAKE-TIMEOUT-MS
          drain-outbound!
@@ -123,6 +116,107 @@
 (define (without-deferred-drain-effects thunk)
   (parameterize ([current-defer-drain-effects #f])
     (thunk)))
+
+;; Write every session a drain flushed, tolerating a dead transport per
+;; session so one broken partner never strands another's frames.
+(define (write-touched! touched)
+  (for ([c (in-list touched)])
+    (with-handlers
+        ([(lambda (_e) #t)
+          (lambda (error)
+            ;; A popped frame cannot be replayed, and the stream may contain
+            ;; only its prefix. End this session so its far vows settle closed;
+            ;; keep draining unrelated sessions while the exact write error
+            ;; remains observable on this Session.
+            (record-session-outbound-failure! c error)
+            (retire-session-wire-failure! c))])
+      (write-pending! c))))
+
+;; Run the post-lock half of a drain: write flushed connections, then fire
+;; deferred dials / settles / closes.
+(define (run-drain-effects! m fx)
+  (let loop ([current fx])
+    (write-touched! (drain-effects-touched current))
+    (for ([fire (in-list (drain-effects-fires current))])
+      (with-handlers ([converts-to-broken?
+                       (lambda (error)
+                         (record-host-runtime-failure! m error)
+                         (void))])
+        (fire)))
+    (when (drain-effects-resume current)
+      ;; Yield with no host lock held, then continue in constant stack space.
+      (sleep 0)
+      (loop ((drain-effects-resume current))))))
+
+;; Merge two drain-effects records in FIFO order (earlier first). Used when a
+;; reader-held feed nests further locked drains under the same deferral box.
+(define (merge-drain-effects a b)
+  (drain-effects
+   (append (drain-effects-touched a) (drain-effects-touched b))
+   (append (drain-effects-fires a) (drain-effects-fires b))
+   (cond
+     [(and (drain-effects-resume a) (drain-effects-resume b))
+      (lambda ()
+        (merge-drain-effects
+         ((drain-effects-resume a))
+         ((drain-effects-resume b))))]
+     [(drain-effects-resume a)]
+     [(drain-effects-resume b)]
+     [else #f])
+   (or (drain-effects-popped? a) (drain-effects-popped? b))))
+
+;; The one drain choreography every host-driving path shares: run `thunk`
+;; under the host lock — it returns the locked drain's `drain-effects` (most
+;; sites end in `drain-host-actions!`; some substitute `no-drain-effects` or a
+;; merged record) plus any extra values — then run those effects (socket
+;; writes, listener fires) after the lock releases, wake every parked pump,
+;; and hand the extra values back to the caller. Under
+;; `current-defer-drain-effects`, only the merge happens here; the reader
+;; after-thunk owns effects + bump.
+(define (with-host-drain m thunk #:allow-released? [allow-released? #f])
+  (call-with-values
+   (lambda ()
+     ((if allow-released? call-with-host/terminal call-with-host) m thunk))
+   (lambda (fx . rest)
+     (cond
+       [(current-defer-drain-effects)
+        => (lambda (box)
+             (set-box! box (merge-drain-effects (unbox box) fx))
+             (apply values rest))]
+       [else
+        ;; Guarantee the bump even if a break interrupts the effects: the
+        ;; drain already committed the state a parked pump spins on (settles,
+        ;; closes), so a skipped bump would strand that waiter. The post-thunk
+        ;; fires it on a break escape too (same shape as the reader after-thunk
+        ;; in `pump-until`); a spare bump is harmless.
+        (dynamic-wind
+         void
+         (lambda () (run-drain-effects! m fx))
+         (lambda () (host-bump-progress! m)))
+        (apply values rest)]))))
+
+;; The session-effect drain teardown paths share: unless `c` is already
+;; released (its handle must see no further host verb), run `thunk` and drain
+;; what it queued, all inside one `with-host-drain`.
+(define (with-session-drain c thunk)
+  (define m (session-host c))
+  (with-host-drain m
+    (lambda ()
+      (cond
+        [(session-released? c) no-drain-effects]
+        [else
+         (thunk)
+         (drain-host-actions! m)]))))
+
+;; Drain actions under the lock, write the flushed connections after it
+;; releases, and wake every parked pump. A no-op inside a hosted turn: the
+;; host refuses the driving verbs there, and everything the turn enqueued
+;; flushes when the enclosing feed unwinds into this same drain.
+(define (drain-host! m)
+  (unless (inside-turn?)
+    (host-drain-parked-releases! m)
+    (drain-host-gc! m)
+    (with-host-drain m (lambda () (drain-host-actions! m)))))
 
 ;; ── The bounded wait ──────────────────────────────────────────────────────────
 ;; How long a partner has to finish the keyed handshake once its byte channel
@@ -260,10 +354,10 @@
 ;; cap enforced during the scan — and dispatches it (behavior and settle
 ;; callbacks fire inside), then the actions the dispatch queued drain. The
 ;; library owns the unconsumed tail — a partial frame straddling two reads
-;; stays buffered in the session — so one call moves the whole read; an empty
-;; `got` resumes frames the session held behind its handshake open. On a
-;; refused stream the peer has already projected a typed op:abort; write it
-;; so the partner hears why, then raise the typed failure carrying the
+;; stays buffered in the session — so one call moves the whole read. The serve
+;; loop resumes any handshake-held tail through `resume-feed!`. On a refused
+;; stream the peer has already projected a typed op:abort; write it so the
+;; partner hears why, then raise the typed failure carrying the
 ;; connection's `abort-info`. The FFI pin (`pin-immobile`) is a named Racket
 ;; collector cost on every feed.
 (define (feed-bytes! c got)
@@ -294,6 +388,32 @@
              (define captured (capture-feed-refusal c rc))
              ;; Park the abort on the FIFO and mark `c` touched so the shared
              ;; drain spine writes it — refusal is a flush, not a private exit.
+             (values (drain-effects (list c) '() #f #t) captured)]))))
+    (cond
+      [(eq? result 'done) (void)]
+      [(eq? result 'retry) (loop)]
+      [else (raise-feed-refusal result)])))
+
+;; Resume frames the Host held behind the handshake open. Stream sessions may
+;; dispatch a retained tail; packet-framed sessions have no hidden tail.
+(define (resume-feed! c)
+  (define m (session-host c))
+  (let loop ()
+    (define result
+      (with-host-drain m
+        (lambda ()
+          (guard-open 'session-serve c)
+          (define rc
+            (parameterize ([current-deliver-session c])
+              (pancake_host_session_resume_feed (session-ptr c))))
+          (host-drain-parked-releases! m)
+          (cond
+            [(= rc OK)
+             (values (drain-host-actions! m) 'done)]
+            [(= rc WOULD-BLOCK)
+             (values (drain-host-actions! m) 'retry)]
+            [else
+             (define captured (capture-feed-refusal c rc))
              (values (drain-effects (list c) '() #f #t) captured)]))))
     (cond
       [(eq? result 'done) (void)]
@@ -377,7 +497,7 @@
   (raise-session-wire-failure! c))
 
 ;; One reader step. The first step on an open session resumes the frames the
-;; core held behind the handshake hello (an empty feed) and returns without
+;; Host held behind the handshake hello and returns without
 ;; waiting, so the resume's deferred effects run before any park. Every later
 ;; step waits on the transport and the wake event together — the host's
 ;; progress, plus the deadline alarm when the pump is bounded. 'woke means
@@ -394,7 +514,7 @@
   (cond
     [(and (session-open? c) (not (unbox (async-connection-tail-resumed? ac))))
      (set-box! (async-connection-tail-resumed? ac) #t)
-     (feed-bytes! c #"")]
+     (resume-feed! c)]
     [else
      (define gen (pump-wake-evt m))
      (define got

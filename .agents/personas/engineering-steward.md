@@ -28,6 +28,7 @@ judgment: the code should explain its ownership, cost, authority, and proof.
 
 ## Refuse
 
+- Settling for "good enough for a CapTP library."
 - Workarounds hidden as "small fixes."
 - Lowered tests, raised budgets, or skipped checks used only to get green.
 - Comments that carry an invariant a type, boundary, check, or scenario could

@@ -12,6 +12,7 @@ const firstIntIn = util.firstIntIn;
 const parseJsonFile = util.parseJsonFile;
 const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
+const readSourceSubject = util.readSourceSubject;
 
 /// Runtime mutation admission is a driver/core decision. The C loop may
 /// validate and marshal a call, but it must not duplicate that policy before
@@ -22,54 +23,47 @@ pub fn checkDriverAdmissionAuthority(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const path = "src/c_abi/driver/loop.zig";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for driver admission authority with {s}", .{ path, @errorName(err) });
-        return;
+    const loop_subjects = [_][]const u8{
+        "src/c_abi/driver/loop.zig",
+        "src/c_abi/driver/loop/",
     };
-    defer gpa.free(contents);
+    for (loop_subjects) |subject| {
+        const contents = (try readSourceSubject(io, gpa, root, subject)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for driver admission authority", .{subject});
+            continue;
+        };
+        defer gpa.free(contents);
 
-    if (std.mem.indexOf(u8, contents, "admitRuntimeOperation") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden `admitRuntimeOperation` — runtime/core operations own mutation admission", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "mutationCode(") != null or
-        std.mem.indexOf(u8, contents, "if (terminalCode(inst))") != null)
-    {
-        try appendViolation(gpa, violations, "{s}: forbidden C-side terminal admission gate — invoke the HostRuntime operation and project its result", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "err == error.MissingAdvertisedLocator") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden accept-error classification — HostRuntime owns connection rejection policy", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "runtime.wires") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden Runtime wire-table read — ask HostRuntime for the projection fact", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "inst.runtime.core") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden HostRuntime core reach-through — ask HostRuntime for the ownership or projection operation", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "runtime.core.releaseDriverOwnership") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden direct core ownership mutation — use the HostRuntime thread-handover operation", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, ".core.in_callback") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden callback-state read — ask HostRuntime to enforce core reentry policy", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, ".core.opts") != null) {
-        try appendViolation(gpa, violations, "{s}: forbidden Host configuration read — HostRuntime derives adopted configuration from the core authority", .{path});
-    }
-    if (std.mem.indexOf(u8, contents, "runtime.terminalFailure()") != null or
-        std.mem.indexOf(u8, contents, "runtime.terminalCleanupPending()") != null)
-    {
-        try appendViolation(gpa, violations, "{s}: forbidden Runtime terminal-state read — project operation results and keep C event handling projection-only", .{path});
+        const forbidden = [_][]const u8{
+            "admitRuntimeOperation",
+            "mutationCode(",
+            "if (terminalCode(inst))",
+            "err == error.MissingAdvertisedLocator",
+            "runtime.wires",
+            "inst.runtime.core",
+            "runtime.core.releaseDriverOwnership",
+            ".core.in_callback",
+            ".core.opts",
+            "runtime.terminalFailure()",
+            "runtime.terminalCleanupPending()",
+        };
+        for (forbidden) |needle| if (std.mem.indexOf(u8, contents, needle) != null)
+            try appendViolation(gpa, violations, "{s}: forbidden C-side runtime authority `{s}` — invoke HostRuntime and project its result", .{ subject, needle });
     }
 
-    const provider_path = "src/c_abi/driver/provider_registry.zig";
-    if (try fileContains(io, gpa, root, provider_path, "provider package repeats transport profile")) {
-        try appendViolation(gpa, violations, "{s}: forbidden duplicate-profile policy — HostRuntime owns provider package composition", .{provider_path});
-    }
-    if (try fileContains(io, gpa, root, provider_path, "contract_failed")) {
-        try appendViolation(gpa, violations, "{s}: forbidden terminal provider state — adapters detect malformed results, HostRuntime owns fail-stop policy", .{provider_path});
-    }
-    if (try fileContains(io, gpa, root, provider_path, "metadataFromClaim")) {
-        try appendViolation(gpa, violations, "{s}: forbidden transport-semantic expansion — marshal the provider claim and let HostRuntime canonicalize it", .{provider_path});
+    const provider_subjects = [_][]const u8{
+        "src/c_abi/driver/provider_registry.zig",
+        "src/c_abi/driver/provider_registry/",
+    };
+    for (provider_subjects) |subject| {
+        const contents = (try readSourceSubject(io, gpa, root, subject)) orelse continue;
+        defer gpa.free(contents);
+        for ([_][]const u8{
+            "provider package repeats transport profile",
+            "contract_failed",
+            "metadataFromClaim",
+        }) |needle| if (std.mem.indexOf(u8, contents, needle) != null)
+            try appendViolation(gpa, violations, "{s}: forbidden provider-side runtime authority `{s}`", .{ subject, needle });
     }
 }
 

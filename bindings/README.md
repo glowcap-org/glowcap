@@ -1,8 +1,8 @@
 # Language bindings
 
-pancake has bindings for Rust, TypeScript, Python, and Racket. They are part of
-this repository and are not published packages yet. Pin a checkout, run
-`zig build`, and follow the README for your language.
+pancake has bindings for Rust, TypeScript, Python, and Racket. They live in
+this repository. Pin a checkout, run `zig build`, and follow the README for
+your language.
 
 | Language | Start here | Runtime |
 | --- | --- | --- |
@@ -35,29 +35,12 @@ same. Each binding README gives the concrete signature and ownership spelling.
 | `serve()` | Keep handling inbound calls until the session closes. |
 | `close()` | Close the session. |
 
-The native fronts (Rust, Python, Racket, and TypeScript on Deno) load the
-symbol-disjoint `libpancake_host` and `libpancake_driver` archives. The Host
-archive owns the application family; the driver owns sockets or multiplexed
-readiness, handshake admission, pumping, and generic dial/listen/events. A new
-driver loop starts with zero transports. The TCP archive supplies one provider
-package for `tcp`, `keyed-tcp`, and `noise-tcp`; the optional iroh archive
-supplies its provider package; relay and onion do the same for the symbols they
-own. Provider retain/release is the native transport lifetime authority, and
-provider-owned configuration comparison makes repeated registration idempotent
-without binding-side caches. An idle Host that is not yet pumping can move into
-the loop before its first native network operation, so bindings do not keep a
-second transport registry or admission path.
-
-Wasm and runtimes that cannot drive native FFI keep the byte-fed Host. So do
-runtime-owned integrations such as browser WebRTC and a bare relay locator
-resolved through an explicit Host rendezvous callback; a routed native relay
-uses its provider package. These are owned integration choices, not fallbacks
-after native dispatch fails. A listener close stops new admission and preserves
-sessions already returned to the application. It does not wait for those
-sessions; the Host or Runtime that owns them is the shutdown barrier.
-Binding a wildcard interface (`0.0.0.0` or `::`) requires an explicit
-advertised host; a bind address selects local interfaces and is not
-implicitly a dialable signed locator.
+Native bindings load the Host and the driver, then install the transport
+archives you need. [Using pancake from C](../docs/consuming-from-c.md) owns
+that archive graph. Wasm, browser WebRTC, and a bare relay locator drive the
+byte-fed Host as owned integrations. Binding a wildcard interface (`0.0.0.0`
+or `::`) needs an explicit advertised host: the bind address is a local
+socket, and partners dial the advertised host.
 
 The bindings also expose sturdyref enlivenment, promise pipelining,
 attenuation, revocation, and opt-in distributed garbage collection. A `Ref` is
@@ -109,8 +92,9 @@ barrier for the Host it adopts.
   for that write to flush.
 - Rust reports a session abort through the promises it breaks rather than an
   error returned by `serve()`.
-- The cap is 1024 in TypeScript, Python, and Rust for outcomes no caller has
-  awaited yet. After that, the oldest result is dropped and a late await fails.
+- The generated binding-policy cap is 1024 stored outcomes that no caller has
+  awaited yet in TypeScript, Python, and Rust. After that, the oldest result is
+  dropped and a late await fails.
   Racket waits at the call site and needs no queue.
 - Racket keeps its native actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
   and `methods`.
@@ -123,16 +107,21 @@ every binding.
 
 ## Transports
 
-Plain TCP and in-process connections are built with the core bindings. iroh and
-onion are optional archives (iroh links a Rust sidecar; onion needs a Tor you
-run). Every native binding composes onion into the generic driver for ordinary
+iroh, onion, Noise, and WebRTC are the production paths.
+[Choosing a transport](../docs/boundaries.md#transports-and-peer-identity)
+says what each proves. iroh and onion are optional archives (iroh links a Rust
+sidecar; onion needs a Tor you run). The TCP archive also carries `noise-tcp`
+plus testing `tcp` and `inproc`.
+
+Every native binding composes onion into the generic driver for ordinary
 Session hosting and keeps the raw frame handles as an explicit embedding
 surface. A TCP-only program does not load them. Rust, Python, and Racket expose
 WebRTC's optional native C companion as raw FFI, including multiplexed readiness
-and try-I/O. TypeScript instead uses the browser's `RTCPeerConnection` and does
-not load that companion. Its browser package is the only application-level
-WebRTC adapter; the native bindings do not yet wrap the raw family into their
-shared `Host` API.
+and try-I/O. Its endpoint config is provider-neutral ICE data: URLs plus
+optional TURN username/password credentials. TypeScript instead uses the
+browser's `RTCPeerConnection` and does not load that companion. Its browser
+package is the only application-level WebRTC adapter; the native bindings do
+not yet wrap the raw family into their shared `Host` API.
 
 TypeScript's raw onion transport runs through Deno's off-thread FFI. Bun's FFI
 does not currently provide that execution contract, so onion operations refuse
@@ -149,6 +138,11 @@ and registration posture; bindings do not parse certificates or own TLS state.
 Provider installation, listener close, and final loop release all use the same
 versioned driver-failure record, so a binding copies exact primary and cleanup
 facts without treating diagnostic text as control flow.
+Final release refusal is non-consuming: a terminal binding loop retains one
+retry owner and makes at most one release attempt at each later safe runtime
+boundary. A later consuming result retires that owner exactly once, while its
+release and wrapper-cleanup failures remain consequences of the original
+terminal failure.
 Managed browser and event-loop connectors use their runtime's WebSocket while
 the byte-fed Host still owns Noise and CapTP.
 

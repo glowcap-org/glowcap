@@ -1,10 +1,21 @@
 # Architecture
 
+These names are pancake's CapTP product:
+
+| Name | Meaning |
+| --- | --- |
+| Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. An OS hostname is a different word. |
+| Node | Host-owned sans-I/O identity, routing state, and handoff router (`engine.Node`). |
+| Vat | Actor container and turn loop. |
+| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word; `PancakeHostSession` is the Host-registered shell. |
+| Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
+| Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `PancakeHostSession`) and one byte connection. |
+
 Most Zig programs start with `driver.Session`: connect or listen, then fetch,
-call, publish, and redeem handoffs as ordinary operations. That Session is a
-view onto one connection owned by a `driver.HostRuntime`. Each runtime realizes
-one independent multi-session CapTP Host, and a process may own many. Every Host
-has one Node (identity and routing), one Vat (actors and turns), and one
+call, publish, and redeem a live reference passed to a third party (a handoff)
+as ordinary operations. That Session is a view onto one connection owned by a
+`driver.HostRuntime`. Each runtime realizes one independent multi-session CapTP
+Host, and a process may own many. Every Host has one Node, one Vat, and one
 Port-plus-Peer per live session:
 
 ```text
@@ -17,17 +28,6 @@ process
             └── Port: that session's projection and ingress
                 └── Peer: that session's CapTP state
 ```
-
-Those product names mean:
-
-| Name | Meaning |
-| --- | --- |
-| Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. Not an OS hostname or transport endpoint. |
-| Node | Host-owned sans-I/O identity, routing state, and handoff router (`engine.Node`). |
-| Vat | Actor container and turn loop. |
-| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`). It lives inside the Host's serving shell; it is not a TCP port or a synonym for `PancakeHostSession`. |
-| Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
-| Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `PancakeHostSession`) and one byte connection. |
 
 Creating another Host creates another Node and Vat, so one process can serve
 multiple independent CapTP products. The layers below separate protocol decisions
@@ -63,6 +63,45 @@ does not open sockets, start tasks, or choose a scheduler.
 | `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
 | `engine` | The caller-driven state machine around one session. |
 
+`engine.Peer` remains the state aggregate and deliberate method index. Its
+supporting hierarchy begins with dependency leaves under `engine/peer/`:
+`queue.zig` is the single cursor, burst-reclaim, and optional byte-accounting
+policy for every peer queue, while `errors.zig` names only refusals minted by
+the engine step/dispatch spine. `identity.zig` alone records the durable key a
+dial demanded, the byte-channel endpoint a realizer verified, and derives
+whether those facts authenticate the partner's exact claim. `lifecycle.zig`
+owns the complete construction/posture/retirement pairing, including the
+ordering that retires Node-dependent gifts before severing the borrowed Node
+services link.
+
+The behavioral subjects follow the same ownership split. `session.zig` closes
+the Session and projects its negotiated profile and partner handshake facts,
+while `references.zig` exposes the Session-owned capability and answer
+namespaces. `settlement.zig` owns the lower, validate, store, and fire
+transaction for relayed promise resolution. `handoffs.zig` owns bounded parked
+withdrawals and their exact scheduler wakes. `send.zig` owns message
+decomposition and profile encoding, `drive.zig` owns explicit turn and stream
+progression, and `failures.zig` retains the primary failure and its bounded
+consequences. These modules do not duplicate queue mechanics, re-derive
+identity provenance, or move authority out of Session.
+
+The Peer's retained outbound transaction lives under `peer/outbound/`:
+`peer/outbound.zig` owns reservation, publication, rollback, and transfer
+between the Node staging seat, pending queue, Session answer store, and encoded
+queue; `peer/outbound/budget.zig` is its constant-time byte-accounting leaf.
+`engine/outbound.zig` remains the separate semantic recording and encoding
+owner, with `engine/outbound/listener_fire.zig` owning store-borrow listener-fire
+carriers and their checked lookup. This keeps pressure policy out of codecs and
+prevents a queue transfer from re-walking a Passable tree.
+
+`engine.Node` likewise keeps its aggregate state and supported method index
+while internal packages own coherent cross-session subjects. In
+`node/proxies/`, `topology.zig` owns the one-home-listener/recipient indexes and
+shortening, `admission.zig` owns atomic home and recipient publication, and
+`settlement.zig` owns fire projection, terminal breaks, and close/teardown
+retirement. They reuse the Node's single Passable staging transaction; they do
+not export a second walker or widen the consumer namespace.
+
 Session state decides whether a reference is valid and what it names. A codec
 only parses and renders that decision. This is why changing codecs cannot mint
 authority or change CapTP behavior.
@@ -86,6 +125,34 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
+`driver_core.Host` remains the aggregate and supported verb index. Its internal
+session package keeps the `HostSession` shell, framing, outbound drain,
+retained-tail resume, terminal transport report, and channel-realizer identity
+evidence in `host/session.zig`; `host/session/ingress.zig` owns the whole-frame,
+stream, and sealed-channel dispatch into that shell. Consumers still reach only
+`HostSession` and the existing Host verbs through `driver.core`; neither
+internal module is re-exported, and their cross-file `pub` declarations do not
+widen the consumer namespace.
+
+Whole-Host lifetime is similarly singular: `host/ownership.zig` constructs and
+retires the aggregate in one ordered transaction. It introduces no second
+owner object; `Host` still carries every field and directly aliases the
+construction, teardown, and exclusive-transfer verbs.
+
+Application delivery has one transaction too: `host/delivery.zig` composes
+capability routing, Value lowering, Vow reservation, Served delivery, and pump
+progress for send/tell. Those lower owners remain independent; delivery adds no
+state or second traversal, and consumers still call the existing Host verbs.
+
+The same boundary keeps runtime policy explicit: `host/admission.zig` owns
+thread affinity, callback exclusion, and operation admission, while
+`host/transports.zig` owns immutable transport definitions and the advertised
+locator set. `host/interception.zig` owns the policy between decoded events and
+the application Vat: handshake admission, signed-give redemption, withdraw
+claims, and proxy-listener projection. They mutate the one Host aggregate and
+appear to consumers only as direct Host method aliases—there is no second state
+object or public module.
+
 The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
 settles their results. It also provides attenuation, revocation, and optional
@@ -94,6 +161,9 @@ session. Persistent actor state uses a structurally shared map, so changing one
 entry does not copy the whole map
 ([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
 [ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
+The internal Vat package keeps session projection in `vat/port.zig`, ingress
+admission and fair driving in `vat/ingress.zig`, and local settlement in
+`vat/vows.zig`; `Vat` remains the supported state aggregate and method index.
 
 Local eventual-sends enter queues keyed by *ingress*: which session the work
 came from. The Vat measures the owned-clone charge before mutation, applies
@@ -110,9 +180,9 @@ The `net` layer turns a byte stream into complete frames. Each byte-stream
 message is a bare negotiated-codec frame inside one outer Syrup byte string;
 the outer length supplies the boundary and the inner codec must consume the
 body exactly. A transport that already preserves message boundaries hands bare
-frames to the whole-frame API instead. The transport implementations are plain
-TCP, keyed TCP, Noise-sealed TCP, keyed relay, Noise-sealed relay, onion,
-in-process pipes, iroh, and WebRTC
+frames to the whole-frame API instead. The transport implementations are iroh,
+WebRTC, Noise-sealed TCP, Noise-sealed relay, onion, keyed TCP, keyed relay,
+plain TCP, and in-process pipes
 ([ADR-0110](decisions/adr/ADR-0110-byte-stream-message-envelope.md)).
 
 Inbound frames have a size limit. A frame larger than the current read buffer
@@ -133,64 +203,32 @@ mechanics.
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
 
-## Resource controls belong to the layer they protect
+## Resource knobs
 
-Protocol admission, shared read memory, and outbound backpressure are separate
-decisions:
+Protocol admission, shared read memory, outbound backpressure, and local-turn
+amplification are separate decisions:
 
 | Option | What it limits | Default |
 | --- | --- | --- |
-| `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 64 KiB |
+| `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 1 MiB |
 | `driver.HostRuntime.Options.wire_buffer_bytes` / `PancakeDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
 | `driver.HostRuntime.Options.max_pending_opens` / `PancakeDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
 | `driver.HostRuntime.Options.listener_setup` / `PancakeDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
+| `driver_core.Host.Options.local_turn_budget` / `pancake_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | Unbounded (`null` in Zig, `0` in C); loop demos and benches opt into `driver.core.default_loop_local_turn_budget` (4096). |
+| Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | Admission for direct blocking frame-shuttle handles before a Host owns the session. | `PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP` (4 KiB) |
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
 | `net.relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
-| completion keyed-relay adapter | Per-clear-connection relay state; WSS adds sparse TLS state with two fixed record windows. | 248 bytes clear; 37,216 bytes secure |
-| completion keyed-relay open | Transient logical-dial state plus one hostname resolver job; eight completion connect seats refill from at most 32 retained DNS answers. | 3,896 bytes per admitted open; 1,136 additional bytes for a hostname |
-| pollable keyed-relay address race | Eight nonblocking socket/poll seats, a fixed 32-answer failure ledger, and cleanup state; resolver queue storage is separate. | 4,608-byte architecture-neutral stack ceiling |
-| pollable TLS channel | Pinned socket/engine projection, two 18 KiB ciphertext windows, and four 2 KiB socket/plaintext windows. | 45,616 bytes |
-| native Mbed TLS client | Test-only allocator probe around the real local success/refusal matrix; requested payload only, excluding platform allocator metadata. | 4 KiB one-root shared peak; 64 KiB incremental connection/handshake peak; 8,192 allocation-call ceiling |
-| native TLS trust input | Copied PEM or system-root DER accepted by one immutable runtime. | 8 MiB hard ceiling |
 
-Relay byte movement has one owner at each execution seam:
+TLS and relay connection footprints, copy-shape pins, and `close_notify`
+delivery live in [known limitations](boundaries.md#browser-reachability) and
+the [ladder](ladder.md).
 
-| Carrier | Outbound WebSocket chunk | Inbound WebSocket chunk |
-| --- | --- | --- |
-| native pollable | one bounded payload copy while applying the RFC 6455 mask into the socket writer | socket input enters retained fixed buffers; application reads copy only the requested bytes out |
-| native completion | one bounded copy into masking/send staging; refused submission retains that same staging | the platform payload is borrowed directly; only an unconsumed coalesced tail copies into bounded spill |
-| TypeScript managed | `subarray` creates views; the runtime owns any copy needed by `WebSocket.send` | one runtime-owned `ArrayBuffer`, queued under the channel byte ceiling |
-| Python managed | ordinary bytes and oversized `memoryview` slices are borrowed; `websockets` owns framing/masking | one `websockets` binary message under its configured size ceiling |
-| Racket managed | ordinary bytes are borrowed; an oversized write pays one `subbytes` copy per bounded chunk before `net/rfc6455` framing | one reader thread admits one bounded binary message and cannot queue another while the pump is stalled |
-
-The Mbed TLS probe is compiled only into `native-tls-build`; production keeps
-the vendor allocator unchanged. It asserts that every refused and successful
-connection returns to the shared-runtime baseline and that final runtime
-release returns to zero. Retry ciphertext is a stable borrowed slice of the two
-record windows, and completion submission debt uses intrusive links, so neither
-projection adds a retry copy, a per-connection thread, or an unbounded queue.
-Hostname relay opens use one environment-owned resolver task per admitted open,
-then race at most eight platform connect operations at once. The pollable and
-completion drivers share that admission ceiling and their fixed 32-answer
-failure ledger, while keeping their socket mechanics separate. Failed seats
-refill without waiting for slower siblings; exact failures are retained in
-resolver order and every losing descriptor joins before admission.
-Descriptor-retirement refusal is a shutdown consequence; an apparent winner
-is rolled back rather than published beside an unretired loser.
-Pollable destruction is an allocation-free abortive close and never parks.
-The real completion close has a ten-poll/ten-second local ceiling; deterministic
-tests additionally pin one TLS shutdown transition and delivery of the final
-`close_notify` record before descriptor retirement. Managed copy-shape tests
-pin the TypeScript view, Python `memoryview`, and Racket ordinary-borrow /
-oversized-copy boundaries so an adapter cannot silently add another whole
-message clone.
-
-The completion loop can therefore change admission, pool memory, outbound
-slack, and transport staging independently. `initWithBackendOptions` tunes a
-backend the loop builds; `initWithBackend` accepts only runtime policy because
-the supplied backend already owns its resource configuration.
+The completion loop can change admission, pool memory, outbound slack, and
+transport staging independently. `initWithBackendOptions` tunes a backend the
+loop builds; `initWithBackend` accepts only runtime policy because the supplied
+backend already owns its resource configuration.
 
 `driver.DialRetry` adds reconnect policy above the loop. It classifies
 dial failures, opens a new CapTP session, and applies its own discovery budget.
@@ -204,12 +242,38 @@ each namespace in its own hash table:
 - direct lookup stays constant-time;
 - a sparse number from a hostile peer cannot force a giant array;
 - garbage collection removes an answer row before its position can be reused;
+- locally minted outbound answers fail closed in `session/answers/pipeline.zig`
+  before their cursor can wrap;
 - imports retain a separate cap because the remote peer chooses their count.
 
 A near reference, far reference, promise, and answer share one internal slot
 representation. The codec derives the corresponding wire descriptor only when
 it renders a frame. This keeps pipelining, settlement, and handoff on the same
 state.
+
+`session.Session` remains the aggregate and the deliberate method index; its
+operation owners are arranged by protocol subject rather than by caller.
+`session/protocol.zig` owns the validate-then-apply transaction spine, while
+`session/references/positions.zig` owns import/export namespace admission,
+allocation, rollback, and the Node/Host identities attached to an import
+incarnation. Mutable and durable swiss-name separation, bootstrap publication,
+lookup, and failed-publication rollback live beside it in
+`session/references/bootstrap.zig`. The answer package separates its concrete
+rows and lazy payload
+(`answers/store.zig`), independently accepted notification obligations
+(`answers/notifications.zig`), and the bounded queued-call/listener/projection
+operations (`answers/pipeline.zig`). Answer-row birth, monotonic incarnation
+stamps, and rollback of rows that never became observable live in
+`answers/lifecycle.zig`; ordinary partner-visible retirement remains with
+notifications and GC. Import-keyed relay and shortening state is separate
+under `session/promises/`, rather than being made to look like an answer-table
+concern; `promises/types.zig` is its data-only representation vocabulary.
+Session refusals likewise have one semantic vocabulary in `session/errors.zig`.
+Whole-aggregate construction, host-assigned export-range configuration, and
+teardown live together in `session/lifecycle.zig`, keeping every retained table
+on one matched initialization/retirement path. `Session` exposes operation
+functions as compile-time method aliases, not forwarding calls, so there is one
+implementation and no added runtime layer.
 
 Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
 state also decides which messages are legal while negotiating, open, or closed.
@@ -285,8 +349,8 @@ pancake does not create a background runtime inside Python, Racket, Rust, or
 TypeScript.
 
 `libpancake_driver` starts with zero transports; the application installs
-provider packages through `pancake_transport_provider.h`. The TCP archive supplies `tcp`, `keyed-tcp`,
-and `noise-tcp`; the relay archive supplies `keyed-relay` and `noise-relay`;
+provider packages through `pancake_transport_provider.h`. The TCP archive supplies `noise-tcp`, `keyed-tcp`,
+and testing `tcp`; the relay archive supplies `keyed-relay` and `noise-relay`;
 onion, iroh, and WebRTC ship as separate archives the driver consumes without
 naming their members. Listener ids remain the acceptance routing key through
 every binding. The driver owns each listener's canonical public locator. A

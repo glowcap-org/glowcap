@@ -13,21 +13,21 @@
 // without importing a single view.
 
 import type { Act, Edits, Remembered } from "../intent.ts";
+import { LS } from "../storage.ts";
 import {
 	type AttachmentView,
-	type Banner,
 	type Conv,
 	type DiagnosticRow,
 	type DirId,
 	type DirView,
 	type Invitation,
+	type Item,
 	type ListenerRow,
 	type OpsCap,
 	type SettingsTab,
 	type ToastNotice,
 	type VizPublishState,
 } from "../types.ts";
-// Small, swallow-errors localStorage wrapper (private-mode / disabled storage).
 // What this page remembers between visits, and under what names. One table
 // because a get and a set that disagree by a character fail silently and look
 // like a preference that will not stick. `rooms.theme` is read a second time by
@@ -45,28 +45,6 @@ export const KEY = {
 	settingsTab: "rooms.settings-tab",
 	opsTab: "rooms.ops-tab",
 } as const;
-
-// Persistence lives beside the verbs that own each fact, so nothing outside this
-// file reaches for storage.
-export const LS = {
-	get(k: string): string | null {
-		try {
-			return localStorage.getItem(k);
-		} catch {
-			return null;
-		}
-	},
-	set(k: string, v: string): void {
-		try {
-			localStorage.setItem(k, v);
-		} catch { /* storage disabled (private mode); ignore */ }
-	},
-	remove(k: string): void {
-		try {
-			localStorage.removeItem(k);
-		} catch { /* storage disabled (private mode); ignore */ }
-	},
-};
 
 /** The persisted ignore list, whatever shape this browser last wrote.
  *
@@ -150,9 +128,9 @@ export interface State {
 	 * page has resolved it, which is also the state a page loaded offline stays
 	 * in. */
 	homeDir: DirId | null;
-	banner: Banner | null;
-	/** Ephemeral notices above the page, newest first. Not the conversation
-	 * banner: that is session status and stays until the session says otherwise. */
+	/** Ephemeral notices above the page, newest first. Not a directory's own
+	 * standing: that belongs to the directory, is drawn on the rows that are on
+	 * it, and stays until that directory says otherwise. */
 	toasts: readonly ToastNotice[];
 	/** Whether the tab is being looked at, and a count that rises each time it is
 	 * returned to. One subscriber writes both; everything that asks reads here,
@@ -268,7 +246,6 @@ export const initial: State = {
 	convs: new Map(),
 	dirs: new Map(),
 	homeDir: null,
-	banner: null,
 	toasts: [],
 	visible: true,
 	returns: 0,
@@ -346,4 +323,27 @@ export function subscribe(listener: () => void): () => void {
 export function set(patch: Partial<State>): void {
 	state = { ...state, ...patch };
 	for (const listener of listeners) listener();
+}
+
+let lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
+
+/** Hear about lines this tab is giving up.
+ *
+ * A line carries things the store knows nothing about: the URL a picture is
+ * drawn from, the capability its bytes come from, the reference that governs
+ * one of our own. The store knows when a line stops being drawn and nothing
+ * about what it was holding; the data layer knows the opposite, so it listens
+ * here.
+ *
+ * It sits in the store's plumbing rather than beside the log, because lines
+ * leave three ways and only two of them are the log's doing: the scrollback
+ * passing its far end, a reader emptying a conversation, and a conversation
+ * being forgotten outright. */
+export function onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): void {
+	lettingGo = hook;
+}
+
+/** Give `gone` up, from whichever of those three ways it was. */
+export function letLinesGo(key: string, gone: readonly Item[]): void {
+	if (gone.length > 0) lettingGo?.(key, gone);
 }

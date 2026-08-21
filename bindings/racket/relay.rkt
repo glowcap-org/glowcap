@@ -9,9 +9,9 @@
 ;; same five-part shape ADR-0086 names, in Racket: the WebSocket adapter is
 ;; `rfc6455`, the pump is `relay-pump`, the byte channel is a TCP `byte-channel`
 ;; or the iroh binding's `dial-locator-for-relay`, the dial dispatcher is
-;; `open-channel`, and the config is the two constants below. The embedding app
-;; would add the target allow-list; this proof relays wherever the conformance
-;; test points it.
+;; `open-channel`, and the config comes from generated binding policy. The
+;; embedding app would add the target allow-list; this proof relays wherever the
+;; conformance test points it.
 ;;
 ;; Two transports, dispatched by what the WebSocket names:
 ;;   - `?to=host:port`         a raw TCP socket (byte-level, kernel-backpressured);
@@ -31,7 +31,8 @@
          (only-in net/rfc6455/dispatcher make-general-websockets-dispatcher)
          net/url
          "private/iroh-companion.rkt"
-         "private/byte-channel.rkt")
+         "private/byte-channel.rkt"
+         "private/constants-gen.rkt")
 
 (provide relay-pump (struct-out exn:fail:relay))
 
@@ -43,18 +44,15 @@
 ;; many connections at once, so it reaches the companion through
 ;; `iroh-companion.rkt`, which loads it exactly once however many arrive together.
 
-;; The two bounded-resources knobs ADR-0086's contract names, matching the
-;; @pancake/relay gold standard. The idle timeout reclaims a stalled pair; the
-;; per-session byte total is a runaway backstop over the session's life, not a
-;; memory bound (instantaneous memory is bounded by the backpressure on both
-;; legs). Both sit far above any real chat session. The conformance idle-timeout
-;; proof sets PANCAKE_RELAY_IDLE_MS low; a production run leaves it unset.
+;; The bounded resource defaults come from generated binding policy. The
+;; conformance idle-timeout proof sets PANCAKE_RELAY_IDLE_MS low; a production run
+;; leaves it unset.
 (define IDLE-TIMEOUT-MS
   (let ([v (getenv "PANCAKE_RELAY_IDLE_MS")])
-    (or (and v (string->number v)) 60000)))
-(define MAX-BYTES-PER-SESSION (expt 2 30)) ; 1 GiB
-(define READ-CHUNK 65536)                   ; 64 KiB
-(define CLOSE-TIMEOUT-MS 5000)
+    (or (and v (string->number v)) BINDING-RELAY-IDLE-TIMEOUT-MS)))
+(define MAX-BYTES-PER-SESSION BINDING-RELAY-MAX-BYTES-PER-SESSION)
+(define READ-CHUNK BINDING-RELAY-READ-CHUNK-BYTES)
+(define CLOSE-TIMEOUT-MS BINDING-WEBSOCKET-CLOSE-TIMEOUT-MS)
 
 ;; A raw TCP byte channel as a `byte-channel`: `read` blocks and returns eof on
 ;; close, `write` flushes (which blocks under the socket's send-buffer
@@ -66,7 +64,7 @@
   (byte-channel
    ;; `read-bytes-avail!` returns as soon as any bytes arrive (up to the buffer),
    ;; never blocking for a full buffer — a whole handshake reply forwards at once
-   ;; rather than waiting for 64 KiB that a small session never sends.
+   ;; rather than waiting for a full relay read chunk a small session never sends.
    (lambda ()
      (define n (read-bytes-avail! read-buf in))
      (if (eof-object? n) eof (subbytes read-buf 0 n)))
@@ -146,16 +144,17 @@
        (run-pump-leg!
         (lambda ()
           (let loop ()
-            (define msg (recv conn #:payload-type 'auto))
+            (define msg (recv conn #:payload-type 'binary))
             (cond
               [(eof-object? msg) (semaphore-post done)]
+              [(not (bytes? msg))
+               (error 'relay-pump "WebSocket sent text to the byte relay")]
               [else
-               (define bytes* (if (string? msg) (string->bytes/utf-8 msg) msg))
                (touch!)
-               (set! up (+ up (bytes-length bytes*)))
+               (set! up (+ up (bytes-length msg)))
                (if (over-cap?)
                    (semaphore-post done)
-                   (begin ((byte-channel-write ch) bytes*) (loop)))])))))))
+                   (begin ((byte-channel-write ch) msg) (loop)))])))))))
 
   (define channel->ws
     (thread

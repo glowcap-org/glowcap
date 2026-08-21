@@ -13,8 +13,9 @@ const parseJsonFile = util.parseJsonFile;
 const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
 
-/// HostAction / Node.Action / C embedder_pump arm parity: a new action kind
-/// must fail the build rather than silently drop in one of three switch spines.
+/// HostAction / C embedder_pump arm parity: a new action kind must fail the
+/// build rather than silently drop from either switch spine. Node actions have
+/// their independent product lockstep check in `captp_product/node_actions.zig`.
 pub fn checkHostActionArmLockstep(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -44,8 +45,8 @@ pub fn checkHostActionArmLockstep(
         return;
     }
 
-    const zig_action = root.readFileAlloc(io, "src/driver/core/host_action.zig", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "src/driver/core/host_action.zig: failed to read for HostAction arm lockstep with {s}", .{@errorName(err)});
+    const zig_action = root.readFileAlloc(io, "src/driver/core/host/action.zig", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "src/driver/core/host/action.zig: failed to read for HostAction arm lockstep with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(zig_action);
@@ -56,7 +57,7 @@ pub fn checkHostActionArmLockstep(
     }
     for (zig_tags) |tag| {
         if (std.mem.indexOf(u8, zig_action, tag) == null) {
-            try appendViolation(gpa, violations, "src/driver/core/host_action.zig: missing HostAction tag `{s}`", .{tag});
+            try appendViolation(gpa, violations, "src/driver/core/host/action.zig: missing HostAction tag `{s}`", .{tag});
         }
     }
 
@@ -80,43 +81,6 @@ pub fn checkHostActionArmLockstep(
             try appendViolation(gpa, violations, "src/c_abi/host/embedder_pump.zig: missing drain arm for `{s}`", .{token});
         }
     }
-
-    // Node.Action tags must each have an execNodeAction arm (settle/fail stay
-    // in-process on the vat; they are not HostAction variants).
-    const node_src = root.readFileAlloc(io, "src/ocapn/engine/node.zig", gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: failed to read for Node.Action parity with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(node_src);
-    const pump_src = root.readFileAlloc(io, "src/driver/core/host_pump.zig", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "src/driver/core/host_pump.zig: failed to read for Node.Action parity with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(pump_src);
-    const node_tags = [_][]const u8{ "dial", "flush", "settle", "fail", "need_gift_id" };
-    const action_union = "pub const Action = union(enum)";
-    const action_at = std.mem.indexOf(u8, node_src, action_union) orelse {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: Node.Action union missing", .{});
-        return;
-    };
-    const action_body = node_src[action_at..];
-    const exec_at = std.mem.indexOf(u8, pump_src, "fn execNodeAction") orelse {
-        try appendViolation(gpa, violations, "src/driver/core/host_pump.zig: execNodeAction missing", .{});
-        return;
-    };
-    const exec_body = pump_src[exec_at..];
-    const exec_end = std.mem.indexOf(u8, exec_body, "\n}") orelse exec_body.len;
-    const exec = exec_body[0..exec_end];
-    for (node_tags) |tag| {
-        var arm_buf: [64]u8 = undefined;
-        const arm = std.fmt.bufPrint(&arm_buf, ".{s} =>", .{tag}) catch unreachable;
-        if (std.mem.indexOf(u8, action_body, tag) == null) {
-            try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: Node.Action missing tag `{s}`", .{tag});
-        }
-        if (std.mem.indexOf(u8, exec, arm) == null) {
-            try appendViolation(gpa, violations, "src/driver/core/host_pump.zig: execNodeAction missing arm for Node.Action.{s}", .{tag});
-        }
-    }
 }
 
 /// ADR-0009 introducing-session promise proxy: production callers stay wired
@@ -130,8 +94,8 @@ pub fn checkUnwiredHostPluginApis(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const rows = [_]struct { call_needle: []const u8, def_path: []const u8 }{
-        .{ .call_needle = ".applyRelayedResolutionGuaranteed(", .def_path = "src/ocapn/engine/mod.zig" },
-        .{ .call_needle = ".installThirdPartyImport(", .def_path = "src/ocapn/session/imported_promise.zig" },
+        .{ .call_needle = ".applyRelayedResolutionGuaranteed(", .def_path = "src/ocapn/engine/peer/settlement.zig" },
+        .{ .call_needle = ".installThirdPartyImport(", .def_path = "src/ocapn/session/promises/imported.zig" },
     };
     for (rows) |row| {
         if (!try srcHasCallOutsideDef(io, gpa, root, row.call_needle, row.def_path)) {
@@ -151,6 +115,7 @@ pub fn checkUnwiredHostPluginApis(
         .{ .path = "src/ocapn/model/owned.zig", .why = "cloneResolution must stay deleted — relayed settlement moves (memory.md)" },
         .{ .path = "src/ocapn/model/mod.zig", .why = "cloneResolution export must stay deleted — relayed settlement moves (memory.md)" },
         .{ .path = "src/ocapn/engine/node.zig", .why = "public cloneResolution must stay deleted — proxy uses materializeResolutionForStore (memory.md)" },
+        .{ .path = "src/ocapn/engine/node/proxies/settlement.zig", .why = "proxy settlement must materialize once, never deep-clone per recipient (memory.md)" },
     };
     for (clone_ban_paths) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(1 << 20)) catch |err| {
@@ -171,41 +136,51 @@ pub fn checkUnwiredHostPluginApis(
         "claimProjectedProxyListenerFire",
         "projectProxyListenerFire",
         "isProxyHomeListener",
-        "materializeResolutionForStore",
         "proxy_by_listener",
-        "PendingDialView",
+        "pub const PendingDialView = redeem_dials.PendingDialView;",
+        "pub const pendingDial = redeem_dials.pendingDial;",
+        "pub const stageDial = redeem_dials.stage;",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
         "pub fn pendingDial",
-        "pending_dial_by_identity",
-        "stagePendingDial",
-        "freePendingDialShell",
+        "by_identity",
+        "actions.claimTicketRange",
         "unparseable exporter locator",
-        "dial: struct { pending: PendingId }",
-        "applyRelayedResolution",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/plan.zig", &.{
+        "pub fn parse",
+        "UnparseableExporterLocator",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/proxies/admission.zig", &.{
+        "foreignPromiseFulfill",
         "installThirdPartyImport",
         "session_not_open",
     });
-    // Ticket-only dial action: dial parts live on the pending row alone.
-    if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", "action_locator")) {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: action_locator must stay deleted — pending row owns dial parts", .{});
-    }
-    if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", "allocator.dupe(u8, exporter_locator)")) {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: acceptGive must not dupe the verbatim exporter URI — pending row owns parts only", .{});
-    }
-    if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", "dial: struct { pending: PendingId, locator:")) {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: Action.dial must not carry locator — use pendingDial", .{});
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/proxies/settlement.zig", &.{
+        "materializeResolutionForStore",
+        "applyRelayedResolution",
+    });
+    // Ticket-only dial state: dial parts live on the pending row alone.
+    if (try fileContains(io, gpa, root, "src/ocapn/engine/node/redeem/dials.zig", "allocator.dupe(u8, exporter_locator)")) {
+        try appendViolation(gpa, violations, "src/ocapn/engine/node/redeem/dials.zig: acceptGive must not dupe the verbatim exporter URI — pending row owns parts only", .{});
     }
     // Zig dual borrow API must stay deleted — one pendingDial view.
     for ([_][]const u8{ "pub fn pendingDialLocator", "pub fn pendingDialParts", "PendingDialParts" }) |needle| {
-        if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", needle)) {
-            try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: `{s}` must stay deleted — use pendingDial / PendingDialView", .{needle});
+        for ([_][]const u8{
+            "src/ocapn/engine/node.zig",
+            "src/ocapn/engine/node/redeem/dials.zig",
+        }) |path| {
+            if (try fileContains(io, gpa, root, path, needle)) {
+                try appendViolation(gpa, violations, "{s}: `{s}` must stay deleted — use pendingDial / PendingDialView", .{ path, needle });
+            }
         }
     }
     // Named materialize is for the proxy fire owner only — not a free fan-out API.
     if (try srcHasCallOutsideAllowlist(io, gpa, root, "materializeResolutionForStore(", &.{
-        "src/ocapn/engine/node.zig",
+        "src/ocapn/engine/node/proxies/settlement.zig",
         "src/ocapn/model/owned.zig",
     })) {
-        try appendViolation(gpa, violations, "materializeResolutionForStore called outside node.zig — proxy fire path only (memory.md)", .{});
+        try appendViolation(gpa, violations, "materializeResolutionForStore called outside proxy settlement — one recipient materialization per fire (memory.md)", .{});
     }
     // Withdrawal preparation owns one resolution payload. Re-wrapping it in a
     // complete Message would clone the same tree a second time before the
@@ -235,7 +210,7 @@ pub fn checkUnwiredHostPluginApis(
     try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode.zig", &.{
         "encodeArgumentSetList",
     });
-    try expectFileContains(io, gpa, root, violations, "src/driver/core/host.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/driver/core/host/interception.zig", &.{
         "isProxyHomeListener",
         "claimProxyListenerFire",
     });
@@ -261,14 +236,14 @@ pub fn checkUnwiredHostPluginApis(
         "multi-introduce",
     });
     // Ticket-only HostAction.dial: the pending row owns the complete locator.
-    if (try fileContains(io, gpa, root, "src/driver/core/host_pump.zig", "fn dialActionFields")) {
-        try appendViolation(gpa, violations, "src/driver/core/host_pump.zig: dialActionFields must stay deleted — ticket-only HostAction.dial", .{});
+    if (try fileContains(io, gpa, root, "src/driver/core/host/pump.zig", "fn dialActionFields")) {
+        try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: dialActionFields must stay deleted — ticket-only HostAction.dial", .{});
     }
-    if (try fileContains(io, gpa, root, "src/driver/core/host_action.zig", "locator: []const u8")) {
-        try appendViolation(gpa, violations, "src/driver/core/host_action.zig: HostAction.dial must not carry locator — use pendingDial", .{});
+    if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "locator: []const u8")) {
+        try appendViolation(gpa, violations, "src/driver/core/host/action.zig: HostAction.dial must not carry locator — use pendingDial", .{});
     }
-    if (try fileContains(io, gpa, root, "src/driver/core/host_action.zig", "pancake_host_pending_dial_*")) {
-        try appendViolation(gpa, violations, "src/driver/core/host_action.zig: stale pending_dial_* plural — use pancake_host_pending_dial", .{});
+    if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "pancake_host_pending_dial_*")) {
+        try appendViolation(gpa, violations, "src/driver/core/host/action.zig: stale pending_dial_* plural — use pancake_host_pending_dial", .{});
     }
     try expectFileContains(io, gpa, root, violations, "src/driver/core/handoff.zig", &.{
         "pub fn pendingDial",
@@ -279,7 +254,7 @@ pub fn checkUnwiredHostPluginApis(
         "PancakeLocatorHintView",
         "PancakeLocatorView",
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host_plan.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/plan.zig", &.{
         "locator_adapter.project",
         "inst.core.pendingDial",
     });
@@ -296,8 +271,8 @@ pub fn checkUnwiredHostPluginApis(
         }
     }
     // Redeem dial must not re-parse the pending URI on Host/Bridge.
-    if (try fileContains(io, gpa, root, "src/driver/core/host_pump.zig", "dialDesignatorForReuse")) {
-        try appendViolation(gpa, violations, "src/driver/core/host_pump.zig: dialDesignatorForReuse must stay deleted — pendingDial owns the designator", .{});
+    if (try fileContains(io, gpa, root, "src/driver/core/host/pump.zig", "dialDesignatorForReuse")) {
+        try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: dialDesignatorForReuse must stay deleted — pendingDial owns the designator", .{});
     }
     if (try fileContains(io, gpa, root, "src/driver/bridge.zig", "parsePeer(bridge.allocator")) {
         try appendViolation(gpa, violations, "src/driver/bridge.zig: Exec.dial must not parsePeer — use pendingDial", .{});
@@ -325,15 +300,18 @@ pub fn checkUnwiredHostPluginApis(
     if (try fileContains(io, gpa, root, "tools/gen/header/host.zig", "Empty transport/designator means")) {
         try appendViolation(gpa, violations, "tools/gen/header/host.zig: empty-parts-as-unparseable prose must stay deleted — acceptGive fails unparseable closed", .{});
     }
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/plan.zig", &.{
         "UnparseableExporterLocator",
     });
     // Pending dial paths own typed hints as well as transport and designator;
     // one teardown spine must release the complete shape.
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
-        "fn freeDialPath(self: *Node, path: DialPath) void",
-        "model.freeHints(self.allocator, path.hints);",
-        "self.freeDialPaths(pending.paths);",
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/plan.zig", &.{
+        "fn deinitPath(allocator: std.mem.Allocator, path: Path) void",
+        "model.freeHints(allocator, path.hints);",
+        "self.deinitPaths(allocator);",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
+        "entry.plan.deinitPaths(self.allocator);",
     });
     // Host dial harness must borrow the dial view, not re-parse the locator.
     if (try fileContains(io, gpa, root, "test/driver/core_host/vow_test.zig", "parsePeer(allocator, pending)")) {
@@ -380,7 +358,7 @@ pub fn checkUnwiredHostPluginApis(
     }
 }
 
-/// `host_pump.zig` is Host-private pump mechanics: only the Host core's own
+/// `host/pump.zig` is Host-private pump mechanics: only the Host core's own
 /// responsibility files may import it. Cross-file `pub fn` stays for Zig module
 /// visibility; this gate is what keeps the boundary from rotting into a second
 /// public API.
@@ -395,7 +373,7 @@ pub fn checkHostPumpImportGate(
     // decl aliases. The pump is private to that directory as a whole — the
     // list stopped naming files when every slice of the split was adding one.
     const host_core_dir = "src/driver/core/";
-    const needle = "@import(\"host_pump.zig\")";
+    const needle = "@import(\"host/pump.zig\")";
     var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "src: failed to open for host_pump import gate with {s}", .{@errorName(err)});
         return;
@@ -415,7 +393,7 @@ pub fn checkHostPumpImportGate(
         };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, needle) != null) {
-            try appendViolation(gpa, violations, "{s}: imports host_pump.zig — only the Host core's own files may (Host private pump)", .{path});
+            try appendViolation(gpa, violations, "{s}: imports host/pump.zig — only the Host core's own files may (Host private pump)", .{path});
         }
     }
 }

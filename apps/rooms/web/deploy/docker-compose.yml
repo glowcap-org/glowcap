@@ -56,6 +56,15 @@ services:
       PANCAKE_ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
       PANCAKE_ROOMS_REACHABILITY: discovery
+      # Browser-to-browser WebRTC uses public Cloudflare STUN by default. Empty
+      # means host candidates only; a comma-separated STUN list replaces it.
+      # PANCAKE_ROOMS_ICE_SERVERS: ""
+      # A credential issuer gives restrictive-NAT peers short-lived TURN reach.
+      # The bearer token stays in this server; browsers receive only temporary
+      # username/password rows from GET /ice. Blank keeps the STUN-only posture.
+      PANCAKE_ROOMS_TURN_CREDENTIALS_URL: ${PANCAKE_ROOMS_TURN_CREDENTIALS_URL:-}
+      PANCAKE_ROOMS_TURN_BEARER_TOKEN: ${PANCAKE_ROOMS_TURN_BEARER_TOKEN:-}
+      PANCAKE_ROOMS_TURN_TTL_SECONDS: ${PANCAKE_ROOMS_TURN_TTL_SECONDS:-86400}
       # Same as starting with --diagnostics: mint inspect and print its swiss number.
       # PANCAKE_ROOMS_DIAGNOSTICS: "1"
       # Same as starting with --admin-listeners: mint the listener-admin

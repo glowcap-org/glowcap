@@ -34,7 +34,7 @@ fn statement(
     var at: usize = 0;
     @memcpy(out[at..][0..proof_domain.len], proof_domain);
     at += proof_domain.len;
-    out[at] = @intFromEnum(role);
+    out[at] = @backingInt(role);
     at += 1;
     @memcpy(out[at..][0..context.len], &context);
     at += context.len;

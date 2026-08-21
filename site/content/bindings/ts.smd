@@ -1,8 +1,7 @@
 ---
 .title = "TypeScript",
 .description = "Use one TypeScript session API across Deno, Bun, and browser WebAssembly.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -13,25 +12,25 @@ The TypeScript binding supports three runtimes from one source tree.
 gives Deno and Bun the transport-neutral `Session` / `Host` API over the pancake
 C ABI, plus the
 transport providers and connectors that `Runtime.open` installs once. Transport
-packages such as `@pancake/tcp` own locator construction and transport
+packages such as `@pancake/iroh` own locator construction and transport
 configuration; `runtime.connect` selects the already-installed authority.
-`@pancake/iroh`, `@pancake/onion`, and `@pancake/relay` provide the other native
-providers or connectors shown below. `@pancake/inproc` is a separate raw-frame
-netlayer package, not a `Runtime` provider, so it stays outside this managed
-session matrix until it has that composition seam.
+`@pancake/onion`, `@pancake/relay`, and `@pancake/tcp` provide the other native
+providers or connectors shown below. `@pancake/inproc` is a raw-frame
+netlayer package. It stays outside this managed session matrix until it has
+that composition seam.
 
 The same source also compiles to WebAssembly as `@pancake/web`, so the same
 `Session` runs in the browser, dialing rather than listening.
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 
-`@pancake/runtime` is not published yet. Pin a checkout, build the archives, and
+Pin a checkout, build the archives, and
 run from `bindings/ts` or point an import map at `bindings/ts/runtime/mod.ts`.
 Set `PANCAKE_LIB_DIR` only if the archives are outside `zig-out/lib`. Deno
 needs `--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the
 library path comes from the environment.
 
-## The same round-trip
+# The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
 handle the reply) reads like this in TypeScript. The inbound loop delivers the
@@ -87,7 +86,7 @@ task. Use `serve` when another task needs to wait for session shutdown.
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const relayUrl = "wss://relay.example/relay";
 > const partner = noise.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
@@ -111,7 +110,7 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > import { keyed, provider } from "@pancake/tcp";
 > import { Runtime } from "@pancake/runtime";
 >
-> // Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+> // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > const peerKey = "<64 lowercase hex characters from the server>";
 > const partner = keyed.locator(peerKey, "127.0.0.1", 9099);
 >
@@ -124,7 +123,7 @@ task. Use `serve` when another task needs to wait for session shutdown.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const relayUrl = "wss://relay.example/relay";
 > const partner = keyed.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
@@ -163,7 +162,7 @@ transport or protocol error. When the loop ends, every `send` still awaiting a
 reply breaks too. Failures surface on the calls you await; the bare `catch`
 only keeps the loop's own rejection from going unhandled.
 
-## Hosting the other half
+# Hosting the other half
 
 The hosting side reads the same way. `listen` binds a port and returns a
 `Server` you iterate for each accepted `Session`, `publish` makes an actor
@@ -180,7 +179,7 @@ restart; iroh binds a node id instead of a host and port.
 > import type { Argument } from "@pancake/runtime";
 > import { type IrohConfig, listen, Reachability } from "@pancake/iroh";
 >
-> // Bind a key, not a place. Partners can dial this node id from anywhere.
+> // This listener is named by its node id. Partners can dial it from anywhere.
 > const config: IrohConfig = { reachability: Reachability.Discovery };
 > await using server = await listen(config);
 > ```
@@ -192,6 +191,19 @@ restart; iroh binds a node id instead of a host and port.
 > // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
 > await using server = await noise.listen("127.0.0.1", 9099, { seed });
+> ```
+> **noise-relay**
+> ```ts
+> import type { Argument } from "@pancake/runtime";
+> import { noise } from "@pancake/relay";
+>
+> // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> const seed = crypto.getRandomValues(new Uint8Array(32));
+> await using server = await noise.listen({
+> 	relayUrl: "wss://relay.example/relay",
+> 	registerUrl: "wss://relay.example/register",
+> 	seed,
+> });
 > ```
 > **onion**
 > ```ts
@@ -249,14 +261,14 @@ for await (const accepted of server) {
 Over iroh there is no host and port to bind. The server reports its node-id
 locator through `server.uri`.
 
-## Async
+# Async
 
 Sessions return native promises, and a session is disposable: `await using session =
 await runtime.connect(...)` closes it when the block ends, in place of an explicit
 `session.close()`. For how one call can pipeline on another before it resolves,
 see [Concepts]($link.page('concepts')).
 
-## Actors
+# Actors
 
 An actor is a callback, `(verb, args) => AppValue`, that you register with
 `session.spawn` or `session.publish`; it returns any value you can send, and the

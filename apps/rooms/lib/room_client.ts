@@ -33,7 +33,7 @@ import {
 	postStagedFiles,
 	readAttachments,
 } from "./attachment.ts";
-import { AWAY, LEAVE, LINK, NOTIFY, POST, SET_TOPIC, SUBSCRIBE, TYPING } from "./protocol.ts";
+import { AWAY, CAPTP_VERSION, LEAVE, LINK, NOTIFY, POST, SET_TOPIC, SUBSCRIBE, TYPING } from "./protocol.ts";
 import { roomsLocator } from "./locator.ts";
 
 // Everything this client is, reached through one name. The split is where the
@@ -194,7 +194,7 @@ export class Room {
 		if (typeof swiss !== "string" || swiss.length === 0) {
 			throw new Error("link() did not return a swissnum");
 		}
-		return formatSturdyRef(roomsLocator(locator), swiss, "next");
+		return formatSturdyRef(roomsLocator(locator), swiss, CAPTP_VERSION);
 	}
 
 	/** The reference this room is, for handing on.

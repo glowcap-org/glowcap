@@ -7,7 +7,8 @@
 // this reader stands, and what they have been offered.
 
 import type { DirId, Invitation, Standing } from "./types.ts";
-import { KEY, LS, set, type State, state } from "./store/core.ts";
+import { KEY, set, type State, state } from "./store/core.ts";
+import { LS } from "./storage.ts";
 import { MAX_ROSTER_SEEN } from "../../lib/limits.ts";
 import type { Presence } from "../../lib/limits.ts";
 import { getConv, put } from "./store/convs.ts";

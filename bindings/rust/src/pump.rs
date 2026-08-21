@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::host::{check_host, drain_pending_releases, host_last_error};
+use crate::host::{check_host, host_last_error};
 use crate::session_shared::{io_err, SessionShared, READ_CHUNK};
 use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
@@ -21,8 +21,9 @@ use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 /// action queue, so the drain puts it on the wire first. The core stops
 /// consuming at the frame that opens the session, so a fast partner's
 /// application frames coalesced behind start-session stay buffered until the
-/// serve loop — otherwise a pipelined fetch would answer before the object it
-/// names exists. Abandonment on failure stays on `Session::establish`.
+/// Host-owned resume step — otherwise a pipelined fetch would answer before
+/// the object it names exists. Abandonment on failure stays on
+/// `Session::establish`.
 #[cfg(any(test, feature = "iroh"))]
 pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
 	shared.host.kick_actions().await?;
@@ -65,9 +66,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	};
 	let mut chunk = vec![0u8; READ_CHUNK];
 	let mut outcome: Result<()> = async {
-		// Frames that rode behind the handshake's tail wait in the session's
-		// own tail; an empty feed dispatches them before parking on the wire.
-		feed(&shared, &[]).await?;
+		resume_feed(&shared).await?;
 		loop {
 			if shared.released.get() {
 				return Ok(());
@@ -126,8 +125,8 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 /// (behavior trampolines fire and completions queue inside), then the
 /// actions the dispatch queued drain. The library owns the unconsumed tail —
 /// a partial frame straddling two reads stays buffered in the session — so
-/// one borrowed call moves the whole chunk; an empty chunk resumes frames
-/// the session held behind its handshake open.
+/// one borrowed call moves the whole chunk. The serve loop resumes any
+/// handshake-held tail through `resume_feed`.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
 	loop {
 		if shared.released.get() {
@@ -146,10 +145,33 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 			)
 		};
 		drop(_deliver);
-		drain_pending_releases();
+		crate::finalizer::drain();
 		// Fed bytes can advance close-relevant state (a partner's finish
 		// acknowledgment, a settle) even when the drain below finds nothing
 		// queued, so every feed wakes the parked close drivers itself.
+		shared.host.note_close_activity();
+		if rc == sys::OK {
+			break;
+		}
+		if rc == sys::WOULD_BLOCK {
+			shared.host.kick_actions().await?;
+			continue;
+		}
+		return Err(feed_refusal(shared, rc).await);
+	}
+	shared.host.kick_actions().await?;
+	Ok(())
+}
+
+async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
+	loop {
+		if shared.released.get() {
+			return Ok(());
+		}
+		let _deliver = DeliverGuard::enter(shared);
+		let rc = unsafe { ffi::pancake_host_session_resume_feed(shared.ptr.get()) };
+		drop(_deliver);
+		crate::finalizer::drain();
 		shared.host.note_close_activity();
 		if rc == sys::OK {
 			break;

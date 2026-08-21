@@ -10,11 +10,8 @@ off the real Zig types. A Zig-side field change therefore moves a row in the
 generated table, and the mirror that was not swept fails loudly the moment the
 module is imported.
 
-The check is one function rather than a hand-written comparison per module
-because that is where the coverage used to leak: a struct declared below its
-module's pin was simply never checked, and the trace record spent an ABI
-change reading a field set the library had stopped sending. There is nothing
-to forget here except the call itself, and ``source-check`` holds that.
+Centralizing the check prevents declarations below a module's pin from escaping
+coverage. ``source-check`` requires every hand-mirrored struct to call it.
 
 A plain ``raise`` rather than ``assert``, so ``python -O`` cannot strip the
 gate.

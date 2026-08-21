@@ -1,0 +1,17 @@
+//! Explicit close for a CLI-owned `driver.Server`. Implicit `deinit` retains
+//! leftovers on the Runtime with no product-front recipient; this barrier
+//! returns the exact chain so `close` and argv listen can keep it.
+
+const pancake = @import("pancake");
+const Ctx = @import("../ctx.zig").Ctx;
+
+const driver = pancake.driver;
+const FailureChain = pancake.foundation.FailureChain;
+
+/// Join a Server's close barrier, then release the handle. Close is consuming:
+/// a returned chain is the outcome, not a reason to skip `deinit`.
+pub fn closeServer(_: *Ctx, server: *driver.Server) ?FailureChain {
+    const failure = if (server.close()) |op| op.toChain() else null;
+    server.deinit();
+    return failure;
+}

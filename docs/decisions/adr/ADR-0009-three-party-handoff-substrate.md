@@ -79,7 +79,7 @@ core: a key seed and the `gift-id` come from the adapter boundary.
 
 ### Session-owned gift table
 
-Every `engine.Peer` owns one `engine.bootstrap.GiftRegistry`. The
+Every `engine.Peer` owns one `engine.bootstrap.gifts.GiftRegistry`. The
 Gifter–Exporter Peer owns deposited rows; the Receiver–Exporter Peer owns the
 accepted and emitted scalar handoff counts. Validation checks gift existence,
 recipient provenance when the deposit supplied it, receiving-session names,
@@ -118,10 +118,12 @@ every listener (installed before or after the relay) observes the same value.
 
 The engine exposes that seam (`installThirdPartyImport`,
 `Peer.applyRelayedResolution`). `engine.Node` owns the introducing-session
-promise proxy; `driver_core.Host` drives it when an answer would fulfill with a
-foreign **promise** token (`proxyForeignPromiseFulfill` /
-`projectProxyListenerFire`). Foreign **object** fulfills stay on
-`interceptFulfilledRoute` gift redeem. Stamp/GC races (enroll-stamped `row_id`
+promise proxy through its internal `node/proxies/` admission, topology, and
+settlement owners; `driver_core.Host` drives the supported Node aliases when an
+answer would fulfill with a foreign **promise** token
+(`proxyForeignPromiseFulfill` / `projectProxyListenerFire`). Foreign **object**
+fulfills stay on `interceptFulfilledRoute` gift redeem. Stamp/GC races
+(enroll-stamped `row_id`
 applied after session mutation) live in
 `test/engine/relay_resolution_test.zig`; Node end-to-end proxy scenarios live under
 `test/engine/node/` (`proxy_test.zig`, `relay_test.zig`).
@@ -139,10 +141,15 @@ Implemented choreography:
    via `@errorName`).
 4. **Project once per recipient.** The Host lifts the consumed home fire to
    opaque identity once. `projectProxyListenerFire` lowers that complete value
-   independently for each recipient through `stageInlinePassable`, then tears
-   down the proxy. There is one home listen and one bounded recipient
+   independently for each recipient through the inline-Passable batch owner,
+   then tears down the proxy. There is one home listen and one bounded recipient
    materialization—not N home listens, raw position forwarding, or a second
    recursive projection walker.
+5. **Retire at logical close.** Closing the home spends every recipient's
+   admission-time terminal escrow before removing the one-listener topology;
+   closing a recipient retires only that recipient and its reserved action.
+   Node teardown does the same while borrowed Peer stores are still reachable,
+   including a fire already parked in the shared Passable transaction.
 
 ### Signature verification and gifter-key provenance
 

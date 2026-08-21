@@ -27,6 +27,7 @@ import {
 	stopServer,
 	within,
 } from "./support/rooms_server.ts";
+import { spawnOwned } from "./support/children.ts";
 
 const CAP = "ab".repeat(32);
 
@@ -137,13 +138,13 @@ Deno.test("an admitted producer hears the admission mark first", async () => {
 // ── The mint, at the server ──────────────────────────────────────────────────
 
 function spawnServer(stateDir: string, env: Record<string, string> = {}): Deno.ChildProcess {
-	return new Deno.Command("deno", {
+	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, `--allow-write=${stateDir}`, SERVER, "0"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir, ...env },
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 }
 
 /** Read stderr until `patterns` have each matched, teeing nothing. */

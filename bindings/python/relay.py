@@ -9,8 +9,8 @@ session authority run end to end and the relay holds no capability. This is the
 same five-part shape ADR-0086 names, in Python: the WebSocket adapter is
 `websockets`, the pump is `_pump`, the byte channel is a `_TcpChannel` or the
 iroh binding's relay transport, the dial dispatcher is `_open_channel`, and the
-config is the two constants below. The embedding app would add the target
-allow-list; this proof relays wherever the conformance test points it.
+config comes from generated binding policy. The embedding app would add the
+target allow-list; this proof relays wherever the conformance test points it.
 
 Two transports, dispatched by what the WebSocket names:
   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
@@ -36,16 +36,23 @@ import websockets
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# The two bounded-resources knobs ADR-0086's contract names, matching the
-# @pancake/relay gold standard. The idle timeout reclaims a stalled pair; the
-# per-session byte total is a runaway backstop over the session's life, not a
-# memory bound (instantaneous memory is bounded by the backpressure on both
-# legs). Both sit far above any real chat session. The conformance idle-timeout
-# proof sets PANCAKE_RELAY_IDLE_MS low; a production run leaves it unset.
-IDLE_TIMEOUT_S = float(os.environ.get("PANCAKE_RELAY_IDLE_MS", "60000")) / 1000.0
-MAX_BYTES_PER_SESSION = 1 << 30  # 1 GiB
-READ_CHUNK = 1 << 16  # 64 KiB
-CLOSE_TIMEOUT_S = 5.0
+from pancake import _constants_gen as _abi
+
+# The bounded resource defaults come from generated binding policy. The
+# conformance idle-timeout proof sets PANCAKE_RELAY_IDLE_MS low; a production run
+# leaves it unset.
+IDLE_TIMEOUT_S = (
+    float(
+        os.environ.get(
+            "PANCAKE_RELAY_IDLE_MS",
+            str(_abi.BINDING_RELAY_IDLE_TIMEOUT_MS),
+        )
+    )
+    / 1000.0
+)
+MAX_BYTES_PER_SESSION = _abi.BINDING_RELAY_MAX_BYTES_PER_SESSION
+READ_CHUNK = _abi.BINDING_RELAY_READ_CHUNK_BYTES
+CLOSE_TIMEOUT_S = _abi.BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS / 1000.0
 
 
 def _retain(primary: BaseException | None, error: BaseException) -> BaseException:

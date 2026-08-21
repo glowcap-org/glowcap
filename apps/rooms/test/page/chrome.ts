@@ -35,8 +35,17 @@ export async function runChrome(
 	// They are the same kind of surface, so they take one width and start their
 	// rows on one vertical line. Measured from each rail's padding box, since one
 	// of the two carries a border on the side facing the conversation.
+	//
+	// Where a heading begins is where its own ink begins, whatever that ink is.
+	// The rooms heading is also what opens the rail's questions, so it carries a
+	// funnel in front of its words and is built like a row below it: the mark on
+	// the line both rails start on, and the words a mark's width in. Reading the
+	// words alone would call that a rail out of true by exactly the width of a
+	// mark, which is the one thing it is not, so what is measured is the whole
+	// heading's contents. The rooms heading answers to its own id while it is a
+	// control, and the second half of the pair is what an ordinary label is.
 	const rails = await tab.evaluate(() => {
-		// Where a heading's glyphs begin, measured from the inside of its rail.
+		// Where a heading's ink begins, measured from the inside of its rail.
 		const inset = (rail: Element, heading: Node) => {
 			const range = document.createRange();
 			range.selectNodeContents(heading);
@@ -48,7 +57,7 @@ export async function runChrome(
 		return {
 			widths: [sidebar.clientWidth, roster.clientWidth],
 			insets: [
-				inset(sidebar, document.querySelector(".section-head span")!),
+				inset(sidebar, document.querySelector("#railFilter, .section-head span")!),
 				inset(roster, roster.querySelector("h2")!),
 			],
 		};
@@ -105,23 +114,19 @@ export async function runChrome(
 	// And they draw the same row. Two rails flank the conversation and a reader
 	// sees both at once, so a name in one that starts a few pixels off a name in
 	// the other reads as one of the two having been nudged, without saying which.
-	// The headings go with them: both label a list of the same kind, so both are
-	// set the same way and both land on one line.
 	//
-	// Measured on the glyphs, not on the boxes around them. One heading is a span
-	// centred inside a flex row that a "+" makes taller and the other is a padded
-	// `h2`, so their element rectangles disagree by several pixels while the words
-	// sit exactly level — which is the reading that matters and the one a reader
-	// has. Row heights are deliberately not compared: a roster row carries its
+	// The two also begin together, measured on the regions rather than on the
+	// first thing in each. The rooms rail opens with the line that says how much
+	// of it you are looking at, and the roster opens with its heading, so the
+	// promise is that the two rails start on one line and not that they start
+	// with the same kind of thing. Their list labels are still set alike, which
+	// is the other half of reading as one surface.
+	//
+	// Row heights are deliberately not compared: a roster row carries its
 	// direct-line button in a column of its own, always showing rather than
 	// revealed, so it stands taller than a rail row by that decision rather than
 	// by an oversight.
 	const alike = await tab.evaluate(() => {
-		const glyphs = (el: Node) => {
-			const range = document.createRange();
-			range.selectNodeContents(el);
-			return range.getBoundingClientRect();
-		};
 		const railRow = document.querySelector("#roomList .room-open");
 		const railName = document.querySelector("#roomList .rname");
 		const rosterRow = document.querySelector("#members li");
@@ -129,7 +134,10 @@ export async function runChrome(
 		const rosterChip = document.querySelector("#members .avatar-presence");
 		const railHead = document.querySelector(".section-head span");
 		const rosterHead = document.querySelector(".members h2");
+		const railBody = document.querySelector(".sidebar-body");
+		const roster = document.querySelector(".members");
 		if (!railRow || !railName || !rosterRow || !rosterName || !rosterChip || !railHead || !rosterHead) return null;
+		if (!railBody || !roster) return null;
 		const drawn = (el: Element) => {
 			const s = getComputedStyle(el);
 			return [s.fontSize, s.fontWeight, s.letterSpacing, s.textTransform].join(" ");
@@ -140,7 +148,15 @@ export async function runChrome(
 			// rail's mark column. What is held instead is the lockup's own air:
 			// the name starts a hand's width after the chip, every row.
 			lockupAir: rosterName.getBoundingClientRect().left - rosterChip.getBoundingClientRect().right,
-			headTop: Math.abs(glyphs(railHead).top - glyphs(rosterHead).top),
+			// The two regions, not the first thing in each, and it is worth saying
+			// what a zero here means. These two are not placed by one grid that
+			// would hold them level whatever they contained: the roster starts
+			// under the conversation's topbar and the rooms rail starts under a
+			// header of its own, so this reading is what keeps those two headers
+			// coming to the same height. Both halves were moved to check that it
+			// can say so. A top margin on this region, and then the rail's own
+			// header grown six pixels, each read back the six they were given.
+			bodyTop: Math.abs(railBody.getBoundingClientRect().top - roster.getBoundingClientRect().top),
 			headDrawn: [drawn(railHead), drawn(rosterHead)] as const,
 		};
 	});
@@ -153,7 +169,7 @@ export async function runChrome(
 		const apart = [
 			(alike.lockupAir < 5 || alike.lockupAir > 14) &&
 			`the roster lockup's air is off: ${alike.lockupAir.toFixed(1)}px between the chip and the name`,
-			alike.headTop > 1 && `their headings sit ${alike.headTop.toFixed(1)}px apart rather than on one line`,
+			alike.bodyTop > 1 && `their contents start ${alike.bodyTop.toFixed(1)}px apart rather than on one line`,
 			alike.headDrawn[0] !== alike.headDrawn[1] &&
 			`their headings are drawn differently: ${alike.headDrawn.join(" against ")}`,
 		].filter((said) => said !== false);

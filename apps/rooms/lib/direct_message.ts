@@ -10,7 +10,7 @@
 // reference a room answers a post with, except the durable owner here is the
 // person you are talking to.
 
-import { annotateSession, Ref, retainSecondaryFailure } from "@pancake/runtime";
+import { annotateSession, Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
 import type { Argument, Session } from "@pancake/runtime";
 import { type Attachment, fetchBlob, readAttachments, sendWithAttachments } from "./attachment.ts";
 import type { AttachmentSource } from "./attachment.ts";
@@ -155,32 +155,45 @@ export class DirectMessage {
 		// back. Without a `via` (no fresh redeem) there is no connection to host
 		// it on, so the line is send-only.
 		const session = via ?? dir.session;
-		let replyInbox: Ref | null = null;
-		if (onReply && via) {
-			replyInbox = session.spawn((verb, args) => {
-				if (verb !== DM) throw new Error(`dm reply inbox has no method ${verb}`);
-				const recordAt = args[1] instanceof Ref ? 2 : 1;
-				// The reply inbox answers whatever the receiver mints for this line —
-				// a handle the peer holds to change it later. Only a fresh `dm` reaches
-				// here; editing an existing line calls that handle, not this inbox.
-				return onReply(
-					typeof args[0] === "string" ? args[0] : "",
-					readAttachments(args, recordAt),
-					session,
-				);
-			});
-		}
-		// Name the direct connection for whoever is watching the live timeline.
-		// Only a redeemed one: a send-only line rides the directory's connection,
-		// whose partner is the room and not this member. The annotation is a
-		// claim about what the session carries, never identity — a consumer may
-		// display it and must not merge or split peers on it.
-		if (via) annotateSession(via, { label: peer });
 		const owns = via !== undefined && via !== null;
-		// Count this line onto the connection before handing it over, so a
-		// close knows whether it is the last one out.
-		if (owns) linesOnSession.set(session, (linesOnSession.get(session) ?? 0) + 1);
-		return new DirectMessage(session, dm, peer, replyInbox, owns);
+		let replyInbox: Ref | null = null;
+		try {
+			if (onReply && via) {
+				replyInbox = session.spawn((verb, args) => {
+					if (verb !== DM) throw new Error(`dm reply inbox has no method ${verb}`);
+					const recordAt = args[1] instanceof Ref ? 2 : 1;
+					// The reply inbox answers whatever the receiver mints for this line —
+					// a handle the peer holds to change it later. Only a fresh `dm` reaches
+					// here; editing an existing line calls that handle, not this inbox.
+					return onReply(
+						typeof args[0] === "string" ? args[0] : "",
+						readAttachments(args, recordAt),
+						session,
+					);
+				});
+			}
+			// Name the direct connection for whoever is watching the live timeline.
+			// Only a redeemed one: a send-only line rides the directory's connection,
+			// whose partner is the room and not this member. The annotation is a
+			// claim about what the session carries, never identity — a consumer may
+			// display it and must not merge or split peers on it.
+			if (via) annotateSession(via, { label: peer });
+			// Count this line onto the connection before handing it over, so a
+			// close knows whether it is the last one out.
+			if (owns) linesOnSession.set(session, (linesOnSession.get(session) ?? 0) + 1);
+			return new DirectMessage(session, dm, peer, replyInbox, owns);
+		} catch (error) {
+			// The introduction already transferred the imported DM reference and
+			// may have opened a direct session. If constructing this line fails, no
+			// DirectMessage exists to own either. Release the exact occurrences and
+			// close only an otherwise-unowned redeemed session; a sibling line may
+			// already be using a deduplicated exporter connection.
+			throw await retainCleanupFailures(error, [
+				...(replyInbox === null ? [] : [() => session.release(replyInbox!)]),
+				() => session.release(dm),
+				...(owns && (linesOnSession.get(session) ?? 0) === 0 ? [() => session.close()] : []),
+			]);
+		}
 	}
 
 	/** Deliver one direct message to the peer. There is no sender argument (see

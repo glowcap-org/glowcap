@@ -49,9 +49,9 @@ fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host
 test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
     const allocator = std.testing.allocator;
 
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
 
     // The embedder-pinned peer: owned by this frame, adopted by the host,
@@ -139,12 +139,12 @@ test "openDialedOver retains onion profile knowledge through adoption" {
     var options = Host.Options.withFrameCap(frame_cap);
     options.captp_version = .next;
     options.codec = .capnp;
-    var host = test_host.init(allocator, [_]u8{0x0c} ** 32, options);
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0c)), options);
     defer host.deinit();
 
     try host.setAdvertisedLocator(.{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = model.Hints.emptyFalse(),
     });
     var pinned = engine.Peer.initNegotiating(allocator);
@@ -155,7 +155,7 @@ test "openDialedOver retains onion profile knowledge through adoption" {
     }};
     const session = try host.openDialedOver(&pinned, .{
         .transport = model.transport.onion,
-        .designator = "b" ** 56,
+        .designator = &@as([56]u8, @splat('b')),
         .hints = .{ .entries = &profile_hints },
     });
     defer host.releaseSession(session) catch |err|

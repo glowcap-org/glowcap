@@ -95,16 +95,29 @@ export function dirId(locator: string): DirId {
  * mark is either complete or absent. */
 const DIR_MARKS = 5;
 
-/** Whether the directories this tab holds wear their marks.
+/** Whether a surface says which directory it belongs to.
  *
- * One directory needs no colour to be told apart from, and past the ramp's
- * length nothing is marked at all. Asked here rather than counted at each place
- * that draws one, because the rail and the card describing a directory have to
- * agree: a card wearing a colour the rail is not showing would be naming a
- * distinction the reader cannot see anywhere else. Which colour that is, when
- * they do mark, is `dirMark`. */
-export function dirsAreMarked(dirs: ReadonlyMap<DirId, DirView>): boolean {
-	return dirs.size > 1 && dirs.size <= DIR_MARKS;
+ * One directory needs nothing said about it: everything on screen is on it, and
+ * naming it on every row would be noise. The second one makes "which directory
+ * is this" a question a reader can have, and it stays a question however many
+ * more arrive, so this has no ceiling. It used to share one predicate with the
+ * colors below, and past the ramp a row then lost the words as well. That is
+ * exactly backwards: the more directories are in hand, the more a reader needs
+ * the name. */
+export function dirsAreNamed(dirs: ReadonlyMap<DirId, DirView>): boolean {
+	return dirs.size > 1;
+}
+
+/** Whether the directories this tab holds also wear their colors.
+ *
+ * The words' condition and the ramp's ceiling together, because a color is
+ * only ever the glance at something the words already say. Asked here rather
+ * than counted at each place that draws one, so the rail and the card
+ * describing a directory agree: a card wearing a color the rail is not showing
+ * would be naming a distinction the reader cannot see anywhere else. Which
+ * color that is, when they do wear one, is `dirMark`. */
+export function dirsWearMarks(dirs: ReadonlyMap<DirId, DirView>): boolean {
+	return dirsAreNamed(dirs) && dirs.size <= DIR_MARKS;
 }
 
 /** Which `data-dir` a surface wears for this directory.
@@ -112,7 +125,8 @@ export function dirsAreMarked(dirs: ReadonlyMap<DirId, DirView>): boolean {
  * This page's own directory is not a slot in the ramp: it is the product, and
  * it wears `home` (teal) wherever it is marked. A foreign directory wears its
  * slot. One function so the rail, the join card, and the directory card cannot
- * disagree. */
+ * disagree. Which of them is showing a color at all is `dirsWearMarks`, and
+ * `dirMarkIn` is the two asked together. */
 export function dirMark(
 	dir: DirId,
 	home: DirId | null,
@@ -120,6 +134,21 @@ export function dirMark(
 ): "home" | string | undefined {
 	if (home !== null && dir === home) return "home";
 	return slot != null ? String(slot) : undefined;
+}
+
+/** The `data-dir` this directory wears among the ones this tab holds, and
+ * undefined while none of them is wearing one.
+ *
+ * The one way a surface asks for a color. Both halves of the answer in one
+ * call, because a caller that reaches for `dirMark` alone has skipped the
+ * question of whether anything is marked at all, and every surface that did so
+ * eventually disagreed with the rail beside it. */
+export function dirMarkIn(
+	dir: DirId,
+	home: DirId | null,
+	dirs: ReadonlyMap<DirId, DirView>,
+): string | undefined {
+	return dirsWearMarks(dirs) ? dirMark(dir, home, dirs.get(dir)?.slot) : undefined;
 }
 
 /** One human request to enter a room. `locator` is empty for the directory
@@ -398,13 +427,6 @@ export type DmLine = "introducing" | "live" | "closed";
 export type RoomConv = Extract<Conv, { type: "room" }>;
 export type DmConv = Extract<Conv, { type: "dm" }>;
 
-/** A transient sentence over the conversation. Its kind owns both urgency and
- * treatment, so an error can never accidentally wear a working spinner. */
-export interface Banner {
-	kind: "working" | "notice" | "error";
-	text: string;
-}
-
 /** How a page notice reads. The icon and colour carry the kind; the words do
  * not restate it. */
 export type ToastKind = "success" | "failure" | "warning";
@@ -542,6 +564,23 @@ export interface VizPublishState {
 	readonly url: string;
 	/** Whether the publish socket is connected; false while it redials. */
 	readonly connected: boolean;
+}
+
+/** Where a remembered operations swiss was redeemed: a directory for the two
+ * session-fetched capabilities, the endpoint URL for the visualizer. */
+export type OpsScope = DirId | string;
+
+/** Where `cap`'s swiss for `home` is kept in this browser.
+ *
+ * The name of a remembered fact is vocabulary, so it is here rather than with
+ * the reading and writing of it in `net/ops_memory.ts`: a proof that seeds one
+ * of these rows has to seed the row the page will actually look up, and this
+ * module imports nothing at runtime, so it can say what that row is called
+ * without starting a page. A row under a key nothing reads is silent — the tab
+ * arms nothing, goes on working, and the failure surfaces somewhere else
+ * entirely — which is worth one export to make impossible. */
+export function opsSwissKey(cap: OpsCap, home: OpsScope): string {
+	return `rooms.ops-swiss.${cap}.${home}`;
 }
 
 /** Which operations capabilities this tab holds now.

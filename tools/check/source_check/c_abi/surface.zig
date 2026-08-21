@@ -182,6 +182,42 @@ pub fn checkCAbiSurfaceShape(
     }
 }
 
+/// Public C headers are binding-author surfaces. A generator path that glues a
+/// declaration terminator to the next doc comment (`;/*`) is still valid C, but
+/// it hides a new callable surface from the visual scan that reviews generated
+/// ABI diffs. Keep this here, not in a one-off header, so every generated
+/// archive header inherits the same readability floor.
+pub fn checkCAbiHeaderCommentSeparation(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    for (abi_vocabulary_headers) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: failed to read for ABI header-comment separation check with {s}",
+                .{ path, @errorName(err) },
+            );
+            continue;
+        };
+        defer gpa.free(contents);
+
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, contents, at, ";/*")) |hit| {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}:{d}: public C ABI header joins a declaration and doc comment as `;/*`; emit a newline before the comment",
+                .{ path, lineIndexOfOffset(contents, hit) + 1 },
+            );
+            at = hit + 3;
+        }
+    }
+}
+
 /// A peer locator is location vocabulary; a sturdyref adds authority-bearing
 /// swiss bytes and therefore has a distinct handle and release path.
 pub fn checkLocatorAuthoritySplit(

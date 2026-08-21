@@ -61,7 +61,23 @@ namespaces; equal integers never create that relationship. A bare unresolved
 promise export remains the lower-level primitive used by a third-party proxy
 and cannot receive local answer semantics by inference.
 
-The recipient Peer charges the parked message against its outbound byte budget.
+The recipient Peer charges the complete parked semantic payload against its
+outbound byte budget. That payload is either an ordinary `Message` or an answer
+settlement retaining its exact session-local `AnswerTarget` (wire-or-virtual
+name plus incarnation stamp), stable answer payload, and `Resolution`; a virtual
+answer is never coerced into a wire `op:resolve`. `op:gc-answers` releases the
+partner's pipelining name, not a resolver or listener notification already
+accepted for that incarnation. Such a notification moves to a private stamped
+owner until it publishes, so legal name reuse cannot cancel the old result or
+redirect it to the replacement question.
+When a settlement commits, its resolution charge moves one-for-one into the
+Session answer store and remains in the same outbound waterline until answer
+GC, local-promise retirement, or teardown releases the row.
+The queued store-borrow carrier keeps its complete fixed footprint charged
+beside that resolution. Answer-payload and export-table capacity are acquired
+before any export mention or answer status changes; a V1 export mention is
+retained only when the answer has a resolver callback, while next retains each
+mention with the listener fire that will publish it.
 The Node bounds aggregate staged occurrences per recipient by that session's
 queue cap. One queued terminal consequence and one capability-release
 consequence per occurrence are reserved before adoption. Entropy failure,
@@ -105,6 +121,10 @@ coverage on that peer.
 - The owning `Value` APIs can pass foreign objects and promises recursively. Raw/model APIs
   still refuse cross-session arguments because they carry no Host retain that a
   delayed transaction can adopt.
+- Actor answer settlements and ordinary messages select different semantic
+  roots but share the same recursive count, collect, rewrite, and rollback
+  passes. Completion moves the rewritten resolution through the named-answer
+  enqueue/store transaction; codecs and bindings never stage it themselves.
 - A delayed outbound occurrence adds one bounded staging row, one Host retain,
   and reserved terminal consequences. Promise occurrences additionally consume
   one bounded proxy-recipient seat; occurrences sharing a home promise share its
@@ -121,6 +141,14 @@ coverage on that peer.
   occurrences, shared promise listeners and settlement, mixed atomicity,
   out-of-order gift ids, both codecs, no partial deposit, entropy failure,
   recipient refusal, and object/promise home close.
+- `test/engine/node/answer_settlement_test.zig` covers wire and virtual named
+  settlements returning repeated nested foreign references through real V1
+  resolver callbacks and next-listener notifications, all-or-nothing gift-id
+  completion across answer GC and legal name reuse, zero V1 wire holds without
+  a resolver, resolver-only virtual-row retirement, retained-byte
+  transfer/release, and allocation or admission refusal without answer or
+  projection authority loss. `test/session/answer_notification_test.zig` pins
+  allocation-atomic detachment, retry, and duplicate-GC refusal.
 - `test/driver/core_host/give_test.zig` covers immediate inbound promise identity,
   pipelining, introducing-session close, retained outbound capability lifetime,
   and settlement of a returned vow through terminal failure.

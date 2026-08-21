@@ -3,7 +3,7 @@ id: ADR-0025
 status: accepted
 date: 2026-05-17
 tags: [session, limits, resilience, abort-taxonomy, security]
-decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. A fresh insert past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. The five table caps are `max_inbound_answers`, `max_listeners_per_target`, `max_imports`, `max_deposited_gifts`, and `max_pending_withdraws`; the sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
+decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. An operation past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. Five caps bound table cardinality; `max_deposited_gift_bytes` additionally bounds the cumulative requested bytes retained by complete gift rows. The sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
 supersedes: []
 superseded_by: []
 amends: []
@@ -17,9 +17,11 @@ amended_by: [ADR-0100]
 A partner that completes `op:start-session` can grow pancake's session tables
 without sending one malformed frame: blast `op:deliver` against ever-larger
 answer ids, register listeners against one target, introduce fresh imports,
-park early withdrawals whose deposits never arrive, or deposit gifts that are never withdrawn. None
-violate a wire-shape invariant, so the decoder cannot catch them; left unbounded
-they let a misbehaving peer exhaust host memory.
+park early withdrawals whose deposits never arrive, or deposit gifts that are
+never withdrawn. A count-only gift limit still admits near-frame-sized opaque
+ids and variable reference payloads in every row. None violate a wire-shape
+invariant, so the decoder cannot catch them; left unbounded they let a
+misbehaving peer exhaust host memory.
 
 Session state is authoritative
 ([First Principles](../../../AGENTS.md#first-principles)), so the resource
@@ -31,10 +33,12 @@ loud rather than absorb the overflow.
 ## Decision
 
 Each partner-driven accumulator in
-[`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) is bounded by
-a field on `SessionLimits`. A fresh insert past the cap returns a typed
-`*CapExceeded` error; refreshing an existing row never trips a cap. The five
-resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
+[`src/ocapn/session/limits.zig`](../../../src/ocapn/session/limits.zig) is bounded by
+a field on `SessionLimits`. A fresh insert past a cardinality cap returns a
+typed `*CapExceeded` error; refreshing an existing row does not increase the
+row count. The whole retained gift replacement is independently admitted
+against its byte cap before allocation or authority adoption. These six caps
+project through five typed errors to one wire kind, `resource_exhausted`:
 
 | Cap | Default | Typed error |
 | -------------------------- | --------: | -------------------------- |
@@ -42,6 +46,7 @@ resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
 | `max_listeners_per_target` | 64 | `ListenerCapExceeded` |
 | `max_imports` | 1 048 576 | `ImportCapExceeded` |
 | `max_deposited_gifts` | 65 536 | `DepositedGiftCapExceeded` |
+| `max_deposited_gift_bytes` | 16 MiB | `DepositedGiftCapExceeded` |
 | `max_pending_withdraws` | 4 096 | `PendingWithdrawCapExceeded` |
 
 `AbortKind.resource_exhausted` (`"ResourceExhausted"` on the wire) is a distinct
@@ -94,13 +99,17 @@ Two adjacent accumulators are bounded but do **not** project to
   structurally-valid messages; `resource_exhausted` tells it to back off,
   `protocol_error` tells it to re-check its codec.
 - **Per-cap wire kinds.** Rejected: the observable response is identical across
-  the five ("back off"), so one kind plus the diagnostic message says the same
+  the caps ("back off"), so one kind plus the diagnostic message says the same
   thing without widening the wire contract.
 
 ## Consequences
 
 - `SessionLimits` is the single tuning surface; table insert paths return typed
   `*CapExceeded` errors the engine projects to `resource_exhausted`.
+- Deposited gifts have one lazy session owner. It accounts the complete retained
+  row (map key/slice, payload tag, opaque gift id, provenance, and owned
+  variable reference bytes), admits a replacement before allocation, and
+  releases the exact charge on replacement, withdrawal, and teardown.
 - The `AbortKind` taxonomy (governed by
   [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md)) carries
   `resource_exhausted` as a public wire kind, distinct from `queue_cap_exceeded`
@@ -110,6 +119,8 @@ Two adjacent accumulators are bounded but do **not** project to
   `grant_test.zig`, `resolver_test.zig`), the
   five-error to `resource_exhausted` projection in
   [`test/engine/abort_projection_test.zig`](../../../test/engine/abort_projection_test.zig),
+  retained-gift admission and transactional ownership in
+  [`test/engine/gift_registry_budget_test.zig`](../../../test/engine/gift_registry_budget_test.zig),
   and the Goblins-aligned `op_abort_resource_exhausted.bin` fixture asserted in
   [`test/codec/syrup/oracle_test.zig`](../../../test/codec/syrup/oracle_test.zig).
 

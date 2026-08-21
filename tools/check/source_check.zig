@@ -14,6 +14,7 @@ const bs_host_actions = @import("source_check/binding_spine/host_actions.zig");
 const bs_verb_spines = @import("source_check/binding_spine/verb_spines.zig");
 const bs_embedder = @import("source_check/binding_spine/embedder.zig");
 const bs_ffi_surface = @import("source_check/binding_spine/ffi_surface.zig");
+const bs_webrtc = @import("source_check/binding_spine/webrtc.zig");
 const bs_viewer = @import("source_check/binding_spine/viewer.zig");
 const bs_python_sigs = @import("source_check/binding_spine/python_sigs.zig");
 const docs_adr = @import("source_check/docs/adr.zig");
@@ -29,6 +30,8 @@ const ps_packages = @import("source_check/project_shape/packages.zig");
 const ps_registries = @import("source_check/project_shape/registries.zig");
 const ps_examples = @import("source_check/project_shape/examples.zig");
 const ps_steps = @import("source_check/project_shape/steps.zig");
+const ps_execution_deadlines = @import("source_check/project_shape/execution_deadlines.zig");
+const ps_zig_module_surface = @import("source_check/project_shape/zig_module_surface.zig");
 const ps_budgets = @import("source_check/project_shape/budgets.zig");
 const ps_playwright = @import("source_check/project_shape/playwright.zig");
 const test_wiring = @import("source_check/test_wiring.zig");
@@ -36,6 +39,7 @@ const ui = @import("source_check/ui.zig");
 const css_wellformed = @import("source_check/css_wellformed.zig");
 const rooms_ui = @import("source_check/rooms_ui.zig");
 const rooms_avatar = @import("source_check/rooms_avatar.zig");
+const rooms_proofs = @import("source_check/rooms_proofs.zig");
 const scaffolding = @import("source_check/scaffolding.zig");
 const agents_catalog = @import("source_check/agents_catalog.zig");
 const c_abi_authority = @import("source_check/c_abi/authority.zig");
@@ -50,6 +54,7 @@ const c_abi_mirrors = @import("source_check/c_abi/mirrors.zig");
 const captp_io_spine = @import("source_check/captp_io_spine.zig");
 const binding_literals = @import("source_check/binding_literals.zig");
 const binding_posture = @import("source_check/binding_posture.zig");
+const cp_node_actions = @import("source_check/captp_product/node_actions.zig");
 const cp_vocabulary = @import("source_check/captp_product/vocabulary.zig");
 const cp_pins = @import("source_check/captp_product/pins.zig");
 const cp_codes = @import("source_check/captp_product/codes.zig");
@@ -59,6 +64,7 @@ const cp_skills = @import("source_check/captp_product/skills.zig");
 const cp_deadlines = @import("source_check/captp_product/deadlines.zig");
 const cp_cli_ux = @import("source_check/captp_product/cli_ux.zig");
 const cp_rooms_profile = @import("source_check/captp_product/rooms_profile.zig");
+const cp_rooms_signaling = @import("source_check/captp_product/rooms_signaling.zig");
 const zig_docs = @import("source_check/zig_docs.zig");
 const fuzz = @import("source_check/fuzz.zig");
 const file_length = @import("source_check/file_length.zig");
@@ -68,29 +74,29 @@ const util = @import("source_check/util.zig");
 
 /// Create the `source-check` build step.
 pub fn create(b: *Build) *Step {
-    const wrapper = b.allocator.create(SourceCheck) catch @panic("OOM");
-    wrapper.* = .{ .step = Step.init(.{
-        .id = .custom,
-        .name = "source-check",
-        .owner = b,
-        .makeFn = make,
-    }) };
-    return &wrapper.step;
+    const exe = b.addExecutable(.{
+        .name = "source-check-tool",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/check/source_check_main.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run = b.addRunArtifact(exe);
+    run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
+    run.addArg(zigLibPath(b));
+    return &run.step;
 }
 
-const SourceCheck = struct {
-    step: Step,
-};
-
-fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
-    const b = step.owner;
-    const io = b.graph.io;
-    const gpa = options.gpa;
-
+pub fn check(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    root_path: []const u8,
+    zig_lib_path: []const u8,
+) !usize {
     var violations: std.ArrayList([]const u8) = .empty;
     defer violations.deinit(gpa);
-
-    const root = b.build_root.handle;
 
     try scaffolding.expectSymlink(io, gpa, root, &violations, "CLAUDE.md", "AGENTS.md");
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".claude/rules", "../.agents/rules");
@@ -122,6 +128,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try docs_site.checkSitePageMetadata(io, gpa, root, &violations);
     try docs_inventories.checkResidentRoster(io, gpa, root, &violations);
     try docs_snippets.checkQuickStartSnippet(io, gpa, root, &violations);
+    try docs_snippets.checkRelaySnippetsUseWss(io, gpa, root, &violations);
     try docs_inventories.checkStabilityEvidenceParity(io, gpa, root, &violations);
     try docs_links.checkDanglingReferenceLinks(io, gpa, root, &violations);
     try docs_snippets.checkMermaidBlocks(io, gpa, root, &violations);
@@ -136,13 +143,16 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try rooms_ui.checkRoomsRailRow(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try rooms_avatar.checkAvatarRamp(io, gpa, root, &violations);
+    try rooms_proofs.checkRoomsProofChildren(io, gpa, root, &violations);
     try ps_steps.checkDocumentedBuildSteps(io, gpa, root, &violations);
+    try ps_execution_deadlines.check(io, gpa, root, &violations);
     try file_length.check(io, gpa, root, &violations);
     try c_abi_versions.checkAbiVersionLockstep(io, gpa, root, &violations);
     try c_abi_versions.checkPrereleaseProviderAbiVersions(io, gpa, root, &violations);
     try c_abi_surface.checkAbiFreeingVerb(io, gpa, root, &violations);
     try c_abi_mirrors.checkAbiReturnShape(io, gpa, root, &violations);
     try c_abi_surface.checkCAbiSurfaceShape(io, gpa, root, &violations);
+    try c_abi_surface.checkCAbiHeaderCommentSeparation(io, gpa, root, &violations);
     try c_abi_surface.checkLocatorAuthoritySplit(io, gpa, root, &violations);
     try c_abi_surface.checkAbiExportsConsumed(io, gpa, root, &violations);
     try c_abi_mirrors.checkBindingStructPins(io, gpa, root, &violations);
@@ -152,6 +162,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi_authority.checkHostFailureAuthority(io, gpa, root, &violations);
     try c_abi_authority.checkHostSemanticAuthority(io, gpa, root, &violations);
     try bs_constants.checkBindingConstants(io, gpa, root, &violations);
+    try bs_constants.checkArchitectureConstantClaims(io, gpa, root, &violations);
     try bs_close.checkDriverEventFailureProjection(io, gpa, root, &violations);
     try bs_close.checkDriverRetirementAuthority(io, gpa, root, &violations);
     try bs_close.checkBindingCloseProjectionAuthority(io, gpa, root, &violations);
@@ -175,6 +186,8 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try bs_ffi_surface.checkWebrtcSidecarAbi(io, gpa, root, &violations);
     try bs_ffi_surface.checkIrohSidecarPins(io, gpa, root, &violations);
     try bs_ffi_surface.checkSidecarSteadyBytes(io, gpa, root, &violations);
+    try bs_ffi_surface.checkIrohAcceptQueueBound(io, gpa, root, &violations);
+    try bs_webrtc.checkSignalAndIceCaps(io, gpa, root, &violations);
     try cp_skills.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try cp_cli_ux.checkDriverRootShadow(io, gpa, root, &violations);
     try ps_steps.checkGatedStepsRideCheck(io, gpa, root, &violations);
@@ -193,10 +206,12 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try cp_relay.checkProductionRelayClassifierLockstep(io, gpa, root, &violations);
     try cp_rooms_profile.checkRoomsWireProfile(io, gpa, root, &violations);
     try cp_rooms_profile.checkRoomsPeerMinting(io, gpa, root, &violations);
+    try cp_rooms_signaling.checkRoomsWebrtcIceCaps(io, gpa, root, &violations);
     try c_abi_resolve.checkCAbiResolve(io, gpa, root, &violations);
     try c_abi_resolve_ports.checkCAbiResolvePorts(io, gpa, root, &violations);
     try c_abi_resolve_cases.checkCAbiResolveCases(io, gpa, root, &violations);
     try cp_racket.checkRacketScriptBalance(io, gpa, root, &violations);
+    try cp_racket.checkBindingTestAggregate(io, gpa, root, &violations);
     try bs_iroh.checkIrohLoopConvergence(io, gpa, root, &violations);
     try bs_iroh.checkIrohBindingAggregatesComplete(io, gpa, root, &violations);
     try captp_io_spine.check(io, gpa, root, &violations);
@@ -205,24 +220,25 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try agents_catalog.checkRuleFrontmatter(io, gpa, root, &violations);
     try ps_layers.checkLayerOwnership(io, gpa, root, &violations);
     try ps_layers.checkTestPlacement(io, gpa, root, &violations);
+    try ps_zig_module_surface.check(io, gpa, root, &violations);
     try ps_packages.checkTsPackagePublishSurface(io, gpa, root, &violations);
     try test_wiring.check(io, gpa, root, &violations);
     try ps_registries.checkOracleCorpusRegistry(io, gpa, root, &violations);
     try ps_registries.checkProtocolCheatsheet(io, gpa, root, &violations);
-    try ps_registries.checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
-    try ps_registries.checkRepositoryUrl(io, gpa, root, &violations, b.build_root.path orelse ".");
+    try ps_registries.checkGeneratedStateIgnores(io, gpa, root, &violations, root_path);
+    try ps_registries.checkRepositoryUrl(io, gpa, root, &violations, root_path);
     try ps_hygiene.checkPathIoCopies(io, gpa, root, &violations);
     try ps_budgets.checkFootprintBudgetQuotes(io, gpa, root, &violations);
     try ps_playwright.checkPlaywrightPin(io, gpa, root, &violations);
     try ps_hygiene.checkDevcontainerBashScripts(io, gpa, root, &violations);
-    try fuzz.checkVendoredRunnerLicense(io, gpa, root, &violations);
-    try fuzz.checkVendoredTestRunner(io, gpa, root, &violations, b.graph.zig_lib_directory.path orelse ".");
+    _ = zig_lib_path;
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
     try fuzz.checkFuzzTargetsAreReachable(io, gpa, root, &violations);
     try cp_cli_ux.checkSingleJsonEscaper(io, gpa, root, &violations);
     try docs_voice.checkHumanDocVoice(io, gpa, root, &violations);
     try docs_inventories.checkStabilityGateList(io, gpa, root, &violations);
     try docs_inventories.checkCommunityReviewCiMatrix(io, gpa, root, &violations);
+    try docs_inventories.checkFirstReadProvenance(io, gpa, root, &violations);
     try docs_voice.checkProseSentenceLength(io, gpa, root, &violations);
     try docs_inventories.checkFuzzCorpusSeeds(io, gpa, root, &violations);
     try docs_site.checkSiteSvgAscii(io, gpa, root, &violations);
@@ -242,6 +258,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try cp_cli_ux.checkCaptpLabUxHonesty(io, gpa, root, &violations);
     try c_abi_wiring.checkUnwiredHostPluginApis(io, gpa, root, &violations);
     try c_abi_wiring.checkHostActionArmLockstep(io, gpa, root, &violations);
+    try cp_node_actions.check(io, gpa, root, &violations);
     try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
     try zig_docs.checkMemoryLedgerSymbolClaims(io, gpa, root, &violations);
     try namespaces.checkBareKeyedTables(io, gpa, root, &violations);
@@ -249,8 +266,13 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("source-check: {s}\n", .{msg});
-        return step.fail("source-check found {d} source contract violation(s)", .{violations.items.len});
     }
+    return violations.items.len;
+}
+
+fn zigLibPath(b: *Build) []const u8 {
+    const zig_dir = std.fs.path.dirname(b.graph.zig_exe) orelse ".";
+    return b.pathJoin(&.{ zig_dir, "lib" });
 }
 
 test {
@@ -262,6 +284,7 @@ test {
     _ = c_abi_resolve;
     _ = c_abi_resolve_ports;
     _ = c_abi_resolve_cases;
+    _ = cp_node_actions;
     _ = docs_links;
     _ = docs_site;
     _ = docs_registry;
@@ -269,6 +292,8 @@ test {
     _ = file_length;
     _ = ps_packages;
     _ = ps_steps;
+    _ = ps_execution_deadlines;
+    _ = ps_zig_module_surface;
     _ = scaffolding;
     _ = captp_io_spine;
     _ = cp_deadlines;
@@ -276,6 +301,7 @@ test {
     _ = cp_skills;
     _ = cp_racket;
     _ = cp_rooms_profile;
+    _ = cp_rooms_signaling;
     _ = cp_pins;
     _ = zig_docs;
     _ = signing_domain;

@@ -45,7 +45,7 @@ const FixtureCodec = struct {
 };
 
 test "a consumer codec registered past the built-ins routes through dispatch" {
-    const custom_id: model.CodecId = @enumFromInt(0xC0DE);
+    const custom_id: model.CodecId = @fromBackingInt(@intCast(0xC0DE));
     const specs = [_]registry.Spec{
         .{ .id = custom_id, .frame_shape = .byte, .module = FixtureCodec },
     };
@@ -75,7 +75,7 @@ test "the built-in registry carries exactly syrup and capnp, both addressable" {
 }
 
 test "an id no registered codec claims fails closed with UnknownCodec" {
-    const unclaimed: model.CodecId = @enumFromInt(0xFFFF);
+    const unclaimed: model.CodecId = @fromBackingInt(@intCast(0xFFFF));
     const frame = foundation.FrameView{ .bytes = "ignored", .shape = .byte };
     // Resolution short-circuits to the error before the frame is ever read.
     try std.testing.expectError(error.UnknownCodec, dispatch.decodeBody(unclaimed, frame));
@@ -84,14 +84,14 @@ test "an id no registered codec claims fails closed with UnknownCodec" {
 test "registry membership distinguishes open wire ids from built implementations" {
     try std.testing.expect(registry.contains(.syrup));
     try std.testing.expect(registry.contains(.capnp));
-    try std.testing.expect(!registry.contains(@enumFromInt(0xfffe)));
+    try std.testing.expect(!registry.contains(@fromBackingInt(@intCast(0xfffe))));
 }
 
 test "an unregistered codec frames as malformed and has no shape, never an unreachable" {
     // `CodecId` is non-exhaustive (open registry, ADR-0026), so an unregistered
     // id is a representable input. The prefix framer and shape lookup must fail
     // closed exactly like `decodeBody` does, not reach an `unreachable`.
-    const unclaimed: model.CodecId = @enumFromInt(0xBEEF);
+    const unclaimed: model.CodecId = @fromBackingInt(@intCast(0xBEEF));
     try std.testing.expect(dispatch.decodePrefix(unclaimed, "anything at all", 4096) == .malformed);
     try std.testing.expect(dispatch.frameShape(unclaimed) == null);
 }

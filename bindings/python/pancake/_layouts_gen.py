@@ -271,9 +271,19 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("subject", 0, 8),
         ("events", 8, 4),
     )),
+    "PANCAKE_WEBRTC_STRING_VIEW": (16, (
+        ("ptr", 0, 8),
+        ("len", 8, 8),
+    )),
+    "PANCAKE_WEBRTC_ICE_SERVER": (48, (
+        ("urls", 0, 8),
+        ("url_count", 8, 8),
+        ("username", 16, 16),
+        ("credential", 32, 16),
+    )),
     "PANCAKE_WEBRTC_CONFIG": (24, (
         ("ice_servers", 0, 8),
-        ("ice_servers_len", 8, 8),
+        ("ice_server_count", 8, 8),
         ("include_loopback_candidates", 16, 4),
         ("worker_threads", 20, 4),
     )),

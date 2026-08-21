@@ -245,8 +245,8 @@ test "Cap'n Proto encodes op:start-session locator hint entries" {
     // `op:start-session` path calls) instead of refusing them the way a
     // sturdyref locator still does below.
     const allocator = std.testing.allocator;
-    const pubkey = [_]u8{0xaa} ** 32;
-    const sig = [_]u8{0xcc} ** 64;
+    const pubkey = @as([32]u8, @splat(0xaa));
+    const sig = @as([64]u8, @splat(0xcc));
     const entries = [_]model.HintEntry{
         .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
     };
@@ -402,28 +402,28 @@ test "Cap'n Proto framing does not choose between the two meanings of listen mod
 test "start-session round-trips the four-operand handshake" {
     try expectRoundTrip(.{ .start_session = .{
         .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
+        .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0xab))) },
         .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
-        .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
+        .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0xcd))) },
     } });
 }
 
 test "nested handoff give and receive round-trip" {
     const give = model.HandoffGive{
-        .recipient_key = &([_]u8{0x01} ** 32),
+        .recipient_key = &(@as([32]u8, @splat(0x01))),
         .exporter = .{ .transport = "tcp", .designator = "host" },
-        .gifter_exporter_session = &([_]u8{0x02} ** 32),
-        .gifter_side = &([_]u8{0x03} ** 32),
-        .gift_id = &([_]u8{0x04} ** 32),
-        .signature = &([_]u8{0x05} ** 64),
+        .gifter_exporter_session = &(@as([32]u8, @splat(0x02))),
+        .gifter_side = &(@as([32]u8, @splat(0x03))),
+        .gift_id = &(@as([32]u8, @splat(0x04))),
+        .signature = &(@as([64]u8, @splat(0x05))),
     };
     var give_handoff = model.Handoff{ .give = give };
     var receive_handoff = model.Handoff{ .receive = .{
-        .receiving_session = &([_]u8{0x06} ** 32),
-        .receiving_side = &([_]u8{0x07} ** 32),
+        .receiving_session = &(@as([32]u8, @splat(0x06))),
+        .receiving_side = &(@as([32]u8, @splat(0x07))),
         .handoff_count = 11,
         .signed_give = give,
-        .signature = &([_]u8{0x08} ** 64),
+        .signature = &(@as([64]u8, @splat(0x08))),
     } };
     const args = [_]model.Argument{ .{ .handoff = &give_handoff }, .{ .handoff = &receive_handoff } };
     try expectRoundTrip(.{ .deliver = .{

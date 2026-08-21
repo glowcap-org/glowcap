@@ -26,15 +26,15 @@ fn isPoisonDecl(comptime T: type, comptime name: []const u8) bool {
 }
 
 fn refAllDeclsRecursive(comptime T: type) void {
-    inline for (comptime std.meta.declarations(T)) |decl| {
-        if (comptime isPoisonDecl(T, decl.name)) continue;
-        if (@TypeOf(@field(T, decl.name)) == type) {
-            switch (@typeInfo(@field(T, decl.name))) {
-                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl.name)),
+    inline for (comptime std.meta.declarations(T)) |decl_name| {
+        if (comptime isPoisonDecl(T, decl_name)) continue;
+        if (@TypeOf(@field(T, decl_name)) == type) {
+            switch (@typeInfo(@field(T, decl_name))) {
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl_name)),
                 else => {},
             }
         }
-        _ = &@field(T, decl.name);
+        _ = &@field(T, decl_name);
     }
 }
 

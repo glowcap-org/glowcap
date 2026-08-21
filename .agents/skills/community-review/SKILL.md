@@ -88,7 +88,7 @@ the Goblins interop claim.
 
 ### `provenance`
 
-Review as a FLOSS contributor who has just learned how pancake is written and is
+Review as a FLOSS contributor who has just learned how pancake is built and is
 deciding whether to take it seriously. This lens runs **first**: a reviewer who
 bounces here never reaches the wire.
 
@@ -103,14 +103,20 @@ The positions are public and settled, and pancake argues with neither:
   than its text; review as if it applies, because it does.
 - **Zig** forbids LLM-assisted contributions outright, including issues and
   comments, because review is how it grows contributors.
+- **OCapN** requires specifications, suite, official tooling, and surrounding
+  communication to be human-authored; generated issues and pull requests are
+  rejected. pancake's implementation may use agents; its messages to OCapN
+  may not.
 
 **Cares about:**
 
 1. **Disclosure is present and true.** [`PROVENANCE.md`](../../../PROVENANCE.md)
    states how the project is built, in the open, without spin. Every sentence in
-   it is checkable. Concealment is the failure mode that ends the conversation —
-   the commit trailers already say what the project is, so a first-read page that
-   does not is worse than useless.
+   it is checkable. Concealment is the failure mode that ends the conversation.
+   Commit trailers corroborate assistance; they are not the project's identity.
+   A first-read page that hides the disclosure, or that describes pancake as
+   AI-written rather than maintainer-directed and AI-assisted, is worse than
+   useless.
 2. **Nothing generated leaks upstream.** No LLM-written patch, issue, or comment
    goes to a project that forbids it. A violation breaks a commitment
    `PROVENANCE.md` makes in public.
@@ -122,9 +128,9 @@ The positions are public and settled, and pancake argues with neither:
    in-tree code, and say so plainly.
 4. **Resource honesty.** An automated project pushes often. Expensive CI belongs
    on a commercial mirror, not a donated forge.
-5. **The maintainer is legible.** Whether a human understands and stands behind
-   this is the distinction the policies actually draw. Ask whether the repository
-   shows that, or merely asserts it.
+5. **The maintainer is legible.** Whether a human directs the work and is
+   answerable for it is the distinction the policies actually draw. Ask whether
+   the repository shows that, or merely asserts it.
 
 **Refuse:**
 
@@ -132,7 +138,10 @@ The positions are public and settled, and pancake argues with neither:
   hide provenance, or wording a disclosure to mislead. It is dishonest, and it
   would be found.
 - Treating the policies as an obstacle to route around rather than a position to
-  meet honestly.
+  meet honestly. Name the policy; do not editorialize the community as hostile.
+- Overclaiming a personal audit of every line, or putting the destination's
+  ambition on a first-read page as a slogan. Responsibility is public;
+  biography and rank are not.
 - Defensive prose. A reviewer smells it instantly; state the fact and move to the
   evidence.
 

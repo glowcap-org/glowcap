@@ -3,6 +3,16 @@
 // Four things complete — members, rooms, emoji, commands — and each draws from a
 // different source that has to be live at the moment the reader asks. What is
 // checked is that the list is the room's answer rather than a cached guess.
+//
+// The rail block at the end was written against three broken builds and refuses
+// each: a field given no names to offer, a field that opens the room on the
+// press that takes the name, and a field whose combobox role comes and goes
+// with its list. It does not reach two neighbouring states. The join card names
+// a room through the same hook, and only its wiring — where the names come
+// from, where the list hangs — is untested here. And "taking a name did not go
+// anywhere" is read as the panel still standing rather than as the reader not
+// moving, because at this point in the conversation the rail carries one room
+// and going to it would land where the reader already is.
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
@@ -71,6 +81,30 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		else if (against < 0 || against > 12) {
 			fail(`the completion list sits ${against}px from the field that raised it`);
 		}
+
+		// Typing / is how a reader finds out what they can do here, so it answers
+		// with everything and not with a first handful. Held against the catalog
+		// rather than a number written here: what a conversation may run is the
+		// room's to decide, and a count in this file would be a second opinion on
+		// it that drifts. More than the box holds is the whole point, so the check
+		// is that the list is longer than a screenful of it.
+		const offered = await tab.evaluate(() => {
+			const pop = document.getElementById("completePop");
+			const rows = pop?.querySelectorAll("[role=option]").length ?? 0;
+			return pop === null ? null : { rows, scrolls: pop.scrollHeight > pop.clientHeight + 1 };
+		});
+		if (offered === null) fail("the completion list was not there to measure");
+		else if (offered.rows < 12) {
+			fail(`typing / offered ${offered.rows} commands, which is a handful and not the vocabulary`);
+		} else if (!offered.scrolls) {
+			fail(`the completion list holds all ${offered.rows} commands without scrolling, so it has grown unbounded`);
+		}
+		// That the pick scrolls with the arrows is held by the effect in
+		// Composer.tsx and is deliberately not walked here. This scene is one long
+		// conversation on a thirty second deadline, and pressing arrows in the
+		// composer moves state the rest of it reads: the draft, the recalled line,
+		// and which row Enter would take. A check that costs the scene its budget is
+		// not a check, it is a second defect.
 
 		const mute = said.filter((row) => row.hint === "");
 		if (mute.length > 0) fail(`a command was offered with nothing said about it: ${JSON.stringify(mute)}`);
@@ -261,9 +295,10 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		// are painted differently — an accent gradient one side and a flat surface
 		// the other — and the tool for one cannot answer about the other.
 		const overGradient = await bubbleInkContrast(tab, ".row.mine .edited-said");
-		if (overGradient === null) fail("the note on this tab's own changed line could not be measured");
-		else if (overGradient < 4.5) {
-			fail(`the note on this tab's own changed line reads at ${overGradient.toFixed(2)}:1`);
+		if (!("ratio" in overGradient)) {
+			fail(`the note on this tab's own changed line could not be measured: ${overGradient.why}`);
+		} else if (overGradient.ratio < 4.5) {
+			fail(`the note on this tab's own changed line reads at ${overGradient.ratio.toFixed(2)}:1`);
 		}
 		const overPaper = await inkContrast(second, ".row.them .edited-said");
 		if (overPaper === null) fail("the note on the other peer's copy of a changed line could not be measured");
@@ -408,4 +443,75 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		}
 	}
 	await tab.fill("#line", "");
+
+	// ── Naming a room in the rail ────────────────────────────────────────
+	// The composer is not the only place a name is typed. The rail's "+" panel
+	// names a room too, and it finishes the same way from the same source the
+	// directory advertises, so a reader who learned the list in one place has
+	// not learned a second control on arriving at the other.
+	//
+	// Measured against a room this tab can already see rather than a name
+	// written down here: what the directory carries at this point in the
+	// conversation belongs to the conversation, and a proof that pinned it
+	// would be checking its own arithmetic.
+	{
+		const known = await tab.evaluate(() =>
+			document.querySelector("#roomList li .rname")?.textContent?.trim() ?? ""
+		);
+		if (known.length < 3) fail(`the rail carried no room to finish against, only ${JSON.stringify(known)}`);
+		const start = known.slice(0, 2);
+		await tab.click("#newRoomBtn");
+		// Asked with nothing typed and no list up. A field that can finish names
+		// says so for as long as it can, rather than only while its list stands:
+		// the two are different claims, and software that reads the page aloud
+		// announces a whole new control every time the first one changes.
+		const idle = await tab.evaluate(() => {
+			const field = document.getElementById("newRoomInput");
+			return { role: field?.getAttribute("role") ?? "", open: field?.getAttribute("aria-expanded") ?? "" };
+		});
+		if (idle.role !== "combobox" || idle.open !== "false") {
+			fail(`the rail field with no list up announced ${JSON.stringify(idle)}`);
+		}
+		await tab.type("#newRoomInput", start);
+		await tab.waitForSelector("#newRoomOffers [role=option]", { timeout: 10_000 })
+			.catch(() =>
+				fail(`typing ${JSON.stringify(start)} in the rail offered no rooms, though ${known} starts with it`)
+			);
+		// The field says what it is and what it is doing, which is the composer's
+		// own contract: one control that opens and closes, not a textbox that
+		// turns into a combobox and back on every keystroke.
+		const said = await tab.evaluate(() => {
+			const field = document.getElementById("newRoomInput");
+			return {
+				role: field?.getAttribute("role") ?? "",
+				open: field?.getAttribute("aria-expanded") ?? "",
+				owns: field?.getAttribute("aria-controls") ?? "",
+			};
+		});
+		if (said.role !== "combobox" || said.open !== "true" || said.owns !== "newRoomOffers") {
+			fail(`the rail field with its list up announced ${JSON.stringify(said)}`);
+		}
+		// Walking to a row and taking it fills the field with the whole name and
+		// stops there. Enter belongs to the list; the press that submits is the
+		// next one, so a row the reader has only just arrived at cannot open a
+		// room on its own.
+		//
+		// Read as "the panel is still standing" rather than "the reader did not
+		// move", because a name taken here may well be the room already open, and
+		// then going would leave no mark to find. A panel that submitted has put
+		// itself away, whatever it opened.
+		await tab.press("#newRoomInput", "ArrowDown");
+		await tab.press("#newRoomInput", "Enter");
+		const standing = await tab.evaluate(() => ({
+			open: document.getElementById("newRoom")?.classList.contains("show") ?? false,
+			held: (document.getElementById("newRoomInput") as HTMLInputElement | null)?.value ?? "",
+		}));
+		if (!standing.open) fail("taking an offered room name submitted the rail panel instead of filling it");
+		if (standing.held !== known) {
+			fail(`taking the first offered room left the rail field as ${JSON.stringify(standing.held)}`);
+		}
+		await tab.fill("#newRoomInput", "");
+		await tab.press("#newRoomInput", "Escape");
+		await tab.press("#newRoomInput", "Escape");
+	}
 }

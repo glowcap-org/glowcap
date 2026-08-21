@@ -55,6 +55,10 @@ pub const CrossArmBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *CrossArmBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     pub var chunks: []const []const u8 = &.{};
     pub var hold_sends: bool = false;
     pub var refuse_cancel: bool = false;

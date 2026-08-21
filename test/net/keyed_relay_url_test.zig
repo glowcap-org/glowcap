@@ -188,7 +188,7 @@ test "secure routes fail closed before the clear carrier performs I/O" {
     );
     defer _ = resident.deinit();
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x72} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -252,7 +252,7 @@ test "secure relay keeps upgrade primary ahead of TLS cleanup refusal" {
         &tls_runtime,
     );
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x76} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x76)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -299,7 +299,7 @@ test "secure relay composes injected TLS below the one WebSocket upgrade" {
     );
     try std.testing.expect(provider.keyed_resident.configuration() == provider.noise_resident.configuration());
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x73} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x73)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -351,10 +351,10 @@ test "relay configuration equivalence covers every initializer policy fact" {
     const route = "ws://relay.example/relay?blue=1&green=%32";
     const register = "ws://relay.example/register?deployment=one";
     const first_key = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x41} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x41)),
     ).publicKey();
     const other_key = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x42} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x42)),
     ).publicKey();
 
     var baseline = try keyed_relay.Resident.initRegisteredProfile(
@@ -471,6 +471,7 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     var server = try listen_address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(refuseUpgrade, .{ io, &server });
+    defer _ = server_future.cancel(io) catch {};
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -482,7 +483,7 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     defer _ = resident.deinit();
 
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x71} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x71)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);

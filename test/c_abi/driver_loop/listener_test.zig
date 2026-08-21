@@ -120,6 +120,7 @@ test "an active listener failure retires its stable id through a reserved event"
     var resident: TypedResident = .{
         .wake = try pancake.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
+        .stop_listen_pending = true,
     };
     defer resident.wake.deinit();
     const owned_loop = try newEmptyLoop(0x6a);
@@ -135,6 +136,11 @@ test "an active listener failure retires its stable id through a reserved event"
     try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
 
     var event: cdrv.PancakeDriverEvent = undefined;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_WOULD_BLOCK,
+        cdrv.pancake_driver_next_event(owned_loop.raw, &event),
+    );
+    try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
     try expectOk(cdrv.pancake_driver_next_event(owned_loop.raw, &event));
     try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
     try std.testing.expectEqual(listener_id, event.listener_id);
@@ -149,6 +155,7 @@ test "an active listener failure retires its stable id through a reserved event"
         cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator),
     );
     try std.testing.expect(!resident.listeners[0].active);
+    try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
 }
 
 test "listener activation preserves the provider locator failure chain" {
@@ -254,6 +261,55 @@ test "listener restoration state preserves the provider failure chain" {
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedRestorationCleanupFailure") != null);
     try std.testing.expect(resident.listeners[0].active);
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
+}
+
+test "pending listener close refuses every non-close listener verb" {
+    var resident: TypedResident = .{
+        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .opaque_hint = &.{},
+        .stop_listen_pending = true,
+    };
+    defer resident.wake.deinit();
+    const owned_loop = try newEmptyLoop(0x7a);
+    defer owned_loop.deinit();
+    var table = resident.table();
+    const profile = providerProfile("typed-test");
+    var provider = typedProvider(&resident, &table, &profile);
+    try expectOk(harness.addProvider(owned_loop.raw, &provider));
+
+    const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
+    try expectOk(cdrv.pancake_driver_listener_select(owned_loop.raw, listener_id));
+
+    var failure = cdrv.PancakeDriverFailure.init();
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_WOULD_BLOCK,
+        cdrv.pancake_driver_listener_close(owned_loop.raw, listener_id, &failure),
+    );
+    try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
+
+    var locator: cdrv.PancakeLocatorView = undefined;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator),
+    );
+    var needed: usize = 99;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        cdrv.pancake_driver_listener_restoration_state(owned_loop.raw, listener_id, null, 0, &needed),
+    );
+    try std.testing.expectEqual(@as(usize, 0), needed);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        advertiseParts(owned_loop.raw, listener_id, "typed-test", "listener-peer", "127.0.0.1:1"),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        cdrv.pancake_driver_listener_select(owned_loop.raw, listener_id),
+    );
+
+    try expectStep(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener_id));
+    try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
 }
 
 test "a successful multiplexed listen must return its listener handle" {

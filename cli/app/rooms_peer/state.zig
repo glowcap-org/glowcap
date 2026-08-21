@@ -52,8 +52,8 @@ pub const PeerState = struct {
     /// The DM tables below stay orthogonal, cleared on wire teardown.
     phase: phase_mod.Phase = .{ .down = .{ .cooldown = 0 } },
     /// Abandoned joins since the last successful subscribe (or stack start):
-    /// incremented when `maintain` executes an abandon, reset in
-    /// `subscribeRoom`, and written into state.json for the supervisor.
+    /// incremented when `maintain` executes an abandon, reset only after the
+    /// subscribe vow fulfills, and written into state.json for the supervisor.
     join_attempts: u32 = 0,
 
     /// Cached DM caps from `directory.introduce(nick)` (owned refs + keys).

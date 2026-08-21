@@ -1,0 +1,456 @@
+//! Settling subscriptions for imported promises.
+//!
+//! A promise incarnation may have one next-profile wire listener that fans out
+//! to local application answers and an optional Node consumer. This module owns
+//! claim, unlink, shortening moves, and rollback for that subscription.
+
+const std = @import("std");
+const model = @import("model");
+const session = @import("../../mod.zig");
+
+const Session = session.Session;
+const Error = session.Error;
+const ImportedPromise = session.ImportedPromise;
+
+/// Prepared local-consumer move for a shortening callback. A target with no
+/// subscription takes the source's row directly. A subscribed target keeps
+/// its wire listener and receives this preallocated merged follower list.
+pub const SettlingMovePlan = struct {
+    source: session.PromiseIncarnation,
+    target: model.ImportPosition,
+    converges: bool,
+    primary: ?model.AnswerPosition = null,
+    followers: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
+
+    pub fn deinit(self: *SettlingMovePlan, allocator: std.mem.Allocator) void {
+        self.followers.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+/// Claim this promise incarnation's one next-profile wire settling
+/// subscription for one local application or Node consumer. False means the
+/// target already has the wire subscription; convergence joins consumers
+/// through `prepareSettlingMove` instead of sending another listener.
+pub fn claimSettlingListener(
+    self: *Session,
+    import_position: model.ImportPosition,
+    listener_export: model.ExportPosition,
+    answer: ?model.AnswerPosition,
+) !bool {
+    const entry = findImportedPromise(self, import_position) orelse return false;
+    if (entry.settling_listener_claimed) return false;
+    if (answer) |application_answer| {
+        const answer_entry = self.outbound_answers.getPtr(application_answer) orelse return false;
+        const purpose = self.outbound_resolver_link.getByKey(listener_export) orelse return false;
+        switch (purpose) {
+            .application_answer => |linked| if (linked != application_answer) return false,
+            .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => return false,
+        }
+        answer_entry.settling_target = import_position;
+        answer_entry.settling_index = 0;
+        answer_entry.has_settling_target = true;
+    } else {
+        try self.outbound_resolver_link.put(self.allocator, listener_export, .{
+            .node_settling = .{
+                .resolver_export = listener_export,
+                .settling_source = .{
+                    .position = import_position,
+                    .row_id = entry.cell.row_id,
+                },
+            },
+        });
+    }
+    entry.settling_listener_claimed = true;
+    entry.settling_listener_export = listener_export;
+    entry.settling_answer = answer;
+    entry.settling_node_claimed = answer == null;
+    return true;
+}
+
+pub fn abandonSettlingListener(self: *Session, import_position: model.ImportPosition) void {
+    const entry = findImportedPromise(self, import_position) orelse return;
+    std.debug.assert(entry.settling_listener_claimed);
+    if (entry.settling_answer) |answer| clearAnswerSettlingLink(self, answer);
+    for (entry.settling_followers.items) |answer| clearAnswerSettlingLink(self, answer);
+    entry.settling_followers.clearRetainingCapacity();
+    if (entry.settling_node_claimed and entry.settling_answer == null)
+        std.debug.assert(self.outbound_resolver_link.removeByKey(entry.settling_listener_export));
+    entry.settling_listener_claimed = false;
+    entry.settling_listener_export = .from(0);
+    entry.settling_answer = null;
+    entry.settling_node_claimed = false;
+}
+
+pub fn settlingAnswer(self: *Session, source: session.PromiseIncarnation) ?model.AnswerPosition {
+    const entry = findImportedPromise(self, source.position) orelse return null;
+    if (entry.cell.row_id != source.row_id) return null;
+    return entry.settling_answer;
+}
+
+pub fn settlingListenerExport(self: *Session, source: session.PromiseIncarnation) ?model.ExportPosition {
+    const entry = findImportedPromise(self, source.position) orelse return null;
+    if (entry.cell.row_id != source.row_id or !entry.settling_listener_claimed) return null;
+    return entry.settling_listener_export;
+}
+
+pub fn settlingNodeClaimed(self: *Session, source: session.PromiseIncarnation) bool {
+    const entry = findImportedPromise(self, source.position) orelse return false;
+    return entry.cell.row_id == source.row_id and entry.settling_listener_claimed and entry.settling_node_claimed;
+}
+
+pub fn settlingConsumerClaimed(self: *Session, source: session.PromiseIncarnation) bool {
+    const entry = findImportedPromise(self, source.position) orelse return false;
+    return entry.cell.row_id == source.row_id and
+        entry.settling_listener_claimed and
+        (entry.settling_answer != null or entry.settling_node_claimed);
+}
+
+/// Promise shortening discards the old peer's settling-only listener. When its
+/// local consumers are already gone, conclude the pending race tombstone
+/// instead of rearming it on the shortened target.
+pub fn discardUnconsumedSettlingListener(self: *Session, source: session.PromiseIncarnation) void {
+    const entry = findImportedPromise(self, source.position) orelse return;
+    if (entry.cell.row_id != source.row_id or
+        !entry.settling_listener_claimed or
+        entry.settling_answer != null or
+        entry.settling_node_claimed)
+        return;
+    std.debug.assert(entry.settling_followers.items.len == 0);
+    const resolver = entry.settling_listener_export;
+    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
+    switch (purpose) {
+        .retired => {},
+        else => unreachable,
+    }
+    entry.settling_listener_claimed = false;
+    entry.settling_listener_export = .from(0);
+    self.outbound_resolver_link.replaceValueForKey(resolver, .{
+        .retired = .{
+            .resolver_export = resolver,
+            .state = .complete,
+        },
+    });
+    self.releaseRetiredResolverIfUnmentioned(resolver);
+}
+
+pub fn detachSettlingNodeConsumer(
+    self: *Session,
+    source: session.PromiseIncarnation,
+    resolver_export: model.ExportPosition,
+) void {
+    const entry = findImportedPromise(self, source.position) orelse return;
+    if (entry.cell.row_id != source.row_id or
+        !entry.settling_listener_claimed or
+        entry.settling_listener_export != resolver_export or
+        !entry.settling_node_claimed)
+        return;
+    if (entry.settling_answer != null) {
+        entry.settling_node_claimed = false;
+        return;
+    }
+    self.retireNodeSettlingResolver(resolver_export);
+}
+
+/// Borrow the additional application answers sharing `primary`'s settling
+/// callback. Empty when `primary` is not the subscription's inline leader.
+pub fn settlingFollowersForAnswer(self: *Session, primary: model.AnswerPosition) []const model.AnswerPosition {
+    const answer_entry = self.outbound_answers.getPtr(primary) orelse return &.{};
+    if (!answer_entry.has_settling_target or answer_entry.settling_index != 0) return &.{};
+    const promise = findImportedPromise(self, answer_entry.settling_target) orelse return &.{};
+    if (promise.settling_answer != primary) return &.{};
+    return promise.settling_followers.items;
+}
+
+/// Validate that every local alias is still an unsettled outbound answer. The
+/// primary callback performs the wire-value validation once; aliases share
+/// that value and need only their own answer-state check.
+pub fn validateSettlingFollowers(self: *Session, primary: model.AnswerPosition) !void {
+    for (settlingFollowersForAnswer(self, primary)) |answer| {
+        const cell = self.outbound_answers.getPtr(answer) orelse return Error.InvalidReference;
+        if (cell.status() != .pending) return Error.UnexpectedMessage;
+    }
+}
+
+/// Apply the primary callback's outcome to every local alias without
+/// re-installing its introduced imports. The one wire resolution introduced
+/// those references once; local fan-out does not create more wire mentions.
+pub fn applySettlingFollowers(
+    self: *Session,
+    primary: model.AnswerPosition,
+    resolution: model.view.Resolution,
+) void {
+    for (settlingFollowersForAnswer(self, primary)) |answer| {
+        const cell = self.outbound_answers.getPtr(answer) orelse unreachable;
+        switch (resolution) {
+            .fulfill => cell.fulfill() catch unreachable,
+            .@"break" => cell.breakCell() catch unreachable,
+        }
+    }
+}
+
+/// Conclude `primary`'s one-shot wire subscription and transfer its follower
+/// list to the caller. The caller owns the returned list and must deinit it.
+pub fn takeSettlingFollowers(
+    self: *Session,
+    primary: model.AnswerPosition,
+) std.ArrayListUnmanaged(model.AnswerPosition) {
+    const answer_entry = self.outbound_answers.getPtr(primary) orelse return .empty;
+    if (!answer_entry.has_settling_target or answer_entry.settling_index != 0) return .empty;
+    const promise = findImportedPromise(self, answer_entry.settling_target) orelse return .empty;
+    if (promise.settling_answer != primary) return .empty;
+    const source: session.PromiseIncarnation = .{
+        .position = answer_entry.settling_target,
+        .row_id = promise.cell.row_id,
+    };
+
+    clearAnswerSettlingLink(self, primary);
+    for (promise.settling_followers.items) |answer| clearAnswerSettlingLink(self, answer);
+    const followers = promise.settling_followers;
+    promise.settling_followers = .empty;
+    promise.settling_listener_claimed = false;
+    promise.settling_listener_export = .from(0);
+    promise.settling_answer = null;
+    promise.settling_node_claimed = false;
+    if (!self.hasImport(source.position)) self.releaseShorteningSourceAuthority(source);
+    return followers;
+}
+
+/// Detach a released local answer from its settling subscription in O(1).
+/// A released follower is swap-removed. Releasing the primary promotes the
+/// final follower and retargets the surviving resolver link; when only a Node
+/// consumer remains, the application resolver link is removed but the wire
+/// listener stays armed for the Node.
+pub fn unlinkSettlingAnswer(
+    self: *Session,
+    answer: model.AnswerPosition,
+) ?session.PromiseIncarnation {
+    const answer_entry = self.outbound_answers.getPtr(answer) orelse return null;
+    if (!answer_entry.has_settling_target) return null;
+    const target = answer_entry.settling_target;
+    const index = answer_entry.settling_index;
+    const promise = findImportedPromise(self, target) orelse {
+        clearAnswerSettlingLink(self, answer);
+        return null;
+    };
+    if (!promise.settling_listener_claimed) {
+        clearAnswerSettlingLink(self, answer);
+        return null;
+    }
+
+    if (index != 0) {
+        const follower_index = index - 1;
+        if (follower_index >= promise.settling_followers.items.len or
+            promise.settling_followers.items[follower_index] != answer)
+        {
+            clearAnswerSettlingLink(self, answer);
+            return null;
+        }
+        const removed = promise.settling_followers.swapRemove(follower_index);
+        std.debug.assert(removed == answer);
+        if (follower_index < promise.settling_followers.items.len) {
+            const moved = promise.settling_followers.items[follower_index];
+            setAnswerSettlingLink(self, moved, target, follower_index + 1);
+        }
+        clearAnswerSettlingLink(self, answer);
+        return null;
+    }
+
+    if (promise.settling_answer != answer) {
+        clearAnswerSettlingLink(self, answer);
+        return null;
+    }
+    if (promise.settling_followers.pop()) |promoted| {
+        promise.settling_answer = promoted;
+        setAnswerSettlingLink(self, promoted, target, 0);
+        self.outbound_resolver_link.replaceValueForKey(
+            promise.settling_listener_export,
+            .{ .application_answer = promoted },
+        );
+    } else {
+        promise.settling_answer = null;
+        if (promise.settling_node_claimed) {
+            const listener = promise.settling_listener_export;
+            self.outbound_resolver_link.replaceValueForKey(listener, .{
+                .node_settling = .{
+                    .resolver_export = listener,
+                    .settling_source = .{
+                        .position = target,
+                        .row_id = promise.cell.row_id,
+                    },
+                },
+            });
+        }
+    }
+    clearAnswerSettlingLink(self, answer);
+    if (promise.settling_answer == null and !promise.settling_node_claimed) {
+        return .{ .position = target, .row_id = promise.cell.row_id };
+    }
+    return null;
+}
+
+pub fn settlingListenerClaimed(self: *Session, source: session.PromiseIncarnation) bool {
+    const entry = findImportedPromise(self, source.position) orelse return false;
+    return entry.cell.row_id == source.row_id and entry.settling_listener_claimed;
+}
+
+pub fn prepareSettlingMove(
+    self: *Session,
+    source: session.PromiseIncarnation,
+    target: model.ImportPosition,
+) !SettlingMovePlan {
+    const source_entry = findImportedPromise(self, source.position) orelse return Error.InvalidReference;
+    if (source_entry.cell.row_id != source.row_id or !source_entry.settling_listener_claimed)
+        return Error.InvalidReference;
+    const target_entry = findImportedPromise(self, target) orelse return Error.InvalidReference;
+    var plan: SettlingMovePlan = .{
+        .source = source,
+        .target = target,
+        .converges = target_entry.settling_listener_claimed,
+    };
+    errdefer plan.deinit(self.allocator);
+    if (!plan.converges) return plan;
+
+    const target_count = @as(usize, @intFromBool(target_entry.settling_answer != null)) + target_entry.settling_followers.items.len;
+    const source_count = @as(usize, @intFromBool(source_entry.settling_answer != null)) + source_entry.settling_followers.items.len;
+    const total = target_count + source_count;
+    if (total == 0) return plan;
+    plan.primary = target_entry.settling_answer orelse source_entry.settling_answer.?;
+    try plan.followers.ensureTotalCapacityPrecise(self.allocator, total - 1);
+    appendAnswersExceptPrimary(&plan.followers, target_entry, plan.primary.?);
+    appendAnswersExceptPrimary(&plan.followers, source_entry, plan.primary.?);
+    return plan;
+}
+
+pub fn commitSettlingMove(
+    self: *Session,
+    plan: *SettlingMovePlan,
+) void {
+    const source_entry = findImportedPromise(self, plan.source.position) orelse unreachable;
+    std.debug.assert(source_entry.cell.row_id == plan.source.row_id);
+    std.debug.assert(source_entry.settling_listener_claimed);
+    const target_entry = findImportedPromise(self, plan.target) orelse unreachable;
+
+    if (!plan.converges) {
+        std.debug.assert(!target_entry.settling_listener_claimed);
+        target_entry.settling_listener_claimed = true;
+        target_entry.settling_listener_export = source_entry.settling_listener_export;
+        target_entry.settling_answer = source_entry.settling_answer;
+        target_entry.settling_followers = source_entry.settling_followers;
+        target_entry.settling_node_claimed = source_entry.settling_node_claimed;
+        source_entry.settling_followers = .empty;
+        relinkSettlingAnswers(self, target_entry, plan.target);
+        if (self.outbound_resolver_link.getByKey(target_entry.settling_listener_export)) |purpose| {
+            switch (purpose) {
+                .node_settling => |node| self.outbound_resolver_link.replaceValueForKey(
+                    target_entry.settling_listener_export,
+                    .{ .node_settling = .{
+                        .resolver_export = node.resolver_export,
+                        .settling_source = .{
+                            .position = plan.target,
+                            .row_id = target_entry.cell.row_id,
+                        },
+                    } },
+                ),
+                .retired => |retired| self.outbound_resolver_link.replaceValueForKey(
+                    target_entry.settling_listener_export,
+                    .{ .retired = .{
+                        .resolver_export = retired.resolver_export,
+                        .settling_source = .{
+                            .position = plan.target,
+                            .row_id = target_entry.cell.row_id,
+                        },
+                        .state = retired.state,
+                    } },
+                ),
+                else => {},
+            }
+        }
+    } else {
+        std.debug.assert(target_entry.settling_listener_claimed);
+        const source_listener = source_entry.settling_listener_export;
+        if (source_entry.settling_answer) |source_answer| {
+            self.outbound_resolver_link.replaceValueForKey(source_listener, .{
+                .retired = .{
+                    .resolver_export = source_listener,
+                    .state = .complete,
+                },
+            });
+            if (target_entry.settling_answer == null) {
+                self.outbound_resolver_link.replaceValueForKey(
+                    target_entry.settling_listener_export,
+                    .{ .application_answer = source_answer },
+                );
+            }
+        } else if (self.outbound_resolver_link.getByKey(source_listener)) |purpose| {
+            switch (purpose) {
+                .node_settling, .retired => self.outbound_resolver_link.replaceValueForKey(
+                    source_listener,
+                    .{ .retired = .{
+                        .resolver_export = source_listener,
+                        .state = .complete,
+                    } },
+                ),
+                else => std.debug.assert(self.outbound_resolver_link.removeByKey(source_listener)),
+            }
+        }
+        // Keep the completed tombstone only while the partner still owns the
+        // wire mention. The partner may have returned it before the shortening
+        // callback reached us, so conclude that ordering here as well.
+        self.releaseRetiredResolverIfUnmentioned(source_listener);
+        target_entry.settling_followers.deinit(self.allocator);
+        source_entry.settling_followers.deinit(self.allocator);
+        target_entry.settling_answer = plan.primary;
+        target_entry.settling_followers = plan.followers;
+        target_entry.settling_node_claimed = target_entry.settling_node_claimed or source_entry.settling_node_claimed;
+        plan.followers = .empty;
+        source_entry.settling_followers = .empty;
+        relinkSettlingAnswers(self, target_entry, plan.target);
+    }
+
+    source_entry.settling_listener_claimed = false;
+    source_entry.settling_listener_export = .from(0);
+    source_entry.settling_answer = null;
+    source_entry.settling_node_claimed = false;
+}
+
+fn appendAnswersExceptPrimary(
+    out: *std.ArrayListUnmanaged(model.AnswerPosition),
+    entry: *const ImportedPromise,
+    primary: model.AnswerPosition,
+) void {
+    if (entry.settling_answer) |answer| {
+        if (answer != primary) out.appendAssumeCapacity(answer);
+    }
+    for (entry.settling_followers.items) |answer| {
+        if (answer != primary) out.appendAssumeCapacity(answer);
+    }
+}
+
+fn relinkSettlingAnswers(self: *Session, entry: *const ImportedPromise, target: model.ImportPosition) void {
+    if (entry.settling_answer) |answer| setAnswerSettlingLink(self, answer, target, 0);
+    for (entry.settling_followers.items, 1..) |answer, index|
+        setAnswerSettlingLink(self, answer, target, index);
+}
+
+fn setAnswerSettlingLink(
+    self: *Session,
+    answer: model.AnswerPosition,
+    target: model.ImportPosition,
+    index: usize,
+) void {
+    const cell = self.outbound_answers.getPtr(answer) orelse unreachable;
+    cell.settling_target = target;
+    cell.settling_index = index;
+    cell.has_settling_target = true;
+}
+
+fn clearAnswerSettlingLink(self: *Session, answer: model.AnswerPosition) void {
+    const cell = self.outbound_answers.getPtr(answer) orelse return;
+    cell.has_settling_target = false;
+    cell.settling_index = 0;
+}
+
+fn findImportedPromise(self: *Session, import_position: model.ImportPosition) ?*ImportedPromise {
+    return self.imported_promises.getPtr(import_position);
+}

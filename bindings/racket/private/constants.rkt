@@ -2,12 +2,10 @@
 
 ;; Private ABI constants for the Racket pancake binding.
 ;;
-;; The reflected integer families (return codes, reference and argument kinds,
-;; codec, abort domains, the dial plan, and the caps) are generated into
-;; `constants-gen.rkt` from the C ABI and re-provided here, so a value is
-;; mirrored once and `zig build gen-binding-constants-check` rejects a stale
-;; copy. Transport and locator-hint strings are generated there from
-;; `model.transport`. HOST-ACTION-* lives in `host-action-gen.rkt`.
+;; Reflected ABI constants, model-owned transport vocabulary, and shared
+;; binding policy are generated into `constants-gen.rkt` and re-provided here.
+;; `zig build gen-binding-constants-check` rejects stale mirrors.
+;; HOST-ACTION-* lives in `host-action-gen.rkt`.
 
 (require "constants-gen.rkt")
 

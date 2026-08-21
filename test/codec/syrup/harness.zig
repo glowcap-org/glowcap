@@ -10,7 +10,7 @@ pub fn expectFixtureBytes(name: []const u8, frame: pancake.foundation.Frame) !vo
 }
 
 pub fn repeatedByte(comptime len: usize, byte: u8) [len]u8 {
-    return [_]u8{byte} ** len;
+    return @as([len]u8, @splat(byte));
 }
 
 pub fn hexToOwned(allocator: std.mem.Allocator, comptime hex: []const u8) ![]u8 {

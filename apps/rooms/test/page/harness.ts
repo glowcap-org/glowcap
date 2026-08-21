@@ -21,18 +21,29 @@ export function fail(message: string): never {
 /** Lowest ink contrast for a translucent descendant surface over either end of
  * its containing bubble's gradient. This checks the composite a person sees,
  * not the declarations in isolation. */
+/** How readable `selector` is over the gradient bubble behind it, or why that
+ * could not be worked out. */
 export async function bubbleInkContrast(
 	page: Page,
 	selector: string,
 	surfaceSelector: string = selector,
-): Promise<number | null> {
+): Promise<{ ratio: number } | { why: string }> {
 	await page.hover(selector);
 	return page.evaluate(({ selector, surfaceSelector }) => {
 		type Rgba = [number, number, number, number];
+		// Two syntaxes, because a computed colour comes back in whatever shape the
+		// token was written in. A `color-mix()` carrying transparency computes to
+		// `color(srgb r g b / a)`, whose channels run 0 to 1 rather than 0 to 255,
+		// and a reader that knew only `rgb()` found nothing in it — which is how a
+		// contrast check came to report the note on a changed line as having no
+		// colour, on a page whose contrast was perfectly fine. `test/ink_contrast.ts`
+		// met the same syntax from the other side and carries the longer account.
 		const colors = (value: string): Rgba[] =>
-			[...value.matchAll(/rgba?\(([^)]+)\)/g)].map((match) => {
-				const parts = match[1].split(/[ ,/]+/).filter(Boolean).map(Number);
-				return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+			[...value.matchAll(/rgba?\(([^)]+)\)|color\(srgb\s+([^)]+)\)/g)].map((match) => {
+				const srgb = match[2] !== undefined;
+				const parts = (srgb ? match[2] : match[1]).split(/[ ,/]+/).filter(Boolean).map(Number);
+				const scale = srgb ? 255 : 1;
+				return [parts[0] * scale, parts[1] * scale, parts[2] * scale, parts[3] ?? 1];
 			});
 		const relative = ([r, g, b]: Rgba): number => {
 			const channel = (n: number) => {
@@ -55,15 +66,56 @@ export async function bubbleInkContrast(
 		const target = document.querySelector(selector);
 		const surface = target?.closest(surfaceSelector);
 		const bubble = target?.closest(".bubble");
-		if (!(target instanceof HTMLElement) || !(surface instanceof HTMLElement) || !(bubble instanceof HTMLElement)) {
-			return null;
-		}
+		// Unmeasurable is reported rather than returned as a bare nothing. There
+		// are several ways to arrive at it and they mean different things — a
+		// note that never rendered, a bubble that is not painted as a gradient
+		// yet — and a caller told only "null" has to guess which, at the moment
+		// when the run that could have answered is already over.
+		if (!(target instanceof HTMLElement)) return { why: `no element matched ${selector}` };
+		if (!(surface instanceof HTMLElement)) return { why: `${selector} sits in no ${surfaceSelector}` };
+		if (!(bubble instanceof HTMLElement)) return { why: `${selector} sits in no .bubble` };
 		const ink = colors(getComputedStyle(target).color)[0];
 		const wash = colors(getComputedStyle(surface).backgroundColor)[0];
-		const stops = colors(getComputedStyle(bubble).backgroundImage);
-		if (!ink || !wash || stops.length < 2) return null;
-		return Math.min(...stops.map((stop) => contrast(ink, over(wash, stop))));
+		const painted = getComputedStyle(bubble).backgroundImage;
+		const stops = colors(painted);
+		if (!ink) return { why: `${selector} has no colour` };
+		if (!wash) return { why: `${surfaceSelector} has no background colour` };
+		if (stops.length < 2) return { why: `the bubble is painted ${JSON.stringify(painted)}, not as a gradient` };
+		return { ratio: Math.min(...stops.map((stop) => contrast(ink, over(wash, stop)))) };
 	}, { selector, surfaceSelector });
+}
+
+/** Fill a field of the join card and wait until it holds what was filled.
+ *
+ * These fields are controlled: the driver writes the element's value and
+ * dispatches an input event, and the page answers by putting the value it holds
+ * back. A render landing between those two — a settling join, a directory
+ * arriving — restores the old text under the write, and the event that follows
+ * carries the restored value rather than the intended one. Nobody typing sees
+ * this, because a keystroke is one event with a render either side of it; a
+ * driver filling forty characters at once is the only thing fast enough.
+ *
+ * So a fill is not done when `fill` returns, it is done when the field agrees.
+ * A write the page put its own value back over is gone, and no amount of
+ * waiting brings it back, so the recovery is to write it again: the render
+ * that landed on top has landed, and the next attempt has the field to itself.
+ * Bounded, because a field that will not take a value after several tries is a
+ * defect rather than a race, and it should say so instead of spinning. It says
+ * it where it happened, too: this was first met as a join that timed out sixty
+ * seconds later, twice, reported against a card still holding the previous
+ * address and nobody able to reproduce it.
+ */
+export async function fillSettled(tab: Page, selector: string, value: string): Promise<void> {
+	const holds = ({ selector, value }: { selector: string; value: string }) =>
+		(document.querySelector(selector) as HTMLInputElement | null)?.value === value;
+	for (let attempt = 0; attempt < 5; attempt++) {
+		await tab.fill(selector, value);
+		const took = await tab
+			.waitForFunction(holds, { selector, value }, { timeout: 2_000 })
+			.then(() => true, () => false);
+		if (took) return;
+	}
+	fail(`filling ${selector} with ${JSON.stringify(value)} did not take; the field kept what it had`);
 }
 
 export { freePort, waitForHttp } from "../support/rooms_server.ts";

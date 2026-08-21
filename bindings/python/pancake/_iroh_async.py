@@ -15,6 +15,8 @@ from ._constants import (
     WOULD_BLOCK as _WOULD_BLOCK,
 )
 from ._constants_gen import (
+    BINDING_IROH_READ_CHUNK_BYTES,
+    BINDING_READINESS_DRAIN_CAP,
     DISCOVERY_DIAL_MAX_ATTEMPTS,
     DISCOVERY_DIAL_RETRY_MS,
     IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
@@ -23,6 +25,7 @@ from ._constants_gen import (
     IROH_EV_READABLE as _IROH_EV_READABLE,
     IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
 )
+from ._abi_value import _DEFAULT_CODEC
 from ._errors import PancakeError
 from ._ffi_iroh import _IrohReadyEvent
 from ._host import Host
@@ -69,10 +72,8 @@ def connector(config: IrohConfig) -> Connector:
 
 # ── The iroh readiness dispatcher (ADR-0057) ────────────────────────────────
 
-# How many readiness records one `drain_ready` call pulls. When the fd signals,
-# the loop drains in a batch and re-drains until a short count, so a queue deeper
-# than the cap is never stranded.
-_DRAIN_READY_CAP = 64
+_DRAIN_READY_CAP = BINDING_READINESS_DRAIN_CAP
+_READ_CHUNK_BYTES = BINDING_IROH_READ_CHUNK_BYTES
 
 
 class _ConnWaiters:
@@ -343,8 +344,6 @@ class _IrohTransport:
     so no callback still touches the endpoint when it is freed. No call ever
     parks on this connection, so ``close`` cannot race a parked read."""
 
-    _READ_CHUNK = 65536
-
     def __init__(
         self,
         conn: IrohConnection,
@@ -356,7 +355,7 @@ class _IrohTransport:
         self._loop = loop
         self._owns_loop = owns_loop
         self._owned_netlayer = owned_netlayer
-        self._read_buf = (ctypes.c_uint8 * self._READ_CHUNK)()
+        self._read_buf = (ctypes.c_uint8 * _READ_CHUNK_BYTES)()
         self._closed = False
 
     async def read(self) -> "Optional[bytes]":
@@ -385,7 +384,7 @@ class _IrohTransport:
     async def write(self, data: bytes) -> None:
         offset = 0
         while offset < len(data):
-            n = self._conn.try_write(data[offset:])
+            n = self._conn.try_write(data, offset)
             if n != _WOULD_BLOCK:
                 offset += n
                 continue
@@ -549,7 +548,7 @@ class IrohServer(DriverServer):
         secret_seed: bytes,
         host: "Optional[Host]",
     ) -> "IrohServer":
-        selected_codec = host.codec if host is not None else "syrup"
+        selected_codec = host.codec if host is not None else _DEFAULT_CODEC
         prepared = prepare_driver_loop(
             host,
             selected_codec,

@@ -22,6 +22,7 @@ typedef struct PancakeRelayRuntime PancakeRelayRuntime;
 #define PANCAKE_RELAY_CONFIG_ABI_VERSION 1u
 #define PANCAKE_RELAY_TRUST_SYSTEM 0u
 #define PANCAKE_RELAY_TRUST_COPIED_PEM 1u
+#define PANCAKE_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES 4096u
 
 typedef struct PancakeRelayConfig {
     /* Must equal PANCAKE_RELAY_CONFIG_ABI_VERSION. */

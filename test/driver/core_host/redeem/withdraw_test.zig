@@ -58,11 +58,11 @@ const FailedRedeemListener = struct {
 
 fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -93,7 +93,7 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     // embedder answers the gift-id request, at which point the two handoff legs
     // are independently queued on r_to_g and g_to_e.
     try std.testing.expect(try shuttle(r_to_g));
-    const gift_id = [_]u8{0x5a} ** 32;
+    const gift_id = @as([32]u8, @splat(0x5a));
     var provided = false;
     while (try gifter.nextAction()) |action| switch (action) {
         .flush => {},
@@ -171,11 +171,11 @@ const EarlyWithdrawOutcome = enum { deposit, close };
 
 fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -203,7 +203,7 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     // The deposit remains queued on g_to_e while the recipient opens its own
     // exporter session and sends the withdrawal first.
     try std.testing.expect(try shuttle(r_to_g));
-    const gift_id = [_]u8{0x6b} ** 32;
+    const gift_id = @as([32]u8, @splat(0x6b));
     var provided = false;
     while (try gifter.nextAction()) |action| switch (action) {
         .flush => {},
@@ -230,7 +230,7 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     try recipient.exporterDialed(parked.ticket, dialed);
     try pumpToQuiescence(allocator, &.{ &exporter, &recipient }, &.{r_to_e}, &dials);
 
-    try std.testing.expectEqual(@as(usize, 1), exporter.node.handoffWaiterCount(g_to_e.b.peer_id));
+    try std.testing.expectEqual(@as(usize, 1), exporter.node.handoffWaiterCount(g_to_e.b.peer_handle));
     try std.testing.expect(!g_to_e.b.served.port.peer.giftRegistry().giftLive(&gift_id));
     try std.testing.expect(!redeemed.broken);
 
@@ -247,7 +247,7 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
                 &dials,
             );
             try std.testing.expect((try redeemed.require()) == .routed);
-            try std.testing.expectEqual(@as(usize, 0), exporter.node.handoffWaiterCount(g_to_e.b.peer_id));
+            try std.testing.expectEqual(@as(usize, 0), exporter.node.handoffWaiterCount(g_to_e.b.peer_handle));
             try std.testing.expect(!g_to_e.b.served.port.peer.giftRegistry().giftLive(&gift_id));
         },
         .close => {
@@ -282,11 +282,11 @@ test "core host: a redeem reuses a live exporter session instead of dialing a du
     // the authority, consulted at the node-action seam before any dial is
     // surfaced.
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;

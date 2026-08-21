@@ -109,7 +109,7 @@ impl Runtime {
 		};
 		let created_host = adopt_host.is_none();
 		let handshake_ms = Self::timeout_millis(handshake_timeout)?;
-		let settle_ms = crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u32;
+		let settle_ms = crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS;
 		let (host, loop_) = match adopt_host {
 			Some(host) => {
 				let loop_ = host.shared().ensure_driver_loop(handshake_ms, settle_ms)?;

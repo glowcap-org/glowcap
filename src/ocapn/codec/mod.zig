@@ -10,16 +10,15 @@
 const std = @import("std");
 const model = @import("model");
 
+const limits = @import("codec_limits");
+
 pub const syrup = @import("syrup");
 pub const capnp = @import("capnp");
 
 comptime {
-    // The two codecs' decode-depth caps are one bound: a frame one codec
-    // refuses for depth must refuse under the other too, and both sit above
-    // the owned materializer's `model.max_value_depth` so decode never rejects
-    // a frame the model walk would still admit.
-    std.debug.assert(syrup.decode.max_decode_nesting == capnp.decode.max_charge_depth);
-    std.debug.assert(syrup.decode.max_decode_nesting > model.max_value_depth);
+    std.debug.assert(syrup.decode.max_decode_nesting == limits.max_decode_nesting);
+    std.debug.assert(capnp.decode.max_charge_depth == limits.max_decode_nesting);
+    std.debug.assert(limits.max_decode_nesting > model.max_value_depth);
 }
 /// The verdicts a codec gives a byte-stream framer, and the resumable scan
 /// that keeps a frame arriving in pieces from being re-walked per piece.

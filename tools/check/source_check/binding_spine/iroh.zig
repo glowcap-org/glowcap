@@ -21,26 +21,32 @@ pub fn checkIrohLoopConvergence(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const path = "src/net/transport/iroh.zig";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for iroh-loop-convergence check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-
     const forbidden = [_]struct { needle: []const u8, reason: []const u8 }{
         .{ .needle = "LoopHost", .reason = "CapTP scale must stay on `driver.Bridge` + Host, not a resident-local serve loop" },
         .{ .needle = "@import(\"driver_core\")", .reason = "the iroh resident must not import the serve core; Bridge owns CapTP" },
         .{ .needle = "@import(\"actors\")", .reason = "the iroh resident must not mint vats; Bridge + Host own CapTP" },
     };
-    for (forbidden) |entry| {
-        if (std.mem.indexOf(u8, contents, entry.needle) != null) {
-            try appendViolation(gpa, violations, "{s}: forbidden `{s}` — {s}", .{ path, entry.needle, entry.reason });
+    const paths = [_][]const u8{
+        "src/net/transport/iroh.zig",
+        "src/net/transport/iroh/backend.zig",
+        "src/net/transport/iroh/locators.zig",
+        "src/net/transport/iroh/resident.zig",
+        "src/net/transport/iroh/resolver.zig",
+        "src/net/transport/iroh/sidecar.zig",
+    };
+    for (paths) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for iroh-loop-convergence check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (forbidden) |entry| {
+            if (std.mem.indexOf(u8, contents, entry.needle) != null) {
+                try appendViolation(gpa, violations, "{s}: forbidden `{s}` — {s}", .{ path, entry.needle, entry.reason });
+            }
         }
     }
-    if (std.mem.indexOf(u8, contents, "pub const Backend") == null) {
-        try appendViolation(gpa, violations, "{s}: missing `pub const Backend` — iroh scale must expose a completion Backend (ADR-0057/0076)", .{path});
-    }
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/iroh.zig", &.{"pub const Backend"});
 }
 
 /// The iroh `BindingClientRow` tables (`iroh_loop_clients`,

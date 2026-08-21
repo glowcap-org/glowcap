@@ -72,10 +72,11 @@ fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPos
 fn installAnswerListener(peer: *Peer, answer: model.AnswerName, listen: model.view.Listen) !void {
     const listener_entry = try listenerEntryFromListen(peer, listen);
     if (peer.session_state.peekResolutionNamed(answer)) |resolution| {
-        const row_id = peer.session_state.inboundAnswerRowIdNamed(answer).?;
+        const target = peer.session_state.answerTargetNamed(answer) orelse return session.Error.InvalidReference;
+        const payload = peer.session_state.answerPayloadForTarget(target) orelse return session.Error.InvalidReference;
         try applyListenerDrain(
             peer,
-            .{ .answer = .{ .position = answer, .row_id = row_id } },
+            .{ .answer = .{ .target = target, .payload = payload } },
             resolution.*,
             classifyListenerDrain(listener_entry, resolution.*),
         );
@@ -103,15 +104,19 @@ fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPositi
     try enqueueFire(peer, position, .{ .near_object = export_position }, resolution);
 }
 
-pub fn fireListenersOnAnswer(peer: *Peer, answer: model.AnswerName, resolution: model.Resolution) !void {
-    const row_id = peer.session_state.inboundAnswerRowIdNamed(answer) orelse return;
-    const listeners = try peer.session_state.takePipelinedListenersNamed(answer);
+pub fn fireListenersOnAnswer(
+    peer: *Peer,
+    target: session.AnswerTarget,
+    payload: *session.AnswerPayload,
+    resolution: model.Resolution,
+) !void {
+    const listeners = try peer.session_state.takeAnswerPayloadListeners(payload);
     defer peer.allocator.free(listeners);
 
     for (listeners) |entry| {
         try applyListenerDrain(
             peer,
-            .{ .answer = .{ .position = answer, .row_id = row_id } },
+            .{ .answer = .{ .target = target, .payload = payload } },
             resolution,
             classifyListenerDrain(entry, resolution),
         );
@@ -202,6 +207,17 @@ fn enqueueFire(
     target: engine.FireTarget,
     resolution: model.Resolution,
 ) !void {
+    const answer_payload: ?*session.AnswerPayload = switch (target) {
+        .store => |store| switch (store) {
+            .answer => |answer| answer.payload,
+            .import => null,
+        },
+        .near_object => null,
+    };
+    if (answer_payload) |payload|
+        try peer.session_state.retainAnswerPayload(payload);
+    errdefer if (answer_payload) |payload|
+        peer.session_state.releaseAnswerPayload(payload);
     var args: [2]model.Argument = undefined;
     const borrowed = borrowedListenerFire(listener_position, resolution, &args);
     const reservation = try peer.reservePending(.{ .listener_fire = .{
@@ -237,12 +253,5 @@ fn enqueueDrainFire(
     target: engine.StoreTarget,
     resolution: model.Resolution,
 ) !void {
-    const stamped: engine.StoreTarget = switch (target) {
-        .answer => |answer| .{ .answer = .{
-            .position = answer.position,
-            .row_id = peer.session_state.inboundAnswerRowIdNamed(answer.position) orelse return,
-        } },
-        .import => target,
-    };
-    try enqueueFire(peer, listener_position, .{ .store = stamped }, resolution);
+    try enqueueFire(peer, listener_position, .{ .store = target }, resolution);
 }

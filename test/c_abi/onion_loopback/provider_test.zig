@@ -533,7 +533,8 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         cdrv.pancake_driver_listener_restoration_state(loop, listener, &short, short.len, &restoration_len),
     );
     try std.testing.expectEqual(fake.service_key.len, restoration_len);
-    try std.testing.expectEqualSlices(u8, &([_]u8{0xa5} ** short.len), &short);
+    const expected_short: [short.len]u8 = @splat(0xa5);
+    try std.testing.expectEqualSlices(u8, &expected_short, &short);
 
     var restoration: [fake.service_key.len]u8 = undefined;
     try std.testing.expectEqual(

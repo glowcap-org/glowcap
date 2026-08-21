@@ -71,12 +71,12 @@ pancake also provides these common wrappers as
 `session.attenuate(capability, methods)` and `session.caretaker(capability)`.
 This demo keeps the small hand-written versions so their behavior is visible.
 
-## What this demo does not guarantee
+## Limits of the demo
 
 The published coordinator accepts a tool name and grants any tool it knows,
-including the full read/write file tool. It demonstrates how authority can be
-delegated, narrowed, and revoked after a grant decision; it is not itself a
-policy engine or a complete least-authority agent harness.
+including the full read/write file tool. It shows how authority can be
+delegated, narrowed, and revoked after a grant decision. A policy engine and a
+complete least-authority agent harness are separate work.
 
 A real harness must decide which grants a task may request, keep unapproved
 tools unreachable, and treat model output as untrusted. Capabilities make those

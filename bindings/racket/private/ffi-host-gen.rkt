@@ -94,6 +94,7 @@
   #:c-id pancake_host_session_trace_id)
 (define pancake_host_session_trace_id (wrap-out1 pancake_host_session_trace_id* _uint64 0))
 (define-host pancake_host_session_feed_bytes (_fun _pointer _pointer _size -> _int32))
+(define-host pancake_host_session_resume_feed (_fun _pointer -> _int32))
 (define-host pancake_host_session_take_outbound*
   (_fun _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_take_outbound)

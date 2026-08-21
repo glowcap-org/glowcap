@@ -122,6 +122,35 @@ Deno.test("records arrive through the hosted inbox callback", async () => {
   feed.disconnect();
 });
 
+Deno.test("a malformed record is reported, not thrown", async () => {
+  const controlled = controlledFactory();
+  const feed = new LiveFeed(
+    "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+    controlled.factory,
+  );
+  const errors: string[] = [];
+  const events: TimelineEvent[] = [];
+  feed.onError((e) => errors.push(e.title));
+  feed.subscribe((ev) => events.push(ev));
+  feed.connect();
+  await Promise.resolve();
+  controlled.records[0]?.("{");
+  assertEquals(errors, ["Live record unreadable"]);
+  controlled.records[0]?.(JSON.stringify({
+    v: 1,
+    sim_t_ns: 0,
+    seq: 10,
+    epoch: 1,
+    kind: "ocapn.session-opened",
+    session: "p0/s1",
+    a: "rooms",
+    b: "alice",
+    codec: "syrup",
+  }));
+  assertEquals(events.filter((ev) => ev.kind === "session-opened").length, 1);
+  feed.disconnect();
+});
+
 Deno.test("old replay sequence numbers still form an authoritative snapshot", async () => {
   const controlled = controlledFactory();
   const feed = new LiveFeed(

@@ -93,8 +93,8 @@ fn racketKind(comptime T: type) []const u8 {
             std.fmt.comptimePrint(" {d})", .{info.len}),
         .@"struct" => |info| blk: {
             comptime var text: []const u8 = "(";
-            inline for (info.fields, 0..) |field, i| {
-                text = text ++ (if (i == 0) "" else " ") ++ racketKind(field.type);
+            inline for (info.field_types, 0..) |field_type, i| {
+                text = text ++ (if (i == 0) "" else " ") ++ racketKind(field_type);
             }
             break :blk text ++ ")";
         },
@@ -123,15 +123,16 @@ fn upperName(comptime name: []const u8) []const u8 {
 }
 
 fn layoutOf(comptime stem: []const u8, comptime T: type) Layout {
-    const type_fields = @typeInfo(T).@"struct".fields;
+    const type_info = @typeInfo(T).@"struct";
+    const type_fields = type_info.field_names;
     comptime var offs: [type_fields.len]FieldOff = undefined;
-    for (type_fields, 0..) |field, i| {
+    for (type_fields, type_info.field_types, 0..) |field_name, field_type, i| {
         offs[i] = .{
-            .name = upperName(field.name),
-            .lower = field.name,
-            .off = @offsetOf(T, field.name),
-            .size = @sizeOf(field.type),
-            .racket = racketKind(field.type),
+            .name = upperName(field_name),
+            .lower = field_name,
+            .off = @offsetOf(T, field_name),
+            .size = @sizeOf(field_type),
+            .racket = racketKind(field_type),
         };
     }
     const frozen: [type_fields.len]FieldOff = offs;
@@ -171,6 +172,8 @@ const layouts = [_]Layout{
     layoutOf("PANCAKE_RELAY_TRUST_SUMMARY", cr.PancakeRelayTrustSummary),
     layoutOf("PANCAKE_IROH_READY_EVENT", ci.PancakeIrohReadyEvent),
     layoutOf("PANCAKE_WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent),
+    layoutOf("PANCAKE_WEBRTC_STRING_VIEW", cw.PancakeWebrtcStringView),
+    layoutOf("PANCAKE_WEBRTC_ICE_SERVER", cw.PancakeWebrtcIceServer),
     layoutOf("PANCAKE_WEBRTC_CONFIG", cw.PancakeWebrtcConfig),
     layoutOf("PANCAKE_IROH_CONFIG", ci.PancakeIrohConfig),
 };

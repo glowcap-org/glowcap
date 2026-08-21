@@ -66,14 +66,14 @@ pub const ReportError = error{ InvalidVersion, InvalidSize, InvalidLayer, Invali
 
 fn layerFromInt(value: u32) ReportError!Layer {
     return switch (value) {
-        inline 0...4 => |v| @enumFromInt(v),
+        inline 0...4 => |v| @fromBackingInt(@intCast(v)),
         else => error.InvalidLayer,
     };
 }
 
 fn scopeFromInt(value: u32) ReportError!ScopeKind {
     return switch (value) {
-        inline 0...6 => |v| @enumFromInt(v),
+        inline 0...6 => |v| @fromBackingInt(@intCast(v)),
         else => error.InvalidScope,
     };
 }
@@ -121,8 +121,8 @@ pub fn eventFromClaim(claim: Claim) PancakeFailureEvent {
         .struct_size = @sizeOf(PancakeFailureEvent),
         .sequence = claim.sequence,
         .dropped_before = claim.dropped_before,
-        .layer = @intFromEnum(claim.layer),
-        .scope_kind = @intFromEnum(claim.scope_kind),
+        .layer = @backingInt(claim.layer),
+        .scope_kind = @backingInt(claim.scope_kind),
         .scope_id = claim.scope_id,
         .operation_id = claim.operation_id,
         .primary_result = claim.primary_result,

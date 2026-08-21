@@ -6,7 +6,8 @@
  * always the buffer's actual source: an opened file or a live recording appears as
  * a synthetic "Current" row above the built-in fixtures, so loading a file can
  * never leave the picker claiming a fixture. In Live it is the address the feed
- * dials, with a badge saying whether it got there.
+ * dials, with a badge saying whether it got there and whether anything has
+ * arrived.
  *
  * What the buffer IS follows underneath, and only in Play and Build, because Live
  * has no document to describe — `DocumentFields` owns those rows.
@@ -19,6 +20,7 @@ import { Field } from "./inspector/fields.tsx";
 import { kv } from "./inspector/styles.tsx";
 import { DocumentFields } from "./DocumentFields.tsx";
 import type { EditBracket } from "./inspector/edit-bracket.ts";
+import { type LiveFeedStatus, liveFeedStatus } from "../engine/live/status.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { AppMode, BufferSourceInfo } from "../state/app-state.ts";
 import type { Engine } from "../engine/engine.ts";
@@ -50,6 +52,7 @@ export function SourcePicker(
     engine,
     liveSturdyref,
     liveConnected,
+    liveObserved,
     liveRecording = false,
     onScenarioChange,
     onLiveSturdyrefChange,
@@ -67,6 +70,8 @@ export function SourcePicker(
     engine: Engine;
     liveSturdyref: string;
     liveConnected: boolean;
+    /** At least one record has arrived on this dial. */
+    liveObserved: boolean;
     /** Whether a live capture is running. A capture lives in the
      *  engine the trace capability creates, so re-dialing throws it away —
      *  the field therefore stops taking edits while one is running,
@@ -102,7 +107,11 @@ export function SourcePicker(
           />
         </Field>
         <Field label="Status">
-          <ConnectionBadge connected={liveConnected} />
+          <ConnectionBadge
+            sturdyref={liveSturdyref}
+            connected={liveConnected}
+            observed={liveObserved}
+          />
         </Field>
       </div>
     );
@@ -251,19 +260,45 @@ function LiveSturdyrefField(
  *
  * The tone carries the state and the word says it, rather than the color being
  * the only difference: green for connected is not a distinction everyone can make.
+ * Waiting keeps the warning tone so an open-but-silent feed is not the same
+ * green as a feed that has already spoken.
  */
-function ConnectionBadge({ connected }: { connected: boolean }) {
+function ConnectionBadge({
+  sturdyref,
+  connected,
+  observed,
+}: {
+  sturdyref: string;
+  connected: boolean;
+  observed: boolean;
+}) {
+  const status = liveFeedStatus({ sturdyref, connected, observed });
+  const copy = badgeCopy[status];
   return (
-    <span
-      style={connected ? connectedBadge : connectingBadge}
-      // Connecting is the state a reader may sit in and wonder about, so it says
-      // what is happening rather than only naming itself.
-      title={connected ? "The live feed is connected" : "Dialing the live feed — nothing arrives until it connects"}
-    >
-      {connected ? "connected" : "connecting…"}
+    <span style={badgeStyle[status]} title={copy.title}>
+      {copy.label}
     </span>
   );
 }
+
+const badgeCopy: Record<LiveFeedStatus, { label: string; title: string }> = {
+  idle: {
+    label: "idle",
+    title: "Paste a sturdyref to dial the live feed",
+  },
+  connecting: {
+    label: "connecting…",
+    title: "Dialing the live feed — nothing arrives until it connects",
+  },
+  waiting: {
+    label: "waiting…",
+    title: "The live feed is connected — nothing has arrived yet",
+  },
+  connected: {
+    label: "connected",
+    title: "The live feed is connected",
+  },
+};
 
 const connectedBadge = {
   ...stateChipBase,
@@ -276,3 +311,16 @@ const connectingBadge = {
   background: c.warningSoft,
   color: c.warning,
 } satisfies React.CSSProperties;
+
+const idleBadge = {
+  ...stateChipBase,
+  background: c.surfaceMuted,
+  color: c.textMuted,
+} satisfies React.CSSProperties;
+
+const badgeStyle: Record<LiveFeedStatus, React.CSSProperties> = {
+  idle: idleBadge,
+  connecting: connectingBadge,
+  waiting: connectingBadge,
+  connected: connectedBadge,
+};

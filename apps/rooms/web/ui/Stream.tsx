@@ -1,5 +1,5 @@
-// The conversation column: the banner, the log, the join card, the
-// jump-to-latest button, and the composer.
+// The conversation column: the log, the join card, the jump-to-latest button,
+// and the composer.
 //
 // This is where scrolling is owned, and it is owned in one place because the
 // region that scrolls is not the same element on both layouts. On a wide screen
@@ -9,7 +9,7 @@
 
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type { AttachmentView, Banner, Conv, DirId, DirView, SessionPhase } from "./types.ts";
+import type { AttachmentView, Conv, DirId, DirView, SessionPhase } from "./types.ts";
 import type { JoinAnswers } from "./joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";
@@ -17,7 +17,6 @@ import { JoinCard } from "./JoinCard.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { RichText } from "./RichText.tsx";
 import { usePeer } from "./peer.ts";
-import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 
 // How close to the end still counts as "reading the newest message".
@@ -27,7 +26,6 @@ export function Stream(
 	{
 		conv,
 		nick,
-		banner,
 		draft,
 		draftFiles,
 		changing,
@@ -44,7 +42,6 @@ export function Stream(
 	}: {
 		conv: Conv | null;
 		nick: string;
-		banner: Banner | null;
 		draft: string;
 		draftFiles: readonly File[];
 		/** Whether the composer is rewriting a line already posted. */
@@ -208,25 +205,6 @@ export function Stream(
 				<span>Drop to post</span>
 			</div>
 			{
-				/* Session status for this conversation — reconnecting, and the
-			    like. It lives in the column because it is about the session the
-			    reader is in. A copy, a refused name, anything that answers for
-			    a moment and then should get out of the way, is a toast instead,
-			    above every layer of the page. */
-			}
-			<div
-				id="banner"
-				className={banner === null ? "banner" : `banner ${banner.kind} show`}
-				role={banner?.kind === "error" ? "alert" : "status"}
-			>
-				{banner?.kind === "error" && (
-					<span className="banner-mark" aria-hidden="true">
-						<Icon name="fail" size={16} />
-					</span>
-				)}
-				{banner?.text}
-			</div>
-			{
 				/* What the room is about, above what is being said in it. Drawn only
 			    when there is one, because a bar reserving space for nothing is a
 			    permanent reminder that a room has said nothing.
@@ -285,6 +263,14 @@ export function Stream(
 				dirs={dirs}
 				homeDir={homeDir}
 			/>
+			{
+				/* Where the conversation stops being visible. It is not the
+				   composer and it is not the log: it is the one surface whose job
+				   is to end the reading area, so the messages look like they pass
+				   behind the field rather than stopping at a line somebody drew.
+				   Its geometry is in workarea.css beside the log it belongs to. */
+			}
+			<div className="log-fade" aria-hidden="true" />
 			<button
 				type="button"
 				id="jump"

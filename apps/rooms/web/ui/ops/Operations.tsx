@@ -13,6 +13,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePeer } from "../peer.ts";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { IconButton } from "../IconButton.tsx";
+import { Tabs } from "../Tabs.tsx";
 import {
 	type DiagnosticRow,
 	type ListenerRow,
@@ -50,12 +51,14 @@ export function Operations(
 	useModalDialog(dialog, () => peer.closeOperations(), close, open, onExited);
 
 	// A held capability's pane shows what the server said when it was last
-	// asked, so opening the modal asks again. Both refreshes no-op unheld;
-	// the viz pane draws this tab's own publishing state and asks nothing.
+	// asked, so opening the modal asks again. Asking a capability this tab
+	// does not hold is silently nothing, which is why possession is not a
+	// condition here: making it one would put a fresh object in this effect's
+	// dependencies, and every answer replaces the rows it is derived from, so
+	// each refresh would ask for the next.
 	useEffect(() => {
 		if (!open) return;
-		void peer.refreshListeners();
-		void peer.refreshDiagnostics();
+		for (const cap of OPS_CAPS) void peer.refreshOpsCap(cap);
 	}, [open, peer]);
 
 	if (!held) return null;
@@ -65,8 +68,7 @@ export function Operations(
 
 	const select = (next: OpsCap) => {
 		peer.setOpsTab(next);
-		if (next === "listeners") void peer.refreshListeners();
-		else if (next === "diagnostics") void peer.refreshDiagnostics();
+		void peer.refreshOpsCap(next);
 	};
 
 	return (
@@ -90,45 +92,18 @@ export function Operations(
 					/>
 				</div>
 				{panes.length > 1 && (
-					<div
-						className="settings-tabs ops-tabs"
+					<Tabs
 						id="opsTabs"
-						data-count={String(panes.length)}
-						data-thumb={String(Math.max(0, panes.indexOf(pane)))}
-						role="tablist"
-						aria-labelledby={titleId}
-						onKeyDown={(event) => {
-							const at = Math.max(0, panes.indexOf(pane));
-							const go = (next: OpsCap) => {
-								event.preventDefault();
-								select(next);
-							};
-							if (event.key === "Home") go(panes[0]);
-							else if (event.key === "End") go(panes[panes.length - 1]);
-							else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-								go(panes[Math.min(panes.length - 1, at + 1)]);
-							} else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-								go(panes[Math.max(0, at - 1)]);
-							}
-						}}
-					>
-						<span className="settings-tabs-thumb" aria-hidden="true" />
-						{panes.map((cap) => (
-							<button
-								key={cap}
-								id={`${cap}OpsTab`}
-								type="button"
-								className="settings-tab"
-								role="tab"
-								aria-selected={pane === cap}
-								aria-controls={pane === cap ? `${cap}OpsPanel` : undefined}
-								tabIndex={pane === cap ? 0 : -1}
-								onClick={() => select(cap)}
-							>
-								{OPS_CATALOG[cap].pane}
-							</button>
-						))}
-					</div>
+						tabs={panes.map((cap) => ({
+							id: cap,
+							domId: `${cap}OpsTab`,
+							label: OPS_CATALOG[cap].pane,
+							panelId: `${cap}OpsPanel`,
+						}))}
+						selected={pane}
+						labelledBy={titleId}
+						onSelect={select}
+					/>
 				)}
 				{pane === "listeners" && holding.listeners && (
 					<div

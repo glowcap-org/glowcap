@@ -121,9 +121,9 @@ const SessionCancelProbe = struct {
 
 test "core host: callback-time session cancel records intent and defers teardown to unwind" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x1a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x1a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x1b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x1b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -151,9 +151,9 @@ test "core host: callback-time session cancel records intent and defers teardown
 
 test "core host: inside a callback every top-level verb refuses and every enqueueing verb lands at the unwind" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

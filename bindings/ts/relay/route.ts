@@ -4,14 +4,18 @@
 // validates before a runtime WebSocket can perform I/O and preserves admitted
 // route bytes when appending Pancake's owned rendezvous query.
 
-import { INVALID_ARGUMENT, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@pancake/abi";
+import {
+	INVALID_ARGUMENT,
+	RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_NOISE_RELAY,
+} from "@pancake/abi";
 import { type Locator, PancakeError } from "@pancake/runtime/transport";
 import { isRendezvousDesignator } from "./rendezvous.ts";
 
 const RENDEZVOUS_RELAY_HINT = "rendezvous-relay";
 const RENDEZVOUS_QUERY = "rendezvous";
 const REGISTER_QUERY = "id";
-const MAX_RENDEZVOUS_RELAY_HINT_BYTES = 4 * 1024;
 const encoder = new TextEncoder();
 
 function invalid(message: string): never {
@@ -61,8 +65,8 @@ export function relayRoute(value: unknown): string {
 	if (typeof value !== "string" || value.length === 0) {
 		invalid("rendezvous-relay must be a non-empty string hint");
 	}
-	if (encoder.encode(value).byteLength > MAX_RENDEZVOUS_RELAY_HINT_BYTES) {
-		invalid(`rendezvous-relay exceeds ${MAX_RENDEZVOUS_RELAY_HINT_BYTES} UTF-8 bytes`);
+	if (encoder.encode(value).byteLength > RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES) {
+		invalid(`rendezvous-relay exceeds ${RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES} UTF-8 bytes`);
 	}
 	for (let at = 0; at < value.length; at++) {
 		const code = value.charCodeAt(at);

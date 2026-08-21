@@ -3,10 +3,10 @@
 //!
 //! One server thread runs `completion.Loop(webrtc.Backend, webrtc.DialResolver)`
 //! under `driver.Bridge` + `driver_core.Host`, publishing a greeter. N client
-//! threads each bring a DataChannel up as the offerer and hold a keyed OCapN
-//! session over it, calling the greeter and checking every reply — so the one
-//! loop thread is provably multiplexing N channels through the backend's
-//! readiness fd, not serving them serially.
+//! threads each bring a DataChannel up as the offerer and drive a packet-fed
+//! Host session over WebRTC, calling the greeter and checking every reply —
+//! so the one loop thread is provably multiplexing N channels through the
+//! backend's readiness fd, not serving them serially.
 //!
 //! Signaling is an in-process hub, the same stand-in `webrtc-mesh` uses for the
 //! room-carried capability the rooms app ships in TypeScript: the hub answers
@@ -28,7 +28,6 @@ const harness = @import("interop_harness");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const net = pancake.net;
 const driver = pancake.driver;
@@ -41,10 +40,12 @@ const bring_up_timeout_ms: usize = 20_000;
 
 const WebrtcLoop = net.completion.Loop(webrtc.Backend, webrtc.DialResolver);
 const WebrtcBridge = driver.Bridge(WebrtcLoop);
-const runLoop = harness.LoopRunner(WebrtcLoop).runAfterClosed;
+const runLoop = harness.LoopRunner(WebrtcLoop).runUntilFlag;
 
 const Greeter = harness.StaticReplyActor("greet", greeting);
 const publishGreeter = harness.publisher("greeter", Greeter);
+const CapturedRef = webrtc_common.CapturedRef;
+const CapturedString = webrtc_common.CapturedString;
 
 /// The in-process signaling hub: the stand-in for the room-carried signaling
 /// capability. It owns the fd-to-client routing for the server's outbound
@@ -211,21 +212,20 @@ fn clientOnce(
     try io.randomSecure(&seed);
     const secret = crypto.SecretKey.fromSeed(seed);
 
-    var sdp_buf: [webrtc_common.sig_frame_cap]u8 = undefined;
+    var sdp_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
     var sdp_len: usize = 0;
     const offer_sdp = try peer.createOffer(&sdp_buf, &sdp_len);
-    var answer_buf: [webrtc_common.sig_frame_cap]u8 = undefined;
-    const answered = try hub.offer(&peer, secret.publicKey(), offer_sdp, &answer_buf);
+    var signal_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
+    const answered = try hub.offer(&peer, secret.publicKey(), offer_sdp, &signal_buf);
     defer hub.forget(answered.fd);
     try peer.setRemoteAnswer(answered.answer);
 
     // Trickle our candidates into the backend and wait for the channel: the
     // far side's candidates arrive through the hub's `sendCandidate` route.
-    var cand_buf: [4 * 1024]u8 = undefined;
     var cand_len: usize = 0;
     var elapsed: usize = 0;
     while (true) {
-        while (try peer.nextLocalCandidate(&cand_buf, &cand_len)) |ice| {
+        while (try peer.nextLocalCandidate(&signal_buf, &cand_len)) |ice| {
             try hub.backend.provideRemoteCandidate(answered.fd, ice);
         }
         if (try webrtc_common.pollOpen(&resident, &peer, 50)) break;
@@ -233,49 +233,51 @@ fn clientOnce(
         if (elapsed >= bring_up_timeout_ms) return error.ChannelBringUpTimeout;
     }
 
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Demand the server's durable identity. The signaling exchange was aimed
-    // at it and the DataChannel's DTLS binding under that exchange is what
-    // proves it, which the resident asserts for itself (ADR-0105).
-    engine_peer.demandPartnerDurableKey(
-        crypto.PeerKey.fromDesignator(server_designator) orelse return error.InvalidDesignator,
-    );
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-    const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
+    var session_root: [32]u8 = undefined;
+    try io.randomSecure(&session_root);
+    var client_host = try driver.core.Host.init(allocator, seed, session_root, .{
+        .limits = .{ .max_frame_bytes = frame_cap },
+        .local_turn_budget = driver.core.default_loop_local_turn_budget,
     });
-    defer vat.deinit();
+    defer client_host.deinit();
 
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
+    const client_designator = secret.publicKey().toDesignator();
+    try client_host.setAdvertisedLocator(.{
         .transport = webrtc.transport_name,
-        .designator = designator[0..],
+        .designator = client_designator[0..],
         .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
+    });
+    const dialed = try client_host.openDialedLocator(.{
+        .transport = webrtc.transport_name,
+        .designator = server_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer client_host.releaseSession(dialed) catch |err|
+        std.debug.panic("client session cleanup failed: {s}", .{@errorName(err)});
 
-    const greeter = try vat.fetch("greeter");
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
+    defer allocator.free(read_buf);
+    var packet_pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer packet_pump.deinit();
+
+    try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, dialed, webrtc_common.sessionOpenDone, bring_up_timeout_ms);
+
+    var fetched = CapturedRef{};
+    const fetch_vow = try client_host.fetch(dialed, "greeter");
+    try client_host.vowOn(fetch_vow, .{ .ctx = &fetched, .func = CapturedRef.record });
+    try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &fetched, webrtc_common.refDone, bring_up_timeout_ms);
+    const greeter = try fetched.require();
+
     var i: usize = 0;
     while (i < calls_per_conn) : (i += 1) {
-        _ = arena_state.reset(.retain_capacity);
-        const settled = try vat.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
-        switch (settled) {
-            .fulfilled => |arg| {
-                if (arg != .string or !std.mem.eql(u8, arg.string, greeting)) return error.WrongReply;
-            },
-            .broken, .give => return error.CallBroke,
-        }
+        var reply = CapturedString{};
+        const vow = try client_host.send(dialed, greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} });
+        try client_host.vowOn(vow, .{ .ctx = &reply, .func = CapturedString.record });
+        try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &reply, webrtc_common.stringDone, bring_up_timeout_ms);
+        if (!std.mem.eql(u8, try reply.require(), greeting)) return error.WrongReply;
     }
+    _ = try packet_pump.drive(&client_host, dialed, &peer);
+    peer.close();
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -298,7 +300,7 @@ pub fn main(init: std.process.Init) !void {
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
     var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = actors.Vat.max_batch_local_turns,
+        .local_turn_budget = driver.core.default_loop_local_turn_budget,
     });
     defer host.deinit();
     var loop: WebrtcLoop = undefined;
@@ -321,7 +323,8 @@ pub fn main(init: std.process.Init) !void {
     try bridge.attach(model.transport.Known.webrtc.metadata(), server_designator, &.{});
 
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoop, .{ &loop, num_conns, &loop_err });
+    var done = std.atomic.Value(bool).init(false);
+    var loop_future = try io.concurrent(runLoop, .{ &loop, &done, &loop_err });
 
     var futures: [num_conns]@TypeOf(io.concurrent(clientOnce, .{ io, allocator, &hub, server_designator }) catch unreachable) = undefined;
     var started: usize = 0;
@@ -337,6 +340,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    done.store(true, .release);
+    try loop.backend.wake();
     loop_future.await(io);
     if (loop_err) |err| return err;
     if (first_err) |err| return err;

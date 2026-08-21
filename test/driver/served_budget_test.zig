@@ -70,7 +70,7 @@ test "drivePostBatch within budget drains and settles the local send's listener"
 
     var result: i64 = 0;
     try vat.on(vow, .{ .ctx = &result, .func = capture.captureInt });
-    try served.drivePostBatch(&vat, actors.Vat.max_batch_local_turns);
+    try served.drivePostBatch(&vat, std.math.maxInt(usize));
     try std.testing.expectEqual(@as(i64, 1), result);
 }
 

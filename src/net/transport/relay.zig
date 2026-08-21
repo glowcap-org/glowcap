@@ -1,7 +1,7 @@
 //! The relay provider package. One configured provider realizes both the
 //! cleartext `keyed-relay` and Noise-sealed `noise-relay` transport profiles.
 //! Relay route policy lives in `keyed_relay/route.zig`, reusable RFC 6455
-//! grammar in `websocket/client_protocol.zig`, resident socket ownership in
+//! grammar in `websocket.zig`'s `client_protocol`, resident socket ownership in
 //! `keyed_relay/resident.zig`, and completion-only operation accounting and
 //! buffer lending in `keyed_relay/completion.zig`.
 
@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 const address_race = @import("keyed_relay/address_race.zig");
 const blocking_frame = @import("keyed_relay/blocking_frame.zig");
 const endpoint_race = @import("keyed_relay/endpoint_race.zig");
-const protocol = @import("../websocket/client_protocol.zig");
+const protocol = @import("../websocket.zig").client_protocol;
 const profile = @import("keyed_relay/profile.zig");
 const provider = @import("keyed_relay/provider.zig");
 const route = @import("keyed_relay/route.zig");

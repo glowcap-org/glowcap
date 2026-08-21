@@ -2,9 +2,8 @@
 
 Browser-to-browser transport for the pancake JavaScript/TypeScript runtime: a
 WebRTC peer that drives the signaling exchange (offer, answer, ICE) and presents
-the open `RTCDataChannel` as a byte channel. [`@pancake/web`](../web/README.md)
-runs a keyed OCapN session over that channel the same way it runs over a relay
-WebSocket.
+the open `RTCDataChannel` as an opaque packet channel. The Host session's
+transport profile treats each WebRTC packet as one bare CapTP codec frame.
 
 Signaling is an OCapN capability (for example a room), not this module. Two
 browsers introduced by a room speak directly over a DataChannel with the room
@@ -18,7 +17,7 @@ const peer = new RtcPeer({ offerer: true });
 // Exchange createOffer / setRemoteAnswer (and ICE) through a signaling capability.
 await peer.waitOpen();
 const channel = peer.channel();
-// Hand `channel` to @pancake/web / the Host byte seam.
+// Hand `channel` to @pancake/web / the Host transport-packet seam.
 ```
 
 The public surface is [`mod.ts`](mod.ts): `RtcPeer` and `rtcChannel`.

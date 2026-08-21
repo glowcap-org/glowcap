@@ -138,9 +138,9 @@ pub const PancakeMultiplexedFinishAcceptFn = *const fn (
 ) callconv(.c) i32;
 
 /// Stop accepting. Idempotent; the runtime and dial side stay alive. An
-/// asynchronously retiring provider returns success with an empty failure,
-/// emits EV_LISTEN for the route after joining, then exposes the claim-once
-/// cleanup result through cancel_listen.
+/// asynchronously retiring provider returns PANCAKE_ERR_WOULD_BLOCK with an
+/// empty failure, emits EV_LISTEN for the route after joining, then returns
+/// the claim-once terminal outcome when called again.
 pub const PancakeMultiplexedStopListenFn = *const fn (
     listener_ctx: ?*anyopaque,
     out_failure: ?*transport_provider.PancakeProviderFailure,

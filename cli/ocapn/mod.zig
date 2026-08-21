@@ -4,15 +4,14 @@ const pancake = @import("pancake");
 const Ctx = @import("../ctx.zig").Ctx;
 const argv = @import("../argv.zig");
 const exit_codes = @import("../exit_codes.zig");
-const signals = @import("../operability/signals.zig");
 const Parsed = @import("../cmd/types.zig").Parsed;
 const relay_runtime = @import("relay_runtime.zig");
 const listen_target = @import("listen_target.zig");
+const session_opts = @import("session_opts.zig");
 const SessionRef = @import("session_ref.zig").SessionRef;
 
 const driver = pancake.driver;
 const model = pancake.ocapn.model;
-const actors = pancake.actors;
 
 /// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`; the public
 /// entry point stays on this flat `ocapn` surface.
@@ -63,15 +62,12 @@ fn printOut(ctx: *Ctx, comptime fmt: []const u8, args: anytype) !void {
     try ctx.writeResult(msg);
 }
 
-/// Product CapTP deadlines (ADR-0081). Zero would park forever on a silent peer.
-pub const default_handshake_timeout_ms: i32 = 10_000;
-pub const default_settle_timeout_ms: i32 = 30_000;
+pub const default_handshake_timeout_ms = session_opts.default_handshake_timeout_ms;
+pub const default_settle_timeout_ms = session_opts.default_settle_timeout_ms;
+pub const sessionOptsReporting = session_opts.sessionOptsReporting;
 
 pub fn sessionOpts() driver.SessionOptions {
-    return .{
-        .handshake = .{ .ms = default_handshake_timeout_ms },
-        .settle = .{ .ms = default_settle_timeout_ms },
-    };
+    return session_opts.sessionOpts();
 }
 
 /// Dial with explicit session options (tests pass a short handshake budget).
@@ -104,7 +100,7 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
         netlayer_count = 3;
     }
     const identity = try ctx.dialIdentity();
-    return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, opts) catch |err| {
+    return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;
     };
@@ -228,109 +224,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     if (ctx.front != .argv) {
         return @import("listen_background.zig").start(ctx, parsed);
     }
-    const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
-    const publish_name = parsed.flagString("publish");
-    const once = parsed.flagBool("once");
-    const accept_id = try ctx.acceptIdentity();
-
-    var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
-    var relay: ?relay_runtime.Provider = null;
-    defer if (relay) |*provider| {
-        _ = relay_runtime.deinitAndReport(ctx, provider);
-    };
-    const target = listenTarget(
-        ctx,
-        bind,
-        parsed.flagString("rendezvous"),
-        parsed.flagString("rendezvous-relay"),
-        &tcp,
-        &relay,
-    ) catch |err| switch (err) {
-        error.Usage => return exit_codes.usage,
-        error.OutOfMemory => return err,
-        else => return exit_codes.dial,
-    };
-
-    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, sessionOpts()) catch |err| {
-        ctx.logErr("listen: {s}", .{@errorName(err)});
-        return exit_codes.dial;
-    };
-    defer server.deinit();
-
-    const uri = try model.uri.writePeer(ctx.gpa, (try server.advertisedLocator()));
-    defer ctx.gpa.free(uri);
-    const locator_copy = try ctx.gpa.dupe(u8, uri);
-    if (ctx.last_locator) |old| ctx.gpa.free(old);
-    ctx.last_locator = locator_copy;
-
-    if (ctx.json == .json) {
-        var out: std.ArrayList(u8) = .empty;
-        defer out.deinit(ctx.gpa);
-        try out.appendSlice(ctx.gpa, "{\"ok\":true,\"locator\":");
-        try argv.writeJsonString(&out, ctx.gpa, uri);
-        try out.appendSlice(ctx.gpa, "}\n");
-        try ctx.writeResult(out.items);
-    } else {
-        try printOut(ctx, "{s}\n", .{uri});
-    }
-
-    // Poll the listen seat so SIGINT/SIGTERM can exit without closing the
-    // listen FD from another thread (Zig Threaded Io panics on that BADF).
-    signals.install();
-
-    // `--publish` / `--once` accept one partner then exit; until then this
-    // process is intentionally idle on accept. Say so on stderr so a quiet
-    // wait is not mistaken for a hang (stdout already carried the locator).
-    if (publish_name) |name| {
-        ctx.logInfo("listening; will publish {s} when a partner connects (Ctrl-C to stop)", .{name});
-    } else if (once) {
-        ctx.logInfo("listening; accepting one partner (Ctrl-C to stop)", .{});
-    } else {
-        ctx.logInfo("listening; Ctrl-C to stop", .{});
-    }
-
-    while (!signals.stopRequested()) {
-        const ready = server.waitAcceptable(signals.poll_ms) catch |err| {
-            if (signals.stopRequested()) return exit_codes.ok;
-            ctx.logErr("listen wait: {s}", .{@errorName(err)});
-            return exit_codes.internal;
-        };
-        if (!ready) continue;
-        if (signals.stopRequested()) return exit_codes.ok;
-        var session = server.accept() catch |err| {
-            if (signals.stopRequested()) return exit_codes.ok;
-            ctx.logErr("listen accept: {s}", .{@errorName(err)});
-            return exit_codes.internal;
-        };
-        defer session.deinit();
-        if (publish_name) |name| {
-            publishBuiltin(session, name) catch |err| switch (err) {
-                error.UnknownBuiltin => {
-                    ctx.logErr("unknown --publish {s} (want greeter or echo)", .{name});
-                    return exit_codes.usage;
-                },
-                else => return err,
-            };
-            ctx.logInfo("published {s}", .{name});
-        }
-        try serveUntilStop(session);
-        if (signals.stopRequested()) return exit_codes.ok;
-        if (once or publish_name != null) break;
-    }
-    return exit_codes.ok;
-}
-
-/// Serve until the partner leaves or SIGINT/SIGTERM sets the stop latch.
-/// `Session.serve` parks in an unbounded read; chunked `stepReadable` lets the
-/// latch end a published peer without closing the socket from another thread.
-fn serveUntilStop(session: *driver.Session) !void {
-    while (!signals.stopRequested()) {
-        const progress = session.stepReadable(signals.poll_ms) catch |err| switch (err) {
-            error.ConnectionLost, error.TruncatedFrame => return,
-            else => return err,
-        };
-        if (progress) |p| if (p == .closed) return;
-    }
+    return @import("listen_foreground.zig").run(ctx, parsed);
 }
 
 pub fn cmdDial(ctx: *Ctx, parsed: *Parsed) !u8 {
@@ -354,6 +248,7 @@ pub fn cmdDial(ctx: *Ctx, parsed: *Parsed) !u8 {
         var failure = close_failure;
         session.close(.cancel) catch |cleanup| failure.note(cleanup);
         session.deinit();
+        if (ctx.takeCallerless()) |cleanup| failure.noteChain(cleanup);
         ctx.logErr(
             "replace session: {s} (and {d} later failure(s))",
             .{ failure.primaryName(), failure.secondary_count },
@@ -532,13 +427,9 @@ pub fn cmdPublish(ctx: *Ctx, parsed: *Parsed) !u8 {
 
 pub fn cmdClose(ctx: *Ctx, parsed: *Parsed) !u8 {
     _ = parsed;
-    ctx.closeBackgroundListener();
-    if (ctx.closeSession(.cancel)) |failure| {
-        ctx.logErr(
-            "close: {s} (and {d} later failure(s))",
-            .{ failure.primaryName(), failure.secondary_count },
-        );
-        return mapDialErr(failure.cause);
+    if (ctx.closeOwned(.cancel)) |failure| {
+        ctx.logCloseFailure("close", failure);
+        return ctx.mapCloseErr(failure.cause);
     }
     if (ctx.json == .json) try ctx.writeResult("{\"ok\":true}\n");
     return exit_codes.ok;

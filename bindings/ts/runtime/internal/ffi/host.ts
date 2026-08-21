@@ -67,6 +67,9 @@ export const hostS = lazySymbols(() => libPath("pancake_host"), {
 	// the annotation is what keeps the wasm boundary at one copy-in per feed
 	// with no full-chunk copy-back.
 	pancake_host_session_feed_bytes: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_session_feed_packet: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_session_resume_feed: { parameters: [P], result: I },
+	pancake_host_session_take_packet: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4] },
 	pancake_host_session_take_outbound: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4] },
 	pancake_host_next_action: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_dialed: { parameters: [P, U64, P], result: I },

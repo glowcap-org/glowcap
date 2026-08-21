@@ -41,16 +41,16 @@ test "handshake submission refusals share one actionable retry owner" {
     const fd = try backend.startDial(71, .{ .sealed = sealedTarget() });
     var completions: [2]completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    const conn = backend.conns.get(1).?;
-    try std.testing.expectEqual(@as(usize, 1), backend.submission_retries.count);
-    try std.testing.expectEqual(@as(u8, 0b0110), conn.submission_retry_mask);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.send_submit_attempts);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.recv_submit_attempts);
     try std.testing.expectEqual(@as(?u64, null), backend.inner.armed_recv_ud);
     try std.testing.expectEqual(@as(usize, 0), backend.inner.wire.items.len);
 
     // One FIFO visit retries both operations. No receive-buffer recycle is
     // needed because this is submission pressure, not pool starvation.
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(@as(usize, 0), backend.submission_retries.count);
+    try std.testing.expectEqual(@as(usize, 2), backend.inner.send_submit_attempts);
+    try std.testing.expectEqual(@as(usize, 2), backend.inner.recv_submit_attempts);
     try std.testing.expect(backend.inner.armed_recv_ud != null);
     try std.testing.expectEqual(@as(usize, sealed.msg1_wire_bytes), backend.inner.wire.items.len);
 
@@ -78,17 +78,17 @@ test "receive-buffer starvation sleeps until recycle and then rearms" {
     };
     var completions: [2]completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 73));
-    try std.testing.expectEqual(@as(usize, 1), backend.recv_starvation.count);
+    const attempts_after_starvation = backend.inner.recv_submit_attempts;
 
     // Starvation alone is not actionable debt. The adapter may block in its
     // inner poll instead of spinning at timeout zero.
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 73));
     try std.testing.expectEqual(@as(i32, 73), backend.inner.last_poll_timeout_ms);
-    try std.testing.expectEqual(@as(usize, 1), backend.recv_starvation.count);
+    try std.testing.expectEqual(attempts_after_starvation, backend.inner.recv_submit_attempts);
 
     backend.recycleBorrowed(.{ .user_data = 0, .result = 0 });
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(@as(usize, 0), backend.recv_starvation.count);
+    try std.testing.expectEqual(attempts_after_starvation + 1, backend.inner.recv_submit_attempts);
     try std.testing.expect(backend.inner.armed_recv_ud != null);
 
     try backend.submitCancel(74, 73, fd);
@@ -114,10 +114,12 @@ test "cancel removes recycle-gated receive debt" {
     };
     var completions: [2]completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(@as(usize, 1), backend.recv_starvation.count);
+    const attempts_after_starvation = backend.inner.recv_submit_attempts;
     try backend.submitCancel(76, 75, fd);
-    try std.testing.expectEqual(@as(usize, 0), backend.recv_starvation.count);
     try std.testing.expectEqual(@as(usize, 2), try backend.poll(&completions, 0));
+    backend.recycleBorrowed(.{ .user_data = 0, .result = 0 });
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(attempts_after_starvation, backend.inner.recv_submit_attempts);
     try closeSealed(&backend, fd, allocator);
 }
 
@@ -131,17 +133,37 @@ test "refused close retries in bounded FIFO turns and completes once" {
 
     backend.inner.refused_closes = 2;
     try backend.submitClose(77, fd);
-    try std.testing.expectEqual(@as(usize, 1), backend.submission_retries.count);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.close_submit_attempts);
     var completions: [2]completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, -1));
     try std.testing.expectEqual(@as(i32, 50), backend.inner.last_poll_timeout_ms);
-    try std.testing.expectEqual(@as(usize, 1), backend.submission_retries.count);
+    try std.testing.expectEqual(@as(usize, 2), backend.inner.close_submit_attempts);
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, -1));
     try std.testing.expectEqual(@as(u64, 77), completions[0].user_data);
     try std.testing.expectEqual(@as(i32, 0), completions[0].result);
     try std.testing.expectEqual(@as(usize, 3), backend.inner.close_submit_attempts);
-    try std.testing.expectEqual(@as(usize, 0), backend.submission_retries.count);
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
+}
+
+test "allocator refusal preserves earned completions before polling inner" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var backend = try sealingBackend(failing.allocator());
+    defer backend.deinit();
+
+    const Namespace = completion.AdapterNamespace(PipePlatform);
+    const absent_fd = try Namespace.fdFromId(1);
+    try backend.submitClose(78, absent_fd);
+    failing.fail_index = failing.alloc_index;
+    backend.inner.poll_calls = 0;
+
+    var completions: [1]completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(u64, 78), completions[0].user_data);
+    try std.testing.expectEqual(@as(i32, 0), completions[0].result);
+    try std.testing.expectEqual(@as(usize, 0), backend.inner.poll_calls);
+
+    try std.testing.expectError(error.OutOfMemory, backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(usize, 0), backend.inner.poll_calls);
 }
 
 test "sealed completion close owns retries and preserves lent plaintext until recycle" {
@@ -208,10 +230,10 @@ test "a substituted responder key never yields a connected session" {
     // The relay answers with its own static: a responder whose durable key is
     // not the one the dial named. Its message two cannot verify against the
     // dialed key's handshake transcript.
-    const mitm_secret = crypto.SecretKey.fromSeed([_]u8{0x66} ** crypto.SEED_BYTES);
+    const mitm_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x66)));
     var mitm = try sealed.SealedChannel.initResponder(
         &mitm_secret,
-        [_]u8{0x77} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x77)),
         model.transport.noise_relay,
     );
     defer mitm.deinit(allocator);
@@ -334,7 +356,7 @@ test "noise-relay registered resident opens an authenticated session through a c
         .{ .needle = relay_reply, .found = &relay_saw_plaintext },
     });
 
-    const server_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES);
+    const server_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x52)));
     var registered = try net.relay.Resident.initRegisteredProfile(
         allocator,
         io,

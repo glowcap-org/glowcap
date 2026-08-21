@@ -61,7 +61,7 @@ driver.HostRuntime (owning; heap-pinned; src/driver/host_runtime.zig)
 ├── netlayers: []const Netlayer     borrowed; must outlive the Host — later
 │                                   redeem dials resolve through this slice,
 │                                   so a caller's stack-local array dangles
-├── wires: PeerId → *Wire           one wire per live session
+├── wires: PeerHandle → *Wire           one wire per live session
 └── opts: SessionOptions            frame/open admission; wire staging; codec; Budgets
 
 Wire (owning; one per session; private to driver.HostRuntime)
@@ -104,7 +104,7 @@ inbound, under one deadline.
 Every blocking wait runs one loop, `pumpUntil(done, budget)`:
 
 1. **Drain the core's action queue** (`core.takeAction`, owned):
-   - `flush(peer_id)` — write that session's `takeOutbound` frames to its
+   - `flush(peer_handle)` — write that session's `takeOutbound` frames to its
      wire; the frame is freed after the write.
    - `dial(ticket)` — the redeem dial: borrow `core.pendingDial(ticket)`
      (transport, designator, hint), `core.openDialedLocator` to mint the
@@ -116,7 +116,7 @@ Every blocking wait runs one loop, `pumpUntil(done, budget)`:
      hanging.
    - `need_gift_id(ticket)` — draw 32 bytes at the driver's entropy boundary
      (`drawSessionSecret`'s source) and `core.provideGiftId`.
-   - `close(peer_id)` — write the condemned session's queued abort, then
+   - `close(peer_handle)` — write the condemned session's queued abort, then
      close its wire.
    - `settled`/`failed` — completions for vows nobody observed in-process;
      freed on pop (the Zig face observes through `vowOn`, so these are

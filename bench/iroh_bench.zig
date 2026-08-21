@@ -318,7 +318,7 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     try io.randomSecure(&session_root);
     var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = actors.Vat.max_batch_local_turns,
+        .local_turn_budget = driver.core.default_loop_local_turn_budget,
     });
     defer host.deinit();
     var loop: IrohLoop = undefined;

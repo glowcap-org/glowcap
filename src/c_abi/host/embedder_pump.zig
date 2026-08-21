@@ -14,7 +14,7 @@ const driver_core = @import("driver_core");
 
 comptime {
     // Keep the C drain arm count lockstep with Zig HostAction.
-    const tags = @typeInfo(driver_core.HostAction).@"union".fields;
+    const tags = @typeInfo(driver_core.HostAction).@"union".field_names;
     if (tags.len != 8) {
         @compileError("embedder_pump: HostAction tag count changed — update drainHost switch");
     }

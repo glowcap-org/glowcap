@@ -27,7 +27,7 @@ These rules define what fits the project:
 - Every wire-path allocation or copy is forbidden, intentional, or measured.
 - A fact has one owner. Prefer a generated mirror or check step over a
   hand-kept copy.
-- A source file holds one subject and stops at a thousand lines. The files still
+- A source file holds one subject and stops at 650 lines. The files still
   over that line are listed in `tools/check/source_check/file_length.zig`, the
   list is closed to newcomers, and it is meant to reach zero. Splitting a file
   to make room for your change is the ordinary way to work here, whoever wrote
@@ -41,12 +41,9 @@ codec, netlayer, and layer boundaries need a decision record. Copy
 building against it.
 
 New authority models and I/O inside the synchronous core are out of scope.
-Encrypted channels between pancake peers use `noise-tcp` on a direct route, or
-iroh when discovery and NAT traversal matter; plain `tcp` stays cleartext and
-is not a TLS path.
-[ADR-0107](docs/decisions/adr/ADR-0107-sealed-byte-channel.md) and
-[ADR-0055](docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md) record those
-choices.
+Encrypted channels between pancake peers use iroh when discovery and NAT
+traversal matter, or `noise-tcp` on a direct route. Sealed TCP is a Noise
+channel, not TLS; plain `tcp` stays cleartext.
 
 ## Dev environment
 

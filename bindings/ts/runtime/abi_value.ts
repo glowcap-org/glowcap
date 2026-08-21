@@ -34,6 +34,10 @@ import {
 import { PancakeError } from "./errors.ts";
 import { type Argument, isReference, Kw, PSet, PStruct, Ref, refFromId, Sym, Tagged } from "./value.ts";
 
+const EMPTY_ARGS = new Uint8Array(0);
+const TEXT_ENCODER = new TextEncoder();
+const TEXT_DECODER = new TextDecoder();
+
 function writeReference(dv: DataView, off: number, ref: Ref): void {
 	if (ref.released) {
 		throw new Error("pancake: this capability was released and is no longer usable");
@@ -50,6 +54,7 @@ export function refStruct(ref: Ref): Uint8Array {
 // Encodes args into one contiguous Uint8Array of ARG_SIZE structs, pushing any
 // backing byte/child buffers onto `keep` so they outlive the FFI call.
 export function encodeArgs(args: Argument[], keep: Uint8Array[]): Uint8Array {
+	if (args.length === 0) return EMPTY_ARGS;
 	const buf = new Uint8Array(L.ARG_SIZE * args.length);
 	const dv = new DataView(buf.buffer);
 	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep));
@@ -76,7 +81,7 @@ function encodeArg(
 			const negative = arg < 0n;
 			setBytes(
 				ARG_BIG_INTEGER,
-				new TextEncoder().encode((negative ? -arg : arg).toString()),
+				TEXT_ENCODER.encode((negative ? -arg : arg).toString()),
 			);
 			dv.setUint32(off + L.ARG_BOOLEAN_OFF, negative ? 1 : 0, true);
 		} else {
@@ -92,15 +97,15 @@ function encodeArg(
 	} else if (arg instanceof Uint8Array) {
 		setBytes(ARG_BYTES, arg);
 	} else if (arg instanceof Sym) {
-		setBytes(ARG_SYMBOL, new TextEncoder().encode(arg.value));
+		setBytes(ARG_SYMBOL, TEXT_ENCODER.encode(arg.value));
 	} else if (arg instanceof Kw) {
-		setBytes(ARG_KEYWORD, new TextEncoder().encode(arg.value));
+		setBytes(ARG_KEYWORD, TEXT_ENCODER.encode(arg.value));
 	} else if (typeof arg === "string") {
-		setBytes(ARG_STRING, new TextEncoder().encode(arg));
+		setBytes(ARG_STRING, TEXT_ENCODER.encode(arg));
 	} else if (arg instanceof Error) {
 		// Returning an Error fulfills with an OCapN Error value. Throwing it is
 		// the separate operation that breaks a reply.
-		setBytes(ARG_ERROR, new TextEncoder().encode(arg.message));
+		setBytes(ARG_ERROR, TEXT_ENCODER.encode(arg.message));
 	} else if (arg === null) {
 		dv.setUint32(off + L.ARG_KIND_OFF, ARG_VOID, true);
 	} else if (isReference(arg)) {
@@ -111,12 +116,13 @@ function encodeArg(
 	} else if (arg instanceof PSet) {
 		writeItems(ARG_SET, arg.items);
 	} else if (arg instanceof Tagged) {
-		setBytes(ARG_TAGGED, new TextEncoder().encode(arg.tag));
+		setBytes(ARG_TAGGED, TEXT_ENCODER.encode(arg.tag));
 		writeItems(ARG_TAGGED, arg.value);
 	} else if (arg instanceof PStruct) {
-		const flat: Argument[] = [];
-		for (const [key, value] of arg.entries) flat.push(key, value);
-		writeItems(ARG_STRUCT, flat);
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_STRUCT, true);
+		const child = encodeStructEntries(arg.entries, keep);
+		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
+		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, arg.entries.length * 2);
 	} else {
 		throw new PancakeError(UNSUPPORTED_VALUE, "unsupported argument value");
 	}
@@ -127,6 +133,24 @@ function encodeArg(
 		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
 		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, items.length);
 	}
+}
+
+function encodeStructEntries(
+	entries: Array<readonly [string, Argument]>,
+	keep: Uint8Array[],
+): Uint8Array {
+	if (entries.length === 0) return EMPTY_ARGS;
+	const buf = new Uint8Array(L.ARG_SIZE * entries.length * 2);
+	const dv = new DataView(buf.buffer);
+	entries.forEach(([key, value], i) => {
+		if (typeof key !== "string") {
+			throw new PancakeError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
+		}
+		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep);
+		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep);
+	});
+	keep.push(buf);
+	return buf;
 }
 
 export function readReference(view: DataView, off: number): Ref {
@@ -141,7 +165,7 @@ export function readArg(view: DataView, off: number): Argument {
 			L.getPtr(view, off + L.ARG_BYTES_OFF),
 			L.getUsize(view, off + L.ARG_BYTES_LEN_OFF),
 		);
-	const argString = () => new TextDecoder().decode(argBytes());
+	const argString = () => TEXT_DECODER.decode(argBytes());
 	const argItems = () =>
 		readArgArray(
 			L.getPtr(view, off + L.ARG_ITEMS_OFF),
@@ -180,26 +204,35 @@ export function readArg(view: DataView, off: number): Argument {
 			const magnitude = BigInt(argString());
 			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
 		}
-		case ARG_STRUCT: {
-			const flat = argItems();
-			if (flat.length % 2 !== 0) {
-				throw new PancakeError(INTERNAL, "pancake ABI returned an odd Struct item count");
-			}
-			const entries: Array<readonly [string, Argument]> = [];
-			for (let i = 0; i < flat.length; i += 2) {
-				if (typeof flat[i] !== "string") {
-					throw new PancakeError(INTERNAL, "pancake ABI returned a non-String Struct key");
-				}
-				entries.push([flat[i] as string, flat[i + 1]]);
-			}
-			return new PStruct(entries);
-		}
+		case ARG_STRUCT:
+			return readStruct(
+				L.getPtr(view, off + L.ARG_ITEMS_OFF),
+				L.getUsize(view, off + L.ARG_ITEMS_LEN_OFF),
+			);
 		default:
 			throw new PancakeError(
 				INTERNAL,
 				`pancake ABI returned unknown argument kind ${kind}`,
 			);
 	}
+}
+
+function readStruct(ptrValue: Ptr, len: bigint): PStruct {
+	if (len % 2n !== 0n) {
+		throw new PancakeError(INTERNAL, "pancake ABI returned an odd Struct item count");
+	}
+	if (ptrValue === NULL || len === 0n) return new PStruct([]);
+	const count = Number(len);
+	const view = new DataView(ffi.readMemory(ptrValue, count * L.ARG_SIZE));
+	const entries: Array<readonly [string, Argument]> = [];
+	for (let i = 0; i < count; i += 2) {
+		const key = readArg(view, i * L.ARG_SIZE);
+		if (typeof key !== "string") {
+			throw new PancakeError(INTERNAL, "pancake ABI returned a non-String Struct key");
+		}
+		entries.push([key, readArg(view, (i + 1) * L.ARG_SIZE)]);
+	}
+	return new PStruct(entries);
 }
 
 export function readArgArray(ptrValue: Ptr, len: bigint): Argument[] {

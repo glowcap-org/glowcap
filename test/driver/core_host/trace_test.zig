@@ -104,9 +104,9 @@ const DigestLog = struct {
 
 test "core host: the live trace reports open, both message directions, and close" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var client_log = TraceLog{};
     var server_log = TraceLog{};
@@ -154,9 +154,9 @@ test "core host: the live trace reports open, both message directions, and close
 
 test "core host: deinit closes every traced open exactly once" {
     const allocator = std.testing.allocator;
-    var peer = test_host.init(allocator, [_]u8{0x40} ** 32, Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.withFrameCap(frame_cap));
     defer peer.deinit();
-    var host = test_host.init(allocator, [_]u8{0x41} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x41)), Host.Options.withFrameCap(frame_cap));
     var log = TraceLog{};
     try host.setTrace(.{ .ctx = &log, .emit = TraceLog.emit });
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -177,18 +177,17 @@ test "core host: a pancake-to-pancake pair holds the next profile over capnp" {
     // time. Only `engine.pairing` (in-process, no Host) had ever exercised
     // `next`, because `Host.Options` carried no version and every socket
     // session took the v1.0 floor. The profile is a wire difference, not a
-    // label: on `next` an answer settles through a resolve, where V1.0 has
-    // no native `op:resolve` and settles through a `resolve_me_desc`
-    // callback. A handshake that completes here is both ends agreeing on
-    // the version they put in `op:start-session` and on the grammar that
-    // framed it.
+    // label: on `next` an answer settles through the mandatory listener path,
+    // while V1.0 settles through a `resolve_me_desc` callback. A handshake
+    // that completes here is both ends agreeing on the version they put in
+    // `op:start-session` and on the grammar that framed it.
     const allocator = std.testing.allocator;
     var opts = Host.Options.withFrameCap(frame_cap);
     opts.codec = .capnp;
     opts.captp_version = .next;
-    var a = test_host.init(allocator, [_]u8{0x4a} ** 32, opts);
+    var a = test_host.init(allocator, @as([32]u8, @splat(0x4a)), opts);
     defer a.deinit();
-    var b = test_host.init(allocator, [_]u8{0x4b} ** 32, opts);
+    var b = test_host.init(allocator, @as([32]u8, @splat(0x4b)), opts);
     defer b.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -222,12 +221,12 @@ test "core host: one host holds a next capnp session and a baseline session at o
     native_opts.codec = .capnp;
     native_opts.captp_version = .next;
 
-    var hub = test_host.init(allocator, [_]u8{0x5a} ** 32, native_opts);
+    var hub = test_host.init(allocator, @as([32]u8, @splat(0x5a)), native_opts);
     defer hub.deinit();
-    var native_peer = test_host.init(allocator, [_]u8{0x5b} ** 32, native_opts);
+    var native_peer = test_host.init(allocator, @as([32]u8, @splat(0x5b)), native_opts);
     defer native_peer.deinit();
     // A peer that knows only the baseline: the profile a Goblins vat speaks.
-    var baseline_peer = test_host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
     defer baseline_peer.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -264,10 +263,10 @@ test "core host: feature offers are carried by the signed hello and intersected"
     const allocator = std.testing.allocator;
     var limited_opts = Host.Options.withFrameCap(frame_cap);
     limited_opts.features = model.FeatureSet.minimum();
-    var limited = test_host.init(allocator, [_]u8{0x6d} ** 32, limited_opts);
+    var limited = test_host.init(allocator, @as([32]u8, @splat(0x6d)), limited_opts);
     defer limited.deinit();
 
-    var full = test_host.init(allocator, [_]u8{0x6e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var full = test_host.init(allocator, @as([32]u8, @splat(0x6e)), Host.Options.withFrameCap(frame_cap));
     defer full.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -290,11 +289,11 @@ test "core host: the live trace reports each session's settled profile, not the 
     native_opts.codec = .capnp;
     native_opts.captp_version = .next;
 
-    var hub = test_host.init(allocator, [_]u8{0x6a} ** 32, native_opts);
+    var hub = test_host.init(allocator, @as([32]u8, @splat(0x6a)), native_opts);
     defer hub.deinit();
-    var native_peer = test_host.init(allocator, [_]u8{0x6b} ** 32, native_opts);
+    var native_peer = test_host.init(allocator, @as([32]u8, @splat(0x6b)), native_opts);
     defer native_peer.deinit();
-    var baseline_peer = test_host.init(allocator, [_]u8{0x6c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
     defer baseline_peer.deinit();
 
     var hub_log = TraceLog{};
@@ -328,11 +327,11 @@ test "core host: both peers of one session report the same wire name" {
     // the pair sorted, so the dialer and the accepter compute the same digits
     // and a viewer can tell one wire watched twice from two wires.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x71} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x72} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var third = test_host.init(allocator, [_]u8{0x73} ** 32, Host.Options.withFrameCap(frame_cap));
+    var third = test_host.init(allocator, @as([32]u8, @splat(0x73)), Host.Options.withFrameCap(frame_cap));
     defer third.deinit();
 
     var client_log = TraceLog{};
@@ -383,12 +382,12 @@ test "core host: a three-vat handoff holds native between the pancake pair and b
     native_opts.codec = .capnp;
     native_opts.captp_version = .next;
 
-    var exporter = test_host.init(allocator, [_]u8{0x7e} ** 32, native_opts);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x7e)), native_opts);
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x76} ** 32, native_opts);
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x76)), native_opts);
     defer gifter.deinit();
     // The Goblins-shaped peer: it knows only the baseline.
-    var recipient = test_host.init(allocator, [_]u8{0x7c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
 
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
@@ -483,9 +482,9 @@ test "core host: both ends of a wire tag one message identically" {
     // Derived, not claimed: a producer cannot assert that some other message
     // is this one without holding its bytes.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x8a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x8a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x8b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x8b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
 
     var client_log = DigestLog{};

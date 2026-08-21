@@ -41,7 +41,7 @@ __all__ = [
 _RENDEZVOUS_RELAY_HINT = "rendezvous-relay"
 _RENDEZVOUS_QUERY = "rendezvous"
 _REGISTER_QUERY = "id"
-_MAX_RENDEZVOUS_RELAY_HINT_BYTES = 4 * 1024
+_MAX_RENDEZVOUS_RELAY_HINT_BYTES = _c.RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES
 
 
 def _invalid(message: str) -> Never:

@@ -366,7 +366,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     // Hello, then bytes the session refuses. The refusal projects an abort
     // while the hello's reply is still held, so the abort has nowhere to go but
     // the back buffer.
-    const refused = [_]u8{0xff} ** 24;
+    const refused = @as([24]u8, @splat(0xff));
     CrossArmBackend.chunks = &.{ client_ss.items, refused[0..] };
     CrossArmBackend.hold_sends = true;
     CrossArmBackend.eof_when_exhausted = false;

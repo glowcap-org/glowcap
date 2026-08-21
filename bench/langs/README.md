@@ -6,10 +6,9 @@ the same application against one native Zig pancake host.
 The host and task-board workload stay fixed. The client changes between Deno,
 Python, Rust, Racket, native Zig, and Spritely Goblins as a reference CapTP peer.
 Each row therefore measures a whole consumer stack: runtime, binding, garbage
-collector, and the application written in that language.
-
-It is not a language leaderboard. Results describe one machine and one run, and
-the rows do not isolate pancake's wire cost from their runtimes.
+collector, and the application written in that language. Results describe one
+machine and one run. The rows mix pancake's wire cost with that language's
+runtime.
 
 ## Run it
 

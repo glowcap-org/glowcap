@@ -10,15 +10,7 @@ const foundation = @import("foundation");
 const engine = @import("net").tls.engine;
 const runtime_contract = @import("net").tls.runtime;
 
-const c = @cImport({
-    // Keep Zig's view of every conditional public layout and declaration on
-    // the exact configuration used to compile the vendored C sources. The C
-    // compiler flags in tools/build/mbedtls.zig do not flow into @cImport.
-    @cDefine("MBEDTLS_CONFIG_FILE", "\"pancake_mbedtls_config.h\"");
-    @cInclude("mbedtls/ssl.h");
-    @cInclude("mbedtls/x509_crt.h");
-    @cInclude("psa/crypto.h");
-});
+const c = @import("mbedtls_c");
 
 const CryptoProcess = struct {
     mutex: std.Io.Mutex = .init,

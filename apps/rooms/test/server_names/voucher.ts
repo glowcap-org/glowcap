@@ -77,10 +77,10 @@ roomsTest("a name voucher seats its holder on a second connection under their ow
 				joined.value !== undefined && /^bo joined\b/.test(joined.value.text),
 				`the room did not seat the holder as bo: ${joined.value?.text}`,
 			);
-			const welcome = await within(reader.read(), "the welcome", 5_000);
+			const roster = await within(reader.read(), "the roster line", 5_000);
 			assert(
-				welcome.value !== undefined && /welcome bo\b/.test(welcome.value.text),
-				`the welcome does not greet the holder as bo: ${welcome.value?.text}`,
+				roster.value !== undefined && /^in the room:.*\bbo\b/.test(roster.value.text),
+				`the roster line does not put the holder in the room as bo: ${roster.value?.text}`,
 			);
 			reader.releaseLock();
 
@@ -244,11 +244,11 @@ roomsTest("rooms server frees a room name once its last member leaves", async ()
 		// room starts the count over at 1.
 		assertMatch(
 			await subscribeOnce(port, "ephemeral", "first"),
-			/1 in the room: first$/,
+			/^in the room: first$/,
 		);
 		await waitForMatch(
 			() => subscribeOnce(port, "ephemeral", "second"),
-			/1 in the room: second$/,
+			/^in the room: second$/,
 		);
 	});
 });

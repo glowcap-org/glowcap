@@ -15,6 +15,7 @@ import {
 	type WebSocketChannelOptions,
 } from "@pancake/runtime/websocket";
 import { retainCleanupFailures } from "@pancake/runtime/transport";
+import { BINDING_WEBSOCKET_MESSAGE_CAP_BYTES } from "@pancake/abi";
 
 /** A far-side dial the relay could not complete. The browser's socket was
  * already closed with code 1011 and the caller's dial-fail reason, so nothing
@@ -75,7 +76,7 @@ export interface WebSocketRelayOptions extends WebSocketChannelOptions {
  * fragmentation is reassembled before `message`, so this is the adapter's
  * transport-message bound, not a CapTP frame bound. The relay never parses
  * those frames. A smaller queue limit may be selected per connection. */
-export const MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = 1 << 20;
+export const MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = BINDING_WEBSOCKET_MESSAGE_CAP_BYTES;
 
 // The shared byte adaptation for one upgraded WebSocket: an inbound stream that
 // buffers from the instant the socket opens (a peer sends its first handshake

@@ -32,7 +32,7 @@ const foundation = @import("foundation");
 const crypto = foundation.crypto;
 
 const host_mod = @import("host.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const sessions_mod = @import("sessions.zig");
 
 pub const DialTarget = struct {

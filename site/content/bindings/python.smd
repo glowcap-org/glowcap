@@ -1,8 +1,7 @@
 ---
 .title = "Python",
 .description = "Use Session and Host from Python with native values over ctypes and composable transport modules.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -12,11 +11,11 @@ The Python binding gives you `Session` and `Host` with native Python values over
 ([`pancake`](https://github.com/jimisaacs/pancake/blob/main/bindings/python/pancake)).
 `Runtime.open` retains one Host and one configured provider or connector set;
 `runtime.connect` selects a locator's installed transport authority. The
-transport modules include `pancake.tcp`, `pancake.iroh`, `pancake.onion`, and
-`pancake.relay`. The package is not published yet; start from the
+transport modules include `pancake.iroh`, `pancake.onion`, `pancake.relay`, and
+`pancake.tcp`. Start from the
 [checkout instructions]($link.page('bindings')).
 
-## The same round-trip
+# The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
 handle the reply) reads like this in Python. `serve` runs the inbound loop as a
@@ -56,7 +55,7 @@ initiates calls does not need to call it.
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "ws://192.0.2.10:8080/relay"
+> relay_url = "wss://relay.example/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -76,7 +75,7 @@ initiates calls does not need to call it.
 > ```python
 > from pancake import Runtime, tcp
 >
-> # Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+> # Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > peer_key = "<64 lowercase hex characters from the server>"
 > partner = tcp.keyed.locator(peer_key, "127.0.0.1", 9099)
 >
@@ -88,7 +87,7 @@ initiates calls does not need to call it.
 >
 > # The key names the peer; the hint names the relay that can reach it.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "ws://192.0.2.10:8080/relay"
+> relay_url = "wss://relay.example/relay"
 > partner = relay.keyed.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -119,7 +118,7 @@ The CapTP verbs stay the same across tabs. What changes is the locator helper
 and whether CapTP rides cleartext or Noise. The iroh tab needs the optional
 transport library and a discovery-reachable node id.
 
-## Hosting the other half
+# Hosting the other half
 
 `tcp.listen` binds a port and accepts sessions that publish and serve.
 `tcp.keyed.listen` and `tcp.noise.listen` take a 32-byte seed so the advertised
@@ -134,7 +133,7 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > from pancake import Argument
 > from pancake.iroh import IrohConfig, Reachability, listen
 >
-> # Bind a key, not a place. Partners can dial this node id from anywhere.
+> # This listener is named by its node id. Partners can dial it from anywhere.
 > async with await listen(IrohConfig(Reachability.DISCOVERY)) as server:
 > ```
 > **noise-tcp**
@@ -193,7 +192,7 @@ From here, the CapTP workflow is the same for every transport:
 <!-- /site-examples:listen:python -->
 ```
 
-## Async
+# Async
 
 Everything rides plain
 [`asyncio`](https://docs.python.org/3/library/asyncio.html).
@@ -201,7 +200,7 @@ Everything rides plain
 the inbound loop as a background task until the session closes.
 [Concepts]($link.page('concepts')) covers the CapTP ideas.
 
-## Actors
+# Actors
 
 `session.spawn` and `session.publish` take a `behavior(verb, args)` callable. A
 raise breaks the answer with the exception's own words, and each deliver

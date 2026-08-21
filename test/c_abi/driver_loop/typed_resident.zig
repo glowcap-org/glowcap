@@ -40,6 +40,8 @@ pub const TypedResident = struct {
     locator_failure: bool = false,
     advertise_failure: bool = false,
     stop_listen_failure: bool = false,
+    stop_listen_pending: bool = false,
+    pending_stop_route: ?u64 = null,
     stop_listen_calls: usize = 0,
     provider_entry: cdrv.PancakeTransportProviderEntry = undefined,
 
@@ -48,6 +50,7 @@ pub const TypedResident = struct {
         transport: []const u8,
         route: u64,
         active: bool = true,
+        stop_started: bool = false,
     };
 
     pub fn self(ctx: ?*anyopaque) *TypedResident {
@@ -92,6 +95,12 @@ pub const TypedResident = struct {
 
     pub fn drainReady(ctx: ?*anyopaque, out: ?[*]cdrv.PancakeMultiplexedReadyEvent, cap: usize, out_count: ?*usize, _: ?*cdrv.PancakeProviderFailure) callconv(.c) i32 {
         const resident = self(ctx);
+        if (resident.pending_stop_route) |route| {
+            if (cap == 0) return drained(out_count, 0);
+            resident.pending_stop_route = null;
+            out.?[0] = .{ .subject = route, .events = cshared.PANCAKE_MULTIPLEXED_EV_LISTEN };
+            return drained(out_count, 1);
+        }
         const route = resident.failed_accept_route orelse return drained(out_count, 0);
         if (cap == 0) return drained(out_count, 0);
         resident.failed_accept_route = null;
@@ -290,6 +299,12 @@ pub const TypedResident = struct {
         const active = listener(ctx);
         active.resident.stop_listen_calls += 1;
         active.active = false;
+        if (active.resident.stop_listen_pending and !active.stop_started) {
+            active.stop_started = true;
+            active.resident.pending_stop_route = active.route;
+            _ = active.resident.wake.nudge() catch unreachable;
+            return c.PANCAKE_ERR_WOULD_BLOCK;
+        }
         if (active.resident.stop_listen_failure) {
             const code = providerFailure(out_failure, c.PANCAKE_ERR_IO, "StopListenFailed");
             const report = out_failure orelse return code;

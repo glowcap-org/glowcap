@@ -7,7 +7,7 @@
 const model = @import("model");
 const session_mod = @import("mod.zig");
 const slot = @import("slot.zig");
-const answers = @import("answers.zig");
+const answers = @import("answers/store.zig");
 
 const Session = session_mod.Session;
 const AnswerView = answers.AnswerView;

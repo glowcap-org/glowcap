@@ -25,7 +25,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "Node V1 withdrawal counts span sessions while next counts remain session-local" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x53} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x53)));
     defer node.deinit();
 
     const recipient_a = try node.registerPeer(.{});
@@ -34,7 +34,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
         allocator,
         &node,
         node.peer(exporter_a).?,
-        [_]u8{0x54} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x54)),
     );
     defer counterpart_a.deinit();
     try std.testing.expectError(
@@ -49,7 +49,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
         allocator,
         &node,
         node.peer(exporter_b).?,
-        [_]u8{0x55} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x55)),
     );
     defer counterpart_b.deinit();
 
@@ -74,8 +74,8 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
     // still the authority for receives arriving on that session.
     try std.testing.expectEqual(@as(u64, 0), node.peer(exporter_a).?.giftRegistry().next_emitted_handoff_count);
     try std.testing.expectEqual(@as(u64, 0), node.peer(exporter_b).?.giftRegistry().next_emitted_handoff_count);
-    try std.testing.expectEqual(@as(?u64, null), node.peer(exporter_a).?.giftRegistry().accepted_handoff_count);
-    try std.testing.expectEqual(@as(?u64, null), node.peer(exporter_b).?.giftRegistry().accepted_handoff_count);
+    try std.testing.expectEqual(@as(?u64, null), node.peer(exporter_a).?.giftRegistry().acceptedHandoffCount());
+    try std.testing.expectEqual(@as(?u64, null), node.peer(exporter_b).?.giftRegistry().acceptedHandoffCount());
 
     const next_options: engine.Peer.NegotiatingOptions = .{ .captp_version = .next };
     const next_recipient_a = try node.registerPeer(next_options);
@@ -84,7 +84,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
         allocator,
         &node,
         node.peer(next_exporter_a).?,
-        [_]u8{0x56} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x56)),
     );
     defer next_counterpart_a.deinit();
     const next_recipient_b = try node.registerPeer(next_options);
@@ -93,7 +93,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
         allocator,
         &node,
         node.peer(next_exporter_b).?,
-        [_]u8{0x57} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x57)),
     );
     defer next_counterpart_b.deinit();
 
@@ -118,12 +118,12 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
 
 test "a live exporter withdraws immediately and the claimed resolve settles a routable route" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(8)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{9} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(9)));
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9052.tcp";
@@ -150,7 +150,7 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     try std.testing.expectEqual(recipient, settle.settle.dest.answer.recipient_peer);
     try std.testing.expectEqual(@as(u64, 31), settle.settle.dest.answer.answer.int());
     const routed = node.routeReference(recipient, .{ .routed = .{ .id = settle.settle.route_id } }).?;
-    try std.testing.expectEqual(exporter, routed.peer_id);
+    try std.testing.expectEqual(exporter, routed.peer_handle);
     try std.testing.expectEqual(@as(u64, 6), routed.target.far.import_position.int());
 
     // The exporter is cached: a later give for the same locator withdraws
@@ -171,12 +171,12 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
 
 test "the final failed withdraw retires a redeem-only exporter" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{10} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(10)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{11} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(11)));
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9053.tcp";
@@ -192,9 +192,9 @@ test "the final failed withdraw retires a redeem-only exporter" {
     _ = node.nextAction().?; // second flush
     var answers: [2]u64 = undefined;
     var answer_index: usize = 0;
-    var withdraws = node.pending_withdraws.keyIterator();
+    var withdraws = node.redeems.withdrawals.rows.keyIterator();
     while (withdraws.next()) |key| {
-        try std.testing.expectEqual(exporter, key.peer_id);
+        try std.testing.expectEqual(exporter, key.peer_handle);
         answers[answer_index] = key.answer;
         answer_index += 1;
     }
@@ -218,12 +218,12 @@ test "the final failed withdraw retires a redeem-only exporter" {
 
 test "a queued exporter retirement yields to a newer withdrawal" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x47} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x47)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{0x48} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(0x48)));
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9053.tcp";
@@ -260,12 +260,12 @@ test "a queued exporter retirement yields to a newer withdrawal" {
 
 test "a failed withdraw does not retire a selected exporter session" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{10} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(10)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{11} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(11)));
     defer counterpart.deinit();
 
     const give = try testGiveBytes(allocator);
@@ -283,12 +283,12 @@ test "a failed withdraw does not retire a selected exporter session" {
 
 test "application activity preserves a redeem-opened exporter session" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x45} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x45)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{0x46} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(0x46)));
     defer counterpart.deinit();
 
     const give = try testGiveBytes(allocator);
@@ -307,12 +307,12 @@ test "application activity preserves a redeem-opened exporter session" {
 
 test "an application dial joining a pending redeem owns the exporter session" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{12} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(12)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{13} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(13)));
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9053.tcp";

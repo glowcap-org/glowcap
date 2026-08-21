@@ -53,20 +53,20 @@ fn signedGiveForLifecycleTest(allocator: std.mem.Allocator) ![]u8 {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(location);
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x77)));
     return engine.handoff_gifter.buildSignedGive(
         allocator,
         secret,
-        &([_]u8{0x01} ** 32),
+        &(@as([32]u8, @splat(0x01))),
         location,
-        &([_]u8{0x02} ** 32),
-        &([_]u8{0x03} ** 32),
-        &([_]u8{0x04} ** 32),
+        &(@as([32]u8, @splat(0x02))),
+        &(@as([32]u8, @splat(0x03))),
+        &(@as([32]u8, @splat(0x04))),
     );
 }
 
 test "core local capability verbs share admission and publication identity" {
-    var host = test_host.init(std.testing.allocator, [_]u8{0x47} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x47)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7098", &.{});
 
@@ -96,11 +96,11 @@ test "core local capability verbs share admission and publication identity" {
 test "failed application operation leaves a provisional exporter retireable" {
     const allocator = std.testing.allocator;
     var failing = std.testing.FailingAllocator.init(allocator, .{});
-    var client = test_host.init(failing.allocator(), [_]u8{0x48} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(failing.allocator(), @as([32]u8, @splat(0x48)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x49} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var introducer = test_host.init(allocator, [_]u8{0x4f} ** 32, Host.Options.withFrameCap(frame_cap));
+    var introducer = test_host.init(allocator, @as([32]u8, @splat(0x4f)), Host.Options.withFrameCap(frame_cap));
     defer introducer.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -109,16 +109,16 @@ test "failed application operation leaves a provisional exporter retireable" {
 
     const give = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(give);
-    try client.node.acceptGive(introducing_pair.a.peer_id, 45, give, "ocapn://127.0.0.1%3A7099.tcp");
+    try client.node.acceptGive(introducing_pair.a.peer_handle, 45, give, "ocapn://127.0.0.1%3A7099.tcp");
     const dial = client.node.nextAction() orelse return error.MissingDial;
     try std.testing.expect(dial == .dial);
-    try client.node.exporterDialed(dial.dial.pending, pair.a.peer_id);
+    try client.node.exporterDialed(dial.dial.pending, pair.a.peer_handle);
     const withdraw_flush = client.node.nextAction() orelse return error.MissingFlush;
     try std.testing.expect(withdraw_flush == .flush);
 
-    var pending_withdraws = client.node.pending_withdraws.keyIterator();
+    var pending_withdraws = client.node.redeems.withdrawals.rows.keyIterator();
     const withdraw = pending_withdraws.next() orelse return error.MissingWithdraw;
-    try std.testing.expect(try client.node.claimResolve(pair.a.peer_id, withdraw.answer, .not_capability));
+    try std.testing.expect(try client.node.claimResolve(pair.a.peer_handle, withdraw.answer, .not_capability));
     const failure = client.node.nextAction() orelse return error.MissingFailure;
     try std.testing.expect(failure == .fail);
 
@@ -142,9 +142,9 @@ test "failed application operation leaves a provisional exporter retireable" {
 
 test "core host: Error remains fulfilled data across recursive lower and lift" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x48} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x48)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    var partner = test_host.init(allocator, [_]u8{0x49} ** 32, Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -178,9 +178,9 @@ test "core host: an inline give becomes one nested promise identity and terminal
     const allocator = std.testing.allocator;
     var options = Host.Options.withFrameCap(frame_cap);
     options.limits.queue_cap = 3;
-    var host = test_host.init(allocator, [_]u8{0x4a} ** 32, options);
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x4a)), options);
     defer host.deinit();
-    var partner = test_host.init(allocator, [_]u8{0x4b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -310,13 +310,13 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     const allocator = std.testing.allocator;
     var options = Host.Options.withFrameCap(frame_cap);
     options.captp_version = .next;
-    var exporter = test_host.init(allocator, [_]u8{0x5e} ** 32, options);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x5e)), options);
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x56} ** 32, options);
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x56)), options);
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x5c} ** 32, options);
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x5c)), options);
     defer recipient.deinit();
-    var anchor = test_host.init(allocator, [_]u8{0x54} ** 32, options);
+    var anchor = test_host.init(allocator, @as([32]u8, @splat(0x54)), options);
     defer anchor.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient, &anchor };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -347,7 +347,7 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     // the inbound "Passable anywhere" contract from the outbound rewrite pass.
     _ = try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} });
     try std.testing.expect(try shuttle(r_to_g));
-    const gift_id = [_]u8{0x6d} ** 32;
+    const gift_id = @as([32]u8, @splat(0x6d));
     var provided = false;
     while (try gifter.nextAction()) |action| switch (action) {
         .flush => {},
@@ -455,7 +455,10 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_anchor, r_to_e }, &dials);
         try std.testing.expect(reply.broken);
         try std.testing.expect(std.mem.indexOf(u8, reply.reason(), "connection released") != null);
-        try std.testing.expectEqual(@as(usize, 0), recipient.node.pending_withdraws.count());
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            recipient.node.redeems.withdrawals.rows.count(),
+        );
         try std.testing.expectError(
             error.PromiseBroken,
             recipient.routeCapability(r_to_anchor.a, promise, true),
@@ -482,11 +485,11 @@ test "core host: a staged inline gift owns its capability and failure settles it
     const allocator = std.testing.allocator;
     var options = Host.Options.withFrameCap(frame_cap);
     options.captp_version = .next;
-    var exporter = test_host.init(allocator, [_]u8{0x31} ** 32, options);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x31)), options);
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x32} ** 32, options);
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x32)), options);
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x33} ** 32, options);
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x33)), options);
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -531,10 +534,10 @@ test "core host: a staged inline gift owns its capability and failure settles it
     var gift_ticket: ?u64 = null;
     while (try gifter.nextAction()) |action| switch (action) {
         .need_gift_id => |needed| gift_ticket = needed.ticket,
-        .flush => |peer_id| {
-            const session = if (peer_id == g_to_e.a.peer_id)
+        .flush => |peer_handle| {
+            const session = if (peer_handle == g_to_e.a.peer_handle)
                 g_to_e.a
-            else if (peer_id == g_to_r.a.peer_id)
+            else if (peer_handle == g_to_r.a.peer_handle)
                 g_to_r.a
             else
                 continue;
@@ -553,10 +556,10 @@ test "core host: a staged inline gift owns its capability and failure settles it
     try std.testing.expect(std.mem.indexOf(u8, staged_reply.reason(), "GiftIdUnavailable") != null);
     try std.testing.expect(g_to_r.a.isTerminating());
     while (try gifter.nextAction()) |action| switch (action) {
-        .flush => |peer_id| {
-            const session = if (peer_id == g_to_e.a.peer_id)
+        .flush => |peer_handle| {
+            const session = if (peer_handle == g_to_e.a.peer_handle)
                 g_to_e.a
-            else if (peer_id == g_to_r.a.peer_id)
+            else if (peer_handle == g_to_r.a.peer_handle)
                 g_to_r.a
             else
                 continue;

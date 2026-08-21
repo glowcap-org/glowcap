@@ -1,6 +1,6 @@
 from pancake import Runtime, tcp
 
-# Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+# Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 peer_key = "<64 lowercase hex characters from the server>"
 partner = tcp.keyed.locator(peer_key, "127.0.0.1", 9099)
 

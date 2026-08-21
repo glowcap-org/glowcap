@@ -88,7 +88,7 @@ const layout_specs = driver.wasm_layout_manifest;
 /// (name hash, size, field count) plus one offset word per field.
 const layout_word_count: u32 = blk: {
     var n: u32 = 0;
-    for (layout_specs) |spec| n += 3 + @typeInfo(spec.T).@"struct".fields.len;
+    for (layout_specs) |spec| n += 3 + @typeInfo(spec.T).@"struct".field_names.len;
     break :blk n;
 };
 
@@ -106,15 +106,15 @@ export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
     if (cap < layout_word_count) return layout_word_count;
     var i: usize = 0;
     inline for (layout_specs) |spec| {
-        const fields = @typeInfo(spec.T).@"struct".fields;
+        const fields = @typeInfo(spec.T).@"struct".field_names;
         out[i] = comptime nameHash(spec.prefix);
         i += 1;
         out[i] = @sizeOf(spec.T);
         i += 1;
         out[i] = fields.len;
         i += 1;
-        inline for (fields) |f| {
-            out[i] = @offsetOf(spec.T, f.name);
+        inline for (fields) |field_name| {
+            out[i] = @offsetOf(spec.T, field_name);
             i += 1;
         }
     }

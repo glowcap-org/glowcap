@@ -221,7 +221,7 @@ fn applyRowToFile(
 }
 
 fn contains(haystack: []const u8, needle: []const u8, insensitive: bool) bool {
-    if (insensitive) return std.ascii.indexOfIgnoreCase(haystack, needle) != null;
+    if (insensitive) return std.ascii.findIgnoreCasePos(haystack, 0, needle) != null;
     return std.mem.indexOf(u8, haystack, needle) != null;
 }
 
@@ -253,6 +253,8 @@ pub const human_doc_voice_scopes = [_]HumanDocScope{
             "bindings/racket/README.md",
             "examples/README.md",
             "apps/README.md",
+            "apps/rooms/README.md",
+            "ui/README.md",
         } },
         .on_missing = .skip,
     },
@@ -267,6 +269,11 @@ const captp_io = @import("bans/captp_io.zig");
 const transport = @import("bans/transport.zig");
 const prose = @import("bans/prose.zig");
 const layers = @import("bans/layers.zig");
+const engine_peer_handle = @import("bans/engine_peer_handle.zig");
+const binding_policy = @import("bans/binding_policy.zig");
+const binding_relay_policy = @import("bans/binding_relay_policy.zig");
+const onion = @import("bans/onion.zig");
+const local_forward = @import("bans/local_forward.zig");
 const authority = @import("bans/authority.zig");
 const surfaces = @import("bans/surfaces.zig");
 const failure = @import("bans/failure.zig");
@@ -279,8 +286,30 @@ pub const all: []const Ban =
     prose.diagram_wire_vocabulary ++
     layers.clock_seam ++
     layers.actors_layer_purity ++
+    layers.core_fifo_spine ++
+    engine_peer_handle.rows ++
+    layers.outbound_answer_cursor_rows ++
+    layers.codec_decode_nesting_rows ++
     layers.readme_c_verb_names ++
-    layers.unobserved_outcome_cap_rows ++
+    layers.discovery_dial_budget_rows ++
+    layers.local_turn_budget_rows ++
+    local_forward.hop_cap_rows ++
+    binding_policy.unobserved_outcome_cap_rows ++
+    failure.runtime_failure_journal_rows ++
+    binding_policy.readiness_drain_cap_rows ++
+    binding_policy.pending_dial_hint_probe_rows ++
+    binding_policy.racket_relay_binary_rows ++
+    binding_policy.stream_read_chunk_rows ++
+    binding_policy.iroh_read_chunk_rows ++
+    binding_policy.trace_payload_cap_rows ++
+    binding_relay_policy.rows ++
+    binding_policy.default_profile_rows ++
+    binding_policy.secondary_failure_cap_rows ++
+    layers.iroh_node_id_bytes_rows ++
+    layers.iroh_direct_address_rows ++
+    onion.service_key_cap_rows ++
+    layers.uri_format_sizing_rows ++
+    layers.relay_route_hint_cap_rows ++
     layers.goblins_runtime_portability ++
     layers.rooms_lib_layer ++
     layers.signature_arm_reads ++

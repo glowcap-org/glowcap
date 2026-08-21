@@ -6,6 +6,7 @@
 const std = @import("std");
 const root = @import("../../build.zig");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const pancakeExecutable = common.pancakeExecutable;
 const layerIndex = root.layerIndex;
@@ -23,11 +24,9 @@ pub fn register(
     // Table-driven like the examples: each row builds one executable over
     // `pancake` and registers its public step, whose run forwards
     // `zig build <step> -- <args>`. Each row also gets a dedicated gate run that
-    // never sees `b.args`, so `zig build check -- <args>` cannot leak user
-    // arguments into the gate; `smoke_on_check` passes `--smoke` on that gate
-    // run so the heavier benches prove they still run cheaply, without writing
-    // report artifacts into zig-out as a side effect of the gate (the footprint
-    // budget itself is gated by test/engine/footprint_budget_test.zig).
+    // takes no passthrough args; `smoke_on_check` passes `--smoke` there so the
+    // heavier benches prove they still run cheaply, without report artifacts
+    // under zig-out.
     //
     // Optimize mode is per-module: an executable whose root module is
     // ReleaseFast still runs Debug *library* code when it imports the
@@ -68,17 +67,17 @@ pub fn register(
         if (bench.needs_persistent) {
             exe.root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
         }
-        const run = b.addRunArtifact(exe);
-        if (b.args) |args| run.addArgs(args);
+        const run = execution.addArtifact(b, .benchmark, exe);
+        run.addPassthruArgs();
         b.step(bench.step_name, bench.description).dependOn(&run.step);
 
         if (bench.gate_on_check) {
             const gate_exe = pancakeExecutable(b, fast_lib_mod, target, .ReleaseFast, b.fmt("{s}-gate", .{bench.name}), bench.path);
-            const gate = b.addRunArtifact(gate_exe);
+            const gate = execution.addArtifact(b, .{ .deterministic = 30 }, gate_exe);
             gate.addArg("--gate");
             perf_check_step.dependOn(&gate.step);
         } else {
-            const gate = b.addRunArtifact(exe);
+            const gate = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
             if (bench.smoke_on_check) gate.addArg("--smoke");
             check_step.dependOn(&gate.step);
         }

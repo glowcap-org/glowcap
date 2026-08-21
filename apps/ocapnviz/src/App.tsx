@@ -12,7 +12,7 @@ import { Engine } from "./engine/engine.ts";
 import { docTitle, TimelineDocument } from "./engine/timeline.ts";
 import { useStoreSelection } from "./interactions/use-store-selection.ts";
 import { UnifiedCanvas } from "./render/UnifiedCanvas.tsx";
-import { claimRecording } from "./engine/live/mode.ts";
+import { claimRecording, emptyCaptureError } from "./engine/live/mode.ts";
 import { BusErrorModal } from "./ui/error/ErrorModal.tsx";
 import { ConfirmDialog } from "./ui/ConfirmDialog.tsx";
 import { ErrorToast } from "./ui/error/ErrorToast.tsx";
@@ -234,6 +234,7 @@ export function App() {
   // outside Live mode.
   const {
     connected: liveConnected,
+    observed: liveObserved,
     captureEngine,
   } = useLiveConnection({
     sturdyref: state.mode === "live" ? state.liveSturdyref : "",
@@ -255,7 +256,10 @@ export function App() {
         `live-recording-${++recordingsClaimed.current}`,
       )
       : null;
-    if (claimed === null) return;
+    if (claimed === null) {
+      pushError({ error: emptyCaptureError(), source: "engine" });
+      return;
+    }
     setRecordedDoc(claimed);
     setLoadedFile(null);
     setEditedDoc(null);
@@ -442,6 +446,7 @@ export function App() {
             dispatch={dispatch}
             state={state}
             liveConnected={liveConnected}
+            liveObserved={liveObserved}
             liveRecording={recording}
             onStartRecord={handleStartRecord}
             onStopRecord={handleStopRecord}

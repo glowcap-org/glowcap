@@ -1,15 +1,15 @@
 # Racket binding
 
-This binding uses pancake's C ABI with Racket threads and ports. It is not
-published yet; use the modules from a pinned checkout after running
-`zig build`.
+This binding uses pancake's C ABI with Racket threads and ports. Pin a
+checkout, run `zig build`, and use the modules from the tree.
 
 ```racket
 (require "pancake.rkt"
          "pancake-tcp.rkt")
 
+(define peer-key "<64 lowercase hex characters from the server>")
 (define runtime (open-runtime #:providers (list (tcp-provider))))
-(define session (runtime-connect runtime (tcp-locator "127.0.0.1" 9099)))
+(define session (runtime-connect runtime (noise-tcp-locator peer-key "127.0.0.1" 9099)))
 (define greeter (session-fetch session "greeter"))
 (printf "~a\n" (session-send session greeter 'greet "world"))
 (session-close! session)
@@ -25,11 +25,11 @@ API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 | Module | Purpose |
 | --- | --- |
 | [`pancake.rkt`](pancake.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
+| [`pancake-iroh.rkt`](pancake-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
+| [`pancake-onion.rkt`](pancake-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
+| [`pancake-relay.rkt`](pancake-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers and keyed byte connector. |
 | [`pancake-tcp.rkt`](pancake-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
 | [`pancake-inproc.rkt`](pancake-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
-| [`pancake-iroh.rkt`](pancake-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
-| [`pancake-relay.rkt`](pancake-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers and keyed byte connector. |
-| [`pancake-onion.rkt`](pancake-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
 
 The wire codec is chosen for a host. `open-runtime` and `listen` accept
 `#:codec`; the default is `'syrup`, and both peers must agree before using
@@ -51,7 +51,7 @@ starts with zero providers, and receives the TCP package from
 `libpancake_net_transport_tcp` through the common provider ABI. The library owns
 the socket, the readiness set, and every accepted session's pumping, and the
 binding parks one green thread on the loop's readiness descriptor and steps. A
-bare `tcp`, `keyed-tcp`, `noise-tcp`, iroh, or routed relay dial
+bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial
 mints one loop per connection, `listen` binds the loop's listener, and a dial
 sharing a loop-backed server's host stages on that same loop. A supplied Host
 is transferred into that loop transactionally, preserving its identity and
@@ -81,14 +81,14 @@ settle it through an eventual send.
 
 ## Current semantic limits
 
-The actor API resembles Goblins, but it is not a compatibility layer. An
-existing Goblins program will not run unchanged.
+The actor API uses Goblins-shaped vocabulary (`spawn`, `$`, `<-`). An existing
+Goblins program still needs pancake's module names and Host wiring.
 
 An inner actor state change is not rolled back when an outer actor later fails.
 Local time travel is available only on TCP listeners through the listener's
 `#:time-travel?` policy; dialing sessions and iroh do not expose it. `listen`
 and `listen-keyed-tcp` use the driver's admission policy. A wildcard bind requires
-`#:advertised-host`, because the bound interface is not a dialable Host route.
+`#:advertised-host`, the Host route partners dial.
 
 ## Checks
 
@@ -98,12 +98,14 @@ zig build racket-test
 zig build racket-goblins-interop
 ```
 
-[`zig-smoke.rkt`](zig-smoke.rkt) exercises handshakes, pipelining, projections,
-proxies, Cap'n Proto, garbage collection, and the TCP, in-process, and onion
-transports. Racket must be on `PATH`; the devcontainer includes it. The onion
-section needs no Tor: [`zig-smoke-fake-tor.rkt`](zig-smoke-fake-tor.rkt) answers
-the requests the transport sends, and it runs as a child process because a
-blocking foreign call stops every Racket thread in the place until it returns.
+[`zig-smoke.rkt`](zig-smoke.rkt) is the thin aggregate for independently
+loadable scenario families under `test/zig-smoke/`; the package omits that test
+tree. Together they exercise handshakes, pipelining, projections, proxies,
+Cap'n Proto, garbage collection, and the TCP, in-process, and onion transports.
+Racket must be on `PATH`; the devcontainer includes it. The onion section needs
+no Tor: [`zig-smoke-fake-tor.rkt`](zig-smoke-fake-tor.rkt) answers the requests
+the transport sends, and it runs as a child process because a blocking foreign
+call stops every Racket thread in the place until it returns.
 
 For the shared API, read the [binding overview](../README.md). Maintainers of
 the private FFI and pump should read

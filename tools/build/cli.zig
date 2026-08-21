@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 pub const Inputs = struct {
     target: std.Build.ResolvedTarget,
@@ -32,10 +33,10 @@ pub fn add(b: *std.Build, in: Inputs) void {
     const exe = b.addExecutable(.{ .name = "pancake", .root_module = product });
     exe.step.dependOn(in.iroh_library);
     b.installArtifact(exe);
-    const run = b.addRunArtifact(exe);
+    const run = execution.addArtifact(b, .service, exe);
     run.setCwd(b.path("."));
     run.has_side_effects = true;
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
     b.step("pancake", "Run the pancake CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|app rooms-peer|…)")
         .dependOn(&run.step);
 
@@ -55,12 +56,12 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .name = "rooms-peer-shim-check",
         .root_module = shim,
     }).step);
-    const rooms_peer = b.addRunArtifact(exe);
+    const rooms_peer = execution.addArtifact(b, .service, exe);
     rooms_peer.setCwd(b.path("."));
     rooms_peer.has_side_effects = true;
     rooms_peer.addArgs(&.{ "app", "rooms-peer" });
-    if (b.args) |args| rooms_peer.addArgs(args);
-    b.step("rooms-peer", "Run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]")
+    rooms_peer.addPassthruArgs();
+    b.step("rooms-peer", "Run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`")
         .dependOn(&rooms_peer.step);
 
     const iroh_stub = b.createModule(.{
@@ -82,7 +83,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .name = "cli-registry-test",
         .filters = filters(b, in.test_filter),
     });
-    const run_registry = b.addRunArtifact(registry_tests);
+    const run_registry = execution.addZigTest(b, registry_tests, .{ .deterministic = 30 });
     in.check.dependOn(&run_registry.step);
 
     // Dependency tests are not collected, so root the CLI sources separately.
@@ -91,7 +92,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .name = "cli-src-test",
         .filters = filters(b, in.test_filter),
     });
-    const run_source = b.addRunArtifact(source_tests);
+    const run_source = execution.addZigTest(b, source_tests, .{ .deterministic = 30 });
     in.check.dependOn(&run_source.step);
     const cli_test = b.step("cli-test", "Run hermetic pancake CLI registry + session/capture tests");
     cli_test.dependOn(&run_registry.step);

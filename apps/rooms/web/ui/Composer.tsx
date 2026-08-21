@@ -111,6 +111,17 @@ export function Composer(
 	useEffect(() => {
 		if (recalled !== null && draft !== recalled) setRecalled(null);
 	}, [draft, recalled]);
+	// Keep the picked row on screen. The command list is every command this
+	// conversation can run and the box holds eight and a half rows, so the arrows
+	// walk past the fold: without this a reader presses Down, the highlight
+	// leaves the box, and Enter takes a row they cannot see. `nearest` rather
+	// than centring, so a pick already in view does not shunt the list under the
+	// pointer for no reason. Layout, not paint: the row is picked and scrolled to
+	// in one frame rather than flashing at the old offset first.
+	useLayoutEffect(() => {
+		if (!listOpen) return;
+		document.getElementById(`complete-${pick}`)?.scrollIntoView({ block: "nearest" });
+	}, [listOpen, pick]);
 	const syncCaret = (box: HTMLTextAreaElement) => setCaret(box.selectionStart ?? 0);
 	const accept = (candidate: Candidate) => {
 		if (trigger === null) return;
@@ -185,10 +196,12 @@ export function Composer(
 	}, [draft, enabled, fit]);
 
 	// The composer floats over the bottom of the message column, so the log has to
-	// leave that much of itself clear and the jump-to-latest button has to sit above
-	// it. Both read one number. The band holds one height at rest by design — every
-	// row in it reserves its space — but a long draft grows the field and the window
-	// can be resized under it, so the number is measured rather than guessed.
+	// leave that much of itself clear, the fade has to be that tall, and the
+	// jump-to-latest button has to sit above it. All three read one number, set on
+	// the root so anything in the page can reach it. The band holds one height at
+	// rest by design, because every row in it reserves its space, but a long draft
+	// grows the field and the window can be resized under it, so the number is
+	// measured rather than guessed.
 	useLayoutEffect(() => {
 		const band = bar.current;
 		if (!band) return;
@@ -304,36 +317,6 @@ export function Composer(
 					))}
 				</div>
 			)}
-			<div className="composer-status">
-				<div id="typing" className={said ? "typing show" : "typing"} aria-hidden="true">
-					{said}
-				</div>
-				{
-					/* The room's own cap, once a draft is near enough to it to matter.
-				    A room bridged somewhere else may carry less than this app allows,
-				    and finding that out by having a message cut in half on the other
-				    side is finding out too late. Quiet until the last fifth, because
-				    a counter that is always there is furniture; urgent once it is
-				    past, because then the message will not go. */
-				}
-				{room !== null
-					? (
-						<div
-							id="lineRoom"
-							className={overBy > 0 ? "hint room-cap over" : "hint room-cap"}
-							role={overBy > 0 ? "alert" : undefined}
-						>
-							{overBy > 0 ? `${overBy} bytes too long for this room` : `${room - cost} bytes left`}
-						</div>
-					)
-					: (
-						<div id="hint" className="hint">
-							<b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> · <b>*italic*</b>
-							{" "}
-							· <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b>
-						</div>
-					)}
-			</div>
 			{
 				/* Rewriting a line already posted, which the field alone cannot say:
 				    the words in it look exactly like a new message. Named here, with
@@ -566,6 +549,36 @@ export function Composer(
 					/>
 				</div>
 			</form>
+			<div className="composer-status">
+				<div id="typing" className={said ? "typing show" : "typing"} aria-hidden="true">
+					{said}
+				</div>
+				{
+					/* The room's own cap, once a draft is near enough to it to matter.
+				    A room bridged somewhere else may carry less than this app allows,
+				    and finding that out by having a message cut in half on the other
+				    side is finding out too late. Quiet until the last fifth, because
+				    a counter that is always there is furniture. Urgent
+				    once it is past, because then the message will not go. */
+				}
+				{room !== null
+					? (
+						<div
+							id="lineRoom"
+							className={overBy > 0 ? "hint room-cap over" : "hint room-cap"}
+							role={overBy > 0 ? "alert" : undefined}
+						>
+							{overBy > 0 ? `${overBy} bytes too long for this room` : `${room - cost} bytes left`}
+						</div>
+					)
+					: (
+						<div id="hint" className="hint">
+							<b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> · <b>*italic*</b>
+							{" "}
+							· <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b>
+						</div>
+					)}
+			</div>
 		</div>
 	);
 }

@@ -1,21 +1,21 @@
 ---
 .title = "Transports",
 .description = "A transport carries CapTP between two peers. The session above it stays the same; what changes is how a peer is named and how the bytes travel.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
 A transport, or *netlayer*, is the byte path under a CapTP session. Fetch,
 call, promises, and handoffs stay the same no matter which one you pick.
-What changes is how you name a peer and how the bytes get there: a TCP socket,
-an encrypted QUIC channel, a Tor circuit, a browser DataChannel, and so on.
+What changes is how you name a peer and how the bytes get there: encrypted
+QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
+cleartext testing socket.
 
 Application code holds capabilities. A netlayer only moves the frames those
 capabilities travel in.
 
-## How a peer is named
+# How a peer is named
 
 You reach a peer through an OCapN locator:
 
@@ -23,14 +23,14 @@ You reach a peer through an OCapN locator:
 ocapn://<designator>.<transport>
 ```
 
-The **designator** is the peer's name for that transport. Plain `tcp` uses a
-`host:port`. The keyed and sealed transports use an Ed25519 public key. iroh
-uses a node id. Onion uses a Tor service id. Optional hints can carry routing
-help, such as the bound address for a key-addressed listener, but a hint is
-never permission. [Concepts]($link.page('concepts')) covers locators and
-sturdyrefs in full.
+The **designator** is the peer's name for that transport. The keyed and sealed
+transports use an Ed25519 public key. iroh uses a node id. Onion uses a Tor
+service id. Plain `tcp` uses a `host:port` and is testing-only. Optional hints
+can carry routing help, such as the bound address for a key-addressed listener,
+but a hint is never permission. [Concepts]($link.page('concepts')) covers
+locators and sturdyrefs in full.
 
-## The hello is not the channel
+# What proves who answered
 
 Every CapTP session signs its hello with a fresh key. That
 signature proves the CapTP handshake held together. It does not prove who the
@@ -45,7 +45,7 @@ signaling authority binds the peer to the DataChannel. On
 written into a cleartext locator is only a dial target until something like
 that proves possession of it.
 
-## Picking one
+# Picking one
 
 How far you can trust a netlayer is about that byte path, not about whether
 CapTP works on it. Cleartext keyed transports still speak CapTP. Anyone who can
@@ -55,15 +55,5 @@ see the path can also read and alter every frame.
 table: every symbol pancake ships, when to reach for it, how far you can trust
 it, and what the path proves. The Noise, iroh, WebRTC, and onion pages cover
 setup once you know which path you want. A browser that cannot open a native
-socket uses the [relay]($link.page('relay')) as a byte pipe; the relay is not a
-netlayer of its own.
-
-## Read the examples
-
-The first-call examples have one authority: a support matrix in the site
-generator. Binding pages render it by language, split into Dial and Listen;
-the dedicated transport pages render the same cells by transport family. A
-missing tab means either that the binding does not expose that direction or
-that its implementation has no first-call body yet. The [Choosing a
-transport]($link.page('transports/choosing')) table remains the complete list
-for symbols that do not have a dedicated setup page.
+socket uses the [relay]($link.page('relay')) as a WebSocket that forwards bytes
+to a peer that already has a transport name.

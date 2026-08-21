@@ -102,6 +102,10 @@ pub const LifecycleBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *LifecycleBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     const Kind = enum { accept, recv, send, close, connect, cancel };
     /// `len` is the submitted byte count, carried so a send can complete as a
     /// *full* write. Without it every send reported a short count, so a queued

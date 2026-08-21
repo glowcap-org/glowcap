@@ -233,7 +233,7 @@ test "a permissive resolver cannot pass malformed signed widths into pending ret
         // A safe break and nothing else: no pending row, no replay
         // advancement, no consumed gift.
         try std.testing.expectEqual(@as(usize, 0), peer.pendingWithdrawCount());
-        try std.testing.expectEqual(@as(?u64, null), peer.giftRegistry().accepted_handoff_count);
+        try std.testing.expectEqual(@as(?u64, null), peer.giftRegistry().acceptedHandoffCount());
         try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
     }
 
@@ -325,7 +325,7 @@ test "early-withdraw admission OOM leaves no pending row or replay state" {
             const exporter_id = try node.registerPeerOver(&exporter);
             // Exercise the production composition path: this adopted receiver
             // must reserve its Node scheduler dependency before replay commits.
-            resolver_fixture.peer_id = exporter_id;
+            resolver_fixture.peer_handle = exporter_id;
 
             var handoff_arg = model.Handoff{ .receive = receive_value };
             const frame = try syrup.encodeMessageForProfile(std.testing.allocator, .next, .{ .deliver = .{

@@ -6,10 +6,10 @@ more ways to reach a peer.
 
 | Milestone | Standing |
 | --- | --- |
-| 1. Protocol conformance | In progress. Live Goblins and upstream-suite checks cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
+| 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
 | 2. Performance at scale | In progress. Memory and latency budgets run on main-branch pushes and pull requests; 500,000 live socket sessions have not been measured. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
-| 4. C ABI and bindings | Met. Four bindings consume the generated C ABI and talk to Goblins. |
+| 4. C ABI and bindings | Met. Four bindings dial Goblins through the C ABI. Recurring CI has Goblins dial only TypeScript. |
 | 5. Transport reachability | In progress. The first-party provider seams and routed relay cold dial ship; Windows support and macOS runtime evidence remain. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
@@ -28,7 +28,8 @@ architecture a property of the build rather than a convention
 pancake checks its protocol behavior three ways:
 
 - the upstream OCapN suite runs against the production host;
-- live Spritely Goblins peers call pancake and accept calls from it;
+- live Spritely Goblins peers call pancake and accept calls from it,
+  recurring over testing TCP;
 - in-tree scenarios cover message arms, failure paths, limits, and both codecs.
 
 The live checks cover calls, promises, sturdyrefs, inbound export release, and
@@ -37,20 +38,12 @@ answer release have in-tree coverage. Each language binding also acts as a
 Goblins client, recipient, and gifter.
 
 This milestone remains open because some implemented behavior has only in-tree
-or on-demand evidence. Goblins-written `op:get` / `op:index` frames reach
-pancake's projection responders, and the Goblins-side netlayer probe observes
-pancake fulfilling both projected answers with the expected payloads. Live
-Goblins-over-iroh covers sessions both ways (`goblins-iroh`) and one
-exporter-role rooms handoff (`goblins-rooms-dm-iroh`); the other two handoff
-roles stay TCP-only. Null and outside-peer `op:untag` evidence also wait on
-upstream support; Pancake's complete 1.0 operation and negotiation paths are
-covered in-tree.
-[Community review](community-review.md) has the exact matrix.
+or on-demand evidence. [Community review](community-review.md) has the exact
+matrix.
 
 ## 2. Performance at scale
 
-The goal is 500,000 live sessions on one node. That is a target, not a current
-claim.
+The goal is 500,000 live sessions on one node. That is a target.
 
 The build checks these session and Host costs; Host-wide rows say so
 explicitly:

@@ -21,12 +21,12 @@ green log is not a failure verdict.
 
 `check` needs no network, no submodules, and no live peer, and is the step to run
 while iterating; its cost is that a green `check` proves only that pancake agrees
-with pancake. It is not Zig-only: Cargo links the CLI tests' iroh sidecar, two
-Bash harnesses make `tar` part of the hard floor, and Deno type-checks the
-TypeScript examples the documentation publishes. Python extends the Bash
-harnesses when present and reports an explicit skip otherwise. **Run `check` in
-the devcontainer**, where the complete declared toolchain is pinned.
-`check_runtimes` in `build.zig` names every program visible in the build graph
+with pancake. It is not Zig-only: Python enforces deterministic process
+deadlines, Cargo links the CLI tests' iroh sidecar, two Bash harnesses make
+`tar` part of the hard floor, and Deno type-checks the TypeScript examples the
+documentation publishes. **Run `check` in the devcontainer**, where the
+complete declared toolchain is pinned.
+`check_runtimes` in `tools/build/gates.zig` names every program visible in the build graph
 and the scripts allowed to hide host-tool calls, so raising the hard floor is a
 reviewed edit rather than a silent one.
 
@@ -91,14 +91,13 @@ zig build pancake            # run the CapTP CLI; pass `-- <command> …`
 The committed `.devcontainer/` is the canonical ready-to-build environment, and
 [`.devcontainer/pins.sh`](../../.devcontainer/pins.sh) owns every version and
 path ([`checksums.sh`](../../.devcontainer/checksums.sh) holds the per-arch
-checksums, and [`check-env-sync.sh`](../../.devcontainer/check-env-sync.sh) keeps
+checksums, and [`test/env-sync.sh`](../../.devcontainer/test/env-sync.sh) keeps
 `Dockerfile` and `devcontainer.json` aligned with it). Dependency updates run
-through [`update-pins.sh`](../../.devcontainer/update-pins.sh) (`check`, then
+through [`bin/update-pins.sh`](../../.devcontainer/bin/update-pins.sh) (`check`, then
 `bump <dep>` / `bump --safe`), which fetches versions and checksums from each
 tool's release channel and validates the staged edit; do not hand-edit a pin
-against upstream. After container open, run
-`post-create.sh` verifies the environment automatically; then run `zig build
-check`. The notes are in
+against upstream. After container open, `hooks/post-create.sh` verifies the
+environment automatically; then run `zig build check`. The notes are in
 [`.devcontainer/README.md`](../../.devcontainer/README.md). Serena MCP is
 client-started over stdio, see [serena-mcp](serena-mcp.md).
 

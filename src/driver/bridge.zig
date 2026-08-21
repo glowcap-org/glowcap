@@ -67,11 +67,11 @@ pub fn Bridge(comptime LoopT: type) type {
         /// owned by `Host.node`; only the transport is retained here to select
         /// that snapshot when an accepted connection arrives.
         transport: ?[]const u8 = null,
-        /// PeerId to loop slot, the map `drainActions` routes `flush` and `close`
+        /// PeerHandle to loop slot, the map `drainActions` routes `flush` and `close`
         /// actions through. Bounded by live CapTP sessions: a row is added at
         /// adoption and removed first thing in `freeConnCtx`, so a teardown drain
         /// can never arm a dead slot.
-        slots: std.AutoHashMapUnmanaged(engine.PeerId, usize) = .{},
+        slots: std.AutoHashMapUnmanaged(engine.PeerHandle, usize) = .{},
         /// Slot to in-flight outbound connect. Inserted by `Exec.dial` /
         /// `dialOutbound` after `dialLocator`; removed by `makeConnCtx`
         /// (connect ok) or `onClose` (connect refused). Bounded by concurrent
@@ -307,13 +307,13 @@ pub fn Bridge(comptime LoopT: type) type {
             );
         }
 
-        /// Close the loop connection serving `peer_id`, if one is still adopted.
+        /// Close the loop connection serving `peer_handle`, if one is still adopted.
         /// The slot row leaves in
         /// `freeConnCtx` before the session's release, so a stale or already-torn
         /// id no-ops — the same spine `drainActions`' close arm rides. Call from
         /// the loop-owner thread only (`Loop.closeSlot` affinity).
-        pub fn closeConn(self: *Self, peer_id: engine.PeerId) void {
-            if (self.slots.get(peer_id)) |slot| {
+        pub fn closeConn(self: *Self, peer_handle: engine.PeerHandle) void {
+            if (self.slots.get(peer_handle)) |slot| {
                 self.loop.closeSlot(slot);
             }
         }
@@ -439,8 +439,8 @@ pub fn Bridge(comptime LoopT: type) type {
                 .session = session,
                 .leg = leg,
             };
-            try self.slots.put(self.allocator, session.peer_id, slot);
-            errdefer std.debug.assert(self.slots.remove(session.peer_id));
+            try self.slots.put(self.allocator, session.peer_handle, slot);
+            errdefer std.debug.assert(self.slots.remove(session.peer_handle));
             try self.drainActions();
             // Commit the connect only after every fallible adoption step. If
             // any step above refuses, `onClose` still owns this row and can
@@ -483,7 +483,7 @@ pub fn Bridge(comptime LoopT: type) type {
                 shell.leg = .redeem_done;
             }
             // Loop teardown calls this exactly once for a published context.
-            std.debug.assert(self.slots.remove(shell.session.peer_id));
+            std.debug.assert(self.slots.remove(shell.session.peer_handle));
             // The loop calls this after the serve hook has returned, on the
             // owning thread. A violated Host ownership precondition is retained
             // for the next driver turn rather than promoted to process policy.
@@ -565,14 +565,14 @@ pub fn Bridge(comptime LoopT: type) type {
                 bridge: *Self,
                 loop: *LoopT,
 
-                pub fn flush(e: @This(), peer_id: engine.PeerId) !void {
-                    if (e.bridge.slots.get(peer_id)) |slot| {
+                pub fn flush(e: @This(), peer_handle: engine.PeerHandle) !void {
+                    if (e.bridge.slots.get(peer_handle)) |slot| {
                         e.loop.armOutbound(slot);
                     }
                 }
 
-                pub fn close(e: @This(), peer_id: engine.PeerId) !void {
-                    e.bridge.closeConn(peer_id);
+                pub fn close(e: @This(), peer_handle: engine.PeerHandle) !void {
+                    e.bridge.closeConn(peer_handle);
                 }
 
                 pub fn dial(e: @This(), d: @FieldType(driver_core.HostAction, "dial")) !void {

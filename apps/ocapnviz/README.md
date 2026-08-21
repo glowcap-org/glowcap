@@ -53,13 +53,14 @@ announcement is still the whole setup. Other
 peers publish their own traces to the convergence endpoint — presenting the
 same capability — so sessions the room server never carries still appear.
 
-Live connects as soon as you enter it, and the dot under the sturdyref turns
-green when the CapTP session is open. Being connected is not recording. Press **Record** to
-start a capture, and from that moment every session and message the room carries
-draws as it happens. The capability replays the sessions already open, so the
-picture is complete rather than filling in as traffic happens to mention each
-one. A disconnected or backpressured viewer reconnects and receives a fresh
-authoritative replay.
+Live connects as soon as you enter it. The badge under the sturdyref says
+**connecting** while it dials, **waiting** until the first observation arrives,
+and **connected** once the feed has spoken. Being connected is not recording.
+Press **Record** to start a capture, and from that moment every session and
+message the room carries draws as it happens. The capability replays the
+sessions already open, so the picture is complete rather than filling in as
+traffic happens to mention each one. A disconnected or backpressured viewer
+reconnects and receives a fresh authoritative replay.
 **Stop** hands the capture to Play, where it replays like any other recording.
 
 Each `op:start-session` animates from its observed depart timestamp to its

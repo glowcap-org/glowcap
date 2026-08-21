@@ -31,6 +31,7 @@
 // (Deno).
 
 import { chromium } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -106,7 +107,7 @@ const httpPort = freePort();
 const roomPort = freePort();
 
 // serve.ts: the room server + the /relay byte pipe.
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -122,7 +123,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
@@ -178,11 +179,6 @@ try {
 	if (browser) {
 		await browser.close().catch(() => {});
 	}
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

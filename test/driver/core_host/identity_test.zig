@@ -48,9 +48,9 @@ const TraceLog = harness.TraceLog;
 
 test "core host: two hosts complete the keyed handshake over fed bytes" {
     const allocator = std.testing.allocator;
-    var a = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var a = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer a.deinit();
-    var b = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var b = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer b.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -61,8 +61,8 @@ test "core host: two hosts complete the keyed handshake over fed bytes" {
 
 test "core host: keyed-tcp handshake leaves durable identity unauthenticated" {
     const allocator = std.testing.allocator;
-    const acceptor_seed = [_]u8{0x2b} ** 32;
-    var dialer = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    const acceptor_seed = @as([32]u8, @splat(0x2b));
+    var dialer = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
     defer dialer.deinit();
     var acceptor = test_host.init(allocator, acceptor_seed, Host.Options.withFrameCap(frame_cap));
     defer acceptor.deinit();
@@ -96,8 +96,8 @@ test "core host: a host that never listens still advertises its key on a key tra
     // is where it was found, and the same derivation serves `iroh`,
     // `keyed-tcp`, and `keyed-relay`.
     const allocator = std.testing.allocator;
-    const client_seed = [_]u8{0x7a} ** 32;
-    const server_seed = [_]u8{0x7b} ** 32;
+    const client_seed = @as([32]u8, @splat(0x7a));
+    const server_seed = @as([32]u8, @splat(0x7b));
     var client = test_host.init(allocator, client_seed, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
@@ -131,9 +131,9 @@ test "core host: a host that never listens still advertises its key on a key tra
 
 test "core host: verified session directory authenticates an early handoff gifter" {
     const allocator = std.testing.allocator;
-    var gifter = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var exporter = test_host.init(allocator, [_]u8{0x0d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0d)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -182,9 +182,9 @@ test "session identity: an old handoff certificate cannot resolve against a sess
     // make a cleartext channel replay-safe, which ADR-0075 records.
     const allocator = std.testing.allocator;
     const opts = Host.Options.withFrameCap(frame_cap);
-    var gifter = test_host.init(allocator, [_]u8{0x0c} ** 32, opts);
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x0c)), opts);
     defer gifter.deinit();
-    var exporter = test_host.init(allocator, [_]u8{0x0d} ** 32, opts);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0d)), opts);
     defer exporter.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -250,11 +250,11 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
     // that can open a connection could name a designator we are dialing and
     // make us condemn our own verified outbound session to it, repeatedly, for
     // an exporter it never has to reach or hold a key for.
-    var victim = test_host.init(allocator, [_]u8{0x77} ** 32, Host.Options.withFrameCap(frame_cap));
+    var victim = test_host.init(allocator, @as([32]u8, @splat(0x77)), Host.Options.withFrameCap(frame_cap));
     defer victim.deinit();
-    var us = test_host.init(allocator, [_]u8{0x01} ** 32, Host.Options.withFrameCap(frame_cap));
+    var us = test_host.init(allocator, @as([32]u8, @splat(0x01)), Host.Options.withFrameCap(frame_cap));
     defer us.deinit();
-    var attacker = test_host.init(allocator, [_]u8{0xff} ** 32, Host.Options.withFrameCap(frame_cap));
+    var attacker = test_host.init(allocator, @as([32]u8, @splat(0xff)), Host.Options.withFrameCap(frame_cap));
     defer attacker.deinit();
 
     // The attacker only wins the tiebreak when our identifier sorts lower, so
@@ -330,9 +330,9 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
 
 test "core host: a key-shaped address remains an address for crossed hellos" {
     const allocator = std.testing.allocator;
-    var us = test_host.init(allocator, [_]u8{0x01} ** 32, Host.Options.withFrameCap(frame_cap));
+    var us = test_host.init(allocator, @as([32]u8, @splat(0x01)), Host.Options.withFrameCap(frame_cap));
     defer us.deinit();
-    var partner = test_host.init(allocator, [_]u8{0xff} ** 32, Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0xff)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
 
     const our_pid = crypto.derivePublicIdentifier(us.node.secretKey().publicKey());
@@ -379,9 +379,9 @@ test "core host: a key-shaped address remains an address for crossed hellos" {
 
 test "partner identity: a verified tcp session reports the key its handshake proved" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    const server_seed = [_]u8{0x0b} ** 32;
+    const server_seed = @as([32]u8, @splat(0x0b));
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -411,9 +411,9 @@ test "partner identity: a verified tcp session reports the key its handshake pro
 
 test "onion identity: a dial authenticates the sturdyref target, not a durable CapTP peer" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -444,9 +444,9 @@ test "onion identity: a dial authenticates the sturdyref target, not a durable C
 
 test "partner identity: keyed-tcp reports its claimed designator without authenticating it" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x1a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x1a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    const server_seed = [_]u8{0x1b} ** 32;
+    const server_seed = @as([32]u8, @splat(0x1b));
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -490,7 +490,7 @@ test "session identity: a host signs each session with that session's own key" {
     const allocator = std.testing.allocator;
 
     const opts = Host.Options.withFrameCap(frame_cap);
-    const durable_seed = [_]u8{0x4a} ** 32;
+    const durable_seed = @as([32]u8, @splat(0x4a));
     var host = test_host.init(allocator, durable_seed, opts);
     defer host.deinit();
 
@@ -541,10 +541,10 @@ test "session identity: a give is signed by its session's key, not the host's du
     const allocator = std.testing.allocator;
 
     const opts = Host.Options.withFrameCap(frame_cap);
-    const durable_seed = [_]u8{0x4b} ** 32;
+    const durable_seed = @as([32]u8, @splat(0x4b));
     var gifter = test_host.init(allocator, durable_seed, opts);
     defer gifter.deinit();
-    var exporter = test_host.init(allocator, [_]u8{0x4c} ** 32, opts);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x4c)), opts);
     defer exporter.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

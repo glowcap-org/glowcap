@@ -158,7 +158,7 @@ Host-facing and Host-composed actor surfaces use an opaque capability identity
 with two internal forms:
 
 - a local row naming one target in the composed Vat;
-- a remote row naming its owning `PeerId`, real import position, kind, and an
+- a remote row naming its owning `PeerHandle`, real import position, kind, and an
   import-row generation that makes reuse fail closed.
 
 The C and binding `Ref` types carry the opaque Host id. They expose no position

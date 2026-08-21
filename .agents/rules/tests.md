@@ -54,6 +54,12 @@ What decides "correct" is what a red test means:
 Benchmarks keep performance budgets visible; they do not prove correctness, and
 a benchmark is never an authority for behavior.
 
+Every deterministic test or proof process emitted by the build has an
+owner-calibrated process-group deadline of at most 30 seconds. Zig bounds each
+runner-launched subprocess, not its aggregate suite; local protocol deadlines
+remain diagnostic. Benchmark, search, real-internet, service, and build work
+name their posture explicitly — none is a silent exemption.
+
 ## Protocol Claims Need Scenarios
 
 Any claim about codec-neutral behavior, session state, engine behavior, C ABI

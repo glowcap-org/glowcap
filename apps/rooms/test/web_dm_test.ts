@@ -22,6 +22,7 @@ import { Directory, Room } from "../lib/room_client.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { dial, roomsHost } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -68,7 +69,7 @@ const httpPort = freePort();
 
 // serve.ts hosts the page and an iroh room + relay; its room server picks its own
 // iroh endpoint (no port to pin).
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -84,7 +85,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 // Bob: a native iroh member in this process. He mints one giftable inbox per peer
 // the directory asks him for, served on his own iroh endpoint (the redeem
@@ -178,11 +179,6 @@ try {
 	await bobDirectory?.close().catch(() => {});
 	bobEndpoint.close();
 	await bobRuntime.close();
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

@@ -9,12 +9,11 @@
 //! reach each other on host candidates alone, with no STUN or TURN.
 //!
 //! Channel establishment is driven from each resident's readiness fd and checked
-//! with non-blocking open calls. Before CapTP starts, the peers exchange raw bytes
-//! in both directions through try-I/O. The same channels are then presented as
-//! ordinary `net.Connection`s for the keyed handshake, bootstrap fetch, and
-//! deliver/resolve conversation every other transport runs. The bytes on the
-//! wire are DTLS-encrypted SCTP; the keyed handshake proves each peer's Ed25519
-//! identity end to end on top of it.
+//! with non-blocking open calls. Before CapTP starts, the peers exchange one
+//! probe packet in each direction through try-I/O. CapTP then runs through the
+//! same Host packet seam the generic WebRTC completion backend uses. The bytes
+//! on the wire are DTLS-encrypted SCTP; the keyed handshake proves each peer's
+//! Ed25519 identity end to end on top of it.
 //!
 //! Goblins ships no WebRTC netlayer, so this is pancake-to-pancake by
 //! construction, exactly like `iroh-interop`: it proves the netlayer contract
@@ -28,23 +27,23 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const webrtc = @import("webrtc");
+const webrtc_common = @import("webrtc_common");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc";
 
 /// The published actor: answers `greet` with a static greeting.
 const Greeter = struct {
+    done: *std.atomic.Value(bool),
+
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
         _ = turn;
-        _ = msg;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        self.done.store(true, .release);
         return .{ .string = greeting };
     }
 };
@@ -59,7 +58,7 @@ fn drainReady(resident: *webrtc.Resident, peer: *webrtc.Peer) !u32 {
     while (true) {
         const count = try resident.drainReady(&events);
         for (events[0..count]) |event| {
-            if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+            if (event.subject != @backingInt(peer.id())) return error.UnexpectedReadySubject;
             flags |= event.events;
         }
         if (count < events.len) return flags;
@@ -71,7 +70,7 @@ fn pollReady(resident: *webrtc.Resident, peer: *webrtc.Peer, timeout_ms: i32) !u
     const count = try resident.pollReady(&events, timeout_ms);
     var flags: u32 = 0;
     for (events[0..count]) |event| {
-        if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+        if (event.subject != @backingInt(peer.id())) return error.UnexpectedReadySubject;
         flags |= event.events;
     }
     if (count == events.len) flags |= try drainReady(resident, peer);
@@ -82,6 +81,7 @@ fn checkOpen(peer: *webrtc.Peer) !bool {
     peer.checkOpen() catch |err| return switch (err) {
         error.WouldBlock => false,
         error.Closed => error.ChannelClosed,
+        error.Failed => error.ChannelFailed,
     };
     return true;
 }
@@ -92,13 +92,12 @@ fn bringUpChannel(
     answerer_resident: *webrtc.Resident,
     answerer: *webrtc.Peer,
 ) !void {
-    var sdp_buf: [16 * 1024]u8 = undefined;
-    var cand_buf: [4 * 1024]u8 = undefined;
+    var signal_buf: [webrtc.max_signal_bytes]u8 = undefined;
     var len: usize = 0;
 
-    const offer = try offerer.createOffer(&sdp_buf, &len);
+    const offer = try offerer.createOffer(&signal_buf, &len);
     try answerer.setRemoteOffer(offer);
-    const answer = try answerer.createAnswer(&sdp_buf, &len);
+    const answer = try answerer.createAnswer(&signal_buf, &len);
     try offerer.setRemoteAnswer(answer);
 
     // Up to ~30s of readiness polling: on loopback the channel opens in well
@@ -107,10 +106,10 @@ fn bringUpChannel(
     while (rounds < 300) : (rounds += 1) {
         _ = try pollReady(offerer_resident, offerer, 50);
         _ = try pollReady(answerer_resident, answerer, 50);
-        while (try offerer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
+        while (try offerer.nextLocalCandidate(&signal_buf, &len)) |candidate| {
             try answerer.addRemoteCandidate(candidate);
         }
-        while (try answerer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
+        while (try answerer.nextLocalCandidate(&signal_buf, &len)) |candidate| {
             try offerer.addRemoteCandidate(candidate);
         }
         if (try checkOpen(offerer) and try checkOpen(answerer)) return;
@@ -119,41 +118,42 @@ fn bringUpChannel(
 }
 
 fn trySend(resident: *webrtc.Resident, peer: *webrtc.Peer, bytes: []const u8) !void {
-    var offset: usize = 0;
     var rounds: usize = 0;
-    while (offset < bytes.len and rounds < 300) : (rounds += 1) {
-        const count = peer.tryWrite(bytes[offset..]) catch |err| switch (err) {
+    while (rounds < 300) : (rounds += 1) {
+        const count = peer.trySendPacket(bytes) catch |err| switch (err) {
             error.WouldBlock => {
                 _ = try pollReady(resident, peer, 100);
                 continue;
             },
+            error.BufferTooSmall => return error.ProbeTooLarge,
             error.Closed => return error.ChannelClosed,
             error.Failed => return error.ChannelWriteFailed,
         };
-        if (count == 0) return error.WriteMadeNoProgress;
-        offset += count;
+        if (count != bytes.len) return error.ShortPacketSend;
+        return;
     }
-    if (offset != bytes.len) return error.ChannelWriteTimeout;
+    return error.ChannelWriteTimeout;
 }
 
 fn tryReceive(resident: *webrtc.Resident, peer: *webrtc.Peer, expected: []const u8) !void {
     var received: [128]u8 = undefined;
     if (expected.len > received.len) return error.ProbeTooLarge;
-    var offset: usize = 0;
     var rounds: usize = 0;
-    while (offset < expected.len and rounds < 300) : (rounds += 1) {
-        const count = peer.tryRead(received[offset..expected.len]) catch |err| switch (err) {
+    while (rounds < 300) : (rounds += 1) {
+        const count = peer.tryReceivePacket(&received) catch |err| switch (err) {
             error.WouldBlock => {
                 _ = try pollReady(resident, peer, 100);
                 continue;
             },
+            error.BufferTooSmall => return error.ProbeTooLarge,
             error.Closed => return error.ChannelClosed,
             error.Failed => return error.ChannelReadFailed,
         };
-        offset += count;
+        if (count != expected.len) return error.WrongProbeBytes;
+        if (!std.mem.eql(u8, received[0..count], expected)) return error.WrongProbeBytes;
+        return;
     }
-    if (offset != expected.len) return error.ChannelReadTimeout;
-    if (!std.mem.eql(u8, received[0..offset], expected)) return error.WrongProbeBytes;
+    return error.ChannelReadTimeout;
 }
 
 fn proveReadinessBytes(
@@ -175,93 +175,64 @@ fn proveReadinessBytes(
 /// signing with `secret`, publish the Greeter, and serve until the offerer
 /// leaves.
 fn answererHalf(
-    io: std.Io,
+    resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    secret: crypto.SecretKey,
+    seed: [crypto.SEED_BYTES]u8,
 ) anyerror!void {
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
+    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
+    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
+    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
 
-    const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer vat.deinit();
-
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
-        .transport = webrtc.transport_name,
-        .designator = designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
-    _ = try vat.publish("greeter", Greeter, .{});
-    try vat.serve();
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    var served = std.atomic.Value(bool).init(false);
+    _ = try host.publish(session, "greeter", Greeter, .{ .done = &served });
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
 }
 
 /// The offerer half: run the initiator keyed handshake signing with `secret`,
 /// pinning the answerer's key so a wrong partner refuses, then assert the
 /// partner's signed designator, fetch the Greeter, and call it.
 fn offererHalf(
-    io: std.Io,
+    resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    secret: crypto.SecretKey,
+    seed: [crypto.SEED_BYTES]u8,
     expect_designator: []const u8,
 ) anyerror!void {
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Demand the answerer's durable identity: the engine refuses a hello that
-    // does not claim it, before the session opens. What *proves* the claim is
-    // the DataChannel's DTLS handshake under capability-authorized signaling,
-    // and the resident asserts that itself when it hands back a connection
-    // (ADR-0105), so this side states only what it asked for.
-    engine_peer.demandPartnerDurableKey(
-        crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator,
-    );
+    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
+    const session = try host.openDialedLocator(webrtc_common.locator(expect_designator));
+    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
 
-    const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer vat.deinit();
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    const partner = try host.partnerIdentity(session);
+    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
 
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
-        .transport = webrtc.transport_name,
-        .designator = designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
-
-    const partner = engine_peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
-    if (!std.mem.eql(u8, partner, expect_designator)) return error.PartnerMismatch;
-
-    const greeter = try vat.fetch("greeter");
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const settled = try vat.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} }, arena_state.allocator());
-    switch (settled) {
-        .fulfilled => |arg| {
-            if (arg != .string or !std.mem.eql(u8, arg.string, greeting)) return error.WrongReply;
-        },
-        .broken, .give => return error.CallBroke,
-    }
+    const greeter = try webrtc_common.fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
+    try webrtc_common.sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
+        .verb = "greet",
+        .args = &.{.{ .string = "pancake" }},
+    }, greeting, 10_000);
+    _ = try pump.drive(&host, session, peer);
+    peer.close();
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -272,8 +243,10 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     // Deterministic keys: the designators the two peers sign and pin against.
-    const answerer_secret = crypto.SecretKey.fromSeed([_]u8{0x51} ** crypto.SEED_BYTES);
-    const offerer_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES);
+    const answerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x51));
+    const offerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x52));
+    const answerer_secret = crypto.SecretKey.fromSeed(answerer_seed);
+    const offerer_secret = crypto.SecretKey.fromSeed(offerer_seed);
     const answerer_designator = answerer_secret.publicKey().toDesignator();
 
     var offerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
@@ -297,8 +270,8 @@ pub fn main(init: std.process.Init) !void {
 
     // The answerer serves on its own thread; the offerer drives the conversation
     // on this one. Each peer handle is used by exactly one thread past bring-up.
-    var answerer_future = try io.concurrent(answererHalf, .{ io, &answerer, allocator, answerer_secret });
-    const offerer_result = offererHalf(io, &offerer, allocator, offerer_secret, answerer_designator[0..]);
+    var answerer_future = try io.concurrent(answererHalf, .{ &answerer_resident, &answerer, allocator, answerer_seed });
+    const offerer_result = offererHalf(&offerer_resident, &offerer, allocator, offerer_seed, answerer_designator[0..]);
     const answerer_result = answerer_future.await(io);
     try offerer_result;
     try answerer_result;

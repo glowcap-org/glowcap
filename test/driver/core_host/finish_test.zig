@@ -52,7 +52,7 @@ const TraceLog = harness.TraceLog;
 
 test "core host finish waits for an admitted session handshake" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x20} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x20)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -76,7 +76,7 @@ test "core host finish waits for an admitted session handshake" {
 
 test "core host finish observes a negotiating session's terminal release" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -91,7 +91,7 @@ test "core host finish observes a negotiating session's terminal release" {
 
 test "core host close leaves terminal session shells for explicit release" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try host.ensureAdvertisedLocator("tcp");
@@ -116,11 +116,11 @@ test "core host close leaves terminal session shells for explicit release" {
 
 test "core host cancel resumes terminal work across finite scheduler quanta" {
     const allocator = std.testing.allocator;
-    var first_client = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var first_client = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.withFrameCap(frame_cap));
     defer first_client.deinit();
-    var second_client = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var second_client = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.withFrameCap(frame_cap));
     defer second_client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x2e} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x2e)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
@@ -134,8 +134,8 @@ test "core host cancel resumes terminal work across finite scheduler quanta" {
     host.beginClose(.cancel, 0);
     var close_count: usize = 0;
     while (try host.nextAction()) |action| switch (action) {
-        .flush => |peer_id| {
-            const session = host.sessionForPeer(peer_id) orelse continue;
+        .flush => |peer_handle| {
+            const session = host.sessionForPeer(peer_handle) orelse continue;
             while (try session.takeOutbound()) |frame_value| {
                 var frame = frame_value;
                 frame.deinit();
@@ -153,9 +153,9 @@ test "core host cancel resumes terminal work across finite scheduler quanta" {
 
 test "core host finish waits for an admitted vow before closing its session" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x22} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x22)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x23} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x23)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -181,9 +181,9 @@ test "core host finish waits for an admitted vow before closing its session" {
 
 test "core host finish waits for an admitted named-send chain" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x42} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x43} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x43)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -213,9 +213,9 @@ test "core host finish waits for an admitted named-send chain" {
 
 test "core host cancel escalates an in-progress finish" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x24} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x24)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x25} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x25)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -246,11 +246,11 @@ test "core host cancel escalates an in-progress finish" {
 
 test "session finish waits for its admitted work and leaves a sibling open" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var first_server = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var first_server = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.withFrameCap(frame_cap));
     defer first_server.deinit();
-    var second_server = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var second_server = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.withFrameCap(frame_cap));
     defer second_server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -282,11 +282,11 @@ test "session finish waits for its admitted work and leaves a sibling open" {
 
 test "session cancel escalates finish without closing a sibling" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2e)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var first_server = test_host.init(allocator, [_]u8{0x2f} ** 32, Host.Options.withFrameCap(frame_cap));
+    var first_server = test_host.init(allocator, @as([32]u8, @splat(0x2f)), Host.Options.withFrameCap(frame_cap));
     defer first_server.deinit();
-    var second_server = test_host.init(allocator, [_]u8{0x31} ** 32, Host.Options.withFrameCap(frame_cap));
+    var second_server = test_host.init(allocator, @as([32]u8, @splat(0x31)), Host.Options.withFrameCap(frame_cap));
     defer second_server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -309,9 +309,9 @@ test "session cancel escalates finish without closing a sibling" {
 
 test "core host cancel drops queued application turns before driving terminal work" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x26)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x27} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x27)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -320,7 +320,7 @@ test "core host cancel drops queued application turns before driving terminal wo
     var hits: usize = 0;
     const actor = try client.vat.spawn(FairCounter, .{ .hits = &hits });
     try client.vat.tellFromIngress(pair.a.served.port.ingress, actor, .{ .verb = "hit", .args = &.{} });
-    driver.core.testing.markDirty(&client, pair.a.peer_id);
+    driver.core.testing.markDirty(&client, pair.a.peer_handle);
     const wake = (try client.nextAction()) orelse return error.MissingFlush;
     try std.testing.expect(wake == .flush);
 
@@ -330,7 +330,7 @@ test "core host cancel drops queued application turns before driving terminal wo
 }
 
 test "core host cancel settles a parked select-or-dial without realizing its ticket" {
-    var host = test_host.init(std.testing.allocator, [_]u8{0x28} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x28)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7087", "widget"));
@@ -357,7 +357,7 @@ test "core host cancel settles a parked select-or-dial without realizing its tic
 }
 
 test "core host transport packages publish no prefix before a later conflict" {
-    var host = test_host.init(std.testing.allocator, [_]u8{0x30} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x30)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     const profiles = [_]model.transport.Metadata{
@@ -381,7 +381,7 @@ test "core host transport package allocation failure leaves authority and output
     for (0..32) |offset| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         failing.fail_index = std.math.maxInt(usize);
-        var host = test_host.init(failing.allocator(), [_]u8{0x2f} ** 32, Host.Options.withFrameCap(frame_cap));
+        var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x2f)), Host.Options.withFrameCap(frame_cap));
         defer {
             failing.fail_index = std.math.maxInt(usize);
             host.deinit();

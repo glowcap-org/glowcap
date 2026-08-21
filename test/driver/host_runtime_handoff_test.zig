@@ -273,7 +273,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const io = threaded.io();
 
     const foundation = pancake.foundation;
-    const exporter_secret = foundation.crypto.SecretKey.fromSeed([_]u8{0x5b} ** foundation.crypto.SEED_BYTES);
+    const exporter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x5b)));
     var keyed_resident = net.tcp.keyed.Resident{ .io = io };
     var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
@@ -334,7 +334,7 @@ test "driver Server can replace listener-derived reachability with deployment ro
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0x6b} ** pancake.foundation.crypto.SEED_BYTES);
+    const secret = pancake.foundation.crypto.SecretKey.fromSeed(@as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x6b)));
     var resident = net.tcp.keyed.Resident{ .io = io };
     var server = try driver.listen(
         allocator,

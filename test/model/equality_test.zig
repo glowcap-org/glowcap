@@ -100,28 +100,28 @@ test "handoff gives differing only in a hint entry value are unequal" {
         .{ .name = "direct-addresses", .value = .{ .string = "127.0.0.1:2" } },
     };
     var give_a = model.Handoff{ .give = .{
-        .recipient_key = &([_]u8{0x11} ** 32),
+        .recipient_key = &(@as([32]u8, @splat(0x11))),
         .exporter = .{
             .transport = "tcp",
             .designator = "exporter",
             .hints = .{ .entries = &entries_a },
         },
-        .gifter_exporter_session = &([_]u8{0x22} ** 32),
-        .gifter_side = &([_]u8{0x33} ** 32),
-        .gift_id = &([_]u8{0x44} ** 32),
-        .signature = &([_]u8{0xaa} ** 64),
+        .gifter_exporter_session = &(@as([32]u8, @splat(0x22))),
+        .gifter_side = &(@as([32]u8, @splat(0x33))),
+        .gift_id = &(@as([32]u8, @splat(0x44))),
+        .signature = &(@as([64]u8, @splat(0xaa))),
     } };
     var give_b = model.Handoff{ .give = .{
-        .recipient_key = &([_]u8{0x11} ** 32),
+        .recipient_key = &(@as([32]u8, @splat(0x11))),
         .exporter = .{
             .transport = "tcp",
             .designator = "exporter",
             .hints = .{ .entries = &entries_b },
         },
-        .gifter_exporter_session = &([_]u8{0x22} ** 32),
-        .gifter_side = &([_]u8{0x33} ** 32),
-        .gift_id = &([_]u8{0x44} ** 32),
-        .signature = &([_]u8{0xaa} ** 64),
+        .gifter_exporter_session = &(@as([32]u8, @splat(0x22))),
+        .gifter_side = &(@as([32]u8, @splat(0x33))),
+        .gift_id = &(@as([32]u8, @splat(0x44))),
+        .signature = &(@as([64]u8, @splat(0xaa))),
     } };
     try std.testing.expect(!model.argumentsEqual(.{ .handoff = &give_a }, .{ .handoff = &give_b }));
     try std.testing.expect(model.peerLocatorsEqual(give_a.give.exporter, give_b.give.exporter));

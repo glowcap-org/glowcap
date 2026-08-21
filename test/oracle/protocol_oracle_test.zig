@@ -9,12 +9,12 @@ test "protocol oracle enumerates every shipped message arm" {
     // model's kind registry: a union arm with no oracle arm fails here, so
     // `zig build oracle-check` alone refuses new protocol vocabulary that
     // carries no oracle pressure.
-    const fields = @typeInfo(model.Message).@"union".fields;
+    const fields = @typeInfo(model.Message).@"union".field_names;
     try std.testing.expectEqual(fields.len, model.message_kinds.len);
     try std.testing.expectEqual(fields.len, protocol_oracle.message_arms.len);
-    inline for (fields, 0..) |field, i| {
+    inline for (fields, 0..) |field_name, i| {
         if (comptime (i < model.message_kinds.len and i < protocol_oracle.message_arms.len)) {
-            try std.testing.expectEqualStrings(field.name, model.message_kinds[i].tag_name);
+            try std.testing.expectEqualStrings(field_name, model.message_kinds[i].tag_name);
             try std.testing.expectEqualStrings(model.message_kinds[i].model_name, protocol_oracle.message_arms[i].name);
         }
     }

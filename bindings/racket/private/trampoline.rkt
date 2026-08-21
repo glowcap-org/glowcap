@@ -32,10 +32,10 @@
 ;; Session + pump for the local-send await path (session eagerly requires this
 ;; module; lazy-require breaks the cycle).
 (lazy-require
- ["session.rkt" (session-vat session-host session-ptr)]
- ["host.rkt" (host-record-callerless-failure!)]
+ ["session/state.rkt" (session-vat session-host session-ptr)]
+ ["host/state.rkt" (host-record-callerless-failure!)]
  ["pump.rkt" (pump-until current-deliver-session)]
- ["host.rkt" (host-retain! host-retire! call-with-host host-session-for-ptr)]
+ ["host/state.rkt" (host-retain! host-retire! call-with-host host-session-for-ptr)]
  ["promise.rkt" (await-vow session-far-send)]
  ["gc.rkt" (track-arguments!)])
 

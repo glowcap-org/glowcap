@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const addRootedSystemCommand = common.addRootedSystemCommand;
 const addInstalledSystemRun = common.addInstalledSystemRun;
@@ -99,7 +100,7 @@ fn addRelayFamily(
     const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
     for (family.rows) |row| {
         const spec = relayHarnessSpec(row.harness);
-        const run = addInstalledSystemRun(b, &.{ "deno", "run" });
+        const run = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "deno", "run" });
         run.addArgs(spec.perms);
         run.addArg(spec.script);
         run.addArgs(&.{ "--marker", row.marker, "--label", row.label });
@@ -107,7 +108,7 @@ fn addRelayFamily(
             run.addArgs(&.{ "--env", b.fmt("{s}={s}", .{ pair[0], pair[1] }) });
         }
         if (row.needs_iroh_lib_path) {
-            run.addArgs(&.{ "--env", b.fmt("LD_LIBRARY_PATH={s}", .{b.pathFromRoot("zig-out/lib")}) });
+            run.addArgs(&.{ "--env", b.fmt("LD_LIBRARY_PATH={s}", .{common.rootPath(b, "zig-out/lib")}) });
         }
         run.addArg("--");
         run.addArgs(row.relay_argv);
@@ -140,10 +141,10 @@ pub fn register(
     // The Rust relay builds twice: archive-free for the TCP and backpressure legs,
     // and with `--features iroh` (linking the iroh binding) for the iroh leg. Deno
     // and Python relays are single scripts that serve every leg.
-    const rust_relay_build = addRootedSystemCommand(b, &.{
+    const rust_relay_build = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "build", "--release", "--manifest-path", "bindings/rust/relay/Cargo.toml",
     });
-    const rust_relay_iroh_build = addRootedSystemCommand(b, &.{
+    const rust_relay_iroh_build = addRootedSystemCommand(b, .build_tool, &.{
         "cargo",        "build",                           "--release", "--features", "iroh", "--manifest-path", "bindings/rust/relay/Cargo.toml",
         "--target-dir", "bindings/rust/relay/target/iroh",
     });
@@ -158,7 +159,7 @@ pub fn register(
     // `-y` warms the binding's compiled bytecode so the relay starts promptly on
     // repeat runs; the iroh leg loads the iroh companion from zig-out/lib lazily.
     const racket_relay = [_][]const u8{ "racket", "-y", "bindings/racket/relay.rkt", "0" };
-    const python_relay_lifecycle = addRootedSystemCommand(b, &.{
+    const python_relay_lifecycle = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "uv",      "run",                                "--project", "bindings/python", "--extra", "rendezvous", "--locked",
         "python3", "bindings/python/test/relay_test.py",
     });
@@ -205,7 +206,7 @@ pub fn register(
     // descriptor and RAM ceiling. A sibling step (needs deno), not folded into the
     // Zig-hermetic `check`; it writes a report under zig-out/bench-reports/. A host
     // with a small open-file limit should lower `--conns`.
-    const relay_scaling = b.addSystemCommand(&.{
+    const relay_scaling = execution.addSystemCommand(b, .benchmark, &.{
         "deno",                                    "run",      "--allow-net",  "--allow-run", "--allow-write",
         "bindings/ts/relay/test/scaling_bench.ts", "--report", "--conns=2000",
     });
@@ -221,7 +222,7 @@ pub fn register(
     // vat, then the echo round-trip and the repeat-enliven dedup. A sibling of
     // `check`, like the binding Goblins steps. The Goblins vat's fixed port
     // defaults to 22160; `-Dport` moves it.
-    const goblins_relay = addInstalledSystemRun(b, &.{
+    const goblins_relay = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                          "run",         "--allow-read",
         "--allow-net",                                   "--allow-run", "--allow-env",
         "bindings/ts/web/test/relay_goblins_harness.ts",
@@ -236,7 +237,7 @@ pub fn register(
     // the v1.0 Syrup baseline, so each session settles its own pair
     // (ADR-0103); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
-    const goblins_rooms = addInstalledSystemRun(b, &.{
+    const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
@@ -249,7 +250,7 @@ pub fn register(
     // for every connection it accepts, and this is where that stays true: the
     // vat is refused without it, and reads the refusal as a decode error
     // because a refusal is framed in the room's own profile.
-    const goblins_rooms_iroh = addInstalledSystemRun(b, &.{
+    const goblins_rooms_iroh = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
@@ -267,7 +268,7 @@ pub fn register(
     // Three peers across two implementations take the three handoff roles,
     // with nothing changed in Goblins to allow it and the whole conversation
     // drawn on the live timeline from both ends.
-    const goblins_rooms_dm = b.addSystemCommand(&.{
+    const goblins_rooms_dm = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
     });
     goblins_rooms_dm.setCwd(b.path("."));
@@ -280,7 +281,7 @@ pub fn register(
 
     // The same conversation over encrypted QUIC. The relay leg records which
     // endpoint it dialed as its channel testimony. Nothing else changes.
-    const goblins_rooms_dm_iroh = b.addSystemCommand(&.{
+    const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
     });
     goblins_rooms_dm_iroh.setCwd(b.path("."));
@@ -297,7 +298,7 @@ pub fn register(
     };
     var previous_goblins_rooms_matrix_phase: ?*std.Build.Step = null;
     for (goblins_rooms_matrix_phases) |phase| {
-        const run = b.addSystemCommand(&.{
+        const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
             "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",
             b.fmt("--phase={s}", .{phase}),
         });

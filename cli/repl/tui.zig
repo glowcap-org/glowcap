@@ -123,9 +123,10 @@ pub fn run(ctx: *Ctx) !u8 {
     defer captp_q.deinit();
 
     while (true) {
-        // Idle CapTP pump: refresh session sample without a submit.
-        // When a lab turn is awaiting settlement, `captp_q.tick` owns the step.
-        if (!captp_q.busy()) pumpSession(ctx, &lab);
+        // Idle: non-blocking step so rail counts stay live between key events.
+        if (!captp_q.busy()) {
+            if (ctx.session) |s| try captp_q.advanceSession(s, &store, 0);
+        }
 
         // CapTP busy: socket wake (`stepReadable(frame_ms)`). Flash-only: no sleep —
         // paint the rail tip then clear (animation only when waiting is real).
@@ -135,7 +136,7 @@ pub fn run(ctx: *Ctx) !u8 {
                 burst[0] = ev;
                 burst_n = 1;
             } else if (ctx.session) |s| {
-                _ = s.stepReadable(await_queue.frame_ms) catch {};
+                try captp_q.advanceSession(s, &store, await_queue.frame_ms);
             } else {
                 std.Io.sleep(ctx.io, std.Io.Duration.fromMilliseconds(await_queue.frame_ms), .real) catch {};
             }
@@ -268,26 +269,15 @@ pub fn run(ctx: *Ctx) !u8 {
         );
     }
 
-    if (ctx.closeSession(.cancel)) |failure| {
-        ctx.logErr(
-            "repl close: {s} (and {d} later failure(s))",
-            .{ failure.primaryName(), failure.secondary_count },
-        );
-        return exit_codes.dial;
+    if (ctx.closeOwned(.cancel)) |failure| {
+        ctx.logCloseFailure("repl close", failure);
+        return ctx.mapCloseErr(failure.cause);
     }
     return exit_codes.ok;
 }
 
 /// Screen rect shared with layout helpers (same space as mouse col/row).
 const RectCompat = layout.ScreenRect;
-
-fn pumpSession(ctx: *Ctx, lab: *ecs.LabWorld) void {
-    _ = lab;
-    if (ctx.session) |s| {
-        // Non-blocking idle step so rail counts stay live between key events.
-        _ = s.stepReadable(0) catch {};
-    }
-}
 
 fn applyIntent(
     ctx: *Ctx,

@@ -69,50 +69,38 @@ RUN groupadd --gid 1000 vscode \
 # ==============================================================================
 
 ENV PANCAKE_DEVCONTAINER_DIR=/usr/local/share/pancake-devcontainer
+# The image keeps the same layout the checkout has, so a path that works in
+# one works in the other: the pinned versions, the shell library, the
+# installers with their patches. The checks and the host-side commands stay
+# in the checkout, which is mounted, so the image does not carry a copy.
 COPY .devcontainer/pins.sh \
-     .devcontainer/lib.sh \
      .devcontainer/checksums.sh \
-     .devcontainer/check-env-sync.sh \
-     .devcontainer/install-zig.sh \
-     .devcontainer/install-zls.sh \
-     .devcontainer/install-rust.sh \
-     .devcontainer/install-js-toolchains.sh \
-     .devcontainer/install-claude-code.sh \
-     .devcontainer/install-cursor-agent.sh \
-     .devcontainer/install-opencode.sh \
-     .devcontainer/install-codex.sh \
-     .devcontainer/install-uv.sh \
-     .devcontainer/install-python.sh \
-     .devcontainer/install-serena.sh \
-     .devcontainer/install-racket-goblins.sh \
-     .devcontainer/install-playwright.sh \
-     .devcontainer/verify-toolchains.sh \
      "${PANCAKE_DEVCONTAINER_DIR}/"
-COPY .devcontainer/patches/crypto-lib-racket-9.2.patch \
-     "${PANCAKE_DEVCONTAINER_DIR}/patches/crypto-lib-racket-9.2.patch"
+COPY .devcontainer/lib/ "${PANCAKE_DEVCONTAINER_DIR}/lib/"
+COPY .devcontainer/image/ "${PANCAKE_DEVCONTAINER_DIR}/image/"
 
-RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-zls.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-rust.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-cursor-agent.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-codex.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-python.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh"
+RUN bash "${PANCAKE_DEVCONTAINER_DIR}/image/zig.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/zls.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/rust.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/js-toolchains.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/claude-code.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/cursor-agent.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/opencode.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/codex.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/python.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/serena.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/image/racket-goblins.sh"
 
 # Playwright's browser install is its own layer because it is the only installer
 # that also runs apt, and apt wants the same caches the first apt layer used.
-# It needs npx, so it follows install-js-toolchains.sh above.
+# It needs npx, so it follows image/js-toolchains.sh above.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    bash "${PANCAKE_DEVCONTAINER_DIR}/install-playwright.sh"
+    bash "${PANCAKE_DEVCONTAINER_DIR}/image/playwright.sh"
 
 # The repo-root pancake shim (ADR-0084) on PATH from any directory. The
 # workspace bind lands at /workspaces/pancake only at container open, so the
 # link dangles during the image build and resolves there.
 RUN ln -s /workspaces/pancake/pancake /usr/local/bin/pancake
 
-RUN bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"
+RUN bash "${PANCAKE_DEVCONTAINER_DIR}/image/verify-toolchains.sh"

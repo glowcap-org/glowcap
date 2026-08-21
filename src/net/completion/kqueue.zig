@@ -34,6 +34,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const completion = @import("loop.zig");
+const model = @import("model");
 const BufferPool = @import("buffer_pool.zig").BufferPool;
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
@@ -131,6 +132,10 @@ pub const Backend = struct {
 
     pub fn applyKeepalive(_: *Backend, fd: Fd, keepalive: completion.Keepalive) tcp_keepalive.ApplyError!void {
         return tcp_keepalive.apply(@intCast(fd), keepalive);
+    }
+
+    pub fn wireFraming(_: *Backend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
     }
 
     pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
@@ -336,7 +341,7 @@ pub const Backend = struct {
                     .recv => |ud| {
                         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                         if (ev.flags & EV_ERROR != 0) {
-                            comp.failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))));
+                            comp.failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))));
                         } else if (self.buffer_pool.acquire()) |idx| {
                             const buf = self.buffer_pool.buffer(idx);
                             const r = c.recv(fd, buf.ptr, buf.len, 0);
@@ -385,7 +390,7 @@ pub const Backend = struct {
                     .accept => |ud| {
                         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                         if (ev.flags & EV_ERROR != 0) {
-                            comp.failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))));
+                            comp.failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))));
                         } else {
                             const accepted = accept(fd, null, null);
                             if (accepted < 0) switch (std.posix.errno(accepted)) {
@@ -429,8 +434,8 @@ pub const Backend = struct {
                 switch (p.write) {
                     .idle => continue,
                     .connect => |ud| {
-                        const failure = if (ev.flags & EV_ERROR != 0)
-                            completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))))
+                        const failure: ?anyerror = if (ev.flags & EV_ERROR != 0)
+                            completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))))
                         else
                             connectFailure(fd);
                         p.write = .idle;
@@ -478,7 +483,7 @@ pub const Backend = struct {
                         out[produced] = .{
                             .user_data = s.ud,
                             .result = -1,
-                            .failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data)))),
+                            .failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data))))),
                         };
                         produced += 1;
                     },
@@ -548,5 +553,5 @@ fn connectFailure(fd: c.fd_t) ?anyerror {
     var len: c.socklen_t = @sizeOf(c_int);
     if (c.getsockopt(fd, c.SOL.SOCKET, c.SO.ERROR, &so_error, &len) < 0)
         return error.GetsockoptFailed;
-    return if (so_error == 0) null else completion.failureFromErrno(@enumFromInt(so_error));
+    return if (so_error == 0) null else completion.failureFromErrno(@fromBackingInt(@intCast(so_error)));
 }

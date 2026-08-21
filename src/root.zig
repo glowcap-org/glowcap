@@ -1,15 +1,15 @@
 //! pancake is an OCapN / CapTP implementation you use as a library, written in
 //! Zig.
 //!
-//! New here? Read the layers from the top down. Each one only leans on the ones
-//! above it, so you can stop wherever you have what you need.
+//! New here? Read the layers from the bottom up. Each layer leans only on the
+//! ones below it, so you can stop wherever you have what you need.
 //!
 //! - `foundation` is the raw material: wire bytes, who owns a frame, the peer and
 //!   session IDs, and the crypto the handshake relies on.
 //! - `ocapn` is the protocol itself, the four layers that *are* OCapN / CapTP.
 //!   Everything else is built on top and adds no protocol of its own:
 //!   - `ocapn.model` is the message itself. There's one codec-neutral shape, both
-//!     codecs produce it, and the engine acts on it. Everyone agrees on it.
+//!     codecs produce it, and the engine acts on it.
 //!   - `ocapn.codec` turns that message into bytes and back. Syrup and Cap'n Proto
 //!     each do it their own way. Neither one decides what counts as valid.
 //!   - `ocapn.session` is the part that does decide. It holds the authoritative
@@ -17,10 +17,10 @@
 //!   - `ocapn.engine` is the `Peer` you actually hold and drive. It's synchronous
 //!     and does no I/O of its own: no sockets, no threads, no hidden scheduler.
 //! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
-//!   objects with near-call and eventual-send, local or far over a bound peer. It
+//!   objects, plus session `Port`s that route far sends over the owning peer. It
 //!   stays in the sync, no-I/O core and adds no protocol the engine lacks.
-//! - `net` is the one place real I/O lives. It drives a `Peer` over a byte
-//!   stream and adds no protocol behavior of its own.
+//! - `net` owns transport realization and connection loops. It drives a `Peer`
+//!   over byte streams and adds no protocol behavior of its own.
 //! - `driver` sits above both `actors` and `net`: `driver.connect` and
 //!   `driver.listen` each hand back an owning `Session`, so a Zig app gets
 //!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
@@ -31,13 +31,13 @@
 //!   that sharing is what lets an introduction from one partner settle as a
 //!   live capability from another. It composes; it adds no protocol.
 //!
-//! Two more layers live under `src/` but not on this namespace, because a Zig
-//! consumer has no use for them here. `c_abi` is the C interface; it is
-//! compiled into the `libpancake_ocapn` archive, and a C consumer reaches it
-//! through `pancake_ocapn.h` (plus the per-transport headers).
-//! `oracle` runs fixed scenarios and hands back their wire bytes; it is
-//! the test suite's reference of truth, not part of the runtime path, and the
-//! tests import it directly.
+//! More layers live under `src/` but not on this namespace, because a Zig
+//! consumer reaches them through sharper roots. `c_abi` is the C interface; it
+//! is compiled into archive families, and a C consumer reaches it through the
+//! generated headers. `persistent` and `diagnostics` are opt-in module roots.
+//! `oracle` runs fixed scenarios and hands back their wire bytes; it is the test
+//! suite's reference of truth, not part of the runtime path, and tests import it
+//! directly.
 //!
 //! The whole core, foundation through engine, is deterministic, synchronous, and
 //! free of I/O. The adapters are where the outside world gets in. For the bigger

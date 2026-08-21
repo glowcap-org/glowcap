@@ -14,7 +14,7 @@
 		]
 	},
 	"tasks": {
-		"check": "deno check mod.ts channel.ts test/peer_test.ts",
-		"test": "deno test test/peer_test.ts"
+		"check": "deno check mod.ts channel.ts test/channel_test.ts test/peer_test.ts",
+		"test": "deno test test/channel_test.ts test/peer_test.ts"
 	}
 }

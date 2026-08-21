@@ -138,8 +138,20 @@ pub fn check(
         // they must not infer it from wrapper lifecycle state.
         const binding_failure_inference = [_]struct { path: []const u8, banned: []const u8 }{
             .{ .path = "bindings/rust/src/host.rs", .banned = "vow_session_closing" },
+            .{ .path = "bindings/rust/src/host/lifecycle.rs", .banned = "vow_session_closing" },
+            .{ .path = "bindings/rust/src/host/progress.rs", .banned = "vow_session_closing" },
+            .{ .path = "bindings/rust/src/host/public.rs", .banned = "vow_session_closing" },
+            .{ .path = "bindings/rust/src/host/vows.rs", .banned = "vow_session_closing" },
             .{ .path = "bindings/ts/runtime/host.ts", .banned = "vowSessionClosing" },
-            .{ .path = "bindings/python/pancake/_host.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/ts/runtime/host/state.ts", .banned = "vowSessionClosing" },
+            .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .banned = "vowSessionClosing" },
+            .{ .path = "bindings/ts/runtime/host/application.ts", .banned = "vowSessionClosing" },
+            .{ .path = "bindings/ts/runtime/host/drive.ts", .banned = "vowSessionClosing" },
+            .{ .path = "bindings/python/pancake/_host/__init__.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/pancake/_host/finalizer.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/pancake/_host/lifecycle.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/pancake/_host/progress.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/pancake/_host/publication.py", .banned = "vow_session_closing" },
             .{ .path = "bindings/racket/private/session.rkt", .banned = "current-breaking" },
         };
         for (binding_failure_inference) |entry| {
@@ -255,7 +267,7 @@ pub fn check(
             banned: []const []const u8,
         }{
             .{
-                .path = "bindings/racket/zig-smoke.rkt",
+                .path = "bindings/racket/test/zig-smoke/transports.rkt",
                 .required = "tcp-address-designator",
                 .banned = &.{ "\"127.0.0.1:9\"", "\"127.0.0.1:1\"", "\"127.0.0.1:2\"", "format-peer-uri \"tcp\"" },
             },
@@ -265,7 +277,12 @@ pub fn check(
                 .banned = &.{"\"127.0.0.1:1\""},
             },
             .{
-                .path = "bindings/rust/src/session_tests.rs",
+                .path = "bindings/rust/src/session_tests/verbs.rs",
+                .required = "crate::tcp::address_designator(&peer.ip().to_string(), peer.port())",
+                .banned = &.{ "peer.to_string()", "\"127.0.0.1:0\".to_string()" },
+            },
+            .{
+                .path = "bindings/rust/src/session_tests/wire_ownership.rs",
                 .required = "crate::tcp::address_designator(&peer.ip().to_string(), peer.port())",
                 .banned = &.{ "peer.to_string()", "\"127.0.0.1:0\".to_string()" },
             },
@@ -350,21 +367,21 @@ pub fn check(
             };
             defer gpa.free(rkt_contents);
             // Provider installation is binding-internal, and what keeps it that
-            // way is living in the private tree while the barrel re-exports only
-            // the hosting surface. It must not become a submodule again: Racket's
+            // way is living in the private tree while the barrels re-export only
+            // the intended surface. It must not become a submodule again: Racket's
             // compile manager does not manage submodule requests, so a program
             // running against compiled bytecode cannot reach one without
             // re-expanding the module it sits in.
             if (std.mem.indexOf(u8, rkt_contents, "(module* dial") != null) {
                 try appendViolation(gpa, violations, "bindings/racket/pancake-iroh.rkt: `connect-iroh/node` must stay in private/iroh.rkt, not a `dial` submodule", .{});
             }
-            const rkt_impl = root.readFileAlloc(io, "bindings/racket/private/iroh.rkt", gpa, .limited(2 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: failed to read with {s}", .{@errorName(err)});
+            const rkt_impl = root.readFileAlloc(io, "bindings/racket/private/iroh/runtime.rkt", gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh/runtime.rkt: failed to read with {s}", .{@errorName(err)});
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_impl);
             if (std.mem.indexOf(u8, rkt_impl, "iroh-adopt-loop!") == null) {
-                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: must provide `iroh-adopt-loop!` for generic driver dials", .{});
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh/runtime.rkt: must provide `iroh-adopt-loop!` for generic driver dials", .{});
             }
             // One owner for reaching the transport, and it loads a plain module.
             const rkt_dial = root.readFileAlloc(io, "bindings/racket/private/iroh-companion.rkt", gpa, .limited(2 << 20)) catch |err| {

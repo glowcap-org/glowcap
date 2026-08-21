@@ -1,8 +1,7 @@
 ---
 .title = "Racket",
 .description = "Use pancake from Racket with native values, green threads, and a Goblins-shaped actor API tested against a Goblins vat.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -10,12 +9,12 @@
 The Racket binding gives you a Goblins-shaped `Runtime` and `session` API with native
 values
 ([`pancake.rkt`](https://github.com/jimisaacs/pancake/blob/main/bindings/racket/pancake.rkt)).
-The transport modules are `pancake-tcp.rkt`, `pancake-inproc.rkt`,
-`pancake-iroh.rkt`, `pancake-onion.rkt`, and `pancake-relay.rkt`. The
+The transport modules are `pancake-iroh.rkt`, `pancake-onion.rkt`,
+`pancake-relay.rkt`, `pancake-tcp.rkt`, and `pancake-inproc.rkt`. The
 [Bindings]($link.page('bindings')) page covers install,
 and [modules]($link.page('modules')) has the actor vocabulary.
 
-## The same round-trip
+# The same round-trip
 
 The [Start building]($link.page('start')) round-trip reads like this in Racket:
 
@@ -52,7 +51,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "ws://192.0.2.10:8080/relay")
+> (define relay-url "wss://relay.example/relay")
 > (define partner (noise-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -71,7 +70,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```scheme
 > (require "pancake.rkt" "pancake-tcp.rkt")
 >
-> ;; Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+> ;; Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > (define peer-key "<64 lowercase hex characters from the server>")
 > (define partner (keyed-tcp-locator peer-key "127.0.0.1" 9099))
 >
@@ -83,7 +82,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "ws://192.0.2.10:8080/relay")
+> (define relay-url "wss://relay.example/relay")
 > (define partner (keyed-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -115,7 +114,7 @@ The CapTP verbs stay the same across tabs. What changes is the locator helper
 and whether CapTP rides cleartext or Noise. The iroh tab needs
 `pancake-iroh.rkt` and a discovery-reachable node id.
 
-## Hosting the other half
+# Hosting the other half
 
 `(accept (listen …))` hands back the same `session` that `runtime-connect` returns.
 Keyed and Noise listeners take a 32-byte seed so the advertised designator
@@ -130,7 +129,7 @@ survives a restart; iroh binds a node id instead of a host and port.
 > (require "pancake.rkt"
 >          "pancake-iroh.rkt")
 >
-> ;; Bind a key, not a place. Partners can dial this node id from anywhere.
+> ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
 > (printf "~a\n" (iroh-server-uri server)) ; hand this locator to partners
 > (define host (iroh-server-host server))
@@ -199,7 +198,7 @@ From here, the CapTP workflow is the same for every transport:
 <!-- /site-examples:listen:racket -->
 ```
 
-## A Goblins-style actor API
+# A Goblins-style actor API
 
 The verbs follow Goblins. The vat and the wire are pancake, so an existing
 Goblins program will not run unchanged. You define an actor constructor with
@@ -214,7 +213,7 @@ a partner.
 > page defines both. Across a session only `<-` works, since a partner's object
 > is never in your vat.
 
-## Async
+# Async
 
 Concurrency is Racket's own green threads and ports. `(session-serve sess)`
 pumps the inbound loop, so run it on its own green thread, and `(on vow ...)`

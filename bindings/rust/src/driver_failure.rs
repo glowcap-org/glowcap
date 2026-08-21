@@ -100,6 +100,12 @@ pub(crate) fn add_provider(loop_: *mut PancakeDriverLoop, provider: *const Panca
 pub(crate) fn close_listener(loop_: *mut PancakeDriverLoop, listener: u64) -> Result<()> {
 	let mut failure = empty();
 	let code = unsafe { ffi::pancake_driver_listener_close(loop_, listener, &mut failure) };
+	if code == crate::sys::WOULD_BLOCK {
+		return Err(Error::with_detail(
+			code,
+			"driver listener_close is still pending".to_owned(),
+		));
+	}
 	decode(code, failure, "driver listener_close")
 }
 

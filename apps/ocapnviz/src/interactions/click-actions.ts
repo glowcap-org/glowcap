@@ -22,7 +22,6 @@ import {
   entityKey,
   type EntityRef,
   type Hit,
-  hitEntityRef,
   type LaneCategory,
   type ResolvedGesture,
   type SelectionAction,
@@ -170,11 +169,4 @@ function assertNever(x: never): never {
  *  doesn't have to know that double-click maps to drill-in. */
 export function drillInActionFor(entity: EntityRef): ClickAction {
   return { kind: "drill-in", entity };
-}
-
-/** Used by adapters that prefer to compute drill-in from a hit
- *  (e.g., when wiring native dblclick listeners on non-FSM surfaces). */
-export function drillInFromHit(hit: Hit): ClickAction | null {
-  const entity = hitEntityRef(hit);
-  return entity ? drillInActionFor(entity) : null;
 }

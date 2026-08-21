@@ -14,9 +14,9 @@ const std = @import("std");
 
 const model = @import("model");
 const netlayer = @import("../netlayer.zig");
-const addressing = @import("tcp_addressing.zig");
-pub const plain = @import("tcp_plain.zig");
-const key_profile = @import("tcp_key_addressed.zig");
+const addressing = @import("tcp/addressing.zig");
+pub const plain = @import("tcp/plain.zig");
+const key_profile = @import("tcp/key_addressed.zig");
 pub const keyed = key_profile.Profile(.keyed_tcp);
 pub const noise = key_profile.Profile(.noise_tcp);
 
@@ -27,7 +27,7 @@ pub const Keepalive = plain.Keepalive;
 pub const StreamOptions = plain.StreamOptions;
 pub const RawConnection = plain.RawConnection;
 pub const connectRaw = plain.connectRaw;
-pub const ProfileListener = @import("tcp_listener.zig").Listener;
+pub const ProfileListener = @import("tcp/listener.zig").Listener;
 pub const connectionOver = plain.connectionOver;
 pub const transport_name = model.transport.tcp;
 pub const Error = addressing.Error;

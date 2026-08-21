@@ -24,33 +24,19 @@ const foundation = @import("foundation");
 const netlayer = @import("netlayer.zig");
 const model = @import("model");
 const crypto = foundation.crypto;
+const readiness = @import("multiplexed_resident/readiness.zig");
 
-/// `try_read` and `try_write` return this when the operation cannot make
-/// progress without blocking. Distinct from 0 (clean end of stream on read; a
-/// full window's zero-byte write) and -1 (a dead connection). The iroh
-/// sidecar's `PANCAKE_IROH_WOULD_BLOCK` is the same value, so its trampolines
-/// pass results through unchanged.
-pub const would_block: isize = -2;
-pub const ContractError = error{ProviderContract};
+pub const would_block = readiness.would_block;
+pub const ContractError = readiness.ContractError;
 
-/// Readiness bits in `ReadyEvent.events`. One drained record may carry
-/// several at once.
-pub const ev_readable: u32 = 1;
-pub const ev_writable: u32 = 2;
-pub const ev_closed: u32 = 4;
-pub const ev_accept: u32 = 8;
-pub const ev_connect: u32 = 16;
-pub const ev_listen: u32 = 32;
-
-/// One drained readiness record. `subject` is the connection id for
-/// connection events, the caller's request id for `ev_connect`, and the
-/// driver-minted listener route id for `ev_listen` / `ev_accept`. Provider-owned connection
-/// ids are stable and never reused for the resident's lifetime; request and
-/// listener ids belong to the caller's namespace within this runtime.
-pub const ReadyEvent = struct {
-    subject: usize,
-    events: u32,
-};
+pub const TeardownOutcome = @import("multiplexed_resident/teardown.zig").Outcome;
+pub const ReadyEvent = readiness.ReadyEvent;
+pub const ev_readable = readiness.ev_readable;
+pub const ev_writable = readiness.ev_writable;
+pub const ev_closed = readiness.ev_closed;
+pub const ev_accept = readiness.ev_accept;
+pub const ev_connect = readiness.ev_connect;
+pub const ev_listen = readiness.ev_listen;
 
 /// Provider-side result before the resident wrapper attaches profile and route
 /// ownership to the public listener or attempt value.
@@ -184,7 +170,7 @@ pub const MultiplexedResident = struct {
         take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain = null,
         /// Close and release one connection. Later records naming the id
         /// drain to nothing.
-        conn_close: *const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain,
+        conn_close: *const fn (ctx: *anyopaque, conn: usize) TeardownOutcome,
         /// The channel-authenticated remote durable key, when this transport
         /// proves one (iroh's remote node id). Null on a transport whose
         /// channel proves nothing; the realizer seam then stays silent.
@@ -281,11 +267,11 @@ pub const MultiplexedResident = struct {
         /// `ClaimedConnection` ownership in the wrapper and shares
         /// `finish_connect`'s connection namespace.
         finish_accept: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) RawFinishAcceptOutcome,
-        /// Stop accepting. An asynchronously retiring resident returns null,
-        /// emits `ev_listen` for this listener's route after its barrier joins,
-        /// then makes the cleanup chain claimable through the completion
-        /// cancel callback. Later accept records drain to no owned connection.
-        stop_listen: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) ?foundation.FailureChain,
+        /// Stop accepting. An asynchronously retiring resident returns
+        /// `pending`, emits `ev_listen` for this listener's route after its
+        /// barrier joins, then returns the claim-once terminal outcome when
+        /// called again. Later accept records drain to no owned connection.
+        stop_listen: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) TeardownOutcome,
     };
 
     pub const ListenCompletionVTable = struct {
@@ -569,6 +555,10 @@ pub const MultiplexedResident = struct {
         }
 
         pub fn stopListen(self: Listener) ?foundation.FailureChain {
+            return self.stopListenOutcome().requireComplete();
+        }
+
+        pub fn stopListenOutcome(self: Listener) TeardownOutcome {
             return self.acceptor.operations().stop_listen(self.acceptor.resident.ctx, self.ctx);
         }
     };
@@ -619,6 +609,10 @@ pub const MultiplexedResident = struct {
     }
 
     pub fn connClose(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {
+        return self.connCloseOutcome(conn).requireComplete();
+    }
+
+    pub fn connCloseOutcome(self: MultiplexedResident, conn: usize) TeardownOutcome {
         return self.vtable.conn_close(self.ctx, conn);
     }
 

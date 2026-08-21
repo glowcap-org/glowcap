@@ -360,8 +360,22 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 			// under it is read.
 			if (facts?.topic !== undefined) store.setTopic(conv.key, facts.topic);
 			if (facts?.lineBytes !== undefined) store.setLineBytes(conv.key, facts.lineBytes);
-			if (system) store.deliver(conv.key, store.sysItem(text, "shared"));
-			else {
+			// A roster went to one reader. The room tells an arrival who is present
+			// with a `tell` to that member's own inbox, never a broadcast, so the
+			// line is theirs rather than the room's and it draws under "Only you"
+			// like anything else this tab is told alone. Every other room line here
+			// did go to everybody.
+			//
+			// The roster is the only one that can be marked from the wire. A topic
+			// sent on arrival is private too and differs from a topic change only in
+			// wording, which is a thin thing to read audience from; the away lines
+			// an arrival is given are byte for byte what a later away change
+			// broadcasts, tag included, so nothing here can tell them apart. What is
+			// missing is that a notify says who a line is about and never who it
+			// went to.
+			if (system) {
+				store.deliver(conv.key, store.sysItem(text, presence?.kind === "roster" ? "here" : "shared"));
+			} else {
 				const nick = store.dirNick(dir);
 				const mine = from === nick;
 				// Our own line was painted optimistically; its echo confirms it in

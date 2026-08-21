@@ -1,13 +1,12 @@
 ---
 .title = "Choosing a transport",
 .description = "Pick a pancake netlayer from the peers you have and the channel you can open: when to reach for each symbol, and what that path proves.",
-.date = @date("2026-07-22T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The CapTP session does not change when you change transports. What changes is
+The CapTP session stays the same when you change transports. What changes is
 who you can reach and what the path between you proves.
 [Transports]($link.page('transports')) explains that layer. Pick a symbol from
 the table below.
@@ -26,22 +25,17 @@ path can do.
 | `onion` | Production | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. CapTP does not treat that as a channel-authenticated peer proof. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |
-| `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | An address, not a key. Nothing is proved and nothing is encrypted. |
+| `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | A host:port. Nothing is proved and nothing is encrypted. |
 | `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
 
-A browser that must reach a native peer uses the [relay]($link.page('relay')),
-not a netlayer of its own: WebSocket on the browser side, TCP or iroh on the
-native side. Prefer `onion` for unmodified Goblins over Tor. Prefer iroh for
-discovery or NAT traversal, and for Goblins when the vat loads this
-repository's iroh adapter. Prefer `noise-tcp` when two pancake peers already
-share a TCP route and only need the stream sealed. Reach for plain `tcp` only
-for cleartext Goblins testing.
+A browser that must reach a native peer uses the [relay]($link.page('relay')):
+WebSocket on the browser side, TCP or iroh on the native side.
 
 `noise-relay` seals the relay path for native providers and the browser's
 managed WebSocket connector. WebRTC is the direct browser-side sealed path.
 [What you can depend on]($link.page('stability')) lists the checks.
 
-## Browser traffic
+# Browser traffic
 
 A browser cannot open raw TCP or iroh QUIC. It has two choices:
 
@@ -49,14 +43,14 @@ A browser cannot open raw TCP or iroh QUIC. It has two choices:
   browsers. Both peers need a shared signaling capability, and ICE must find a
   path. Real NAT traversal may need STUN or TURN.
 - **The relay** carries a browser's WebSocket bytes to a native peer over TCP
-  or iroh. It does not parse CapTP or join the session. Use it for
+  or iroh. It forwards bytes; CapTP stays between the two peers. Use it for
   browser-to-native traffic, and as a fallback when a direct WebRTC channel
   cannot form.
 
 Offer both only when direct browser-to-browser traffic is worth the extra
 signaling and NAT work. Otherwise the relay is simpler to run.
 
-## Choices that look alike
+# Similar transports
 
 - `keyed-tcp`, `noise-tcp`, and iroh all name a peer by key. `noise-tcp` and
   iroh encrypt and authenticate; only iroh adds discovery and NAT traversal.

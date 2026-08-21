@@ -93,6 +93,9 @@ pub const DecomposeError = std.mem.Allocator.Error || error{
     /// Cap'n-Proto-only (the model contract: `desc:answer` has no structural
     /// analog on `op:deliver`); surfacing it loudly beats a silently-dropped step.
     UnsupportedPipelineOp,
+    /// The session cannot safely mint every intermediate answer the chain needs
+    /// without reusing a previous outbound answer position.
+    OutboundAnswerSpaceExhausted,
 };
 
 /// Decompose an owned multi-hop pipelined `op:deliver` (target = promise with a
@@ -106,10 +109,9 @@ pub const DecomposeError = std.mem.Allocator.Error || error{
 /// the outer args / `resolve_me_desc` move into the terminal, and the emptied
 /// `path.ops` backing slice is freed (its elements live in the chain).
 ///
-/// Ownership on error: a `field` step is rejected up front and `OutOfMemory`
-/// fires on the single allocation — both before any move — so `message` is left
-/// whole for the caller to release. Decomposition never partially consumes
-/// `message`.
+/// Ownership on error: a `field` step, answer-space exhaustion, and
+/// `OutOfMemory` all fire before any move, so `message` is left whole for the
+/// caller to release. Decomposition never partially consumes `message`.
 pub fn decomposeOutboundDeliver(
     allocator: std.mem.Allocator,
     sess: *session.Session,
@@ -126,12 +128,16 @@ pub fn decomposeOutboundDeliver(
         if (op == .field) return DecomposeError.UnsupportedPipelineOp;
     }
 
+    const first_answer = sess.reserveOutboundAnswers(ops.len) catch |err| switch (err) {
+        error.OutboundAnswerSpaceExhausted => return error.OutboundAnswerSpaceExhausted,
+        else => unreachable,
+    };
     const intermediates = try allocator.alloc(model.Message, ops.len);
-    // Infallible from here: allocateOutboundAnswer never fails and building a
-    // deliver struct only moves heap, so no partial-move cleanup is needed.
+    // Infallible from here: answer positions are already reserved and building
+    // a deliver struct only moves heap, so no partial-move cleanup is needed.
     var prev_answer = promise.answer_position;
     for (ops, 0..) |op, i| {
-        const intermediate_id = sess.allocateOutboundAnswer();
+        const intermediate_id = model.AnswerPosition.from(first_answer.int() + @as(u64, @intCast(i)));
         intermediates[i] = .{ .deliver = .{
             .target = .{ .promise = .{ .answer_position = prev_answer } },
             .args = op.call,

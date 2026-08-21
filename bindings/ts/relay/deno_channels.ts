@@ -7,8 +7,9 @@
 
 import type { RelayChannel } from "./relay.ts";
 import { recordProcessBindingFailure, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime/transport";
+import { BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@pancake/abi";
 
-const defaultTcpDialTimeoutMs = 5_000;
+const defaultTcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
 
 /** Open a raw TCP byte channel to `host:port`. A dial timeout bounds the connect
  * so a black-holed target cannot park the relay, and every partial resource is

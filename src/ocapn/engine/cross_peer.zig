@@ -13,7 +13,7 @@
 //! engine semantics; the in-repo harness for it lives in
 //! `test/support/cross_peer.zig`. Introducing-session foreign-promise relay
 //! (`installThirdPartyImport` / `Peer.applyRelayedResolution`, driven by
-//! `Node.proxyForeignPromiseFulfill`) lives on `engine.Node` /
+//! `proxy_admission.foreignPromiseFulfill`) lives on `engine.Node` /
 //! `driver_core.Host`.
 
 /// An injected signature-verification hook for a host that drives cross-peer

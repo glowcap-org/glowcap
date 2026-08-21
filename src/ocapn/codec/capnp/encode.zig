@@ -9,6 +9,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const codec_order = @import("codec_order");
+const layout = @import("encode_layout.zig");
 const shared = @import("shared.zig");
 const validation = @import("encode_validation.zig");
 const wire = shared.wire;
@@ -22,6 +23,13 @@ const ResolutionKind = shared.ResolutionKind;
 const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
+const ListContent = layout.ListContent;
+const allocStruct = layout.allocStruct;
+const ptrIndex = layout.ptrIndex;
+const setStructPtr = layout.setStructPtr;
+const setListPtr = layout.setListPtr;
+const setU64List = layout.setU64List;
+const setData = layout.setData;
 
 /// Encode for a CapTP version, the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
@@ -57,7 +65,7 @@ fn encodeMessageOptionalProfile(allocator: std.mem.Allocator, profile: ?model.Ca
     const root_idx = try builder.allocWords(allocator, 1);
     const env = try allocStruct(&builder, allocator, 1, 1);
     setStructPtr(&builder, root_idx, env);
-    builder.set(env.data_idx, @intFromEnum(messageKind(message)));
+    builder.set(env.data_idx, @backingInt(messageKind(message)));
 
     const body = try encodeBody(&builder, allocator, profile, message);
     setStructPtr(&builder, env.data_idx + env.data_words, body);
@@ -89,7 +97,7 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.Ca
         },
         .abort => |abort| blk: {
             const loc = try allocStruct(b, allocator, 1, 1);
-            b.set(loc.data_idx, @intFromEnum(abort.kind));
+            b.set(loc.data_idx, @backingInt(abort.kind));
             try setData(b, allocator, loc, 0, abort.message);
             break :blk loc;
         },
@@ -104,7 +112,7 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.Ca
             const loc = try allocStruct(b, allocator, 1, 2);
             b.set(loc.data_idx, switch (profile orelse .v1_0) {
                 .v1_0 => @intFromBool(listen.mode.toV1_0WantsPartial() orelse return Error.UnsupportedMessage),
-                .next => @intFromEnum(listen.mode),
+                .next => @backingInt(listen.mode),
             });
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, listen.target));
             setStructPtr(b, ptrIndex(loc, 1), try encodeReference(b, allocator, listen.listener));
@@ -182,11 +190,11 @@ fn encodeResolution(b: *wire.Builder, allocator: std.mem.Allocator, resolution: 
     const loc = try allocStruct(b, allocator, 1, 1);
     switch (resolution) {
         .fulfill => |arg| {
-            b.set(loc.data_idx, @intFromEnum(ResolutionKind.fulfill));
+            b.set(loc.data_idx, @backingInt(ResolutionKind.fulfill));
             setStructPtr(b, ptrIndex(loc, 0), try encodeArgument(b, allocator, arg));
         },
         .@"break" => |err| {
-            b.set(loc.data_idx, @intFromEnum(ResolutionKind.@"break"));
+            b.set(loc.data_idx, @backingInt(ResolutionKind.@"break"));
             setStructPtr(b, ptrIndex(loc, 0), try encodeError(b, allocator, err));
         },
     }
@@ -197,11 +205,11 @@ fn encodeHandoff(b: *wire.Builder, allocator: std.mem.Allocator, handoff: model.
     const loc = try allocStruct(b, allocator, 1, 1);
     switch (handoff) {
         .give => |give| {
-            b.set(loc.data_idx, @intFromEnum(HandoffKind.give));
+            b.set(loc.data_idx, @backingInt(HandoffKind.give));
             setStructPtr(b, ptrIndex(loc, 0), try encodeHandoffGive(b, allocator, give));
         },
         .receive => |receive| {
-            b.set(loc.data_idx, @intFromEnum(HandoffKind.receive));
+            b.set(loc.data_idx, @backingInt(HandoffKind.receive));
             setStructPtr(b, ptrIndex(loc, 0), try encodeHandoffReceive(b, allocator, receive));
         },
     }
@@ -234,21 +242,21 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
     const loc = try allocStruct(b, allocator, 2, 2);
     switch (reference) {
         .near => |near| {
-            b.set(loc.data_idx, @intFromEnum(RefTag.near) | (if (near.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(RefTag.near) | (if (near.kind == .promise) shared.data0_flag else 0));
             b.set(loc.data_idx + 1, near.export_position.int());
         },
         .far => |far| {
-            b.set(loc.data_idx, @intFromEnum(RefTag.far) | (if (far.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(RefTag.far) | (if (far.kind == .promise) shared.data0_flag else 0));
             b.set(loc.data_idx + 1, far.import_position.int());
         },
         .routed => return Error.UnsupportedReference,
         .promise => |promise| {
-            b.set(loc.data_idx, @intFromEnum(RefTag.promise));
+            b.set(loc.data_idx, @backingInt(RefTag.promise));
             b.set(loc.data_idx + 1, promise.answer_position.int());
             if (promise.path.ops.len != 0) try setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
         },
         .sturdy => |sturdy| {
-            b.set(loc.data_idx, @intFromEnum(RefTag.sturdy));
+            b.set(loc.data_idx, @backingInt(RefTag.sturdy));
             setStructPtr(b, ptrIndex(loc, 0), try encodePeerLocator(b, allocator, sturdy.peer));
             try setData(b, allocator, loc, 1, sturdy.swissnum);
         },
@@ -293,18 +301,18 @@ fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []
         try setData(b, allocator, loc, 0, entry.name);
         switch (entry.value) {
             .string => |s| {
-                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.string));
+                b.set(loc.data_idx, @backingInt(shared.HintValueKind.string));
                 try setData(b, allocator, loc, 1, s);
             },
             .bytes => |by| {
-                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.bytes));
+                b.set(loc.data_idx, @backingInt(shared.HintValueKind.bytes));
                 try setData(b, allocator, loc, 1, by);
             },
             .boolean => |bo| {
-                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.boolean) | (if (bo) shared.data0_flag else 0));
+                b.set(loc.data_idx, @backingInt(shared.HintValueKind.boolean) | (if (bo) shared.data0_flag else 0));
             },
             .integer => |int| {
-                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.integer));
+                b.set(loc.data_idx, @backingInt(shared.HintValueKind.integer));
                 b.set(loc.data_idx + 1, @bitCast(int));
             },
         }
@@ -336,67 +344,67 @@ fn encodeArgument(b: *wire.Builder, allocator: std.mem.Allocator, arg: model.Arg
 fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model.Argument, loc: StructLoc) EncodeError!void {
     switch (arg) {
         .bytes => |bytes| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.bytes));
+            b.set(loc.data_idx, @backingInt(ArgKind.bytes));
             try setData(b, allocator, loc, 0, bytes);
         },
         .symbol => |symbol| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.symbol));
+            b.set(loc.data_idx, @backingInt(ArgKind.symbol));
             try setData(b, allocator, loc, 0, symbol);
         },
         .reference => |reference| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.reference));
+            b.set(loc.data_idx, @backingInt(ArgKind.reference));
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, reference));
         },
         .@"error" => |err| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.@"error"));
+            b.set(loc.data_idx, @backingInt(ArgKind.@"error"));
             setStructPtr(b, ptrIndex(loc, 0), try encodeError(b, allocator, err));
         },
         .handoff => |handoff| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.handoff));
+            b.set(loc.data_idx, @backingInt(ArgKind.handoff));
             setStructPtr(b, ptrIndex(loc, 0), try encodeHandoff(b, allocator, handoff.*));
         },
         .string => |string| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.string));
+            b.set(loc.data_idx, @backingInt(ArgKind.string));
             try setData(b, allocator, loc, 0, string);
         },
         .integer => |integer| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.integer));
+            b.set(loc.data_idx, @backingInt(ArgKind.integer));
             b.set(loc.data_idx + 1, @bitCast(integer));
         },
         .boolean => |boolean| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.boolean) | (if (boolean) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(ArgKind.boolean) | (if (boolean) shared.data0_flag else 0));
         },
         .big_integer => |big| {
             // Symmetric refusal (ADR-0003): a non-canonical big integer —
             // leading zeros, non-digits, or a magnitude that belongs to the
             // `integer` arm — never reaches the wire.
             if (!big.isCanonical()) return Error.UnsupportedArgument;
-            b.set(loc.data_idx, @intFromEnum(ArgKind.big_integer) | (if (big.negative) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(ArgKind.big_integer) | (if (big.negative) shared.data0_flag else 0));
             try setData(b, allocator, loc, 0, big.digits);
         },
         .list => |list| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.list));
+            b.set(loc.data_idx, @backingInt(ArgKind.list));
             try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, list));
         },
-        .void => b.set(loc.data_idx, @intFromEnum(ArgKind.void)),
+        .void => b.set(loc.data_idx, @backingInt(ArgKind.void)),
         .float64 => |float64| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.float64));
+            b.set(loc.data_idx, @backingInt(ArgKind.float64));
             b.set(loc.data_idx + 1, @bitCast(float64));
         },
         .set => |set| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.set));
+            b.set(loc.data_idx, @backingInt(ArgKind.set));
             try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentSetList(b, allocator, set));
         },
         .tagged => |tagged| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.tagged));
+            b.set(loc.data_idx, @backingInt(ArgKind.tagged));
             setStructPtr(b, ptrIndex(loc, 0), try encodeTagged(b, allocator, tagged));
         },
         .keyword => |keyword| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.keyword));
+            b.set(loc.data_idx, @backingInt(ArgKind.keyword));
             try setData(b, allocator, loc, 0, keyword);
         },
         .@"struct" => |entries| {
-            b.set(loc.data_idx, @intFromEnum(ArgKind.@"struct"));
+            b.set(loc.data_idx, @backingInt(ArgKind.@"struct"));
             try setListPtr(b, ptrIndex(loc, 0), try encodeStructEntries(b, allocator, entries));
         },
     }
@@ -592,52 +600,14 @@ fn encodePipelinePath(b: *wire.Builder, allocator: std.mem.Allocator, ops: []con
         const loc = StructLoc{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words };
         switch (op) {
             .field => |field| {
-                b.set(loc.data_idx, @intFromEnum(PipelineOpKind.field));
+                b.set(loc.data_idx, @backingInt(PipelineOpKind.field));
                 try setData(b, allocator, loc, 0, field);
             },
             .call => |call| {
-                b.set(loc.data_idx, @intFromEnum(PipelineOpKind.call));
+                b.set(loc.data_idx, @backingInt(PipelineOpKind.call));
                 try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, call));
             },
         }
     }
     return .{ .data_idx = tag_idx, .elem = .composite, .count = ops.len * stride };
-}
-
-const ListContent = struct { data_idx: usize, elem: wire.ElementSize, count: usize };
-
-fn allocStruct(b: *wire.Builder, allocator: std.mem.Allocator, data_words: u16, ptr_words: u16) EncodeError!StructLoc {
-    const idx = try b.allocWords(allocator, @as(usize, data_words) + ptr_words);
-    return .{ .data_idx = idx, .data_words = data_words, .ptr_words = ptr_words };
-}
-
-fn ptrIndex(loc: StructLoc, i: u16) usize {
-    return loc.data_idx + loc.data_words + i;
-}
-
-fn setStructPtr(b: *wire.Builder, ptr_idx: usize, loc: StructLoc) void {
-    b.set(ptr_idx, wire.encodeStructPointer(wire.Builder.offsetTo(ptr_idx, loc.data_idx), loc.data_words, loc.ptr_words));
-}
-
-/// A Cap'n Proto list pointer carries its element count in 29 bits, so a list
-/// longer than that has no wire form here at all. Refusing is the honest
-/// answer: the same message encodes fine on Syrup, whose length prefix is a
-/// decimal integer, so this is a limit of the codec and not of the value.
-/// Casting instead would panic in a safe build and silently truncate the
-/// pointer in ReleaseFast.
-fn setListPtr(b: *wire.Builder, ptr_idx: usize, content: ListContent) EncodeError!void {
-    if (content.count > wire.max_list_elements) return Error.UnsupportedArgument;
-    b.set(ptr_idx, wire.encodeListPointer(wire.Builder.offsetTo(ptr_idx, content.data_idx), content.elem, @intCast(content.count)));
-}
-
-fn setU64List(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, values: []const u64) EncodeError!void {
-    const start = try b.allocWords(allocator, values.len);
-    for (values, 0..) |value, idx| b.set(start + idx, value);
-    try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = values.len });
-}
-
-fn setData(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, bytes: []const u8) EncodeError!void {
-    const start = try b.allocWords(allocator, wire.wordsForBytes(bytes.len));
-    b.setBytes(start, bytes);
-    try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .byte, .count = bytes.len });
 }

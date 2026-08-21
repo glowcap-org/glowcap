@@ -96,7 +96,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => peer.refreshListeners()}>
+			<OpsHead refresh={() => peer.refreshOpsCap("listeners")}>
 				Where this server accepts connections: one listener per transport, switched here.
 			</OpsHead>
 			<div className="group well">

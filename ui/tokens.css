@@ -173,6 +173,13 @@
 	--accent-line: 3px;
 	--radius-chip: 7px;
 	--radius-control: 9px;
+	/* The corner a well turns: the recessed box a set of choices stands in, in
+	   the tab bar, in the filter's questions, and in the uri and choice cards
+	   that named it. Between a control and a card, because a well is a box
+	   holding controls rather than either one. It lives here and not with the
+	   controls that use it, so a reader meets one number rather than each of
+	   them stating eleven and one of them drifting. */
+	--radius-well: 11px;
 	--radius-card: 14px;
 	--radius-pill: 999px;
 	--cover: color-mix(in srgb, black 28%, transparent);

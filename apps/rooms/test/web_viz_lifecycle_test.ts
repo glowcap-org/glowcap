@@ -35,6 +35,7 @@
 import { type Browser, chromium } from "playwright";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 import { endConversation, fail, joinAs, openConv, openDmTo, say, seesLine } from "./viz_drive.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
  * structure of its own for either, and reads a converted event only through
@@ -376,7 +377,7 @@ const httpPort = freePort();
 const roomPort = freePort();
 const vizPort = freePort();
 
-const web = new Deno.Command("deno", {
+const web = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -393,7 +394,7 @@ const web = new Deno.Command("deno", {
 	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
-}).spawn();
+});
 // The viz sturdyref rides the server's stderr; the scraper tees the stream
 // through so the run stays observable.
 const vizRef = scrapeVizSturdyref(web.stderr);
@@ -404,7 +405,7 @@ try {
 	const picture = await watch(vizPort, await vizRef);
 	// The endpoint admits only capability-presenting sockets, so each tab is
 	// seeded with the remembered viz swiss a reader would have kept.
-	const seed = vizMemorySeed(vizPort, await vizRef);
+	const seed = vizMemorySeed(httpPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// ── Two members in one room: three peers, two sessions ──
@@ -597,11 +598,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

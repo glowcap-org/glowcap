@@ -232,7 +232,13 @@ export class LiveFeed {
         for (const sub of this.#subscribers) sub(ev);
       }
     } catch (error) {
-      console.error("LiveFeed: capability record parse error", error);
+      this.#emitError({
+        code: "validation",
+        title: "Live record unreadable",
+        detail: error instanceof Error ? error.message : String(error),
+        recovery: "The feed stays connected. Later records still arrive; reload Live if the stage looks wrong.",
+        cause: error,
+      });
     }
   }
 

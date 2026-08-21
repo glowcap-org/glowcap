@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 /// What the family draws from the root build graph. `interop_harness_mod`
 /// stays root-minted because the iroh and WebRTC drivers import the same
@@ -49,6 +50,7 @@ const LiveDriver = struct {
     step_name: []const u8,
     description: []const u8,
     pin_port: bool = true,
+    posture: execution.Posture,
 };
 
 const Driven = struct {
@@ -60,7 +62,7 @@ fn liveDriver(ctx: Context, row: LiveDriver) Driven {
     const b = ctx.b;
     const exe = common.pancakeExecutable(b, ctx.lib_mod, ctx.target, ctx.optimize, row.exe_name, row.source);
     exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
-    const run = b.addRunArtifact(exe);
+    const run = execution.addArtifact(b, row.posture, exe);
     run.setCwd(b.path("."));
     run.has_side_effects = true;
     // Running the live conversations needs the external runtime, but
@@ -85,10 +87,10 @@ pub fn register(ctx: Context) Registered {
     // handshake, and bootstrap-fetches its echo cap. Needs `racket` + the
     // `goblins` collection on PATH (like the binding dogfoods). The driver
     // spawns and tears down the Goblins vat itself.
-    const goblins_interop = liveDriver(ctx, .{ .exe_name = "pancake-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)" });
+    const goblins_interop = liveDriver(ctx, .{ .exe_name = "pancake-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Deno binding Host/listen: publish an actor and let a real Goblins vat dial.
-    const deno_goblins_listen = common.addInstalledSystemRun(b, &.{
+    const deno_goblins_listen = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                          "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
         "interop/goblins_interop/deno_listen_client.ts",
     });
@@ -99,26 +101,26 @@ pub fn register(ctx: Context) Registered {
     // loop thread serves a full byte-fed node through `driver.Bridge`,
     // many concurrent BlockingSession clients across two waves. Binds real
     // loopback sockets at scale, port-exclusive like every live step.
-    _ = liveDriver(ctx, .{ .exe_name = "pancake-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)", .pin_port = false });
+    _ = liveDriver(ctx, .{ .exe_name = "pancake-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)", .pin_port = false, .posture = .{ .deterministic = 30 } });
 
     // Live Tor (ADR-0108): two pancake peers hold an OCapN conversation over a
     // real hidden service. The driver starts its own Tor, so this needs `tor`
     // on PATH and outbound network access.
-    _ = liveDriver(ctx, .{ .exe_name = "pancake-onion-interop", .source = "interop/onion_interop/driver.zig", .step_name = "onion-interop", .description = "Live Tor: two pancake peers hold an OCapN conversation over a real onion service (needs tor + network)", .pin_port = false });
+    _ = liveDriver(ctx, .{ .exe_name = "pancake-onion-interop", .source = "interop/onion_interop/driver.zig", .step_name = "onion-interop", .description = "Live Tor: two pancake peers hold an OCapN conversation over a real onion service (needs tor + network)", .pin_port = false, .posture = .real_internet });
 
     // The same transport with a foreign partner: `onion` is the netlayer the
     // OCapN draft standardizes and the one upstream Goblins ships, so this is
     // where the two implementations meet over a transport neither wrote for the
     // other. Needs racket + goblins as well as tor and network access.
-    _ = liveDriver(ctx, .{ .exe_name = "pancake-goblins-onion", .source = "interop/goblins_interop/onion_driver.zig", .step_name = "goblins-onion", .description = "Live Goblins over Tor: a real Goblins vat and a pancake peer hold OCapN sessions over hidden service circuits, both directions (needs tor + network + racket + goblins)", .pin_port = false });
+    _ = liveDriver(ctx, .{ .exe_name = "pancake-goblins-onion", .source = "interop/goblins_interop/onion_driver.zig", .step_name = "goblins-onion", .description = "Live Goblins over Tor: a real Goblins vat and a pancake peer hold OCapN sessions over hidden service circuits, both directions (needs tor + network + racket + goblins)", .pin_port = false, .posture = .real_internet });
 
     // Live three-party handoff, pancake as recipient (needs racket + goblins).
     // It runs two Goblins listeners (alice, bob), so `-Dport=N` pins N and N+1.
-    const goblins_handoff = liveDriver(ctx, .{ .exe_name = "pancake-goblins-handoff", .source = "interop/goblins_interop/handoff_driver.zig", .step_name = "goblins-handoff", .description = "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)" });
+    const goblins_handoff = liveDriver(ctx, .{ .exe_name = "pancake-goblins-handoff", .source = "interop/goblins_interop/handoff_driver.zig", .step_name = "goblins-handoff", .description = "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Live three-party handoff, pancake as gifter (needs racket + goblins).
     // Bob listens on N; Carol binds N+1. `-Dport=N` pins the pair.
-    const goblins_gift = liveDriver(ctx, .{ .exe_name = "pancake-goblins-gift", .source = "interop/goblins_interop/gift_driver.zig", .step_name = "goblins-gift", .description = "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)" });
+    const goblins_gift = liveDriver(ctx, .{ .exe_name = "pancake-goblins-gift", .source = "interop/goblins_interop/gift_driver.zig", .step_name = "goblins-gift", .description = "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // The exporter is its own process, like every Goblins peer here: one
     // completion loop per process, and the driver's own loop is the gifter's.
@@ -129,7 +131,7 @@ pub fn register(ctx: Context) Registered {
     const goblins_native_pair_gift_exe = common.pancakeExecutable(b, lib_mod, ctx.target, ctx.optimize, "pancake-goblins-native-pair-gift", "interop/goblins_interop/native_pair_gift_driver.zig");
     goblins_native_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
     check_step.dependOn(&goblins_native_pair_gift_exe.step);
-    const run_goblins_native_pair_gift = b.addRunArtifact(goblins_native_pair_gift_exe);
+    const run_goblins_native_pair_gift = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_native_pair_gift_exe);
     run_goblins_native_pair_gift.step.dependOn(b.getInstallStep());
     run_goblins_native_pair_gift.setCwd(b.path("."));
     run_goblins_native_pair_gift.has_side_effects = true;
@@ -138,7 +140,7 @@ pub fn register(ctx: Context) Registered {
 
     // The same topology with an opaque route hint. Both live Goblins peers
     // must decode and re-encode the mapping-shaped locator byte-exactly.
-    const run_goblins_gift_hints = b.addRunArtifact(goblins_gift.exe);
+    const run_goblins_gift_hints = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_gift.exe);
     run_goblins_gift_hints.setCwd(b.path("."));
     run_goblins_gift_hints.has_side_effects = true;
     run_goblins_gift_hints.addArg("--hinted-exporter");
@@ -154,16 +156,16 @@ pub fn register(ctx: Context) Registered {
     // a promise it does not own, and the give reaches that party in a listener
     // fire rather than in an answer it asked for. Bob listens on N; Carol binds
     // N+1. `-Dport=N` pins the pair.
-    const goblins_relayed_give = liveDriver(ctx, .{ .exe_name = "pancake-goblins-relayed-give", .source = "interop/goblins_interop/relayed_give_driver.zig", .step_name = "goblins-relayed-give", .description = "Live relayed give vs Goblins: a give reaches a real Goblins recipient in a listener fire (needs racket + goblins)" });
+    const goblins_relayed_give = liveDriver(ctx, .{ .exe_name = "pancake-goblins-relayed-give", .source = "interop/goblins_interop/relayed_give_driver.zig", .step_name = "goblins-relayed-give", .description = "Live relayed give vs Goblins: a give reaches a real Goblins recipient in a listener fire (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // The third handoff role against live Goblins: pancake as the *exporter*,
     // answering deposit-gift from a Goblins gifter and withdraw-gift from a
     // Goblins recipient over two different sessions of one host.
-    const goblins_exporter = liveDriver(ctx, .{ .exe_name = "pancake-goblins-exporter", .source = "interop/goblins_interop/exporter_driver.zig", .step_name = "goblins-exporter", .description = "Live three-party handoff vs Goblins, pancake as exporter (needs racket + goblins)" });
+    const goblins_exporter = liveDriver(ctx, .{ .exe_name = "pancake-goblins-exporter", .source = "interop/goblins_interop/exporter_driver.zig", .step_name = "goblins-exporter", .description = "Live three-party handoff vs Goblins, pancake as exporter (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Live distributed-GC evidence vs Goblins: introduce a near export into the
     // suite echo and observe inbound op:gc-exports (needs racket + goblins).
-    _ = liveDriver(ctx, .{ .exe_name = "pancake-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)" });
+    _ = liveDriver(ctx, .{ .exe_name = "pancake-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Per-binding Goblins clients (interop / handoff / gift) register with the
     // root's shared `binding_families` table — same emitter as the iroh and
@@ -175,9 +177,9 @@ pub fn register(ctx: Context) Registered {
     // `goblins` collection on PATH. The orchestrator spawns and tears down
     // both servers itself. Forward `-- <args>` (e.g. `--smoke`,
     // `--suite=echo`) to the orchestrator; `-Dport=N` pins the base port.
-    const run_bench_goblins = common.addInstalledSystemRun(b, &.{ "racket", "bench/goblins/bench.rkt" });
+    const run_bench_goblins = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "bench/goblins/bench.rkt" });
     if (ctx.pin_port) |p| run_bench_goblins.addArg(b.fmt("--port={d}", .{p}));
-    if (b.args) |args| run_bench_goblins.addArgs(args);
+    run_bench_goblins.addPassthruArgs();
     b.step("bench-goblins", "Cross-implementation benchmark: pancake's Racket binding vs Spritely Goblins (needs racket + goblins)")
         .dependOn(&run_bench_goblins.step);
 
@@ -207,14 +209,14 @@ pub fn register(ctx: Context) Registered {
     // `-Doptimize`.
     const langs_host_exe = common.pancakeExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "pancake-langs-host", "bench/langs/host.zig");
     const langs_zig_client_exe = common.pancakeExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "pancake-langs-client-zig", "bench/langs/clients/zig_bench.zig");
-    const run_bench_langs = common.addPancakeRun(b, lib_mod, ctx.target, ctx.optimize, "pancake-langs-orchestrator", "bench/langs/orchestrator.zig");
+    const run_bench_langs = common.addPancakeRun(b, .benchmark, lib_mod, ctx.target, ctx.optimize, "pancake-langs-orchestrator", "bench/langs/orchestrator.zig");
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
     // run needs the install step the way the binding dogfoods do.
     run_bench_langs.step.dependOn(b.getInstallStep());
     run_bench_langs.addArtifactArg(langs_host_exe);
     run_bench_langs.addArtifactArg(langs_zig_client_exe);
     if (ctx.pin_port) |p| run_bench_langs.addArg(b.fmt("--port={d}", .{p}));
-    if (b.args) |args| run_bench_langs.addArgs(args);
+    run_bench_langs.addPassthruArgs();
     b.step("bench-langs", "Per-language consumer-cost benchmark: fixed Zig host, swap client (Zig always; joins deno/python3/cargo/racket+goblins when present)")
         .dependOn(&run_bench_langs.step);
 
@@ -233,7 +235,7 @@ pub fn register(ctx: Context) Registered {
     // `<!-- bench:<name> -->` markers, the gen-header pattern, applied to docs.
     // Needs `racket` + `goblins`, and bench numbers are a dated snapshot of one
     // machine, not an invariant.
-    const run_site_report = common.addInstalledSystemRun(b, &.{ "racket", "bench/site_report.rkt" });
+    const run_site_report = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "bench/site_report.rkt" });
     b.step("bench-site-report", "Regenerate the performance page's benchmark reports from live runs (needs racket + goblins)")
         .dependOn(&run_site_report.step);
 

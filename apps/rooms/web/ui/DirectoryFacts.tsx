@@ -10,7 +10,7 @@
 // the name you go by on one is not a name you own anywhere else.
 
 import type { DirView } from "./types.ts";
-import { PHASE_SAID } from "./text.ts";
+import { dirConnection } from "./text.ts";
 
 /** Whether anyone can message you on this directory.
  *
@@ -27,30 +27,29 @@ function dmSaid(dir: DirView) {
 }
 
 export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) {
+	// The same derivation the rows on this directory read, so a reader comparing
+	// the two is comparing two readings of one connection rather than two
+	// opinions about it.
+	const connection = dirConnection(dir.session, dir.statusText);
 	return (
 		<dl className="dirfacts">
 			<dt>Connection</dt>
 			<dd>
 				<span className={"dot " + dir.session} aria-hidden="true" />
-				{PHASE_SAID[dir.session]}
+				{connection.said}
 				{
 					/* And what it is doing, whenever it is doing something worth
-					    saying. The phase alone is the one thing a reader already
-					    knows — they opened this card because they wondered about
-					    this directory — and the sentence saying what happened was
-					    being kept for the line under the rail, which speaks for
-					    whichever directory is on screen rather than for this one. A
-					    reader holding two, one of them down, opened the card of the
-					    broken one and was told "Not connected".
+					    saying. A row on this directory carries the phase, because a
+					    narrow caption line has room for that beside the name it also
+					    has to carry. The sentence is the half that needs a surface of
+					    its own, and this is the surface that caption opens.
 
-					    It is said here at every phase, because the net layer writes
-					    these for a healthy session too — reaching a locator,
-					    entering a room — and this card is the one surface that is
-					    about this directory rather than about the reader. */
+					    It is said at every phase, because the net layer writes these
+					    for a healthy session too, reaching a locator or entering a
+					    room, and this card is the one surface that is about this
+					    directory rather than about the reader. */
 				}
-				{dir.statusText !== "" && dir.statusText !== PHASE_SAID[dir.session].toLowerCase() && (
-					<span className="dirfact-why">{dir.statusText}</span>
-				)}
+				{connection.why !== "" && <span className="dirfact-why">{connection.why}</span>}
 			</dd>
 			<dt>Your name here</dt>
 			<dd>{dir.nick === "" ? "Not granted yet" : dir.nick}</dd>

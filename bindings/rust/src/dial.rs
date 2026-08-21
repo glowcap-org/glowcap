@@ -58,11 +58,22 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 
 	let mut opened: Option<Session> = None;
 	let result: Result<()> = async {
-		let mut hints = vec![unsafe { core::mem::zeroed::<sys::PancakeLocatorHintView>() }; 8];
 		let mut view = unsafe { core::mem::zeroed::<sys::PancakeLocatorView>() };
 		let mut hint_count = 0usize;
-		loop {
-			let rc = unsafe {
+		let mut hints: Vec<sys::PancakeLocatorHintView>;
+		let probe_rc = unsafe {
+			ffi::pancake_host_pending_dial(
+				host.raw(),
+				ticket,
+				core::ptr::null_mut(),
+				0,
+				&mut view,
+				&mut hint_count,
+			)
+		};
+		if probe_rc == sys::ERR_BUFFER_TOO_SMALL {
+			hints = vec![unsafe { core::mem::zeroed::<sys::PancakeLocatorHintView>() }; hint_count];
+			check_host(unsafe {
 				ffi::pancake_host_pending_dial(
 					host.raw(),
 					ticket,
@@ -71,12 +82,9 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 					&mut view,
 					&mut hint_count,
 				)
-			};
-			if rc != sys::ERR_BUFFER_TOO_SMALL {
-				check_host(rc)?;
-				break;
-			}
-			hints.resize(hint_count, unsafe { core::mem::zeroed() });
+			})?;
+		} else {
+			check_host(probe_rc)?;
 		}
 		let locator = OwnedLocator::clone_view(&view)?.value()?;
 		let session = Box::pin(dial_exporter(&locator, Rc::clone(host))).await?;

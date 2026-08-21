@@ -74,6 +74,23 @@ export async function run(tab: Page, statePath: string): Promise<void> {
 	// with the standing sentence; the rest are down with live switches.
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#operationsTitle");
+	// This card scrolls its own content, so its top stripe is a sticky cap
+	// rather than a background layer and rows pass underneath it. The cap has
+	// to be opaque for its whole height, the gradient over the card's own
+	// paper: painting only the gradient leaves the pixels below it clear, and
+	// a row sliding under shows straight through the card's top edge.
+	const cap = await tab.evaluate(() => {
+		const card = document.getElementById("operationsTitle")?.closest(".modal-card") ?? null;
+		if (card === null) return null;
+		const style = getComputedStyle(card, "::before");
+		return { image: style.backgroundImage, ground: style.backgroundColor };
+	});
+	if (cap === null || !cap.image.includes("gradient")) {
+		fail(`the operations card has no gradient stripe: ${JSON.stringify(cap)}`);
+	}
+	if (/^(transparent|rgba\(0, 0, 0, 0\))$/.test(cap.ground)) {
+		fail("the scrolling card's stripe paints no ground under it, so rows slide through the card's top edge");
+	}
 	if (await tab.$("#opsTabs") !== null) fail("one held capability still drew a tab bar");
 	if (await tab.$("#opsTakeCap") !== null) fail("a held pane still carried a take form");
 	await tab.waitForSelector("#listenersList");

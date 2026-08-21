@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Python ctypes binding for the pancake C ABI archives (codec-neutral CapTP core for OCapN)."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 # Stdlib ctypes only, no third-party runtime dependencies. The one optional
 # extra is the keyed-relay rendezvous dial's WebSocket client (ADR-0088),
 # imported lazily at dial time and refused with a typed error when absent.
@@ -17,13 +17,15 @@ dependencies = []
 [project.optional-dependencies]
 rendezvous = ["websockets"]
 
-[tool.setuptools]
+[tool.setuptools.packages.find]
 # The binding is the `pancake` package: the core plus one submodule per transport
 # (`tcp`, `inproc`, `iroh`), mirroring the à-la-carte C ABI archives. Its internal
 # per-archive FFI loaders (`_ffi_ocapn`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
 # the ABI constants (`_constants`) ship inside it. `zig_smoke.py` is the dogfood
-# runner, executed directly rather than installed.
-packages = ["pancake"]
+# runner, executed directly rather than installed. Discovery is one recursive
+# authority for private ownership packages such as `_host`, `_driver`, `_loop`,
+# and `_session`; an explicit top-level-only list silently omitted them from wheels.
+include = ["pancake*"]
 
 [tool.setuptools.package-data]
 # Ship the PEP 561 marker so type checkers read the inline annotations.

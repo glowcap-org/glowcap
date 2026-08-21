@@ -269,7 +269,7 @@ pub fn checkUiPaletteLiterals(
         const css_scan = scannable.items;
 
         for (hexes.items, names.items) |hex, name| {
-            if (std.ascii.indexOfIgnoreCase(css_scan, hex) != null) {
+            if (std.ascii.findIgnoreCasePos(css_scan, 0, hex) != null) {
                 try appendViolation(gpa, violations, "{s} writes the core colour {s}; use var({s}) — ui/tokens.css owns it", .{ path, hex, name });
             }
             // The same colour spelled as decimal channels, which a hex scan misses.

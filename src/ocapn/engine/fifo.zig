@@ -7,16 +7,16 @@
 //! bound is returned at the drain rather than pinned for the owner's life.
 //!
 //! `popHead` is those three rules, once. Both queue types in this engine ride
-//! it: the peer's four per-connection queues and the `ActionFifo` below. They
+//! it: the peer's four per-connection queues and the reserved FIFO below. They
 //! are separate types because their surfaces genuinely differ — one needs
 //! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
-//! a teardown sweep — but there is one implementation of the part that is the
-//! same, which is what stops their compaction and reclaim rules drifting apart
-//! again.
+//! a teardown sweep and infallible reserved appends — but there is one
+//! implementation of the part that is the same, which is what stops their
+//! compaction and reclaim rules drifting apart again.
 //!
 //! The steady bound is the caller's, because it is a footprint decision and the
 //! callers sit at different scales: four of these ride on every `engine.Peer` at
-//! 500k connections, while the action queues are one per node and per host. It
+//! 500k connections, while the reserved queues are one per node and per host. It
 //! is a byte count rather than a row count, so the bound means the same thing
 //! whatever `T` is.
 //!
@@ -91,7 +91,13 @@ pub fn ActionFifo(comptime T: type) type {
             try self.list.ensureUnusedCapacity(allocator, rows);
         }
 
-        /// Push into capacity `reserve` already secured.
+        /// Ensure the backing can hold `rows` live FIFO entries at once.
+        pub fn ensureTotalCapacity(self: *Self, allocator: std.mem.Allocator, rows: usize) !void {
+            if (rows > self.list.capacity) self.compactForAppend();
+            try self.list.ensureTotalCapacity(allocator, rows);
+        }
+
+        /// Push into capacity `reserve` or `ensureTotalCapacity` already secured.
         pub fn pushReserved(self: *Self, row: T) void {
             if (self.list.items.len == self.list.capacity) self.compactForAppend();
             std.debug.assert(self.list.items.len < self.list.capacity);
@@ -107,7 +113,7 @@ pub fn ActionFifo(comptime T: type) type {
 
         /// Pop the front row, owning nothing: the caller (or its deferred
         /// free) owns the row's payload. Null when empty, which also rewinds
-        /// the drained list and returns burst capacity.
+        /// the drained list while retaining previously reserved backing.
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
             // `retain_all`, not a byte bound: `reserve` runs at vow-mint time
             // and `pushReserved` spends it at settle time, with this drain in
@@ -120,6 +126,11 @@ pub fn ActionFifo(comptime T: type) type {
         /// sweep frees their payloads, and a queue-time dedup scans them.
         pub fn unpopped(self: *const Self) []const T {
             return self.list.items[self.head..];
+        }
+
+        /// Rows still owned by the FIFO.
+        pub fn liveLen(self: *const Self) usize {
+            return self.list.items.len - self.head;
         }
 
         /// Remove one live row by its offset within `unpopped`, preserving the

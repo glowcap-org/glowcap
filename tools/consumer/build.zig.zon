@@ -5,6 +5,6 @@
         .pancake = .{ .path = "../.." },
     },
     .fingerprint = 0x733992b805617dec,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
     .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
 }

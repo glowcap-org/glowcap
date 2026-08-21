@@ -69,14 +69,37 @@ export interface Candidate {
 /** Lower is better; `Infinity` filters the row out. A prefix match beats a
  * substring match, and for emoji the code beats its keywords, so `:fir`
  * offers `fire` before anything that merely mentions it. */
-function rank(hay: string, query: string): number {
+/** Where `query` sits in `hay`, as a rank: at the front, somewhere inside, or
+ * nowhere. Lower sorts first, and `Infinity` means it does not match at all.
+ *
+ * Shared with the rail's own fields, so a name offered there is ordered the way
+ * the composer would order it and a reader learns one behaviour. */
+export function rank(hay: string, query: string): number {
 	if (query === "") return 0;
 	const at = hay.toLowerCase().indexOf(query);
 	if (at < 0) return Infinity;
 	return at === 0 ? 0 : 1;
 }
 
-const LIMIT = 8;
+/* How many answers a list offers.
+ *
+ * A command list offers all of them. There are a couple of dozen, the set is
+ * this client's own and does not grow with use, and `/` on its own is how a
+ * reader finds out what they can do here: cutting that to the first handful
+ * answered the question with a third of the answer and gave no sign the rest
+ * existed. What a conversation cannot run is already off the list, so the
+ * length is the honest one.
+ *
+ * The other lists are drawn from corpora nobody here bounds. There are a few
+ * hundred emoji, and a room's roster is the room's to size, so those keep a
+ * handful: a name or a glyph is something a reader is part-way through typing,
+ * and ranking has the narrowing well in hand. */
+const LIMITS: Readonly<Record<TriggerKind, number>> = {
+	command: Number.MAX_SAFE_INTEGER,
+	nick: 8,
+	room: 8,
+	emoji: 8,
+};
 
 const EMPTY_GRANTS: ReadonlySet<string> = new Set();
 
@@ -93,7 +116,7 @@ export function completeCandidates(
 		 * so the room-wide names stay off that list. */
 		targets?: "reachable";
 	},
-	limit: number = LIMIT,
+	limit: number = LIMITS[trigger.kind],
 ): Candidate[] {
 	const query = trigger.query.toLowerCase();
 	const scored: { score: number; candidate: Candidate }[] = [];

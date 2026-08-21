@@ -6,8 +6,9 @@
 //! A native-loop consumer composes `libpancake_host`, `libpancake_driver`, and
 //! the transport archives it selects. Symbol families stay disjoint.
 //!
-//! The loop family lives in `loop.zig`; this root owns the public C types,
-//! the family re-exports the header generator and binding mirrors reflect over.
+//! The private `loop.zig` state aggregate and `loop/` transition owners compose
+//! here; this root owns the public C types and exact symbol index the header
+//! generator and bindings reflect.
 
 const std = @import("std");
 
@@ -19,6 +20,12 @@ const failure_output = @import("failure_output.zig");
 const carrier_phase = @import("carrier_phase.zig");
 
 const loop = @import("loop.zig");
+const loop_drive = @import("loop/drive.zig");
+const loop_events = @import("loop/events.zig");
+const loop_lifecycle = @import("loop/lifecycle.zig");
+const loop_listeners = @import("loop/listeners.zig");
+const loop_opens = @import("loop/opens.zig");
+const loop_sessions = @import("loop/sessions.zig");
 
 /// The annotated export inventory for the `pancake_driver_*` family
 /// (the `pancake_host_*` half keeps its own inventory in `c_abi_host`).
@@ -95,6 +102,8 @@ pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.PANCAKE_
 pub const PANCAKE_DESIGNATOR_SCHEME_KEY = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
 pub const PANCAKE_SEALED_CHANNEL_NONE = shared.transport_provider.PANCAKE_SEALED_CHANNEL_NONE;
 pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = shared.transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK;
+pub const PANCAKE_WIRE_FRAMING_BYTE_STREAM = shared.transport_provider.PANCAKE_WIRE_FRAMING_BYTE_STREAM;
+pub const PANCAKE_WIRE_FRAMING_MESSAGE = shared.transport_provider.PANCAKE_WIRE_FRAMING_MESSAGE;
 pub const PANCAKE_CARRIER_PHASE_NONE = shared.transport_provider.PANCAKE_CARRIER_PHASE_NONE;
 pub const PANCAKE_CARRIER_PHASE_RESOLVE = shared.transport_provider.PANCAKE_CARRIER_PHASE_RESOLVE;
 pub const PANCAKE_CARRIER_PHASE_CONNECT = shared.transport_provider.PANCAKE_CARRIER_PHASE_CONNECT;
@@ -142,11 +151,11 @@ pub const PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES: usize = driver.default_wire_
 /// Default maximum transport connects and CapTP handshakes admitted at once.
 pub const PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS: usize = driver.default_max_pending_opens;
 /// Default CapTP handshake progress budget in milliseconds.
-pub const PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS: u32 = @intCast(c_abi_host.PANCAKE_HANDSHAKE_TIMEOUT_MS);
+pub const PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS: u32 = @intCast(driver.default_handshake_timeout_ms);
 /// Default listener-construction progress budget in milliseconds.
 pub const PANCAKE_DRIVER_DEFAULT_LISTENER_SETUP_MS: u32 = @intCast(driver.default_listener_setup_ms);
 /// Default application-answer progress budget in milliseconds.
-pub const PANCAKE_DRIVER_DEFAULT_SETTLE_MS: u32 = @intCast(c_abi_host.PANCAKE_HANDSHAKE_TIMEOUT_MS);
+pub const PANCAKE_DRIVER_DEFAULT_SETTLE_MS: u32 = @intCast(driver.default_settle_ms);
 /// Construction policy for the native driver face. A zero wait budget is the
 /// explicit unbounded form; nonzero values bound progress in milliseconds.
 /// `wire_buffer_bytes` is retained
@@ -276,32 +285,32 @@ pub const FailureProjection = struct {
 
 // ── Loop family (implemented in loop.zig) ────────────────────────────────────
 
-pub const pancake_driver_take_host = loop.pancake_driver_take_host;
-pub const pancake_driver_close = loop.pancake_driver_close;
-pub const pancake_driver_retire = loop.pancake_driver_retire;
-pub const pancake_driver_lifecycle_state = loop.pancake_driver_lifecycle_state;
-pub const pancake_driver_step_wait_ms = loop.pancake_driver_step_wait_ms;
-pub const pancake_driver_release = loop.pancake_driver_release;
-pub const pancake_driver_add_provider = loop.pancake_driver_add_provider;
-pub const pancake_driver_has_transport = loop.pancake_driver_has_transport;
-pub const pancake_driver_dial = loop.pancake_driver_dial;
-pub const pancake_driver_adopt_external = loop.pancake_driver_adopt_external;
-pub const pancake_driver_listen = loop.pancake_driver_listen;
-pub const pancake_driver_listener_locator = loop.pancake_driver_listener_locator;
-pub const pancake_driver_listener_restoration_state = loop.pancake_driver_listener_restoration_state;
-pub const pancake_driver_listener_advertise = loop.pancake_driver_listener_advertise;
-pub const pancake_driver_listener_select = loop.pancake_driver_listener_select;
-pub const pancake_driver_listener_close = loop.pancake_driver_listener_close;
-pub const pancake_driver_readiness_fd = loop.pancake_driver_readiness_fd;
-pub const pancake_driver_step = loop.pancake_driver_step;
-pub const pancake_driver_detach_thread = loop.pancake_driver_detach_thread;
-pub const pancake_driver_wake = loop.pancake_driver_wake;
-pub const pancake_driver_next_event = loop.pancake_driver_next_event;
-pub const pancake_driver_claim_reference_exporter = loop.pancake_driver_claim_reference_exporter;
-pub const pancake_driver_session_close = loop.pancake_driver_session_close;
-pub const pancake_driver_session_lifecycle_state = loop.pancake_driver_session_lifecycle_state;
-pub const pancake_driver_session_serve = loop.pancake_driver_session_serve;
-pub const pancake_driver_session_release = loop.pancake_driver_session_release;
+pub const pancake_driver_take_host = loop_lifecycle.pancake_driver_take_host;
+pub const pancake_driver_close = loop_lifecycle.pancake_driver_close;
+pub const pancake_driver_retire = loop_lifecycle.pancake_driver_retire;
+pub const pancake_driver_lifecycle_state = loop_lifecycle.pancake_driver_lifecycle_state;
+pub const pancake_driver_step_wait_ms = loop_lifecycle.pancake_driver_step_wait_ms;
+pub const pancake_driver_release = loop_lifecycle.pancake_driver_release;
+pub const pancake_driver_add_provider = loop_opens.pancake_driver_add_provider;
+pub const pancake_driver_has_transport = loop_opens.pancake_driver_has_transport;
+pub const pancake_driver_dial = loop_opens.pancake_driver_dial;
+pub const pancake_driver_adopt_external = loop_opens.pancake_driver_adopt_external;
+pub const pancake_driver_listen = loop_listeners.pancake_driver_listen;
+pub const pancake_driver_listener_locator = loop_listeners.pancake_driver_listener_locator;
+pub const pancake_driver_listener_restoration_state = loop_listeners.pancake_driver_listener_restoration_state;
+pub const pancake_driver_listener_advertise = loop_listeners.pancake_driver_listener_advertise;
+pub const pancake_driver_listener_select = loop_listeners.pancake_driver_listener_select;
+pub const pancake_driver_listener_close = loop_listeners.pancake_driver_listener_close;
+pub const pancake_driver_readiness_fd = loop_drive.pancake_driver_readiness_fd;
+pub const pancake_driver_step = loop_drive.pancake_driver_step;
+pub const pancake_driver_detach_thread = loop_drive.pancake_driver_detach_thread;
+pub const pancake_driver_wake = loop_drive.pancake_driver_wake;
+pub const pancake_driver_next_event = loop_events.pancake_driver_next_event;
+pub const pancake_driver_claim_reference_exporter = loop_sessions.pancake_driver_claim_reference_exporter;
+pub const pancake_driver_session_close = loop_sessions.pancake_driver_session_close;
+pub const pancake_driver_session_lifecycle_state = loop_sessions.pancake_driver_session_lifecycle_state;
+pub const pancake_driver_session_serve = loop_sessions.pancake_driver_session_serve;
+pub const pancake_driver_session_release = loop_sessions.pancake_driver_session_release;
 pub const pancake_driver_last_error = loop.pancake_driver_last_error;
 pub const pancake_driver_clear_last_error = loop.pancake_driver_clear_last_error;
 

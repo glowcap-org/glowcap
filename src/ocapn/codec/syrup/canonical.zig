@@ -1,14 +1,10 @@
 //! The Syrup signing domain: the exact bytes a `desc:sig-envelope` or an
 //! `op:start-session` signature is computed over.
 //!
-//! This is deliberately a surface of its own, distinct from the wire encoder in
-//! `encode.zig`. A signature covers the **Syrup-canonical** encoding of a decoded
-//! record (ADR-0009 / ADR-0003), regardless of which codec carried the wrapping
-//! envelope, so a `desc:handoff-give` re-encoded into Cap'n Proto stays
-//! verifiable by re-canonicalizing the typed record back to these bytes. The
-//! functions here name that signing domain; they build their byte products from
-//! `encode.zig`'s record writers, so the domain can never drift from what goes on
-//! the wire, while the wire encoder's leaf primitives stay private to it.
+//! A signature covers the Syrup-canonical encoding of a decoded record
+//! (ADR-0009 / ADR-0003), regardless of which codec carried the envelope. These
+//! functions name that signing domain and render it through `signing.zig`, the
+//! same record owner the wire encoder uses.
 //!
 //! Codecs never sign or verify; they transport the typed object plus signature
 //! bytes. The handoff and handshake drivers compute canonical bytes here and call
@@ -20,7 +16,8 @@ const model = @import("model");
 
 const shared = @import("shared.zig");
 const decode = @import("decode.zig");
-const encode = @import("encode.zig");
+const render = @import("render.zig");
+const signing = @import("signing.zig");
 
 const Error = shared.Error;
 
@@ -32,7 +29,7 @@ pub fn canonicalLocationSignedBytes(
     allocator: std.mem.Allocator,
     location: model.PeerLocator,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeMyLocationRecord, .{ allocator, location });
+    return render.renderRecordExact(allocator, signing.writeMyLocationRecord, .{ allocator, location });
 }
 
 /// As `canonicalLocationSignedBytes`, but wraps the *exact received*
@@ -44,7 +41,7 @@ pub fn canonicalLocationSignedBytesRaw(
     allocator: std.mem.Allocator,
     location_record_bytes: []const u8,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeMyLocationRecordRaw, .{location_record_bytes});
+    return render.renderRecordExact(allocator, signing.writeMyLocationRecordRaw, .{location_record_bytes});
 }
 
 /// Canonical signed bytes for a `desc:handoff-give`: the Syrup encoding of the
@@ -61,7 +58,7 @@ pub fn canonicalHandoffGiveSignedBytes(
     if (give.raw_signed) |raw| {
         return handoffGiveSignedPayloadBytes(allocator, raw);
     }
-    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecord, .{ allocator, give });
+    return render.renderRecordExact(allocator, signing.writeHandoffGiveRecord, .{ allocator, give });
 }
 
 /// Canonical signed bytes for a borrowed handoff give. The view remains
@@ -101,8 +98,8 @@ pub fn canonicalHandoffGiveViewSignedBytes(
     return canonicalHandoffGiveSignedBytes(allocator, projected);
 }
 
-/// Build the inner `<desc:handoff-give …>` record taking the exporter location as
-/// verbatim Syrup bytes (see `encode.writeHandoffGiveRecordRawLocation`). The
+/// Build the inner `<desc:handoff-give ...>` record taking the exporter location as
+/// verbatim Syrup bytes (see `signing.writeHandoffGiveRecordRawLocation`). The
 /// returned bytes are the signing domain (caller owns them) and feed
 /// `wrapSignedHandoffGive`.
 pub fn handoffGiveRecordBytesRawLocation(
@@ -113,7 +110,7 @@ pub fn handoffGiveRecordBytesRawLocation(
     gifter_side: []const u8,
     gift_id: []const u8,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecordRawLocation, .{
+    return render.renderRecordExact(allocator, signing.writeHandoffGiveRecordRawLocation, .{
         recipient_key,
         exporter_location_raw,
         gifter_exporter_session,
@@ -130,7 +127,7 @@ pub fn wrapSignedHandoffGive(
     give_record: []const u8,
     signature: []const u8,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeSigEnvelope, .{ give_record, signature });
+    return render.renderRecordExact(allocator, signing.writeSigEnvelope, .{ give_record, signature });
 }
 
 /// Canonical signed bytes for a `desc:handoff-receive`: the Syrup encoding of the
@@ -143,7 +140,7 @@ pub fn canonicalHandoffReceiveSignedBytes(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeHandoffReceiveRecord, .{ allocator, receive });
+    return render.renderRecordExact(allocator, signing.writeHandoffReceiveRecord, .{ allocator, receive });
 }
 
 /// Canonical signed bytes for a borrowed handoff receive. The signed give is

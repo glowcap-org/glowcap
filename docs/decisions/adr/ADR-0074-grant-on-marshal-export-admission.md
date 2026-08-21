@@ -3,7 +3,7 @@ id: ADR-0074
 status: accepted
 date: 2026-07-11
 tags: [session, engine, actors, driver, c-abi, security, gc]
-decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `pancake_peer_register_export` are the explicit out-of-band grant; `Vat.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a hostile over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
+decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `pancake_peer_register_export` are the explicit out-of-band grant; `Port.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a hostile over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
 supersedes: []
 superseded_by: []
 ---
@@ -59,8 +59,8 @@ unaddressable until their reference first crosses the wire: the fetch reply
 or the spawning turn's own reply is the grant, and it lands under the ordered
 stream before the partner can act on it. `registerExport` (and `Peer.
 exportObject`, `pancake_peer_register_export`) is the explicit grant for
-positions a partner legitimately learns out-of-band. `Vat.bindExport`
-(`src/actors/vat.zig`) reserves and never grants: binding an actor to a
+positions a partner legitimately learns out-of-band. `Port.bindExport`
+(`src/actors/vat/mod.zig`) reserves and never grants: binding an actor to a
 position is routing, not authority. Mint is uniform: a first-export marshal of
 an absent row (`retainSentExportRef`, `src/ocapn/session/apply.zig`) installs
 the baseline plus the mention and advances the export allocator past the

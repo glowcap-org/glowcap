@@ -68,12 +68,9 @@ fn runAttachedLine(ctx: *Ctx) !u8 {
         printed = store.items.items.len;
         if (turn.quit) break;
     }
-    if (ctx.closeSession(.cancel)) |failure| {
-        ctx.logErr(
-            "repl close: {s} (and {d} later failure(s))",
-            .{ failure.primaryName(), failure.secondary_count },
-        );
-        return exit_codes.dial;
+    if (ctx.closeOwned(.cancel)) |failure| {
+        ctx.logCloseFailure("repl close", failure);
+        return ctx.mapCloseErr(failure.cause);
     }
     return exit_codes.ok;
 }

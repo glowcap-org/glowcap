@@ -1,6 +1,6 @@
 // Hermetic goldens for page settings. The URL wins when it names a value;
 // storage fills in when it does not.
-import { dmFrom, originVizUrl, vizFrom, writeSearch } from "../web/ui/prefs.ts";
+import { dmFrom, dmTransportFor, originVizUrl, vizFrom, writeSearch } from "../web/ui/prefs.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
@@ -17,6 +17,11 @@ Deno.test("dm: absent URL uses stored relay", () => {
 
 Deno.test("dm: absent URL and storage defaults to webrtc", () => {
 	assertEquals(dmFrom(new URLSearchParams(""), null), "webrtc", "default");
+});
+
+Deno.test("dm: relay mode selects the sealed relay profile", () => {
+	assertEquals(dmTransportFor("relay"), "noise-relay", "relay transport");
+	assertEquals(dmTransportFor("webrtc"), "webrtc", "webrtc transport");
 });
 
 Deno.test("viz: URL present wins, including a blank", () => {

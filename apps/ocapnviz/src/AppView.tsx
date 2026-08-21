@@ -55,6 +55,7 @@ export function AppView({
   dispatch,
   state,
   liveConnected,
+  liveObserved,
   liveRecording,
   onStartRecord,
   onStopRecord,
@@ -103,6 +104,8 @@ export function AppView({
   dispatch: React.Dispatch<AppAction>;
   state: AppState;
   liveConnected: boolean;
+  /** At least one record has arrived on this Live dial. */
+  liveObserved: boolean;
   /** True while the Record window is open (engine mounted). */
   liveRecording: boolean;
   onStartRecord: () => void;
@@ -524,6 +527,7 @@ export function AppView({
         engine={engine}
         liveSturdyref={state.liveSturdyref}
         liveConnected={liveConnected}
+        liveObserved={liveObserved}
         liveRecording={liveRecording}
         onScenarioChange={handleScenarioChange}
         onLiveSturdyrefChange={(sturdyref) => dispatch({ type: "set-live-sturdyref", sturdyref })}

@@ -16,7 +16,7 @@ const outbox = @import("outbox.zig");
 const Io = common.Io;
 const Allocator = common.Allocator;
 const model = common.model;
-const actors = common.actors;
+const driver = common.driver;
 const net = common.net;
 const Host = common.Host;
 const RoomsBackend = common.RoomsBackend;
@@ -47,7 +47,7 @@ fn maintain(state: *PeerState) void {
         // the ordinary cooldown: a room that keeps refusing the join backs off
         // like a down room, it does not become a per-tick dial storm.
         .abandoning => |session| {
-            state.bridge.closeConn(session.peer_id);
+            state.bridge.closeConn(session.peer_handle);
             state.clearRoomWire();
             state.phase = .{ .down = .{ .cooldown = redial_cooldown_wakes } };
             state.join_attempts += 1;
@@ -220,20 +220,23 @@ fn hostSeed(io: Io, dir: []const u8, identity_flag: []const u8) ![32]u8 {
     return secret.seed();
 }
 
-/// Wait until the endpoint reports at least one direct address (Direct posture
-/// register URIs need them), or until `budget_ms` elapses.
-fn waitDirectAddrs(io: Io, resident: *iroh.Resident, out: []u8, budget_ms: i64) []const u8 {
+/// Wait until the endpoint reports at least one direct address, or until
+/// `budget_ms` elapses.
+fn directAddrsReady(io: Io, resident: *iroh.Resident, out: []u8, budget_ms: i64) bool {
     var slept: i64 = 0;
     while (slept <= budget_ms) {
-        if (resident.directAddrs(out)) |addrs| {
-            if (addrs.len > 0) return addrs;
+        if (resident.directAddrs(out)) |result| {
+            switch (result) {
+                .written => |addrs| if (addrs.len > 0) return true,
+                .too_small => return true,
+            }
         } else |_| {}
         if (slept == budget_ms) break;
         const chunk = @min(@as(i64, 50), budget_ms - slept);
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(chunk), .real) catch {};
         slept += chunk;
     }
-    return "";
+    return false;
 }
 
 /// Build a fresh iroh stack (endpoint, host, bridge, completion loop), dial the
@@ -271,11 +274,20 @@ fn runStack(
     // bare node id — the same shape `serve.ts` uses for browser DM members — so
     // redeem uses Discovery rather than private container/LAN binds the public
     // recipient cannot reach.
-    var addrs_buf: [512]u8 = undefined;
-    const addrs: []const u8 = if (reachability == .direct)
-        waitDirectAddrs(io, &resident, &addrs_buf, 5_000)
-    else
-        "";
+    var owned_addrs: ?[]u8 = null;
+    defer if (owned_addrs) |addrs| gpa.free(addrs);
+    const addrs: []const u8 = if (reachability == .direct) blk: {
+        var addrs_buf: [512]u8 = undefined;
+        if (!directAddrsReady(io, &resident, &addrs_buf, 5_000)) break :blk "";
+        owned_addrs = resident.directAddrsOwned(gpa) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.SidecarFailed, error.AddressListTooLarge => {
+                log.err(io, "iroh endpoint direct-address snapshot failed: {s}", .{@errorName(err)});
+                return error.NoDirectAddrs;
+            },
+        };
+        break :blk owned_addrs.?;
+    } else "";
     if (reachability == .direct and addrs.len == 0) {
         log.err(io, "iroh endpoint has no direct addresses (needed for DM register)", .{});
         return error.NoDirectAddrs;
@@ -296,7 +308,7 @@ fn runStack(
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
     var host = try Host.init(gpa, seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = actors.Vat.max_batch_local_turns,
+        .local_turn_budget = driver.core.default_loop_local_turn_budget,
         .codec = rooms_profile.codec,
         .captp_version = rooms_profile.captp_version,
     });
@@ -326,11 +338,11 @@ fn runStack(
     defer bridge.deinit();
     state.bridge = &bridge;
     if (rendezvous_url == null) {
-        log.err(io, "no keyed-relay rendezvous configured (set PANCAKE_RENDEZVOUS or pass an http://host:port/locator); browser DM introduce will fail", .{});
+        log.err(io, "no relay rendezvous configured (set PANCAKE_RENDEZVOUS or pass an http://host:port/locator); browser DM introduce will fail", .{});
     }
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
-    const platform = if (rendezvous_url) |url| blk: {
+    const relay_platform = if (rendezvous_url) |url| blk: {
         var entropy_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
         try io.randomSecure(&entropy_seed);
         break :blk try net.KeyedRelayBackend.initWithRelay(
@@ -345,6 +357,15 @@ fn runStack(
         common.completion_queue_entries,
         common.read_buffers,
         read_buffer_bytes,
+    );
+    const identity = common.crypto.SecretKey.fromSeed(seed);
+    var noise_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+    try io.randomSecure(&noise_seed);
+    const platform = net.NoiseRelayBackend.initSealing(
+        gpa,
+        relay_platform,
+        &identity,
+        noise_seed,
     );
     const backend = try RoomsBackend.initBoundWithPlatform(gpa, &resident, platform, common.read_buffers, read_buffer_bytes);
     // This peer interposes its own close hook (DM lifecycle bookkeeping), so

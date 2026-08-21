@@ -18,7 +18,8 @@ vendors its own runtime.
 ## First-time setup
 
 The `upstream/` directories are git submodules and are empty in a fresh clone.
-Initialize them in one shot (idempotent):
+The devcontainer fills them when it opens. From a checkout that has not been
+through that hook (idempotent):
 
 ```sh
 bash conformance/bootstrap-submodules.sh

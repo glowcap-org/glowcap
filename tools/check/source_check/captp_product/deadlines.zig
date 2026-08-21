@@ -16,8 +16,13 @@ pub fn checkCliCaptpDeadlines(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/mod.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "cli/ocapn/session_opts.zig", &.{
         "pub fn sessionOpts()",
+        "default_handshake_timeout_ms",
+        "default_settle_timeout_ms",
+        "unhandled_failure",
+    });
+    try expectFileContains(io, gpa, root, violations, "cli/ocapn/mod.zig", &.{
         "default_handshake_timeout_ms",
         "default_settle_timeout_ms",
         "HandshakeTimedOut",
@@ -123,8 +128,8 @@ pub fn blankComments(src: []u8) void {
 }
 
 /// Whether the value expression at the start of `value` is a bounded budget: a
-/// positive integer, a `.{ .ms = <positive> }` budget literal, or a named
-/// constant resolving to either.
+/// positive integer, a `.{ .ms = <positive> }` budget literal, a named
+/// constant resolving to either, or the driver's shared default budget.
 ///
 /// The whole expression is read, not just its first token. "starts with a
 /// nonzero digit" accepts `10_000 - 10_000` and `10_000 * 0`, which are the
@@ -166,11 +171,21 @@ pub fn valuePositive(file: []const u8, value_expr: []const u8, allow_name: bool)
         if (after_ms.len == 0 or after_ms[0] != '=') return false;
         return valuePositive(file, after_ms[1..], allow_name);
     }
+
+    for ([_][]const u8{
+        "driver.default_handshake_budget",
+        "driver.default_settle_budget",
+        "pancake.driver.default_handshake_budget",
+        "pancake.driver.default_settle_budget",
+    }) |shared| {
+        if (std.mem.startsWith(u8, value, shared) and ends(value[shared.len..])) return true;
+    }
+
     if (!allow_name) return false;
 
     // An identifier, resolved against `const <name> ... = <literal>;`. One hop
-    // only: a constant defined in terms of another constant is past what a
-    // grep-shaped check should pretend to evaluate, and it fails closed.
+    // only, except for the shared driver defaults handled above: wider
+    // evaluation is more than this text check should infer.
     var name_len: usize = 0;
     while (name_len < value.len and (std.ascii.isAlphanumeric(value[name_len]) or value[name_len] == '_')) name_len += 1;
     if (name_len == 0) return false;
@@ -318,7 +333,12 @@ pub fn checkCliListenStopWake(
         "must not close a listen FD",
         "pub const poll_ms",
     });
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/mod.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "cli/ocapn/listen_foreground.zig", &.{
+        "waitAcceptable",
+        "serveUntilStop",
+        "signals.poll_ms",
+    });
+    try expectFileContains(io, gpa, root, violations, "cli/ocapn/listen_background.zig", &.{
         "waitAcceptable",
         "serveUntilStop",
         "signals.poll_ms",

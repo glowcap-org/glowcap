@@ -20,7 +20,7 @@ test "a bare exporter location needs no stripping and allocates nothing" {
     const allocator = std.testing.allocator;
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(raw);
@@ -38,7 +38,7 @@ test "profile hints strip to the bare onion form" {
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = .{ .entries = &hints },
     });
     defer allocator.free(raw);
@@ -46,7 +46,7 @@ test "profile hints strip to the bare onion form" {
     defer allocator.free(stripped);
     const bare = try recordBytes(allocator, .{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(bare);
@@ -61,7 +61,7 @@ test "routing hints a receiver needs survive the onion profile strip" {
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = .{ .entries = &hints },
     });
     defer allocator.free(raw);
@@ -72,7 +72,7 @@ test "routing hints a receiver needs survive the onion profile strip" {
     };
     const expected = try recordBytes(allocator, .{
         .transport = model.transport.onion,
-        .designator = "a" ** 56,
+        .designator = &@as([56]u8, @splat('a')),
         .hints = .{ .entries = &routing_only },
     });
     defer allocator.free(expected);
@@ -91,7 +91,7 @@ test "a non-onion give keeps the exporter's hello verbatim, profile hints and al
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.iroh,
-        .designator = "b" ** 52,
+        .designator = &@as([52]u8, @splat('b')),
         .hints = .{ .entries = &hints },
     });
     defer allocator.free(raw);

@@ -30,26 +30,27 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const webrtc = @import("webrtc");
+const webrtc_common = @import("webrtc_common");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
-const driver = pancake.driver;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc";
 
 /// The answerer's fixed key: the harness derives its designator and hands it to
 /// the browser to pin, so the keyed handshake proves identity end to end.
-const answerer_seed = [_]u8{0x71} ** crypto.SEED_BYTES;
+const answerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x71));
 
 /// The published actor: answers `greet` with a static greeting.
 const Greeter = struct {
+    done: *std.atomic.Value(bool),
+
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
         _ = turn;
-        _ = msg;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        self.done.store(true, .release);
         return .{ .string = greeting };
     }
 };
@@ -156,32 +157,24 @@ fn writeIdentity(io: std.Io, gpa: std.mem.Allocator, designator: []const u8) voi
 
 /// Serve a Greeter behind the keyed handshake over the open channel, signing
 /// with `secret` so the browser's pinned designator verifies.
-fn serveKeyed(io: std.Io, peer: *webrtc.Peer, allocator: std.mem.Allocator, secret: crypto.SecretKey) !void {
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
+fn serveKeyed(resident: *webrtc.Resident, peer: *webrtc.Peer, allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) !void {
+    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
+    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
+    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
 
-    const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer vat.deinit();
-
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
-        .transport = webrtc.transport_name,
-        .designator = designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
-    _ = try vat.publish("greeter", Greeter, .{});
-    try vat.serve();
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    var served = std.atomic.Value(bool).init(false);
+    _ = try host.publish(session, "greeter", Greeter, .{ .done = &served });
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -197,8 +190,7 @@ pub fn main(init: std.process.Init) !void {
     defer peer.deinit();
 
     // Announce the key the browser pins before any SDP flows.
-    const secret = crypto.SecretKey.fromSeed(answerer_seed);
-    const designator = secret.publicKey().toDesignator();
+    const designator = crypto.SecretKey.fromSeed(answerer_seed).publicKey().toDesignator();
     writeIdentity(io, allocator, designator[0..]);
 
     // The signaling reader runs concurrently: it applies the browser's offer and
@@ -207,8 +199,7 @@ pub fn main(init: std.process.Init) !void {
     var reader_future = try io.concurrent(readSignaling, .{ &peer, io, allocator });
 
     var answered = false;
-    var cand_buf: [4 * 1024]u8 = undefined;
-    var sdp_buf: [16 * 1024]u8 = undefined;
+    var signal_buf: [webrtc.max_signal_bytes]u8 = undefined;
     var len: usize = 0;
     var rounds: usize = 0;
     var opened = false;
@@ -216,28 +207,29 @@ pub fn main(init: std.process.Init) !void {
         var events: [16]webrtc.ReadyEvent = undefined;
         const count = try resident.pollReady(&events, 50);
         for (events[0..count]) |event| {
-            if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+            if (event.subject != @backingInt(peer.id())) return error.UnexpectedReadySubject;
         }
         if (!answered and offer_seen.load(.acquire)) {
             var alen: usize = 0;
-            if (peer.createAnswer(&sdp_buf, &alen)) |answer| {
+            if (peer.createAnswer(&signal_buf, &alen)) |answer| {
                 writeAnswer(io, allocator, answer);
                 answered = true;
             } else |_| {}
         }
-        while (try peer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
+        while (try peer.nextLocalCandidate(&signal_buf, &len)) |candidate| {
             writeCandidate(io, allocator, candidate);
         }
         peer.checkOpen() catch |err| switch (err) {
             error.WouldBlock => continue,
             error.Closed => return error.ChannelClosed,
+            error.Failed => return error.ChannelFailed,
         };
         opened = true;
         break;
     }
     if (!opened) return error.ChannelBringUpTimeout;
 
-    try serveKeyed(io, &peer, allocator, secret);
+    try serveKeyed(&resident, &peer, allocator, answerer_seed);
     // The browser has left; unblock the reader's stdin wait and collect it.
     std.Io.File.stdin().close(io);
     reader_future.await(io);

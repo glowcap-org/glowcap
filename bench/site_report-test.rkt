@@ -133,6 +133,6 @@
       (check-true (regexp-match? #px"<svg" region))
       (check-true (regexp-match? #px"Cold start" region))
       (check-true (regexp-match? #px"goblins-ref" region))
-      (check-true (regexp-match? #px"not a language race" region)))))
+      (check-true (regexp-match? #px"consumer cost" region)))))
 
 (exit (if (zero? (run-tests suite)) 0 1))

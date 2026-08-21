@@ -165,7 +165,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     // Host, so explicitly provide the exact wake a production Host forwards
     // from the Node after an inbound bootstrap deposit commits.
     exporter.noteHandoffChange(engine.node_services.HandoffDependency.init(
-        exporter.node_services.?.peer_id,
+        exporter.node_services.?.peer_handle,
         gift_id_a[0..],
     ));
 
@@ -217,12 +217,12 @@ test "one exact gift wake does not scan unrelated pending withdrawals" {
     defer node.deinit();
     node.setGifterSessionResolver(resolver_fixture.resolver());
     const receiver_id = try node.registerPeerOver(&exporter);
-    resolver_fixture.peer_id = receiver_id;
+    resolver_fixture.peer_handle = receiver_id;
 
     const pending_count = 256;
     var gift_ids: [pending_count][32]u8 = undefined;
     for (&gift_ids, 0..) |*gift_id, i| {
-        gift_id.* = [_]u8{0} ** 32;
+        gift_id.* = @as([32]u8, @splat(0));
         std.mem.writeInt(u64, gift_id[0..8], i, .little);
         var pending: engine.bootstrap.PendingReceive = .{
             .handoff_count = @intCast(i + 1),
@@ -273,7 +273,7 @@ test "parked withdrawal gift ids share the session frame-byte cap" {
         .recipient_key = recipient_key,
         .gifter_exporter_session = gifter_session,
         .gifter_side = gifter_side,
-        .gift_id = try allocator.dupe(u8, &([_]u8{0x41} ** 40)),
+        .gift_id = try allocator.dupe(u8, &(@as([40]u8, @splat(0x41)))),
     };
     try peer.parkPendingWithdraw(first, .fromWire(.from(1)), .from(7));
 
@@ -282,7 +282,7 @@ test "parked withdrawal gift ids share the session frame-byte cap" {
         .recipient_key = recipient_key,
         .gifter_exporter_session = gifter_session,
         .gifter_side = gifter_side,
-        .gift_id = try allocator.dupe(u8, &([_]u8{0x42} ** 40)),
+        .gift_id = try allocator.dupe(u8, &(@as([40]u8, @splat(0x42)))),
     };
     try std.testing.expectError(session.Error.PendingWithdrawCapExceeded, peer.parkPendingWithdraw(second, .fromWire(.from(2)), .from(7)));
     second.deinit(allocator);

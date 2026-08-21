@@ -122,7 +122,7 @@ fn checkViewerProvenanceMirror(
     violations: *std.ArrayList([]const u8),
     viewer: []const u8,
 ) !void {
-    const authority = "src/ocapn/engine/mod.zig";
+    const authority = "src/ocapn/engine/peer/identity.zig";
     const source = root.readFileAlloc(io, authority, gpa, .limited(4 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read the durable-provenance authority with {s}", .{ authority, @errorName(err) });
         return;

@@ -1,8 +1,7 @@
 ---
 .title = "Protocol vocabulary",
 .description = "Reference for the CapTP messages, reference descriptors, and peer locators pancake implements.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -16,7 +15,7 @@ draw the flows.
 The operation and descriptor names below are checked against the Syrup codec,
 so this list changes with the implementation.
 
-## Operations
+# Operations
 
 An operation (`op:...`) is a message that acts in the session. It opens the
 session, makes a call, settles a promise, or tears the whole thing down.
@@ -30,14 +29,14 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
 | `op:index` | Projects a positional element off an answer. |
-| `op:untag` | Unwraps a tagged value projected off an answer. Default `1.0` refuses it; only the `pancake-next` profile speaks it, and Goblins has no equivalent. |
+| `op:untag` | Unwraps a tagged value projected off an answer. pancake accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
 
-## Reference descriptors
+# Reference descriptors
 
-A descriptor (`desc:...`) is not a message on its own. It is how a reference or a
-handoff rides *inside* a message, naming what a slot points at.
+A descriptor (`desc:...`) names a reference or a handoff *inside* a message:
+what a slot points at.
 
 | Descriptor | What it names |
 | --- | --- |
@@ -49,31 +48,31 @@ handoff rides *inside* a message, naming what a slot points at.
 | `desc:handoff-receive` | The recipient's half of that introduction, redeemed with the third party. |
 | `desc:sig-envelope` | A signed wrapper that makes a handoff unforgeable as it crosses between the three parties. |
 
-## Locators
+# Locators
 
 A locator (`ocapn-...`) is neither a message nor a reference. It is an *address*:
 where a peer lives, and, for a sturdyref, which object to ask it for. The
-*designator* inside it is the peer's name on its transport: a `host:port` for
-`tcp`, a public key for the keyed transports. A locator rides
-inside `op:start-session` as the location each side announces, and travels as an
-argument when one peer hands another a long-lived reference to bring back to
-life later. The
+*designator* inside it is the peer's name on its transport: an iroh node id, a
+public key for Noise and keyed transports, a Tor service id, or a `host:port`
+for testing-only `tcp`. A locator rides inside `op:start-session` as the
+location each side announces, and travels as an argument when one peer hands
+another a long-lived reference to bring back to life later. The
 `ocapn://` URI you paste into a config is one of these records, in text.
 
 | Locator | What it addresses |
 | --- | --- |
-| `ocapn-peer` | A peer's location: its transport (`tcp`, `iroh`), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
+| `ocapn-peer` | A peer's location: its transport (`iroh`, `noise-tcp`, `tcp`, and the rest), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
 
 Worked examples, as the URIs actually print. Reserved characters inside a
 designator are URI-encoded, which is why a `tcp` peer's `host:port` shows a
-`%3A` where the colon is. The `keyed-tcp` form below is cleartext and for a
-trusted network only; prefer `noise-tcp` when the stream must be sealed:
+`%3A` where the colon is. `noise-tcp` seals a direct route; plain `tcp` is
+testing-only:
 
 ```
+ocapn://<64 hex chars>.iroh
+ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ocapn://127.0.0.1%3A46659.tcp
-ocapn://<64 hex chars>.keyed-tcp?direct-addresses=127.0.0.1%3A9099
-ocapn://<64 hex chars>.iroh/s/<swiss>
 ```
 
 If a name here is new, start with [Concepts]($link.page('concepts')).

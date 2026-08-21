@@ -304,11 +304,115 @@ pub fn connectHostPort(
 
 // ── Emit ─────────────────────────────────────────────────────────────────────
 
+pub const BoundedWrite = struct {
+    len: usize,
+    complete: bool,
+};
+
+const ListSink = struct {
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+
+    fn appendSlice(self: *ListSink, bytes: []const u8) Error!void {
+        self.out.appendSlice(self.allocator, bytes) catch return error.OutOfMemory;
+    }
+
+    fn append(self: *ListSink, byte: u8) Error!void {
+        self.out.append(self.allocator, byte) catch return error.OutOfMemory;
+    }
+
+    fn appendBase64UrlNoPad(self: *ListSink, bytes: []const u8) Error!void {
+        const encoder = std.base64.url_safe_no_pad.Encoder;
+        const encoded = self.out.addManyAsSlice(self.allocator, encoder.calcSize(bytes.len)) catch return error.OutOfMemory;
+        _ = encoder.encode(encoded, bytes);
+    }
+};
+
+const CountSink = struct {
+    len: usize = 0,
+
+    fn advance(self: *CountSink, amount: usize) Error!void {
+        self.len = std.math.add(usize, self.len, amount) catch return error.OutOfMemory;
+    }
+
+    fn appendSlice(self: *CountSink, bytes: []const u8) Error!void {
+        try self.advance(bytes.len);
+    }
+
+    fn append(self: *CountSink, byte: u8) Error!void {
+        _ = byte;
+        try self.advance(1);
+    }
+
+    fn appendBase64UrlNoPad(self: *CountSink, bytes: []const u8) Error!void {
+        const encoder = std.base64.url_safe_no_pad.Encoder;
+        try self.advance(encoder.calcSize(bytes.len));
+    }
+};
+
+const BoundedSink = struct {
+    buf: []u8,
+    len: usize = 0,
+    complete: bool = true,
+
+    fn advance(self: *BoundedSink, amount: usize) Error!usize {
+        const start = self.len;
+        self.len = std.math.add(usize, self.len, amount) catch return error.OutOfMemory;
+        return start;
+    }
+
+    fn canWrite(self: *BoundedSink, start: usize, amount: usize) bool {
+        return self.complete and start <= self.buf.len and amount <= self.buf.len - start;
+    }
+
+    fn appendSlice(self: *BoundedSink, bytes: []const u8) Error!void {
+        const start = try self.advance(bytes.len);
+        if (!self.canWrite(start, bytes.len)) {
+            self.complete = false;
+            return;
+        }
+        @memcpy(self.buf[start..][0..bytes.len], bytes);
+    }
+
+    fn append(self: *BoundedSink, byte: u8) Error!void {
+        const start = try self.advance(1);
+        if (!self.canWrite(start, 1)) {
+            self.complete = false;
+            return;
+        }
+        self.buf[start] = byte;
+    }
+
+    fn appendBase64UrlNoPad(self: *BoundedSink, bytes: []const u8) Error!void {
+        const encoder = std.base64.url_safe_no_pad.Encoder;
+        const encoded_len = encoder.calcSize(bytes.len);
+        const start = try self.advance(encoded_len);
+        if (!self.canWrite(start, encoded_len)) {
+            self.complete = false;
+            return;
+        }
+        _ = encoder.encode(self.buf[start..][0..encoded_len], bytes);
+    }
+};
+
 pub fn writePeer(allocator: std.mem.Allocator, locator: model.PeerLocator) Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    try writeInto(allocator, &out, locator, .v1_0, null);
+    var sink: ListSink = .{ .allocator = allocator, .out = &out };
+    try writeInto(&sink, locator, .v1_0, null);
     return try out.toOwnedSlice(allocator);
+}
+
+pub fn measurePeer(locator: model.PeerLocator) Error!usize {
+    var sink: CountSink = .{};
+    try writeInto(&sink, locator, .v1_0, null);
+    return sink.len;
+}
+
+pub fn writePeerBounded(locator: model.PeerLocator, out: []u8) Error!BoundedWrite {
+    var sink: BoundedSink = .{ .buf = out };
+    try writeInto(&sink, locator, .v1_0, null);
+    return .{ .len = sink.len, .complete = sink.complete };
 }
 
 /// Cache-key form of a peer URI: transport + designator only, hints stripped,
@@ -342,53 +446,68 @@ pub fn writeSturdyrefForProfile(
 ) Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    try writeInto(allocator, &out, sturdyref.peer, profile, sturdyref.swissnum);
+    var sink: ListSink = .{ .allocator = allocator, .out = &out };
+    try writeInto(&sink, sturdyref.peer, profile, sturdyref.swissnum);
     return try out.toOwnedSlice(allocator);
 }
 
+pub fn measureSturdyrefForProfile(
+    profile: model.CaptpVersion,
+    sturdyref: model.SturdyRef,
+) Error!usize {
+    var sink: CountSink = .{};
+    try writeInto(&sink, sturdyref.peer, profile, sturdyref.swissnum);
+    return sink.len;
+}
+
+pub fn writeSturdyrefForProfileBounded(
+    profile: model.CaptpVersion,
+    sturdyref: model.SturdyRef,
+    out: []u8,
+) Error!BoundedWrite {
+    var sink: BoundedSink = .{ .buf = out };
+    try writeInto(&sink, sturdyref.peer, profile, sturdyref.swissnum);
+    return .{ .len = sink.len, .complete = sink.complete };
+}
+
 fn writeInto(
-    allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
+    sink: anytype,
     locator: model.PeerLocator,
     profile: model.CaptpVersion,
     swissnum: ?[]const u8,
 ) Error!void {
     model.validatePeerLocator(locator) catch return error.InvalidLocator;
-    try out.appendSlice(allocator, "ocapn://");
-    try appendPercentEncoded(allocator, out, locator.designator, safeNetloc);
-    try out.append(allocator, '.');
-    try appendPercentEncoded(allocator, out, locator.transport, safeNetloc);
+    try sink.appendSlice("ocapn://");
+    try appendPercentEncoded(sink, locator.designator, safeNetloc);
+    try sink.append('.');
+    try appendPercentEncoded(sink, locator.transport, safeNetloc);
     if (swissnum) |swiss| {
-        try out.appendSlice(allocator, sturdyref_path_prefix);
+        try sink.appendSlice(sturdyref_path_prefix);
         switch (profile) {
-            .v1_0 => {
-                const encoder = std.base64.url_safe_no_pad.Encoder;
-                const encoded = try out.addManyAsSlice(allocator, encoder.calcSize(swiss.len));
-                _ = encoder.encode(encoded, swiss);
-            },
-            .next => try appendPercentEncoded(allocator, out, swiss, safePath),
+            .v1_0 => try sink.appendBase64UrlNoPad(swiss),
+            .next => try appendPercentEncoded(sink, swiss, safePath),
         }
     }
     if (locator.hints.entries.len > 0) {
-        try out.append(allocator, '?');
+        try sink.append('?');
         for (locator.hints.entries, 0..) |entry, i| {
-            if (i > 0) try out.append(allocator, '&');
-            try appendPercentEncoded(allocator, out, entry.name, safeQuery);
-            try out.append(allocator, '=');
-            try writeHintValue(allocator, out, entry.value);
+            if (i > 0) try sink.append('&');
+            try appendPercentEncoded(sink, entry.name, safeQuery);
+            try sink.append('=');
+            try writeHintValue(sink, entry.value);
         }
     }
 }
 
-fn writeHintValue(allocator: std.mem.Allocator, out: *std.ArrayList(u8), value: model.HintValue) Error!void {
+fn writeHintValue(sink: anytype, value: model.HintValue) Error!void {
     switch (value) {
-        .string => |string| try appendPercentEncoded(allocator, out, string, safeQuery),
+        .string => |string| try appendPercentEncoded(sink, string, safeQuery),
         .integer => |integer| {
             var buf: [24]u8 = undefined;
             const rendered = std.fmt.bufPrint(&buf, "{d}", .{integer}) catch unreachable;
-            try out.appendSlice(allocator, rendered);
+            try sink.appendSlice(rendered);
         },
-        .boolean => |boolean| try out.appendSlice(allocator, if (boolean) "true" else "false"),
+        .boolean => |boolean| try sink.appendSlice(if (boolean) "true" else "false"),
         .bytes => return Error.UnsupportedHintValue,
     }
 }
@@ -419,19 +538,18 @@ fn safeQuery(c: u8) bool {
 }
 
 fn appendPercentEncoded(
-    allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
+    sink: anytype,
     s: []const u8,
     comptime safe: fn (u8) bool,
-) !void {
+) Error!void {
     const hex = "0123456789ABCDEF";
     for (s) |c| {
         if (safe(c)) {
-            try out.append(allocator, c);
+            try sink.append(c);
         } else {
-            try out.append(allocator, '%');
-            try out.append(allocator, hex[c >> 4]);
-            try out.append(allocator, hex[c & 0xf]);
+            try sink.append('%');
+            try sink.append(hex[c >> 4]);
+            try sink.append(hex[c & 0xf]);
         }
     }
 }

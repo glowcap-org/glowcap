@@ -47,11 +47,26 @@ const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
 
+test "core host fresh vow id exhaustion refuses before publishing a vow row" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7000", &.{});
+
+    host.next_vow = std.math.maxInt(u64);
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        host.queueFetch(session, "widget"),
+    );
+    try std.testing.expectEqual(@as(usize, 0), host.vows.count());
+    try std.testing.expectEqual(std.math.maxInt(u64), host.next_vow);
+}
+
 test "core host: vow rows retire on settle; the map stays empty and release frees the rest" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x4a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x4a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x4b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -97,11 +112,11 @@ test "core host: vow rows retire on settle; the map stays empty and release free
 
 test "core host: a failed dial breaks the redeeming vow with the reason" {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -152,9 +167,9 @@ fn openWidgetPair(
 
 test "core host: an unlistened settle rides the action queue owned, valid until the next nextAction frees it" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -207,9 +222,9 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
 
 test "core host: an unlistened fetch completion carries the node-enrolled token" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -239,9 +254,9 @@ test "core host: an unlistened fetch completion carries the node-enrolled token"
 
 test "core host: transport loss retires session authority and refuses later work" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x7a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x7b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -271,9 +286,9 @@ test "core host: transport loss retires session authority and refuses later work
 
 test "core host: direct session release classifies its pending vows as closed" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x7c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x7d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x7d)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -297,9 +312,9 @@ test "core host: direct session release classifies its pending vows as closed" {
 
 test "core host: a burst of unlistened settles never strands — every completion lands on the reserved queue" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x7a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x7b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -316,7 +331,7 @@ test "core host: a burst of unlistened settles never strands — every completio
     _ = try shuttleAll(&.{opened.pair});
     _ = try shuttleAll(&.{opened.pair});
 
-    var seen = [_]bool{false} ** burst;
+    var seen: [burst]bool = @splat(false);
     while (try client.nextAction()) |action| {
         switch (action) {
             .flush => {},
@@ -351,9 +366,9 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
         const allocator = failing.allocator();
         var saw_oom = false;
         {
-            var client = test_host.init(allocator, [_]u8{0x9a} ** 32, Host.Options.withFrameCap(frame_cap));
+            var client = test_host.init(allocator, @as([32]u8, @splat(0x9a)), Host.Options.withFrameCap(frame_cap));
             defer client.deinit();
-            var server = test_host.init(allocator, [_]u8{0x9b} ** 32, Host.Options.withFrameCap(frame_cap));
+            var server = test_host.init(allocator, @as([32]u8, @splat(0x9b)), Host.Options.withFrameCap(frame_cap));
             defer server.deinit();
             var dials: std.ArrayList(ParkedDial) = .empty;
             defer dials.deinit(std.testing.allocator);
@@ -383,7 +398,7 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
             // Disarm and account for every vow: a drained completion or a
             // still-live row, never neither.
             failing.fail_index = std.math.maxInt(usize);
-            var seen = [_]bool{false} ** burst;
+            var seen: [burst]bool = @splat(false);
             while (try client.nextAction()) |action| {
                 switch (action) {
                     .settled => |s| for (vows, 0..) |id, i| {
@@ -412,9 +427,9 @@ test "core host: fetch allocation failures are pre-commit and a committed vow id
     while (true) : (offset += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var client = test_host.init(allocator, [_]u8{0xa8} ** 32, Host.Options.withFrameCap(frame_cap));
+        var client = test_host.init(allocator, @as([32]u8, @splat(0xa8)), Host.Options.withFrameCap(frame_cap));
         defer client.deinit();
-        var server = test_host.init(std.testing.allocator, [_]u8{0xa9} ** 32, Host.Options.withFrameCap(frame_cap));
+        var server = test_host.init(std.testing.allocator, @as([32]u8, @splat(0xa9)), Host.Options.withFrameCap(frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(std.testing.allocator);

@@ -1,8 +1,8 @@
 # TypeScript binding
 
 This workspace runs one TypeScript API on Deno and Bun, with a WebAssembly
-entry for browsers. The packages are not published yet; use them from a pinned
-checkout after running `zig build`.
+entry for browsers. Pin a checkout, run `zig build`, and use the packages from
+the tree.
 
 ```ts
 import { Runtime } from "@pancake/runtime";
@@ -22,13 +22,13 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | Package | Purpose |
 | --- | --- |
 | [`@pancake/runtime`](runtime/README.md) | The `Session`, `Host`, OCapN values, and generic native driver. |
+| [`@pancake/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
+| `@pancake/onion` | Tor onion provider, listener, and raw transport handles. |
+| [`@pancake/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
+| `@pancake/webrtc` | A WebRTC DataChannel opened through a signaling capability. |
+| [`@pancake/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
 | `@pancake/tcp` | TCP-profile locator constructors and native driver listeners; `/transport` exposes provider installation and blocking frame handles. |
 | `@pancake/inproc` | Socket-free in-process frame transport for tests and embedded topologies. |
-| `@pancake/onion` | Tor onion provider, listener, and raw transport handles. |
-| [`@pancake/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
-| [`@pancake/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
-| `@pancake/webrtc` | A WebRTC DataChannel opened through a signaling capability. |
-| [`@pancake/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
 | `@pancake/abi` | Generated ABI constants used by the other packages. |
 
 Runtime-specific FFI and socket code stays behind an adapter selected at load

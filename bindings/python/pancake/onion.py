@@ -48,12 +48,16 @@ import threading
 import weakref
 from dataclasses import dataclass
 
-from ._abi_value import _codec_id
+from ._abi_value import _DEFAULT_CODEC, _codec_id
 from . import _constants as _c
-from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE
 from ._constants import OK as _OK
 from ._errors import PancakeError
-from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error
+from ._ffi_ocapn import (
+    _borrowed_byte_frame,
+    _copy_managed_frame,
+    _ManagedFrame,
+    _read_last_error,
+)
 from ._ffi_onion import _onion_lib, _OnionConfig
 from ._host import Host
 from ._locator import Locator
@@ -83,17 +87,17 @@ def locator(service_id: str) -> Locator:
 
 #: An unauthenticated control endpoint, which is what a Unix control socket with no
 #: authentication gives and what upstream Goblins assumes.
-AUTH_NONE = 0
+AUTH_NONE = _c.ONION_AUTH_NONE
 #: Authenticate with the bytes of the file ``CookieAuthFile`` names, which the
 #: transport sends as hexadecimal. The common default on a distribution's Tor.
-AUTH_COOKIE = 1
+AUTH_COOKIE = _c.ONION_AUTH_COOKIE
 #: Authenticate with the cleartext of a ``HashedControlPassword`` setup.
-AUTH_PASSWORD = 2
+AUTH_PASSWORD = _c.ONION_AUTH_PASSWORD
 
 #: A version 3 onion service id is always exactly this many characters.
-SERVICE_ID_LENGTH = 56
+SERVICE_ID_LENGTH = _c.ONION_SERVICE_ID_LEN
 
-_SERVICE_KEY_CAP = 256
+_SERVICE_KEY_CAP = _c.ONION_SERVICE_KEY_CAP
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,8 +206,7 @@ class OnionConnection(_NativeHandleOwner):
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
-        buf = ctypes.create_string_buffer(frame, len(frame))
-        f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
+        f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._native.lease() as raw:
             _check_onion(
                 _onion_lib.pancake_onion_conn_write_frame(
@@ -280,7 +283,9 @@ class OnionListener(_NativeHandleOwner):
         return out.value != 0
 
     def accept(
-        self, codec: str = "syrup", max_frame_bytes: int = 4096
+        self,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP,
     ) -> OnionConnection:
         """Block until Tor forwards a circuit to this service.
 
@@ -448,7 +453,10 @@ class OnionNetlayer(_NativeHandleOwner):
             )
 
     def connect(
-        self, service_id: str, codec: str = "syrup", max_frame_bytes: int = 4096
+        self,
+        service_id: str,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP,
     ) -> OnionConnection:
         """Dial the onion service ``service_id`` through the configured Tor.
 
@@ -523,7 +531,7 @@ async def listen(
     the supplied Host. ``service_key`` restores a prior service when supplied.
     Tor's control exchange runs synchronously before this function returns.
     """
-    selected_codec = codec if codec is not None else (host.codec if host else "syrup")
+    selected_codec = codec if codec is not None else (host.codec if host else _DEFAULT_CODEC)
     prepared = prepare_driver_loop(host, selected_codec)
     loop = prepared.loop
     listener = None

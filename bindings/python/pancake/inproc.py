@@ -34,10 +34,16 @@ import threading
 import weakref
 from typing import Optional
 
-from ._abi_value import _codec_id
-from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK, TRANSPORT_INPROC
+from ._abi_value import _DEFAULT_CODEC, _codec_id
+from ._constants import OK as _OK, RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
 from ._errors import PancakeError
-from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error, _str_buf
+from ._ffi_ocapn import (
+    _borrowed_byte_frame,
+    _copy_managed_frame,
+    _ManagedFrame,
+    _read_last_error,
+    _str_buf,
+)
 from ._ffi_inproc import _inproc_lib
 from ._native import NativeHandle, _NativeHandleOwner
 from ._locator import Locator
@@ -120,8 +126,7 @@ class InprocConnection(_NativeHandleOwner):
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
-        buf = ctypes.create_string_buffer(frame, len(frame))
-        f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
+        f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._native.lease() as raw:
             _check_inproc(
                 _inproc_lib.pancake_inproc_conn_write_frame(
@@ -158,7 +163,11 @@ class InprocListener(_NativeHandleOwner):
         self._native.close()
         self._netlayer._forget(self)
 
-    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConnection:
+    def accept(
+        self,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+    ) -> InprocConnection:
         """Block until a dialer connects, returning an owned connection framing
         on ``codec``."""
         with self._accepts, self._native.lease() as raw:
@@ -245,7 +254,12 @@ class InprocNetlayer(_NativeHandleOwner):
             )
             return InprocListener(out, self)
 
-    def connect(self, designator: str, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConnection:
+    def connect(
+        self,
+        designator: str,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+    ) -> InprocConnection:
         """Dial the listener bound at ``designator`` and return a framed
         connection."""
         buf, n = _str_buf(designator)

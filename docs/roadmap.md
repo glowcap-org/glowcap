@@ -13,19 +13,9 @@ questions are [watched separately](upstream-watch.md).
   artifacts.
 - **macOS runtime CI.** The recurring workflow cross-compiles the kqueue path
   but never executes it. A macOS runner closes this gap.
-- **Production relay URLs.** A real Chromium peer now registers a
-  `noise-relay` locator through the managed WebSocket connector, and the native
-  CLI cold-dials and calls it in `web-peer-test`. The native relay resident
-  resolves validated DNS names and its optional pollable carrier owns WSS,
-  immutable trust, SNI, and hostname verification. A recurring local gate now
-  proves a real certificate chain and exact hostname refusal through that
-  resident. The completion backend drives the shared TLS transform below its
-  existing WebSocket machine. The same recurring real-chain matrix covers its
-  lifecycle and exact TLS refusals. Its asynchronous resolver feeds a bounded
-  eight-seat address race. The URL hostname remains the TLS identity.
-  The recurring Chromium scenario uses local WSS and a copied fixture
-  authority. Public-certificate evidence remains before the same hostname
-  locator is proved across every native execution form at a public secure relay
+- **Public-certificate relay URLs.** Local WSS with a fixture authority is
+  checked. A public certificate at a real relay hostname is still unproven
+  across every native execution form
   ([known limitations](boundaries.md#browser-reachability)).
 
 ## Scale and release
@@ -54,5 +44,5 @@ questions are [watched separately](upstream-watch.md).
 - **The object layer.** Facts the trace tap does not report: what a session
   carries, rather than which sessions exist.
 - **Control capabilities.** Observation and control stay separate grants
-  ([ADR-0106](decisions/adr/ADR-0106-viz-control-capability.md)); no endpoint
+  ([ADR-0106](decisions/adr/ADR-0106-viz-observation-capability.md)); no endpoint
   offers a control capability yet.

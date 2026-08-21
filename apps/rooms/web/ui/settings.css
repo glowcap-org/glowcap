@@ -115,8 +115,13 @@
    the scrollport's top edge and painted above the content instead: rows
    slide beneath it rather than over it. The box is as tall as the corner
    radius so its rounding carves the stripe's ends the way the card's own
-   corners carved the background layer; below the 4px stripe it paints
-   nothing. The negative margins seat it across the padding and hand back
+   corners carved the background layer, and it is opaque for that whole
+   height: the 4px gradient over the card's own paper. That paper layer is
+   what makes it a cap rather than a stripe. Without it the thirteen pixels
+   under the gradient are transparent, so a row sliding beneath them shows
+   straight through and reads as content leaking out of the card's top edge,
+   which is what a phone shows most of, its modals being the ones tall enough
+   to scroll. The negative margins seat it across the padding and hand back
    the height it took from the flex column, so the card's rows sit exactly
    where they did. */
 .modal-card::before {
@@ -129,7 +134,7 @@
 	z-index: 1;
 	height: 17px;
 	margin: -28px -28px -2px;
-	background: var(--card-stripe);
+	background: var(--card-stripe), var(--paper-raised);
 	border-radius: 17px 17px 0 0;
 	pointer-events: none;
 }

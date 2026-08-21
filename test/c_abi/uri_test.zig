@@ -359,6 +359,158 @@ test "format reports the needed length when the buffer is too small" {
     try std.testing.expect(out_len > tiny.len);
 }
 
+test "format probes report the needed URI length without an output buffer" {
+    const transport = "tcp";
+    const designator = "127.0.0.1:9000";
+    const swissnum = "swiss-42";
+    const expected_peer = "ocapn://127.0.0.1%3A9000.tcp";
+    const expected_sturdyref = "ocapn://127.0.0.1%3A9000.tcp/s/c3dpc3MtNDI";
+
+    var peer_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_ERR_BUFFER_TOO_SMALL, c.pancake_uri_format_peer(
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        0,
+        &peer_len,
+    ));
+    try std.testing.expectEqual(expected_peer.len, peer_len);
+
+    var peer_buf: [expected_peer.len]u8 = undefined;
+    var exact_peer_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_format_peer(
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        &peer_buf,
+        peer_buf.len,
+        &exact_peer_len,
+    ));
+    try std.testing.expectEqual(expected_peer.len, exact_peer_len);
+    try std.testing.expectEqualStrings(expected_peer, peer_buf[0..]);
+
+    var ignored_peer_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_uri_format_peer(
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        1,
+        &ignored_peer_len,
+    ));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_uri_format_peer(
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        0,
+        null,
+    ));
+
+    var sturdyref_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_ERR_BUFFER_TOO_SMALL, c.pancake_uri_format_sturdyref(
+        c.PANCAKE_CAPTP_V1_0,
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        swissnum.ptr,
+        swissnum.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        0,
+        &sturdyref_len,
+    ));
+    try std.testing.expectEqual(expected_sturdyref.len, sturdyref_len);
+
+    var sturdyref_buf: [expected_sturdyref.len]u8 = undefined;
+    var exact_sturdyref_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_format_sturdyref(
+        c.PANCAKE_CAPTP_V1_0,
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        swissnum.ptr,
+        swissnum.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        &sturdyref_buf,
+        sturdyref_buf.len,
+        &exact_sturdyref_len,
+    ));
+    try std.testing.expectEqual(expected_sturdyref.len, exact_sturdyref_len);
+    try std.testing.expectEqualStrings(expected_sturdyref, sturdyref_buf[0..]);
+
+    var ignored_sturdyref_len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_uri_format_sturdyref(
+        c.PANCAKE_CAPTP_V1_0,
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        swissnum.ptr,
+        swissnum.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        1,
+        &ignored_sturdyref_len,
+    ));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_uri_format_sturdyref(
+        c.PANCAKE_CAPTP_V1_0,
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        swissnum.ptr,
+        swissnum.len,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        0,
+        null,
+    ));
+}
+
 test "a malformed URI is a named invalid argument, not a crash" {
     const not_a_uri = "https://example.com/";
     var loc: ?*c.PancakeLocator = null;

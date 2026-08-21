@@ -8,6 +8,8 @@ import { outPointer, outUsize, readBytes } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
 import {
 	BUFFER_TOO_SMALL,
+	DEFAULT_FAILURE_CAPACITY,
+	DEFAULT_FAILURE_PAYLOAD_CAP,
 	FAILURE_LAYER_APPLICATION_OBSERVER,
 	FAILURE_LAYER_BINDING,
 	FAILURE_LAYER_CORE,
@@ -26,6 +28,7 @@ import {
 	WOULD_BLOCK,
 } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
+import { drainFinalizerRetries } from "./finalizer_retry.ts";
 
 export type FailureLayer = "core" | "driver" | "transport" | "binding" | "application-observer";
 export type FailureScope = "process" | "context" | "host" | "session" | "listener" | "transport" | "operation";
@@ -93,15 +96,13 @@ function failureVocabularyName<T extends string>(
 	return entries.find((entry) => entry[0] === value)?.[1];
 }
 
-const RUNTIME_FAILURE_CAP = 64;
-const FAILURE_PAYLOAD_CAP = 512;
 const U64_MAX = (1n << 64n) - 1n;
 const failureEventDecoder = new TextDecoder("utf-8", { fatal: true });
 const runtimeFailures: FailureEvent[] = [];
 let nextRuntimeFailureSequence = 1n;
 
 function boundedFailureText(fields: readonly string[]): { fields: string[]; truncatedFields: number } {
-	let remaining = FAILURE_PAYLOAD_CAP;
+	let remaining = DEFAULT_FAILURE_PAYLOAD_CAP;
 	let truncatedFields = 0;
 	const encoder = new TextEncoder();
 	const decoder = new TextDecoder();
@@ -158,7 +159,7 @@ function recordRuntimeReport(input: FailureReport): void {
 		input.secondaryMessage ?? "",
 	]);
 	let droppedBefore = 0n;
-	if (runtimeFailures.length === RUNTIME_FAILURE_CAP) {
+	if (runtimeFailures.length === DEFAULT_FAILURE_CAPACITY) {
 		const dropped = (runtimeFailures.shift()?.droppedBefore ?? 0n) + 1n;
 		if (runtimeFailures.length > 0) {
 			runtimeFailures[0] = {
@@ -461,6 +462,7 @@ export class Context {
 	 * context. Returned errors and close-barrier failures do not also appear
 	 * here, and a claimed event cannot reappear. */
 	nextFailure(): FailureEvent | null {
+		drainFinalizerRetries();
 		const state = stateFor(this);
 		if (state.raw === NULL) {
 			throw new Error("pancake Context is released");

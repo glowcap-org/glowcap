@@ -15,6 +15,7 @@ import { Switch } from "./Switch.tsx";
 import { CopyField } from "./Copy.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { openModalFrom, useHeldModal, useModalDialog } from "./modal.ts";
+import { type TabFace, Tabs } from "./Tabs.tsx";
 import { anyOpsHeld, type DirView, OPS_CAPS, type OpsCap, type OpsHeld, type SettingsTab } from "./types.ts";
 import { OPS_CATALOG } from "./ops/catalog.ts";
 
@@ -68,19 +69,21 @@ function SettingsDialog(
 	const peer = usePeer();
 	const titleId = "settingsTitle";
 	const dialog = useRef<HTMLDialogElement>(null);
-	const overviewTab = useRef<HTMLButtonElement>(null);
-	const settingsTab = useRef<HTMLButtonElement>(null);
+	// The chosen tab, which is what the dialog opens focus onto.
+	const chosenTab = useRef<HTMLButtonElement>(null);
 	const [live] = useState(current);
 	const [pane, setPane] = useState<SettingsTab>(tab);
 	const [dm, setDm] = useState<DmMode>(live.dm);
 	const [roomLoc, setRoomLoc] = useState<string | null>(null);
 	const [selfLoc, setSelfLoc] = useState<string | null>(null);
-	const tabs: readonly SettingsTab[] = ["overview", "settings"];
-	const tabRef = (which: SettingsTab) => which === "overview" ? overviewTab : settingsTab;
+	const tabs: readonly TabFace<SettingsTab>[] = [
+		{ id: "overview", domId: "overviewTab", label: "Locators", panelId: "overviewPanel" },
+		{ id: "settings", domId: "settingsTab", label: "Advanced", panelId: "settingsPanel" },
+	];
 	useModalDialog(
 		dialog,
 		() => peer.closeSettings(),
-		tabRef(tab),
+		chosenTab,
 		open,
 		onExited,
 		retain,
@@ -103,10 +106,6 @@ function SettingsDialog(
 	const selectPane = (next: SettingsTab) => {
 		setPane(next);
 		peer.setSettingsTab(next);
-	};
-	const selectAndFocus = (next: SettingsTab) => {
-		selectPane(next);
-		queueMicrotask(() => tabRef(next).current?.focus());
 	};
 	const save = () => {
 		if (!dirty) {
@@ -158,55 +157,13 @@ function SettingsDialog(
 					closeLabel={dirty ? "Discard changes and close" : "Close"}
 					onClose={() => peer.closeSettings()}
 				>
-					<div
-						className="settings-tabs"
-						data-count={String(tabs.length)}
-						data-thumb={String(Math.max(0, tabs.indexOf(pane)))}
-						role="tablist"
-						aria-labelledby={titleId}
-						onKeyDown={(e) => {
-							const at = Math.max(0, tabs.indexOf(pane));
-							const go = (next: SettingsTab) => {
-								e.preventDefault();
-								selectAndFocus(next);
-							};
-							if (e.key === "Home") go(tabs[0]);
-							else if (e.key === "End") go(tabs[tabs.length - 1]);
-							else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-								go(tabs[Math.min(tabs.length - 1, at + 1)]);
-							} else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-								go(tabs[Math.max(0, at - 1)]);
-							}
-						}}
-					>
-						<span className="settings-tabs-thumb" aria-hidden="true" />
-						<button
-							ref={overviewTab}
-							id="overviewTab"
-							type="button"
-							className="settings-tab"
-							role="tab"
-							aria-selected={pane === "overview"}
-							aria-controls={pane === "overview" ? "overviewPanel" : undefined}
-							tabIndex={pane === "overview" ? 0 : -1}
-							onClick={() => selectPane("overview")}
-						>
-							Locators
-						</button>
-						<button
-							ref={settingsTab}
-							id="settingsTab"
-							type="button"
-							className="settings-tab"
-							role="tab"
-							aria-selected={pane === "settings"}
-							aria-controls={pane === "settings" ? "settingsPanel" : undefined}
-							tabIndex={pane === "settings" ? 0 : -1}
-							onClick={() => selectPane("settings")}
-						>
-							Advanced
-						</button>
-					</div>
+					<Tabs
+						tabs={tabs}
+						selected={pane}
+						labelledBy={titleId}
+						chosenRef={chosenTab}
+						onSelect={selectPane}
+					/>
 				</SettingsHead>
 				{pane === "overview" && (
 					<div
@@ -286,8 +243,8 @@ function SettingsDialog(
 								/>
 								<span>
 									<strong>Through the room relay</strong>
-									A peer that is not a browser can write first. The relay carries those messages in
-									the clear.
+									A peer that is not a browser can write first. Noise encrypts the direct connection
+									end to end; the relay carries only ciphertext.
 								</span>
 							</label>
 						</div>

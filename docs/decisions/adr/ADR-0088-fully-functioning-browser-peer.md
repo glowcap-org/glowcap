@@ -250,13 +250,12 @@ silently:
   already prescribes.
 
 **Status:** built for same-relay and cross-relay dialers. `zig build
-rooms-web-dm-tabs` proves the browser-to-browser form (two tabs: one registers
-its identity, the other redeems a room introduction by cold-dialing it, the
-keyed session opens tab-to-tab through the relay off-room, and a reply rides
-back over the arriving connection). `zig build rooms-web-dm-native` proves the
-native form: a Deno peer on the dlopen stack redeems a room introduction and
-cold-dials the tab. `zig build bindings-keyed-relay-rendezvous` proves each
-native binding follows the locator's route instead of its dead local mapping.
+rooms-web-dm-native` proves the sealed Rooms form: a Deno peer on the dlopen
+stack redeems a room introduction and cold-dials the tab over `noise-relay`,
+then the tab replies on that arriving connection. `zig build web-peer-test`
+separately audits the browser Noise carrier for plaintext. `zig build
+bindings-keyed-relay-rendezvous` proves each native binding follows the
+locator's route instead of its dead local mapping.
 
 ## Status and proof matrix
 
@@ -267,7 +266,7 @@ native binding follows the locator's route instead of its dead local mapping.
 | Reply to a non-listening caller (giftable) | relay-less | shipped | `demo-rooms-dm-reply` |
 | Redeem handoff + direct DM to a member | necessary (byte carrier) | shipped | `rooms-web-dm` |
 | Redeemed-introduction back-channel reply | relay-less | shipped | `rooms-web-dm`, `demo-rooms-dm-back` |
-| Cold-dialed by another browser (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-tabs` |
+| Cold-dialed by another browser (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-noise` |
 | Cold-dialed by a native peer (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-native` |
 | Cold-dialed across relays | necessary (rendezvous) | shipped | `bindings-keyed-relay-rendezvous` |
 
@@ -298,7 +297,7 @@ it is what `currentSession()` enables.
 - Redeemed-session surfacing: `Session.sendRedeeming` resolving `via` through
   `Host.exporterFor` (`bindings/ts/runtime/session.ts`, `bindings/ts/runtime/host.ts`),
   and the same verb in every other binding: `send_redeeming` in
-  `bindings/rust/src/session.rs` and `bindings/python/pancake/_session.py`,
+  `bindings/rust/src/session.rs` and `bindings/python/pancake/_session/verbs.py`,
   `session-send-redeeming` in `bindings/racket/private/session.rkt`
   over the `pancake_host_reference_exporter` query, which the core answers with
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table

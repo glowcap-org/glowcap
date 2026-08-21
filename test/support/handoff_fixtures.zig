@@ -10,7 +10,7 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 
 fn repeatedByte(comptime len: usize, byte: u8) [len]u8 {
-    return [_]u8{byte} ** len;
+    return @as([len]u8, @splat(byte));
 }
 
 pub const recipient_key = repeatedByte(32, 0x42);

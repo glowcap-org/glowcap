@@ -12,6 +12,9 @@ import {
 	CAPTP_V1_0,
 	CODEC_CAPNP,
 	CODEC_SYRUP,
+	DEFAULT_CAPTP_VERSION as ABI_DEFAULT_CAPTP_VERSION,
+	DEFAULT_CODEC as ABI_DEFAULT_CODEC,
+	DEFAULT_FEATURES as ABI_DEFAULT_FEATURES,
 	FEATURE_BASELINE,
 	FEATURE_FULL,
 	FEATURE_HANDOFF,
@@ -88,6 +91,29 @@ export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref" 
 export type FeatureSet = "full" | "baseline" | "minimum" | number | readonly FeatureName[];
 
 const MAX_U32 = 0xffff_ffff;
+
+function codecFromId(codec: number): Codec {
+	if (codec === CODEC_SYRUP) return "syrup";
+	if (codec === CODEC_CAPNP) return "capnp";
+	throw new TypeError(`pancake ABI generated unknown default codec ${String(codec)}`);
+}
+
+function captpVersionFromId(version: number): CaptpVersion {
+	if (version === CAPTP_V1_0) return "v1_0";
+	if (version === CAPTP_NEXT) return "next";
+	throw new TypeError(`pancake ABI generated unknown default CapTP version ${String(version)}`);
+}
+
+function featureSetFromMask(features: number): FeatureSet {
+	if (features === FEATURE_FULL) return "full";
+	if (features === FEATURE_BASELINE) return "baseline";
+	if (features === FEATURE_MINIMUM) return "minimum";
+	return features;
+}
+
+export const DEFAULT_CODEC: Codec = codecFromId(ABI_DEFAULT_CODEC);
+export const DEFAULT_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_DEFAULT_CAPTP_VERSION);
+export const DEFAULT_FEATURES: FeatureSet = featureSetFromMask(ABI_DEFAULT_FEATURES);
 
 export function codecId(codec: Codec): number {
 	switch (codec) {

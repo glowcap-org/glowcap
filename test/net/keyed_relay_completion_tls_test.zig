@@ -11,7 +11,7 @@ const fake_tls = @import("../support/fake_tls_runtime.zig");
 
 const net = pancake.net;
 const AdmissionBackend = admission.AdmissionBackend;
-const designator = [_]u8{'a'} ** 64;
+const designator = @as([64]u8, @splat('a'));
 
 /// Transform, two fixed 18 KiB TLS record windows, and the retained exact
 /// failure/borrow state. Hash-map buckets and WebSocket buffers are separate.
@@ -336,7 +336,7 @@ fn secureBackend(owner: *net.tls.runtime_owner.Owner) !AdmissionBackend {
         64,
         .{
             .url = "wss://127.0.0.1:1/relay",
-            .entropy_seed = [_]u8{0x91} ** std.Random.DefaultCsprng.secret_seed_length,
+            .entropy_seed = @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0x91)),
             .tls_owner = owner.*,
             .send_staging_bytes = admission.frame_cap,
         },

@@ -27,6 +27,7 @@ test "relay stream failure is exact and claim-once" {
     var server = try listen_address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
     var server_future = try io.concurrent(serveMaskedFrame, .{ io, &server });
+    defer _ = server_future.cancel(io) catch {};
 
     var url_buffer: [64]u8 = undefined;
     const url = try std.fmt.bufPrint(
@@ -37,7 +38,7 @@ test "relay stream failure is exact and claim-once" {
     var resident = try relay.Resident.init(allocator, io, url);
     defer _ = resident.deinit();
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x72} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var connection = try resident.dialRaw(.{

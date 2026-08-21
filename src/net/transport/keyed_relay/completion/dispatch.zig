@@ -8,7 +8,7 @@ const std = @import("std");
 
 const completion = @import("../../../completion/loop.zig");
 const carrier_failure = @import("../../../carrier_failure.zig");
-const protocol = @import("../../../websocket/client_protocol.zig");
+const protocol = @import("../../../websocket.zig").client_protocol;
 const buffers = @import("buffers.zig");
 const upgrade_request = @import("../upgrade_request.zig");
 

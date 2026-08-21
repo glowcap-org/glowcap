@@ -34,7 +34,7 @@ pub const host_action_session_vocabulary: []const Ban = &.{
             "bindings/python/pancake/_action.py",
             "bindings/python/pancake/_ffi_host.py",
             "bindings/racket/private/host-action-gen.rkt",
-            "bindings/racket/private/loop.rkt",
+            "bindings/racket/private/loop/core.rkt",
             "bindings/rust/src/session.rs",
             "bindings/rust/src/session_shared.rs",
             "tools/gen/binding/host_action.zig",

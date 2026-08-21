@@ -6,7 +6,7 @@
 // the other.
 
 import type { Page } from "playwright";
-import { fail, freePort } from "./harness.ts";
+import { fail, fillSettled, freePort } from "./harness.ts";
 export async function run(
 	tab: Page,
 	httpPort: number,
@@ -24,55 +24,45 @@ export async function run(
 	// a name, then say it is somewhere else. The name goes with you to the card.
 	await tab.click("#newRoomBtn");
 	await tab.fill("#newRoomInput", "elsewhere");
-	// The room being named says where it will land, the way a room already named
-	// does: a mark, then the words it belongs to, on one line under the field.
-	// What it must not do is look like that line, because a room row's line is a
-	// control and means "tell me about this directory" — here nothing can be
-	// told, so the destination is text and only the way to somewhere else is
-	// pressable.
+	// The room being named is drawn as one of the rooms already named: a mark, a
+	// name, and under it the line saying where it will land. That line is a
+	// target of its own, so it is measured as one — a glyph and its words as a
+	// single piece in the middle of a rectangle the panel draws at rest, rather
+	// than two entries placed by the columns above, which is what it stopped
+	// being.
 	const panel = await tab.evaluate(() => {
 		const box = document.querySelector("#newRoom");
-		const line = box?.querySelector(".newwhere");
-		const glyph = box?.querySelector(".newwhere .icon-svg");
+		const line = box?.querySelector(".rwhere");
+		const glyph = box?.querySelector(".rwhere .icon-svg");
 		const said = box?.querySelector(".rwhere-said");
-		if (!line || !glyph || !said) return null;
+		// The line ends with whatever it ends with. It carries the destination
+		// and, after it, the word that acts; measuring the centring from the
+		// destination alone would read a line that is perfectly centred as
+		// pushed left by exactly the width of the word beside it.
+		const last = line?.lastElementChild;
+		if (!line || !glyph || !said || !last) return null;
 		const at = (el: Element) => {
 			const b = el.getBoundingClientRect();
 			return { l: b.left, r: b.right };
 		};
-		const i = at(glyph), w = at(said);
+		const c = at(line), i = at(glyph), w = at(said), e = at(last);
 		return {
 			markBesideItsWords: Math.abs(w.l - i.r) > 12 ? Math.abs(w.l - i.r) : 0,
-			// Everything in the line a reader could press. One thing, and it is
-			// the one that acts.
-			pressable: [...line.querySelectorAll("button, a, [role=button]")].map((el) => el.id),
-			saidIsPressable: said.closest("button") !== null,
+			centredInTheLine: Math.abs((i.l - c.l) - (c.r - e.r)),
+			edge: parseFloat(getComputedStyle(line).borderTopWidth),
 		};
 	});
 	if (panel === null) fail("the panel for a room being named carried no line saying where it lands");
 	else {
-		if (panel.markBesideItsWords > 0) {
-			fail(
-				`the panel's directory line is not built like a room row's: the mark sits ${
-					panel.markBesideItsWords.toFixed(1)
-				}px from its words`,
-			);
-		}
-		// Asked apart from the measurement, because it is a yes and not a
-		// distance: folded in as a number it would have to pick one that trips a
-		// threshold, and picking one that did not is how a check comes to pass
-		// with its own defect in front of it.
-		if (panel.saidIsPressable) {
-			fail(
-				"the panel states where the room lands with a control, which is the room row's verb wearing the wrong meaning",
-			);
-		}
-		if (panel.pressable.length !== 1 || panel.pressable[0] !== "newRoomElsewhere") {
-			fail(
-				`the only thing pressable on that line should be the way elsewhere; found ${
-					JSON.stringify(panel.pressable)
-				}`,
-			);
+		// Asked apart from the measurements, because it is a yes and not a
+		// distance: folded in as a number it would have to pick one that trips the
+		// threshold below, and picking one that did not is how a check comes to
+		// pass with its own defect in front of it.
+		if (!(panel.edge > 0)) fail("the panel's directory line is drawn with no rectangle at rest");
+		for (const [what, off] of Object.entries(panel)) {
+			if (what !== "edge" && off > 1) {
+				fail(`the panel for a new room is not built like a room row: ${what} is out by ${off.toFixed(1)}px`);
+			}
 		}
 	}
 	// Reached by keyboard on purpose. A pointer press and a key press take
@@ -131,7 +121,7 @@ export async function run(
 	const afterStop = await tab.evaluate(() => ({
 		error: (document.getElementById("joinError")?.textContent ?? "").trim(),
 		locator: (document.getElementById("locator") as HTMLInputElement | null)?.value ?? "",
-		marks: document.querySelectorAll("#roomList .rwhere").length,
+		named: document.querySelectorAll("#roomList .rwhere").length,
 	}));
 	if (afterStop.error !== "") {
 		fail(`stopping a join was reported as a refusal: ${JSON.stringify(afterStop.error)}`);
@@ -139,7 +129,7 @@ export async function run(
 	if (afterStop.locator !== cancelled) {
 		fail(`stopping a join did not leave the locator to correct; it holds ${JSON.stringify(afterStop.locator)}`);
 	}
-	if (afterStop.marks !== 0) {
+	if (afterStop.named !== 0) {
 		fail("stopping a join kept the abandoned address as a server in the rail");
 	}
 
@@ -184,9 +174,10 @@ export async function run(
 	if (kept !== typo) {
 		fail(`a refused locator was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
 	}
-	// Nothing was kept for it. A second server would have drawn the grouped rail.
-	const marks = await tab.locator("#roomList .rwhere").count();
-	if (marks !== 0) fail("an address that never answered was kept as a server in the rail");
+	// Nothing was kept for it. A second server would have made every row in the
+	// rail say which of the two it was on.
+	const named = await tab.locator("#roomList .rwhere").count();
+	if (named !== 0) fail("an address that never answered was kept as a server in the rail");
 
 	// Then text that is not an address at all, which is the other half of the same
 	// mistake and the half that used to take the page down. The one above points
@@ -217,14 +208,18 @@ export async function run(
 	// it for itself alone, so being alice on one and bo on another is ordinary
 	// rather than exotic — and it is the state in which anything claiming a single
 	// name for every room a reader is in has to be wrong about some of them.
-	await tab.fill("#locator", foreignLocator);
-	await tab.fill("#nick", "bo");
+	await fillSettled(tab, "#locator", foreignLocator);
+	await fillSettled(tab, "#nick", "bo");
 	await tab.click("#joinBtn");
-	// This wait has failed twice in a run nobody could reproduce afterwards, so
-	// it reports the card rather than only the disappointment. A bare "did not
+	// This wait failed twice in runs nobody could reproduce afterwards, so it
+	// reports the card rather than only the disappointment. A bare "did not
 	// join" says nothing about whether the fields still held what was typed,
 	// whether the join was refused with a reason, or whether it is still
-	// waiting — and those three point at three different layers.
+	// waiting — and those three point at three different layers. That report is
+	// what eventually named the cause: a card holding the previous address
+	// beside a freshly filled name, which is why the two fills above wait for
+	// their fields to agree. Both halves stay — one stopped that flake, the
+	// other is how the next one gets diagnosed.
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 		.catch(async () => {
 			const card = await tab.evaluate(() => ({

@@ -1,7 +1,7 @@
 import type { Argument } from "@pancake/runtime";
 import { type IrohConfig, listen, Reachability } from "@pancake/iroh";
 
-// Bind a key, not a place. Partners can dial this node id from anywhere.
+// This listener is named by its node id. Partners can dial it from anywhere.
 const config: IrohConfig = { reachability: Reachability.Discovery };
 await using server = await listen(config);
 // From here, the CapTP workflow is transport-independent.

@@ -11,7 +11,8 @@
 import { current, type Reach } from "../intent.ts";
 import { type JoinAnswers, joinAnswers } from "../joining.ts";
 import { clearConv, showJoinCard } from "./chrome.ts";
-import { KEY, LS, set, type State, state } from "./core.ts";
+import { KEY, set, type State, state } from "./core.ts";
+import { LS } from "../storage.ts";
 
 /** Somebody has arrived at the join card, and this is how.
  *

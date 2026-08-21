@@ -213,22 +213,30 @@
   (define key-lens (and (> n 0) (list->cblock (map cadr keys) _size)))
   (define val-ptrs (and (> n 0) (list->cblock (map car vals) _pointer)))
   (define val-lens (and (> n 0) (list->cblock (map cadr vals) _size)))
-  (let loop ([cap 256])
-    (define buf (make-bytes cap))
-    (define-values (rc out-len)
-      (if swissnum
-          (let ([sbuf (pin-immobile swissnum)])
-            (pancake_uri_format_sturdyref
-             (captp-version-id captp-version)
-             tbuf (bytes-length tb) dbuf (bytes-length db)
-             sbuf (bytes-length swissnum)
-             key-ptrs key-lens val-ptrs val-lens n buf cap))
-          (pancake_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
-                                   key-ptrs key-lens val-ptrs val-lens n
-                                   buf cap)))
-    (cond
-      [(and (= rc ERR-BUFFER-TOO-SMALL) (> out-len cap)) (loop out-len)]
-      [else (check rc) (bytes->string/utf-8 (subbytes buf 0 out-len))])))
+  (define (call-format buf cap)
+    (if swissnum
+        (let ([sbuf (pin-immobile swissnum)])
+          (pancake_uri_format_sturdyref
+           (captp-version-id captp-version)
+           tbuf (bytes-length tb) dbuf (bytes-length db)
+           sbuf (bytes-length swissnum)
+           key-ptrs key-lens val-ptrs val-lens n buf cap))
+        (pancake_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
+                                 key-ptrs key-lens val-ptrs val-lens n
+                                 buf cap)))
+  (define-values (probe-rc probe-len) (call-format #f 0))
+  (define (read-uri cap)
+    (let loop ([cap cap])
+      (define buf (make-bytes cap))
+      (define-values (rc out-len) (call-format buf cap))
+      (cond
+        [(and (= rc ERR-BUFFER-TOO-SMALL) (> out-len cap)) (loop out-len)]
+        [else (check rc) (bytes->string/utf-8 (subbytes buf 0 out-len))])))
+  (cond
+    [(= probe-rc ERR-BUFFER-TOO-SMALL) (read-uri probe-len)]
+    [else
+     (check probe-rc)
+     (if (zero? probe-len) "" (read-uri probe-len))]))
 
 ;; Encode a complete typed locator as the canonical signed handoff record.
 (define (encode-peer-locator loc)

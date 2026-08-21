@@ -9,7 +9,7 @@ pub const Rect = layout.ScreenRect;
 pub fn Store(comptime T: type, comptime cap: u16) type {
     return struct {
         const Self = @This();
-        slots: [cap]?T = [_]?T{null} ** cap,
+        slots: [cap]?T = @as([cap]?T, @splat(null)),
 
         pub fn set(self: *Self, e: Entity, value: T) void {
             const i = e.index();

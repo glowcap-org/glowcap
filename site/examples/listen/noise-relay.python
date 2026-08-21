@@ -1,0 +1,14 @@
+# PLANNED: Python has no managed relay listen helper yet.
+# The provider already accepts a registration URL. This shows the planned
+# first-call, the same shape as tcp.noise.listen.
+#
+# from pancake import relay
+# import os
+#
+# seed = os.urandom(32)
+# async with await relay.noise.listen(
+#     "wss://relay.example/relay",
+#     "wss://relay.example/register",
+#     seed=seed,
+# ) as server:
+# From here, the CapTP workflow is transport-independent.

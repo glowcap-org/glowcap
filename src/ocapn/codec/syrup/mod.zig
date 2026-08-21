@@ -6,6 +6,8 @@ pub const shared = @import("shared.zig");
 pub const decode = @import("decode.zig");
 pub const encode = @import("encode.zig");
 pub const canonical = @import("canonical.zig");
+pub const render = @import("render.zig");
+const signing = @import("signing.zig");
 
 pub const Error = shared.Error;
 
@@ -34,4 +36,4 @@ pub const canonicalHandoffReceiveSignedBytes = canonical.canonicalHandoffReceive
 pub const canonicalHandoffReceiveViewSignedBytes = canonical.canonicalHandoffReceiveViewSignedBytes;
 pub const handoffGiveRecordBytesRawLocation = canonical.handoffGiveRecordBytesRawLocation;
 pub const wrapSignedHandoffGive = canonical.wrapSignedHandoffGive;
-pub const encodePeerLocatorRecord = encode.encodePeerLocatorRecord;
+pub const encodePeerLocatorRecord = signing.encodePeerLocatorRecord;

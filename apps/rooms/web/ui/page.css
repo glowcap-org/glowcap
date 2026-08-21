@@ -6,6 +6,7 @@
 @import url("toggles.css");
 @import url("rails.css");
 @import url("rail-rows.css");
+@import url("filter.css");
 @import url("workarea.css");
 @import url("members.css");
 @import url("composer.css");
@@ -172,18 +173,29 @@ code {
 	   directory rim that sits outside its box, so it takes a wider gutter. */
 	--mark-gap: 4px;
 	--avatar-gap: 8px;
-	/* The dissolve at the top of the composer band. The band's own top padding
-	   matches it, so the fade lives entirely in empty space, and the message log
-	   reserves the band minus this: a resting message stops exactly where the
-	   gradient becomes opaque, clear of it, with nothing between them going to
-	   waste. The two numbers have to agree, so there is one of them. */
-	--composer-fade: 12px;
-	/* The reserved line above the field, and its clearance. Named because the
-	   completion list is placed against the field itself and has to know what
-	   stands between them; two copies of these numbers would drift the first time
-	   either moved. */
-	--composer-status-h: 15px;
-	--composer-status-gap: 8px;
+	/* The space between the band's top edge and the field's own. Three things
+	   measure from it: the band's top padding is it, the log reserves the band
+	   minus it so a resting message stops just clear of the field, and the fade
+	   in workarea.css reaches full paper at its far end. */
+	--composer-clear: 12px;
+	/* The band's bottom padding, which is the room under the field. It is the
+	   status line plus a hair either side rather than a number of its own,
+	   because holding that line is the only reason the room is there, and a
+	   floor sized apart from what stands in it drifts the first time the line's
+	   own height moves. */
+	--composer-floor: calc(var(--composer-status-h) + 4px + env(safe-area-inset-bottom));
+	/* The reserved line under the field, which is also its own line box, so a
+	   caption in it has room for its descenders. Named rather than written into
+	   the one rule that sizes it, because the floor above is measured from it and
+	   the completion list is anchored past it. */
+	--composer-status-h: 16px;
+	/* What the log holds clear at the bottom for the band to float over. The
+	   observer in Composer.tsx measures the band and keeps --composer-h honest;
+	   this is only the first paint before it has run, and a short conversation is
+	   pinned to the bottom, so under-reserving puts the last message behind the
+	   field for that frame. Measured at the band's resting height and rounded up,
+	   because erring high leaves a hair of paper and erring low hides a line. */
+	--composer-h-rest: 118px;
 	--rail-fill: linear-gradient(180deg, var(--paper-raised), color-mix(in srgb,
 		var(--accent) 5%,
 		var(--paper-raised)));

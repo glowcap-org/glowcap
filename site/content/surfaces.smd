@@ -1,8 +1,7 @@
 ---
 .title = "Choose an API",
 .description = "Choose the Zig package, C ABI, a language binding, the CLI, or browser WebAssembly without changing the CapTP protocol.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -14,22 +13,19 @@ matches your language and runtime.
 
 | API | You write | Reach for it when |
 | --- | --- | --- |
-| [Zig package]($link.page('start')) | Zig | You want the full engine and its types. |
-| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | You are embedding, or wrapping a language with no binding yet. |
-| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | You already work in one of those four. |
-| [CapTP CLI]($link.page('cli')) | shell / MCP | You want call, host, REPL, or agent MCP (`zig build`, then `zig-out/bin/pancake`). |
+| [Zig package]($link.page('start')) | Zig | You own allocators and I/O, and you want the engine types in the same language. |
+| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | You are wrapping a language with no binding, or you already own the event loop and sockets. |
+| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | You want `async`/`await` (or Racket threads) and do not want to pump bytes. |
+| [CapTP CLI]($link.page('cli')) | shell / MCP | You are not writing a program yet: call, host, REPL, or agent MCP. |
 
 The TypeScript binding also compiles to WebAssembly, so the same session runs in
 the browser ([In the browser]($link.page('bindings/browser'))).
 [Start building]($link.page('start')) walks the Zig round-trip; each row above
 links to the corresponding setup guide.
 
-## One engine
+# One engine
 
 A Zig peer, a C consumer, and any binding hold the same OCapN conversation byte
 for byte. Which codec and CapTP version you speak comes from negotiation with
 the partner, not from which API you use
-([Concepts]($link.page('concepts'))). How peers meet on the wire is a separate
-choice: [Choosing a transport]($link.page('transports/choosing')).
-[What you can depend on]($link.page('stability')) separates checked behavior
-from areas that still need external evidence.
+([Concepts]($link.page('concepts'))).

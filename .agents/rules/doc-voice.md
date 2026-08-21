@@ -12,7 +12,7 @@ executor. Do not mix the two voices.
 
 | Audience | Surfaces |
 | -------- | -------- |
-| Humans | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, **all** authored `site/content/**`, binding and example READMEs, **all** of `examples/**` (chapters, apps, demos), interop and bench driver narration, test module `//!` headers, Zig `//!` / `///` on public APIs and `cli/`, `.devcontainer/README.md` |
+| Humans | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, **all** authored `site/content/**`, binding, app, and example READMEs (`apps/**/README.md`, `ui/README.md`), **all** of `examples/**` (chapters, apps, demos), interop and bench driver narration, test module `//!` headers, Zig `//!` / `///` on public APIs and `cli/`, `.devcontainer/README.md` |
 | Agents | `.agents/**`, plus root `AGENTS.md` / `CLAUDE.md` as agent entry points |
 
 CapTP vocabulary cheat-sheets (symbol maps, “sticky note” dumps) live in the
@@ -36,7 +36,8 @@ Unfinished voice on a touched surface is unfinished work, not taste.
 `zig build source-check` (`checkHumanDocVoice`) bans high-signal regressions on
 those paths: the `CapTP sticky note` label, agent-scaffold needles (`Meta
 scaffolding`, `next audit`, `visible boundary`, `listen-oriented`),
-contrast-first openers (`This page is not`), self-praise (`deliberately boring` /
+contrast-first openers (`This page is not`), headings that spend contrast before
+the subject has a name (`The relay is a pipe, not a peer name`), self-praise (`deliberately boring` /
 `boring on purpose`), connective `→`/`⇒` outside fenced code, and `.agents/`
 links on product first-read pages (`CONTRIBUTING.md` and `.devcontainer/README.md`
 may still route contributors to executor rules).
@@ -53,12 +54,23 @@ honest and readable.
 
 ## Build a reader's path
 
-A first-read page is not a compressed repository dump. It answers one question
-for one reader, then points to the next useful level of detail.
+A first-read page answers one question for one reader, then points to the next
+useful level of detail.
 
 - Lead with why the reader opened the page and what they can do there.
 - Introduce a project term in plain language before using it as shorthand.
 - Put the ordinary path before alternatives, internals, and exceptions.
+  On a public first-read, that path is sealed and identity-aware, or a
+  complete program, not the testing adapter. A disclaimer that the lead is
+  cleartext means the lead is wrong ([first-impression](../personas/first-impression.md)).
+- Name a heading after its subject. Contrast (`X, not Y`) is a tool, not the
+  default title: if the distinction is load-bearing, put it in the paragraph
+  after the subject has a name. `zig build source-check` refuses the title
+  form on first-read pages.
+- A landing discloses AI assistance and who is answerable for the work. It does
+  not describe pancake as an AI-written project, claim a personal audit of
+  every line, or announce the destination as a slogan. `PROVENANCE.md` owns the
+  policy detail.
 - Move maintainer mechanics and release procedure out of consumer landing
   pages.
 - Let one document own each status claim. Other pages link to it instead of
@@ -94,14 +106,19 @@ still a documentation defect.
 
 ## Not Like This
 
-These are the tells that prose has drifted into a private notation:
+These are the tells that prose has drifted into a private notation, or that a
+good tactic (contrast, an em-dash, a fence) is being used as the default joint
+so the content thins and the tactic goes moot:
 
 - Saying it twice. The commonest drift is stating an idea, restating it in
   different words, then qualifying it; and giving a minor topic as many words as
-  a major one. Each idea gets said once, well, and small topics stay small.
+  a major one. Each idea gets said once, well, and small topics stay small. A
+  major topic that grew into a changelog is rewritten as the present inventory,
+  not shortened by dropping the facts.
 
 - The sentence that never ends. Four ideas joined by semicolons, with a stack of
-  identifiers and a decision-record number wedged in, is not one sentence. The
+  identifiers and a decision-record number wedged in, is not one sentence. A
+  two-clause semicolon on a landing is the same tell. Split it. The
   median sentence on these pages is under a hundred characters;
   `zig build source-check` (`checkProseSentenceLength`) refuses one past 250,
   which is well past the point a reader has lost the thread.
@@ -113,7 +130,9 @@ These are the tells that prose has drifted into a private notation:
 - A costly word where a plain one says the same thing. Reach for the everyday
   word unless the precise term earns its place: write "signed claim" rather than
   "attestation," "use" rather than "utilize," "before" rather than "prior to,"
-  unless the exact technical sense is the point. Some terms — capability, vat,
+  unless the exact technical sense is the point. Write American English
+  (`behavior`, `color`, `license` as the noun, `toward`), not British, except in
+  quoted spec text and LICENSE filenames. Some terms — capability, vat,
   sturdyref — are the precise word and stay. The test is whether a first-time
   reader gains anything from the harder word; if not, the plain one wins.
 - Using `spelling` for a representation, identifier, variant, or repeated

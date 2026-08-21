@@ -1,7 +1,7 @@
 /* ── One row, both lists ──────────────────────────────────────────────────
    The rail draws one object twice: a mark, a name, the marks that end the row,
    and a caption under the name saying which directory it is on. That geometry
-   is stated here once for both lists, and each list adds only its own colour,
+   is stated here once for both lists, and each list adds only its own color,
    its own mark, and its own badge.
 
    Stating it once is not tidiness. A reset and a placement have to be the same
@@ -18,8 +18,8 @@
    So the row is one cell, and those two buttons share it. Leaving takes the
    badge's own slot rather than a slot of its own: the row gives up no width to
    hold it, and no name is cut short to make space for a mark that is not
-   showing. Sharing the cell is also what puts that mark on the line the badge is
-   on rather than on the row's full height — the same point until a directory
+   showing. Sharing the cell is also what puts that mark on the line the badge
+   is on rather than on the row's full height — the same point until a directory
    caption adds a second line, and eight pixels apart after it. Arithmetic here
    would restate the row's padding and its line height and drift the next time
    either moved. */
@@ -40,8 +40,8 @@
    each end, rather than a number of its own: a row is one line tall until it
    names its directory and then it is two, and a fixed bar that read as half the
    height of a short row read as a third of a tall one. Stated once for both
-   lists — each says only what colour it is — because two copies of a geometry
-   is how the two rails come to disagree.
+   lists — each says only what color it is — because two copies of a geometry is
+   how the two rails come to disagree.
 
    A real bar rather than an inset shadow, which would follow the pill's corner
    radius and curve, reading as a bevel rather than as a mark. */
@@ -155,12 +155,6 @@
 		grid-area: 1 / 2;
 		opacity: 1;
 	}
-	/* The caption runs under both columns rather than under the name alone, so a
-	   long locator is not squeezed into whatever the mark beside it left over. */
-	#roomList li .rwhere,
-	#dmList li .rwhere {
-		grid-area: 2 / 1 / 3 / 3;
-	}
 	#roomList li .rcount,
 	#dmList li .dm-marks {
 		opacity: 1;
@@ -206,14 +200,14 @@
    The contrast check in the browser proof measures the amber one directly, in
    both appearances, and the teal one follows from what else it measures rather
    than from a scenario nobody can build. No proof can put a caption on a teal
-   row — that wants a tab holding two directories and an open direct line at
-   once, and none does — but a caption needs no measurement of its own here. At
-   full strength it wears the row's ink on the row's ground, which is what the
-   name beside it is, and that name is measured. Turned down on an ordinary row
-   it wears the page's ink on the rail's fill, because neither list paints a row
-   at rest, which is what the rooms list's own caption is, and that is measured
-   too. Same ink, same ground, and contrast does not know what size the text
-   is. */
+   row — that wants a tab holding two directories with a direct line open and
+   being read, and none does — but a caption needs no measurement of its own
+   there. At full strength it wears the row's ink on the row's ground, which is
+   what the name beside it is, and that name is measured. Turned down on an
+   ordinary row it wears the page's ink on the rail's fill, because neither list
+   paints a row at rest, which is what the rooms list's own caption is, and that
+   is measured too. Same ink, same ground, and contrast does not know what size
+   the text is. */
 #roomList li.here .rwhere-said,
 #dmList li.here .rwhere-said {
 	opacity: 1;
@@ -298,6 +292,9 @@
 	   standing menu carry. A small lift reads as a row with an edge; this is a
 	   panel that opened over the list. */
 	box-shadow: var(--shadow);
+	/* The directory menu hangs off the line at the foot of this panel, so the
+	   panel is what it hangs from. */
+	position: relative;
 	/* Sigil, the name being typed, and the mark that decides what kind of room
 	   it will be — the third column is empty in the section that has no such
 	   choice, and an empty `auto` column takes no width. */
@@ -308,6 +305,25 @@
 }
 .newroom.show {
 	display: grid;
+}
+/* The names this field can finish, hanging under it. It wears the composer's
+   completion clothes and only has to be told where to stand: that list is
+   anchored above a field at the bottom of the page, and this one hangs below a
+   field near the top of a rail.
+
+   Over the rows rather than pushing them down, because the panel it belongs to
+   already floats over them, and a list that grew the rail would walk every row
+   under the reader's pointer on each keystroke. It spans the panel's whole
+   width: the panel is three columns of one row being named, and this is about
+   the row and not about any column of it. */
+.newroom .suggest-pop {
+	top: calc(100% + 4px);
+	bottom: auto;
+	left: 0;
+	right: 0;
+	width: auto;
+	max-width: none;
+	grid-column: 1 / -1;
 }
 /* Focus belongs to the panel, not to the field inside it. There is only one
    thing to type in here, so a ring around the field would draw a second box
@@ -344,32 +360,62 @@
 	grid-row: 1;
 	grid-column: 3;
 }
-/* Where the room being named will land, and the way to somewhere else. It sits
-   where a room row carries its own directory line and reads like one, because
-   it is saying the same thing; the difference is that this one is not a control
-   at rest. A row's line is pressable and means "tell me about this directory".
-   Here nothing can be told, so only the word that acts is a button, and the
-   destination beside it is text. */
-.newwhere {
+.newroom .rwhere {
 	grid-column: 1 / -1;
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	min-width: 0;
+	margin: 0;
 	padding-block: 2px;
 }
-.newwhere .icon-svg {
+/* The panel's line says where the room lands and how to send it elsewhere, so
+   the word that acts keeps its room and a long directory name ellipsises into
+   whatever is left. It runs at full strength against the dimmed name beside
+   it, which is the difference between a fact and the one thing here to press.
+   The separator is drawn rather than written: it is punctuation between the
+   two, belonging to neither, and a screen reader is given the whole sentence
+   through the control's own name instead. */
+.newroom .rwhere-change {
 	flex: none;
-	color: var(--dir-mark, currentColor);
 }
-/* Never squeezed out by a long directory name: the name ellipsises, the way
-   out does not. Sized to the line it sits on rather than to the interface's
-   ordinary word, because it is a remark at the end of a caption. */
-.newwhere-change {
-	flex: none;
-	margin-inline-start: 4px;
-	font-size: var(--type-caption);
-	padding-inline: 0;
+.newroom .rwhere-change::before {
+	content: "·";
+	margin-inline: 5px;
+	opacity: .5;
+}
+/* The directories this tab holds, hanging under the line that names where the
+   room lands — the same rows, in the same box, that the join card's own
+   directory mark opens, because it is the same choice being made from the
+   other side of the page. Held to the panel's text column so it reads as
+   belonging to the line it came from rather than to the rail. */
+.where-picks {
+	animation: rise-in .12s ease-out;
+	position: absolute;
+	top: calc(100% - 4px);
+	left: var(--row-pad);
+	right: var(--mark-inset);
+	z-index: 7;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	padding: 4px;
+	box-shadow: var(--shadow);
+}
+/* The way to an address this tab does not hold is an action among choices, so
+   it keeps the column the ticks stand in rather than starting where they do.
+   A menu that mixes the two and lets the odd one out slide left reads as a
+   mistake in the list rather than as the different kind of row it is. */
+.where-picks [role="menuitem"] {
+	padding-left: calc(10px + 14px + 9px);
+}
+/* These rows are the card's, in a column a third of its width, and a directory
+   is named after the address it was reached by — so a long one ends in an
+   ellipsis here rather than running under the edge of the rail, which clips
+   without saying it has. */
+.where-picks .line-menu-row > span:last-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* One mark per held directory, handed out in order by the store. The applied
@@ -394,13 +440,29 @@
 [data-dir="5"] {
 	--dir-mark: var(--dir-mark-5);
 }
-/* A row names its directory in a quiet second line under the name, drawn
-   whenever the mark beside it is and never without it: the colour is the glance,
-   and this is what a reader who cannot use colour reads instead.
+/* An address this tab does not hold has no mark of its own to wear, and it is
+   not this page's directory either, so it wears the product's own accent.
+   Saying that here rather than leaving `--dir-mark` unset is what keeps a form
+   agreeing with itself: the card's stripe, its field borders, its hash and its
+   directory mark all read this one property, and with it unset each of them
+   fell back to a different answer. The stripe's fallback was teal, which is
+   what this page's own directory wears, so a card aimed at an address nobody
+   here holds drew itself as if it were aimed at home. */
+[data-dir="unknown"] {
+	--dir-mark: var(--accent);
+}
+/* The rail's second-line slot: a quiet line under a name, saying which
+   directory the thing named above it is on and opening what is known about
+   that directory.
+
+   Two other callers wear the same slot for a neighboring job: a directory with
+   nothing open on it says why it is there, and the panel naming a new room says
+   where the room will land. Neither is a "where" in the sense the class is
+   called, so read the name as the slot as well as as its first tenant.
 
    It is a line rather than a word, spanning the row's whole content box from the
    mark column on the left to the edge the count and the leave mark stand on.
-   That is what makes it a target a pointer can find without aiming — the room
+   That is what makes it a target a pointer can find without aiming — the row
    above it is a full-width control, and the line under it answers the same way.
 
    What sits in that box is a pair, centred: the directory's glyph and the words
@@ -452,6 +514,29 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+/* How the directory is doing, beside the name of the directory it is about.
+   It keeps its room while the name ellipsises into whatever is left, because
+   the two halves answer different questions and losing either one spoils the
+   other: a standing with no name beside it is news with no owner, and a name
+   with the standing cut off it is an owner with no news.
+
+   Full strength against the dimmed name, which is the same difference the
+   panel's line draws between a fact and the thing that has changed. The words
+   carry this on their own. Nothing here is told by color, and the color the row
+   wears is naming its directory rather than reporting on it. */
+.rwhere-how {
+	flex: none;
+	font-weight: 600;
+}
+/* Drawn rather than written, and only when there is a name for it to come
+   after: it is punctuation between the two and belongs to neither, and a
+   listening reader is given both through the control's own name instead. */
+.rwhere-said + .rwhere-how::before {
+	content: "·";
+	margin-inline: 5px;
+	font-weight: 400;
+	opacity: .5;
+}
 /* Inset to the row's content box, so its two columns line up with the two above
    it and its right edge stands where the count and the leave mark stand. The
    caption cannot be inside the button that opens the room — a control inside a
@@ -465,12 +550,37 @@
    the row's bottom padding into this box instead made the rectangle run to the
    pill's edge, which reads as the target being the bottom of the row rather than
    the line on it. Two pixels above and below is enough for the ground to clear
-   the words without becoming a band. */
-#roomList .rwhere,
-#dmList .rwhere {
+   the words without becoming a band.
+
+   Rows only. The panel that names a new room carries a line of the same class,
+   placed by its own grid a few rules up, so a rule that reached inside it would
+   beat that placement on specificity and pin the panel's line into its first
+   column. The panel is a sibling of these lists rather than a row in one, and
+   `li` is what keeps it that way here. */
+#roomList li .rwhere,
+#dmList li .rwhere {
 	grid-area: 2 / 1;
 	margin: 0 var(--mark-inset) 0 var(--row-pad);
 	padding-block: 2px;
+}
+/* Where there is no pointer the row grows a second column for the mark that
+   leaves it, so the caption has two columns to run under rather than one. It
+   is stated here, against the rule directly above it, and not up in the block
+   that grows that column. Both spellings carry the same weight, so whichever
+   one a browser reads last wins, and the rule above is four hundred lines
+   later in the file: written up there the caption came out pinned into the
+   first column, ending a mark's width short of the line it belongs to. One
+   fact, one place, and the phone arm reads as the exception it is.
+
+   `li` here for the same reason it is on the rule above: the panel that names
+   a new room carries a line of this class placed by its own grid, and a
+   selector that reached inside it would beat that placement and pin it into
+   the panel's first column. */
+@media (hover: none) {
+	#roomList li .rwhere,
+	#dmList li .rwhere {
+		grid-area: 2 / 1 / 3 / 3;
+	}
 }
 /* The row is one line until it has a directory to name, then two, and the space
    under that second line is the row's to give. Affordable because these lists

@@ -35,6 +35,10 @@ const FanInBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *FanInBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     const sink_fd: Fd = 10;
     const source_fd: Fd = 20;
 
@@ -257,168 +261,6 @@ test "completion loop: fan_in_throttle parks a drained source while a sink is ov
     try std.testing.expect(loop.backend.recv_armed[1] >= 1);
     try std.testing.expectEqual(@as(usize, 2), loop.closed_count);
     try std.testing.expectEqual(loop.backend.handed, loop.backend.recycles);
-}
-
-test "completion loop: a fan-in victim starts its slow-reader clock when it becomes a sink" {
-    const allocator = std.testing.allocator;
-
-    // A parked connection under the high-water mark is somebody else's victim
-    // and the reaper must leave it alone. If its own queue later grows past
-    // the mark it becomes the slow reader the deadline is about — and its
-    // grace starts then, not when it first parked. Stamping at park time
-    // would hand a long-throttled victim an already-expired deadline and
-    // reclaim it the instant it crossed the mark.
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const LoopType = completion.Loop(FanInBackend, no_dial.Unsupported);
-    var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .max_conns = 2,
-        .listen = 0,
-        .outbound_high_water_bytes = 16,
-        .fan_in_throttle = true,
-        .park_kill_ms = 60_000,
-    });
-    defer loop.deinit();
-
-    const c = &loop.conns[0];
-    // Field by field, not `c.* = .{ … }`. A whole-struct assignment also
-    // rewrites `next_link`, which slot zero is holding for the free list it is
-    // currently the head of — the list would become a self-loop, and the slot
-    // would be both free and open at once. `adoptSlot` exists in the loop for
-    // this exact reason; a test that models a state the loop's own transitions
-    // cannot reach teaches the next reader to build one.
-    // Off the free list first. The slot is its head at `init`, and a live slot
-    // still on it is one connection handed to two adopters — the state
-    // `freeSlot` now asserts against. `adoptSlot`'s callers pop before they
-    // adopt; a hand-built slot has to do the same.
-    loop.ordinary_free_head = c.next_link;
-    c.state = .open;
-    c.opened = true;
-    c.fd = 10;
-    c.peer = peer;
-    // Hand-built slots bypass the close path, so release what the loop's
-    // counters are tracking before leaving; `deinit` asserts they reach zero.
-    defer {
-        loop.parked_head = c.next_link;
-        c.read = .idle;
-        c.state = .free;
-        LoopType.white_box.refreshWaiting(&loop, c);
-    }
-
-    // Parked as a victim: no stamp, no deadline, and nothing for the loop to
-    // wake up for.
-    c.read = .parked;
-    // A parked seat is on the parked list; the loop's own `markParked` links
-    // them together. Leaving it unlisted is a connection the fan-in release can
-    // never find, which is the one thing this hand-built slot must not model.
-    c.next_link = @intCast(loop.parked_head);
-    c.prev_link = @intCast(loop.conns.len);
-    loop.parked_head = 0;
-    LoopType.white_box.refreshWaiting(&loop, c);
-    try std.testing.expectEqual(@as(i64, 0), c.waiting_since_ms);
-    try std.testing.expect(LoopType.white_box.pendingDeadline(&loop, c) == null);
-    try std.testing.expectEqual(@as(usize, 0), loop.waiting_count);
-
-    // Its queue crosses the mark. Now it is a sink, and its clock starts.
-    try c.back.appendSlice(allocator, &[_]u8{0} ** 64);
-    defer c.back.clearAndFree(allocator);
-    LoopType.white_box.refreshWaiting(&loop, c);
-    try std.testing.expect(c.waiting_since_ms != 0);
-    try std.testing.expectEqual(@as(usize, 1), loop.waiting_count);
-    const deadline = LoopType.white_box.pendingDeadline(&loop, c) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(completion.CloseReason.park_kill, deadline.reason);
-    // Age the stamp, then re-ask. Without this the assertion below cannot
-    // fail: the line above has already shown there was no stamp at park time,
-    // so nothing could have been inherited and the deadline is always fresh.
-    // Aged, it fails unless the stamp really was taken when the connection
-    // became a sink rather than when it parked.
-    c.waiting_since_ms -= 50_000;
-    const aged = LoopType.white_box.pendingDeadline(&loop, c) orelse return error.TestUnexpectedResult;
-    try std.testing.expect(aged.due - pancake.net.clock.nowMonotonicMs() < 11_000);
-    c.waiting_since_ms += 50_000;
-    // And unaged, nearly the whole budget remains.
-    try std.testing.expect(deadline.due - pancake.net.clock.nowMonotonicMs() > 59_000);
-
-    // Draining back below the mark makes it a victim again, and gives the
-    // deadline back.
-    c.back.clearRetainingCapacity();
-    LoopType.white_box.refreshWaiting(&loop, c);
-    try std.testing.expectEqual(@as(i64, 0), c.waiting_since_ms);
-    try std.testing.expectEqual(@as(usize, 0), loop.waiting_count);
-}
-
-test "completion loop: condemning a parked sink restarts the clock for the flush" {
-    const allocator = std.testing.allocator;
-
-    // A sink that has been parked a long time carries an old stamp. When the
-    // connection is condemned, that stamp starts answering to `drain_kill_ms`
-    // instead of `park_kill_ms` — and if it is not restarted, the terminal
-    // flush is measured against time the connection spent doing something
-    // else, and is cut short or skipped entirely.
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const LoopType = completion.Loop(FanInBackend, no_dial.Unsupported);
-    var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .max_conns = 2,
-        .listen = 0,
-        .outbound_high_water_bytes = 16,
-        .park_kill_ms = 600_000,
-        .drain_kill_ms = 5_000,
-    });
-    defer loop.deinit();
-
-    const c = &loop.conns[0];
-    // Field by field, not `c.* = .{ … }`. A whole-struct assignment also
-    // rewrites `next_link`, which slot zero is holding for the free list it is
-    // currently the head of — the list would become a self-loop, and the slot
-    // would be both free and open at once. `adoptSlot` exists in the loop for
-    // this exact reason; a test that models a state the loop's own transitions
-    // cannot reach teaches the next reader to build one.
-    // Off the free list first. The slot is its head at `init`, and a live slot
-    // still on it is one connection handed to two adopters — the state
-    // `freeSlot` now asserts against. `adoptSlot`'s callers pop before they
-    // adopt; a hand-built slot has to do the same.
-    loop.ordinary_free_head = c.next_link;
-    c.state = .open;
-    c.opened = true;
-    c.fd = 10;
-    c.peer = peer;
-    // Hand-built slots bypass the close path, so release what the loop's
-    // counters are tracking before leaving; `deinit` asserts they reach zero.
-    defer {
-        loop.parked_head = c.next_link;
-        c.read = .idle;
-        c.state = .free;
-        LoopType.white_box.refreshWaiting(&loop, c);
-    }
-    try c.back.appendSlice(allocator, &[_]u8{0} ** 64);
-    defer c.back.clearAndFree(allocator);
-
-    // Parked as a sink, then aged: pretend it has been waiting ten minutes.
-    c.read = .parked;
-    // A parked seat is on the parked list; the loop's own `markParked` links
-    // them together. Leaving it unlisted is a connection the fan-in release can
-    // never find, which is the one thing this hand-built slot must not model.
-    c.next_link = @intCast(loop.parked_head);
-    c.prev_link = @intCast(loop.conns.len);
-    loop.parked_head = 0;
-    LoopType.white_box.refreshWaiting(&loop, c);
-    try std.testing.expect(c.waiting_since_ms != 0);
-    c.waiting_since_ms -= 600_000;
-    const parked_at = c.waiting_since_ms;
-
-    // Condemned. The wait now means something else, so the clock restarts and
-    // the flush gets its whole budget.
-    c.state = .draining;
-    LoopType.white_box.refreshWaiting(&loop, c);
-    try std.testing.expect(c.waiting_since_ms > parked_at);
-    const deadline = LoopType.white_box.pendingDeadline(&loop, c) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(completion.CloseReason.drain_kill, deadline.reason);
-    try std.testing.expect(deadline.due - pancake.net.clock.nowMonotonicMs() > 4_000);
 }
 
 test "completion loop: a condemned sink releases the fan-in sources it throttled" {

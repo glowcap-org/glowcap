@@ -7,28 +7,33 @@
 
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
-import { inkContrast } from "../ink_contrast.ts";
+import { run as dirColorsRun } from "./dir_colors.ts";
+import { run as filteringRun } from "./filtering.ts";
 import { run as leavingRun } from "./leaving.ts";
 
 export async function run(
 	tab: Page,
+	second: Page,
 	foreignLocator: string,
 	foreignRoom: Deno.ChildProcess,
 	foreignRoomPort: number,
-): Promise<Deno.ChildProcess | null> {
-	// Both servers at once, which is the whole of it: the rail groups by
-	// directory the moment there is more than one to group by, the local room is
-	// still listed and still joined, and going back to it is one press.
-	// Every room row now says which server it is on, in words as well as colour.
+	/** The port this page's own room server holds. The last phase takes that
+	 * server down and lets `serve.ts` stand it back up, which is the only
+	 * directory in this run that can recover while another is still away. */
+	homeRoomPort: number,
+	/** The sweep for text a short line box has clipped, handed down from the
+	 * scene that owns it. The filter's panel is the one surface in this run that
+	 * is only ever on screen here, so it is swept here or nowhere. */
+	descendersIntact: (where: string) => Promise<void>,
+): Promise<void> {
+	// Both servers at once, which is the whole of it: every row says which server
+	// its room is on the moment there is more than one to tell apart, the local
+	// room is still listed and still joined, and going back to it is one press.
 	await tab.waitForFunction(
-		() => {
-			const said = [...document.querySelectorAll("#roomList .rwhere")]
-				.map((row) => row.textContent?.trim() ?? "");
-			return said.length >= 2 && new Set(said).size >= 2;
-		},
+		() => document.querySelectorAll("#roomList li .rwhere").length >= 2,
 		undefined,
 		{ timeout: 10_000 },
-	).catch(() => fail("holding two servers did not say which server each room is on"));
+	).catch(() => fail("holding two servers did not make the rooms say which server hosts each of them"));
 	await tab.waitForFunction(
 		() => {
 			const joined = [...document.querySelectorAll("#roomList .rname")]
@@ -38,6 +43,47 @@ export async function run(
 		undefined,
 		{ timeout: 10_000 },
 	).catch(() => fail("reaching a second server gave up the room held on the first"));
+
+	// One list, and every row in it says which directory its room is on. A
+	// directory is a property of a room rather than a box that owns a list of
+	// them, so the second server adds rows to the list a reader already has
+	// instead of rearranging it into something else.
+	//
+	// The order is the order the rooms were entered, which is what the rail has
+	// always promised: nobody else's activity can move a row, and joining
+	// appends rather than inserting into the middle, so the lobby entered first
+	// is still first.
+	const rail = await tab.evaluate(() => ({
+		list: document.getElementById("roomList")?.tagName ?? "",
+		// Anything in the list that is not a row. A wrapper around some of the
+		// rows would be the grouping arriving again by another name.
+		boxes: document.querySelectorAll("#roomList > :not(li)").length,
+		rows: [...document.querySelectorAll("#roomList li")].map((row) => ({
+			room: row.querySelector(".rname")?.textContent?.trim() ?? "",
+			said: row.querySelector(".rwhere-said")?.textContent?.trim() ?? "",
+			mark: row.getAttribute("data-dir") ?? "",
+			// The words are a control, because asking what a directory is has to
+			// be reachable from the row that is on it.
+			asks: row.querySelector("button.rwhere") !== null,
+		})),
+	}));
+	const lobby = rail.rows.find((row) => row.room === "lobby");
+	const elsewhere = rail.rows.find((row) => row.room === "elsewhere");
+	if (rail.list !== "UL" || rail.boxes > 0) {
+		fail(`holding two servers turned the rooms list into a ${rail.list} holding ${rail.boxes} boxes of rows`);
+	} else if (lobby === undefined || elsewhere === undefined) {
+		fail(`the rooms list does not hold a row per room: ${JSON.stringify(rail.rows)}`);
+	} else if (rail.rows.indexOf(lobby) > rail.rows.indexOf(elsewhere)) {
+		fail(`a second server reordered the rooms a reader had already learned: ${JSON.stringify(rail.rows)}`);
+	} else if (lobby.said !== "in this directory") {
+		fail(`the row for the room on this page's own server says ${JSON.stringify(lobby.said)}`);
+	} else if (!elsewhere.said.includes(String(foreignRoomPort))) {
+		fail(`the row for the room on the second server says ${JSON.stringify(elsewhere.said)}`);
+	} else if (!lobby.asks || !elsewhere.asks) {
+		fail(`a row names its directory without offering to say what that directory is: ${JSON.stringify(rail.rows)}`);
+	} else if (lobby.mark === "" || elsewhere.mark === "" || lobby.mark === elsewhere.mark) {
+		fail(`the two servers' rooms wear ${JSON.stringify([lobby.mark, elsewhere.mark])} rather than a mark each`);
+	}
 
 	// A name is one directory's grant, and the foot is the one place on screen
 	// that says who this reader is — so with two directories granting names it
@@ -66,41 +112,72 @@ export async function run(
 		fail(`the foot's title does not say which name is on which directory: ${JSON.stringify(identity)}`);
 	}
 
-	// The directory line is a caption under the room's name, not a second name
-	// beside it, and the difference is carried entirely by its size. That size is
-	// worth measuring because it is quiet to lose: the line is drawn as a link,
-	// links here take their surroundings' font so one inside a sentence matches
-	// the sentence, and that rule outranks the caption's own size unless the
-	// caption is written to beat it. Nothing about the page looks broken when it
-	// does not — the words are all still there, in the wrong place in the reading
-	// order.
-	const scale = await tab.evaluate(() => {
-		const row = document.querySelector("#roomList li");
-		const name = row?.querySelector(".rname");
-		const where = row?.querySelector(".rwhere");
-		if (name === null || name === undefined || where === null || where === undefined) return null;
-		const px = (el: Element) => parseFloat(getComputedStyle(el).fontSize);
-		return { name: px(name), where: px(where) };
+	// The one stripe the screen carries runs from the reader to the directory the
+	// room is on, so the bar over a conversation and the row that opened it have
+	// to name the same directory. Both halves are checked, because each alone
+	// passes while the feature is dead: the attribute can agree with the rail and
+	// paint nothing, and the bar can be painted from a mark nobody chose.
+	//
+	// The second half removes the attribute, reads the bar again, and puts it
+	// back inside one evaluate, so the page is in the state it started in. That
+	// counterfactual is the point: without it a stripe that ignores the mark
+	// entirely still reads as a gradient and still passes.
+	const stripe = await tab.evaluate(() => {
+		const area = document.querySelector(".workarea")!;
+		const here = document.querySelector("#roomList li.here");
+		const bar = document.querySelector(".topbar")!;
+		const painted = () => getComputedStyle(bar, "::before").backgroundImage;
+		const worn = area.getAttribute("data-dir");
+		const withMark = painted();
+		area.removeAttribute("data-dir");
+		const without = painted();
+		if (worn !== null) area.setAttribute("data-dir", worn);
+		return { worn, row: here?.getAttribute("data-dir") ?? null, withMark, without };
 	});
-	if (scale === null) fail("a room row held no directory caption to size");
-	else if (!(scale.where <= scale.name * 0.85)) {
+	if (stripe.worn === null || stripe.worn !== stripe.row) {
 		fail(
-			`the directory caption is set at ${scale.where}px against a ${scale.name}px room name, ` +
-				"so it reads as a second name rather than a caption under the first",
+			`the bar over the conversation and the row that opened it name different directories: ${
+				JSON.stringify(stripe)
+			}`,
+		);
+	}
+	if (stripe.withMark === stripe.without) {
+		fail(`the conversation's directory does not reach the bar over it: ${JSON.stringify(stripe)}`);
+	}
+
+	// A row's directory is a line under the room's name, not a second name beside
+	// it, and the difference is carried entirely by its size. That size is worth
+	// measuring because it is quiet to lose: the line is drawn as a caption,
+	// captions here are buttons, and a button takes its surroundings' font unless
+	// its own family is written to beat that. Nothing about the page looks broken
+	// when it does not — the words are all still there, in the wrong place in the
+	// reading order.
+	const scale = await tab.evaluate(() => {
+		const name = document.querySelector("#roomList li .rname");
+		const caption = document.querySelector("#roomList li .rwhere");
+		if (name === null || caption === null) return null;
+		const px = (el: Element) => parseFloat(getComputedStyle(el).fontSize);
+		return { name: px(name), caption: px(caption) };
+	});
+	if (scale === null) fail("the rooms list held no row naming its directory to size against a room name");
+	else if (!(scale.caption <= scale.name * 0.85)) {
+		fail(
+			`a row's directory is set at ${scale.caption}px against a ${scale.name}px room name, ` +
+				"so it reads as a name among the names rather than as a line under one",
 		);
 	}
 
-	// The caption under a room's name opens what is known about the directory it
-	// names. Every directory this tab holds uses the same card, this page's own
-	// included: Settings keeps the page locator and a button that opens that
-	// card, rather than answering the same three questions twice.
-	const captionOf = (room: string) => {
-		const row = tab.locator("#roomList li").filter({ has: tab.locator(`.rname:text-is("${room}")`) });
-		return row.locator(".rwhere");
-	};
-	await (captionOf("lobby")).click();
+	// Pressing the directory a row names opens what is known about it. Every
+	// directory this tab holds uses the same card, this page's own included:
+	// Settings keeps the page locator and a button that opens that card, rather
+	// than answering the same three questions twice.
+	const aboutOf = (room: string) =>
+		tab.locator("#roomList li")
+			.filter({ has: tab.locator(`.rname:text-is("${room}")`) })
+			.locator(".rwhere");
+	await (aboutOf("lobby")).click();
 	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the caption on a room in this page's own directory did not open a card about it"));
+		.catch(() => fail("the directory named on a room in this page's own directory did not open a card about it"));
 	const homeCard = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
 		facts: [...document.querySelectorAll(".modal .dirfacts dt")].map((dt) => dt.textContent?.trim() ?? ""),
@@ -178,9 +255,9 @@ export async function run(
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#settingsTitle", { state: "detached", timeout: 10_000 });
 
-	await (captionOf("elsewhere")).click();
+	await (aboutOf("elsewhere")).click();
 	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the caption on a room in another directory did not open a card about it"));
+		.catch(() => fail("the directory named on a room in another directory did not open a card about it"));
 	const cardSaid = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
 		locator: document.getElementById("dircardLocator")?.textContent?.trim() ?? "",
@@ -271,57 +348,57 @@ export async function run(
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
 
-	// The line under a room's name is a target of its own, so it has to look like
-	// one: it spans the row's whole content box, starting where the sigil starts
-	// and ending where the count and the leave mark end, and what is written on
-	// it — the directory's mark and the words naming it — sits in the middle of
-	// that box as one piece. Measured, because every one of these was wrong at
-	// some point while the line still read fine in a screenshot: an indent that
-	// put it past the name, a right edge short of the marks, and words that
-	// centred while the glyph stayed pinned at the far left, which is the shape
-	// this replaced.
+	// The line naming a row's directory is a line of its own, so it has to line
+	// up like one: it is inset to the row's content box, starting where the
+	// room's own sigil starts and ending where that room's leave mark ends, so
+	// the two lines of a row read as one thing rather than as a row with
+	// something tucked under it. Measured rather than looked at, because a line
+	// out by a few pixels reads as the rail having been nudged without saying
+	// which half moved.
 	const laidOut = await tab.evaluate(() => {
-		const row = [...document.querySelectorAll("#roomList li")]
-			.find((li) => li.querySelector(".rwhere") !== null);
-		const cap = row?.querySelector(".rwhere");
-		const hash = row?.querySelector(".hash");
-		const leave = row?.querySelector(".room-leave");
-		const icon = cap?.querySelector(".icon-svg");
-		const said = cap?.querySelector(".rwhere-said");
-		if (!cap || !hash || !leave || !icon || !said) return null;
+		const row = document.querySelector("#roomList li");
+		const caption = row?.querySelector(".rwhere");
+		const sigil = row?.querySelector(".hash");
+		const mark = row?.querySelector(".room-leave");
+		if (!caption || !sigil || !mark) return null;
 		const box = (el: Element) => {
 			const b = el.getBoundingClientRect();
-			return { l: b.left, r: b.right, cx: b.x + b.width / 2 };
+			return { l: b.left, r: b.right };
 		};
-		const c = box(cap), h = box(hash), v = box(leave);
-		const i = box(icon), w = box(said);
+		const c = box(caption), p = box(sigil), m = box(mark);
 		return {
-			startsAtTheMark: Math.abs(c.l - h.l),
-			endsAtTheMarks: Math.abs(c.r - v.r),
-			// One piece: the words follow the glyph across the family's own gap,
-			// rather than each being placed by a column of the row above.
-			markBesideItsWords: Math.abs(w.l - i.r) > 12 ? Math.abs(w.l - i.r) : 0,
-			// And the piece sits in the middle, which is what leaves the glyph the
-			// air on its left that being placed by the mark column took away.
-			centredInTheLine: Math.abs((i.l - c.l) - (c.r - w.r)),
-			// Drawn at rest, not only under a pointer. A distance, so it is asked
-			// as one below rather than folded in among them.
-			edge: parseFloat(getComputedStyle(cap).borderTopWidth),
+			startsWhereTheRoomsMarkStarts: Math.abs(c.l - p.l),
+			endsWhereItsMarkEnds: Math.abs(c.r - m.r),
+			// Drawn at rest, not only under a pointer: this line is what opens the
+			// card about the directory, and a target that appears when a pointer is
+			// already on it was never findable.
+			edge: parseFloat(getComputedStyle(caption).borderTopWidth),
 		};
 	});
+	if (laidOut === null) fail("no room row carried a line naming its directory beside the marks that end it");
+	else {
+		if (!(laidOut.edge > 0)) {
+			fail("a row's directory is drawn with no rectangle at rest, so it is a target only under a pointer");
+		}
+		for (const [what, off] of Object.entries(laidOut)) {
+			if (what !== "edge" && off > 1) {
+				fail(`a row's directory does not line up with its room: ${what} is out by ${off.toFixed(1)}px`);
+			}
+		}
+	}
+
 	// The bar marking the row being read is the row's height less a little at
-	// each end, not a number of its own. A row is one line tall until it names its
-	// directory and then it is two: measured against a fixed bar that reads as
-	// half of a short row, a tall one gets a third, and nothing about that looks
-	// broken enough to notice without measuring it.
+	// each end, not a number of its own. A row grows a second line when it has
+	// one to carry, and a fixed bar that reads as half of a short row gets a
+	// third of a tall one; nothing about that looks broken enough to notice
+	// without measuring it.
 	const marking = await tab.evaluate(() => {
-		const row = [...document.querySelectorAll("#roomList li.here")]
-			.find((li) => li.querySelector(".rwhere") !== null);
-		if (row === undefined) return null;
+		const row = document.querySelector("#roomList li.here");
+		if (row === null) return null;
 		const mark = parseFloat(getComputedStyle(row, "::before").height);
 		return { row: row.getBoundingClientRect().height, mark };
 	});
-	if (marking === null) fail("no room being read carried a directory line, so the mark had nothing to grow with");
+	if (marking === null) fail("no room in the rail was being read, so the mark had no row to be measured against");
 	else if (!(marking.mark > 0) || Math.abs(marking.row - marking.mark - 14) > 1) {
 		fail(
 			`the mark on the row being read is ${marking.mark.toFixed(1)}px on a ${
@@ -330,24 +407,8 @@ export async function run(
 		);
 	}
 
-	if (laidOut === null) fail("no room row carried a directory line with a mark and words in it");
-	else {
-		if (!(laidOut.edge > 0)) {
-			fail("the directory line is drawn with no rectangle at rest, so it is a target only under a pointer");
-		}
-		for (const [what, off] of Object.entries(laidOut)) {
-			if (what !== "edge" && off > 1) {
-				fail(`the directory line does not line up: ${what} is out by ${off.toFixed(1)}px`);
-			}
-		}
-	}
-
 	// One takes the other's place, so they have to occupy the same place, and the
 	// place a reader aims at is the middle of the mark rather than its right edge.
-	// A row grows a second line the moment it names a directory, and anything
-	// anchored to the row's full height then drifts below anything anchored to the
-	// line the name is on. Measured on a captioned row for that reason: on a
-	// single-line row the two anchors agree and the defect cannot appear.
 	//
 	// The press is measured too, and separately, because every other reading here
 	// was already perfect while the control could not be pressed: the count fades
@@ -355,8 +416,7 @@ export async function run(
 	// takes clicks. Visible, enabled, aligned, and dead through its own middle is
 	// a state only this question can see.
 	const slot = await tab.evaluate(() => {
-		const row = [...document.querySelectorAll("#roomList li")]
-			.find((li) => li.querySelector(".rwhere") !== null);
+		const row = document.querySelector("#roomList li");
 		const leave = row?.querySelector(".room-leave");
 		const badge = row?.querySelector(".rcount");
 		if (!leave || !badge) return null;
@@ -370,80 +430,132 @@ export async function run(
 			covering: at === null ? "nothing" : at.nodeName + "." + String(at.getAttribute("class") ?? ""),
 		};
 	});
-	if (slot === null) fail("no room row carried both a directory caption and the pair of marks that share its slot");
+	if (slot === null) fail("no room row carried both a badge and the leave mark that shares its slot");
 	else if (slot.dy > 1 || slot.dx > 1) {
 		fail(
-			`the leave mark and the badge do not share a slot on a two-line row: ` +
+			`the leave mark and the badge do not share a slot: ` +
 				`${slot.dy.toFixed(1)}px apart vertically and ${slot.dx.toFixed(1)}px across`,
 		);
 	} else if (!slot.pressable) {
 		fail(`a press at the centre of the leave mark lands on ${slot.covering} instead of the mark`);
 	}
 
-	// Every word in the rails clears the 4.5 to 1 small text asks for, against
-	// what is really behind it, in both appearances.
-	//
-	// The stylesheet argues two of these numbers in prose — the caption on a
-	// selected row was diluted, measured, and undiluted again because the quieter
-	// ink came out at 4.0 on the amber and 3.1 on the teal. Nothing held the
-	// answer, so any of the tokens underneath could have moved it back under the
-	// line without a word changing. And the whole argument had only ever been made
-	// in light: the rail is drawn from the same tokens in syrup, at different
-	// values, and nothing had ever measured it there.
-	//
-	// This is the point in the run where the rail carries the most: two
-	// directories, so every row wears a caption, one of them selected, and a
-	// roster beside it.
-	const RAIL_INK = [
-		["the caption on the row being read", "#roomList li.here .rwhere-said"],
-		["the caption on an ordinary row", "#roomList li:not(.here) .rwhere-said"],
-		["the name of the room being read", "#roomList li.here .rname"],
-		["a room's name", "#roomList li:not(.here) .rname"],
-		["a room's count", "#roomList .rcount"],
-		["a list's label", ".section-head span"],
-		["the roster's label", ".members h2"],
-		["a member's name", "#members .online .name"],
-		["what the connection is doing", "#status"],
-	] as const;
-	const wasTheme = await tab.getAttribute("html", "data-theme");
-	const tooFaint: string[] = [];
-	// At rest, which takes saying twice: the pointer sent away and the keyboard
-	// let go. Earlier checks left the pointer parked on a row and focus on the
-	// caption it pressed, and either one swaps that caption's ink for the teal a
-	// link wears — hover changes its ground too. What came back was an interactive
-	// state wearing a resting state's name, and its numbers said nothing about the
-	// rail a reader is looking at.
-	await tab.mouse.move(0, 0);
-	await tab.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-	for (const appearance of ["light", "dark"] as const) {
-		await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
-		// Settled first. Changing the appearance re-renders the rail, and a rail
-		// arriving runs a two-tenths fade that starts at nothing — so a reading
-		// taken straight after the switch is of a half-drawn panel, and it lands
-		// near one to one however the colours are set. That is what a colour bug
-		// looks like from here, and it does not move when you fix colours.
-		await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
-		for (const [what, selector] of RAIL_INK) {
-			const measured = await inkContrast(tab, selector);
-			// A refusal is a failure of its own. Every one of these is on screen here,
-			// so "could not measure" means the measuring broke, and a measurement that
-			// quietly stops answering is indistinguishable from one that passes.
-			if (measured === null) tooFaint.push(`${what} could not be measured in ${appearance}`);
-			else if (measured.ratio < 4.5) {
-				tooFaint.push(`${what} is ${measured.ratio.toFixed(2)}:1 in ${appearance} (${measured.saw})`);
-			}
-		}
-	}
-	await tab.evaluate((t) => {
-		if (t === null) document.documentElement.removeAttribute("data-theme");
-		else document.documentElement.setAttribute("data-theme", t);
-	}, wasTheme);
-	if (tooFaint.length > 0) {
-		fail(`the rail does not clear 4.5 to 1 for small text: ${tooFaint.join("; ")}`);
-	}
+	// Two rules that belong to every surface wearing a directory's colour, not
+	// to any one of them, and this is the point in the run where the rail
+	// carries the most for them to sweep.
+	await dirColorsRun(tab);
 
 	await tab.click('.room-open:has-text("lobby")');
 	await tab.waitForSelector('.bubble:has-text("hello from a browser peer")', { timeout: 10_000 })
 		.catch(() => fail("the first server's room did not come back with its history"));
-	return await leavingRun(tab, foreignLocator, foreignRoom, foreignRoomPort, captionOf);
+
+	// ── A direct line says which directory introduced it ────────────────
+	// A direct line belongs to the directory that introduced it, because the
+	// counterparty is a nickname and a nickname is that directory's to grant and
+	// reclaim. Two directories may each have an `alice` and they are two people,
+	// so the same line a room row carries is what tells them apart here.
+	//
+	// It takes a line open while two directories are held, which nothing before
+	// this point in the run produces: the second peer stepped out of the room
+	// several scenes ago, so it walks them back in, opens a line from the roster
+	// the way a reader does, and walks them out again — the state the scene after
+	// this one expects to find.
+	{
+		await second.fill("#room", "lobby");
+		await second.click("#joinBtn");
+		await second.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
+			.catch(() => fail("the second peer could not walk back in to be written to"));
+		// The directory grants whatever name is free, so the name to write to is
+		// read off their own roster row rather than assumed.
+		const mine = await second.evaluate(() => {
+			const names = [...document.querySelectorAll("#members .name")].map((el) => el.textContent ?? "");
+			const at = names.findIndex((name) => name.endsWith(" (you)"));
+			return { names, at, own: at < 0 ? "" : names[at].slice(0, -" (you)".length) };
+		});
+		if (mine.own === "") fail("the second peer's own roster row never said which name it was granted");
+		const who = mine.own;
+		// The reader's own row is the first one. They know exactly one name in the
+		// list and would otherwise scan for it, a longer scan the busier the room,
+		// so first is the one position that does not move as people come and go.
+		//
+		// Read on this tab and not on the second peer, because this is the tab the
+		// rule does work on: its own name sorts after the other member's, so
+		// without the rule it would be second. The second peer's name happens to
+		// sort first anyway, and asking there proves only that sorting exists.
+		//
+		// The check says so itself rather than trusting that to stay true. It wants
+		// a name below its own that would outrank it alphabetically, and fails if
+		// this room ever stops offering one, because a check that cannot tell the
+		// rule from its absence passes either way.
+		const ours = await tab.evaluate(() => {
+			const names = [...document.querySelectorAll("#members .name")].map((el) => el.textContent ?? "");
+			const at = names.findIndex((name) => name.endsWith(" (you)"));
+			const own = at < 0 ? "" : names[at].slice(0, -" (you)".length);
+			return { names, at, own, outranked: names.slice(1).some((name) => name.localeCompare(own) < 0) };
+		});
+		if (ours.at !== 0) {
+			fail(`the reader's own row sits at ${ours.at} of ${ours.names.length}: ${JSON.stringify(ours.names)}`);
+		} else if (!ours.outranked) {
+			fail(
+				`nobody here sorts before ${JSON.stringify(ours.own)}, so first proved nothing: ${
+					JSON.stringify(ours.names)
+				}`,
+			);
+		}
+		const theirRow = `#members li:has(.name:text-is(${JSON.stringify(who)})) .dm-btn`;
+		await tab.waitForSelector(theirRow, { timeout: 30_000 })
+			.catch(() => fail(`no direct-line button for ${JSON.stringify(who)} in the room both peers are in`));
+		await tab.click(theirRow);
+		await tab.waitForSelector(`#dmList li:has(.rname:text-is(${JSON.stringify(who)}))`, { timeout: 10_000 })
+			.catch(() => fail("opening a direct line did not put a row for it in the rail"));
+
+		const lines = await tab.evaluate((name) => {
+			const row = [...document.querySelectorAll("#dmList li")]
+				.find((li) => li.querySelector(".rname")?.textContent?.trim() === name);
+			return {
+				list: document.getElementById("dmList")?.tagName ?? "",
+				boxes: document.querySelectorAll("#dmList > :not(li)").length,
+				// Three ways of saying the same thing, and the row owes a reader
+				// every one of them: the color it wears, the directory drawn on it,
+				// and the directory named in what it announces.
+				mark: row?.getAttribute("data-dir") ?? "",
+				said: row?.querySelector(".rwhere-said")?.textContent?.trim() ?? "",
+				announced: row?.querySelector(".dm-open")?.getAttribute("aria-label") ?? "",
+				// And the same control a room row carries, because a person's
+				// directory is as worth asking about as a room's.
+				asks: row?.querySelector("button.rwhere") !== null,
+			};
+		}, who);
+		if (lines.list !== "UL" || lines.boxes > 0) {
+			fail(`the direct list is a ${lines.list} holding ${lines.boxes} boxes of rows rather than a list of them`);
+		} else if (lines.mark === "") {
+			fail("the direct row wears no directory color, so two people with one nickname look like one person");
+		} else if (lines.said !== "in this directory") {
+			fail(`the direct row says ${JSON.stringify(lines.said)} rather than the directory that introduced it`);
+		} else if (!lines.announced.includes("this directory")) {
+			fail(`the direct row does not name its directory in what it announces: ${JSON.stringify(lines.announced)}`);
+		} else if (!lines.asks) {
+			fail("the direct row names its directory without offering to say what that directory is");
+		}
+
+		// Back to the room, which is where the scene after this one starts, and
+		// the second peer back out of it.
+		await tab.click('.room-open:has-text("lobby")');
+		await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
+			.catch(() => fail("the room did not come back after reading a direct line"));
+		const theirs = second.locator("#roomList li").filter({ has: second.locator('.rname:text-is("lobby")') });
+		await theirs.hover();
+		await theirs.locator(".room-leave").click();
+		await second.waitForSelector("#joinBtn", { timeout: 30_000 })
+			.catch(() => fail("the second peer could not step back out of the room"));
+	}
+	// How much of all that a reader is looking at is theirs to say, and a
+	// directory is one of the things they can say it by. That belongs here
+	// rather than in a scene of its own, because a question about which
+	// directory only has more than one answer while two are held. It borrows the
+	// second peer to leave a line waiting in a room, and hands it back at the
+	// join card, which is where this scene picked it up.
+	await filteringRun(tab, second, foreignRoomPort, descendersIntact);
+
+	await leavingRun(tab, foreignLocator, foreignRoom, foreignRoomPort, homeRoomPort, aboutOf);
 }

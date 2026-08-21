@@ -44,13 +44,13 @@
 			<h2>Why OCapN</h2>
 			<p>Capabilities from zero, using protocols you already know.</p>
 		</a>
-		<a class="card" href="$site.page('transports/noise').link()">
-			<h2>Noise: sealed TCP</h2>
-			<p>Encrypt a direct pancake-to-pancake route and prove the dialed key, without pulling in iroh.</p>
-		</a>
 		<a class="card" href="$site.page('transports/iroh').link()">
 			<h2>iroh: encrypted P2P</h2>
 			<p>Dial a peer by key over encrypted QUIC, with discovery and NAT traversal.</p>
+		</a>
+		<a class="card" href="$site.page('transports/noise').link()">
+			<h2>Noise: sealed TCP</h2>
+			<p>Encrypt a direct pancake-to-pancake route and prove the dialed key, without pulling in iroh.</p>
 		</a>
 		<a class="card" href="$site.page('examples').link()">
 			<h2>Zig chapters and other apps</h2>

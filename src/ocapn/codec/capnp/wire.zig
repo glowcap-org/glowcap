@@ -55,7 +55,7 @@ pub const ListPtr = struct {
 };
 
 pub fn pointerKind(word: u64) PointerKind {
-    return @enumFromInt(@as(u2, @truncate(word)));
+    return @fromBackingInt(@intCast(@as(u2, @truncate(word))));
 }
 
 /// Number of words needed to hold `len` bytes (text/data lists).
@@ -98,16 +98,16 @@ pub fn decodeStructPointer(word: u64) StructPtr {
 pub const max_list_elements: usize = std.math.maxInt(u29);
 
 pub fn encodeListPointer(offset: i32, elem: ElementSize, count: u29) u64 {
-    return @intFromEnum(PointerKind.list) |
+    return @backingInt(PointerKind.list) |
         offsetBits(offset) |
-        (@as(u64, @intFromEnum(elem)) << 32) |
+        (@as(u64, @backingInt(elem)) << 32) |
         (@as(u64, count) << 35);
 }
 
 pub fn decodeListPointer(word: u64) ListPtr {
     return .{
         .offset = signExtend30(@truncate(word >> 2)),
-        .elem = @enumFromInt(@as(u3, @truncate(word >> 32))),
+        .elem = @fromBackingInt(@intCast(@as(u3, @truncate(word >> 32)))),
         .count = @truncate(word >> 35),
     };
 }

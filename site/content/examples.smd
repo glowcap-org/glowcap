@@ -1,16 +1,16 @@
 ---
 .title = "Rooms & examples",
 .description = "Choose a runnable example: rooms, Zig API chapters, handoff or pipelining, or embedding from C.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Every program below uses the same CapTP API. For a first call in code, use
-[Start building]($link.page('start')) or chapter 01.
+Every program below uses the same CapTP API. Rooms is a complete program over
+encrypted [iroh]($link.page('transports/iroh')). For a first call in code, use
+[Start building]($link.page('start')).
 
-## Rooms: pancake as a chat
+# Rooms: pancake as a chat
 
 The rooms app is the fullest demonstration: several language bindings, a
 browser UI, live chat, and direct messages created by a three-party handoff.
@@ -32,12 +32,12 @@ two independent clients (needs Deno, Tor, and outbound network).
 
 The cross-language room without a browser is `zig build demo-rooms`.
 
-## Learn the Zig API
+# Learn the Zig API
 
-Start with
+Start the walk at
 [01_connect_and_serve.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/01_connect_and_serve.zig).
-It shows both ends of one TCP conversation: listen, publish, connect, fetch,
-and call.
+It shows both ends of one session: listen, publish, connect, fetch,
+and call, over a local TCP socket so the API is unobscured.
 
 ```sh
 zig build examples
@@ -62,7 +62,7 @@ The same `Session` API on every transport is on
 [Start building]($link.page('start')) and
 [Choosing a transport]($link.page('transports/choosing')).
 
-## Embed from C
+# Embed from C
 
 [host_embedder_pump.c](https://github.com/jimisaacs/pancake/blob/main/examples/c/host_embedder_pump.c)
 is the first C program to read. It drives two byte-fed `PancakeHost` instances
@@ -70,7 +70,7 @@ through the C CapTP application API. Continue with
 [the C guide](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
 for linking, ownership, the host allocator, and transport composition.
 
-## Try another application
+# Try another application
 
 | App | What it shows | Run |
 | --- | --- | --- |
@@ -81,5 +81,4 @@ for linking, ownership, the host allocator, and transport composition.
 Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
 callers. The same applications also serve as binding examples; the
 [bindings overview]($link.page('bindings')) points to each language. For a
-smaller first call, use [Start building]($link.page('start')) or the [CapTP
-CLI]($link.page('cli')).
+smaller first call, use [Start building]($link.page('start')).

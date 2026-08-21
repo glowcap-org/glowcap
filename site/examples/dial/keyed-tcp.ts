@@ -1,7 +1,7 @@
 import { keyed, provider } from "@pancake/tcp";
 import { Runtime } from "@pancake/runtime";
 
-// Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+// Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 const peerKey = "<64 lowercase hex characters from the server>";
 const partner = keyed.locator(peerKey, "127.0.0.1", 9099);
 

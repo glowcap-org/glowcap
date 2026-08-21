@@ -1,8 +1,7 @@
 ---
 .title = "The modules",
 .description = "How pancake's layers fit together: the names you meet first, the socket-free protocol core, and what sits above it.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "modules.shtml",
 .draft = false,
 ---
@@ -14,7 +13,7 @@ separate at compile time. The diagram above is the map, and
 [architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
-## Choose the right level
+# Choose the right level
 
 | Name | Job |
 | --- | --- |
@@ -29,7 +28,7 @@ is backed by a Host. Use `Bridge` with a completion loop when one thread must
 serve many connections. [Concepts]($link.page('concepts')) covers three-party
 introductions.
 
-## The protocol core
+# The protocol core
 
 The core is synchronous. It holds no sockets and starts no background work, so
 you can test it without a host runtime.
@@ -46,15 +45,17 @@ you can test it without a host runtime.
 - **engine** is the `Peer` above: feed frames, `step`, drain outbound, read
   events. It only dispatches; session owns whether a reference is valid.
 
-## Above the core
+# Above the core
 
 - **actors** is a Goblins-shaped `Vat`: near-call `$`, eventual-send `<-`, and
   promises. It adds no protocol semantics the engine lacks.
 - **driver/core** is the multi-session serve core with no sockets of its own.
   A build check keeps I/O out of it.
-- **net** is where `std.Io` enters. Residents include cleartext `tcp`,
-  `keyed-tcp`, `noise-tcp`, `inproc`, optional [iroh](https://www.iroh.computer/)
-  QUIC, and [WebRTC]($link.page('transports/webrtc')), among others.
+- **net** is where `std.Io` enters. Residents include
+  [iroh](https://www.iroh.computer/) QUIC, `noise-tcp`,
+  [WebRTC]($link.page('transports/webrtc')),
+  [onion]($link.page('transports/onion')), then cleartext `tcp`,
+  `keyed-tcp`, and `inproc`, among others.
   [Transports]($link.page('transports')) explains what a netlayer is;
   [Choosing a transport]($link.page('transports/choosing')) is the decision
   table.
@@ -69,7 +70,7 @@ you can test it without a host runtime.
 > turn and returns a promise. That is also the only way to call across a
 > session.
 
-## Public entry points
+# Public entry points
 
 [Choose an API]($link.page('surfaces')) compares the entry points available to
 applications.

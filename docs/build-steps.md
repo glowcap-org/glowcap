@@ -39,7 +39,7 @@ proves rather than how the build wires it, and leave the `part of check` and
 The steps a session reaches for most, and the two checks everything else feeds.
 
 ```sh
-zig build check                # the in-tree check: no network, no submodules, no live peer; run this before calling code work complete (run it in the devcontainer — `check_runtimes` in build.zig lists what it needs on PATH)
+zig build check                # the in-tree check: no network, no submodules, no live peer; run this before calling code work complete (run it in the devcontainer — `check_runtimes` in tools/build/gates.zig lists what it needs on PATH)
 zig build check-external       # core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, the relayed give, the hinted-locator give, upstream-Syrup corpus parity (needs uv + racket + goblins)
 zig build test                 # the correctness suite
 zig build test -Dtest-filter=substring # only tests whose names match
@@ -116,8 +116,12 @@ zig build gen-header-net-transport-onion        # regenerate include/pancake_net
 zig build gen-header-net-transport-onion-check  # verify it matches src/c_abi/net_transport/onion (fails if stale), part of check
 zig build gen-header-net-transport-iroh         # regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig
 zig build gen-header-net-transport-iroh-check   # verify it matches src/c_abi/net_transport/iroh/mod.zig (fails if stale), part of check
+zig build gen-iroh-sidecar-constants            # regenerate the iroh sidecar Rust constants from iroh transport policy and frame-stream policy
+zig build gen-iroh-sidecar-constants-check      # verify the iroh sidecar Rust constants match iroh transport policy and frame-stream policy (fails if stale), part of check
 zig build gen-header-net-transport-webrtc       # regenerate include/pancake_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig
 zig build gen-header-net-transport-webrtc-check # verify it matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale), part of check
+zig build gen-webrtc-sidecar-constants          # regenerate the WebRTC sidecar Rust constants from src/net/transport/webrtc.zig
+zig build gen-webrtc-sidecar-constants-check    # verify the WebRTC sidecar Rust constants match src/net/transport/webrtc.zig (fails if stale), part of check
 zig build gen-header-net-transport-relay        # regenerate include/pancake_net_transport_relay.h from src/c_abi/net_transport/relay/mod.zig
 zig build gen-header-net-transport-relay-check  # verify it matches src/c_abi/net_transport/relay/mod.zig (fails if stale), part of check
 ```
@@ -261,6 +265,7 @@ zig build webrtc-lib                # build the DataChannel netlayer sidecar sta
 zig build webrtc-sidecar-test       # the sidecar's Rust unit tests, including the inbound backpressure proof: a far peer that outruns the reader waits for room instead of growing the buffer (needs cargo)
 zig build webrtc-datachannel-test   # a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (phase 1, signaling out-of-band over stdio; needs cargo + deno + a Playwright Chromium)
 zig build webrtc-resident-check     # type-check the netlayer resident src/net/transport/webrtc.zig (phase 2), compile-only, no cargo; rides check
+zig build webrtc-internal-test      # prove WebRTC resident identity and signaling-queue failure ownership; rides check
 zig build webrtc-interop            # two native pancake peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (phase 2; needs cargo)
 zig build webrtc-loop               # many concurrent DataChannels served from one loop thread through the generic Host completion adapter (needs cargo)
 zig build webrtc-bridge-redeem      # the recipient's loop redeems a give naming a bare webrtc designator, dialing through its configured signaling authority (needs cargo)
@@ -362,6 +367,7 @@ zig build accountability-three-party   # three-party accountability attribution 
 zig build demo-accountability          # cross-language accountability demo: Zig host with Deno and Python callers (needs deno)
 zig build rooms-client                 # run the native Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer                   # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
+zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs deno)
 zig build rooms-web                    # serve the rooms browser UI over iroh (same as rooms-web-iroh); open the printed URL (needs cargo + deno). `-Ddiagnostics` mints an inspect capability and prints its swiss number
 zig build rooms-web-iroh               # the same UI, named by transport. `-Dport` pins the HTTP port (default 8000)
 zig build rooms-web-tcp                # serve the same UI over cleartext TCP, for a peer that speaks nothing else (needs deno). `-Ddiagnostics` as above; `-- --bind= --announce-host=` expose the cleartext room on a LAN
@@ -377,15 +383,16 @@ zig build rooms-web-browser-peer  # a real headless Chromium runs the @pancake/w
 zig build rooms-web-page          # the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
 zig build rooms-web-reconnect     # the page survives losing its room server: it notices, reconnects, re-enters its room untouched, keeps the conversation the dead session delivered, and reaches the room again over the new one (needs deno + a Playwright Chromium)
 zig build rooms-web-dm            # the page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-dm-tabs       # two tabs DM over WebRTC (default) or keyed-relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction tab-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)
-zig build rooms-web-dm-native     # a native peer cold-dials a browser member by relay rendezvous through the relay provider it composes for rendezvous dials (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-tabs       # two tabs DM over the default WebRTC path, including closing and reopening the introduced line (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-native     # a native peer cold-dials a browser member over sealed noise-relay rendezvous through its composed relay provider (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-noise      # two browser members DM through the room relay over an end-to-end Noise-sealed rendezvous session, with the room off the message path (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0089; needs deno + a Playwright Chromium)
 zig build rooms-web-routes        # the page address is a shareable place to stand: a cold /room/<name> link arrives named, opening writes its address, back and forward walk it with the view, following an address never moves the rail, and a private room's key stays out of it (needs deno + a Playwright Chromium)
 zig build rooms-web-private       # a private room is reachable only by the reference to it: in no list, its name opens a different room, and handing it over is the only way in (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-foreign    # a visitor starts a direct message in a room they joined: the tab holds its own page's directory and the one it went to, and the redeem signals through the directory that introduced the member (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-viz        # a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, and the endpoint scopes both producers' session ids apart (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-retarget   # a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)
-zig build rooms-web-dm-reopen     # reopening a closed direct conversation opens a second connection and that one carries: the timeline shows the first session gone and a session id nobody had seen, once over webrtc and once over keyed-relay (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-reopen     # reopening a closed direct conversation opens a second connection and that one carries: the timeline shows the first session gone and a session id nobody had seen, once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)
 zig build rooms-web-viz-lifecycle # the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs are three peers and two sessions, a direct message adds a session with the room off its path, leaving keeps the session and drops the nickname, and a tab going away takes its peer and both its sessions (needs deno + a Playwright Chromium)
 ```
 
@@ -404,6 +411,6 @@ zig build bench-snapshot         # vat snapshot/restore (S5): O(objects), flat i
 zig build relay-scaling          # the reference relay's per-connection footprint and its descriptor and RAM ceiling; the relay-tier sibling of bench-peer-scaling (needs deno)
 zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke` forwarded
 zig build bench-goblins          # cross-implementation benchmark: pancake's Racket binding and Spritely Goblins on one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded
-zig build bench-langs            # per-language consumer cost: one fixed native Zig host, the client language swapped per row, driven by a native Zig orchestrator. Not a leaderboard; `-- --smoke`/`--client=<name>` forwarded
+zig build bench-langs            # per-language consumer cost: one fixed native Zig host, the client language swapped per row, driven by a native Zig orchestrator; `-- --smoke`/`--client=<name>` forwarded
 zig build bench-site-report      # regenerate the performance page's charts and tables from live ReleaseFast runs (needs racket + goblins + cargo)
 ```

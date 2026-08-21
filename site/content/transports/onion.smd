@@ -1,8 +1,7 @@
 ---
 .title = "Onion: the standardized OCapN transport",
 .description = "An onion service carries a pancake session over Tor, and it is the one netlayer the OCapN draft standardizes and upstream Goblins ships.",
-.date = @date("2026-08-08T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-08-08T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -18,7 +17,7 @@ other live Goblins check (cleartext `tcp`, and `iroh`) runs over an adapter
 this repository wrote for the vat. Over Tor neither side wrote the other's
 transport; both follow the draft. `zig build goblins-onion` is the live check.
 
-## pancake starts no Tor
+# A Tor you already run
 
 A deployment runs a Tor daemon; pancake talks to it. You give the netlayer two
 endpoints, each an absolute Unix socket path or a `host:port`:
@@ -34,7 +33,7 @@ Hosting mints a version 3 service and reports the service id partners dial, plus
 the key that restores that address after a restart. Store the key and pass it
 back to keep one address across restarts.
 
-## Dial
+# Dial
 
 Point the netlayer at an already-running Tor SOCKS endpoint and name the
 service id to reach.
@@ -105,7 +104,7 @@ service id to reach.
 <!-- /site-examples:dial:onion -->
 ```
 
-## Listen
+# Listen
 
 The provider package talks to Tor. The generic driver admits the connection
 and yields the same CapTP `Session` as every other native transport. Bindings
@@ -196,7 +195,7 @@ Applications normally use `Session`.
 <!-- /site-examples:listen:onion -->
 ```
 
-## A service id is an address, not a name for the peer
+# What Tor proves
 
 Tor proves the far end of the circuit holds the key the address encodes. That
 is more than a TCP address gives you, and enough to know the bytes reached the
@@ -214,7 +213,7 @@ channel may report a proved peer. An
 [iroh]($link.page('transports/iroh')) session can, because QUIC authenticated
 the node id.
 
-## Onion locators on the wire carry no hints
+# Bare onion locators
 
 The service id already says where to dial, so the locator carries nothing
 else. The Goblins release pancake pins cannot dial an onion locator that

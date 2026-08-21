@@ -274,12 +274,12 @@ pub const FakeResident = struct {
         }
     }
 
-    fn connClose(ctx: *anyopaque, conn_id: usize) ?pancake.foundation.FailureChain {
+    fn connClose(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
-        const row = self.conns.fetchRemove(conn_id) orelse return null;
+        const row = self.conns.fetchRemove(conn_id) orelse return .complete;
         self.ctlEpoll(linux.EPOLL.CTL_DEL, row.value.fd, 0, 0);
         _ = linux.close(row.value.fd);
-        return null;
+        return .complete;
     }
 
     fn connRemoteKey(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
@@ -531,11 +531,11 @@ pub const AcceptOwnershipResident = struct {
         return conn_id;
     }
 
-    fn stopListen(_: *anyopaque, listener_ctx: *anyopaque) ?pancake.foundation.FailureChain {
+    fn stopListen(_: *anyopaque, listener_ctx: *anyopaque) net.multiplexed_resident.TeardownOutcome {
         const listener: *Listener = @ptrCast(@alignCast(listener_ctx));
         listener.active = false;
         if (listener.resident.accept_route == listener.route) listener.resident.accept_route = null;
-        return null;
+        return .complete;
     }
 
     fn tryRead(_: *anyopaque, _: usize, _: []u8) isize {
@@ -546,11 +546,11 @@ pub const AcceptOwnershipResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) ?pancake.foundation.FailureChain {
+    fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;
-        return null;
+        return .complete;
     }
 
     fn connRemoteKey(_: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {

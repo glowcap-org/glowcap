@@ -1,5 +1,6 @@
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const tls_sources = [_][]const u8{
     "library/debug.c",
@@ -135,6 +136,23 @@ pub const Dependency = struct {
             .flags = &.{"-std=c11"},
         });
     }
+
+    fn translatedHeaders(
+        self: Dependency,
+        b: *std.Build,
+        target: std.Build.ResolvedTarget,
+        optimize: std.builtin.OptimizeMode,
+    ) *std.Build.Module {
+        const translate = b.addTranslateC(.{
+            .root_source_file = b.path("src/net/tls/mbedtls_import.c"),
+            .target = target,
+            .optimize = optimize,
+        });
+        addIncludes(b, self.source, translate);
+        translate.defineCMacro("MBEDTLS_CONFIG_FILE", "\"pancake_mbedtls_config.h\"");
+        translate.defineCMacro("TF_PSA_CRYPTO_CONFIG_FILE", "\"pancake_psa_crypto_config.h\"");
+        return translate.createModule();
+    }
 };
 
 pub fn engineModule(
@@ -158,6 +176,7 @@ pub fn engineModule(
     });
     module.addImport("foundation", foundation);
     module.addImport("net", net);
+    module.addImport("mbedtls_c", dependency.translatedHeaders(b, target, optimize));
     dependency.configureModule(b, module);
     return module;
 }
@@ -178,6 +197,7 @@ fn probeEngineModule(
     });
     module.addImport("foundation", foundation);
     module.addImport("net", net);
+    module.addImport("mbedtls_c", dependency.translatedHeaders(b, target, optimize));
     dependency.configureProbeModule(b, module);
     return module;
 }
@@ -276,9 +296,9 @@ pub fn addArchiveChecks(
         .root_module = consumer_module,
     });
     consumer.root_module.linkLibrary(static);
-    secure_check.dependOn(&b.addRunArtifact(consumer).step);
+    secure_check.dependOn(&execution.addArtifact(b, .{ .deterministic = 30 }, consumer).step);
 
-    const symbols = b.addSystemCommand(&.{"bash"});
+    const symbols = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bash"});
     symbols.addFileArg(b.path("tools/check/relay-archive-symbols.sh"));
     symbols.addArtifactArg(dynamic);
     secure_check.dependOn(&symbols.step);
@@ -314,7 +334,7 @@ pub fn addFamily(
     const engine = engineModule(b, target, optimize, dependency, foundation, net);
     const native_tls = nativeCompositionModule(b, target, optimize, net, engine);
     const native_relay = b.addModule("pancake_native_relay", .{
-        .root_source_file = b.path("src/net/transport/relay_native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -329,7 +349,7 @@ pub fn addFamily(
     check_tls.addImport("foundation", foundation);
     check_tls.addImport("net", net);
     const check_relay = b.createModule(.{
-        .root_source_file = b.path("src/net/transport/relay_native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -347,7 +367,7 @@ pub fn addFamily(
     const probe_engine = probeEngineModule(b, target, optimize, dependency, foundation, net);
     const probe_tls = nativeCompositionModule(b, target, optimize, net, probe_engine);
     const probe_relay = b.createModule(.{
-        .root_source_file = b.path("src/net/transport/relay_native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -360,6 +380,7 @@ pub fn addFamily(
         .optimize = optimize,
         .link_libc = true,
     });
+    allocation_probe.addImport("allocation_probe_c", allocationProbeHeaders(b, target, optimize));
     allocation_probe.addIncludePath(b.path("test/support"));
     const live_module = b.createModule(.{
         .root_source_file = b.path("tools/check/native_tls_relay_client.zig"),
@@ -375,11 +396,11 @@ pub fn addFamily(
         .name = "native-tls-relay-client",
         .root_module = live_module,
     });
-    const live = b.addSystemCommand(&.{"bash"});
+    const live = execution.addSystemCommand(b, .real_internet, &.{"bash"});
     live.addFileArg(b.path("tools/check/native-tls-relay-live.sh"));
     live.addArtifactArg(live_client);
     const secure_check = b.step("native-tls-build", "Fetch by checksum, compile, and test Pancake's private Mbed TLS engine (needs network)");
-    secure_check.dependOn(&b.addRunArtifact(tests).step);
+    secure_check.dependOn(&execution.addZigTest(b, tests, .{ .deterministic = 30 }).step);
     secure_check.dependOn(&live.step);
     return .{
         .tls = native_tls,
@@ -389,7 +410,39 @@ pub fn addFamily(
     };
 }
 
-fn addIncludes(b: *std.Build, source: std.Build.LazyPath, module: *std.Build.Module) void {
+/// Compile the relay Zig first-calls against the native relay module. They
+/// stay out of the default pancake snippet walk for the same reason iroh does:
+/// Mbed TLS is an optional composition, not part of `lib_mod`.
+pub fn addSiteRelayExamples(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lib_mod: *std.Build.Module,
+    native_relay: *std.Build.Module,
+    site_zig_examples_check: *std.Build.Step,
+) void {
+    const examples = [_]struct { name: []const u8, path: []const u8 }{
+        .{ .name = "site-example-dial-noise-relay", .path = "site/examples/dial/noise-relay.zig" },
+        .{ .name = "site-example-dial-keyed-relay", .path = "site/examples/dial/keyed-relay.zig" },
+        .{ .name = "site-example-listen-noise-relay", .path = "site/examples/listen/noise-relay.zig" },
+    };
+    for (examples) |example| {
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(example.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        example_mod.addImport("pancake", lib_mod);
+        example_mod.addImport("native_relay", native_relay);
+        const example_test = b.addTest(.{
+            .name = b.fmt("{s}-compile", .{example.name}),
+            .root_module = example_mod,
+        });
+        site_zig_examples_check.dependOn(&example_test.step);
+    }
+}
+
+fn addIncludes(b: *std.Build, source: std.Build.LazyPath, module: anytype) void {
     inline for (.{
         "include",
         "library",
@@ -410,8 +463,22 @@ fn addIncludes(b: *std.Build, source: std.Build.LazyPath, module: *std.Build.Mod
     module.addIncludePath(b.path("src/net/tls"));
 }
 
+fn allocationProbeHeaders(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const translate = b.addTranslateC(.{
+        .root_source_file = b.path("test/support/mbedtls_allocation_probe_import.c"),
+        .target = target,
+        .optimize = optimize,
+    });
+    translate.addIncludePath(b.path("test/support"));
+    return translate.createModule();
+}
+
 pub fn add(b: *std.Build) Dependency {
-    const fetch = b.addSystemCommand(&.{"bash"});
+    const fetch = execution.addSystemCommand(b, .build_tool, &.{"bash"});
     fetch.addFileArg(b.path("tools/deps/fetch-mbedtls.sh"));
     // The fetch script is the single version-and-checksum authority. Keeping
     // the build-cache label version-neutral prevents an update from requiring

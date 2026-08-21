@@ -203,12 +203,12 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
     const call_args = [_]model.Argument{.{ .string = "ping" }};
     const path_ops = [_]model.PipelineOp{ .{ .field = "field" }, .{ .call = &call_args } };
     const give = model.HandoffGive{
-        .recipient_key = &([_]u8{0x01} ** 32),
+        .recipient_key = &(@as([32]u8, @splat(0x01))),
         .exporter = .{ .transport = "tcp", .designator = "host" },
-        .gifter_exporter_session = &([_]u8{0x02} ** 32),
-        .gifter_side = &([_]u8{0x03} ** 32),
-        .gift_id = &([_]u8{0x04} ** 32),
-        .signature = &([_]u8{0x05} ** 64),
+        .gifter_exporter_session = &(@as([32]u8, @splat(0x02))),
+        .gifter_side = &(@as([32]u8, @splat(0x03))),
+        .gift_id = &(@as([32]u8, @splat(0x04))),
+        .signature = &(@as([64]u8, @splat(0x05))),
     };
     var handoff_arg = model.Handoff{ .give = give };
     // Cover every union arm and argument kind so each errdefer in the owned
@@ -264,9 +264,9 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
         .{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } },
         .{ .start_session = .{
             .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
+            .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0xab))) },
             .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
-            .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
+            .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0xcd))) },
         } },
     };
 
@@ -343,8 +343,8 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // (`shared.traversalBudget`, seeded from the segment word count), which
     // must refuse the frame in bounded time with the malformed-frame error.
     const levels_deep: usize = 30;
-    const list_arg: u64 = @intFromEnum(capnp.shared.ArgKind.list);
-    const void_arg: u64 = @intFromEnum(capnp.shared.ArgKind.void);
+    const list_arg: u64 = @backingInt(capnp.shared.ArgKind.list);
+    const void_arg: u64 = @backingInt(capnp.shared.ArgKind.void);
     // Each level: composite tag + 2 elements of stride 2 (1 data word for the
     // ArgKind discriminant, 1 pointer word to the next level).
     const list_body_words: u29 = 4;
@@ -364,12 +364,12 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     }
 
     b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
-    b.set(env, @intFromEnum(capnp.shared.Kind.deliver));
+    b.set(env, @backingInt(capnp.shared.Kind.deliver));
     b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 1, 2));
     b.set(body, 0); // flags: no answer, no resolve-me
     b.set(body + 1, wire.encodeStructPointer(wire.Builder.offsetTo(body + 1, target), 2, 0));
     b.set(body + 2, wire.encodeListPointer(wire.Builder.offsetTo(body + 2, levels[0]), .composite, list_body_words));
-    b.set(target, @intFromEnum(capnp.shared.RefTag.far));
+    b.set(target, @backingInt(capnp.shared.RefTag.far));
     b.set(target + 1, 0);
 
     for (0..levels_deep + 1) |i| {
@@ -399,13 +399,13 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
 test "an aliasing hint list is charged against the traversal budget" {
     const allocator = std.testing.allocator;
 
-    // The hint list is the one composite list the charge pass never enumerated.
-    // `neutralPeerLocator` reads the list header and packs a *lazy* view, so a
-    // list of N entries cost O(1) to charge, and `capnpMaterializeHintList`
-    // then built its own unmetered reader and duped a name and a value per
-    // entry. Every entry here aliases one blob, which Cap'n Proto pointers
-    // permit and every individual read bounds-checks cleanly, so nothing but a
-    // budget can refuse it.
+    // The hint list was once the one composite list the charge pass never
+    // enumerated. The locator projector in `decode/values.zig` packs a lazy
+    // view, so without the parent decoder's hint-list observer N entries cost
+    // O(1) to charge; the later materializer then builds its own unmetered
+    // reader and dupes a name and a value per entry. Every entry here aliases
+    // one blob, which Cap'n Proto pointers permit and every individual read
+    // bounds-checks cleanly, so nothing but a budget can refuse it.
     //
     // Every other field is deliberately valid and small, so the frame reaches
     // hint materialization rather than being turned away for an unrelated
@@ -437,7 +437,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     b.setBytes(small, "aaaaaaaa");
 
     b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
-    b.set(env, @intFromEnum(capnp.shared.Kind.start_session));
+    b.set(env, @backingInt(capnp.shared.Kind.start_session));
     b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 0, 4));
 
     b.set(body, wire.encodeListPointer(wire.Builder.offsetTo(body, ver), .byte, 3));
@@ -453,7 +453,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     b.set(tag, wire.Builder.compositeTag(@intCast(entry_count), data_words, ptr_words));
     for (0..entry_count) |i| {
         const e = block + i * stride;
-        b.set(e, @intFromEnum(capnp.shared.HintValueKind.string));
+        b.set(e, @backingInt(capnp.shared.HintValueKind.string));
         b.set(e + 1, 0);
         // Name and value both point at the one shared blob: the aliasing edge.
         b.set(e + 2, wire.encodeListPointer(wire.Builder.offsetTo(e + 2, blob), .byte, @intCast(blob_words * 8)));
@@ -506,13 +506,13 @@ test "a locator carrying the same hint name twice is refused" {
     };
     var frame = try capnp.encodeMessage(allocator, .{ .start_session = .{
         .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = &([_]u8{0x11} ** 32) },
+        .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0x11))) },
         .acceptable_location = .{
             .transport = "tcp",
             .designator = "127.0.0.1:9000",
             .hints = .{ .entries = entries[0..] },
         },
-        .acceptable_location_sig = .{ .bytes = &([_]u8{0x22} ** 64) },
+        .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0x22))) },
     } });
     defer frame.deinit();
 

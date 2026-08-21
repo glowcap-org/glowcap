@@ -3,7 +3,7 @@ import { keyed, provider } from "@pancake/relay";
 
 // The key names the peer; the hint names the relay that can reach it.
 const peerKey = "<64 lowercase hex characters from the server>";
-const relayUrl = "ws://192.0.2.10:8080/relay";
+const relayUrl = "wss://relay.example/relay";
 const partner = keyed.locator(peerKey, relayUrl);
 
 await using runtime = await Runtime.open({

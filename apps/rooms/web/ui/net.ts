@@ -40,15 +40,8 @@ export { openAttachment, stepViewer } from "./net/files.ts";
 export { startDm } from "./net/direct.ts";
 export { retrySend, selfLocator } from "./net/reachable.ts";
 export { connect, leaveDirectory } from "./net/connection.ts";
-export { dropDiagnosticCap, refreshDiagnostics, takeDiagnosticCap } from "./net/diagnostics.ts";
-export { dropVizCap, takeVizCap } from "./net/viz.ts";
-export {
-	dropListenersCap,
-	refreshListeners,
-	requestListenerDown,
-	requestListenerUp,
-	takeListenersCap,
-} from "./net/listeners.ts";
+export { dropOpsCap, refreshOpsCap, takeOpsCap } from "./net/ops.ts";
+export { requestListenerDown, requestListenerUp } from "./net/listeners.ts";
 import { leaveDirectory, openDirectory } from "./net/connection.ts";
 export { setDirStanding, setRoomStanding, setStanding } from "./net/standing.ts";
 export { directoryId, directoryLocator, directoryReady } from "./net/bootstrap.ts";
@@ -159,14 +152,14 @@ const POWERS: CommandPowers = {
 		return true;
 	},
 	joinLink(link, label) {
+		// No directory is named here, and that is the point: a link carries its
+		// own, so taking one up does not depend on where the reader happens to be
+		// standing. What this side supplies is the name they would like to be
+		// called, from the directory they are reading if it has granted them one.
 		const dir = store.activeConv()?.dir ?? store.actingDir()?.id ?? null;
-		if (dir === null) {
-			store.deliverActive(store.sysItem("There is no directory to take that link up on."));
-			return;
-		}
-		const nick = store.dirNick(dir) || store.reachingNick();
+		const nick = (dir === null ? "" : store.dirNick(dir)) || store.reachingNick();
 		notePickedRoom();
-		void takeRoomLink(dir, link, label, nick).then((why) => {
+		void takeRoomLink(link, label, nick).then((why) => {
 			if (why !== "") store.deliverActive(store.sysItem(`That link did not open a room: ${why}`));
 		});
 	},

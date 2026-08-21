@@ -128,7 +128,7 @@
                             #:layer 'transport)))
   lst)
 
-(define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame 4096])
+(define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (define bs (designator-bytes designator))
   (define cn
     (native-parent-open-child
@@ -143,7 +143,7 @@
   (register-finalizer cn (lambda (q) (inproc-connection-release! q)))
   cn)
 
-(define (inproc-listener-accept lst [codec 'syrup] [max-frame 4096])
+(define (inproc-listener-accept lst [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (call-with-semaphore
    (inproc-listener-accept-gate lst)
    (lambda ()

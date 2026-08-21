@@ -31,10 +31,10 @@ the opaque handle), read its node id and direct addresses, and drive one
 bidirectional QUIC stream per connection. Explicitly named blocking calls serve
 the blocking resident. Request-correlated connect completion, accept, and
 stream readiness share one endpoint readiness fd for completion consumers. The
-Zig side is one resident,
-`src/net/transport/iroh.zig`, that implements the ADR-0043 `Netlayer` contract
-over those externs, pinning its concrete stream wrappers exactly as `net.tcp`
-does. `libpancake`, the core layers, and every existing gate remain pure Zig;
+Zig side is the supported `src/net/transport/iroh.zig` facade over an internal
+`iroh/` package: `sidecar.zig` owns those externs and `resident.zig` implements
+the ADR-0043 `Netlayer` contract, pinning its concrete stream wrappers exactly
+as `net.tcp` does. `libpancake`, the core layers, and every existing gate remain pure Zig;
 the `iroh-*` build steps require cargo on PATH and run as sibling steps, the
 same posture as `rust-dogfood`.
 
@@ -84,7 +84,7 @@ public-internet dialing.
 
 **Amendment (2026-06-12): the seam and the public ABI carry distinct symbol
 prefixes.** iroh exposes both a private byte-level seam (the Rust sidecar's C
-ABI, consumed only by `src/net/transport/iroh.zig`) and a public frame-level ABI
+ABI, consumed only by `src/net/transport/iroh/sidecar.zig`) and a public frame-level ABI
 (`src/c_abi/net_transport/iroh/mod.zig`, the binding-facing surface), and the
 two link into
 one library without colliding. They are split by prefix and by artifact name:
@@ -181,7 +181,8 @@ authoritative, deterministic iroh gate.
 ## Consequences
 
 - New surfaces: `transports/iroh/` (Cargo.toml pinned to iroh `=1.0.2`,
-  `src/lib.rs`, `include/pancake_iroh_sidecar.h`), `src/net/transport/iroh.zig`,
+  `src/lib.rs`, `include/pancake_iroh_sidecar.h`), the supported
+  `src/net/transport/iroh.zig` facade and internal `iroh/` package,
   and the `iroh-lib` / `iroh-interop` build steps wired into `ci/gates.sh`.
 - The README's "the shipped channel is cleartext TCP" boundary changes the day
   the gate is green: an encrypted channel exists behind the same contract, and

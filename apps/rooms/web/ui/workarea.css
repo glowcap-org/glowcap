@@ -7,7 +7,7 @@
 }
 /* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
    is what makes this visible; on desktop nothing scrolls past it). It stays above
-   the message stream but below the reconnect banner and the mobile roster sheet. A
+   the message stream but below the page's notices and the mobile roster sheet. A
    backdrop blur makes the translucent background read as frosted glass rather than
    letting messages bleed through. */
 .topbar {
@@ -28,18 +28,22 @@
 	-webkit-backdrop-filter: blur(var(--frost));
 }
 /* The accent hairline lives on the topbar, so it rides along with the sticky header
-   instead of scrolling away at the top of the page. */
+   instead of scrolling away at the top of the page.
+
+   It runs from the reader to where they are. The near stop is the accent, which
+   is the reader and the room throughout this interface, and the far stop is the
+   directory the room is on, which is the same sentence the join card's own
+   stripe speaks about the directory it is about to reach. A room on this page's
+   own directory, and every room at all while the rail is not showing colours,
+   leaves the far stop teal, so the bar reads exactly as it did before and never
+   draws a distinction a reader cannot see anywhere else. A direct line is
+   included, because the rail marks one exactly as it marks a room. */
 .topbar::before {
 	content: "";
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: var(--accent-line);
-	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--teal) 100%);
-}
-/* On the join screen the card below carries the same stripe, and one screen
-   gets one flourish: the card's is the page's, so the bar's stands down. */
-.app.joining .topbar::before {
-	content: none;
+	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--dir-mark, var(--teal)) 100%);
 }
 .topbar h1 {
 	margin: 0;
@@ -108,63 +112,6 @@
    aria-pressed, so assistive software knew whether the roster was up; everyone
    else was told only by the roster itself, which is the one thing the button
    takes away. */
-/* A floating status pill that overlays the stream rather than reflowing it.
-   Kind is explicit: a notice is session words; ongoing work spins in warning
-   ink; an error is an alert and never impersonates a reconnect attempt. */
-.banner {
-	position: absolute;
-	top: 14px;
-	left: 50%;
-	z-index: 6;
-	display: inline-flex;
-	align-items: center;
-	gap: 9px;
-	padding: 7px 15px 7px 13px;
-	border-radius: var(--radius-pill);
-	background: var(--paper-raised);
-	border: 1px solid var(--rule);
-	color: var(--ink);
-	font-size: var(--type-ui);
-	font-weight: 600;
-	box-shadow: var(--shadow);
-	opacity: 0;
-	pointer-events: none;
-	transform: translateX(-50%) translateY(-10px);
-	transition: opacity .2s ease, transform .2s ease;
-}
-.banner.show {
-	opacity: 1;
-	transform: translateX(-50%) translateY(0);
-}
-.banner.working {
-	border-color: color-mix(in srgb, var(--warn) 45%, var(--rule));
-}
-.banner.working::before {
-	content: "";
-	width: 13px;
-	height: 13px;
-	flex: none;
-	border-radius: 50%;
-	border: 2px solid color-mix(in srgb, var(--warn) 30%, transparent);
-	border-top-color: var(--warn);
-}
-.banner.working.show::before {
-	animation: bannerspin .7s linear infinite;
-}
-.banner.error {
-	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
-}
-.banner-mark {
-	flex: none;
-	display: inline-flex;
-	color: var(--danger);
-}
-@keyframes bannerspin {
-	to {
-		transform: rotate(360deg);
-	}
-}
-
 .content {
 	min-height: 0;
 	display: grid;
@@ -186,6 +133,21 @@
    leaves for it, so the two cannot drift into overlapping. */
 .stream {
 	--topic-h: 30px;
+	/* The column the scrollbar is drawn in. The fade below stops at its edge, so
+	   the thumb has clear air from the top of the conversation to the bottom. It
+	   is chosen rather than measured, because an overlay scrollbar takes no
+	   layout width and so cannot be asked how wide it draws.
+
+	   Nothing else has to make room for it: a message row already carries 20px of
+	   side padding, so no line reaches this strip from either side. That is the
+	   inequality to keep, and it is the only reason a chosen number is safe here.
+	   Raise this past the row's padding and the fade will stop short of the
+	   messages, leaving a strip of conversation showing beside the field. */
+	--scroll-gutter: 12px;
+	/* How far the conversation takes to disappear. The fade is solid from the
+	   field's top edge down, and ramps out over this much above it, so a line
+	   scrolling up thins rather than meeting an edge. */
+	--log-fade-h: 16px;
 }
 .stream:has(#topic) #log {
 	padding-top: calc(16px + var(--topic-h));
@@ -197,12 +159,10 @@
 	overscroll-behavior: contain;
 	-webkit-overflow-scrolling: touch;
 	/* The composer floats over the bottom of this column, so the last message
-	   stops at the band's top edge, where the ramp above is still fully clear:
-	   nothing is veiled while it sits still, and the ramp is the space between
-	   the conversation and the field.
-	   main.ts measures the band and keeps --composer-h honest; the fallback is
-	   its resting height, for the first paint before the observer has run. */
-	padding: 16px 0 var(--composer-h, 113px);
+	   stops at the band's top edge, where the fade below has only just begun and
+	   is still nearly clear. The fallback and its reasoning belong to
+	   --composer-h-rest in page.css. */
+	padding: 16px 0 var(--composer-h, var(--composer-h-rest));
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
@@ -213,11 +173,48 @@
 #log > :first-child {
 	margin-top: auto;
 }
-/* The panel that opens a conversation. It is the top of the log, so it carries
-   the room's own name and one plain sentence about what this conversation is.
-   Bounded to the same width as the system pills so the column reads as one
-   measure, and left-aligned because it is prose, not a notice. */
+/* The bottom edge of the reading area, and nothing else. It is deliberately not
+   the composer's own paint: the composer is a control that happens to sit here,
+   and this is the surface the conversation ends on. Keeping them apart is what
+   lets the field carry a shadow and read as resting on the column, instead of
+   having to be the only opaque thing in the band and leaving the gutters beside
+   it clear for messages to show through.
+
+   It stops short of the scrollbar's column, so the thumb is draggable and
+   visible for the conversation's whole height. It takes no clicks, because
+   everything a reader can reach here belongs to the composer above it. */
+.log-fade {
+	position: absolute;
+	left: 0;
+	right: var(--scroll-gutter);
+	bottom: 0;
+	height: calc(
+		var(--composer-h, var(--composer-h-rest)) - var(--composer-clear) + var(--log-fade-h)
+	);
+	background: linear-gradient(to bottom, transparent 0, var(--paper) var(--log-fade-h));
+	pointer-events: none;
+}
+/* The welcome card, which is what everyone here calls it. It sits at the top of
+   the log and opens a conversation, carrying the room's own name and one plain
+   sentence about what this conversation is. Bounded to the same width as the
+   system pills so the column reads as one measure, and left-aligned because it
+   is prose, not a notice. */
 .conv-intro {
+	/* The tone this card is drawn in. It is the product's own teal for a room on
+	   this page's directory, and for every room at all while the rail is not
+	   showing colours, so the ordinary panel is exactly what it was. A room on a
+	   directory this tab reached takes that directory's colour instead, which is
+	   the same thing the join card does about the directory it is reaching: this
+	   is that card's sibling, one step later, saying where the conversation you
+	   are now reading lives.
+
+	   Named as two so the wash and the words are set once each. They are not the
+	   same value: the mark ramp's colours are drawn to be read as ink as well as
+	   seen as marks, which the rail already relies on, but teal's mark and teal's
+	   ink are two different tokens and a single fallback through --dir-mark would
+	   quietly swap the home card's heading for the lighter of them. */
+	--intro-tone: var(--teal);
+	--intro-ink: var(--teal-ink);
 	align-self: center;
 	box-sizing: border-box;
 	width: var(--card-max);
@@ -225,8 +222,20 @@
 	padding: 16px 18px;
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-card);
-	background: linear-gradient(150deg, color-mix(in srgb, var(--teal) 9%,
+	background: linear-gradient(150deg, color-mix(in srgb, var(--intro-tone) 9%,
 		var(--paper-raised)), var(--paper-raised) 65%);
+}
+/* Rooms and direct lines alike, because the rail colours them alike: the colour
+   answers which directory a thing is on, and a direct line is on one. */
+.workarea[data-dir]:not([data-dir="home"]) .conv-intro {
+	--intro-tone: var(--dir-mark);
+	/* The mark deepened toward the page's own ink, the move the tab bar makes for
+	   the same reason: a mark is drawn to be seen against the rail's fill, and on
+	   this card's lighter wash the bluest of them measured 4.69 to 1 at seventeen
+	   pixels. That clears the bar and stands on it, and the ramp is free to move.
+	   Mixing toward --ink darkens in light and lightens in syrup, because that is
+	   the token that flips, so one expression answers both. */
+	--intro-ink: color-mix(in srgb, var(--dir-mark) 70%, var(--ink));
 }
 .conv-intro h2 {
 	display: flex;
@@ -234,7 +243,7 @@
 	gap: var(--mark-gap);
 	margin: 0 0 6px;
 	font-size: var(--type-title);
-	color: var(--teal-ink);
+	color: var(--intro-ink);
 }
 .conv-intro h2:has(.avatar-chip) {
 	gap: var(--avatar-gap);
@@ -489,7 +498,7 @@
 .jump {
 	position: absolute;
 	left: 50%;
-	bottom: calc(var(--composer-h, 113px) + 8px);
+	bottom: calc(var(--composer-h, var(--composer-h-rest)) + 8px);
 	transform: translateX(-50%);
 	display: none;
 	cursor: pointer;

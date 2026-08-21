@@ -150,12 +150,12 @@ const PromiseResolver = struct {
         errdefer if (promise_owned)
             peer.session_state.abandonLocalPromiseProjection(promise.export_position);
         const promise_export = promise.export_position;
-        const answer_name = promise.answer_name;
+        const answer_target = promise.answer_target;
         const resolver_export = try peer.session_state.allocateExport();
         var resolver_owned = true;
         errdefer if (resolver_owned)
             peer.session_state.releaseUnsharedExport(resolver_export);
-        try self.conf.resolver_map.put(turn.vat.allocator, resolver_export.int(), answer_name);
+        try self.conf.resolver_map.put(turn.vat.allocator, resolver_export.int(), answer_target);
         var mapping_owned = true;
         errdefer if (mapping_owned)
             std.debug.assert(self.conf.resolver_map.remove(resolver_export.int()));
@@ -201,7 +201,7 @@ fn publishConf(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyer
         .session = session,
         .host_serve_options = served.serve_options,
     };
-    try shared.confs.put(shared.allocator, session.peer_id, conf);
+    try shared.confs.put(shared.allocator, session.peer_handle, conf);
 
     // Decorate, rather than replace, the Host's policy hook. Host.serveEvent
     // drains every event still queued after the loop hands it the first event
@@ -225,7 +225,7 @@ fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
     const bridge: *ConfBridge = @ptrCast(@alignCast(ctx.?));
     const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx orelse return));
     const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
-    if (shared.confs.fetchRemove(shell.session.peer_id)) |kv| {
+    if (shared.confs.fetchRemove(shell.session.peer_handle)) |kv| {
         kv.value.resolver_map.deinit(shared.allocator);
         shared.allocator.destroy(kv.value);
     }
@@ -261,6 +261,11 @@ fn confServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) an
         handoff.discardDeferred(shared);
         return err;
     };
+    if (shared.callback_err) |err| {
+        handoff.discardDeferred(shared);
+        shared.callback_err = null;
+        return err;
+    }
     try handoff.drainDeferred(shared);
     try bridge.drainActions();
 }
@@ -282,7 +287,7 @@ fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
         .near => |near| near.export_position.int(),
         else => return false,
     };
-    const answer_name = conf.resolver_map.get(target_id) orelse return false;
+    const answer_target = conf.resolver_map.get(target_id) orelse return false;
     const arg_count = deliver.args.len() catch return false;
     if (arg_count < 2) return false;
     const verb = switch (deliver.args.at(0) catch return false) {
@@ -302,7 +307,7 @@ fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
     else
         return false;
     defer model.freeResolution(allocator, resolution);
-    try peer.sendAnswerResolutionCopying(answer_name, resolution);
+    try peer.sendAnswerTargetResolutionCopying(answer_target, resolution);
     return true;
 }
 

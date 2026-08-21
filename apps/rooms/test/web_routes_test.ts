@@ -31,6 +31,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_routes_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -91,7 +92,7 @@ const deadline = setTimeout(() => fail("web-routes scenario timed out after 180s
 
 const httpPort = freePort();
 const roomPort = freePort();
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -107,7 +108,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "null",
 	stderr: "inherit",
-}).spawn();
+});
 
 let browser: Browser | null = null;
 try {
@@ -295,11 +296,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

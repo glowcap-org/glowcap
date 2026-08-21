@@ -19,12 +19,25 @@ function key(k: string, mods?: Partial<KeyEventFacts>): KeyEventFacts {
   return { key: k, cmd: false, shift: false, alt: false, ...mods };
 }
 
-Deno.test("Space off the stage toggles the transport in every mode", () => {
-  for (const mode of ["live", "play", "build"] as const) {
+Deno.test("Space off the stage toggles the transport in Play and Build", () => {
+  for (const mode of ["play", "build"] as const) {
     const { b, calls } = harness({ mode });
     assertEquals(dispatchShortcut(key(" "), b), true);
     assertEquals(calls, ["enqueue:toggle"]);
   }
+});
+
+Deno.test("Live refuses the transport keys the timeline already hides", () => {
+  const { b, calls } = harness({ mode: "live" });
+  assertEquals(dispatchShortcut(key(" "), b), false);
+  assertEquals(dispatchShortcut(key("r"), b), false);
+  assertEquals(dispatchShortcut(key("ArrowLeft"), b), false);
+  assertEquals(dispatchShortcut(key("ArrowRight"), b), false);
+  assertEquals(calls, []);
+  // Observation tools and file rows still run; Live is not a lock-out.
+  dispatchShortcut(key("h"), b);
+  assertEquals(dispatchShortcut(key("s", { cmd: true }), b), true);
+  assertEquals(calls, ["tool:hand", "save"]);
 });
 
 Deno.test("V picks Select everywhere; Cmd-V pastes only in Build", () => {
@@ -159,7 +172,7 @@ Deno.test("a held key's auto-repeat is not a second press", () => {
   // the re-derivation only shows on a press the repeat guard does not cover.
   // `keyboard-input.test.ts` holds the latch itself, and that is the test
   // that distinguishes the two designs.
-  const { b, calls } = harness({ mode: "live" });
+  const { b, calls } = harness({ mode: "play" });
   assertEquals(dispatchShortcut(key(" ", { repeat: true }), b), false);
   assertEquals(calls, []);
 

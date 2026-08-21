@@ -18,15 +18,15 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
-const host_close = @import("host_close.zig");
-const host_pump = @import("host_pump.zig");
+const host_close = @import("host/close.zig");
+const host_pump = @import("host/pump.zig");
 const dial_plan = @import("dial_plan.zig");
 const capability_promise = @import("capability_promise.zig");
-const publication = @import("session_publication.zig");
+const publication = @import("sessions/publication.zig");
 const served_mod = @import("served.zig");
 const vocab = @import("vocab.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
-const directory = @import("session_directory.zig");
+const directory = @import("sessions/directory.zig");
 const vows_mod = @import("vows.zig");
 const handoff_mod = @import("handoff.zig");
 
@@ -127,7 +127,8 @@ fn openDialedCommitted(
     // Before the hello: the stamp reads this when it assembles the signed
     // location (ADR-0118).
     if (partner_known_pancake) session.served.port.peer.noteKnownPancakePartner();
-    if ((try self.transportProfile(transport)).sealed_channel) {
+    const profile = try self.transportProfile(transport);
+    if (profile.sealed_channel) {
         attachSealedChannel(self, session, .initiator) catch |err| {
             failOpen(self, session);
             return err;
@@ -200,7 +201,8 @@ pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession 
     try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
     const session = try mint(self, .accepted, transport);
-    if ((try self.transportProfile(transport)).sealed_channel) {
+    const profile = try self.transportProfile(transport);
+    if (profile.sealed_channel) {
         attachSealedChannel(self, session, .responder) catch |err| {
             failOpen(self, session);
             return err;
@@ -216,7 +218,8 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
     try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
     const session = try mintOver(self, peer, .accepted, transport);
-    if ((try self.transportProfile(transport)).sealed_channel) {
+    const profile = try self.transportProfile(transport);
+    if (profile.sealed_channel) {
         attachSealedChannel(self, session, .responder) catch |err| {
             failOpen(self, session);
             return err;
@@ -271,10 +274,10 @@ fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiato
     session.sealed = channel;
 }
 
-// ── Session directories (`session_directory.zig`) ───────────────────────────
+// ── Session directories (`sessions/directory.zig`) ──────────────────────────
 // Finding a live session again — by dialed target, proved durable peer, or
 // side index — plus the duplicate refusals and index upkeep those lookups
-// power. `session_directory.zig` owns the bodies.
+// power. `sessions/directory.zig` owns the bodies.
 pub const liveSessionForDial = directory.liveSessionForDial;
 pub const refuseDuplicateDial = directory.refuseDuplicateDial;
 pub const refuseDuplicatePartnerKey = directory.refuseDuplicatePartnerKey;
@@ -304,9 +307,9 @@ pub fn nextSessionSeed(self: *Host) [crypto.SEED_BYTES]u8 {
     return out;
 }
 
-pub fn resolveSessionSecret(ctx: ?*anyopaque, peer_id: engine.PeerId) ?crypto.SecretKey {
+pub fn resolveSessionSecret(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?crypto.SecretKey {
     const self: *Host = @ptrCast(@alignCast(ctx orelse return null));
-    const session = self.sessions.get(peer_id) orelse return null;
+    const session = self.sessions.get(peer_handle) orelse return null;
     if (session.isTerminating() or !session.sessionOpen()) return null;
     return session.sessionSecret();
 }
@@ -331,7 +334,7 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
     errdefer failOpen(self, session);
     try session.served.port.peer.sendKeyedStartSessionAdvertised(advertised, session.sessionSecret());
     enroll(self, session);
-    try host_pump.dirtyThenPump(self, session.peer_id);
+    try host_pump.dirtyThenPump(self, session.peer_handle);
     return session;
 }
 
@@ -349,7 +352,7 @@ fn acceptedHelloAndEnroll(self: *Host, session: *HostSession, advertised: model.
     {
         errdefer failOpen(self, session);
         enroll(self, session);
-        try host_pump.dirtyThenPump(self, session.peer_id);
+        try host_pump.dirtyThenPump(self, session.peer_handle);
         return session;
     }
     return helloAndEnroll(self, session, advertised);
@@ -383,13 +386,13 @@ pub fn releaseSession(self: *Host, session: *HostSession) SessionReleaseError!vo
         self.hellos.unregister(self.allocator, target(session.transport, session.role.dialed));
     finishSessionOpen(self, session);
     unindexSession(self, session);
-    const peer_id = session.peer_id;
-    _ = self.capabilities.invalidatePeer(peer_id);
-    capability_promise.sessionReleased(self, peer_id, session.served.closeReason("connection released"));
+    const peer_handle = session.peer_handle;
+    _ = self.capabilities.invalidatePeer(peer_handle);
+    capability_promise.sessionReleased(self, peer_handle, session.served.closeReason("connection released"));
     vows_mod.dropVowRows(self, session, session.served.closeReason("connection released"));
-    std.debug.assert(self.sessions.remove(peer_id));
+    std.debug.assert(self.sessions.remove(peer_handle));
     freeSessionShell(self, session);
-    self.node.removePeer(peer_id);
+    self.node.removePeer(peer_handle);
     host_pump.finishVerb(self) catch |err| switch (err) {
         // Dirty-FIFO capacity was reserved when each shell was minted, and
         // a receiver drive that hits OOM requeues itself before returning.
@@ -431,11 +434,11 @@ pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
     if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
-    const peer_id = try self.node.registerPeer(negotiatingOptions(
+    const peer_handle = try self.node.registerPeer(negotiatingOptions(
         self,
     ));
-    errdefer self.node.removePeer(peer_id);
-    return mintShell(self, self.node.peer(peer_id).?, peer_id, spec, transport);
+    errdefer self.node.removePeer(peer_handle);
+    return mintShell(self, self.node.peer(peer_handle).?, peer_handle, spec, transport);
 }
 
 /// `mint` over a peer the embedder already owns and pins at a stable
@@ -450,9 +453,9 @@ pub fn mintOver(self: *Host, peer: *engine.Peer, spec: RoleSpec, transport: []co
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
     if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
-    const peer_id = try self.node.registerPeerOver(peer);
-    errdefer self.node.removePeer(peer_id);
-    return mintShell(self, peer, peer_id, spec, transport);
+    const peer_handle = try self.node.registerPeerOver(peer);
+    errdefer self.node.removePeer(peer_handle);
+    return mintShell(self, peer, peer_handle, spec, transport);
 }
 
 /// The host posture imposed on every minted or adopted peer. The export
@@ -475,10 +478,12 @@ pub fn negotiatingOptions(self: *const Host) engine.Peer.NegotiatingOptions {
 /// is not among the knobs: `engine.Node` draws one at registration on both
 /// paths, and `reposture` cannot overwrite it because `NegotiatingOptions`
 /// does not carry one.
-pub fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, spec: RoleSpec, transport: []const u8) !*HostSession {
-    peer.reposture(negotiatingOptions(
-        self,
-    ));
+pub fn mintShell(self: *Host, peer: *engine.Peer, peer_handle: engine.PeerHandle, spec: RoleSpec, transport: []const u8) !*HostSession {
+    const profile = try self.transportProfile(transport);
+    var options = negotiatingOptions(self);
+    if (profile.max_packet_bytes != 0)
+        options.limits.max_frame_bytes = @min(options.limits.max_frame_bytes, profile.max_packet_bytes);
+    peer.reposture(options);
     const session = try self.allocator.create(HostSession);
     errdefer self.allocator.destroy(session);
     const designator_len = switch (spec) {
@@ -499,13 +504,14 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, spec: 
     };
     session.* = .{
         .host = self,
-        .peer_id = peer_id,
+        .peer_handle = peer_handle,
         .session_seed = nextSessionSeed(
             self,
         ),
         .served = Served.over(self.allocator, peer),
         .transport = owned_transport,
         .role = role,
+        .wire_framing = profile.wire_framing,
         .outbound_high_water_bytes = self.opts.outboundHighWaterBytes(),
     };
     // `Host.init` returns by value, so only a live Host method knows the
@@ -529,14 +535,14 @@ fn resolveTransportDesignator(ctx: ?*anyopaque, transport: []const u8) ?model.tr
 pub fn enroll(self: *Host, session: *HostSession) void {
     session.served.serve_options = .{ .hook_ctx = session, .before_serve = Host.hostBeforeServe };
     session.served.port.setResolveInterceptor(.{ .ctx = session, .func = Host.hostResolveInterceptor });
-    self.sessions.putAssumeCapacity(session.peer_id, session);
+    self.sessions.putAssumeCapacity(session.peer_handle, session);
     std.debug.assert(!session.control.open_pending);
     session.control.open_pending = true;
     self.beginSessionOperation(session);
     if (session.role == .dialed) {
         self.dialed_by_target.putAssumeCapacity(
             target(session.transport, session.role.dialed),
-            session.peer_id,
+            session.peer_handle,
         );
     }
 }
@@ -563,7 +569,7 @@ pub const spawnHosted = publication.spawnHosted;
 /// back the dial index key until this frees their shared block.
 pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     finishSessionOpen(self, session);
-    _ = self.session_close_timing.remove(session.peer_id); // tolerant: only a finite explicit finish owns a timing row
+    _ = self.session_close_timing.remove(session.peer_handle); // tolerant: only a finite explicit finish owns a timing row
     // The export range is not given back here: `engine.Node.removePeer`
     // reclaims it from the peer that held it, so the draw and the return
     // sit on the same side of the boundary.
@@ -587,12 +593,12 @@ pub fn freeSessionShell(self: *Host, session: *HostSession) void {
 pub fn failOpen(self: *Host, session: *HostSession) void {
     unindexSession(self, session);
     // tolerant: enrolled only when the failure came after `enroll`.
-    _ = self.sessions.remove(session.peer_id);
+    _ = self.sessions.remove(session.peer_handle);
     finishSessionOpen(self, session);
-    const peer_id = session.peer_id;
+    const peer_handle = session.peer_handle;
     host_pump.removeFreshSessionActions(self, session);
     self.vat.discardFreshIngress(session.served.port.ingress);
     session.control.ingress_cancelled = true;
     freeSessionShell(self, session);
-    self.node.removePeer(peer_id);
+    self.node.removePeer(peer_handle);
 }

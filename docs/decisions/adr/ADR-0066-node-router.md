@@ -3,7 +3,7 @@ id: ADR-0066
 status: accepted
 date: 2026-06-19
 tags: [driver, handoff, three-party, node, c-abi, bindings]
-decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
+decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.gifts.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,7 +14,7 @@ amended_by: [ADR-0079, ADR-0100, ADR-0113, ADR-0116]
 
 > ADR-0100 removes the shared `GiftRegistry` from Node. Node keeps the live
 > session directory and authority-neutral dependencies keyed by
-> `(Gifter–Exporter PeerId, fixed-size gift tag)` to only the receiver Peers
+> `(Gifter–Exporter PeerHandle, fixed-size gift tag)` to only the receiver Peers
 > parked on that exact gift; each Peer owns its session's gifts, scalar replay
 > counters, and exact-keyed pending groups.
 
@@ -44,7 +44,7 @@ key), a `redeemed` map from a synthetic far token to the exporter connection tha
 hosts it, a `foreign_homes` map from a fetched import to its home connection (so
 a published actor returning a far cap from elsewhere re-gifts instead of
 mis-encoding a cross-connection reference), and the shared
-`engine.bootstrap.GiftRegistry`
+`engine.bootstrap.gifts.GiftRegistry`
 ([ADR-0056](ADR-0056-vat-scoped-gift-registry.md)) that lets a deposit on the
 gifter session meet a withdraw on the recipient session. (The binding's
 `giftables` (a name-to-behavior-factory map republished on each connection) is
@@ -63,7 +63,7 @@ was not a fifth copy of this router: its then-`GifterHub` was a *host-thread*
 mechanism: it served each connection on its own thread and handed a gifter
 request/result between threads under a mutex, while each thread still called the
 engine handoff primitives (`engine.handoff_recipient.signedReceiveFromGiveBytes`)
-and shared one `engine.bootstrap.GiftRegistry` directly. That was scheduler glue,
+and shared one `engine.bootstrap.gifts.GiftRegistry` directly. That was scheduler glue,
 not the pure-data routing table the bindings duplicate. The native gap the node
 fills is a *library* router a single-threaded embedder can drive, which never
 existed: and which the conformance peer itself now drives, through
@@ -87,7 +87,7 @@ depending on the I/O-bearing driver, and a native sans-io caller reaches it
 without one. It holds a
 connection table keyed by an integer `conn_id`, one node-owned `engine.Peer` per
 registered connection, the retained node `seed`, one shared
-`engine.bootstrap.GiftRegistry`, and the `redeemed` / `foreign_homes` tables,
+`engine.bootstrap.gifts.GiftRegistry`, and the `redeemed` / `foreign_homes` tables,
 every route value an integer `conn_id` or owned bytes, so the table is pure
 data. The binding registers a connection (`registerConn`), which returns a
 `conn_id` and the node-owned peer; the binding pumps that peer over its own
@@ -133,7 +133,7 @@ doctrine:
 - **Async behaviors suspend in the host.** A far promise resolving wakes a
   native continuation, and an `async` behavior that suspends mid-turn needs a
   per-runtime suspend/resume bridge that cannot leave the host. `Turn`
-  (`src/actors/vat.zig`) is a re-entrant per-turn surface.
+  (`src/actors/vat/mod.zig`) is a re-entrant per-turn surface.
 
 So routing sinks; the vat does not.
 
@@ -236,7 +236,7 @@ current public binding surface.
   router Host owns.
 - **The gifter origination recipe is sunk too.** Beyond the recipient withdraw
   (`pancake_peer_send_withdraw_gift`), the gifter side is now one core call,
-  `engine.Node.originateGive` (at acceptance also projected through the
+  `engine.Node.provideGiftId` (at acceptance also projected through the
   pancake_node_* serve step; CapTP product work uses `pancake_host_*`):
   it deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
   queues its resolution on the recipient. Each binding's origination interceptor

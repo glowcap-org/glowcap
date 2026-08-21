@@ -9,7 +9,6 @@
 import {
 	anyOpsHeld,
 	type AttachmentView,
-	type Banner,
 	type DiagnosticRow,
 	type DirId,
 	type ListenerRow,
@@ -20,7 +19,8 @@ import {
 	type VizPublishState,
 } from "../types.ts";
 import { kindOf } from "../media.ts";
-import { type Draft, KEY, LS, NO_DRAFT, set, type State, state } from "./core.ts";
+import { type Draft, KEY, NO_DRAFT, set, type State, state } from "./core.ts";
+import { LS } from "../storage.ts";
 import { actingDir } from "./convs.ts";
 import { markRead } from "./items.ts";
 import { patchDir, setDirStatus } from "./dirs.ts";
@@ -31,9 +31,6 @@ import { patchDir, setDirStatus } from "./dirs.ts";
 export function setStatus(statusText: string): void {
 	const here = actingDir();
 	if (here !== null) setDirStatus(here.id, statusText);
-}
-export function setBanner(banner: Banner | null): void {
-	set({ banner });
 }
 
 /** How many notices the stack will hold. Past this the oldest is dropped so a

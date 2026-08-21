@@ -40,7 +40,7 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// export's wire-delta retain. The V1.0 encode hooks
 /// (`engine.v1_0.prepareOutboundDeliver` for an answered deliver,
 /// `prepareProjectionListener` for a projection listener) put the
-/// resolver mention on the wire *outside* `recordSend`/`retainSentExports`,
+/// resolver mention on the wire *outside* `recordSend`'s export accounting,
 /// so this is the single owner of that accounting, both hooks route through
 /// it rather than restating the three steps and risking drift from
 /// `applySend`. All-or-none: a failure after the export is minted rolls it

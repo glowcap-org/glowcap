@@ -291,7 +291,7 @@ test "mentioning the bootstrap export then receiving its gc never underflows" {
     try s.transitionToOpen();
     try s.registerImport(.from(3));
 
-    // Mention our bootstrap export as a deliver argument: `retainSentExports`
+    // Mention our bootstrap export as a deliver argument: send-side export accounting
     // deliberately never counts position 0, so the partner's accounting and
     // ours disagree about wire references to it, which is exactly why an
     // inbound release of position 0 must be a pinned no-op, never arithmetic.

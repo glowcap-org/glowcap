@@ -73,8 +73,8 @@ the dial connected and answers `verifiedChannelKey` — the same realizer seam
 iroh uses. `noise-relay` is that adapter over the keyed-relay pipe
 (`net.NoiseRelayLoop`) on the completion dial side. Registered accepts use the
 keyed-relay resident's sealed profile and the byte-fed Host. Browser wasm can
-run that same Host channel, but the shipped rendezvous path is still cleartext
-`keyed-relay`; Rooms DMs use WebRTC.
+run that same Host channel. Rooms uses WebRTC by default and `noise-relay` for
+its separately selected server-reachable DM path.
 
 ## Not every shipped netlayer is deployable
 
@@ -88,7 +88,7 @@ The split is not obvious from the code. The human page is
 | `keyed-tcp` | none; key designator is a dial target only | cleartext | trusted network only |
 | `noise-tcp` | Noise_XK between the CapTP peers; completing it proves the exact durable key in both directions (ADR-0107) | end-to-end encrypted records | production through the native Host tiers, C driver loop, and native bindings; `BlockingSession` refuses it |
 | `keyed-relay` | none; key designator is a dial target only | cleartext `ws://` | trusted relay and network only |
-| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, and native bindings; browser wasm does not compose this provider |
+| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, native bindings, and the managed browser connector/byte-fed Host; Rooms' relay DM mode uses it |
 | `onion` | Tor's rendezvous handshake on the dialing side, nothing on the accepting side | encrypted, anonymized Tor circuit | proven live against Goblins in both directions and the complete portable upstream suite; blocking resident, provider package, native Zig completion loop, and every native binding ship |
 | `webrtc` | identity authorized by signaling | DTLS DataChannel | production |
 | `iroh` | QUIC remote node id, the one realizer proof in the tree | encrypted QUIC | production |
@@ -152,6 +152,11 @@ authority for module edges and the archive set, `docs/architecture.md` is the
 readable tour, and `source-check` holds this list against `src/` in both
 directions.
 
+Zig leaf `pub` is cross-file visibility, not a supported consumer promise.
+Only supported roots define the consumer namespace; `source-check` pins their
+whole-module exports. Tests import internal leaves directly and never widen a
+root to reach test support.
+
 - `foundation`: bytes, IDs, frame ownership, and the `Spill` where a stream's
   not-yet-consumed bytes wait. The `Spill` lives this low because both
   stream-reading tiers need one and neither imports the other.
@@ -183,11 +188,17 @@ directions.
   `engine`, and that ban is what keeps a socket from creeping back into the
   serve core** (ADR-0072). A byte-fed consumer (the `libpancake_host` C ABI, a
   browser) drives a `Served` or a `Host` directly, net-free. The `Host` is split
-  across sibling files by responsibility, each presenting its verbs as `Host`'s
-  own through decl aliases; `host.zig` keeps the state, the byte pump, the serve
-  hooks, and the application verbs, and **its alias table is the index**.
-  `host_pump.zig` is private to the directory (`source-check` holds this), and a
-  helper made `pub` for a sibling says so where it is declared.
+  across internal sibling files by responsibility, each presenting supported
+  verbs as `Host`'s own through decl aliases. `host.zig` keeps the aggregate
+  state and supported verb index; `host/delivery.zig` owns send/tell admission,
+  staging, and commit; `host/session*` owns the byte shell, ingress,
+  egress, realizer evidence, and terminal transport report,
+  `host/ownership.zig` owns whole-aggregate construction and retirement,
+  `host/interception.zig` owns the pre-Vat hooks and proxy projection,
+  `host/admission.zig` owns its affinity-only thread-id assertion and operation
+  gates, and **the root alias table is the index**. Internal
+  module `pub` exists for cross-file compilation and never widens the
+  `driver.core` consumer namespace by itself.
 - `driver`: the native application surface above `driver_core`, `actors`, and
   `net`, composing the sans-io core with I/O. `BlockingSession` is the
   no-router single-connection tier; `driver.Session` and `driver.Server` are

@@ -7,7 +7,7 @@
 //! hand-rolled copies.
 
 const Host = @import("host.zig").Host;
-const host_action = @import("host_action.zig");
+const host_action = @import("host/action.zig");
 
 /// Why an embedder-facing drain returned. A finite Host quantum deliberately
 /// returns `.yielded` before asking the core for another slice; reactor-backed
@@ -18,8 +18,8 @@ pub const DrainResult = enum { drained, yielded };
 ///
 /// `io` must provide `randomSecure(buf: []u8) !void` — the entropy boundary
 /// for gift-id draws. `exec` must provide:
-/// - `flush(peer_id: engine.PeerId) !void`
-/// - `close(peer_id: engine.PeerId) !void`
+/// - `flush(peer_handle: engine.PeerHandle) !void`
+/// - `close(peer_handle: engine.PeerHandle) !void`
 /// - `dial(d: HostAction.dial) !void` — ticket only; view via `pendingDial`.
 ///   On failure it must have published no external connection, or must have
 ///   rolled that connection back before returning: the ticket is requeued.
@@ -40,8 +40,8 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
 
         const action = (try host.takeAction()) orelse unreachable;
         switch (action) {
-            .flush => |peer_id| try exec.flush(peer_id),
-            .close => |peer_id| try exec.close(peer_id),
+            .flush => |peer_handle| try exec.flush(peer_handle),
+            .close => |peer_handle| try exec.close(peer_handle),
             .need_gift_id => |n| {
                 host.provideGiftId(n.ticket, &gift_id) catch |err| {
                     host_action.retryEffect(host, action);

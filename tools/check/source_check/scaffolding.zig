@@ -235,6 +235,9 @@ pub fn checkRequiredSubstrings(
         "`.codex/skills` mirror",
         "bin/",
     });
+    try expectFileContains(io, gpa, root, violations, ".agents/hooks/format-edited-file.sh", &.{
+        "*.tsx",
+    });
 }
 
 fn expectCursorHook(

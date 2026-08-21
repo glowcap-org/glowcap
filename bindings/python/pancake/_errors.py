@@ -102,7 +102,7 @@ class PancakeError(Exception):
         self.secondary_count = 0
 
 
-_FAILURE_CHAIN_CAP = 64
+_FAILURE_CHAIN_CAP = _abi.BINDING_SECONDARY_FAILURE_CAP
 
 
 def _retain_cleanup_failure(

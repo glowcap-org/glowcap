@@ -22,8 +22,8 @@ import { OpsTakeModal } from "./ops/Take.tsx";
 import { DirectoryCard } from "./DirectoryCard.tsx";
 import { Viewer } from "./Viewer.tsx";
 import { Toasts } from "./Toast.tsx";
-import { awayByPeer, awayOf, dirMark, dirsAreMarked, opsHeldOf } from "./types.ts";
-import { directoryName, roomCalled } from "./text.ts";
+import { awayByPeer, awayOf, dirMarkIn, opsHeldOf } from "./types.ts";
+import { directoryName, dirWhere, roomCalled } from "./text.ts";
 
 /** How long the "New messages" rule stays up once you have arrived. Long enough
  * to see where you left off, short enough not to become furniture. */
@@ -47,11 +47,7 @@ export function App() {
 	// did and crossing between them needs no repair.
 	const railShown = mobile ? state.listScreen : state.railOpen;
 	const rosterShown = mobile ? state.rosterSheet : state.rosterOpen;
-	// Memoised because the roster panes are: rebuilding this array on every store
-	// change would make them redraw for a keystroke, which is the one thing the
-	// memo above them exists to prevent.
 	const room = conv?.type === "room" ? conv : null;
-	const roster = useMemo(() => rosterOf(room), [room?.members]);
 	const unread = useMemo(() => {
 		let total = 0;
 		for (const c of state.convs.values()) {
@@ -152,6 +148,11 @@ export function App() {
 	// by the directory the conversation is in and by no other. Two directories
 	// may each have granted an `alice`, and they are two people.
 	const nick = activeDir?.nick ?? "";
+	// Below the name, because the roster is read with the reader at the top of it
+	// and the name is the directory's to grant. Memoised because the roster panes
+	// are: rebuilding this array on every store change would make them redraw for
+	// a keystroke, which is the one thing the memo above them exists to prevent.
+	const roster = useMemo(() => rosterOf(room, nick), [room?.members, nick]);
 	// What the join card would show, resolved once here from the act the reader
 	// arrived by rather than read as fields. The rail's room panel is a second
 	// view of the same card while the card is up, so both are given the one
@@ -190,6 +191,7 @@ export function App() {
 				dirs={state.dirs}
 				homeDir={state.homeDir}
 				activeKey={state.activeKey}
+				acting={acting?.id ?? null}
 				join={joining}
 				railShown={railShown}
 				mobile={mobile}
@@ -199,7 +201,29 @@ export function App() {
 				invites={state.invites}
 				settingsOpen={state.settingsOpen}
 			/>
-			<div className="workarea" inert={mobile && state.listScreen ? true : undefined}>
+			{
+				/* The colour the chat side is drawn in, which is the colour the rail
+				   row that opened it wears. Read through the same `dirWhere` that row
+				   reads, so the two cannot come to disagree rather than merely
+				   agreeing today: a reader picks a row and the conversation arrives
+				   in the colour they just pressed.
+
+				   A direct line is included, because the rail marks one exactly as it
+				   marks a room. What the colour answers is which directory a thing
+				   is on, and a direct line is on one. Undefined whenever the rail is
+				   showing no colours at all, so the chat side never draws a
+				   distinction a reader cannot also see beside it.
+
+				   With no conversation open there is no directory to name, which is
+				   the same "unknown" the join card wears when it is aimed at an
+				   address this tab does not hold. Saying so rather than saying
+				   nothing is what lets the bar keep its stripe on the way in. */
+			}
+			<div
+				className="workarea"
+				data-dir={conv === null ? "unknown" : dirWhere(conv.dir, state.homeDir, state.dirs).mark}
+				inert={mobile && state.listScreen ? true : undefined}
+			>
 				<Topbar
 					conv={conv}
 					online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
@@ -217,7 +241,6 @@ export function App() {
 					<Stream
 						conv={conv}
 						nick={nick}
-						banner={state.banner}
 						draft={draft.text}
 						draftFiles={draft.files}
 						changing={draft.changing}
@@ -282,9 +305,7 @@ export function App() {
 				lines={state.aboutDir === null
 					? 0
 					: store.convsOn(state.aboutDir).filter((conv) => conv.type === "dm").length}
-				mark={state.aboutDir !== null && dirsAreMarked(state.dirs)
-					? dirMark(state.aboutDir, state.homeDir, state.dirs.get(state.aboutDir)?.slot)
-					: undefined}
+				mark={state.aboutDir === null ? undefined : dirMarkIn(state.aboutDir, state.homeDir, state.dirs)}
 				standing={state.standing}
 				homeDir={state.homeDir}
 				onLayer={onDirLayer}

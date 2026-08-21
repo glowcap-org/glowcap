@@ -11,15 +11,26 @@ import { IconButton } from "./IconButton.tsx";
 import { PresenceAvatar } from "./Avatar.tsx";
 
 export interface Roster {
-	/** Members, online first and then alphabetical. */
+	/** Members: the reader first, then online, then alphabetical. */
 	rows: [string, Standing][];
 	online: number;
 }
 
-export function rosterOf(conv: RoomConv | null): Roster {
+/** The roster in the order it is read, with `you` the name this directory
+ * granted this reader.
+ *
+ * A reader looking for themselves knows exactly one name in the list and has to
+ * find it among the rest, which is a scan every time and a longer one the busier
+ * the room. First is the one position that never moves. Nothing else about the
+ * row changes: the list already says which one is yours, and a second mark
+ * saying it again would be answering a question the position has answered. */
+export function rosterOf(conv: RoomConv | null, you: string): Roster {
 	if (!conv) return { rows: [], online: 0 };
+	const mine = (name: string) => Number(name === you);
 	const rows = [...conv.members].sort((a, b) =>
-		Number(b[1].online) - Number(a[1].online) || a[0].localeCompare(b[0])
+		mine(b[0]) - mine(a[0]) ||
+		Number(b[1].online) - Number(a[1].online) ||
+		a[0].localeCompare(b[0])
 	);
 	return { rows, online: membersHere(conv.members) };
 }

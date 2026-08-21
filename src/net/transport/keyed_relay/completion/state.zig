@@ -185,7 +185,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             addresses: [resolver.max_addresses]std.Io.net.IpAddress = undefined,
             address_count: u8 = 0,
             next_address: u8 = 0,
-            legs: [max_parallel_dials]DialLeg = [_]DialLeg{.{}} ** max_parallel_dials,
+            legs: [max_parallel_dials]DialLeg = @as([max_parallel_dials]DialLeg, @splat(.{})),
             winner: ?u3 = null,
             close_requested: bool = false,
             external_close_ud: ?u64 = null,
@@ -274,11 +274,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
                         .shutdown => .shutdown,
                     },
                     .chain = failure_value.chain,
-                    .detail = .{
-                        .verification_flags = failure_value.detail.verification_flags,
-                        .peer_alert = failure_value.detail.peer_alert,
-                        .engine_code = failure_value.detail.engine_code,
-                    },
+                    .detail = failure_value.detail,
                 };
             }
         };
@@ -339,7 +335,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
         }
 
         pub fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Namespace.userData((@as(u64, id) << 3) | @intFromEnum(op));
+            return Namespace.userData((@as(u64, id) << 3) | @backingInt(op));
         }
 
         pub fn isInternal(ud: u64) bool {
@@ -351,7 +347,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
         }
 
         pub fn internalOp(ud: u64) InternalOp {
-            return @enumFromInt(@as(u3, @truncate(ud)));
+            return @fromBackingInt(@intCast(@as(u3, @truncate(ud))));
         }
     };
 }

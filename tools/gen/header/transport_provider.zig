@@ -33,6 +33,8 @@ const Spec = struct {
         .{ .name = "PANCAKE_DESIGNATOR_SCHEME_KEY", .doc = "PancakeTransportProfile.designator_scheme: designators are peer keys." },
         .{ .name = "PANCAKE_SEALED_CHANNEL_NONE", .doc = "PancakeTransportProfile.sealed_channel: no Host-provided sealing." },
         .{ .name = "PANCAKE_SEALED_CHANNEL_NOISE_XK", .doc = "PancakeTransportProfile.sealed_channel: Host composes Noise_XK." },
+        .{ .name = "PANCAKE_WIRE_FRAMING_BYTE_STREAM", .doc = "PancakeTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0110 envelopes." },
+        .{ .name = "PANCAKE_WIRE_FRAMING_MESSAGE", .doc = "PancakeTransportProfile.wire_framing: each packet is one bare codec frame." },
         .{ .name = "PANCAKE_CARRIER_PHASE_NONE", .doc = "PancakeProviderFailure.carrier_phase: no carrier phase is available." },
         .{ .name = "PANCAKE_CARRIER_PHASE_RESOLVE", .doc = "Carrier failure occurred during name resolution." },
         .{ .name = "PANCAKE_CARRIER_PHASE_CONNECT", .doc = "Carrier failure occurred during byte-transport connect." },
@@ -151,6 +153,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "PANCAKE_MULTIPLEXED_EV_LISTEN",           "PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION",
         "PANCAKE_DESIGNATOR_SCHEME_ADDRESS",       "PANCAKE_DESIGNATOR_SCHEME_KEY",
         "PANCAKE_SEALED_CHANNEL_NONE",             "PANCAKE_SEALED_CHANNEL_NOISE_XK",
+        "PANCAKE_WIRE_FRAMING_BYTE_STREAM",        "PANCAKE_WIRE_FRAMING_MESSAGE",
         "PANCAKE_CARRIER_PHASE_NONE",              "PANCAKE_CARRIER_PHASE_RESOLVE",
         "PANCAKE_CARRIER_PHASE_CONNECT",           "PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE",
         "PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE", "PANCAKE_CARRIER_PHASE_REGISTRATION",
@@ -251,6 +254,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "PANCAKE_TRANSPORT_PROFILE_ABI_VERSION.", "sizeof(PancakeTransportProfile).",
         "Borrowed transport symbol.",             "",
         "PANCAKE_DESIGNATOR_SCHEME_*.",           "PANCAKE_SEALED_CHANNEL_*.",
+        "PANCAKE_WIRE_FRAMING_*.",                "Maximum packet payload bytes, or 0 for no transport cap.",
     });
     try E.emitStructWithTypes(&b, gpa, cp.PancakeStreamTransport, "PancakeStreamTransport", &.{
         "PANCAKE_STREAM_TRANSPORT_ABI_VERSION.",                              "sizeof(PancakeStreamTransport).",

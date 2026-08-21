@@ -132,10 +132,10 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
         };
 
         pub const ConnMap = std.AutoHashMapUnmanaged(ConnId, *Conn);
-        pub const setup_connect_ud: u64 = Namespace.userData(@intFromEnum(InternalOp.connect));
-        pub const setup_send_ud: u64 = Namespace.userData(@intFromEnum(InternalOp.send));
-        pub const setup_recv_ud: u64 = Namespace.userData(@intFromEnum(InternalOp.recv));
-        pub const setup_close_ud: u64 = Namespace.userData(@intFromEnum(InternalOp.close));
+        pub const setup_connect_ud: u64 = Namespace.userData(@backingInt(InternalOp.connect));
+        pub const setup_send_ud: u64 = Namespace.userData(@backingInt(InternalOp.send));
+        pub const setup_recv_ud: u64 = Namespace.userData(@backingInt(InternalOp.recv));
+        pub const setup_close_ud: u64 = Namespace.userData(@backingInt(InternalOp.close));
 
         pub fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Inner.Fd {
             return Namespace.fdFromId(id);
@@ -147,7 +147,7 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
         }
 
         pub fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Namespace.userData((@as(u64, id) << 3) | @intFromEnum(op));
+            return Namespace.userData((@as(u64, id) << 3) | @backingInt(op));
         }
 
         pub fn internalId(ud: u64) ConnId {
@@ -155,7 +155,7 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
         }
 
         pub fn internalOp(ud: u64) InternalOp {
-            return @enumFromInt(@as(u3, @truncate(Namespace.userDataPayload(ud))));
+            return @fromBackingInt(@intCast(@as(u3, @truncate(Namespace.userDataPayload(ud)))));
         }
     };
 }

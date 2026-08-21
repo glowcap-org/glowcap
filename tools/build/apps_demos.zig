@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const pancakeExecutable = common.pancakeExecutable;
 const addInstalledSystemRun = common.addInstalledSystemRun;
@@ -31,7 +32,7 @@ pub fn register(
     tasks_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tasks_client_exe.step);
 
-    const tasks_demo = addInstalledSystemRun(b, &.{
+    const tasks_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/tasks/demo.ts",
     });
@@ -54,7 +55,7 @@ pub fn register(
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tools_agent_exe.step);
 
-    const tools_demo = addInstalledSystemRun(b, &.{
+    const tools_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/tools/demo.ts",
     });
@@ -76,7 +77,7 @@ pub fn register(
     // app source lives under `apps/accountability-on-pancake/`, beside
     // the other worked applications.
     const accountability_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-on-pancake", "apps/accountability-on-pancake/zig/main.zig");
-    const run_accountability = b.addRunArtifact(accountability_exe);
+    const run_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
     run_accountability.setCwd(b.path("."));
     run_accountability.has_side_effects = true;
     const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
@@ -86,7 +87,7 @@ pub fn register(
     // gate: a runnable application is a contract the same way an example is. The
     // check run writes generated state under `.zig-cache` instead of the public
     // demo's `.data/` path, so the gate never dirties source files.
-    const check_accountability = b.addRunArtifact(accountability_exe);
+    const check_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
     check_accountability.setCwd(b.path("."));
     check_accountability.has_side_effects = true;
     check_accountability.setEnvironmentVariable("PANCAKE_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/pancake-accountability/check");
@@ -100,7 +101,7 @@ pub fn register(
     // default build.
     const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "apps/accountability-on-pancake/zig/host.zig");
     const host_install = b.addInstallArtifact(host_exe, .{});
-    const accountability_demo = addInstalledSystemRun(b, &.{
+    const accountability_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/accountability-on-pancake/deno/demo.ts",
     });
@@ -124,7 +125,7 @@ pub fn register(
         .name = "accountability-three-party",
         .root_module = three_party_mod,
     });
-    const run_three_party = b.addRunArtifact(three_party_test);
+    const run_three_party = execution.addZigTest(b, three_party_test, .{ .deterministic = 30 });
     const three_party_step = b.step("accountability-three-party", "Run the three-party accountability attribution test");
     three_party_step.dependOn(&run_three_party.step);
     check_step.dependOn(&run_three_party.step);

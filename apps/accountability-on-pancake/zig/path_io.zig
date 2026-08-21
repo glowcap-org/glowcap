@@ -9,10 +9,9 @@
 //! wart rather than anything pancake owns, so it does not belong on pancake's
 //! public surface either.
 //!
-//! Zig 0.16's `createDirPath` correctly creates a missing path through a
-//! symlinked parent, but asking it to "create" an already-existing symlink to a
-//! directory (macOS `/tmp`) returns `NotDir`. Probe with `openDir` first, which
-//! follows directory symlinks, and only create when the path is absent.
+//! `createDirPath` creates missing paths through symlinked parents, but asking
+//! it to create an existing symlink to a directory (macOS `/tmp`) returns
+//! `NotDir`. Probe with `openDir` first, which follows directory symlinks.
 
 const std = @import("std");
 

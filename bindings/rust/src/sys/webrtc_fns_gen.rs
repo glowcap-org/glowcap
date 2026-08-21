@@ -76,13 +76,13 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_webrtc_peer_id(peer: *mut PancakeWebrtcPeer) -> usize;
 	pub fn pancake_webrtc_peer_is_open(peer: *mut PancakeWebrtcPeer) -> c_int;
-	pub fn pancake_webrtc_peer_try_read(
+	pub fn pancake_webrtc_peer_try_receive_packet(
 		peer: *mut PancakeWebrtcPeer,
 		buf: *mut c_uchar,
 		len: usize,
 		out_read: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_try_write(
+	pub fn pancake_webrtc_peer_try_send_packet(
 		peer: *mut PancakeWebrtcPeer,
 		buf: *const c_uchar,
 		len: usize,

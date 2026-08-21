@@ -34,7 +34,7 @@ on a miss with the node identity, allocate a withdraw answer, subscribe before
 sending, `sendWithdraw`, flush, await the withdraw's resolution, assert it is a
 capability, enroll it, settle the original application answer with the token,
 and break it on any failure: plus the gifter mirror (foreign-home consult,
-home-is-self guard, gift-id entropy, `originateGive`, exporter-leg flush before
+home-is-self guard, gift-id entropy, gifter origination, exporter-leg flush before
 recipient-leg flush). Four copies of a protocol sequence is the drift mode
 ADR-0066 fixed for the tables, still open for the choreography.
 
@@ -59,6 +59,11 @@ state: the exporter cache (locator bytes to `conn_id`), the pending-dial table
 in flight instead of opening a second connection), the pending-withdraw table
 (`(exporter conn, withdraw answer)` to the recipient answer to settle), and an
 action queue. Feeds in, actions out:
+
+The current implementation keeps the aggregate and action FIFO in
+`src/ocapn/engine/node.zig`; its internal redeem scheduler is owned by
+`src/ocapn/engine/node/redeem/`, split into parsed plans, dials, and tracked
+withdrawals without changing this boundary.
 
 - `acceptGive(recipient_conn, answer, give, exporter_locator)`: a live
   exporter withdraws immediately; an in-flight dial is joined; an unknown
@@ -101,8 +106,8 @@ ordinary connection's reply path pays nothing for handoffs.
 
 - The ADR-0066 boundary stands: the vat (turn loop, behavior dispatch, async
   suspension) stays in the host; the pre-existing router verbs
-  (`sendWithdraw`, `originateGive`, `enrollRedeemed`, `routeReference`) remain
-  public: the serve step composes them, it does not replace them.
+  (`sendWithdraw`, `provideGiftId`, `enrollRedeemed`, `routeReference`) remain
+  supported: the serve step composes them, it does not replace them.
 - The dial itself: sockets, keyed-handshake pumping, reachability posture,
   stays host-side by construction; the `dial` action names the locator and the
   posture rule stays the transport-idiom ternary ADR-0066 recorded.

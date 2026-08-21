@@ -2,19 +2,19 @@
 //!
 //! The protocol core (foundation, model, codec, session, engine) is synchronous
 //! and does no I/O. This layer is where a host's `std.Io` drives an `engine.Peer`
-//! over a live stream. `Connection` reads inbound bytes, lets the codec find frame
-//! boundaries as it goes, and streams the peer's outbound frames back. It is not
-//! part of the core, and it is the only layer allowed to touch `std.Io`.
+//! over a live stream. `Connection` unwraps the byte-stream envelope, applies each
+//! body as one whole frame, and writes outbound frames through the same envelope.
+//! It is not part of the core; `net` and the driver adapters own `std.Io`.
 //!
 //! ## Bring your own transport (ADR-0030)
 //!
 //! A stream transport gives pancake a `*std.Io.Reader` and `*std.Io.Writer`.
 //! `pumpOver` uses that pair for one peer step, and the `FrameStream` family
-//! reads and writes raw whole frames over it. Any transport that can provide
-//! those interfaces can drive a peer here: TCP, TLS or Unix streams over `std.Io`,
-//! or an in-memory pipe. The residents live under `transport/`: `tcp` owns the
-//! native provider and its plain, keyed, and Noise profiles, not a requirement
-//! of the protocol core.
+//! reads and writes one outer-framed codec frame at a time. Any transport that
+//! can provide those interfaces can drive a peer here: TCP, TLS or Unix streams
+//! over `std.Io`, or an in-memory pipe. The residents live under `transport/`.
+//! `tcp` owns the native provider and its plain, keyed, and Noise profiles, not
+//! a requirement of the protocol core.
 //!
 //! A transport that is not a blocking `std.Io` stream, such as a callback or
 //! datagram API, can drive the peer directly through
@@ -39,9 +39,11 @@ const loop_mod = @import("completion/loop.zig");
 
 pub const Connection = connection.Connection;
 pub const ConnectionCloseProgress = connection.CloseProgress;
+pub const WaitInterest = connection.WaitInterest;
 pub const Progress = connection.Progress;
 pub const pumpOver = connection.pumpOver;
 pub const waitAnyReadable = connection.waitAnyReadable;
+pub const waitAny = connection.waitAny;
 pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
@@ -98,8 +100,9 @@ pub const onion = @import("transport/onion/mod.zig");
 /// sibling for it. See `socket.zig`.
 pub const socket = @import("socket.zig");
 
-/// Short-critical-section spin-lock for adapter-level synchronization (net
-/// layer only — the sans-io core bans `std.atomic`). See `sync.zig`.
+/// Short-critical-section spin-lock for adapter-level synchronization. The
+/// sans-io core bans `std.atomic`; net and transport C-ABI adapters share this
+/// home. See `sync.zig`.
 pub const sync = @import("sync.zig");
 
 /// The cross-thread wake channel: a nonblocking socketpair a waiting thread
@@ -112,7 +115,7 @@ pub const operation_owner = @import("operation_owner.zig");
 pub const OperationOwner = operation_owner.OperationOwner;
 pub const CancelableOperation = operation_owner.CancelableOperation;
 pub const OperationLatch = operation_owner.OperationLatch;
-pub const TransportOperationCompletion = @import("transport_operation_completion.zig").Completion;
+pub const TransportOperationCompletion = @import("transport/operation_completion.zig").Completion;
 
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
 /// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
@@ -129,6 +132,11 @@ pub const inproc = @import("transport/inproc.zig");
 /// configured package owns both realizations, including locator construction,
 /// WebSocket rendezvous, registration, and readiness.
 pub const relay = @import("transport/relay.zig");
+
+/// Sans-I/O RFC 6455 client protocol machinery shared by relay transports.
+/// Relay implementations import the leaf by relative path to avoid a
+/// `net` -> `relay` -> `net` cycle; consumers reach it here.
+pub const websocket = @import("websocket.zig");
 
 /// The sealing completion-backend adapter (`noise-relay`, ADR-0107): wraps
 /// any completion backend so a `.sealed` dial target completes the Noise_XK
@@ -171,6 +179,7 @@ pub const MultiplexedExternalClaimRawOutcome = multiplexed_resident.RawExternalC
 /// parks on.
 pub const readiness = @import("readiness.zig");
 pub const ReadySet = readiness.ReadySet;
+pub const ReadyInterest = readiness.Interest;
 
 /// The portable completion-loop server, generic over its platform backend. The
 /// connection orchestration is OS-neutral; the platform completion primitive is a

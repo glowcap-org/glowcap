@@ -7,6 +7,7 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 const syrup = pancake.ocapn.codec.syrup;
+const render = @import("syrup").render;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
@@ -32,13 +33,13 @@ test "exact renderer contains measure-fill divergence" {
     var overfill_pass: usize = 0;
     try std.testing.expectError(
         error.EncoderInvariantViolation,
-        syrup.encode.renderRecordExact(std.testing.allocator, DivergentWriter.overfill, .{&overfill_pass}),
+        render.renderRecordExact(std.testing.allocator, DivergentWriter.overfill, .{&overfill_pass}),
     );
 
     var underfill_pass: usize = 0;
     try std.testing.expectError(
         error.EncoderInvariantViolation,
-        syrup.encode.renderRecordExact(std.testing.allocator, DivergentWriter.underfill, .{&underfill_pass}),
+        render.renderRecordExact(std.testing.allocator, DivergentWriter.underfill, .{&underfill_pass}),
     );
 }
 

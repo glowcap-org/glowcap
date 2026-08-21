@@ -25,7 +25,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an effect" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{12} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(12)));
     defer node.deinit();
 
     const here = try node.registerPeer(.{});
@@ -46,19 +46,28 @@ test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an ef
     // speculatively.
     try node.peer(elsewhere).?.session_state.registerImport(.from(6));
     const home_else = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(6) });
+    try node.peer(here).?.session_state.installInboundAnswer(.from(52));
     try std.testing.expect(try node.interceptFulfilledRoute(here, 52, home_else.routed.id));
     const ask = node.nextAction().?;
     const ticket = ask.need_gift_id.ticket;
 
+    // Unknown tickets remain idempotent even with malformed entropy. A live
+    // ticket rejects the same bytes before it is consumed, then accepts the
+    // correct-width retry.
+    try node.provideGiftId(ticket + 1, "short");
+    try std.testing.expectError(error.InvalidArgument, node.provideGiftId(ticket, "short"));
+    try std.testing.expect(node.hasPendingGift(ticket));
+    try std.testing.expect(node.nextAction() == null);
+
     // The sessions here are not open, so the origination fails closed into a
     // broken answer rather than a mis-encoded cross-connection reference; the
     // live positive proof is the `*-goblins-gift` matrix.
-    const gift_id = [_]u8{0xCD} ** 32;
+    const gift_id = @as([32]u8, @splat(0xCD));
     try node.provideGiftId(ticket, &gift_id);
     const action = node.nextAction().?;
     try std.testing.expectEqual(
         model.AnswerName.fromWire(.from(52)),
-        action.fail.dest.served_answer.answer,
+        action.fail.dest.served_answer.answer.name,
     );
     try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff origination failed:"));
 
@@ -67,9 +76,41 @@ test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an ef
     try std.testing.expect(node.nextAction() == null);
 }
 
+test "gift-id ticket exhaustion publishes no request and remains retryable" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x0d)));
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    try node.peer(exporter).?.session_state.registerImport(.from(6));
+    const foreign = try node.enrollForeign(
+        exporter,
+        .{ .far = model.FarRef.object(6) },
+    );
+    try node.peer(recipient).?.session_state.installInboundAnswer(.from(53));
+
+    node.actions.next_ticket = std.math.maxInt(u64);
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        node.interceptFulfilledRoute(recipient, 53, foreign.routed.id),
+    );
+    try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
+    try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
+    try std.testing.expect(node.nextAction() == null);
+
+    node.actions.next_ticket = 0;
+    try std.testing.expect(try node.interceptFulfilledRoute(
+        recipient,
+        53,
+        foreign.routed.id,
+    ));
+    try std.testing.expectEqual(@as(u64, 0), node.nextAction().?.need_gift_id.ticket);
+}
+
 test "a fetched foreign import is enrolled under a node-unique route; two at one position never collide and each routes home (ADR-0069)" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{18} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(18)));
     defer node.deinit();
 
     const conn_a = try node.registerPeer(.{});
@@ -93,10 +134,10 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
     // is the same swap the served-reply interceptor uses to keep a route off the
     // wire when a fetched capability is returned to its own owner.
     const ra = node.routeReference(conn_a, route_a).?;
-    try std.testing.expectEqual(conn_a, ra.peer_id);
+    try std.testing.expectEqual(conn_a, ra.peer_handle);
     try std.testing.expectEqual(@as(u64, 1), ra.target.far.import_position.int());
     const rb = node.routeReference(conn_b, route_b).?;
-    try std.testing.expectEqual(conn_b, rb.peer_id);
+    try std.testing.expectEqual(conn_b, rb.peer_handle);
     try std.testing.expectEqual(@as(u64, 1), rb.target.far.import_position.int());
 
     // In argument position each route is native on its home, foreign elsewhere.
@@ -118,12 +159,12 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
     // onto the wire. route_b, whose home is live, still routes.
     node.removePeer(conn_a);
     try std.testing.expect(node.routeReference(conn_b, route_a) == null);
-    try std.testing.expectEqual(conn_b, node.routeReference(conn_b, route_b).?.peer_id);
+    try std.testing.expectEqual(conn_b, node.routeReference(conn_b, route_b).?.peer_handle);
 }
 
 test "lowerForConn swaps a route to its wire reference on its home and fails closed elsewhere (ADR-0069)" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{21} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(21)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -159,9 +200,55 @@ test "lowerForConn swaps a route to its wire reference on its home and fails clo
     try std.testing.expectEqual(@as(u64, 999), (try node.lowerForConn(home, wire_same_id)).far.import_position.int());
 }
 
+test "redeemed route id exhaustion returns before cloning or consuming the withdraw" {
+    var live = LiveBytesAllocator{ .backing = std.testing.allocator };
+    const allocator = live.allocator();
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1c)));
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    var counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(exporter).?,
+        @as([crypto.SEED_BYTES]u8, @splat(0x1e)),
+    );
+    defer counterpart.deinit();
+    const give = try testGiveBytes(allocator);
+    defer allocator.free(give);
+    try node.acceptGive(recipient, 73, give, "ocapn://127.0.0.1%3A9073.tcp");
+    const dial = node.nextAction().?;
+    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = node.nextAction().?; // withdraw flush
+    try std.testing.expect(node.nextAction() == null);
+    const answer = pendingWithdrawAnswer(&node, exporter);
+
+    // Pre-reserve the caller-owned transaction seats so this check isolates the
+    // route clone: the terminal id must allocate and retain nothing.
+    try node.redeemed.ensureUnusedCapacity(allocator, 1);
+    try node.actions.queue.reserve(allocator, node.redeems.withdrawals.rows.count() + 1);
+    const baseline = live.liveBytes();
+    node.next_route_id = .from(std.math.maxInt(u64));
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        node.claimResolve(exporter, answer, .{ .far = 9 }),
+    );
+    try std.testing.expectEqual(baseline, live.liveBytes());
+    try std.testing.expectEqual(@as(usize, 0), node.redeemed.count());
+    try std.testing.expectEqual(answer, pendingWithdrawAnswer(&node, exporter));
+    try std.testing.expect(node.nextAction() == null);
+
+    // The refusal consumed no authority: restoring mint space lets the exact
+    // pending withdraw commit once.
+    node.next_route_id = .from(1);
+    try std.testing.expect(try node.claimResolve(exporter, answer, .{ .far = 9 }));
+    try std.testing.expect(node.nextAction() != null);
+}
+
 test "setExporterLocation records, replaces, and clears the give-location override" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{13} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(13)));
     defer node.deinit();
 
     const conn = try node.registerPeer(.{});
@@ -183,7 +270,7 @@ test "setExporterLocation records, replaces, and clears the give-location overri
 test "setExporterLocation preserves the previous route when replacement allocation fails" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, [_]u8{0x44} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
     defer node.deinit();
     defer failing.fail_index = std.math.maxInt(usize);
 
@@ -191,25 +278,25 @@ test "setExporterLocation preserves the previous route when replacement allocati
     const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7001.tcp");
     defer model.freePeerLocator(allocator, first);
     try node.setExporterLocation(conn, first);
-    const preserved = try allocator.dupe(u8, node.exporter_locations.get(conn).?);
+    const preserved = try allocator.dupe(u8, node.gifts.recipe.by_exporter.get(conn).?);
     defer allocator.free(preserved);
 
     const replacement = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7002.tcp");
     defer model.freePeerLocator(allocator, replacement);
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(error.OutOfMemory, node.setExporterLocation(conn, replacement));
-    try std.testing.expectEqualSlices(u8, preserved, node.exporter_locations.get(conn).?);
+    try std.testing.expectEqualSlices(u8, preserved, node.gifts.recipe.by_exporter.get(conn).?);
 }
 
 test "removePeer evicts the exporter cache and fails stranded withdraws closed" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, [_]u8{14} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(14)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{15} ** crypto.SEED_BYTES);
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(15)));
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9054.tcp";
@@ -242,7 +329,7 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
 
 test "enrollForeign gives one import one route identity, and forgets it when the import goes" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{23} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(23)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -277,7 +364,7 @@ test "enrollForeign gives one import one route identity, and forgets it when the
 
 test "a prepared foreign enrollment rolls back before publication" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{31} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(31)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -298,7 +385,7 @@ test "a prepared foreign enrollment rolls back before publication" {
 }
 
 test "foreign enrollment requires a live import row" {
-    var node = Node.init(std.testing.allocator, [_]u8{32} ** crypto.SEED_BYTES);
+    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(32)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -310,9 +397,33 @@ test "foreign enrollment requires a live import row" {
     try std.testing.expect(!node.route_lowering_active);
 }
 
+test "foreign route id exhaustion mutates no capacity or import authority" {
+    var live = LiveBytesAllocator{ .backing = std.testing.allocator };
+    const allocator = live.allocator();
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1d)));
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const position = model.ImportPosition.from(17);
+    try node.peer(home).?.session_state.registerImport(position);
+    const baseline = live.liveBytes();
+    node.next_route_id = .from(std.math.maxInt(u64));
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        node.prepareForeignEnrollment(home, .{ .far = model.FarRef.object(position.int()) }),
+    );
+    try std.testing.expectEqual(baseline, live.liveBytes());
+    try std.testing.expectEqual(@as(usize, 0), node.foreign_imports.count());
+    try std.testing.expect(node.peer(home).?.session_state.foreignRouteIdFor(position) == null);
+    try std.testing.expect(!node.route_lowering_active);
+
+    node.next_route_id = .from(1);
+    _ = try node.enrollForeign(home, .{ .far = model.FarRef.object(position.int()) });
+}
+
 test "a released import retires its node route before the partner reuses the position" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{24} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(24)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -350,7 +461,7 @@ test "a released import retires its node route before the partner reuses the pos
 
 test "a re-enroll under the other kind is answered with the kind the row holds" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{27} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(27)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -380,7 +491,7 @@ test "a re-enroll under the other kind is answered with the kind the row holds" 
 
 test "a churning node holds live sessions, not every session it ever registered" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{29} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(29)));
     defer node.deinit();
 
     // A host serving connections opens and closes sessions for as long as it

@@ -33,7 +33,7 @@ session while never becoming a wire import on an unrelated session.
 `engine.Node` assigns a monotonic `CapabilityRouteId` and stores:
 
 ```text
-CapabilityRouteId -> { home PeerId, real session-scoped Reference }
+CapabilityRouteId -> { home PeerHandle, real session-scoped Reference }
 ```
 
 Application- and Host-owned semantic values carry the id in the explicit
@@ -75,7 +75,7 @@ session:
   promise proxy) using the real exporter-side reference.
 
 Bindings receive opaque Host capabilities and never inspect
-`CapabilityRouteId`, `PeerId`, or import positions.
+`CapabilityRouteId`, `PeerHandle`, or import positions.
 
 ### Lifetime and GC
 
@@ -119,8 +119,8 @@ not the authority for the internal route representation.
 ## Rejected alternatives
 
 - **Key by import position.** Positions are session-local and collide.
-- **Key by `{PeerId, ImportPosition}` while exposing only `far(position)`.** The
-  caller no longer has the home `PeerId` when routing is needed.
+- **Key by `{PeerHandle, ImportPosition}` while exposing only `far(position)`.** The
+  caller no longer has the home `PeerHandle` when routing is needed.
 - **Reserve a numeric import band.** This rejects valid OCapN input and lets a
   local identity masquerade as a wire reference.
 - **Store home identity in each binding.** This duplicates routing semantics

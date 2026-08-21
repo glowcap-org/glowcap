@@ -95,9 +95,19 @@ pub fn transportProfile(profile: *const shared.PancakeTransportProfile) !model.t
             return error.InvalidArgument;
         },
     };
+    const wire_framing: model.transport.WireFraming = switch (profile.wire_framing) {
+        shared.transport_provider.PANCAKE_WIRE_FRAMING_BYTE_STREAM => .byte_stream,
+        shared.transport_provider.PANCAKE_WIRE_FRAMING_MESSAGE => .message,
+        else => {
+            shared.setLastError("driver: provider has an invalid wire_framing", .{});
+            return error.InvalidArgument;
+        },
+    };
     return .{
         .symbol = name_ptr[0..profile.transport_name_len],
         .designator_scheme = scheme,
         .sealed_channel = sealed_channel,
+        .wire_framing = wire_framing,
+        .max_packet_bytes = profile.max_packet_bytes,
     };
 }

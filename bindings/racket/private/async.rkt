@@ -8,6 +8,8 @@
 ;; and buffers a partial frame in the session itself. This module knows
 ;; nothing about the host.
 
+(require "constants.rkt")
+
 (provide (all-defined-out))
 
 ;; ── The transport ─────────────────────────────────────────────────────────────
@@ -41,7 +43,7 @@
 ;; `serve-hook` is a box holding a thunk `session-serve` runs once before its
 ;; first pump: how a loop-backed session announces post-open setup is done so
 ;; the native loop starts delivering its inbound. Byte-fed connections keep
-;; the default no-op; their serve loop's empty feed is the same announcement.
+;; the default no-op; their serve loop resumes retained input directly.
 (struct async-connection (transport tail-resumed? reader closed? released? session serve-hook) #:transparent)
 
 (define (make-async-connection transport)
@@ -54,7 +56,7 @@
 ;; sets TCP_NODELAY. `'none` would re-enable Nagle; `flush!` is what pushes.
 (define (port-transport in out)
   (define (read-avail)
-    (define buf (make-bytes 65536))
+    (define buf (make-bytes BINDING-STREAM-READ-CHUNK-BYTES))
     (define n (read-bytes-avail! buf in))
     (if (eof-object? n) eof (subbytes buf 0 n)))
   (async-transport

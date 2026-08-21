@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../engine.ts";
 import { makeBaseEventConverter } from "./feed.ts";
-import { claimRecording, makeLiveAppender } from "./mode.ts";
+import { claimRecording, emptyCaptureError, makeLiveAppender } from "./mode.ts";
 import { findPeer, findSession } from "../world.ts";
 import type { TimelineDocument } from "../timeline.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
@@ -425,6 +425,9 @@ Deno.test("claimRecording: fresh id, content-derived duration", () => {
 
 Deno.test("claimRecording: an empty recording claims nothing", () => {
   assertEquals(claimRecording(newLiveDoc(), "rec-2"), null);
+  const error = emptyCaptureError();
+  assertEquals(error.code, "validation");
+  assertEquals(error.title, "Nothing to review");
 });
 
 Deno.test("claimRecording: the claim owns its observations", () => {

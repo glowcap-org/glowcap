@@ -24,12 +24,10 @@ import {
 	ROOM_EXISTS,
 	ROOM_TOO_LONG,
 	RoomError,
-	TOO_MANY_ROOMS,
 } from "../lib/errors.ts";
 import {
 	MAX_DM_INBOXES,
 	MAX_ROOM,
-	MAX_ROOMS_PER_CREATOR,
 	MAX_SIGNAL_EXCHANGES,
 	MAX_SIGNAL_SDP,
 	nickRefusal,
@@ -80,7 +78,6 @@ import {
 	registerRoom,
 	roomKey,
 	rooms,
-	roomsPerCreator,
 	signalExchanges,
 	webrtcDesignators,
 } from "./registry.ts";
@@ -218,7 +215,7 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			// this room's to bound rather than the sender's to choose.
 			if (!relayedSignalFits("description", toDesignator, sdp)) {
 				throw new Error(
-					`signalOffer needs a designator and an offer sdp of at most ${MAX_SIGNAL_SDP} characters`,
+					`signalOffer needs a designator and an offer sdp of at most ${MAX_SIGNAL_SDP} bytes`,
 				);
 			}
 			if (!(reply instanceof Ref)) {
@@ -264,7 +261,7 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			const id = typeof args[0] === "string" ? args[0] : "";
 			const sdp = typeof args[1] === "string" ? args[1] : "";
 			if (!relayedSignalFits("description", id, sdp)) {
-				throw new Error(`a signaling answer may be at most ${MAX_SIGNAL_SDP} characters`);
+				throw new Error(`a signaling answer may be at most ${MAX_SIGNAL_SDP} bytes`);
 			}
 			const exchange = signalExchanges.get(id);
 			if (exchange === undefined) return null; // evicted or settled: drop
@@ -351,15 +348,6 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 				throw new RoomError(
 					ROOM_TOO_LONG,
 					`a room name may be at most ${MAX_ROOM} characters`,
-				);
-			}
-			// One connection cannot open rooms without limit: an empty room is
-			// reclaimed only when its creator's connection ends, so a loop of
-			// opens is memory this caller spends in the server until they leave.
-			if ((roomsPerCreator.get(session) ?? 0) >= MAX_ROOMS_PER_CREATOR) {
-				throw new RoomError(
-					TOO_MANY_ROOMS,
-					`this connection already has ${MAX_ROOMS_PER_CREATOR} rooms open`,
 				);
 			}
 			// Private is asked for at the moment a room is made and never after:

@@ -61,7 +61,7 @@ fn helloLocatorBytes(allocator: std.mem.Allocator, session: *HostSession) ![]u8 
 
 test "core host advertised locator: missing snapshot refuses dial and accept" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x70} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x70)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try std.testing.expectError(
@@ -76,7 +76,7 @@ test "core host advertised locator: missing snapshot refuses dial and accept" {
 
 test "session open allocation failures unwind before and after enrollment" {
     var failing = SessionOpenFailingAllocator{ .backing = std.testing.allocator };
-    var host = test_host.init(failing.allocator(), [_]u8{0x71} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
     failing.host = &host;
     defer host.deinit();
     try host.ensureAdvertisedLocator("tcp");
@@ -100,10 +100,10 @@ test "session open allocation failures unwind before and after enrollment" {
 
 test "core host advertised locator: address transport keeps a hex designator opaque" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x72} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x72)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
-    const address_shaped_like_key = [_]u8{'a'} ** crypto.PeerKey.designator_len;
+    const address_shaped_like_key = @as([crypto.PeerKey.designator_len]u8, @splat('a'));
     try host.setAdvertisedLocator(.{
         .transport = "tcp",
         .designator = &address_shaped_like_key,
@@ -112,7 +112,7 @@ test "core host advertised locator: address transport keeps a hex designator opa
     const stored = host.advertisedLocator("tcp") orelse return error.MissingAdvertisedLocator;
     try std.testing.expectEqualSlices(u8, &address_shaped_like_key, stored.designator);
 
-    const other_key = crypto.SecretKey.fromSeed([_]u8{0x74} ** 32).publicKey().toDesignator();
+    const other_key = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x74))).publicKey().toDesignator();
     try std.testing.expectError(error.UnheldIdentity, host.setAdvertisedLocator(.{
         .transport = "iroh",
         .designator = &other_key,
@@ -122,7 +122,7 @@ test "core host advertised locator: address transport keeps a hex designator opa
 
 test "core host advertised locator: duplicate caller hints are refused before storage" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x76} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x76)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     const hints = [_]model.HintEntry{
@@ -139,7 +139,7 @@ test "core host advertised locator: duplicate caller hints are refused before st
 
 test "core host advertised locator: explicit dial default publishes once" {
     const allocator = std.testing.allocator;
-    const seed = [_]u8{0x73} ** 32;
+    const seed = @as([32]u8, @splat(0x73));
     var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
@@ -185,7 +185,7 @@ test "core host advertised locator: explicit dial default publishes once" {
 
 test "core host advertised locator: an accept keeps an explicitly selected route and its hints" {
     const allocator = std.testing.allocator;
-    const seed = [_]u8{0x77} ** 32;
+    const seed = @as([32]u8, @splat(0x77));
     var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
@@ -215,7 +215,7 @@ test "core host advertised locator: an accept keeps an explicitly selected route
 
 test "core host advertised locator: an accept with no selection installs its own candidate" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x78} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x78)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try host.ensureAcceptAdvertisedLocator(.address, "", "127.0.0.1:7100", "tcp");
@@ -226,7 +226,7 @@ test "core host advertised locator: an accept with no selection installs its own
 
 test "core host advertised locator: a cross-transport route survives dial preparation and enters every hello" {
     const allocator = std.testing.allocator;
-    const seed = [_]u8{0x75} ** 32;
+    const seed = @as([32]u8, @splat(0x75));
     var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
@@ -258,9 +258,9 @@ test "core host advertised locator: a cross-transport route survives dial prepar
 
 test "core host handshake: a key dial accepts the partner's selected address route" {
     const allocator = std.testing.allocator;
-    var dialer = test_host.init(allocator, [_]u8{0x76} ** 32, Host.Options.withFrameCap(frame_cap));
+    var dialer = test_host.init(allocator, @as([32]u8, @splat(0x76)), Host.Options.withFrameCap(frame_cap));
     defer dialer.deinit();
-    const partner_seed = [_]u8{0x77} ** 32;
+    const partner_seed = @as([32]u8, @splat(0x77));
     const partner_key = crypto.SecretKey.fromSeed(partner_seed).publicKey().toDesignator();
 
     try dialer.setAdvertisedLocator(tcpLocator("127.0.0.1:7092"));
@@ -289,7 +289,7 @@ test "core host handshake: a key dial accepts the partner's selected address rou
 
 test "core host advertised locator: dial and accept sign byte-identical snapshots" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x71} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     var hints = [_]model.HintEntry{
@@ -324,7 +324,7 @@ test "core host advertised locator retains complete multi-hint snapshots" {
     var opts = Host.Options.withFrameCap(frame_cap);
     opts.captp_version = .next;
     opts.codec = .capnp;
-    var host = test_host.init(allocator, [_]u8{0x78} ** 32, opts);
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x78)), opts);
     defer host.deinit();
 
     const hints = [_]model.HintEntry{
@@ -354,10 +354,10 @@ test "core host onion advertisement stays hintless and an onion accept defers it
     var opts = Host.Options.withFrameCap(frame_cap);
     opts.captp_version = .next;
     opts.codec = .capnp;
-    var host = test_host.init(allocator, [_]u8{0x79} ** 32, opts);
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x79)), opts);
     defer host.deinit();
 
-    const service_id = [_]u8{'a'} ** 56;
+    const service_id = @as([56]u8, @splat('a'));
     const supplied_hints = [_]model.HintEntry{.{
         .name = "must-not-escape",
         .value = .{ .string = "not part of the onion locator grammar" },
@@ -387,10 +387,10 @@ test "core host with the default profile answers an onion accept eagerly and bar
     // behavior change for a host that never asked for an upgrade, so this
     // host's onion accept says its bare hello at open, exactly as before the
     // mechanism existed — content and ordering both.
-    var host = test_host.init(allocator, [_]u8{0x7a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
-    const service_id = [_]u8{'b'} ** 56;
+    const service_id = @as([56]u8, @splat('b'));
     try host.setAdvertisedLocator(.{
         .transport = model.transport.onion,
         .designator = &service_id,

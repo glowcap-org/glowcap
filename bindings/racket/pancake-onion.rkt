@@ -62,7 +62,7 @@
          "private/transport.rkt")
 
 (lazy-require
- ["private/host.rkt" (host-loop-of host-codec)]
+ ["private/host/state.rkt" (host-loop-of host-codec)]
  ["private/loop.rkt"
   (open-driver-loop
    driver-loop-start!
@@ -99,16 +99,16 @@
 
 ;; An unauthenticated control endpoint, which is what a Unix control socket with
 ;; no authentication gives and what upstream Goblins assumes.
-(define AUTH-NONE 0)
+(define AUTH-NONE ONION-AUTH-NONE)
 ;; Authenticate with the bytes of the file CookieAuthFile names, which the
 ;; transport sends as hexadecimal. The common default on a distribution's Tor.
-(define AUTH-COOKIE 1)
+(define AUTH-COOKIE ONION-AUTH-COOKIE)
 ;; Authenticate with the cleartext of a HashedControlPassword setup.
-(define AUTH-PASSWORD 2)
+(define AUTH-PASSWORD ONION-AUTH-PASSWORD)
 
 ;; A version 3 onion service id is always exactly this many characters.
-(define SERVICE-ID-LENGTH 56)
-(define SERVICE-KEY-CAP 256)
+(define SERVICE-ID-LENGTH ONION-SERVICE-ID-LEN)
+(define SERVICE-KEY-CAP ONION-SERVICE-KEY-CAP)
 
 (define (onion-locator service-id)
   (locator TRANSPORT-ONION service-id (hash) 'boolean-false))
@@ -404,7 +404,7 @@
 
 ;; Dial the onion service `service-id` through the configured Tor. One that is not
 ;; a well-formed version 3 address is refused before any socket opens.
-(define (onion-netlayer-connect nl service-id [codec 'syrup] [max-frame 4096])
+(define (onion-netlayer-connect nl service-id [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (define bs (as-bytes service-id))
   (define cn
     (native-parent-open-child
@@ -424,7 +424,7 @@
 ;; Block until Tor forwards a circuit to this service. The partner's claimed
 ;; location is unverified here: Tor tells a hidden service nothing about who
 ;; dialed it.
-(define (onion-listener-accept lst [codec 'syrup] [max-frame 4096])
+(define (onion-listener-accept lst [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (call-with-semaphore
    (onion-listener-accept-gate lst)
    (lambda ()

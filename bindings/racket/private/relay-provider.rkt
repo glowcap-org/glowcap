@@ -30,7 +30,7 @@
 (define RENDEZVOUS-RELAY-HINT "rendezvous-relay")
 (define RENDEZVOUS-QUERY "rendezvous")
 (define REGISTER-QUERY "id")
-(define MAX-RENDEZVOUS-RELAY-HINT-BYTES (* 4 1024))
+(define MAX-RENDEZVOUS-RELAY-HINT-BYTES RELAY-MAX-RENDEZVOUS-RELAY-HINT-BYTES)
 
 (define (raise-invalid message)
   (raise-pancake 'relay-route ERR-INVALID-ARGUMENT message))

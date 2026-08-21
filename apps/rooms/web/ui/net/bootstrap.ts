@@ -8,8 +8,9 @@
 // with another is how a room ends up opened against the wrong server.
 
 import type { WebRuntime } from "@pancake/web";
-import { formatPeerUri } from "@pancake/runtime";
-import { roomsLocator } from "../../../lib/locator.ts";
+import { formatPeerUri, type Locator, parseSturdyRef } from "@pancake/runtime";
+import { roomsAddress, roomsLocator } from "../../../lib/locator.ts";
+import { CAPTP_VERSION } from "../../../lib/protocol.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
 import { type DirId, dirId } from "../types.ts";
@@ -49,8 +50,29 @@ let homeDirectoryLocator: string | null = null;
  * halves of the same mistake, one of them tested. */
 export function directoryId(locator: string): DirId | null {
 	try {
-		const parsed = roomsLocator(locator);
-		return dirId(formatPeerUri(parsed.transport, parsed.designator));
+		return directoryAuthority(roomsLocator(locator));
+	} catch {
+		return null;
+	}
+}
+
+/** The authority half of a parsed locator, which is what one directory is. */
+function directoryAuthority(locator: Locator): DirId {
+	return dirId(formatPeerUri(locator.transport, locator.designator));
+}
+
+/** The directory a room link belongs to: which one it is, and the address to
+ * reach it at. Null when the text is not a room link at all.
+ *
+ * A link is a sturdyref, so it carries its own peer. That is what makes it
+ * reachable from a tab that has never heard of the server hosting the room.
+ * Both halves come back because they answer different questions: the authority
+ * says whether this tab already holds that directory, and the address is what a
+ * dial needs if it does not. */
+export function linkDirectory(link: string): { id: DirId; address: string } | null {
+	try {
+		const { locator } = parseSturdyRef(link.trim(), CAPTP_VERSION);
+		return { id: directoryAuthority(locator), address: roomsAddress(locator) };
 	} catch {
 		return null;
 	}

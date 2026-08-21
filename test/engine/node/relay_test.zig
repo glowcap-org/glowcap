@@ -25,16 +25,16 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "a relayed resolution carrying a capability is introduced by handoff, not broken" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{31} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(31)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{37} ** crypto.SEED_BYTES);
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(37)));
     defer home_counterpart.deinit();
     // The recipient must be a keyed open session too: a give is addressed to
     // the recipient's session key and signed under the gifter-to-exporter one.
-    var recipient_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(recipient).?, [_]u8{39} ** crypto.SEED_BYTES);
+    var recipient_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(recipient).?, @as([crypto.SEED_BYTES]u8, @splat(39)));
     defer recipient_counterpart.deinit();
 
     const wire_pos: u64 = 4;
@@ -88,7 +88,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     try std.testing.expect(node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)) == null);
 
     const ask = node.nextAction().?;
-    const gift_id = [_]u8{0xC3} ** 32;
+    const gift_id = @as([32]u8, @splat(0xC3));
     try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
 
     // The recipient's promise now settles with a signed give it can redeem by
@@ -151,17 +151,17 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
 
 test "two recipients of one relayed capability each get their own give" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{47} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(47)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const first = try node.registerPeer(.{});
     const second = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{49} ** crypto.SEED_BYTES);
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(49)));
     defer home_counterpart.deinit();
-    var first_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(first).?, [_]u8{51} ** crypto.SEED_BYTES);
+    var first_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(first).?, @as([crypto.SEED_BYTES]u8, @splat(51)));
     defer first_counterpart.deinit();
-    var second_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(second).?, [_]u8{53} ** crypto.SEED_BYTES);
+    var second_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(second).?, @as([crypto.SEED_BYTES]u8, @splat(53)));
     defer second_counterpart.deinit();
 
     const wire_pos: u64 = 4;
@@ -196,14 +196,14 @@ test "two recipients of one relayed capability each get their own give" {
     var next_id: u8 = 0x10;
     while (node.nextAction()) |action| {
         if (action != .need_gift_id) continue;
-        const gift_id = [_]u8{next_id} ** 32;
+        const gift_id = @as([32]u8, @splat(next_id));
         next_id += 1;
         ids_asked += 1;
         try node.provideGiftId(action.need_gift_id.ticket, &gift_id);
     }
     try std.testing.expectEqual(@as(usize, 2), ids_asked);
 
-    for ([_]struct { peer: engine.PeerId, slot: u64 }{
+    for ([_]struct { peer: engine.PeerHandle, slot: u64 }{
         .{ .peer = first, .slot = first_slot },
         .{ .peer = second, .slot = second_slot },
     }) |r| {
@@ -222,7 +222,7 @@ test "two recipients of one relayed capability each get their own give" {
 
 test "one relayed recipient can break under pressure without rolling back its sibling" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x91} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x91)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -234,21 +234,21 @@ test "one relayed recipient can break under pressure without rolling back its si
         allocator,
         &node,
         node.peer(home).?,
-        [_]u8{0x92} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x92)),
     );
     defer home_counterpart.deinit();
     var tight_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(tight).?,
-        [_]u8{0x93} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x93)),
     );
     defer tight_counterpart.deinit();
     var roomy_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(roomy).?,
-        [_]u8{0x94} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x94)),
     );
     defer roomy_counterpart.deinit();
 
@@ -285,7 +285,7 @@ test "one relayed recipient can break under pressure without rolling back its si
     var requested: usize = 0;
     while (node.nextAction()) |action| switch (action) {
         .need_gift_id => |request| {
-            const gift_id = [_]u8{@intCast(0xa0 + requested)} ** model.HANDOFF_GIFT_ID_BYTES;
+            const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(@intCast(0xa0 + requested)));
             requested += 1;
             try node.provideGiftId(request.ticket, &gift_id);
         },
@@ -305,12 +305,12 @@ test "one relayed recipient can break under pressure without rolling back its si
 
 test "one home promise will not be introduced to unboundedly many third parties" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{63} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(63)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{65} ** crypto.SEED_BYTES);
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(65)));
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
@@ -338,14 +338,14 @@ test "one home promise will not be introduced to unboundedly many third parties"
 
 test "a relayed promise installs a successor proxy instead of breaking" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{57} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(57)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{59} ** crypto.SEED_BYTES);
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(59)));
     defer home_counterpart.deinit();
-    var recipient_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(recipient).?, [_]u8{61} ** crypto.SEED_BYTES);
+    var recipient_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(recipient).?, @as([crypto.SEED_BYTES]u8, @splat(61)));
     defer recipient_counterpart.deinit();
 
     const wire_pos: u64 = 4;
@@ -394,12 +394,12 @@ test "a relayed promise installs a successor proxy instead of breaking" {
 
 test "a relayed resolution carrying a sturdyref relays, because a sturdyref means the same everywhere" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{41} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(41)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{43} ** crypto.SEED_BYTES);
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(43)));
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
@@ -451,7 +451,7 @@ test "a relayed resolution carrying a routing route emits the wire import positi
     // be the real import position the route stands for. This drives that
     // path with a route-carrying fulfillment and reads the emitted frame.
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2c} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2c)));
     defer node.deinit();
 
     // A raw-open fixture peer adopted by the node: an open session (so an

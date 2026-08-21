@@ -20,8 +20,8 @@
 // It runs the same scenario twice against one room, once for each way a browser
 // tab can be reached directly. One pair of tabs advertises a `webrtc` locator
 // (`?dm=webrtc`), so their line is a DataChannel the room only signals; the
-// other pair advertises `keyed-relay` (`?dm=relay`), so their line is a cold
-// dial through the relay's rendezvous. Both are direct lines between two tabs with the room off
+// other pair advertises `noise-relay` (`?dm=relay`), so their line is a sealed
+// cold dial through the relay's rendezvous. Both are direct lines between two tabs with the room off
 // the message path, and a defect in reopening one of them is not a defect in
 // reopening the other — running both is what makes "is this specific to
 // WebRTC?" a question this file answers rather than one a reader has to ask.
@@ -43,6 +43,7 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -53,7 +54,7 @@ const ROOM = "lobby";
  * either of these transports is a direct line and nothing else. */
 const MODES = [
 	{ name: "webrtc", query: "?dm=webrtc", transport: "webrtc", first: "alice", second: "bob" },
-	{ name: "keyed-relay", query: "?dm=relay", transport: "keyed-relay", first: "carol", second: "dave" },
+	{ name: "noise-relay", query: "?dm=relay", transport: "noise-relay", first: "carol", second: "dave" },
 ] as const;
 
 function fail(message: string): never {
@@ -226,7 +227,7 @@ const vizPort = freePort();
 
 // The room server carries the live timeline endpoint, and serve.ts hands its own
 // environment to it, so each tab finds the endpoint by asking `/viz`.
-const web = new Deno.Command("deno", {
+const web = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -243,7 +244,7 @@ const web = new Deno.Command("deno", {
 	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
-}).spawn();
+});
 // The viz sturdyref rides the server's stderr; the scraper tees the stream
 // through so the run stays observable.
 const vizRef = scrapeVizSturdyref(web.stderr);
@@ -252,7 +253,7 @@ let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
 	const timeline = await watch(vizPort, await vizRef);
-	const seed = vizMemorySeed(vizPort, await vizRef);
+	const seed = vizMemorySeed(httpPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	for (const mode of MODES) {
@@ -328,11 +329,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

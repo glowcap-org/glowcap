@@ -14,7 +14,7 @@ amended_by: []
 
 ## Context
 
-[ADR-0106](ADR-0106-viz-control-capability.md) made live observation an OCapN
+[ADR-0106](ADR-0106-viz-observation-capability.md) made live observation an OCapN
 capability: a viewer subscribes only by enlivening the announced sturdyref.
 It left `/publish` as "a one-way JSON WebSocket telemetry adapter", which kept
 reachability as the whole authority to write into the timeline, and the

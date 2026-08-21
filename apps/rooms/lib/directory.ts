@@ -15,6 +15,7 @@ import { type RoomsDial, roomsLocator } from "./locator.ts";
 import { MAX_NICK, MAX_ROOM } from "./limits.ts";
 import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
+	CAPTP_VERSION,
 	DIRECTORY,
 	ENTER,
 	INTRODUCE,
@@ -279,7 +280,7 @@ export class Directory {
 		if (typeof swiss !== "string" || swiss.length === 0) {
 			throw new Error(`link("${name}") did not return a swissnum`);
 		}
-		return formatSturdyRef(roomsLocator(locator), swiss, "next");
+		return formatSturdyRef(roomsLocator(locator), swiss, CAPTP_VERSION);
 	}
 
 	/** The live rooms right now, the ones with people in them. */

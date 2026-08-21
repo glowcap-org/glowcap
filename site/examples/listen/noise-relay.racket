@@ -1,0 +1,12 @@
+;; PLANNED: Racket has no managed relay listen helper yet.
+;; relay-provider already accepts #:register-url. This shows the planned
+;; first-call, the same shape as listen-noise-tcp.
+;;
+;; (require "pancake.rkt" "pancake-relay.rkt")
+;;
+;; (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+;; (define server (listen-noise-relay
+;;                 "wss://relay.example/relay"
+;;                 "wss://relay.example/register"
+;;                 #:seed seed))
+;; From here, the CapTP workflow is transport-independent.

@@ -21,8 +21,9 @@
 ;; consumer with a protocol of its own — a byte-transparent relay, or a
 ;; netlayer written for a foreign CapTP — takes the raw endpoint alone.
 ;;
-;; This file is the application surface and nothing else. The implementation is
-;; `private/iroh.rkt` owns the native resident and raw endpoint implementation.
+;; This file is the application surface and nothing else. `private/iroh.rkt` is
+;; the stable facade; its `iroh/runtime.rkt` and `iroh/surface.rkt` subjects own
+;; the native resident/raw endpoint and application composition respectively.
 (require "private/iroh.rkt")
 
 (provide iroh-locator iroh-provider iroh-connector listen-iroh

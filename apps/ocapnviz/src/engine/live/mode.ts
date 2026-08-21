@@ -247,3 +247,13 @@ export function claimRecording(
     },
   };
 }
+
+/** The toast Stop uses when `claimRecording` returns null. */
+export function emptyCaptureError(): EngineError {
+  return {
+    code: "validation",
+    title: "Nothing to review",
+    detail: "Nothing arrived during this capture, so there is no recording to review.",
+    recovery: "Stay in Live and wait for activity, then Stop again.",
+  };
+}

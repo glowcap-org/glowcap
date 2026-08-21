@@ -11,38 +11,37 @@ mark.css     stacked-mark pieces, hover landing, and the wordmark lockup
 fonts/       IBM Plex Sans and IBM Plex Mono
 ```
 
-Each surface keeps its own layout and component styles. That is not a
-placeholder for a later component library. The site is static HTML; rooms is
-React. Widgets that look cousinly — a theme button, a tab strip — do different
-jobs (a code listing's folder tabs are not a settings mode switch), and a
-shared class would make one of them wrong. If a third pancake surface needs
-the same control, extract then. The mark lockup is the extraction that already
-earned it: rooms' rail and the site header are the same drawing. Shared
-*names* are not shared widgets: `--accent-ink` is one word for readable accent
-text on both surfaces.
+Each surface keeps its own layout and component styles. The site is static
+HTML; rooms is React. Widgets that look cousinly — a theme button, a tab
+strip — do different jobs (a code listing's folder tabs versus a settings
+mode switch), and a shared class would make one of them wrong. If a third
+pancake surface needs the same control, extract then. The mark lockup is the
+extraction that already earned it: rooms' rail and the site header are the
+same drawing. Shared *names* still name separate widgets: `--accent-ink` is
+one word for readable accent text on both surfaces.
 
 ## What belongs here
 
 - **Core tokens:** colors, typefaces, and the mark. Define them once in
   `tokens.css`.
-- **Product tokens:** meanings both surfaces share, still in `tokens.css`:
-  `--accent-ink` / `--teal-ink` for words, `--accent-fill` / `--on-accent` for
-  a filled amber control, `--page-bg` for the warm ground, `--type-tiny` through
-  `--type-display` for chrome, `--radius-control` and its siblings,
+- **Product tokens:** meanings both surfaces share, still in `tokens.css`.
+  `--accent-ink` / `--teal-ink` for words. `--accent-fill` / `--on-accent` for
+  a filled amber control. `--page-bg` for the warm ground. `--type-tiny` through
+  `--type-display` for chrome. `--radius-control` and its siblings.
   `--cover` / `--cover-blur` for a layer over the page (always darkness, not
-  theme ink), `--frost` for chrome. `zig build source-check` refuses a
-  stylesheet that never closes a comment, string, or brace, or that hides a
-  `--token:` declaration inside a comment (the browser would drop everything
-  after a dropped `*/`), refuses a surface that restates `--accent-ink` or
-  `--on-accent` or never uses them, `--page-bg`, `--frost`, or `--radius-card`,
-  and refuses a rooms sheet that never uses `--type-ui`. Site article type
-  stays in rem; those names are for application chrome.
+  theme ink). `--frost` for chrome. `zig build source-check` refuses a
+  stylesheet that never closes a comment, string, or brace. It also refuses one
+  that hides a `--token:` declaration inside a comment, because the browser
+  would drop everything after a dropped `*/`. It refuses a surface that restates
+  `--accent-ink` or `--on-accent` or never uses them, `--page-bg`, `--frost`, or
+  `--radius-card`, and a rooms sheet that never uses `--type-ui`. Site article
+  type stays in rem. Those names are for application chrome.
 - **Mark lockup:** `mark.css` owns the four stacked pieces, the hover landing
   (the same timeline as the rooms boot fall, without the loop), and the
   `.wordmark` drawing. A new home takes those classes; it does not copy the
   numbers.
-- **Surface tokens:** what a colour means on one surface only, such as a
-  chat bubble or a syntax colour. Define these in that surface from core
+- **Surface tokens:** what a color means on one surface only, such as a
+  chat bubble or a syntax color. Define these in that surface from core
   tokens.
 - **Component rules:** how a surface draws its own controls. Keep these with
   the surface.
@@ -79,7 +78,7 @@ The full-color pancake image belongs to the site homepage. `--mark-stack` is
 the one-color silhouette. The header lockup on both surfaces is four masked
 pieces in `.icon-mark`, so hovering the mark replays the stack falling into
 place. Ornaments that cannot host children still paint `--mark-stack` as one
-mask. `currentColor` controls the colour, so the quiet mark follows the
+mask. `currentColor` controls the color, so the quiet mark follows the
 active theme without another image.
 
 ## Light and dark values

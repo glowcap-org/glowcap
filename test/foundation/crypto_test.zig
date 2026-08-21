@@ -6,8 +6,8 @@ const PeerKey = pancake.foundation.PeerKey;
 const SecretKey = pancake.foundation.SecretKey;
 const CryptoError = pancake.foundation.CryptoError;
 
-const SEED_A = [_]u8{7} ** 32;
-const SEED_B = [_]u8{9} ** 32;
+const SEED_A = @as([32]u8, @splat(7));
+const SEED_B = @as([32]u8, @splat(9));
 
 fn hex32(comptime s: []const u8) [32]u8 {
     var out: [32]u8 = undefined;
@@ -55,8 +55,8 @@ test "verify rejects bit-flipped signature" {
 }
 
 test "verify with arbitrary bytes returns typed error, never panics" {
-    const pubkey = PeerKey.fromBytes([_]u8{0} ** 32);
-    const sig = crypto.Signature.fromBytes([_]u8{0} ** 64);
+    const pubkey = PeerKey.fromBytes(@as([32]u8, @splat(0)));
+    const sig = crypto.Signature.fromBytes(@as([64]u8, @splat(0)));
     const result = crypto.verify(pubkey, "payload", sig);
     try std.testing.expect(std.meta.isError(result));
 }

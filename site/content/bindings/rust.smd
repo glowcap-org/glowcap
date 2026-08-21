@@ -1,8 +1,7 @@
 ---
 .title = "Rust",
 .description = "The Rust binding: typed Session, Reference, and Argument over the pancake archives, with Cargo features selecting transports.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -10,11 +9,12 @@
 The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and `Argument` over the
 pancake archives
 ([`lib.rs`](https://github.com/jimisaacs/pancake/blob/main/bindings/rust/src/lib.rs)).
-Cargo features select transports (`tcp` and `inproc` by default, `iroh`
-opt-in). The package is not published yet; start from the
+The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
+tab; the crate's default features are the testing pair (`tcp`, `inproc`). Start
+from the
 [checkout instructions]($link.page('bindings')).
 
-## The same round-trip
+# The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
 handle the reply) reads like this in Rust. The snippet uses the crate's opt-in
@@ -56,7 +56,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "ws://192.0.2.10:8080/relay";
+> let relay_url = "wss://relay.example/relay";
 > let partner = relay::noise::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -79,7 +79,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```rust
 > use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
-> // Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+> // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > let peer_key = "<64 lowercase hex characters from the server>";
 > let partner = tcp::keyed::locator(peer_key, "127.0.0.1", 9099);
 >
@@ -91,7 +91,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "ws://192.0.2.10:8080/relay";
+> let relay_url = "wss://relay.example/relay";
 > let partner = relay::keyed::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -129,7 +129,7 @@ The CapTP verbs stay the same across tabs. What changes is the locator helper
 and whether CapTP rides cleartext or Noise. The iroh tab needs the `iroh` Cargo
 feature and a discovery-reachable node id.
 
-## Hosting the other half
+# Hosting the other half
 
 `listen` binds a `Server` whose `accept` yields a `Session` per partner. Keyed
 and Noise listeners take a 32-byte seed so the advertised designator survives a
@@ -144,7 +144,7 @@ restart; iroh binds a node id instead of a socket address.
 > use pancake::iroh::{self, Reachability};
 > use pancake::Argument;
 >
-> // Bind a key, not a place. Partners can dial this node id from anywhere.
+> // This listener is named by its node id. Partners can dial it from anywhere.
 > // Cargo.toml: pancake = { …, features = ["iroh"] }
 > let server = iroh::listen(
 >     iroh::Config::new(Reachability::Discovery),
@@ -227,7 +227,7 @@ fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
 <!-- /site-examples:listen:rust -->
 ```
 
-## Async
+# Async
 
 Async rides [tokio](https://tokio.rs/) behind an opt-in `async` feature. Handles
 are `!Send`, so each lives on one task inside a `LocalSet`. Only the socket
@@ -235,7 +235,7 @@ reads and writes await; the protocol verbs never block.
 `session.serve().await` waits until that session shuts down. Dropping the
 `Session` closes the connection under the partner.
 
-## Actors
+# Actors
 
 `session.spawn` and `session.publish` take a `FnMut(&str, &[Argument])` closure
 returning `Result<Argument, String>`. An `Err` breaks the answer with its words,

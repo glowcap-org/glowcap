@@ -99,11 +99,11 @@ fn proveExportGc(
             );
             return error.GcNeverArrived;
         }
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpPoll(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body != .gc_export) continue;
             const gc = body.gc_export;
             const n = try gc.positions.len();

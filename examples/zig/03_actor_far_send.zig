@@ -1,14 +1,15 @@
 //! 03 — Actor far-send with a vow.
 //!
-//! A caller's vat eventual-sends to a host's published actor over a paired
+//! A caller's Port eventual-sends to a host's published actor over a paired
 //! session and observes the vow. One vat publishes an object, the other
 //! imports it and calls it, and the answer comes back as a settled vow,
 //! the same exchange chapter 01's `call` drives over a real socket.
 //!
-//! One layer down from chapter 01, the vat is what runs that exchange: `send`
-//! queues the deliver with a fresh answer, `serve` dispatches the inbound
-//! deliver and resolves it, and `on` fires the listener when the resolution
-//! arrives. Sessions open already authenticated on CapTP 1.0 over Syrup.
+//! One layer down from chapter 01, the vat runs the local turn loop and a
+//! Port owns the wire names: `Port.send` queues the deliver with a fresh
+//! answer, `serve` dispatches the inbound deliver and resolves it, and `on`
+//! fires the listener when the resolution arrives. Sessions open already
+//! authenticated on CapTP 1.0 over Syrup.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -32,30 +33,37 @@ const Greeter = struct {
 };
 
 const Result = struct {
-    done: bool = false,
+    outcome: enum { pending, fulfilled, broken, give } = .pending,
     text: [128]u8 = undefined,
     text_len: usize = 0,
+
+    fn copyText(self: *Result, s: []const u8) void {
+        const n = @min(s.len, self.text.len);
+        @memcpy(self.text[0..n], s[0..n]);
+        self.text_len = n;
+    }
 };
 
 fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const result: *Result = @ptrCast(@alignCast(ctx.?));
-    result.done = true;
     switch (resolution) {
         .fulfilled => |arg| {
             const s = switch (arg) {
                 .string => |str| str,
-                else => "(unexpected)",
+                else => {
+                    result.outcome = .broken;
+                    result.copyText("unexpected payload");
+                    return;
+                },
             };
-            const n = @min(s.len, result.text.len);
-            @memcpy(result.text[0..n], s[0..n]);
-            result.text_len = n;
+            result.copyText(s);
+            result.outcome = .fulfilled;
         },
         .broken => |reason| {
-            const n = @min(reason.len, result.text.len);
-            @memcpy(result.text[0..n], reason[0..n]);
-            result.text_len = n;
+            result.copyText(reason);
+            result.outcome = .broken;
         },
-        .give => {},
+        .give => result.outcome = .give,
     }
 }
 
@@ -113,10 +121,19 @@ pub fn main() !void {
         _ = try caller_port.serve(&caller_vat, &e);
     }
 
-    if (result.done) {
-        std.debug.print("far-send resolved: {s}\n", .{result.text[0..result.text_len]});
-    } else {
-        std.debug.print("far-send did not resolve\n", .{});
-        std.process.exit(1);
+    switch (result.outcome) {
+        .pending => {
+            std.debug.print("far-send did not resolve\n", .{});
+            return error.FarSendDidNotResolve;
+        },
+        .fulfilled => std.debug.print("far-send resolved: {s}\n", .{result.text[0..result.text_len]}),
+        .broken => {
+            std.debug.print("far-send broke: {s}\n", .{result.text[0..result.text_len]});
+            return error.FarSendBroke;
+        },
+        .give => {
+            std.debug.print("far-send fulfilled with a give this example does not redeem\n", .{});
+            return error.UnexpectedGive;
+        },
     }
 }

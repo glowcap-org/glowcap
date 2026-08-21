@@ -347,9 +347,16 @@ pub fn main(init: std.process.Init) !void {
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = try driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, session_root, .{
+    var host = try driver.core.Host.init(server_alloc, @as([32]u8, @splat(0x42)), session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = actors.Vat.max_batch_local_turns,
+        .local_turn_budget = driver.core.default_loop_local_turn_budget,
+        // This live proof targets the completion loop's byte-queue mark, not
+        // the Host's independent retained-semantic-work waterline. The fixed
+        // `backpressure_batches` bound still caps the proof's total work; an
+        // unbounded Host budget here ensures the kernel/Loop queue is the
+        // first limiter, so a Host resource refusal cannot masquerade as a
+        // transport-backpressure regression.
+        .outbound_high_water_bytes = std.math.maxInt(usize),
     });
     defer host.deinit();
     var loop: net.TcpLoop = undefined;

@@ -13,7 +13,7 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const capability = @import("capability.zig");
 const vocab = @import("vocab.zig");
 
@@ -24,8 +24,20 @@ const localActorId = host_mod.localActorId;
 const foundation = @import("foundation");
 const crypto = foundation.crypto;
 
+/// One host-wide publication: a swiss name discovers one Host-Vat actor. The
+/// actor is the identity; a Port projection is minted only when that Port
+/// fetches the name (or an embedder explicitly asks for its position). The
+/// registry is the one discovery authority: a fetch never leaves a per-session
+/// copy of the alias behind, so replacing or removing the name changes every
+/// later fetch on every session, while the Port's reverse row keeps a repeated
+/// fetch on one session reusing its existing export.
+pub const Publication = struct {
+    name: []const u8,
+    actor: actors.Ref,
+};
+
 /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerId, swissnum: []const u8) !?model.ExportPosition {
+pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissnum: []const u8) !?model.ExportPosition {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return null;
     const row = host.giftables.get(swissnum) orelse return null;
@@ -228,7 +240,7 @@ pub fn publishedPosition(self: *Host, session: *HostSession, name: []const u8) !
     self.assertOwner();
     try self.checkSession(session);
     if (session.served.port.peer.session_state.bootstrapLookup(name)) |position| return position.int();
-    const position = try resolvePublishedTarget(self, session.peer_id, name) orelse return null;
+    const position = try resolvePublishedTarget(self, session.peer_handle, name) orelse return null;
     return position.int();
 }
 

@@ -134,7 +134,7 @@ fn benchPeer(allocator: std.mem.Allocator) !engine.Peer {
 /// and `takeOutbound`. The caller owns the peer so table state accumulates
 /// across messages, exactly as a long-lived session's does.
 fn sendOneAnswered(peer: *engine.Peer) !void {
-    const answer = peer.allocateAnswer();
+    const answer = try peer.allocateAnswer();
     try peer.sendCopying(benchMessage(answer));
     _ = try peer.step();
     while (peer.takeOutbound()) |frame_in| {
@@ -204,7 +204,7 @@ fn measureGcStorm(io: std.Io, allocator: std.mem.Allocator, q: usize, samples: u
         var positions_owned_here = true;
         errdefer if (positions_owned_here) allocator.free(positions);
         for (positions) |*pos| {
-            const answer = peer.allocateAnswer();
+            const answer = try peer.allocateAnswer();
             pos.* = answer;
             try peer.sendCopying(benchMessage(answer));
             _ = try peer.step();
@@ -254,7 +254,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (gate) {
-        if (builtin.mode != .ReleaseFast) {
+        if (builtin.mode != .fast) {
             std.debug.print("perf_gate FAIL outbound: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.mode)});
             std.process.exit(1);
         }

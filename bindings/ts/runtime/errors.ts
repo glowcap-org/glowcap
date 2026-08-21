@@ -7,7 +7,15 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
-import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_FOREIGN, ABORT_DOMAIN_SESSION, BROKEN, INTERNAL, OK } from "@pancake/abi";
+import {
+	ABORT_DOMAIN_CODEC,
+	ABORT_DOMAIN_FOREIGN,
+	ABORT_DOMAIN_SESSION,
+	BINDING_SECONDARY_FAILURE_CAP,
+	BROKEN,
+	INTERNAL,
+	OK,
+} from "@pancake/abi";
 import type { CarrierFailure } from "./carrier_failure.ts";
 
 /** The calling thread's last core-archive (`pancake_*`) error message, or null
@@ -68,7 +76,7 @@ export class PancakeError extends Error {
 	}
 }
 
-const SECONDARY_FAILURE_CAP = 64;
+const SECONDARY_FAILURE_CAP = BINDING_SECONDARY_FAILURE_CAP;
 interface SecondaryFailures {
 	readonly retained: unknown[];
 	total: number;

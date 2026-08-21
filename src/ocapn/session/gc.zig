@@ -106,8 +106,8 @@ pub fn checkGcExportDecrement(
     var pending: PendingFold = .{};
     defer pending.deinit(allocator);
     for (gc_export.positions, gc_export.deltas) |pos, delta| {
-        // The bootstrap position is pinned outside wire-delta accounting
-        // (`retainSentExports` never counts a mention of it), so a partner
+        // The bootstrap position is pinned outside send-side export accounting,
+        // so a partner
         // releasing its bootstrap import — Goblins' import-0 will handler
         // emits exactly that — is a no-op, never an underflow and never the
         // death of the bootstrap export.

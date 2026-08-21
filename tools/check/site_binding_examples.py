@@ -86,11 +86,14 @@ def check_python() -> None:
 
         environment = os.environ.copy()
         environment["MYPYPATH"] = str(ROOT / "bindings" / "python")
+        # The binding implementation has its own mypy gate. This check reports
+        # snippet errors while still reading the public inline annotations.
         subprocess.run(
             [
                 "uvx",
                 "mypy@1.15.0",
                 "--ignore-missing-imports",
+                "--follow-imports=silent",
                 "--cache-dir",
                 str(Path(directory) / "mypy-cache"),
                 *generated,

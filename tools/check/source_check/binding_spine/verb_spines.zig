@@ -9,6 +9,7 @@ const expectFileContains = util.expectFileContains;
 const fileContains = util.fileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
+const readSourceSubject = util.readSourceSubject;
 
 /// Binding spine Pass 3a: each binding keeps a named `promise` module for the
 /// RemotePromise / session-vow handle and pipelined projection. Grep-level —
@@ -67,11 +68,11 @@ pub fn checkBindingPromiseSpine(
     // Fetch/enliven mint→await bodies and far-send promise factories live in
     // promise (Pass 4b / 4d), not session.
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "async #fetchLike" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "#promiseFor(" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "async def _fetch_like" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "async def _await_minted" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def _promise_for" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "async #fetchLike" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "#promiseFor(" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "async def _fetch_like" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "async def _await_minted" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def _promise_for" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn await_minted" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn fetch_like" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn send_promise" },
@@ -83,8 +84,8 @@ pub fn checkBindingPromiseSpine(
         .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_vow_send" },
     };
     for (banned) |b| {
-        const contents = root.readFileAlloc(io, b.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for promise-fetch ban with {s}", .{ b.path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, b.path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for promise-fetch ban", .{b.path});
             continue;
         };
         defer gpa.free(contents);
@@ -118,7 +119,8 @@ pub fn checkBindingRustConnSpine(
             try appendViolation(gpa, violations, "{s}: session_shared module missing `{s}`", .{ path, needle });
         }
     }
-    try expectFileContains(io, gpa, root, violations, "bindings/rust/src/lib.rs", &.{"pub struct Ref"});
+    try expectFileContains(io, gpa, root, violations, "bindings/rust/src/value.rs", &.{"pub struct Ref"});
+    try expectFileContains(io, gpa, root, violations, "bindings/rust/src/lib.rs", &.{"pub use value::{Argument, Ref};"});
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/rust/src/session.rs", .needle = "pub struct Ref" },
         .{ .path = "bindings/rust/src/session_shared.rs", .needle = "pub struct Ref" },
@@ -185,13 +187,13 @@ pub fn checkBindingGcSpine(
 
     // Track/drain bodies live in gc, not session (Pass 3b).
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "\ttrackArgument(" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "#drainGc(" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_ref_release" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def track_argument" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def _drain_gc" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def _on_capability_dropped" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_ref_release" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "\ttrackArgument(" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "#drainGc(" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_ref_release" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def track_argument" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def _drain_gc" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def _on_capability_dropped" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_ref_release" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn track_argument" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "pancake_host_ref_release" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_ref_release" },
@@ -200,8 +202,8 @@ pub fn checkBindingGcSpine(
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (session-with-gc!" },
     };
     for (banned) |b| {
-        const contents = root.readFileAlloc(io, b.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for gc-session ban with {s}", .{ b.path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, b.path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for gc-session ban", .{b.path});
             continue;
         };
         defer gpa.free(contents);
@@ -231,7 +233,11 @@ pub fn checkBindingGcSpine(
         .{ .path = "bindings/python/pancake/_promise.py", .needles = &.{"session._"} },
         .{ .path = "bindings/python/pancake/_trampoline.py", .needles = &.{"session._"} },
         .{ .path = "bindings/python/pancake/_action.py", .needles = &.{ "host._", "conn._" } },
-        .{ .path = "bindings/python/pancake/_host.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/pancake/_host/__init__.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/pancake/_host/finalizer.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/pancake/_host/progress.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/pancake/_host/publication.py", .needles = &.{"conn._"} },
     };
     for (py_seam) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -319,7 +325,7 @@ pub fn checkBindingDialSpine(
         .{ .path = "bindings/python/pancake/_transport.py", .needle = "class Provider:\n" ++
             "    \"\"\"One explicitly composed native provider package." ++
             "\n\n    transports:" },
-        .{ .path = "bindings/rust/src/driver_loop.rs", .needle = "pub struct Provider {\n\ttransports:" },
+        .{ .path = "bindings/rust/src/driver_loop/provider.rs", .needle = "pub struct Provider {\n\ttransports:" },
         .{ .path = "bindings/racket/private/transport.rkt", .needle = "(struct driver-provider (transports" },
     };
     for (provider_symbol_mirrors) |mirror| {
@@ -450,8 +456,8 @@ pub fn checkBindingListenSpine(
         markers: []const []const u8,
     }{
         .{
-            .path = "bindings/ts/runtime/driver_loop.ts",
-            .markers = &.{"#accepts.get(event.listener)"},
+            .path = "bindings/ts/runtime/driver_loop/drive.ts",
+            .markers = &.{"_accepts.get(event.listener)"},
         },
         .{
             .path = "bindings/ts/runtime/internal/driver_event.ts",
@@ -462,7 +468,7 @@ pub fn checkBindingListenSpine(
             .markers = &.{"this.#listener.accept()"},
         },
         .{
-            .path = "bindings/python/pancake/_loop.py",
+            .path = "bindings/python/pancake/_loop/progress.py",
             .markers = &.{"self._accepts.get(event.listener_id)"},
         },
         .{
@@ -470,17 +476,15 @@ pub fn checkBindingListenSpine(
             .markers = &.{"accept_session(self._listener)"},
         },
         .{
-            .path = "bindings/rust/src/driver_loop.rs",
+            .path = "bindings/rust/src/driver_loop/progress.rs",
             .markers = &.{ "LoopEvent::Accepted { listener, session }", "accepts.borrow_mut().push_back((listener, session))" },
         },
         .{
             .path = "bindings/rust/src/server.rs",
             .markers = &.{"self.lp.accept(self.listener)"},
         },
-        .{
-            .path = "bindings/racket/private/loop.rkt",
-            .markers = &.{ "(driver-event-accepted-listener-id e) #f)", "(loop-server-listener s)" },
-        },
+        .{ .path = "bindings/racket/private/loop/core.rkt", .markers = &.{"(driver-event-accepted-listener-id e) #f)"} },
+        .{ .path = "bindings/racket/private/loop/listeners.rkt", .markers = &.{"(loop-server-listener s)"} },
     };
     for (loop_accept_routing) |binding| {
         const contents = root.readFileAlloc(io, binding.path, gpa, .limited(2 << 20)) catch |err| {
@@ -522,13 +526,13 @@ pub fn checkBindingListenSpine(
             .banned = &.{ "pub use crate::promise::", "pub use crate::dial::", "pub use crate::listen::" },
         },
         .{
-            .path = "bindings/python/pancake/_session.py",
+            .path = "bindings/python/pancake/_session/",
             .banned = &.{ "from ._dial import", "from ._listen import", "async def connect", "class Server", "class KeyedTcpServer" },
         },
     };
     for (reexport_bans) |entry| {
-        const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for dial/listen re-export ban with {s}", .{ entry.path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, entry.path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for dial/listen re-export ban", .{entry.path});
             continue;
         };
         defer gpa.free(contents);

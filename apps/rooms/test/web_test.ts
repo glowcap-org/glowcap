@@ -22,6 +22,7 @@ import {
 	type TcpPeer,
 } from "../web/relay.ts";
 import { assertEquals } from "./assert.ts";
+import { spawnOwned, stopOwned } from "./support/children.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
@@ -67,21 +68,16 @@ async function withWeb(
 ): Promise<void> {
 	const httpPort = freePort();
 	const roomPort = freePort();
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort)],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		await fn(httpPort, roomPort);
 	} finally {
-		try {
-			proc.kill("SIGINT");
-		} catch {
-			// Already gone.
-		}
-		await proc.status;
+		await stopOwned(proc);
 	}
 }
 
@@ -335,13 +331,13 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 			`${dir}/rooms.json`,
 			JSON.stringify({ version: 1, identitySeed: "zz", roomLinkSecret: "zz", linkedRooms: [] }) + "\n",
 		);
-		const proc = new Deno.Command("deno", {
+		const proc = spawnOwned("deno", {
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, WEB, String(freePort()), String(freePort())],
 			cwd: ROOT,
 			env: { PANCAKE_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
+		});
 		const [status, said] = await Promise.all([
 			proc.status,
 			new Response(proc.stderr).text(),
@@ -368,12 +364,12 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 	const httpFirst = freePort();
 	const httpSecond = freePort();
 	const spawnWeb = (httpPort: number) =>
-		new Deno.Command("deno", {
+		spawnOwned("deno", {
 			args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort)],
 			cwd: ROOT,
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
+		});
 
 	const first = spawnWeb(httpFirst);
 	let second: Deno.ChildProcess | null = null;
@@ -389,13 +385,7 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 		await reachRoomThroughRelay(httpSecond, roomPort);
 	} finally {
 		for (const proc of [second, first]) {
-			if (!proc) continue;
-			try {
-				proc.kill("SIGINT");
-			} catch {
-				// Already gone.
-			}
-			await proc.status;
+			if (proc) await stopOwned(proc);
 		}
 	}
 });
@@ -407,12 +397,12 @@ Deno.test("rooms web UI takes over when an attached room server dies", async () 
 	const httpFirst = freePort();
 	const httpSecond = freePort();
 	const spawnWeb = (httpPort: number) =>
-		new Deno.Command("deno", {
+		spawnOwned("deno", {
 			args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort)],
 			cwd: ROOT,
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
+		});
 
 	const first = spawnWeb(httpFirst);
 	let second: Deno.ChildProcess | null = null;
@@ -448,17 +438,7 @@ Deno.test("rooms web UI takes over when an attached room server dies", async () 
 		);
 	} finally {
 		for (const proc of [second, first]) {
-			if (!proc) continue;
-			try {
-				proc.kill("SIGINT");
-			} catch {
-				// Already gone.
-			}
-			try {
-				await proc.status;
-			} catch {
-				// Already reaped.
-			}
+			if (proc) await stopOwned(proc);
 		}
 	}
 });

@@ -234,7 +234,7 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = test_host.init(allocator, [_]u8{0x0e} ** 32, blk: {
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -380,7 +380,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // this test thread; `std.testing.allocator` is not thread-safe. Teardown
     // still calls `Loop.deinit` after `runUntil` → `closeAndDrain`.
     const g_alloc = std.heap.page_allocator;
-    var gifter_host = test_host.init(g_alloc, [_]u8{0x06} ** 32, .{
+    var gifter_host = test_host.init(g_alloc, @as([32]u8, @splat(0x06)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });
@@ -427,7 +427,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // R: Bridge+TcpLoop — dials G, introduces, redeems via Loop.dialLocator, pokes.
     var poked = std.atomic.Value(bool).init(false);
     const r_alloc = std.heap.page_allocator;
-    var recipient_host = test_host.init(r_alloc, [_]u8{0x0c} ** 32, .{
+    var recipient_host = test_host.init(r_alloc, @as([32]u8, @splat(0x0c)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });

@@ -16,72 +16,15 @@ There is a cleartext `zig build rooms-web-tcp` that needs only Deno; it proves
 nothing about who is on the other end, so keep it for a peer that speaks nothing
 else.
 
-Open `http://localhost:8000`, choose a room and nickname, then open another tab.
-The join card also accepts another directory's OCapN locator, so the page can hold
-rooms on several directories at once and join a room owned by any iroh peer its
-relay can reach. Once it holds more than one, every room in the rail says which
-directory it is on, and that line opens what is known about that directory —
-Leave included, for this page's own directory as well as any other. Settings
-keeps this page's locator and opens the same card. `/quit` gives the current
-directory back; the join card still knows this page's address, so walking back
-in under a new name does not need a reload.
-Cleartext TCP remains pinned to the page's own directory unless the relay
-operator explicitly allow-lists another peer.
-Entering a room that does not exist creates it. The page also supports direct
-messages, live room and member lists, light Markdown with fenced code blocks,
-`/me` actions, a menu on every message for copying it, and for changing or
-taking it back where this tab still holds the reference that message was
-answered with,
-a notice above the page when a refusal has nowhere on the control to live,
-a room topic anyone in the room can set,
-stepping away with a reason, quiet notices that never ping, mentions,
-notifications, inline completion (`@` members, `#`
-rooms, `:` emoji, `/` commands), file and image posting,
-and mobile layouts. Attach a file with the paperclip, by dropping it on the
-conversation, or by pasting one; pictures appear in the line and open
-full-screen, fitted to the window. A larger picture can be shown at its own
-size and scrolled. Everything else arrives as a row you can download from.
-Files work in rooms and direct messages. Several files sent together stay
-together in one message bubble, while each file keeps its own transfer and
-download state. Settings holds this
-directory's address, this browser's own locator, light or syrup appearance,
-mention notifications, and the direct-message transport. A
-button there opens the same directory card a room's caption does: the name this
-directory granted you, and Leave. A Help control in that same header opens a
-glossary.
-Appearance and notifications apply at once; the others save by
-reloading the tab. The Advanced tab also holds one toggle per operator
-capability — inspect (`--diagnostics`), listener administration
-(`--admin-listeners`), and the protocol visualizer (`--viz`) — and the toggle
-is the capability: flipping one on
-asks for the swiss number the server printed, and only fetching it on the
-live session lands the toggle on; an opt-in checkbox remembers the number on
-that device so a reload takes it again unasked. While any is held, an Operations control in
-the Settings header opens a modal with one pane per held capability. The
-diagnostics pane lists what the directory currently holds; the listeners pane
-holds one switch per transport, each up listener carrying its copyable
-locator, the one serving this very page marked and unswitchable, refusals
-said in words; and the visualizer pane shows where this tab publishes and
-holds the endpoint override. Flipping a toggle off lets that capability go.
-The same transport and
-endpoint still work as `?dm=` /
-`?viz=` on the address for tests and shared links. Rooms and messages are held in
-memory: an empty room is removed, and restarting the server loses its history.
-A conversation keeps its most recent lines rather than everything it has ever
-been sent, since how much a room says is the room's own choice and nothing here
-survives a reload anyway.
-A posted file is held by the room, so it outlives the tab that posted it, and
-the room drops its oldest file to stay under a fixed ceiling. A direct file
-comes from its sender over the direct session instead, with no room in its path.
+Open `http://localhost:8000`, pick a room and a nickname, then open another tab.
+The join card also accepts another directory's OCapN locator, so one page can
+hold rooms on several directories. Entering a room that does not exist creates
+it. You can post messages, direct messages, and files. Rooms and messages live
+in memory: restarting the server drops history.
 
-Changing a message reaches its files as well as its words. A message that
-carries files opens them in the composer, where each can be taken off and more
-added, and only the ones being added are sent — the rest are already where they
-live. Leaving a message with no files and nothing said takes it back, since it
-would be nothing, and the composer says so before you press. This works the
-same in a direct message, where the person you are talking to holds the
-message rather than a room, and the reference they answered with is what lets
-you change what they are looking at.
+[Developing and operating Rooms](developing.md) covers the rail, Settings,
+operator capabilities (`--diagnostics`, `--admin-listeners`, `--viz`), and the
+rest of the UI.
 
 For the automated cross-language tour, run:
 
@@ -100,13 +43,13 @@ The server publishes one starting object: a directory. Asking the directory to
 open or enter a room returns the room itself as a live reference. Holding that
 reference is what lets a client use the room. An operator can also start the
 server with `--diagnostics`, which publishes a second Host object under an
-unguessable swiss number; fetching that swiss number is the inspect capability, and the
-directory itself does not grow an inspect method. `--admin-listeners` publishes
-a third object the same way: holding its swiss number is the authority to list
-the server's live listeners, bring one up on a transport this process can
-realize, and take one down — except the listener whose locator the server
-announced, which carries the web relay and refuses with words. No flag, no
-object: neither capability exists unless the process was started with it.
+unguessable swiss number. Fetching that swiss number is the inspect capability.
+The directory itself does not grow an inspect method. `--admin-listeners`
+publishes a third object the same way. Holding its swiss number is the
+authority to list the server's live listeners, bring one up on a transport this
+process can realize, and take one down. The listener whose locator the server
+announced carries the web relay and refuses with words. No flag, no object:
+neither capability exists unless the process was started with it.
 
 Messages flow in the other direction the same way. A member gives the room a
 reference to its inbox. When someone posts, the room calls each inbox; clients
@@ -157,8 +100,18 @@ This three-party handoff is a central OCapN feature. The browser turns it into a
 click: select a member, then keep chatting even after either person leaves the
 room. A browser tab or native process can also open a new direct line through
 relay rendezvous. The published locator carries its relay route, so the dialer
-need not use the same deployment fallback. In the browser, pick **Through the room relay** in Settings (or open with `?dm=relay`) so a native rooms-peer can
-introduce you.
+need not use the same deployment fallback. Browser-to-browser WebRTC uses
+Cloudflare's public STUN service by default so peers on different ordinary NATs
+can discover a direct path. `PANCAKE_ROOMS_ICE_SERVERS=""` disables outside ICE
+infrastructure, and a comma-separated STUN list selects another discovery
+service. A deployment may also configure a server-side TURN credential issuer;
+Rooms gives each new WebRTC connection short-lived relay credentials without
+publishing the issuer token. STUN sees only the address it discovers. TURN sees
+timing and volume when ICE cannot find a direct pair, but WebRTC's DTLS channel
+keeps the DM bytes encrypted. **Through the room relay** in Settings (or
+`?dm=relay`) is a distinct `noise-relay` transport. The room relay makes the
+browser server-reachable while Noise keeps the DM encrypted end to end,
+including when a native rooms-peer introduces the browser.
 
 ## Other ways to run it
 
@@ -224,8 +177,8 @@ zig build rooms-web -Dviz
 The endpoint refuses any socket that does not present that capability, reader
 and writer alike; the sturdyref carries it, and the same swiss number prints as
 a `ROOMS-VIZ` line beside the other operator capabilities. A browser tab
-publishes its own sessions only while it holds that swiss — the "Protocol
-visualizer" toggle in Settings under Advanced.
+publishes its own sessions only while it holds that swiss, from the Protocol
+visualizer toggle in Settings under Advanced.
 
 Start the viewer with `cd apps/ocapnviz && bash dev.sh`. More detail is in
 [Developing and operating Rooms](developing.md).
@@ -242,7 +195,14 @@ and also needs Cargo. A separate
 `zig build demo-rooms-dm-iroh-discovery` run exercises public n0 discovery; it
 needs the public internet, so it is opt-in.
 
-For a terminal conversation, start the server:
+For a terminal conversation over iroh, the same encrypted path as the browser:
+
+```sh
+pancake app rooms-peer
+```
+
+[`docs/cli.md`](../../docs/cli.md) has the flags. The Deno client over loopback
+TCP is the cleartext sibling of `rooms-web-tcp`:
 
 ```sh
 deno run --allow-ffi --allow-read --allow-net \
@@ -258,9 +218,8 @@ deno run --allow-ffi --allow-read --allow-net \
 
 The interactive client supports `/list`, `/open`, `/enter`, and `/leave`.
 
-A room is not limited to pancake peers. A
-[Spritely Goblins](https://spritely.institute/goblins/) vat can sit in the same
-room and chat, on its own wire profile:
+A [Spritely Goblins](https://spritely.institute/goblins/) vat can sit in the
+same room and chat, on its own wire profile:
 
 ```sh
 racket -y conformance/goblins-peer/racket/rooms-chat.rkt \

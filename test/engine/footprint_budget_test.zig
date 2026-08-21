@@ -106,7 +106,7 @@ test "a warmed session holds its per-connection footprint budget" {
 test "a burst-drained session releases its burst queue capacity back under the warmed budget" {
     // One chatty chunk must not pin its burst capacity for the connection's
     // life: the engine queues retain steady capacity on drain-reset but *free*
-    // anything above their steady bound (`Queue.steady_queue_bytes`), so a
+    // anything above their steady bound (`peer.queue.steady_retain_bytes`), so a
     // peer that has weathered a burst settles back to warmed size. Kilobytes
     // pinned per queue would be gigabytes at the 500k destination.
     const backing = std.testing.allocator;

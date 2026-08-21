@@ -1,9 +1,10 @@
 """Internal: the ctypes ABI value and option projection.
 
 Marshals the value vocabulary to and from the C ABI ``_Argument`` / ``_Reference``
-structs: ``_arg_to_c`` / ``_args_to_c`` / ``_ref_to_c`` on the way out (pinning
-each backing buffer on a caller-supplied ``keepalive`` list for the duration of
-the synchronous C call), ``_arg_from_c`` / ``_ref_from_c`` on the way back.
+structs: ``_arg_to_c`` / ``_args_to_c`` / ``_ref_to_c`` on the way out
+(retaining each borrowed byte owner on a caller-supplied ``keepalive`` list for
+the duration of the synchronous C call), ``_arg_from_c`` / ``_ref_from_c`` on
+the way back.
 This module does not encode or decode CapTP frames; Zig owns both wire codecs
 and every protocol decision. Re-exported value types come from :mod:`pancake`.
 """
@@ -14,7 +15,7 @@ import ctypes
 
 from . import _constants as _abi
 from ._errors import PancakeError
-from ._ffi_ocapn import _Argument, _Reference
+from ._ffi_ocapn import _Argument, _Reference, _borrowed_byte_ptr
 from ._value import Argument, ErrorValue, Keyword, Ref, Set, Struct, Symbol, Tagged, _ref_from_id
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
@@ -39,6 +40,39 @@ _ARG_BIG_INTEGER = _abi.ARG_BIG_INTEGER
 _ARG_STRUCT = _abi.ARG_STRUCT
 _ARG_ERROR = _abi.ARG_ERROR
 _FEATURE_FULL = _abi.FEATURE_FULL
+
+
+def _codec_name(codec: int) -> str:
+    if codec == _abi.CODEC_SYRUP:
+        return "syrup"
+    if codec == _abi.CODEC_CAPNP:
+        return "capnp"
+    raise RuntimeError(f"pancake ABI generated unknown default codec {codec!r}")
+
+
+def _captp_version_name(version: int) -> str:
+    if version == _abi.CAPTP_V1_0:
+        return "v1_0"
+    if version == _abi.CAPTP_NEXT:
+        return "next"
+    raise RuntimeError(
+        f"pancake ABI generated unknown default CapTP version {version!r}"
+    )
+
+
+def _feature_name(features: int):
+    if features == _abi.FEATURE_FULL:
+        return "full"
+    if features == _abi.FEATURE_BASELINE:
+        return "baseline"
+    if features == _abi.FEATURE_MINIMUM:
+        return "minimum"
+    return features
+
+
+_DEFAULT_CODEC = _codec_name(_abi.DEFAULT_CODEC)
+_DEFAULT_CAPTP_VERSION = _captp_version_name(_abi.DEFAULT_CAPTP_VERSION)
+_DEFAULT_FEATURES = _feature_name(_abi.DEFAULT_FEATURES)
 
 
 def _captp_version_id(version: str) -> int:
@@ -130,11 +164,8 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
         _set_bytes(a, _ARG_TAGGED, value.tag.encode(), keepalive)
         a.items, a.items_len = _args_to_c(list(value.value), keepalive)
     elif isinstance(value, Struct):
-        flat: list[Argument] = []
-        for key, field in value.entries:
-            flat.extend((key, field))
         a.kind = _ARG_STRUCT
-        a.items, a.items_len = _args_to_c(flat, keepalive)
+        a.items, a.items_len = _struct_entries_to_c(value.entries, keepalive)
     elif isinstance(value, Set):  # before list
         a.kind = _ARG_SET
         a.items, a.items_len = _args_to_c(list(value), keepalive)
@@ -147,18 +178,38 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
 
 
 def _set_bytes(a: _Argument, kind: int, data: bytes, keepalive: list) -> None:
-    buf = ctypes.create_string_buffer(data, len(data))
-    keepalive.append(buf)
+    owner, ptr = _borrowed_byte_ptr(data)
+    keepalive.append(owner)
     a.kind = kind
-    a.bytes = ctypes.cast(buf, ctypes.c_void_p)
+    a.bytes = ptr
     a.bytes_len = len(data)
 
 
 def _args_to_c(args: list, keepalive: list):
     n = len(args)
-    arr = (_Argument * n)(*[_arg_to_c(v, keepalive) for v in args])
+    if n == 0:
+        return (None, 0)
+    arr = (_Argument * n)()
+    for i, value in enumerate(args):
+        arr[i] = _arg_to_c(value, keepalive)
     keepalive.append(arr)
-    return (arr if n else None, n)
+    return (arr, n)
+
+
+def _struct_entries_to_c(entries: list[tuple[str, Argument]], keepalive: list):
+    n = len(entries) * 2
+    if n == 0:
+        return (None, 0)
+    arr = (_Argument * n)()
+    for i, (key, value) in enumerate(entries):
+        if not isinstance(key, str) or isinstance(key, (Symbol, Keyword)):
+            raise PancakeError(_ERR_UNSUPPORTED_VALUE, "Struct entries must be String/value pairs")
+        key_arg = _Argument()
+        _set_bytes(key_arg, _ARG_STRING, key.encode(), keepalive)
+        arr[i * 2] = key_arg
+        arr[i * 2 + 1] = _arg_to_c(value, keepalive)
+    keepalive.append(arr)
+    return (arr, n)
 
 
 def _ref_from_c(r: _Reference) -> Ref:
@@ -210,17 +261,15 @@ def _arg_from_c(a: _Argument) -> Argument:
         magnitude = int(_bytes_from_c(a))
         return -magnitude if a.boolean != 0 else magnitude
     if a.kind == _ARG_STRUCT:
-        flat: list[Argument] = [
-            _arg_from_c(a.items[i]) for i in range(a.items_len)
-        ]
-        if len(flat) % 2:
+        if a.items_len % 2:
             raise PancakeError(_ERR_INTERNAL, "pancake ABI returned an odd Struct item count")
         entries: list[tuple[str, Argument]] = []
-        for i in range(0, len(flat), 2):
-            key = flat[i]
-            if not isinstance(key, str) or isinstance(key, (Symbol, Keyword)):
+        for i in range(0, a.items_len, 2):
+            key_arg = a.items[i]
+            if key_arg.kind != _ARG_STRING:
                 raise PancakeError(_ERR_INTERNAL, "pancake ABI returned a non-String Struct key")
-            entries.append((key, flat[i + 1]))
+            key = _bytes_from_c(key_arg).decode(errors="replace")
+            entries.append((key, _arg_from_c(a.items[i + 1])))
         return Struct(entries)
     raise PancakeError(
         _ERR_INTERNAL,

@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const pancakeExecutable = common.pancakeExecutable;
 
@@ -42,7 +43,7 @@ pub fn register(
         .{ .name = "pancake-dev-many-sessions-one-loop", .path = "examples/zig/many_sessions_one_loop.zig" },
     };
     for (zig_examples) |ex| {
-        const run = b.addRunArtifact(pancakeExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
+        const run = execution.addArtifact(b, .{ .deterministic = 30 }, pancakeExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
         examples_step.dependOn(&run.step);
     }
 
@@ -63,6 +64,6 @@ pub fn register(
         for (ex.libs) |lib| c_mod.linkLibrary(lib);
         c_mod.link_libc = true;
         const c_exe = b.addExecutable(.{ .name = ex.name, .root_module = c_mod });
-        examples_step.dependOn(&b.addRunArtifact(c_exe).step);
+        examples_step.dependOn(&execution.addArtifact(b, .{ .deterministic = 30 }, c_exe).step);
     }
 }

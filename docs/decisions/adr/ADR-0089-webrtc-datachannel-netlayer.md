@@ -3,7 +3,7 @@ id: ADR-0089
 status: accepted
 date: 2026-07-21
 tags: [transport, webrtc, browser, signaling, sidecar, handoff]
-decision: "pancake gains a `webrtc` transport: a reliable, ordered WebRTC DataChannel that carries a keyed OCapN session byte-for-byte between two peers, at least one of which is a browser. The transport is a native Rust sidecar over the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig netlayer resident over its C ABI, a companion archive `libpancake_net_transport_webrtc` (ADR-0059), and a browser `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the SDP offer/answer and ICE candidates, is exchanged through an OCapN capability rather than a bespoke signaling server."
+decision: "pancake gains a `webrtc` transport: a reliable, ordered WebRTC DataChannel that carries one bare OCapN codec frame per DataChannel message between two peers, at least one of which is a browser. The transport is a native Rust sidecar over the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig netlayer resident over its C ABI, a companion archive `libpancake_net_transport_webrtc` (ADR-0059), and a browser `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the SDP offer/answer and ICE candidates, is exchanged through an OCapN capability rather than a bespoke signaling server."
 supersedes: []
 superseded_by: []
 amends: []
@@ -30,7 +30,7 @@ amended_by: [ADR-0110]
 ## Decision
 
 pancake gains a `webrtc` transport: a reliable, ordered WebRTC
-DataChannel that carries a keyed OCapN session byte-for-byte between two peers,
+DataChannel that carries one bare OCapN codec frame per message between two peers,
 at least one of which is a browser. The transport is a native Rust sidecar over
 the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig
 netlayer resident over its C ABI, a companion archive
@@ -84,10 +84,9 @@ piece is classified against the layer it lives in.
   build steps need cargo on PATH, the same sibling-step posture as the Rust
   dogfood. One endpoint owns a two-worker Tokio runtime and readiness fd shared
   by all of its peers. Peer creation and signaling submissions are synchronous
-  control operations. Once submitted, channel establishment, candidates, byte
+  control operations. Once submitted, channel establishment, candidates, packet
   I/O, and closure surface as stable peer-id readiness events with non-blocking
-  try-I/O, so one reactor can serve many DataChannels. The private blocking byte
-  calls exist only for the native `BlockingSession` adapter. Readiness uses a
+  try-I/O, so one reactor can serve many DataChannels. Readiness uses a
   coalescing self-pipe: `WouldBlock` is success because a full pipe is already
   poll-readable; every other write or drain fault is retained and terminalizes
   the backend rather than disappearing. That one `nudge` operation serves both
@@ -98,9 +97,8 @@ piece is classified against the layer it lives in.
   must resolve identically on every machine.
 
 - **Zig resident (`src/net/transport/webrtc.zig`).** One resident owns the
-  sidecar endpoint and presents an established peer either as readiness-driven
-  try-I/O or as the `net.Connection` contract (ADR-0043) for the explicit
-  blocking tier. It is compiled as its own
+  sidecar endpoint and presents established peers through readiness-driven
+  packet I/O. It is compiled as its own
   module outside the `pancake` root namespace, so its externs resolve only when
   the staticlib links, and a plain `zig build check` type-checks it as an
   object without cargo. Its completion backend accepts answers, candidates, and
@@ -121,10 +119,10 @@ piece is classified against the layer it lives in.
 - **Browser arm (`bindings/ts/webrtc`).** A new `@pancake/webrtc` package holds
   the browser's `RTCPeerConnection`/`RTCDataChannel` half, the peer of the
   native sidecar. It composes with the browser binding (ADR-0070): the wasm Host
-  runs the keyed session, and this arm provides the byte duplex the session runs
-  over, the same seam `@pancake/web`'s WebSocket channel fills for the relay
-  path. Two browsers each run this arm and speak directly; a browser and a
-  native peer each run their own half.
+  runs the keyed session, and this arm provides the packet channel the session
+  runs over, the same Host seam `@pancake/web`'s WebSocket channel fills for
+  the relay path. Two browsers each run this arm and speak directly; a browser
+  and a native peer each run their own half.
 
 The DataChannel never parses a frame. The keyed CapTP session runs end to end on
 top of it, exactly as ADR-0086's relay leg carries opaque bytes. This is the
@@ -275,9 +273,18 @@ can dial, and a relay classifying targets refuses the shape outright.
 
 ## STUN/TURN posture: direct where possible, relayed only when it cannot be
 
-ICE gathers three kinds of candidate, and the posture mirrors iroh's explicit
-reachability choice: nothing infrastructural is on by default, and a relay is a
-fallback, never the steady path.
+ICE gathers three kinds of candidate, and the transport posture mirrors iroh's
+explicit reachability choice: the `@pancake/webrtc` connector adds no
+infrastructure unless its embedding names some, and a relay is a fallback,
+never the steady path. The Rooms application is an embedding with a public
+reachability goal: its server publishes Cloudflare STUN by default, while an
+explicit empty `PANCAKE_ROOMS_ICE_SERVERS` restores host candidates alone and a
+deployment-owned list replaces the default. A deployment may additionally keep
+an HTTPS TURN-credential issuer token on the Rooms server; `/ice` then mints
+bounded short-lived credentials for each browser connection without exposing
+that long-lived token. The native companion projects the same provider-neutral
+ICE facts through fixed C records: URLs plus optional username/password
+credentials. Credential APIs, expiry, and refresh remain embedding policy.
 
 - **Host candidates** are a peer's own interface addresses. On loopback and on a
   LAN, two peers reach each other on host candidates alone, with no STUN and no
@@ -406,10 +413,11 @@ phase gated before the next.
 
 ## Scope (what this does not decide)
 
-- **STUN/TURN server operation.** pancake defines the posture (direct where
-  possible, STUN for srflx, TURN as fallback) but ships no STUN or TURN server
-  and hard-codes no public one. A deployment configures its own, the same way an
-  iroh deployment opts into discovery.
+- **STUN/TURN server operation.** The transport core defines the posture
+  (direct where possible, STUN for srflx, TURN as fallback) but ships no STUN or
+  TURN server. Rooms is an embedding with a public STUN default and an optional
+  deployment-owned TURN credential issuer; another embedding configures its
+  own, the same way an iroh deployment opts into discovery.
 - **Signaling capability wire details.** The verb names, promise-based answer,
   and candidate-trickle framing in "The signaling capability: the phase-5 wire
   shape" are exercised by the in-tree signaling and mesh scenarios. Host
@@ -424,7 +432,7 @@ phase gated before the next.
   ICE/STUN/TURN work, and data-channel events from pancake's own loop instead of
   letting the Rust sidecar own the runtime and sockets. That is possible, but it
   is a different boundary. The current C ABI hands Zig an established
-  DataChannel-like byte peer plus signaling operations; a direct `rtc` resident
+  DataChannel-like packet peer plus signaling operations; a direct `rtc` resident
   would expose a packet-and-timer protocol driver, not the same transport
   archive. It should be a new ADR or amendment with scale and browser evidence,
   not a hidden dependency-upgrade side effect.

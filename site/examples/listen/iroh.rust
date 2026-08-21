@@ -1,7 +1,7 @@
 use pancake::iroh::{self, Reachability};
 use pancake::Argument;
 
-// Bind a key, not a place. Partners can dial this node id from anywhere.
+// This listener is named by its node id. Partners can dial it from anywhere.
 // Cargo.toml: pancake = { …, features = ["iroh"] }
 let server = iroh::listen(
     iroh::Config::new(Reachability::Discovery),

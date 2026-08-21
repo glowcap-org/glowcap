@@ -1,6 +1,6 @@
 //! Documented inventories held to the code: the resident roster, the
 //! stability page's gate list and evidence parity, the community-review CI
-//! matrix, and the fuzz corpus seeds.
+//! matrix, first-read provenance (once, on the landing), and the fuzz corpus seeds.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -337,13 +337,9 @@ pub fn checkFuzzCorpusSeeds(
     }
 }
 
-/// Refuse a sentence too long to read aloud, on the pages a person reads.
-///
-/// Fenced code, tables, and link-heavy lines are skipped: a table row is not
-/// prose, and a long URL is not a long sentence.
-/// The site's stability page repeats docs/stability.md's evidence table.
-/// Hold the two tables identical so the public copy cannot drift from the
-/// canonical one.
+/// `docs/stability.md` owns the evidence table. The site page points at it
+/// and must not paste a second copy: identical tables drift, and a stranger
+/// evaluating on the website does not need a CI changelog.
 pub fn checkStabilityEvidenceParity(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -352,6 +348,7 @@ pub fn checkStabilityEvidenceParity(
 ) !void {
     const doc_path = "docs/stability.md";
     const site_path = "site/content/stability.smd";
+    const table_header = "| Area | Evidence | What remains |";
     const doc = root.readFileAlloc(io, doc_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ doc_path, @errorName(err) });
         return;
@@ -363,55 +360,98 @@ pub fn checkStabilityEvidenceParity(
     };
     defer gpa.free(site);
 
-    var doc_rows: std.ArrayList([]const u8) = .empty;
-    defer doc_rows.deinit(gpa);
-    try collectEvidenceRows(gpa, doc, &doc_rows);
-    var site_rows: std.ArrayList([]const u8) = .empty;
-    defer site_rows.deinit(gpa);
-    try collectEvidenceRows(gpa, site, &site_rows);
-
-    if (doc_rows.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no stability evidence table found for the parity check", .{doc_path});
-        return;
+    if (std.mem.indexOf(u8, doc, table_header) == null) {
+        try appendViolation(gpa, violations, "{s}: missing the stability evidence table this check treats as canonical", .{doc_path});
     }
-    if (site_rows.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no stability evidence table found for the parity check", .{site_path});
-        return;
+    if (std.mem.indexOf(u8, site, table_header) != null) {
+        try appendViolation(gpa, violations, "{s}: pasted the evidence table; point at {s} instead (doc-voice: one owner per status claim)", .{ site_path, doc_path });
     }
-    const shared = @min(doc_rows.items.len, site_rows.items.len);
-    var i: usize = 0;
-    while (i < shared) : (i += 1) {
-        if (!std.mem.eql(u8, doc_rows.items[i], site_rows.items[i])) {
-            try appendViolation(gpa, violations, "stability evidence tables differ at row {d}: docs has `{s}`, site has `{s}`", .{ i + 1, doc_rows.items[i], site_rows.items[i] });
-            return;
-        }
-    }
-    if (doc_rows.items.len != site_rows.items.len) {
-        try appendViolation(gpa, violations, "stability evidence tables differ in length: {s} has {d} rows, {s} has {d}", .{ doc_path, doc_rows.items.len, site_path, site_rows.items.len });
+    if (std.mem.indexOf(u8, site, "docs/stability.md") == null) {
+        try appendViolation(gpa, violations, "{s}: must link {s}, the page that owns the evidence matrix", .{ site_path, doc_path });
     }
 }
 
-/// Collect the rows of the first stability evidence table in `contents`,
-/// excluding the header and its separator line.
-fn collectEvidenceRows(
+/// First-read landings disclose agent provenance once, before native or scale
+/// marketing. Inventory pages link the landing instead of restamping
+/// `PROVENANCE.md`. `zig build source-check` holds both.
+pub fn checkFirstReadProvenance(
+    io: std.Io,
     gpa: std.mem.Allocator,
-    contents: []const u8,
-    rows: *std.ArrayList([]const u8),
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
 ) !void {
-    var in_table = false;
-    var past_separator = false;
-    var lines = std.mem.splitScalar(u8, contents, '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trim(u8, raw, " \t\r");
-        if (!in_table) {
-            if (std.mem.eql(u8, line, "| Area | Evidence | What remains |")) in_table = true;
+    const landings = [_][]const u8{
+        "README.md",
+        "site/content/index.smd",
+    };
+    for (landings) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for first-read provenance check with {s}", .{ path, @errorName(err) });
             continue;
-        }
-        if (!past_separator) {
-            past_separator = true;
+        };
+        defer gpa.free(contents);
+
+        const lower = try gpa.alloc(u8, contents.len);
+        defer gpa.free(lower);
+        _ = std.ascii.lowerString(lower, contents);
+
+        const provenance_at = std.mem.indexOf(u8, lower, "provenance.md") orelse {
+            try appendViolation(gpa, violations, "{s}: missing `PROVENANCE.md`; the landing must disclose agent provenance before a reviewer infers it from trailers", .{path});
             continue;
+        };
+
+        if (std.mem.indexOf(u8, lower, "iroh")) |iroh_at| {
+            if (iroh_at < provenance_at) {
+                try appendViolation(gpa, violations, "{s}: `iroh` appears before `PROVENANCE.md`; disclose agent provenance before native-path marketing", .{path});
+            }
         }
-        if (!std.mem.startsWith(u8, line, "|")) return;
-        try rows.append(gpa, line);
+        if (std.mem.indexOf(u8, lower, "500,000")) |scale_at| {
+            if (scale_at < provenance_at) {
+                try appendViolation(gpa, violations, "{s}: `500,000` appears before `PROVENANCE.md`; disclose agent provenance before scale marketing", .{path});
+            }
+        }
+    }
+
+    const no_stamp = [_][]const u8{
+        "docs/ladder.md",
+        "docs/shipped.md",
+        "site/content/project.smd",
+    };
+    for (no_stamp) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for provenance-stamp check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        const lower = try gpa.alloc(u8, contents.len);
+        defer gpa.free(lower);
+        _ = std.ascii.lowerString(lower, contents);
+        if (std.mem.indexOf(u8, lower, "provenance.md") != null) {
+            try appendViolation(gpa, violations, "{s}: restamps `PROVENANCE.md`; the landing owns that disclosure, this page does not", .{path});
+        }
+    }
+
+    const readme = root.readFileAlloc(io, "README.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "README.md: failed to read for outside-claim check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(readme);
+    const readme_lower = try gpa.alloc(u8, readme.len);
+    defer gpa.free(readme_lower);
+    _ = std.ascii.lowerString(readme_lower, readme);
+
+    if (std.mem.indexOf(u8, readme_lower, "captp 1.0") == null) {
+        try appendViolation(gpa, violations, "README.md: missing `CapTP 1.0`; the outside claim is signed CapTP 1.0 over Syrup", .{});
+    }
+    if (std.mem.indexOf(u8, readme_lower, "testing adapter") == null and
+        std.mem.indexOf(u8, readme_lower, "testing transport") == null)
+    {
+        try appendViolation(gpa, violations, "README.md: missing testing-transport wording; recurring Goblins evidence is cleartext `tcp`", .{});
+    }
+
+    const interop_at = std.mem.indexOf(u8, readme_lower, "goblins-interop");
+    const iroh_step_at = std.mem.indexOf(u8, readme_lower, "goblins-iroh");
+    if (interop_at != null and iroh_step_at != null and iroh_step_at.? < interop_at.?) {
+        try appendViolation(gpa, violations, "README.md: `goblins-iroh` appears before `goblins-interop`; recurring Goblins evidence is the testing-TCP step", .{});
     }
 }

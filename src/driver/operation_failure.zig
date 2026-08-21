@@ -185,7 +185,9 @@ pub const OperationFailure = struct {
             error.Canceled,
             => .closed,
 
-            error.ProtocolAbort => .session,
+            error.ProtocolAbort,
+            error.OutboundAnswerSpaceExhausted,
+            => .session,
             error.TruncatedFrame,
             error.MalformedFrame,
             => .malformed,

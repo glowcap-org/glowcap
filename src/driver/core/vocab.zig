@@ -132,6 +132,23 @@ pub const Error = error{
     SealedChannelRequiresHost,
 };
 
+/// The ordinary finite budget for a CapTP handshake after a byte channel opens.
+/// Public surfaces may expose it as a default, while `SessionOptions` still
+/// requires callers to spell their wait policy.
+pub const default_handshake_timeout_ms: i32 = 10_000;
+pub const default_handshake_budget: Budget = .{ .ms = default_handshake_timeout_ms };
+
+/// Shared discovery-posture dial defaults (pkarr / n0 DNS propagation).
+/// Attempts include the first dial; sleeps happen only between transient
+/// failures. `driver.DialRetry` owns the retry executor above CapTP.
+pub const discovery_retry_ms: u64 = 3_000;
+pub const discovery_max_attempts: u32 = 24;
+
+/// Bound on one synchronous local `Forward` chase in a Host turn or binding
+/// trampoline. The wire path defers each hop onto a fresh turn; local proxy
+/// composition needs a finite loop guard.
+pub const max_local_forward_hops: usize = 256;
+
 /// How long a CapTP wait may take. It lives here beside `HandshakeTimedOut`
 /// and `WaitTimedOut`, the two ways a bounded budget ends; the blocking
 /// driver holds the fields, and the byte-fed host tier has no blocking wait

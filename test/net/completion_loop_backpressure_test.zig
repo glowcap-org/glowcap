@@ -27,6 +27,89 @@ const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
 
+test "completion loop supported surface and footprint stay exact" {
+    const LoopType = completion.Loop(FakeBackend, no_dial.Unsupported);
+    try std.testing.expectEqual(@as(usize, 880), @sizeOf(LoopType));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(LoopType));
+
+    const expected_names = .{
+        "initWithBackend",
+        "init",
+        "initWithBackendOptions",
+        "listenerAddress",
+        "port",
+        "deinit",
+        "run",
+        "runUntil",
+        "closeAndDrain",
+        "dialLocator",
+        "dialLocatorReserved",
+        "armOutbound",
+        "verifiedChannelKey",
+        "closeSlot",
+        "armWake",
+    };
+    try std.testing.expectEqual(
+        expected_names.len,
+        @typeInfo(LoopType).@"struct".decl_names.len,
+    );
+    inline for (expected_names) |name| try std.testing.expect(@hasDecl(LoopType, name));
+
+    comptime {
+        expectSignature(@TypeOf(LoopType.initWithBackend), &.{
+            std.mem.Allocator,
+            FakeBackend,
+            completion.MakePeer,
+            ?*anyopaque,
+            completion.Options,
+        }, LoopType);
+        expectSignature(@TypeOf(LoopType.init), &.{
+            std.mem.Allocator,
+            completion.MakePeer,
+            ?*anyopaque,
+            completion.Options,
+        }, LoopType);
+        expectSignature(@TypeOf(LoopType.initWithBackendOptions), &.{
+            std.mem.Allocator,
+            completion.BackendOptions,
+            completion.MakePeer,
+            ?*anyopaque,
+            completion.Options,
+        }, LoopType);
+        expectSignature(@TypeOf(LoopType.listenerAddress), &.{*const LoopType}, ?FakeBackend.ListenerAddress);
+        expectSignature(@TypeOf(LoopType.port), &.{*const LoopType}, ?u16);
+        expectSignature(@TypeOf(LoopType.deinit), &.{*LoopType}, void);
+        expectSignature(@TypeOf(LoopType.run), &.{ *LoopType, completion.Stop }, void);
+        expectSignature(@TypeOf(LoopType.runUntil), &.{ *LoopType, *const std.atomic.Value(bool), i32 }, void);
+        expectSignature(@TypeOf(LoopType.closeAndDrain), &.{*LoopType}, void);
+        expectSignature(@TypeOf(LoopType.dialLocator), &.{ *LoopType, model.PeerLocator }, usize);
+        expectSignature(@TypeOf(LoopType.dialLocatorReserved), &.{ *LoopType, model.PeerLocator }, usize);
+        expectSignature(@TypeOf(LoopType.armOutbound), &.{ *LoopType, usize }, void);
+        expectSignature(@TypeOf(LoopType.verifiedChannelKey), &.{ *LoopType, usize }, ?[32]u8);
+        expectSignature(@TypeOf(LoopType.closeSlot), &.{ *LoopType, usize }, void);
+        expectSignature(@TypeOf(LoopType.armWake), &.{
+            *LoopType,
+            FakeBackend.Fd,
+            ?*anyopaque,
+            *const fn (?*anyopaque) void,
+        }, void);
+    }
+}
+
+fn expectSignature(comptime Function: type, comptime Params: []const type, comptime Payload: type) void {
+    const info = @typeInfo(Function).@"fn";
+    if (info.param_types.len != Params.len) @compileError("completion Loop method arity drifted");
+    inline for (Params, 0..) |expected, index| {
+        if (info.param_types[index] != expected) @compileError("completion Loop parameter type drifted");
+    }
+    const return_type = info.return_type.?;
+    const payload = switch (@typeInfo(return_type)) {
+        .error_union => |error_union| error_union.payload,
+        else => return_type,
+    };
+    if (payload != Payload) @compileError("completion Loop return shape drifted");
+}
+
 test "completion loop: accept completion preserves its typed failure" {
     FakeBackend.chunks = &.{};
     FakeBackend.first_accept_failure = error.TestAcceptFailure;
@@ -166,6 +249,10 @@ const OneBadPartnerBackend = struct {
 
     pub fn applyKeepalive(_: *OneBadPartnerBackend, _: Fd, _: completion.Keepalive) !void {
         return error.OperationUnsupported;
+    }
+
+    pub fn wireFraming(_: *OneBadPartnerBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
     }
 
     const refused_fd: Fd = 100;

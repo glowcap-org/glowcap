@@ -1,10 +1,7 @@
-//! The hermetic correctness gate and its members: the `check` aggregate,
-//! the unit and oracle suites, mutation-fuzz wiring, the structure gates
-//! (arch, toolchain, source), the CI deadline wrapper, the consumer and
-//! cross-compile checks, and the browser binding's wasm32 Host module with
-//! its deno-side proofs. Registered as one subject the root composes; the
-//! returned handles are the gate itself, the shared test filter, and the
-//! wasm install step every browser-driving sibling depends on.
+//! The in-tree correctness gate: unit and oracle suites, structure checks,
+//! cross-compiles, perf tripwires, and the browser Host wasm artifact.
+//! The root build composes this module and receives the `check` step, the test
+//! filter, and the wasm install step used by browser-facing siblings.
 
 const std = @import("std");
 const root = @import("../../build.zig");
@@ -12,12 +9,37 @@ const arch_check = @import("../check/arch_check.zig");
 const source_check = @import("../check/source_check.zig");
 const toolchain_check = @import("../check/toolchain_check.zig");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 const transportAbiModule = common.transportAbiModule;
 const layer_table = root.layer_table;
 const layerIndex = root.layerIndex;
 const graphFromTable = root.graphFromTable;
-const check_runtimes = root.check_runtimes;
+/// What `zig build check` requires on PATH besides Zig. A row raises the floor
+/// for every contributor, so the graph checker below holds this inventory to
+/// the gate's actual process dependencies.
+const check_runtimes = [_]toolchain_check.Runtime{
+    .{
+        .program = "python3",
+        .scripts = &.{"tools/run-with-timeout.py"},
+        .why = "deterministic subprocesses use the shared process-group deadline wrapper",
+    },
+    .{
+        .program = "bash",
+        .scripts = &.{
+            ".devcontainer/test/env-sync.sh",
+            ".devcontainer/test/host-invariants.sh",
+            "tools/check/ocapnviz-test.sh",
+            "tools/c-abi/c-abi-extract-matrix.sh",
+            "tools/check/worktree-integration-test.sh",
+        },
+        .why = "devcontainer, worktree, C-ABI extract, and visualizer harnesses are shell-owned",
+    },
+    .{
+        .program = "deno",
+        .why = "checked TypeScript examples and site surfaces catch binding API drift",
+    },
+};
 
 pub const Context = struct {
     b: *std.Build,
@@ -83,7 +105,7 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
 /// hand-kept name list that silently over- or under-includes as edges change.
 fn wasmGraphMask() [layer_table.len]bool {
     @setEvalBranchQuota(20000);
-    var reached = [_]bool{false} ** layer_table.len;
+    var reached: [layer_table.len]bool = @splat(false);
     for (layer_table[layerIndex("c_abi_wasm")].imports) |name| reached[layerIndex(name)] = true;
     // Fixpoint: pull in every import of an already-reached row. Edges only point
     // at earlier rows, so `layer_table.len` forward passes reach the fixpoint.
@@ -94,7 +116,7 @@ fn wasmGraphMask() [layer_table.len]bool {
             for (spec.imports) |name| reached[layerIndex(name)] = true;
         }
     }
-    var mask = [_]bool{false} ** layer_table.len;
+    var mask: [layer_table.len]bool = @splat(false);
     for (layer_table, 0..) |spec, i| mask[i] = reached[i] and spec.graph;
     return mask;
 }
@@ -186,9 +208,15 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     tests_mod.addImport("pancake", lib_mod);
+    // Completion deadline arithmetic is implementation authority, not a
+    // supported `net` namespace. Focused tests import that leaf directly so
+    // evidence never forces a consumer-root re-export.
     // The C ABI layers and `oracle` are not on the public `pancake` namespace
     // (a Zig consumer has no use for them), so their test suites import the
     // layer modules directly.
+    // Renderer invariant tests use the Syrup implementation barrel directly;
+    // importing a child file as a second module violates Zig's file-identity rule.
+    tests_mod.addImport("syrup", host_mods[layerIndex("syrup")]);
     tests_mod.addImport("c_abi_shared", host_mods[layerIndex("c_abi_shared")]);
     tests_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
     // The transport C ABI archives are separate modules (ADR-0059); their
@@ -203,9 +231,16 @@ pub fn register(ctx: Context) Registered {
     // The persistent-collections leaf module (ADR-0061) is not on the public
     // `pancake` namespace, so its direct test imports the layer module.
     tests_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
-    // The header-parity test `@cImport`s the generated headers to prove they
+    // The header-parity test imports translated generated headers to prove they
     // agree with the Zig C ABI sources (sizes, offsets, constants), so the two
     // can never silently drift.
+    const c_headers = b.addTranslateC(.{
+        .root_source_file = b.path("test/c_abi/header_parity.c"),
+        .target = target,
+        .optimize = optimize,
+    });
+    c_headers.addIncludePath(b.path("include"));
+    tests_mod.addImport("c_headers", c_headers.createModule());
     tests_mod.addIncludePath(b.path("include"));
     tests_mod.link_libc = true;
     // `zig build test -Dtest-filter=<substring>` narrows the run to matching
@@ -216,7 +251,20 @@ pub fn register(ctx: Context) Registered {
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
     });
 
-    const run_tests = b.addRunArtifact(tests);
+    const run_tests = execution.addZigTest(b, tests, .{ .deterministic = 30 });
+    const completion_deadlines_tests_mod = b.createModule(.{
+        .root_source_file = b.path("test/net/completion_loop_deadlines_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const completion_deadlines_mod = b.createModule(.{
+        .root_source_file = b.path("src/net/completion/loop/connections/deadlines.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    completion_deadlines_tests_mod.addImport("completion_deadlines", completion_deadlines_mod);
+    const completion_deadlines_tests = b.addTest(.{ .root_module = completion_deadlines_tests_mod });
+    const run_completion_deadlines_tests = execution.addZigTest(b, completion_deadlines_tests, .{ .deterministic = 3 });
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
     // Deliberately outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
@@ -241,21 +289,9 @@ pub fn register(ctx: Context) Registered {
         // the filter here it silently fuzzed the same target every time and
         // reported "no findings" for all the others.
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
-        // Zig 0.16's own test runner does not compile in fuzz mode: its fuzz
-        // path hands an error-return trace to `std.debug.writeStackTrace`,
-        // which takes an unrelated struct of the same name from another
-        // namespace. `tools/fuzz/test_runner.zig` is that file with the one
-        // call renamed to `writeErrorReturnTrace`, the neighbouring function
-        // that takes exactly the type in hand.
-        //
-        // The copy is kept byte-identical to upstream apart from that rename,
-        // which is what lets `source-check` compare the two exactly and tell you
-        // to delete the copy the day Zig fixes it. Only this artifact uses it;
-        // `zig build test` runs on the stock runner.
-        .test_runner = .{ .path = b.path("tools/fuzz/test_runner.zig"), .mode = .server },
     });
     const fuzz_run_step = b.step("fuzz-run", "Fuzz worker: `zig build fuzz` drives this, or add --fuzz yourself for Zig's coverage UI");
-    fuzz_run_step.dependOn(&b.addRunArtifact(fuzz_tests).step);
+    fuzz_run_step.dependOn(&execution.addZigTest(b, fuzz_tests, .search).step);
 
     const fuzz_budget = b.option([]const u8, "fuzz-runs", "How long `zig build fuzz` searches each target (default 500K; accepts K, M, G suffixes)") orelse "500K";
     const fuzz_driver_exe = b.addExecutable(.{
@@ -266,7 +302,7 @@ pub fn register(ctx: Context) Registered {
             .optimize = .Debug,
         }),
     });
-    const fuzz_driver = b.addRunArtifact(fuzz_driver_exe);
+    const fuzz_driver = execution.addArtifact(b, .search, fuzz_driver_exe);
     fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}) });
     fuzz_driver.has_side_effects = true;
     b.step("fuzz", "Mutation-fuzz every hostile-input target (-Dfuzz-runs to change how long each one searches)")
@@ -274,20 +310,25 @@ pub fn register(ctx: Context) Registered {
 
     const test_step = b.step("test", "Run the unit and scenario test suite (test/all_test.zig)");
     test_step.dependOn(&run_tests.step);
+    test_step.dependOn(&run_completion_deadlines_tests.step);
     check_step.dependOn(&run_tests.step);
+    check_step.dependOn(&run_completion_deadlines_tests.step);
 
     // ADR-0108's focused completion-tier proof. The ordinary test aggregate
     // carries this file too; the named step keeps the transport package's loop
     // evidence directly runnable while iterating or reviewing the ADR.
     const onion_loop_tests_mod = b.createModule(.{
-        .root_source_file = b.path("test/net/onion_completion_test.zig"),
+        // The wrapper roots the module at `test/`, so the scenario can share
+        // the ordinary aggregate's support imports without giving one file
+        // two Zig module identities.
+        .root_source_file = b.path("test/onion_loop_test.zig"),
         .target = target,
         .optimize = optimize,
     });
     onion_loop_tests_mod.addImport("pancake", lib_mod);
     const onion_loop_tests = b.addTest(.{ .root_module = onion_loop_tests_mod });
     const onion_loop_step = b.step("onion-loop", "Run the focused native OnionLoop completion tests");
-    onion_loop_step.dependOn(&b.addRunArtifact(onion_loop_tests).step);
+    onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .{ .deterministic = 3 }).step);
 
     const oracle_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/oracle_check.zig"),
@@ -301,7 +342,7 @@ pub fn register(ctx: Context) Registered {
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
-    const run_oracle_tests = b.addRunArtifact(oracle_tests);
+    const run_oracle_tests = execution.addZigTest(b, oracle_tests, .{ .deterministic = 3 });
     const oracle_check_step = b.step("oracle-check", "Run the protocol oracle: message-arm coverage, Syrup corpus parity, and whole-conversation scenario traces (test/oracle_check.zig)");
     oracle_check_step.dependOn(&run_oracle_tests.step);
     check_step.dependOn(&run_oracle_tests.step);
@@ -311,13 +352,6 @@ pub fn register(ctx: Context) Registered {
     const arch_check_step = b.step("arch-check", "Enforce the layer dependency DAG over src/");
     arch_check_step.dependOn(arch_check_step_inner);
     check_step.dependOn(arch_check_step);
-
-    // The walk reads `check_step`'s dependencies at make time, so members added
-    // anywhere below this line are still seen.
-    const toolchain_check_step_inner = toolchain_check.create(b, check_step, &check_runtimes);
-    const toolchain_check_step = b.step("toolchain-check", "Hold `zig build check` to its declared external runtimes");
-    toolchain_check_step.dependOn(toolchain_check_step_inner);
-    check_step.dependOn(toolchain_check_step);
 
     const source_check_step_inner = source_check.create(b);
 
@@ -330,15 +364,22 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
-    const run_source_check_tests = b.addRunArtifact(source_check_tests);
+    const run_source_check_tests = execution.addZigTest(b, source_check_tests, .{ .deterministic = 3 });
 
     const source_check_step = b.step("source-check", "Enforce cross-file source, generated, documentation, and scaffolding contracts");
     source_check_step.dependOn(source_check_step_inner);
     source_check_step.dependOn(&run_source_check_tests.step);
-    const devcontainer_contracts = b.addSystemCommand(&.{ "bash", ".devcontainer/check-env-sync.sh" });
+    const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
-    const worktree_integration_contracts = b.addSystemCommand(&.{ "bash", "tools/check/worktree-integration-test.sh" });
+    // The devcontainer's own behaviour tests: name grammars, checkout lookup,
+    // launcher refusals, and the tmux pane runtime. They build their fixtures
+    // in a temporary directory and need no container, so the directory that
+    // every contributor builds in answers to the gate like any other surface.
+    const devcontainer_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/host-invariants.sh" });
+    devcontainer_behaviour.has_side_effects = true;
+    source_check_step.dependOn(&devcontainer_behaviour.step);
+    const worktree_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/worktree-integration-test.sh" });
     worktree_integration_contracts.has_side_effects = true;
     source_check_step.dependOn(&worktree_integration_contracts.step);
     check_step.dependOn(source_check_step);
@@ -350,7 +391,7 @@ pub fn register(ctx: Context) Registered {
     // does not, and it spends seconds on real deadline waits — and `ci/gates.sh`
     // already runs it first, which is the right place: the wrapper has to be
     // proven before the sequence that runs under it.
-    const timeout_runner_test = b.addSystemCommand(&.{ "bash", "tools/run-with-timeout-test.sh" });
+    const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
     timeout_runner_test.has_side_effects = true;
     const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors");
     timeout_runner_step.dependOn(&timeout_runner_test.step);
@@ -377,16 +418,15 @@ pub fn register(ctx: Context) Registered {
     // a program against the public surface. It is the one claim in the tree
     // that every reader executes, so it gets a step rather than an assertion.
     const consumer_check_step = b.step("consumer-check", "Build a downstream package against the pancake module (the README's fetch/import path)");
-    const consumer_build = b.addSystemCommand(&.{
+    const consumer_build = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe,
         "build",
-        "--build-file",
-        b.pathFromRoot("tools/consumer/build.zig"),
         "--cache-dir",
-        b.pathFromRoot(".zig-cache"),
+        common.rootPath(b, ".zig-cache/consumer"),
         "--prefix",
-        b.pathFromRoot("zig-out/consumer"),
+        common.rootPath(b, "zig-out/consumer"),
     });
+    consumer_build.setCwd(b.path("tools/consumer"));
     consumer_build.setName("consumer-check");
     consumer_check_step.dependOn(&consumer_build.step);
     check_step.dependOn(consumer_check_step);
@@ -422,7 +462,7 @@ pub fn register(ctx: Context) Registered {
     // Hosts with distinct identities complete a keyed handshake over an in-memory
     // byte pipe, then the dialer refuses a wrong-peer sturdyref before output.
     // A sibling step (needs deno on PATH), not folded into the Zig-hermetic `check`.
-    const wasm_driver_test = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake_smoke.ts" });
+    const wasm_driver_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake_smoke.ts" });
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
@@ -433,7 +473,7 @@ pub fn register(ctx: Context) Registered {
     // instantiate the module, read the blob, prove it is well formed, and
     // cross-check each struct's field count against the `abi.ts` host mirror. A
     // sibling step (needs deno), not folded into the Zig-hermetic `check`.
-    const wasm_abi_layout_check = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "tools/wasm/abi_layout_check.ts" });
+    const wasm_abi_layout_check = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "tools/wasm/abi_layout_check.ts" });
     wasm_abi_layout_check.setCwd(b.path("."));
     wasm_abi_layout_check.has_side_effects = true;
     wasm_abi_layout_check.step.dependOn(&wasm_driver_install.step);
@@ -443,7 +483,7 @@ pub fn register(ctx: Context) Registered {
     // Product proof for the @pancake/web Wasm peer: keyed WebSocket call and
     // callback against a native host, then a native CLI cold-dial into that
     // browser-shaped Host over sealed noise-relay rendezvous. Needs the wasm
-    const web_peer_test = b.addSystemCommand(&.{
+    const web_peer_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                  "run", "--config", "deno.json", "--allow-all",
         "bindings/ts/web/test/web_peer_test.ts",
     });
@@ -462,7 +502,7 @@ pub fn register(ctx: Context) Registered {
     // and assert the import set is exactly that one, so an accidental extra
     // import or a rename fails the build. A sibling step (needs deno), not folded
     // into the Zig-hermetic `check`.
-    const wasm_import_check = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
+    const wasm_import_check = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
     wasm_import_check.setCwd(b.path("."));
     wasm_import_check.has_side_effects = true;
     wasm_import_check.step.dependOn(&wasm_driver_install.step);
@@ -474,4 +514,11 @@ pub fn register(ctx: Context) Registered {
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
     };
+}
+
+pub fn registerToolchainCheck(b: *std.Build, check_step: *std.Build.Step) void {
+    const toolchain_check_step_inner = toolchain_check.create(b, check_step, &check_runtimes);
+    const toolchain_check_step = b.step("toolchain-check", "Hold `zig build check` to its declared external runtimes");
+    toolchain_check_step.dependOn(toolchain_check_step_inner);
+    check_step.dependOn(toolchain_check_step);
 }

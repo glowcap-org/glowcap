@@ -14,8 +14,7 @@ const cw = @import("c_abi_net_transport_webrtc");
 
 const transport = "webrtc";
 const frame_cap: usize = 4096;
-const sdp_cap: usize = 64 * 1024;
-const candidate_cap: usize = 16 * 1024;
+const signal_cap: usize = cw.PANCAKE_WEBRTC_MAX_SIGNAL_BYTES;
 
 fn expectOk(rc: i32) !void {
     if (rc == cs.PANCAKE_OK) return;
@@ -122,7 +121,7 @@ fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.PancakeDriverLoop {
 fn newNetlayer() !?*cw.PancakeWebrtcNetlayer {
     const config = cw.PancakeWebrtcConfig{
         .ice_servers = null,
-        .ice_servers_len = 0,
+        .ice_server_count = 0,
         .include_loopback_candidates = 1,
         .worker_threads = 0,
     };
@@ -173,16 +172,15 @@ fn waitForOpen(
     answerer_netlayer: ?*cw.PancakeWebrtcNetlayer,
     answerer: ?*cw.PancakeWebrtcPeer,
 ) !void {
-    var offer: [sdp_cap]u8 = undefined;
-    var answer: [sdp_cap]u8 = undefined;
-    var candidate: [candidate_cap]u8 = undefined;
+    var offer: [signal_cap]u8 = undefined;
+    var answer_or_candidate: [signal_cap]u8 = undefined;
     var offer_len: usize = 0;
     var answer_len: usize = 0;
 
     try expectOk(cw.pancake_webrtc_peer_create_offer(offerer, &offer, offer.len, &offer_len));
     try expectOk(cw.pancake_webrtc_peer_set_remote_offer(answerer, &offer, offer_len));
-    try expectOk(cw.pancake_webrtc_peer_create_answer(answerer, &answer, answer.len, &answer_len));
-    try expectOk(cw.pancake_webrtc_peer_set_remote_answer(offerer, &answer, answer_len));
+    try expectOk(cw.pancake_webrtc_peer_create_answer(answerer, &answer_or_candidate, answer_or_candidate.len, &answer_len));
+    try expectOk(cw.pancake_webrtc_peer_set_remote_answer(offerer, &answer_or_candidate, answer_len));
 
     var fds = [_]std.posix.pollfd{
         .{ .fd = try readinessFd(offerer_netlayer), .events = std.posix.POLL.IN, .revents = 0 },
@@ -193,8 +191,8 @@ fn waitForOpen(
     while (round < 600) : (round += 1) {
         _ = try drainReady(offerer_netlayer, offerer);
         _ = try drainReady(answerer_netlayer, answerer);
-        try drainCandidates(offerer, answerer, &candidate);
-        try drainCandidates(answerer, offerer, &candidate);
+        try drainCandidates(offerer, answerer, &answer_or_candidate);
+        try drainCandidates(answerer, offerer, &answer_or_candidate);
 
         const offerer_open = cw.pancake_webrtc_peer_is_open(offerer);
         const answerer_open = cw.pancake_webrtc_peer_is_open(answerer);

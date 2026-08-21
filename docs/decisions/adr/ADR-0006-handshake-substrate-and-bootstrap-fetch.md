@@ -64,10 +64,12 @@ initiator halves: `prepareFetchSwissnum` allocates the resolver export plus
 outbound answer and builds the canonical `op:deliver` to the bootstrap object
 with `args = [fetch <swissnum>]` (adding the resolver-callback `resolve_me_desc`
 only on the Goblins V1.0 profile); `tryMatchFetchOutcome` recognizes both
-spec-permitted settlement forms: an `op:resolve` keyed on the answer and an
-`op:deliver` to the resolver export carrying `[fulfill|break, …]`: and hands
-unrelated traffic back for the caller to buffer. The adapter sends the prepared
-message and feeds inbound frames to the matcher.
+engine-local settlement shapes: a semantic `model.Message.resolve` keyed on the
+answer, used by in-process helpers and tests, and an `op:deliver` to the
+resolver export carrying `[fulfill|break, …]`; it hands unrelated traffic back
+for the caller to buffer. Profile-specific wire rules live in the codecs and
+session V1.0/next translation: next sends no wire `op:resolve` (ADR-0111). The
+adapter sends the prepared message and feeds inbound frames to the matcher.
 
 **Bootstrap fetch (responder).** Serving an inbound `'fetch` against the local
 bootstrap exporter is codec-neutral and splits the same way: a passive session
@@ -87,9 +89,10 @@ lookup plus engine-side recognition and synthesis.
   `args = [Symbol "fetch", Bytes swissnum]`, reply route lifted from `answer` vs
   `resolve_me_desc`) and synthesizes the reply (`resolveForSwissnum`):
   `Fulfill(Near(<export>))` for a known swissnum, `Break("unknown swissnum")`
-  for a miss. The reply routes to an `op:resolve` keyed on the partner's answer
-  (`next`) or a resolver-callback `op:deliver` carrying `[fulfill|break, …]`
-  (Goblins V1.0, reusing the existing `encodeResolverCallback`).
+  for a miss. The reply routes through a resolver-callback `op:deliver`
+  carrying `[fulfill|break, …]`: next installs the callback with the mandatory
+  listener, while Goblins V1.0 uses the inline `resolve_me_desc` resolver
+  (reusing the existing `encodeResolverCallback`).
 - The recognition branch lives in `Peer.dispatchOwnedFrameInner` after the
   pipelining branch and before the event append: on a match it runs
   `recordRecv`, emits `Event.deliver` for observability, then pushes the

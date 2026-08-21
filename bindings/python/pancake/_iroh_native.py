@@ -16,8 +16,10 @@ from typing import Optional, Union
 from . import _constants as _c
 from ._constants import (
     ERR_CLOSED as _ERR_CLOSED,
+    ERR_BUFFER_TOO_SMALL as _ERR_BUFFER_TOO_SMALL,
     ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT,
     HINT_DIRECT_ADDRESSES,
+    IROH_NODE_ID_BYTES,
     OK as _OK,
     TRANSPORT_IROH,
     WOULD_BLOCK as _WOULD_BLOCK,
@@ -126,7 +128,7 @@ class IrohConnection(_NativeHandleOwner):
         paths below do for every session this module establishes."""
         if self._native.closed:
             return None
-        cap = 64
+        cap = IROH_NODE_ID_BYTES
         buf = ctypes.create_string_buffer(cap)
         out_len = ctypes.c_size_t(0)
         with self._native.lease() as raw:
@@ -158,19 +160,24 @@ class IrohConnection(_NativeHandleOwner):
             )
         return out.value
 
-    def try_write(self, frame: bytes) -> int:
+    def try_write(self, frame: bytes, offset: int = 0) -> int:
         """Non-blocking write of ``frame``'s raw bytes: the count written
         (possibly a prefix), or ``_WOULD_BLOCK`` when the outbound buffer has no
         room. Raises on a fault."""
-        buf = (
-            (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame)
-            if frame
-            else (ctypes.c_uint8 * 0)()
-        )
+        if offset < 0 or offset > len(frame):
+            raise ValueError("iroh write offset is outside the frame")
+        # The C call borrows only until it returns. Keep this object live so a
+        # partial write can advance by offset without copying the suffix.
+        borrowed = ctypes.c_char_p(frame)
+        base = ctypes.cast(borrowed, ctypes.c_void_p).value
+        if base is None:
+            raise PancakeError(_ERR_CLOSED, "iroh conn try_write received no buffer")
+        buf = ctypes.c_void_p(base + offset)
+        remaining = len(frame) - offset
         out = ctypes.c_size_t()
         with self._native.lease() as raw:
             rc = _iroh().pancake_iroh_conn_try_write(
-                raw, buf, len(frame), ctypes.byref(out)
+                raw, buf, remaining, ctypes.byref(out)
             )
         if rc == _WOULD_BLOCK:
             return rc
@@ -337,7 +344,7 @@ class IrohNetlayer(_NativeHandleOwner):
     def node_id(self) -> str:
         """This endpoint's id, its Ed25519 public key as lowercase hex, the
         dialable designator a keyed locator signs."""
-        cap = 64
+        cap = IROH_NODE_ID_BYTES
         out = (ctypes.c_uint8 * cap)()
         n = ctypes.c_size_t()
         with self._native.lease() as raw:
@@ -349,16 +356,34 @@ class IrohNetlayer(_NativeHandleOwner):
     def direct_addresses(self) -> str:
         """This endpoint's comma-separated direct socket addresses, the dialing
         hint a partner needs because the sidecar binds relay-less."""
-        cap = 1024
-        out = (ctypes.c_uint8 * cap)()
         n = ctypes.c_size_t()
         with self._native.lease() as raw:
-            _check_iroh(
-                _iroh().pancake_iroh_netlayer_direct_addrs(
-                    raw, out, cap, ctypes.byref(n)
-                )
+            rc = _iroh().pancake_iroh_netlayer_direct_addrs(
+                raw,
+                None,
+                0,
+                ctypes.byref(n),
             )
-        return ctypes.string_at(out, n.value).decode()
+        if rc != _ERR_BUFFER_TOO_SMALL:
+            _check_iroh(rc)
+            if n.value == 0:
+                return ""
+        cap = n.value
+        while True:
+            out = (ctypes.c_uint8 * cap)()
+            n = ctypes.c_size_t()
+            with self._native.lease() as raw:
+                rc = _iroh().pancake_iroh_netlayer_direct_addrs(
+                    raw,
+                    out,
+                    cap,
+                    ctypes.byref(n),
+                )
+            if rc == _ERR_BUFFER_TOO_SMALL and n.value > cap:
+                cap = n.value
+                continue
+            _check_iroh(rc)
+            return ctypes.string_at(out, n.value).decode()
 
     # ── The event-driven loop surface (ADR-0057) ────────────────────────────────
     # These back :class:`_IrohLoop`: the endpoint's one I/O model, serving many

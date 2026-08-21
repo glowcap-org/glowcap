@@ -38,6 +38,7 @@ import { lineCost, MAX_AWAY, MAX_IMAGE_DIM, MAX_LINE, MAX_MESSAGE_FILES, nickRef
 import {
 	claimedByAnother,
 	findBySession,
+	forgetRoom,
 	handBack,
 	HELD_LINE_REFS,
 	heldRoomLinks,
@@ -50,7 +51,7 @@ import {
 	rooms,
 	type RoomState,
 } from "./registry.ts";
-import { admitUpload, armUploadTimer, broadcastFiles, dropUpload, postStaged, uploadBehavior } from "./files.ts";
+import { allocateUpload, armUploadTimer, broadcastFiles, dropUpload, postStaged, uploadBehavior } from "./files.ts";
 import { lineBehavior, topicBehavior } from "./lines.ts";
 import { broadcast, broadcastTyping, leaveRoom, notifyRoomList, statePresence } from "./presence.ts";
 import { redeemNameVoucher, registeredByAnother } from "./introductions.ts";
@@ -148,19 +149,26 @@ export function roomBehavior(state: RoomState) {
 					state.members.length,
 				);
 			}
-			// The new member's welcome names everyone present and carries the roster as
-			// structured trailing args ("roster" then each nick), so it learns who
-			// arrived before it without parsing the text. It goes to the new member
-			// alone; `subscribe` itself returns a bare ack — success is the resolution, a
-			// claimed nick is the rejection above.
+			// Who is here, to the arrival alone, carrying the roster as structured
+			// trailing args ("roster" then each nick) so a client learns who arrived
+			// before it without parsing the text. `subscribe` itself returns a bare
+			// ack: success is the resolution, and a claimed nick is the rejection
+			// above.
+			//
+			// A statement of who is present rather than a greeting. It used to read
+			// "welcome <nick>", which is how a room addresses everyone about one
+			// person, and this is the opposite: one person being told about everyone,
+			// privately. It also named the reader twice, once as the one being
+			// welcomed and again in the list. The count went with it, because the
+			// joining line broadcast a moment ago already carries one.
 			const names = state.members.map((m) => m.nick);
 			session.tell(inbox, NOTIFY, [
 				"room",
-				`welcome ${nick} — ${names.length} in the room: ${names.join(", ")}`,
+				`in the room: ${names.join(", ")}`,
 				"roster",
 				...names,
 			]).catch((error) => {
-				console.error(`[room] welcome notify to ${nick} failed: ${error}`);
+				console.error(`[room] roster notify to ${nick} failed: ${error}`);
 			});
 			// Who is already away. One line each rather than a field on the roster,
 			// because that is the same line every later change arrives on: a client
@@ -288,14 +296,12 @@ export function roomBehavior(state: RoomState) {
 					`post or abandon an upload first; ${MAX_MESSAGE_FILES} are already open`,
 				);
 			}
-			// Allocated before anything is reserved, because it is the step here
-			// that can fail on its own: a failure after the reservation would hold
-			// that share of the server's in-flight budget for an upload that never
-			// came to exist, and only an upload the room knows about ever gives its
-			// share back. Enough of those and the room refuses every upload with
-			// nothing outstanding to point at.
-			const bytes = new Uint8Array(size);
-			if (!admitUpload(size)) {
+			// Admission and allocation are one transaction in the byte-budget
+			// owner. A saturated caller therefore cannot force this process to
+			// allocate the very buffer it is about to refuse, while an allocation
+			// failure restores the reservation before it escapes.
+			const bytes = allocateUpload(size);
+			if (bytes === null) {
 				throw new RoomError(
 					ATTACHMENT_REFUSED,
 					"the server is holding all the uploads it can; try again shortly",
@@ -410,6 +416,17 @@ export function linkedRoomBehavior(durable: string): Behavior {
 			if (verb !== SUBSCRIBE) throw new Error("subscribe to this room before using it");
 			state = makeRoomState(isPrivate ? "" : durable, session, { private: isPrivate, key });
 			registerRoom(state);
+			try {
+				return roomBehavior(state)(verb, args);
+			} catch (error) {
+				// A cold link has no room until its first membership commits. Invalid
+				// arguments, a claimed name, or a failed export must not leave an empty
+				// room charged to this connection or blocking the public name. The
+				// subscribe transaction performs every fallible step before seating a
+				// member, so an empty state here is exactly the uncommitted row.
+				if (state.members.length === 0) forgetRoom(state);
+				throw error;
+			}
 		}
 		return roomBehavior(state)(verb, args);
 	};

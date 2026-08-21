@@ -35,7 +35,9 @@ pub const cloneArgument = owned.cloneArgument;
 pub const freeArgument = owned.freeArgument;
 pub const cloneArgumentSlice = owned.cloneArgumentSlice;
 pub const measureArgumentSliceOwnedBytes = owned.measureArgumentSliceOwnedBytes;
+pub const measureReferenceOwnedBytes = owned.measureReferenceOwnedBytes;
 pub const measureMessageOwnedBytes = owned.measureMessageOwnedBytes;
+pub const measureResolutionOwnedBytes = owned.measureResolutionOwnedBytes;
 pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freePipelineOp = owned.freePipelineOp;
 pub const freeResolution = owned.freeResolution;
@@ -550,18 +552,18 @@ pub const message_kinds = [_]MessageKind{
 /// not derivations); this only forbids the set from drifting. `Registry` may be
 /// an `enum` or a `union` so the same assert covers `view.Body` too.
 pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
-    const arms = @typeInfo(Message).@"union".fields;
+    const arms = @typeInfo(Message).@"union".field_names;
     const mirror = switch (@typeInfo(Registry)) {
-        .@"enum" => |info| info.fields,
-        .@"union" => |info| info.fields,
+        .@"enum" => |info| info.field_names,
+        .@"union" => |info| info.field_names,
         else => @compileError("kind registry must be an enum or union"),
     };
     if (arms.len != mirror.len)
         @compileError("kind registry arity drifted from model.Message");
-    inline for (arms, mirror) |arm, field| {
-        if (!std.mem.eql(u8, arm.name, field.name))
+    inline for (arms, mirror) |arm_name, field_name| {
+        if (!std.mem.eql(u8, arm_name, field_name))
             @compileError("kind registry must mirror model.Message arm '" ++
-                arm.name ++ "' in order, found '" ++ field.name ++ "'");
+                arm_name ++ "' in order, found '" ++ field_name ++ "'");
     }
 }
 
@@ -582,20 +584,20 @@ pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
 /// from the other. Equal arity plus every model arm matched proves the bijection,
 /// since names are unique within each type.
 pub fn assertKindSetMatches(comptime Model: type, comptime Registry: type) void {
-    const arms = @typeInfo(Model).@"union".fields;
+    const arms = @typeInfo(Model).@"union".field_names;
     const fields = switch (@typeInfo(Registry)) {
-        .@"enum" => |info| info.fields,
+        .@"enum" => |info| info.field_names,
         else => @compileError("kind registry must be an enum"),
     };
     if (arms.len != fields.len)
         @compileError("kind registry arity drifted from " ++ @typeName(Model));
-    inline for (arms) |arm| {
+    inline for (arms) |arm_name| {
         comptime var found = false;
-        inline for (fields) |field| {
-            if (std.mem.eql(u8, arm.name, field.name)) found = true;
+        inline for (fields) |field_name| {
+            if (std.mem.eql(u8, arm_name, field_name)) found = true;
         }
         if (!found)
-            @compileError(@typeName(Model) ++ " arm '" ++ arm.name ++
+            @compileError(@typeName(Model) ++ " arm '" ++ arm_name ++
                 "' has no matching " ++ @typeName(Registry) ++ " field");
     }
 }

@@ -197,11 +197,19 @@
 		transition: transform .2s ease;
 	}
 	/* The dim sits on the conversation, so it is the conversation's size and
-	   travels with its transform. A viewport strip that only exists at the
-	   peek would fade in already parked on the right, which is a different
-	   motion from the slide. It has to paint above the sticky topbar, or the
-	   peek keeps a clear title. Paint is this pseudo; `#cover` is only the tap
-	   target on the peek, because the workarea is inert. */
+	   travels with its transform. A viewport strip that only exists at the peek
+	   would fade in already parked on the right, which is a different motion
+	   from the slide. It has to paint above the sticky topbar, or the peek keeps
+	   a clear title. Paint is this pseudo. `#cover` is only the tap target on
+	   the peek, because the workarea is inert.
+
+	   Being the conversation's size means this box is as tall as the whole
+	   history, and a backdrop blur over a box that tall is expensive to redraw
+	   while the slide runs. Making it `fixed` does not shrink it: a transformed
+	   ancestor is the containing block for a fixed descendant, so `fixed` here
+	   resolves against the conversation exactly as `absolute` does. Shrinking it
+	   means moving the paint onto a box outside the transform and carrying it
+	   with the same translate, which is real work and is not done yet. */
 	.workarea::after {
 		content: "";
 		position: absolute;
@@ -244,8 +252,16 @@
 	   where the button now is. */
 	.composer {
 		position: relative;
-		padding: 0 12px calc(16px + env(safe-area-inset-bottom));
-		background: none;
+		--composer-side: 12px;
+		padding: 0 var(--composer-side) calc(18px + env(safe-area-inset-bottom));
+	}
+	/* Here the page itself scrolls and the composer rides at the end of it, so
+	   nothing passes behind the field and there is nothing to end. */
+	.log-fade {
+		display: none;
+	}
+	.composer-status {
+		bottom: calc(env(safe-area-inset-bottom) + 1px);
 	}
 	.stream::after {
 		content: "";
@@ -291,13 +307,24 @@
 		pointer-events: none;
 		user-select: none;
 	}
+	/* The page must not scroll behind the list, and it must not be relaid to stop
+	   it. Here the page itself is the scroller and the conversation is as tall as
+	   its whole history, so clamping the page's height to the viewport for the
+	   duration was a full-document reflow on the frame the slide began and
+	   another on the frame it ended, which are the two frames that most need to
+	   be cheap. `touch-action` takes the gesture away instead and takes away
+	   nothing else: no box changes size, and the scroll offset is still there to
+	   go back to.
+
+	   The clipping stays. It is not the reflow, and it is what makes the peek a
+	   peek: the conversation is translated most of the way off to the right, and
+	   without a clip at this box that overflow widens the document instead of
+	   leaving a strip. */
 	body:has(.app.show-list) {
 		overflow: hidden;
-		height: 100dvh;
+		touch-action: none;
 	}
 	.app.show-list {
-		height: 100dvh;
-		max-height: 100dvh;
 		overflow: hidden;
 	}
 
@@ -360,12 +387,6 @@
 		padding: calc(10px + var(--accent-line) + env(safe-area-inset-top)) calc(var(--rail-pad) +
 			var(--row-pad)) 10px;
 	}
-	/* Float the reconnect banner below the sticky topbar and keep it fixed, so it
-	   stays visible even while you scroll back through older messages. */
-	.banner {
-		position: fixed;
-		top: calc(env(safe-area-inset-top) + 64px);
-	}
 	.topbar .spacer {
 		display: none;
 	}
@@ -408,14 +429,19 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	/* Conversation view has no rail beside it, so the topbar carries the mark
-	   as the way to the list. While the list is open the rail already holds
-	   that mark; a second one in the peek is the same control twice. */
+	/* Conversation view has no rail beside it, so the topbar carries the mark as
+	   the way to the list. While the list is open the rail already holds that
+	   mark, and a second one in the peek is the same control twice. */
 	#backBtn {
 		display: inline-flex;
 	}
+	/* It keeps its box on the way out. Taken out of the layout, it relaid the
+	   topbar on the frame the slide began and again on the frame it ended, which
+	   are the two moments nothing should be reflowing. The peek is `inert`, so
+	   the button is already out of reach and out of the reading order, and this
+	   only has to stop it being seen. */
 	.app.show-list #backBtn {
-		display: none;
+		visibility: hidden;
 	}
 	.join input,
 	.composer textarea {
@@ -426,7 +452,11 @@
 	.join #browseRoomsBtn {
 		display: inline-flex;
 	}
-	.composer-status .hint {
+	/* The shortcut reminder is desktop furniture and goes. The room's own cap
+	   does not: it is the only warning that a draft will not go, it carries the
+	   alert a reader is told about, and hiding it here left a phone with a Send
+	   button that silently did nothing. */
+	.composer-status .hint:not(.room-cap) {
 		display: none;
 	}
 	/* Scale the whole composer row together via its shared height — a bigger touch

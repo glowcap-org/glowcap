@@ -44,6 +44,7 @@ const poll = @import("poll.zig");
 const clock = @import("clock.zig");
 
 pub const CloseProgress = enum { complete, wait_read, wait_write, failed };
+pub const WaitInterest = enum { read, write };
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
@@ -219,6 +220,12 @@ pub const Connection = struct {
         return self.transport.takeFailure();
     }
 
+    /// Advance, but never park in, the transport-level close transaction.
+    /// The owning runtime uses the returned interest in its aggregate wait.
+    pub fn advanceClose(self: *Connection) CloseProgress {
+        return self.transport.tryClose();
+    }
+
     /// Join an optional transport-level close transaction. Ordinary byte
     /// streams have no protocol below CapTP and complete immediately. Framed
     /// carriers such as WebSocket advance without allocation, waiting only on
@@ -344,25 +351,51 @@ pub fn waitAnyReadable(
     timeout_ms: i32,
     extra_fds: []const std.posix.fd_t,
 ) error{ConnectionLost}!?usize {
+    return waitAny(conns, &.{}, pollfds, timeout_ms, extra_fds, &.{});
+}
+
+/// Wait for caller-selected read/write interest on each connection and extra
+/// descriptor. Empty interest slices mean readable for every corresponding
+/// row, preserving the ordinary pump contract without a second implementation.
+pub fn waitAny(
+    conns: []const *Connection,
+    conn_interests: []const WaitInterest,
+    pollfds: []std.posix.pollfd,
+    timeout_ms: i32,
+    extra_fds: []const std.posix.fd_t,
+    extra_interests: []const WaitInterest,
+) error{ConnectionLost}!?usize {
+    std.debug.assert(conn_interests.len == 0 or conn_interests.len == conns.len);
+    std.debug.assert(extra_interests.len == 0 or extra_interests.len == extra_fds.len);
     const rows = conns.len + extra_fds.len;
     std.debug.assert(pollfds.len >= rows);
     for (conns, 0..) |conn, i| {
-        if (conn.hasBufferedRaw()) return i;
+        const interest = if (conn_interests.len == 0) WaitInterest.read else conn_interests[i];
+        if (interest == .read and conn.hasBufferedRaw()) return i;
         const handle = conn.socketHandle() orelse unreachable;
-        pollfds[i] = .{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 };
+        pollfds[i] = .{
+            .fd = handle,
+            .events = if (interest == .read) std.posix.POLL.IN else std.posix.POLL.OUT,
+            .revents = 0,
+        };
     }
     // The caller's out-of-band descriptors — multiplexed-resident readiness and
     // the settle-mailbox wake (ADR-0102) — poll as trailing rows and report
     // as `conns.len + i`, indexes no connection occupies.
     for (extra_fds, 0..) |fd, i| {
-        pollfds[conns.len + i] = .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 };
+        const interest = if (extra_interests.len == 0) WaitInterest.read else extra_interests[i];
+        pollfds[conns.len + i] = .{
+            .fd = fd,
+            .events = if (interest == .read) std.posix.POLL.IN else std.posix.POLL.OUT,
+            .revents = 0,
+        };
     }
     if (rows == 0) return null;
     const ready = poll.wait(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
     if (ready == 0) return null;
     for (pollfds[0..rows], 0..) |fd, i| {
         if (fd.revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
-        if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
+        if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
     }
     return null;
 }

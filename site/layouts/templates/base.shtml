@@ -83,9 +83,9 @@
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
 					<div class="nav-sub">
 						<a class="$site.page('transports/choosing').isCurrent().then('is-current', '')" href="$site.page('transports/choosing').link()">Choosing a transport</a>
-						<a class="$site.page('transports/noise').isCurrent().then('is-current', '')" href="$site.page('transports/noise').link()">Noise (sealed TCP / relay)</a>
 						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted P2P)</a>
 						<a class="$site.page('transports/webrtc').isCurrent().then('is-current', '')" href="$site.page('transports/webrtc').link()">WebRTC (browser P2P)</a>
+						<a class="$site.page('transports/noise').isCurrent().then('is-current', '')" href="$site.page('transports/noise').link()">Noise (sealed TCP / relay)</a>
 						<a class="$site.page('transports/onion').isCurrent().then('is-current', '')" href="$site.page('transports/onion').link()">onion (Tor)</a>
 						<a class="$site.page('relay').isCurrent().then('is-current', '')" href="$site.page('relay').link()">The relay</a>
 					</div>

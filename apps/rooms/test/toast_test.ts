@@ -1,5 +1,7 @@
 // The page-notice stack: several may be up, dismissing one leaves the others
-// in order, and a looping failure cannot grow it without bound.
+// in order, and a looping failure cannot grow it without bound. An operations
+// capability that stops answering says so here too, which is the one way one
+// of them ends that the reader neither asked for nor can see coming.
 
 /// <reference lib="dom" />
 
@@ -13,6 +15,9 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const store = await import("../web/ui/store.ts");
+const { opsLost } = await import("../web/ui/net/common.ts");
+const { OPS_CAPS } = await import("../web/ui/types.ts");
+const { OPS_CATALOG } = await import("../web/ui/ops/catalog.ts");
 const { assertEquals } = await import("./assert.ts");
 
 function clearToasts(): void {
@@ -55,4 +60,19 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 	store.dismissToast(id);
 	store.dismissToast(id);
 	assertEquals(store.get().toasts.length, 0);
+});
+
+Deno.test("a capability that stops answering is named, with the reason", () => {
+	clearToasts();
+	for (const cap of OPS_CAPS) opsLost(cap, "the server said no.");
+	const said = store.get().toasts.map((notice) => [notice.kind, notice.text]).reverse();
+	assertEquals(
+		said,
+		OPS_CAPS.map((cap) => [
+			"failure",
+			`${OPS_CATALOG[cap].pane}: this tab no longer holds that capability. the server said no.`,
+		]),
+		"every capability the page knows can say it has gone, by the name its pane wears",
+	);
+	clearToasts();
 });

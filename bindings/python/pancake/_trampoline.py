@@ -373,24 +373,24 @@ async def _tell_far(session, target: Ref, verb: str, args: list) -> None:
     await session.host.kick_actions()
 
 
-def _dispatch_send(session, target, verb: str, args: list) -> RemotePromise:
+def _dispatch_send(session, target, verb: str, args) -> RemotePromise:
     # Near-hosted vs far send dispatch: a self-hosted near runs _send_local,
     # everything else mints through _send_far. Session keeps guard/drain + the
     # CapTP verb; this owns the routing if.
     if isinstance(target, Ref):
         ctx = session.hosted.get(target.id)
         if ctx is not None:
-            return _send_local(session, ctx, verb, args)
+            return _send_local(session, ctx, verb, list(args))
     return _send_far(session, target, verb, args)
 
 
-async def _dispatch_tell(session, target: Ref, verb: str, args: list) -> None:
+async def _dispatch_tell(session, target: Ref, verb: str, args) -> None:
     # Near-hosted vs far tell dispatch: a self-hosted near runs _tell_local,
     # everything else mints through _tell_far.
     if target is not None:
         ctx = session.hosted.get(target.id)
         if ctx is not None:
-            await _tell_local(session, ctx, verb, args)
+            await _tell_local(session, ctx, verb, list(args))
             return
     await _tell_far(session, target, verb, args)
 

@@ -60,9 +60,9 @@ test "core host: a replaced giftable keeps answering at the position it already 
     var first = TaggedRow{ .tag = "first", .freed = &first_freed };
     var second = TaggedRow{ .tag = "second", .freed = &second_freed };
     {
-        var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+        var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
         defer client.deinit();
-        var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+        var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
         defer server.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(allocator);
@@ -113,11 +113,11 @@ test "core host: a replaced giftable keeps answering at the position it already 
 
 test "core host: a deposited gift keeps its exact actor across alias replacement and a second exporter Port" {
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x06)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -228,11 +228,11 @@ test "core host: unpublish removes discovery on every session while issued capab
     // removal remains callable and a gift deposited before removal still
     // redeems the exact (mutated) actor.
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x1e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x1e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x16} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x16)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x1c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x1c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -364,11 +364,11 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
     // Host to make it routable, mutates it, and introduces it. Withdrawal
     // projects the exact actor.
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x2e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x26)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -456,11 +456,11 @@ const Becomer = struct {
 
 test "core host: one actor's become history is observed across two Ports" {
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, [_]u8{0x3a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var alice = test_host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var alice = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
     defer alice.deinit();
-    var bob = test_host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var bob = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
     defer bob.deinit();
     const hosts = [_]*Host{ &server, &alice, &bob };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -511,11 +511,11 @@ test "core host: a target reached directly and through handoff lifts to one Host
     // exporter session, so the canonical import row makes the two arrivals
     // one opaque identity.
     const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x4e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x4e)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x46} ** 32, Host.Options.withFrameCap(frame_cap));
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x46)), Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x4c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x4c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -577,11 +577,11 @@ test "core host: restore under two live sessions breaks only the missing target'
     // missing-actor reason, a fresh answered delivery does the same rather
     // than retargeting, and both sessions keep serving.
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5a)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var alice = test_host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var alice = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer alice.deinit();
-    var bob = test_host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var bob = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
     defer bob.deinit();
     const hosts = [_]*Host{ &server, &alice, &bob };
     var dials: std.ArrayList(ParkedDial) = .empty;

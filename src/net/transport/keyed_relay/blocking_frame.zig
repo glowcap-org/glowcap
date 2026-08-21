@@ -1,7 +1,7 @@
 //! Blocking-reader adapter for the shared pure WebSocket frame grammar.
 
 const std = @import("std");
-const protocol = @import("../../websocket/client_protocol.zig");
+const protocol = @import("../../websocket.zig").client_protocol;
 
 pub const FrameError = protocol.ParseError || error{ Truncated, ReadFailed };
 

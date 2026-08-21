@@ -55,7 +55,7 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
 
     // One deep send episode: fixed-row chunks and their payload arenas grow
     // past one steady chunk, then drain to quiescence.
-    const payload = [_]u8{'x'} ** 64;
+    const payload = @as([64]u8, @splat('x'));
     for (0..burst_sends) |_| {
         try vat.tell(actor, .{ .verb = "note", .args = &.{.{ .bytes = &payload }} });
     }

@@ -82,7 +82,7 @@ pub const TransitionError = error{
 
 /// Unresolved becomes same-mint value, position preserved: the total
 /// unresolved→value transition over both mints. In this codebase only a remote
-/// answer binding is driven through it (`answers.zig`); a `local_unresolved`
+/// answer binding is driven through it (`answers/store.zig`); a `local_unresolved`
 /// export is minted for a resolver callback and is terminal — pancake never
 /// settles a local promise export (ADR-0080, ADR-0007).
 pub fn fulfill(slot: Slot) TransitionError!Slot {

@@ -1,0 +1,254 @@
+//! Inbound admission and Host-latched dispatch for a byte-fed session.
+//!
+//! Stream delimiting and retained-tail ownership stay in the sibling session
+//! wire owner; this internal leaf supplies the supported Host ingress verbs
+//! through direct aliases in `host.zig`.
+
+const std = @import("std");
+
+const foundation = @import("foundation");
+const engine = @import("engine");
+
+const host_mod = @import("../../host.zig");
+const session_wire = @import("../session.zig");
+const host_pump = @import("../pump.zig");
+
+const Host = host_mod.Host;
+const HostError = host_mod.HostError;
+const HostSession = session_wire.HostSession;
+
+/// Feed one inbound frame the embedder read from its own transport
+/// (borrowed for the call): dispatch what it surfaces into the vat — the
+/// before-serve hook claims withdraw resolves and auto-redeems gives, and
+/// settle listeners fire inside this call — then pump the node actions the
+/// dispatch queued and encode every touched session's outbound. On a
+/// dispatch failure the peer projects a typed `op:abort` onto the outbound
+/// queue; the flush action is still queued so the embedder writes it
+/// before closing the transport.
+pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !void {
+    try self.checkSession(session);
+    // A sealed session's wire is the sealed byte stream; a whole plaintext
+    // frame fed around the channel would bypass exactly what the channel
+    // proves, so it is refused rather than admitted unsealed.
+    if (session.sealed != null) return HostError.SealedSessionBytesOnly;
+    try self.checkOutboundAdmission(session);
+    host_pump.dispatchUnderLatch(self, session, struct {
+        c: *HostSession,
+        f: foundation.FrameView,
+        pub fn call(s: @This()) !void {
+            session_wire.feedBorrowedCommitted(s.c, s.f) catch |err| {
+                // Condemnation can arise while this very frame is being
+                // dispatched (crossed hellos). It has already cancelled
+                // the Port ingress, so the Served post-batch drive sees an
+                // absent ingress; that is the successful terminal outcome,
+                // not a failure of the fed peer.
+                if (err == error.UnknownIngress and s.c.isTerminating()) return;
+                return err;
+            };
+        }
+    }{ .c = session, .f = frame }) catch |err| {
+        if (err == error.EventServeOutOfMemory) {
+            // `Served` already removed the event. Retrying this frame would
+            // replay protocol authority while the original event is gone.
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+            return;
+        }
+        // The preflight above is the only retryable refusal. Once dispatch
+        // starts, the frame may have committed before its resulting work
+        // crosses the waterline; report it consumed and let the next verb
+        // observe backpressure rather than inviting a replay.
+        if (err == error.OutboundBackpressure) return;
+        return err;
+    };
+}
+
+/// Feed raw bytes from a byte-stream transport. Each bare codec frame must
+/// be wrapped as one canonical Syrup byte string (`length:body`). This
+/// method owns split prefixes/bodies, coalesced outer frames, the bounded
+/// tail, and the handshake pause. With no pending tail it parses the
+/// borrowed chunk in place and retains only an incomplete suffix; while a
+/// tail is active, extending it is the one bounded copy. Whole-frame
+/// callers continue to use `feed`; intrinsically message-framed transports
+/// do not add this envelope.
+pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
+    try self.checkOwnedSession(session);
+    try Host.checkLive(session);
+    try self.checkOutboundAdmission(session);
+    if (session.sealed) |channel| return feedSealedBytes(self, session, channel, bytes);
+    if (bytes.len == 0 and !session.feed_tail.isActive()) return;
+    const was_open = session.served.port.peer.sessionIsOpen();
+    host_pump.dispatchUnderLatch(self, session, struct {
+        gpa: std.mem.Allocator,
+        c: *HostSession,
+        bytes: []const u8,
+        was_open: bool,
+        pub fn call(s: @This()) !void {
+            try session_wire.feedStreamChunk(s.gpa, s.c, s.bytes, s.was_open);
+        }
+    }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open }) catch |err| {
+        if (err == error.EventServeOutOfMemory) {
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+            return;
+        }
+        // `call` either dispatched bytes or retained their suffix in the
+        // tail. Mid-dispatch pressure is therefore a successful ownership
+        // transfer; only the next call may return retryable backpressure.
+        if (err == error.OutboundBackpressure) return;
+        return err;
+    };
+}
+
+/// Feed one packet from the transport shape this session was minted with.
+/// Byte-stream packets are arbitrary chunks carrying ADR-0110's outer envelope;
+/// message-framed packets are exactly one bare codec frame. The transport
+/// profile, not the binding or adapter language, owns that distinction.
+pub fn feedTransportPacket(self: *Host, session: *HostSession, packet: []const u8) !void {
+    return switch (session.wire_framing) {
+        .byte_stream => self.feedBytes(session, packet),
+        .message => feedMessagePacket(self, session, packet),
+    };
+}
+
+fn feedMessagePacket(self: *Host, session: *HostSession, packet: []const u8) !void {
+    try self.checkSession(session);
+    if (session.sealed != null) return HostError.SealedSessionBytesOnly;
+    try self.checkOutboundAdmission(session);
+    host_pump.dispatchUnderLatch(self, session, struct {
+        c: *HostSession,
+        packet: []const u8,
+        pub fn call(s: @This()) !void {
+            try s.c.served.port.peer.recvPacket(s.packet);
+        }
+    }{ .c = session, .packet = packet }) catch |err| {
+        if (err == error.EventServeOutOfMemory) {
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+            return;
+        }
+        if (err == error.OutboundBackpressure) return;
+        return err;
+    };
+}
+
+/// The sealed arm of `feedBytes` (ADR-0107): stage the wire bytes on the
+/// channel, then consume whole handshake messages and records. Handshake
+/// completion binds the channel's verified remote before any plaintext is
+/// fed, each opened record's plaintext runs the same tail-and-parse the
+/// unsealed arm runs, and a produced handshake reply marks the session
+/// dirty so the embedder is woken to write it. A channel refusal condemns
+/// the session without an abort echo and surfaces to the caller; the
+/// session's own hello pause boundary holds — remaining ciphertext stays
+/// staged and `HostSession.resumeFeed` resumes it.
+fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.sealed.SealedChannel, bytes: []const u8) !void {
+    if (bytes.len == 0 and !session.feed_tail.isActive() and !channel.hasStagedInbound()) return;
+    const was_open = session.served.port.peer.sessionIsOpen();
+    host_pump.dispatchUnderLatch(self, session, struct {
+        host: *Host,
+        c: *HostSession,
+        channel: *foundation.sealed.SealedChannel,
+        bytes: []const u8,
+        was_open: bool,
+        pub fn call(s: @This()) !void {
+            const gpa = s.host.allocator;
+            var consumed: usize = 0;
+            while (true) {
+                if (s.channel.pendingPlaintext()) |plain| {
+                    session_wire.feedStreamChunk(gpa, s.c, plain, s.was_open) catch |err| {
+                        // The Noise record is already authoritative. Keep
+                        // its plaintext borrow and own the unread wire
+                        // suffix before reporting or retrying upper-layer
+                        // pressure; replaying ciphertext would advance the
+                        // receive nonce twice.
+                        s.channel.park(gpa, s.bytes[consumed..]) catch |park_err| {
+                            host_pump.retireSealedSession(s.host, s.c);
+                            return park_err;
+                        };
+                        if (err == error.OutOfMemory or err == error.OutboundBackpressure) return;
+                        return err;
+                    };
+                    s.channel.releasePlaintext();
+                    // The opening hello is the pause boundary, as on the
+                    // unsealed arm. Own later ciphertext before the caller's
+                    // borrowed receive buffer expires.
+                    if (!s.was_open and s.c.served.port.peer.sessionIsOpen()) {
+                        s.channel.park(gpa, s.bytes[consumed..]) catch |err| {
+                            host_pump.retireSealedSession(s.host, s.c);
+                            return err;
+                        };
+                        break;
+                    }
+                    continue;
+                }
+
+                const step = s.channel.ingest(gpa, s.bytes[consumed..]) catch |err| {
+                    // The channel retired itself for anything but
+                    // allocation pressure, which leaves the staged bytes
+                    // intact and retryable instead.
+                    if (err != error.OutOfMemory)
+                        host_pump.retireSealedSession(s.host, s.c);
+                    return err;
+                };
+                consumed += step.consumed;
+                switch (step.event) {
+                    .need_input => break,
+                    .handshake => continue,
+                    .completed => |remote| s.c.served.port.peer.bindVerifiedChannelKey(remote),
+                    .plaintext => continue,
+                }
+            }
+            if (s.channel.hasPendingWire()) host_pump.markDirty(s.host, s.c.peer_handle);
+        }
+    }{ .host = self, .c = session, .channel = channel, .bytes = bytes, .was_open = was_open }) catch |err| {
+        if (err == error.EventServeOutOfMemory) {
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+            return;
+        }
+        if (err == error.OutboundBackpressure) return;
+        return err;
+    };
+}
+
+/// Serve one already-polled event under the host — the per-event verb for
+/// an embedder loop that polls its sessions' peers itself (a
+/// completion loop's serve hook). Shares the `feed`/`feedBytes` latch and
+/// `finishDispatch` tail: the crossed-hellos hook and the resolve
+/// interceptor run, settle listeners fire under the callback latch, and
+/// the node pump runs at the unwind.
+///
+/// The batch subtlety: the unwind's pump (`drainWork`, then `Served.driveFed`,
+/// then `drainEvents`) polls and serves every event *still queued* on this
+/// session's peer, so a loop's per-event hook typically fires once per
+/// inbound batch — its own `pollEvent` loop then finds null. That is
+/// correct, not lossy: every event is served through the one
+/// `Served.serveEvent` spine either way.
+///
+/// This verb, not a raw `session.served.serveEvent`, is the embedder's
+/// entry: the raw call would run settle listeners un-latched (a listener's
+/// nested verb could re-enter the host mid-dispatch) and would skip the
+/// node pump that turns a served reply into a give.
+pub fn serveEvent(self: *Host, session: *HostSession, event: *engine.Event) !void {
+    try self.checkSession(session);
+    try self.checkOutboundAdmission(session);
+    host_pump.dispatchUnderLatch(self, session, struct {
+        c: *HostSession,
+        e: *engine.Event,
+        pub fn call(s: @This()) !void {
+            try s.c.served.serveEvent(&s.c.host.vat, s.e);
+        }
+    }{ .c = session, .e = event }) catch |err| {
+        if (err == error.OutOfMemory) {
+            // The caller already transferred this event with `pollEvent`;
+            // there is no safe replay after a hook or Port may have
+            // committed before allocation failed.
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+            return;
+        }
+        // The caller already removed this event from the Peer. Never make
+        // an applied event look retryable merely because its resulting
+        // outbound work crossed the waterline.
+        if (err == error.OutboundBackpressure) return;
+        session.served.port.peer.emitFailure(err);
+        if (session.served.port.peer.sessionIsOpen())
+            session.served.port.peer.closeSession();
+        return err;
+    };
+}

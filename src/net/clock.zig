@@ -1,11 +1,9 @@
 //! The one monotonic elapsed-time source for pancake's adapters.
 //!
-//! Zig 0.16 removed `std.time.milliTimestamp`; the replacement is a clock you
-//! choose deliberately. `std.Io.Clock` names `.real` for the wall clock and
-//! `.awake` for the monotonic one. Deadlines and timeouts are elapsed-time
-//! questions, so they read the monotonic clock: an NTP step moves the wall
-//! clock and would make a wall-clock deadline fire early or starve. Only the
-//! difference between two readings is meaningful.
+//! Deadlines and timeouts are elapsed-time questions, so they read a monotonic
+//! clock. An NTP step moves the wall clock and would make a wall-clock
+//! deadline fire early or starve. Only the difference between two readings is
+//! meaningful.
 //!
 //! A component reads time through the same seam it reads I/O through, which is
 //! why there are two readers. `nowMs(io)` goes through the host `std.Io`, so a

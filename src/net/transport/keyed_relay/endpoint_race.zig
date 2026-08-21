@@ -25,6 +25,10 @@ const use_libc = builtin.link_libc or switch (builtin.os.tag) {
     .windows, .wasi => true,
     else => false,
 };
+const socket_flags_in_type = switch (builtin.os.tag) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => false,
+    else => true,
+};
 
 pub const max_parallel_attempts = address_race.max_parallel_attempts;
 const cancel_poll_ms = 100;
@@ -169,15 +173,29 @@ fn start(address: IpAddress) Start {
         .ip4 => c.AF.INET,
         .ip6 => c.AF.INET6,
     };
-    const socket_result = system.socket(
-        @intCast(family),
-        @intCast(c.SOCK.STREAM | c.SOCK.CLOEXEC | c.SOCK.NONBLOCK),
-        0,
-    );
+    const socket_type = if (socket_flags_in_type)
+        c.SOCK.STREAM | c.SOCK.CLOEXEC | c.SOCK.NONBLOCK
+    else
+        c.SOCK.STREAM;
+    const socket_result = system.socket(@intCast(family), @intCast(socket_type), 0);
     const fd: c.fd_t = switch (posix.errno(socket_result)) {
         .SUCCESS => @intCast(socket_result),
         else => |err| return .{ .failed = failure(.connect, socketError(err)) },
     };
+    if (!socket_flags_in_type) {
+        setCloseOnExec(fd) catch |err| {
+            var result = failure(.connect, err);
+            if (closeFd(fd)) |cleanup|
+                result.chain.noteChain(failure(.shutdown, cleanup).chain);
+            return .{ .failed = result };
+        };
+        setNonblocking(fd, true) catch |err| {
+            var result = failure(.connect, err);
+            if (closeFd(fd)) |cleanup|
+                result.chain.noteChain(failure(.shutdown, cleanup).chain);
+            return .{ .failed = result };
+        };
+    }
 
     var storage: PosixAddress = undefined;
     const address_len = addressToPosix(&address, &storage);
@@ -223,7 +241,7 @@ fn takeSocketError(fd: c.fd_t) !?anyerror {
         else => |err| return socketStatusError(err),
     }
     if (value == 0) return null;
-    return socketError(@enumFromInt(value));
+    return socketError(@fromBackingInt(@intCast(value)));
 }
 
 fn socketStatusError(err: c.E) anyerror {
@@ -250,6 +268,23 @@ fn setNonblocking(fd: c.fd_t, enabled: bool) !void {
         system.fcntl(fd, c.F.SETFL, updated)
     else
         system.fcntl(fd, c.F.SETFL, @as(usize, @intCast(updated)));
+    if (posix.errno(set_result) != .SUCCESS) return error.SocketConfigurationFailed;
+}
+
+fn setCloseOnExec(fd: c.fd_t) !void {
+    const get_result = if (comptime use_libc)
+        system.fcntl(fd, c.F.GETFD, @as(c_int, 0))
+    else
+        system.fcntl(fd, c.F.GETFD, @as(usize, 0));
+    const flags: c_int = switch (posix.errno(get_result)) {
+        .SUCCESS => @intCast(get_result),
+        else => return error.SocketConfigurationFailed,
+    };
+    const updated = flags | c.FD_CLOEXEC;
+    const set_result = if (comptime use_libc)
+        system.fcntl(fd, c.F.SETFD, updated)
+    else
+        system.fcntl(fd, c.F.SETFD, @as(usize, @intCast(updated)));
     if (posix.errno(set_result) != .SUCCESS) return error.SocketConfigurationFailed;
 }
 

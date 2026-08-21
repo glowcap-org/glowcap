@@ -157,8 +157,8 @@ const codec = pancake.ocapn.codec;
 /// only way into the branch under test. Hand-building a record does not reach
 /// the scan at all: the decoder refuses a frame whose label is not a known op.
 fn truncatedStartSession(allocator: std.mem.Allocator, designator: []const u8) ![]u8 {
-    const zero_pubkey = [_]u8{0} ** 32;
-    const zero_sig = [_]u8{0} ** 64;
+    const zero_pubkey = @as([32]u8, @splat(0));
+    const zero_sig = @as([64]u8, @splat(0));
     var frame = try codec.dispatch.encodeMessageForProfile(.syrup, allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
@@ -185,7 +185,7 @@ test "the scan branch reports incomplete while a stalled frame is still under th
     // Past the scan threshold, so the scan is consulted at all. Every test in
     // this tree that reaches `FrameTooLarge` uses a cap of 8 or 64 bytes, far
     // under that threshold, so none of them enters this branch.
-    const bytes = try truncatedStartSession(allocator, &([_]u8{'a'} ** 6000));
+    const bytes = try truncatedStartSession(allocator, &(@as([6000]u8, @splat('a'))));
     defer allocator.free(bytes);
     try std.testing.expect(bytes.len > codec.framing.scan_threshold_bytes);
 
@@ -203,7 +203,7 @@ test "the scan branch refuses at the cap with a typed abort, not a silent stall"
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
-    const bytes = try truncatedStartSession(allocator, &([_]u8{'a'} ** 6000));
+    const bytes = try truncatedStartSession(allocator, &(@as([6000]u8, @splat('a'))));
     defer allocator.free(bytes);
     // The buffer has arrived exactly at the cap with the frame still open, so
     // it can never complete within it. The cap has to sit at or above where the

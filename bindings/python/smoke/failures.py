@@ -10,8 +10,9 @@ import gc
 
 import ctypes
 import pancake
+import pancake._driver.finalizer as _driver_finalizer
 import pancake._host as _host_module
-import pancake._loop as _loop_module
+from pancake._action import _answer_gift_id
 from pancake._archive_contract import require_archive_fingerprint
 from pancake._gc import HostGc
 from pancake._errors import _retain_cleanup_failure
@@ -34,6 +35,7 @@ from pancake import (
 from pancake._native import NativeHandle
 from pancake._ws import _WebSocketTransport
 from pancake._constants import (
+    DEFAULT_FAILURE_PAYLOAD_CAP,
     ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
     ERR_IO,
@@ -41,8 +43,45 @@ from pancake._constants import (
 )
 
 
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
+    "scenario_runtimes", default=None
+)
 
-_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
+def _gift_id_completion_preserves_native_refusal() -> None:
+    entropy_failure = RuntimeError("entropy unavailable")
+    failed = 0
+
+    def mark_failed() -> None:
+        nonlocal failed
+        failed += 1
+
+    def refuse_entropy() -> bytes:
+        raise entropy_failure
+
+    def unexpected_provide(_gift_id: bytes) -> None:
+        raise AssertionError("entropy failure reached provide")
+
+    _answer_gift_id(
+        refuse_entropy,
+        unexpected_provide,
+        mark_failed,
+    )
+    assert failed == 1, failed
+
+    refusal = RuntimeError("ticket refused")
+
+    def refuse_provide(_gift_id: bytes) -> None:
+        raise refusal
+
+    try:
+        _answer_gift_id(lambda: bytes(32), refuse_provide, mark_failed)
+    except RuntimeError as observed:
+        assert observed is refusal
+    else:
+        raise AssertionError("provide refusal disappeared")
+    assert failed == 1, "provide refusal was misreported as entropy failure"
+
 
 def _stale_archive_is_refused_before_use() -> None:
     class _ReadFingerprint:
@@ -328,13 +367,13 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     text_queue = _RuntimeFailureQueue(1)
     text_queue.record(FailureLayer.BINDING, "x" * 600, RuntimeError("unretained"))
     truncated = text_queue.claim()[0]
-    assert len(truncated.operation.encode()) <= 512, truncated
+    assert len(truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, truncated
     assert truncated.truncated_fields & 1, truncated
 
     unicode_queue = _RuntimeFailureQueue(1)
     unicode_queue.record(FailureLayer.BINDING, "☃" * 600, RuntimeError("unretained"))
     unicode_truncated = unicode_queue.claim()[0]
-    assert len(unicode_truncated.operation.encode()) <= 512, unicode_truncated
+    assert len(unicode_truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, unicode_truncated
     assert "�" not in unicode_truncated.operation, unicode_truncated
 
     typed_queue = _RuntimeFailureQueue(1)
@@ -350,6 +389,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     assert typed.secondary_message == str(typed_secondary), typed
 
     malformed_queue = _RuntimeFailureQueue(1)
+
     class MalformedError(RuntimeError):
         secondary_count = 3
         secondary = ()
@@ -417,8 +457,8 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         def _release_handle(self) -> None:
             pass
 
-    refused_state = _loop_module._DriverFinalizerState(123, FinalizerContext())
-    original_release = _loop_module._driver.pancake_driver_release
+    refused_state = _driver_finalizer._DriverFinalizerState(123, FinalizerContext())
+    original_release = _driver_finalizer._driver.pancake_driver_release
     attempts = 0
     refused_name = ctypes.create_string_buffer(b"RefusedDriverRelease")
     cleanup_name = ctypes.create_string_buffer(b"ReleaseRollbackFailed")
@@ -428,9 +468,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         attempts += 1
         if attempts != 1:
             return 0
-        failure = ctypes.cast(
-            out, ctypes.POINTER(_DriverFailure)
-        ).contents
+        failure = ctypes.cast(out, ctypes.POINTER(_DriverFailure)).contents
         failure.primary_result = ERR_INVALID_ARGUMENT
         failure.primary_name = ctypes.addressof(refused_name)
         failure.primary_name_len = len(refused_name.value)
@@ -440,47 +478,54 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         failure.secondary_name_len = len(cleanup_name.value)
         return ERR_INVALID_ARGUMENT
 
-    _loop_module._driver.pancake_driver_release = refuse_once
+    _driver_finalizer._driver.pancake_driver_release = refuse_once
     try:
-        _loop_module._release_driver_finalizer_state(refused_state)
-        assert refused_state.handle is not None, "refused final release lost its native lease"
+        _driver_finalizer._release_driver_finalizer_state(refused_state)
+        assert refused_state.handle is not None, (
+            "refused final release lost its native lease"
+        )
         assert len(reports) == 1, reports
         assert reports[0]["operation"] == "driver-loop.finalize.release", reports
         assert reports[0]["primary_result"] == ERR_INVALID_ARGUMENT, reports
         assert reports[0]["primary_name"] == "RefusedDriverRelease", reports
         assert reports[0]["secondary_name"] == "ReleaseRollbackFailed", reports
         assert reports[0]["secondary_count"] == 2, reports
-        _loop_module._release_driver_finalizer_state(refused_state)
-        assert refused_state.handle is None, "successful retry retained the native lease"
+        # A public Host construction is an ordinary safe runtime boundary; it
+        # drains the claimed driver-finalizer batch without a private retry.
+        boundary = Host()
+        asyncio.run(boundary.close())
+        assert refused_state.handle is None, (
+            "successful retry retained the native lease"
+        )
         assert len(reports) == 1, "release retry duplicated its diagnostic"
     finally:
-        _loop_module._driver.pancake_driver_release = original_release
-        with _loop_module._deferred_driver_finalizers_lock:
-            if refused_state in _loop_module._deferred_driver_finalizers:
-                _loop_module._deferred_driver_finalizers.remove(refused_state)
+        _driver_finalizer._driver.pancake_driver_release = original_release
+        with _driver_finalizer._deferred_driver_finalizers_lock:
+            if refused_state in _driver_finalizer._deferred_driver_finalizers:
+                _driver_finalizer._deferred_driver_finalizers.remove(refused_state)
 
-    consumed_state = _loop_module._DriverFinalizerState(456, FinalizerContext())
+    consumed_state = _driver_finalizer._DriverFinalizerState(456, FinalizerContext())
     consumed_name = ctypes.create_string_buffer(b"ConsumedDriverRelease")
 
     def consumed_failure(_handle, out) -> int:
-        failure = ctypes.cast(
-            out, ctypes.POINTER(_DriverFailure)
-        ).contents
+        failure = ctypes.cast(out, ctypes.POINTER(_DriverFailure)).contents
         failure.primary_result = ERR_IO
         failure.primary_name = ctypes.addressof(consumed_name)
         failure.primary_name_len = len(consumed_name.value)
         return ERR_IO
 
-    _loop_module._driver.pancake_driver_release = consumed_failure
+    _driver_finalizer._driver.pancake_driver_release = consumed_failure
     try:
-        _loop_module._release_driver_finalizer_state(consumed_state)
-        assert consumed_state.handle is None, "consumed release failure retained a dangling lease"
+        _driver_finalizer._release_driver_finalizer_state(consumed_state)
+        assert consumed_state.handle is None, (
+            "consumed release failure retained a dangling lease"
+        )
         assert len(reports) == 2, reports
         assert reports[1]["primary_result"] == ERR_IO, reports
-        with _loop_module._deferred_driver_finalizers_lock:
-            assert consumed_state not in _loop_module._deferred_driver_finalizers
+        with _driver_finalizer._deferred_driver_finalizers_lock:
+            assert consumed_state not in _driver_finalizer._deferred_driver_finalizers
     finally:
-        _loop_module._driver.pancake_driver_release = original_release
+        _driver_finalizer._driver.pancake_driver_release = original_release
 
     pancake.take_runtime_failures()
     original = RuntimeError("observer failed")

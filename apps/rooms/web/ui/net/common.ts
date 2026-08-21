@@ -7,7 +7,8 @@
 // from. Anything larger belongs to the seam that owns it.
 
 import * as store from "../store.ts";
-import type { SendState } from "../types.ts";
+import { OPS_CATALOG } from "../ops/catalog.ts";
+import type { OpsCap, SendState } from "../types.ts";
 import { convSession, type Live } from "./live.ts";
 
 /** What a thrown value says, for a reader.
@@ -17,6 +18,18 @@ import { convSession, type Live } from "./live.ts";
  * answer, so a caught value never reaches a person as `[object Object]`. */
 export function reason(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
+}
+
+/** Say that an operations capability has stopped answering, and why.
+ *
+ * A capability ends three ways. The reader drops it from its toggle, which
+ * needs no notice because they just pressed it; the session it was fetched on
+ * reconnects, which is expected and takes a remembered swiss again by itself;
+ * or the thing it names refuses. Only the third is news, and it arrives while
+ * the reader may be looking at the pane it draws, so it is said out loud
+ * rather than left to the toggle falling off on its own. */
+export function opsLost(cap: OpsCap, why: string): void {
+	store.toast("failure", `${OPS_CATALOG[cap].pane}: this tab no longer holds that capability. ${why}`);
 }
 
 /** Mark how far one of our own messages has got, which is what its bubble

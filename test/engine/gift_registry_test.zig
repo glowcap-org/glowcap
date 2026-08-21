@@ -1,4 +1,4 @@
-//! Authority tests for the session-owned `engine.bootstrap.GiftRegistry`:
+//! Authority tests for the session-owned `engine.bootstrap.gifts.GiftRegistry`:
 //! deposit / withdraw bookkeeping, recipient match, monotonic handoff-count
 //! replay rejection, re-deposit replacement, and the deposited-gift cap. Gift withdrawal moves authority only behind signature
 //! verification, so these exercise the registry the way the verified callers do
@@ -14,14 +14,14 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const session = pancake.ocapn.session;
 
-const GiftRegistry = engine.bootstrap.GiftRegistry;
+const GiftRegistry = engine.bootstrap.gifts.GiftRegistry;
 
 /// A synthetic 32-byte receiver name from a short label. The exporter checks an
 /// inbound receive against names it derives from session keys, and a derived
 /// name is always 32 bytes, so a fixture that wants to reach the registry's gift
 /// and replay logic has to carry names of that width.
 fn name32(label: []const u8) [32]u8 {
-    var out = [_]u8{0} ** 32;
+    var out = @as([32]u8, @splat(0));
     @memcpy(out[0..label.len], label);
     return out;
 }
@@ -219,7 +219,7 @@ test "registry deposits a gift and accepts a matching withdrawal" {
 
 test "the generic inbound path moves no gift-withdrawal authority" {
     const allocator = std.testing.allocator;
-    const gift_id = [_]u8{0x41} ** model.HANDOFF_GIFT_ID_BYTES;
+    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x41));
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
@@ -500,8 +500,8 @@ test "the exporter derives the receiver names the recipient signs" {
     // derives from the give's recipient key and its own session key. The two
     // derivations have to agree or every honest handoff breaks, so pin them
     // against each other rather than against a copied constant.
-    const recipient = crypto.SecretKey.fromSeed([_]u8{0x11} ** 32).publicKey();
-    const exporter = crypto.SecretKey.fromSeed([_]u8{0x22} ** 32).publicKey();
+    const recipient = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x11))).publicKey();
+    const exporter = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x22))).publicKey();
 
     const recipient_side_name = try engine.handoff_recipient.sideName(recipient.asBytes());
     const exporter_side_name = try engine.handoff_recipient.sideName(exporter.asBytes());
@@ -525,11 +525,11 @@ test "the exporter derives the receiver names the recipient signs" {
 test "a non-key-width handoff key is refused rather than derived from" {
     try std.testing.expectError(
         error.MalformedKey,
-        engine.handoff_names.ExpectedReceiver.derive("short", &([_]u8{0x22} ** 32)),
+        engine.handoff_names.ExpectedReceiver.derive("short", &(@as([32]u8, @splat(0x22)))),
     );
     try std.testing.expectError(
         error.MalformedKey,
-        engine.handoff_names.ExpectedReceiver.derive(&([_]u8{0x11} ** 32), "short"),
+        engine.handoff_names.ExpectedReceiver.derive(&(@as([32]u8, @splat(0x11))), "short"),
     );
 }
 
@@ -552,7 +552,7 @@ test "a gifted near with no published name is refused at deposit" {
     // allocator past the end of its own range.
     // The gifter holds the exporter's object as an import; the exporter reads
     // that same reference back as one of its own exports.
-    const gift_id = [_]u8{0x71} ** model.HANDOFF_GIFT_ID_BYTES;
+    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x71));
     try exporter.session_state.registerExport(.from(9));
     try gifter.session_state.registerImport(.from(9));
     try gifter.sendDepositGift(&gift_id, .{ .far = model.FarRef.object(9) });
@@ -579,7 +579,7 @@ test "a gifted far is refused at deposit rather than at the recipient's expense"
     // an object the gifter hosts, which this exporter cannot serve to anybody.
     // Handed back verbatim on the recipient's session it would name an export
     // that session never made.
-    const gift_id = [_]u8{0x72} ** model.HANDOFF_GIFT_ID_BYTES;
+    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x72));
     try gifter.session_state.registerExport(.from(9));
     try gifter.sendDepositGift(&gift_id, .{ .near = model.NearRef.object(9) });
     try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));

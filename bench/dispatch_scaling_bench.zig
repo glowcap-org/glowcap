@@ -223,7 +223,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (gate) {
-        if (builtin.mode != .ReleaseFast) {
+        if (builtin.mode != .fast) {
             std.debug.print("perf_gate FAIL warm_dispatch: --gate measures ReleaseFast only, got {s}\n", .{@tagName(builtin.mode)});
             std.process.exit(1);
         }

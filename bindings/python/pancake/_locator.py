@@ -289,24 +289,32 @@ def _format_uri(
     else:
         key_ptr = val_ptr = key_len_ptr = val_len_ptr = None
 
-    cap = 256
-    while True:
-        buf = ctypes.create_string_buffer(cap)
-        out_len = ctypes.c_size_t()
+    def call_format(buf, cap: int, out_len) -> int:
         if swissnum is None:
-            rc = _lib.pancake_uri_format_peer(
+            return _lib.pancake_uri_format_peer(
                 t, len(t), d, len(d),
                 key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
                 buf, cap, ctypes.byref(out_len),
             )
-        else:
-            assert captp_version is not None
-            rc = _lib.pancake_uri_format_sturdyref(
-                _captp_version_id(captp_version),
-                t, len(t), d, len(d), swissnum, len(swissnum),
-                key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
-                buf, cap, ctypes.byref(out_len),
-            )
+        assert captp_version is not None
+        return _lib.pancake_uri_format_sturdyref(
+            _captp_version_id(captp_version),
+            t, len(t), d, len(d), swissnum, len(swissnum),
+            key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
+            buf, cap, ctypes.byref(out_len),
+        )
+
+    out_len = ctypes.c_size_t()
+    rc = call_format(None, 0, out_len)
+    if rc != _ERR_BUFFER_TOO_SMALL:
+        _check(rc)
+        if out_len.value == 0:
+            return ""
+    cap = out_len.value
+    while True:
+        buf = ctypes.create_string_buffer(cap)
+        out_len = ctypes.c_size_t()
+        rc = call_format(buf, cap, out_len)
         need = out_len.value
         if rc == _OK:
             return buf.raw[:need].decode("utf-8")

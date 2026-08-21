@@ -9,44 +9,64 @@
    grew and shrank with the panels.
 
    Here it floats over the bottom of the column it serves, so it takes that
-   column's width and follows it. The messages pass underneath and dissolve into
-   paper on the way, which is the topbar's frosted edge answered at the other
-   end of the page: the fade is the boundary, and there is no line to draw. */
+   column's width and follows it. It paints nothing at all. The conversation is
+   ended by `.log-fade` in workarea.css, which is the log's own bottom edge, and
+   this band only holds the controls that sit on top of it. That split is what
+   lets the field wear a shadow and read as resting on the column: when the band
+   was the only opaque thing here, the gutters either side of the field stayed
+   clear and messages showed through them. */
 .composer {
 	position: absolute;
 	left: 0;
 	right: 0;
 	bottom: 0;
-	padding: var(--composer-fade) 20px calc(20px + env(safe-area-inset-bottom));
-	background: linear-gradient(to top,
-		var(--paper) calc(100% - var(--composer-fade)),
-		transparent 100%);
+	/* How far in from the column's edge everything in the band sits: the field,
+	   the line under it, and the completion list against it. One number, because
+	   they are one left edge and a reader sees them stacked. */
+	--composer-side: 20px;
+	padding: var(--composer-clear) var(--composer-side) var(--composer-floor);
+	/* The band takes no clicks. It is a place to put things, and the things in
+	   it are what a reader can reach: the whole width of the log runs under it,
+	   including the column the scrollbar is drawn in, and a band that answered
+	   the pointer there took the bottom of that scrollbar away from anyone
+	   trying to drag it. Measured, not guessed: a point at the log's right edge
+	   inside this band returned this element at every height it covers. */
+	pointer-events: none;
 }
-/* One line above the input, shared by the two things that ever want it: who else
-   is typing, and the shortcut reminder while you are composing. They are rarely
-   both true and never both worth reading, so they take turns in one reserved row
-   rather than each holding a row of their own — which is what made the band tall
-   enough to notice. Reserved, not grown on demand, because the band is anchored
-   to the bottom of the message column: anything that changes its height moves its
-   top edge, and the top edge is the dissolve. */
+/* What the band holds is reachable. The band itself is not. */
+.composer > * {
+	pointer-events: auto;
+}
+/* One line for the two things that ever want it: who else is typing, and the
+   shortcut reminder while you are composing. They are rarely both true and never
+   both worth reading, so they take turns in one reserved row rather than each
+   holding a row of their own, which is what made the band tall enough to notice.
+
+   It sits under the field rather than over it. Above the field it stood between
+   the messages and the thing they answer, and it made the band tall enough that
+   the paint hiding them had to be tall too. It goes in the floor the band
+   already reserves, out of the flow, so the field does not move by a pixel when
+   a line comes or goes and the band loses the whole of that height from its top
+   edge. */
 .composer-status {
-	position: relative;
+	position: absolute;
+	left: var(--composer-side);
+	right: var(--composer-side);
+	/* Centred in the hair of slack the floor carries over this line's own height,
+	   which is where that slack came from. */
+	bottom: calc(env(safe-area-inset-bottom) + 2px);
 	height: var(--composer-status-h);
-	/* Clear of the field below it. Sat directly on the input's border, the line's
-	   descenders came within three pixels of it, and the two read as one crowded
-	   block rather than a caption and the thing it captions. Its clearance above
-	   comes from the composer's own top padding, since that is the side the
-	   messages arrive from. Measured between the glyphs, not the boxes: the boxes
-	   agreed while the ink was two pixels apart. */
-	margin-bottom: var(--composer-status-gap);
 }
 .typing,
 .composer .hint {
 	position: absolute;
 	/* Aligned with the text you are writing: the input's own left padding plus
 	   its border, so the status line and the caret start on one edge. */
-	inset: 0 6px 0 15px;
-	line-height: 15px;
+	inset: 0 15px;
+	/* The line box is the reserved row itself, so the two cannot drift apart. At
+	   the row's old fifteen pixels the caption's descenders met the clip this
+	   rule sets, and the y in "is typing" lost its tail. */
+	line-height: var(--composer-status-h);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -61,8 +81,12 @@
 .typing.show {
 	opacity: 1;
 }
+/* Tiny, and smaller than the typing line it takes turns with. The two are not
+   peers: one is a person at their keyboard and the other is furniture under the
+   field. It is also the denser line by far, and at the caption size half its
+   shortcuts run off the end. */
 .composer .hint {
-	font-size: 11.5px;
+	font-size: var(--type-tiny);
 }
 /* The shortcut hint appears while the field has the caret and nothing typed
    yet: it teaches the first keystroke, and once words are down it is furniture
@@ -122,7 +146,12 @@
 	border-radius: var(--radius-card);
 	padding: 8px;
 	background: var(--paper-raised);
-	box-shadow: var(--shadow-sm);
+	/* A card resting on the column, which it can be now that the fade behind it
+	   is what ends the conversation. It used to carry two pixels of paper as a
+	   ring, because it was the only opaque thing in the band and its four corner
+	   arcs let messages through. With paper already behind it, the ring was
+	   filling notches that are no longer there. */
+	box-shadow: var(--shadow);
 }
 .composer-input {
 	width: 100%;

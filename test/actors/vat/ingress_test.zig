@@ -27,6 +27,29 @@ const PersistentCounter = harness.PersistentCounter;
 const Captured = promise_capture.CapturedBytes;
 const StringCapture = promise_capture.CapturedString;
 
+test "vat id exhaustion refuses before publishing local actor or queued vow" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    vat.next_actor = std.math.maxInt(u64);
+    try std.testing.expectError(
+        actors.Error.ResourceExhausted,
+        vat.spawn(Counter, .{ .n = 0 }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), vat.actors.count());
+
+    vat.next_actor = 1;
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+    vat.next_vow = std.math.maxInt(u64);
+    try std.testing.expectError(
+        actors.Error.ResourceExhausted,
+        vat.send(counter, .{ .verb = "increment" }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+    try std.testing.expectEqual(std.math.maxInt(u64), vat.next_vow);
+}
+
 test "driveBudgeted runs at most N queued turns then yields the rest to the next call" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -137,7 +160,7 @@ test "ingress turn and byte admission refuse atomically" {
     // Exercise the cumulative byte cap independently of the single-chunk cap:
     // one message fits, while a second identical message would cross only the
     // per-ingress pending-byte total.
-    const payload = [_]u8{0xaa} ** 64;
+    const payload = @as([64]u8, @splat(0xaa));
     vat.queue_limits = .{
         .max_pending_turns = 8,
         .max_pending_bytes = 4096,
@@ -272,7 +295,7 @@ test "a completed ingress chunk is reclaimed while another ingress remains runna
     defer vat.closeIngress(a) catch unreachable;
     defer vat.closeIngress(b) catch unreachable;
     const counter = try vat.spawn(Counter, .{ .n = 0 });
-    const payload = [_]u8{0x5a} ** 96;
+    const payload = @as([96]u8, @splat(0x5a));
 
     try vat.tellFromIngress(a, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
     try vat.tellFromIngress(b, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });

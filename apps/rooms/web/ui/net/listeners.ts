@@ -12,7 +12,7 @@ import { roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
 import type { DirId } from "../types.ts";
 import { dirs } from "./live.ts";
-import { reason } from "./common.ts";
+import { opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 
 /** The listeners capability this tab fetched, while it still holds it. */
@@ -64,13 +64,18 @@ export async function takeListenersCap(pasted: string, remember = false): Promis
 	}
 }
 
-/** Ask the listeners capability in hand for the live listeners. */
+/** Ask the listeners capability in hand for the live listeners.
+ *
+ * A refusal ends the capability rather than leaving a stale seat list on
+ * screen under switches that would refuse, and says so; see the same catch in
+ * `refreshDiagnostics` next door. */
 export async function refreshListeners(): Promise<void> {
 	if (listenersHeld === null) return;
 	try {
 		store.setListeners(await listListeners(listenersHeld.session, listenersHeld.cap));
-	} catch {
+	} catch (error) {
 		dropListeners();
+		opsLost("listeners", reason(error));
 	}
 }
 

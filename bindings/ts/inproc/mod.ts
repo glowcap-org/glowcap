@@ -45,7 +45,7 @@ import {
 } from "@pancake/runtime/transport";
 import type { Codec, Locator, Ptr } from "@pancake/runtime/transport";
 import { inprocS } from "./ffi.ts";
-import { TRANSPORT_INPROC } from "@pancake/abi";
+import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC } from "@pancake/abi";
 
 const OK = 0;
 
@@ -189,7 +189,7 @@ export class Listener {
 	}
 	/** Block until a dialer connects, returning the in-process connection framing
 	 * on `codec`, refusing inbound frames over `maxFrameBytes`. */
-	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Promise<Connection> {
+	accept(codec: Codec = "syrup", maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP): Promise<Connection> {
 		requireOffThreadFfi("inproc", "accept");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		return this.#accepts.run(() =>
@@ -256,7 +256,7 @@ export class Netlayer {
 	connect(
 		designator: string,
 		codec: Codec = "syrup",
-		maxFrameBytes = 4096,
+		maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
 	): Promise<Connection> {
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		const d = new TextEncoder().encode(designator);

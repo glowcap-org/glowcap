@@ -19,6 +19,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 const support_actors = @import("../support/actors.zig");
 const ws_relay = @import("../support/ws_relay.zig");
+const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 const foundation = pancake.foundation;
 const crypto = foundation.crypto;
@@ -52,10 +53,17 @@ pub const PipePlatform = struct {
     refused_sends: usize = 0,
     refused_recvs: usize = 0,
     refused_closes: usize = 0,
+    send_submit_attempts: usize = 0,
     recv_submit_attempts: usize = 0,
     close_submit_attempts: usize = 0,
+    poll_calls: usize = 0,
     last_poll_timeout_ms: i32 = 0,
     max_submit_bytes: usize = 0,
+    last_send_ptr: ?[*]const u8 = null,
+    last_send_fd: ?Fd = null,
+    keepalive_fd: ?Fd = null,
+    accepted_fd: ?Fd = null,
+    accepted_ud: ?u64 = null,
 
     pub fn deinit(self: *PipePlatform) void {
         self.wire.deinit(self.allocator);
@@ -63,10 +71,12 @@ pub const PipePlatform = struct {
     pub fn openListener(_: *PipePlatform, _: u16) !Fd {
         return 40;
     }
-    pub const ListenerAddress = void;
-    pub fn listenerAddress(_: *PipePlatform, _: Fd) !ListenerAddress {}
-    pub fn listenerPort(_: ListenerAddress) ?u16 {
-        return null;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *PipePlatform, fd: Fd) !ListenerAddress {
+        return @intCast(fd);
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
     pub fn verifiedChannelKey(_: *PipePlatform, _: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
         return null;
@@ -80,7 +90,16 @@ pub const PipePlatform = struct {
     pub fn recycleBorrowed(self: *PipePlatform, _: completion.Completion) void {
         self.recycle_calls += 1;
     }
-    pub fn submitAccept(_: *PipePlatform, _: u64, _: Fd) !void {}
+    pub fn submitAccept(self: *PipePlatform, user_data: u64, fd: Fd) !void {
+        self.accepted_fd = fd;
+        self.accepted_ud = user_data;
+    }
+    pub fn applyKeepalive(self: *PipePlatform, fd: Fd, _: completion.Keepalive) !void {
+        self.keepalive_fd = fd;
+    }
+    pub fn wireFraming(_: *PipePlatform, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
     pub fn startDial(self: *PipePlatform, user_data: u64, _: ConnectTarget) !Fd {
         self.pending_connect = .{ .user_data = user_data, .result = 0 };
         return 41;
@@ -102,11 +121,14 @@ pub const PipePlatform = struct {
             .borrowed = .recv(bytes, 0),
         };
     }
-    pub fn submitSend(self: *PipePlatform, user_data: u64, _: Fd, bytes: []const u8) !void {
+    pub fn submitSend(self: *PipePlatform, user_data: u64, fd: Fd, bytes: []const u8) !void {
+        self.send_submit_attempts += 1;
         if (self.refused_sends != 0) {
             self.refused_sends -= 1;
             return error.SubmitPressure;
         }
+        self.last_send_ptr = bytes.ptr;
+        self.last_send_fd = fd;
         self.max_submit_bytes = @max(self.max_submit_bytes, bytes.len);
         try self.wire.appendSlice(self.allocator, bytes);
         self.pending_send = .{ .user_data = user_data, .result = @intCast(bytes.len) };
@@ -135,6 +157,7 @@ pub const PipePlatform = struct {
         self.pending_close = .{ .user_data = user_data, .result = 0 };
     }
     pub fn poll(self: *PipePlatform, out: []completion.Completion, timeout_ms: i32) !usize {
+        self.poll_calls += 1;
         self.last_poll_timeout_ms = timeout_ms;
         if (out.len == 0) return 0;
         inline for (.{ &self.pending_connect, &self.pending_send, &self.pending_recv, &self.pending_cancel, &self.pending_close }) |slot| {
@@ -159,12 +182,66 @@ test "noise adapter connection state has a measured footprint" {
     try std.testing.expectEqual(noise_connection_state_bytes, NoiseBackend.connection_state_bytes);
 }
 
+test "plain completion operations preserve the inner contract exactly" {
+    const allocator = std.testing.allocator;
+    var backend = try sealingBackend(allocator);
+    defer backend.deinit();
+
+    const listen_fd = try backend.openListener(9000);
+    try std.testing.expectEqual(@as(PipePlatform.Fd, 40), listen_fd);
+    const listen_address = try backend.listenerAddress(listen_fd);
+    try std.testing.expectEqual(@as(?u16, 40), NoiseBackend.listenerPort(listen_address));
+    try backend.submitAccept(1, listen_fd);
+    try std.testing.expectEqual(@as(?PipePlatform.Fd, 40), backend.inner.accepted_fd);
+    try std.testing.expectEqual(@as(?u64, 1), backend.inner.accepted_ud);
+
+    const fd = try backend.startDial(2, .{ .plain = 17 });
+    try std.testing.expectEqual(@as(PipePlatform.Fd, 41), fd);
+    var completions: [2]completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 37));
+    try std.testing.expectEqual(@as(u64, 2), completions[0].user_data);
+    try std.testing.expectEqual(@as(i32, 0), completions[0].result);
+
+    const keepalive: completion.Keepalive = .{ .idle_sec = 7, .interval_sec = 3, .count = 2 };
+    try backend.applyKeepalive(fd, keepalive);
+    try std.testing.expectEqual(@as(?PipePlatform.Fd, fd), backend.inner.keepalive_fd);
+
+    const bytes = "plain pointer identity";
+    try backend.submitSend(3, fd, bytes);
+    try std.testing.expectEqual(bytes.ptr, backend.inner.last_send_ptr.?);
+    try std.testing.expectEqual(@as(?PipePlatform.Fd, fd), backend.inner.last_send_fd);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(i32, bytes.len), completions[0].result);
+
+    try backend.submitRecv(4, fd);
+    try backend.inner.completeRecv("plain borrowed bytes");
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqualStrings("plain borrowed bytes", completions[0].borrowed.recvBytes().?);
+    backend.recycleBorrowed(completions[0]);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.recycle_calls);
+
+    try backend.submitRecv(6, fd);
+    try backend.submitCancel(7, 6, fd);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(u64, 6), completions[0].user_data);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(u64, 7), completions[0].user_data);
+
+    backend.shutdownFd(fd);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.shutdown_calls);
+    try backend.submitClose(5, fd);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(u64, 5), completions[0].user_data);
+    backend.closeFd(fd);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.close_fd_calls);
+}
+
 pub fn initiatorSecret() crypto.SecretKey {
-    return crypto.SecretKey.fromSeed([_]u8{0x31} ** crypto.SEED_BYTES);
+    return crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x31)));
 }
 
 pub fn responderSecret() crypto.SecretKey {
-    return crypto.SecretKey.fromSeed([_]u8{0x32} ** crypto.SEED_BYTES);
+    return crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x32)));
 }
 
 pub fn sealingBackend(allocator: std.mem.Allocator) !NoiseBackend {
@@ -173,7 +250,7 @@ pub fn sealingBackend(allocator: std.mem.Allocator) !NoiseBackend {
         allocator,
         .{ .allocator = allocator },
         &identity,
-        [_]u8{0x9a} ** std.Random.DefaultCsprng.secret_seed_length,
+        @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0x9a)),
     );
 }
 
@@ -181,7 +258,7 @@ pub fn responderChannel() !sealed.SealedChannel {
     const identity = responderSecret();
     return sealed.SealedChannel.initResponder(
         &identity,
-        [_]u8{0x55} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x55)),
         model.transport.noise_relay,
     );
 }
@@ -332,6 +409,51 @@ test "the pipe carries sealed records only, and the seat is lent real plaintext"
     try std.testing.expectEqual(@as(u64, 13), lent.user_data);
     try std.testing.expectEqualStrings(reply, lent.borrowed.recvBytes().?);
     backend.recycleBorrowed(lent);
+
+    try closeSealed(&backend, fd, allocator);
+}
+
+test "warmed sealed records add no adapter allocation" {
+    const allocator = std.testing.allocator;
+    var counting = CountingAllocator{ .backing = allocator };
+    var backend = try sealingBackend(counting.allocator());
+    defer backend.deinit();
+    var responder = try responderChannel();
+    defer responder.deinit(allocator);
+    const fd = try openSealed(&backend, &responder, allocator);
+
+    var got: std.ArrayList(completion.Completion) = .empty;
+    defer got.deinit(allocator);
+    const outbound = "warmed sealed record";
+    try backend.submitSend(61, fd, outbound);
+    try drain(&backend, &got, allocator);
+    const opened = try responder.ingest(allocator, backend.inner.wire.items);
+    try std.testing.expect(opened.event == .plaintext);
+    responder.releasePlaintext();
+    backend.inner.wire.clearRetainingCapacity();
+
+    var ciphertext: std.ArrayList(u8) = .empty;
+    defer ciphertext.deinit(allocator);
+    try responder.sealBytes(allocator, &ciphertext, "warmed inbound record");
+    try backend.submitRecv(62, fd);
+    try backend.inner.completeRecv(ciphertext.items);
+    try drain(&backend, &got, allocator);
+    backend.recycleBorrowed(got.items[got.items.len - 1]);
+
+    counting.allocs = 0;
+    try backend.submitSend(63, fd, outbound);
+    try drain(&backend, &got, allocator);
+    try std.testing.expectEqual(@as(usize, 0), counting.allocs);
+    backend.inner.wire.clearRetainingCapacity();
+
+    ciphertext.clearRetainingCapacity();
+    try responder.sealBytes(allocator, &ciphertext, "warmed inbound record");
+    counting.allocs = 0;
+    try backend.submitRecv(64, fd);
+    try backend.inner.completeRecv(ciphertext.items);
+    try drain(&backend, &got, allocator);
+    try std.testing.expectEqual(@as(usize, 0), counting.allocs);
+    backend.recycleBorrowed(got.items[got.items.len - 1]);
 
     try closeSealed(&backend, fd, allocator);
 }

@@ -184,17 +184,17 @@ export function convSession(key: string | null): Live | null {
 	return conv === null ? null : dirSession(conv.dir);
 }
 
-/** The directory whose answer speaks for the page right now: the one the open
- * conversation is on, or the first this tab holds when nothing is open.
+/** The directory whose answer speaks for the page right now, as a name to send
+ * to rather than the whole record: the store owns the choice, and this is the
+ * projection the wire side wants.
  *
  * A tab may hold several, and almost everything belongs to exactly one of them,
  * so this is only for the few questions asked before a conversation has been
- * picked — the join card's, and a command typed with nothing open. */
+ * picked: the join card's, and a command typed with nothing open. Empty while
+ * this tab holds none, because the callers here are already in a session and
+ * have somewhere to put the answer. */
 export function actingDir(): DirId {
-	const conv = store.activeConv();
-	if (conv !== null) return conv.dir;
-	for (const dir of store.get().dirs.keys()) return dir;
-	return dirId("");
+	return store.actingDir()?.id ?? dirId("");
 }
 
 /** Whether `session` is still the live one for its own directory. A session a

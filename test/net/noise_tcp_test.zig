@@ -33,7 +33,7 @@ test "noise-tcp dial refuses a non-key designator and a hint-less key designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x6e} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6e)));
     var resident = net.tcp.noise.Resident{ .io = io };
     const nl = resident.netlayer();
     try std.testing.expectEqual(net.netlayer.DesignatorScheme.key, nl.designatorScheme());
@@ -82,7 +82,7 @@ test "noise-tcp listener designator is the identity key, and close wakes a block
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x6f} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6f)));
     var resident = net.tcp.noise.Resident{ .io = io };
     const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",

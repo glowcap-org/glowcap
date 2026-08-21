@@ -1,0 +1,6 @@
+# Shellcheck settings for this directory, so an editor, a hand run, and
+# hooks/post-create.sh all read these files the same way. Following sourced
+# files is the whole point: the scripts here are thin, and what they call
+# lives in lib/.
+external-sources=true
+source-path=SCRIPTDIR

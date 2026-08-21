@@ -55,7 +55,7 @@ const matrix = [_]Cell{
     .{ .binding = .zig, .transport = .noise_tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-tcp.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-tcp.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "dial/iroh.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/iroh.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/zig.zig", .fence = "zig" } } },
-    .{ .binding = .zig, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/keyed-relay.zig", .fence = "zig" } } },
+    .{ .binding = .zig, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.zig", .fence = "zig" } } },
     // Native bindings ship the low-level WebRTC signaling and channel pieces,
     // but not a managed application Session adapter. Their transport-page
@@ -69,7 +69,7 @@ const matrix = [_]Cell{
     .{ .binding = .ts, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "dial/iroh.ts", .fence = "ts" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/iroh.ts", .fence = "ts" } } },
     .{ .binding = .ts, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.ts", .fence = "ts" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/ts.ts", .fence = "ts" } } },
     .{ .binding = .ts, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.ts", .fence = "ts" } } },
-    .{ .binding = .ts, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.ts", .fence = "ts" } } },
+    .{ .binding = .ts, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.ts", .fence = "ts" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.ts", .fence = "ts" } } },
     .{ .binding = .ts, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.ts", .fence = "ts" } } },
 
     // The browser runtime owns WebSocket connectors for tcp/keyed-tcp and an
@@ -88,7 +88,7 @@ const matrix = [_]Cell{
     .{ .binding = .python, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "dial/iroh.python", .fence = "python" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/iroh.python", .fence = "python" } } },
     .{ .binding = .python, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.python", .fence = "python" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/python.python", .fence = "python" } } },
     .{ .binding = .python, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.python", .fence = "python" } } },
-    .{ .binding = .python, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.python", .fence = "python" } } },
+    .{ .binding = .python, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.python", .fence = "python" } }, .listen = .{ .planned = true, .example = .{ .file = "listen/noise-relay.python", .fence = "python" } } },
     .{ .binding = .python, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.python", .fence = "python" } } },
 
     .{ .binding = .rust, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.rust", .fence = "rust" } } },
@@ -97,7 +97,7 @@ const matrix = [_]Cell{
     .{ .binding = .rust, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "dial/iroh.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/iroh.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/rust.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.rust", .fence = "rust" } } },
-    .{ .binding = .rust, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.rust", .fence = "rust" } } },
+    .{ .binding = .rust, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.rust", .fence = "rust" } }, .listen = .{ .planned = true, .example = .{ .file = "listen/noise-relay.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.rust", .fence = "rust" } } },
 
     .{ .binding = .racket, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.racket", .fence = "scheme" } } },
@@ -106,7 +106,7 @@ const matrix = [_]Cell{
     .{ .binding = .racket, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "dial/iroh.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/iroh.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/racket.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.racket", .fence = "scheme" } } },
-    .{ .binding = .racket, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.racket", .fence = "scheme" } } },
+    .{ .binding = .racket, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.racket", .fence = "scheme" } }, .listen = .{ .planned = true, .example = .{ .file = "listen/noise-relay.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.racket", .fence = "scheme" } } },
     // Racket exposes raw in-process frame connections, not a managed Session
     // listener/dial pair, so it is outside this application-level matrix.
@@ -130,6 +130,9 @@ const binding_transports = [_]model.transport.Known{
 };
 const noise_transports = [_]model.transport.Known{ .noise_tcp, .noise_relay };
 const relay_transports = [_]model.transport.Known{ .noise_relay, .keyed_relay };
+// Listen on the relay page is the sealed path. Keyed registration is the same
+// constructor with a different profile, not a second full program.
+const relay_listen_transports = [_]model.transport.Known{.noise_relay};
 const iroh_transports = [_]model.transport.Known{.iroh};
 const onion_transports = [_]model.transport.Known{.onion};
 const webrtc_transports = [_]model.transport.Known{.webrtc};
@@ -185,7 +188,7 @@ const slots = [_]Slot{
     .{ .id = "dial:onion", .page = "site/content/transports/onion.smd", .direction = .dial, .axis = .{ .transport = &onion_transports } },
     .{ .id = "listen:onion", .page = "site/content/transports/onion.smd", .direction = .listen, .axis = .{ .transport = &onion_transports } },
     .{ .id = "dial:relay", .page = "site/content/relay.smd", .direction = .dial, .axis = .{ .transport = &relay_transports } },
-    .{ .id = "listen:relay", .page = "site/content/relay.smd", .direction = .listen, .axis = .{ .transport = &relay_transports } },
+    .{ .id = "listen:relay", .page = "site/content/relay.smd", .direction = .listen, .axis = .{ .transport = &relay_listen_transports } },
     .{ .id = "dial:webrtc", .page = "site/content/transports/webrtc.smd", .direction = .dial, .axis = .{ .transport = &webrtc_transports } },
 };
 
@@ -282,23 +285,29 @@ fn renderTransportGroup(
     defer group.deinit(gpa);
 
     if (slotHasExamples(group_slot)) try group.appendSlice(gpa, "> []($block.attrs('code-tabs'))\n");
-    for (std.enums.values(Binding)) |binding| {
-        const cell = findCell(binding, transport) orelse continue;
-        const surface = surfaceFor(cell, slot.direction);
-        if (surface.example) |example| {
-            try renderTab(gpa, io, &group, .{
-                .label = bindingLabel(binding),
-                .file = example.file,
-                .fence = example.fence,
-                .part = .setup,
-                .planned = surface.planned,
-            });
+    // Supported tabs first so a transport's lead is a working surface, not a
+    // planned stub. `std.enums.values` follows declaration order (Zig, then
+    // TypeScript), which put WebRTC's planned Zig tab in front of TypeScript.
+    inline for (.{ false, true }) |want_planned| {
+        for (std.enums.values(Binding)) |binding| {
+            const cell = findCell(binding, transport) orelse continue;
+            const surface = surfaceFor(cell, slot.direction);
+            if (surface.planned != want_planned) continue;
+            if (surface.example) |example| {
+                try renderTab(gpa, io, &group, .{
+                    .label = bindingLabel(binding),
+                    .file = example.file,
+                    .fence = example.fence,
+                    .part = .setup,
+                    .planned = surface.planned,
+                });
+            }
         }
     }
     trimTrailingNewline(&group);
 
     if (show_heading) {
-        try out.print(gpa, "### {s}", .{transportGroupLabel(slot.id, transport)});
+        try out.print(gpa, "## {s}", .{transportGroupLabel(slot.id, transport)});
         if (group.items.len != 0) try out.appendSlice(gpa, "\n\n");
     }
     try out.appendSlice(gpa, group.items);

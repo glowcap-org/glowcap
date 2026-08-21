@@ -45,7 +45,7 @@ silent drop.
 ### Queue ownership and drain
 
 The inbound answer table owns pipelining state.
-[`AnswerCell`](../../../src/ocapn/session/answers.zig) carries a FIFO `queue` of
+[`AnswerCell`](../../../src/ocapn/session/answers/store.zig) carries a FIFO `queue` of
 owned `op:deliver` messages, a `listeners` list, and the stored `resolution`. An
 inbound `op:deliver` whose target is a still-`pending` answer is held there
 ([`Session.enqueuePipelinedCall`](../../../src/ocapn/session/mod.zig)) and
@@ -195,6 +195,6 @@ versus Cap'n Proto's single-frame path is the residual, not a missing codec
 
 [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) settles the GC
 shapes that release answer rows (the `count` on
-[`AnswerCell`](../../../src/ocapn/session/answers.zig)).
+[`AnswerCell`](../../../src/ocapn/session/answers/store.zig)).
 [ADR-0009](ADR-0009-three-party-handoff-substrate.md) extends listener
 installation to handoff-imported promises.

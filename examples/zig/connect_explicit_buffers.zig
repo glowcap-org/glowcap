@@ -17,15 +17,12 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-/// A finite handshake budget. Omitting one is a compile error, and writing
-/// `.unbounded` would park this example forever against a partner that opens
-/// a socket and then says nothing. A reader copies this line, which is why
-/// it names a real number.
-const handshake_budget: driver.Budget = .{ .ms = 10_000 };
+/// The ordinary finite handshake budget. Omitting one is a compile error, and
+/// `.unbounded` would park this example against a silent partner.
+const handshake_budget = driver.default_handshake_budget;
 
-/// A finite budget for every wait after the session opens. Same reason:
-/// omitting it does not compile, and `.unbounded` parks a copied example.
-const settle_budget: driver.Budget = .{ .ms = 10_000 };
+/// The ordinary finite budget for waits after the session opens.
+const settle_budget = driver.default_settle_budget;
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;

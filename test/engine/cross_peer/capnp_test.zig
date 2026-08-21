@@ -80,7 +80,7 @@ test "a Cap'n Proto session round-trips a handoff give with direct-addresses hin
     const hints = model.Hints.forDirectAddresses("127.0.0.1:9202", &entry_buf);
     try expectCapnpGiveRoundTrip(allocator, &pair, gifter_secret, recipient_pub_key[0..], .{
         .transport = "keyed-tcp",
-        .designator = "aa" ** 32,
+        .designator = &@as([64]u8, @splat('a')),
         .hints = hints,
     });
 }
@@ -118,7 +118,10 @@ fn expectCapnpGiveRoundTrip(
         defer ask.deinit();
     }
 
-    try pair.p1.sendResolveHandoffGive(.fromWire(.from(5)), give_bytes);
+    try pair.p1.sendResolveHandoffGive(
+        pair.p1.session_state.answerTargetNamed(.fromWire(.from(5))).?,
+        give_bytes,
+    );
     try cross_peer.pumpOne(&pair.p1, &pair.p2);
 
     var event = pair.p2.pollEvent() orelse return error.ExpectedResolveEvent;

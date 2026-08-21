@@ -17,6 +17,7 @@ const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
 pub const OmittedFamily = shared.symbols.OmittedFamily;
+const omit = shared.symbols.omit_reason;
 
 /// No whole family is omitted from the TypeScript table on this archive; the
 /// per-symbol omissions below carry their reasons on the row.
@@ -97,7 +98,7 @@ pub const symbols = [_]Symbol{
         .name = "pancake_host_session_feed",
         .rust_omit = "the Rust pump feeds raw bytes (feed_bytes); no PancakeFrame is built binding-side",
         .out_params = &.{},
-        .ts_omit = "the TS pump feeds raw bytes (feed_bytes); no PancakeFrame is ever built on the JS side",
+        .ts_omit = "the TS pump feeds transport packets; no PancakeFrame is ever built on the JS side",
         .python_omit = "the Python pump feeds raw bytes (feed_bytes); no PancakeFrame is built binding-side",
         .racket_omit = "the Racket pump feeds raw bytes (feed_bytes); no PancakeFrame is built binding-side",
     },
@@ -105,6 +106,22 @@ pub const symbols = [_]Symbol{
         .name = "pancake_host_session_feed_bytes",
         .out_params = &.{},
         .section = "The byte pump and action queue. The fed chunk (index 1) is input-only:\nthe annotation is what keeps the wasm boundary at one copy-in per feed\nwith no full-chunk copy-back.",
+    },
+    .{
+        .name = "pancake_host_session_feed_packet",
+        .out_params = &.{},
+        .python_omit = "the Python pump still drives the stream-specific byte seam until its WebRTC adapter exists",
+        .racket_omit = "the Racket pump still drives the stream-specific byte seam until its WebRTC adapter exists",
+    },
+    .{
+        .name = "pancake_host_session_resume_feed",
+        .out_params = &.{},
+    },
+    .{
+        .name = "pancake_host_session_take_packet",
+        .out_params = &.{ 1, 2, 4 },
+        .python_omit = "the Python pump still drains the stream-specific byte seam until its WebRTC adapter exists",
+        .racket_omit = "the Racket pump still drains the stream-specific byte seam until its WebRTC adapter exists",
     },
     .{ .name = "pancake_host_session_take_outbound", .out_params = &.{ 1, 2, 4 } },
     .{
@@ -243,9 +260,9 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_host_last_error", .out_params = &.{0} },
     .{
         .name = "pancake_host_clear_last_error",
-        .rust_omit = "unused: the Rust binding reads the slot after a failing call and never resets it",
-        .ts_omit = "unused: the TS binding reads the slot after a failing call and never resets it",
-        .python_omit = "unused: the Python binding reads the slot after a failing call and never resets it",
-        .racket_omit = "unused: the Racket binding reads the slot after a failing call and never resets it",
+        .rust_omit = omit.rust_last_error,
+        .ts_omit = omit.ts_last_error,
+        .python_omit = omit.python_last_error,
+        .racket_omit = omit.racket_last_error,
     },
 };

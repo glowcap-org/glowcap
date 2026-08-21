@@ -5,14 +5,15 @@
 //! everything the node decides — where a token routes, which exporter a give
 //! withdraws from, when a served reply becomes a signed give — runs inside the
 //! library, and the embedder's whole job is moving bytes and answering the
-//! action queue. Inbound frames enter through `pancake_host_session_feed`,
-//! outbound frames leave through `pancake_host_session_take_outbound`, and the
-//! host's own effects (dial an exporter, draw gift-id entropy, flush a
+//! action queue. Inbound transport packets enter through
+//! `pancake_host_session_feed_packet` (or the narrower frame/byte-stream
+//! verbs), outbound packets leave through `pancake_host_session_take_packet`,
+//! and the host's own effects (dial an exporter, draw gift-id entropy, flush a
 //! session) surface as `PancakeHostAction`s the embedder drains with
 //! `pancake_host_next_action` and answers with `pancake_host_dialed` /
 //! `pancake_host_dial_failed` / `pancake_host_provide_gift_id` /
-//! `pancake_host_gift_id_failed`. Settlements
-//! ride the same queue: a vow's outcome pops as a `SETTLE` or `FAIL` action
+//! `pancake_host_gift_id_failed`. Settlements ride the same queue: a vow's
+//! outcome pops as a `SETTLE` or `FAIL` action
 //! whose `ticket` is the vow id, so one drain routes every outcome and there
 //! is no listener to register before the bytes that settle it.
 //!
@@ -21,8 +22,9 @@
 //! thread executing the enclosing `pancake_host_*` call. Inside it the
 //! enqueueing verbs are legal (send/tell, vow verbs, turn verbs, gc release,
 //! exporter location) and are encoded and pumped when the enclosing call
-//! unwinds; the host-driving verbs (feed, feed_bytes, take_outbound,
-//! next_action, the dial/gift completions, open, publish/spawn,
+//! unwinds; the host-driving verbs (feed, feed_bytes, feed_packet,
+//! resume_feed, take_packet, take_outbound, next_action,
+//! the dial/gift completions, open, publish/spawn,
 //! fetch/enliven, break_far_vows, transport_closed, release) are refused with
 //! `PANCAKE_ERR_INVALID_ARGUMENT`.
 //!
@@ -45,10 +47,11 @@
 //! leaves, so the header generator and the binding mirrors see the whole ABI
 //! from one place. The exports themselves are split by responsibility:
 //! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
-//! queue, host-wide publish, GC, and the last-error slot; `session.zig` owns
-//! the per-session verbs (open, the byte pump, publish/spawn, fetch/enliven,
-//! send/tell/vows, and the abort diagnostics); `turn.zig` owns the turn-time
-//! verbs; `pump.zig` owns the optional `pancake_host_pump_drain` convenience;
+//! queue, host-wide publish, GC, and the last-error slot;
+//! `session/lifecycle.zig` owns open/close/release; `session/pump.zig` owns the
+//! session byte and packet pump; `session.zig` owns publish/spawn, fetch/enliven,
+//! send/tell/vows, and abort diagnostics; `turn.zig` owns the turn-time verbs;
+//! `pump.zig` owns the optional `pancake_host_pump_drain` convenience;
 //! and `common.zig` holds the internal glue those leaves share (the `Instance`
 //! state, the behavior bridge, marshalling, and the error projection).
 
@@ -67,7 +70,8 @@ const shared = @import("c_abi_shared");
 
 const host = @import("host.zig");
 const session = @import("session.zig");
-const session_lifecycle = @import("session_lifecycle.zig");
+const session_lifecycle = @import("session/lifecycle.zig");
+const session_pump = @import("session/pump.zig");
 const turn = @import("turn.zig");
 const pump = @import("pump.zig");
 const common = @import("common.zig");
@@ -314,8 +318,8 @@ pub const PancakeHostTurn = opaque {};
 /// pending view with `pancake_host_pending_dial`) and report back through
 /// `pancake_host_dialed` / `pancake_host_dial_failed`.
 pub const PANCAKE_HOST_ACTION_DIAL: u32 = 0;
-/// `PancakeHostAction.kind`: outbound frames may be ready on `session`; drain
-/// `pancake_host_session_take_outbound` until WOULD_BLOCK and write them.
+/// `PancakeHostAction.kind`: outbound transport packets may be ready on
+/// `session`; drain the session's transport output until WOULD_BLOCK and write it.
 pub const PANCAKE_HOST_ACTION_FLUSH: u32 = 1;
 /// `PancakeHostAction.kind`: draw 32 random bytes and feed them back through
 /// `pancake_host_provide_gift_id` with this action's `ticket`.
@@ -344,15 +348,9 @@ pub const PANCAKE_HOST_ACTION_CANCEL_DIAL: u32 = 7;
 pub const PANCAKE_DEFAULT_FRAME_CAP: usize = (engine.SessionLimits{}).max_frame_bytes;
 
 /// How long a binding's establish waits for a partner's `op:start-session`
-/// before abandoning the half-built connection.
-///
-/// It lives here because it is one product decision, not four. A peer that
-/// opens a byte channel and then says nothing is the case no failure check
-/// catches: nothing fails, the handshake simply waits, so unbounded it parks
-/// the dialer forever and, on an accepting side, every later connection behind
-/// it. Each binding used to carry its own copy of this number, which is a
-/// promise about how long a caller waits made in four places at once.
-pub const PANCAKE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
+/// before abandoning the half-built connection. The budget is finite so a peer
+/// that opens a byte channel and then stays silent cannot pin the caller.
+pub const PANCAKE_HANDSHAKE_TIMEOUT_MS: u64 = @intCast(driver_core.default_handshake_timeout_ms);
 
 /// Default accepted connections held across handshaking plus ready-but-unclaimed
 /// sessions by a high-level binding listener. This is capacity, not eager
@@ -368,18 +366,17 @@ pub const PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
 /// cannot mint an unbounded set of half-open Host sessions.
 pub const PANCAKE_MAX_HANDSHAKE_CONCURRENCY: usize = 32;
 
-/// Discovery-posture dial retry interval (ms). Keep lockstep with
-/// `driver.discovery_retry_ms` (ADR-0082); `test/driver` pins the pair.
-pub const PANCAKE_DISCOVERY_DIAL_RETRY_MS: u64 = 3_000;
-/// Discovery-posture dial attempt budget. Keep lockstep with
-/// `driver.discovery_max_attempts` (ADR-0082).
-pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24;
+/// Discovery-posture dial retry interval (ms), projected from the shared
+/// `driver_core` default that `driver.DialRetry` also consumes.
+pub const PANCAKE_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms;
+/// Discovery-posture dial attempt budget, including the first attempt.
+pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts;
 
 /// Bound on one turn's synchronous local `Forward` chase (caretaker over
 /// attenuator). Hop N+1 breaks the answer instead of spinning; the wire path
 /// defers each hop onto a fresh turn so it needs no matching cap. Mirrored by
 /// every binding's trampoline / vat.
-pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = 256;
+pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops;
 
 /// One embedder effect popped from `pancake_host_next_action`. `kind` selects
 /// the live fields: DIAL and CANCEL_DIAL carry only `ticket` (DIAL borrows the
@@ -532,9 +529,12 @@ pub const pancake_host_session_lifecycle_state = session_lifecycle.pancake_host_
 pub const pancake_host_session_release = session_lifecycle.pancake_host_session_release;
 pub const pancake_host_session_is_open = session_lifecycle.pancake_host_session_is_open;
 pub const pancake_host_session_trace_id = session_lifecycle.pancake_host_session_trace_id;
-pub const pancake_host_session_feed = session.pancake_host_session_feed;
-pub const pancake_host_session_feed_bytes = session.pancake_host_session_feed_bytes;
-pub const pancake_host_session_take_outbound = session.pancake_host_session_take_outbound;
+pub const pancake_host_session_feed = session_pump.pancake_host_session_feed;
+pub const pancake_host_session_feed_bytes = session_pump.pancake_host_session_feed_bytes;
+pub const pancake_host_session_feed_packet = session_pump.pancake_host_session_feed_packet;
+pub const pancake_host_session_resume_feed = session_pump.pancake_host_session_resume_feed;
+pub const pancake_host_session_take_packet = session_pump.pancake_host_session_take_packet;
+pub const pancake_host_session_take_outbound = session_pump.pancake_host_session_take_outbound;
 pub const pancake_host_session_publish = session.pancake_host_session_publish;
 pub const pancake_host_session_spawn = session.pancake_host_session_spawn;
 pub const pancake_host_session_fetch = session.pancake_host_session_fetch;

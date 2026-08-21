@@ -13,6 +13,7 @@ const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
+const readSourceSubject = util.readSourceSubject;
 
 /// Apex for one CapTP I/O spine. The forbid rows live in
 /// `source_check/bans.zig` (`captp_io_spine_table`); this keeps the
@@ -31,7 +32,7 @@ pub fn check(
     // Every completion Backend must declare the total dial contract.
     // Transport-bound DialResolvers interpret OCapN locators; platform Backends are connect-only.
     const backend_paths = [_][]const u8{
-        "src/net/transport/iroh.zig",
+        "src/net/transport/iroh/backend.zig",
     };
     const required_dial = [_][]const u8{
         "pub const ConnectTarget",
@@ -48,8 +49,8 @@ pub fn check(
         "shutdownFd",
     };
     const locator_paths = [_][]const u8{
-        "src/net/transport/tcp_addressing.zig",
-        "src/net/transport/iroh.zig",
+        "src/net/transport/tcp/addressing.zig",
+        "src/net/transport/iroh/resolver.zig",
     };
     const required_locator = [_][]const u8{
         "pub const DialResolver",
@@ -110,7 +111,7 @@ pub fn check(
         }
         // The iroh Pending dropped its `read_is_recv` flag too (ADR-0057), so
         // hold the flag out of iroh the same way it is held out of kqueue.
-        const iroh_path = "src/net/transport/iroh.zig";
+        const iroh_path = "src/net/transport/iroh/backend.zig";
         const iroh_src = root.readFileAlloc(io, iroh_path, gpa, .limited(2 << 20)) catch |err| blk: {
             try appendViolation(gpa, violations, "{s}: failed to read for iroh Pending flag check with {s}", .{ iroh_path, @errorName(err) });
             break :blk null;
@@ -123,7 +124,7 @@ pub fn check(
         }
         const pool_paths = [_][]const u8{
             "src/net/completion/kqueue.zig",
-            "src/net/transport/iroh.zig",
+            "src/net/transport/iroh/backend.zig",
         };
         for (pool_paths) |path| {
             const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
@@ -188,8 +189,8 @@ pub fn check(
             const rel = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
             defer gpa.free(rel);
             if (std.mem.eql(u8, rel, "src/net/transport/tcp.zig")) continue;
-            if (std.mem.eql(u8, rel, "src/net/transport/tcp_plain.zig")) continue;
-            if (std.mem.eql(u8, rel, "src/net/transport/tcp_key_addressed.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp/plain.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp/key_addressed.zig")) continue;
             const contents = root.readFileAlloc(io, rel, gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for connectAddress ban with {s}", .{ rel, @errorName(err) });
                 continue;
@@ -441,7 +442,7 @@ pub fn check(
         banned: []const []const u8,
     }{
         .{
-            .path = "bindings/python/pancake/_session.py",
+            .path = "bindings/python/pancake/_session/",
             .banned = &.{
                 "establish_dialed(node, tcp_locator",
                 "establish_dialed(cls, tcp_locator",
@@ -476,7 +477,7 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/python/smoke/lifecycle.py",
+            .path = "bindings/python/smoke/lifecycle/__init__.py",
             .banned = &.{
                 "_mint_dialed(Node(), tcp_locator",
                 "._mint_dialed_locator(",
@@ -484,7 +485,23 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/python/smoke/verbs.py",
+            .path = "bindings/python/smoke/lifecycle/close.py",
+            .banned = &.{
+                "_mint_dialed(Node(), tcp_locator",
+                "._mint_dialed_locator(",
+                "Connection.connect(",
+            },
+        },
+        .{
+            .path = "bindings/python/smoke/verbs/__init__.py",
+            .banned = &.{
+                "_mint_dialed(Node(), tcp_locator",
+                "._mint_dialed_locator(",
+                "Connection.connect(",
+            },
+        },
+        .{
+            .path = "bindings/python/smoke/verbs/authority.py",
             .banned = &.{
                 "_mint_dialed(Node(), tcp_locator",
                 "._mint_dialed_locator(",
@@ -508,7 +525,7 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/python/pancake/_session.py",
+            .path = "bindings/python/pancake/_session/",
             .banned = &.{
                 "async def connect(cls, host",
                 "Connection.connect(",
@@ -526,7 +543,7 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/ts/runtime/session.ts",
+            .path = "bindings/ts/runtime/session/",
             // The formatter-pinned `static async connect(\n\t\thost` variant
             // is retired: `Connection.connect(` catches any resurrection
             // without depending on rewrap.
@@ -567,8 +584,8 @@ pub fn check(
         },
     };
     for (dial_uri_mint) |entry| {
-        const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for dial URI-mint ban with {s}", .{ entry.path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, entry.path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for dial URI-mint ban", .{entry.path});
             continue;
         };
         defer gpa.free(contents);

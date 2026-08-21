@@ -27,6 +27,7 @@ const abi = @import("c_abi_shared");
 const context = @import("context.zig");
 const frame = @import("frame.zig");
 const uri = @import("uri.zig");
+const uri_record = @import("uri/record.zig");
 
 /// ABI version the library implements. While `major` is 0 the ABI is unstable
 /// (see `pancake_ocapn.h`); the shared library's soname tracks `major`.
@@ -78,6 +79,9 @@ pub const PANCAKE_FEATURE_UNTAG = abi.PANCAKE_FEATURE_UNTAG;
 pub const PANCAKE_FEATURE_MINIMUM = abi.PANCAKE_FEATURE_MINIMUM;
 pub const PANCAKE_FEATURE_FULL = abi.PANCAKE_FEATURE_FULL;
 pub const PANCAKE_FEATURE_BASELINE = abi.PANCAKE_FEATURE_BASELINE;
+pub const PANCAKE_DEFAULT_CODEC = abi.PANCAKE_DEFAULT_CODEC;
+pub const PANCAKE_DEFAULT_CAPTP_VERSION = abi.PANCAKE_DEFAULT_CAPTP_VERSION;
+pub const PANCAKE_DEFAULT_FEATURES = abi.PANCAKE_DEFAULT_FEATURES;
 
 /// Decode a `PANCAKE_CODEC_*` value, or null for anything outside the family.
 pub const codecFromC = abi.codecFromC;
@@ -89,6 +93,9 @@ pub const featureSetFromC = abi.featureSetFromC;
 
 pub const PANCAKE_FRAME_SHAPE_BYTE = abi.PANCAKE_FRAME_SHAPE_BYTE;
 pub const PANCAKE_FRAME_SHAPE_WORD = abi.PANCAKE_FRAME_SHAPE_WORD;
+pub const PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP = abi.connection.raw_transport_default_frame_cap;
+pub const PANCAKE_DEFAULT_FAILURE_CAPACITY = abi.default_failure_capacity;
+pub const PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP = abi.default_failure_payload_cap;
 
 // Borrowed/owned frame types (shared leaf).
 pub const PancakeFrame = abi.PancakeFrame;
@@ -244,8 +251,8 @@ pub const pancake_locator_hint_count = uri.pancake_locator_hint_count;
 pub const pancake_locator_hint_at = uri.pancake_locator_hint_at;
 pub const pancake_locator_hint_wire_form = uri.pancake_locator_hint_wire_form;
 pub const pancake_locator_release = uri.pancake_locator_release;
-pub const pancake_locator_record_encode = uri.pancake_locator_record_encode;
-pub const pancake_locator_record_bytes_release = uri.pancake_locator_record_bytes_release;
+pub const pancake_locator_record_encode = uri_record.pancake_locator_record_encode;
+pub const pancake_locator_record_bytes_release = uri_record.pancake_locator_record_bytes_release;
 
 comptime {
     // Force the family files' `export fn`s into the compilation even if the
@@ -253,4 +260,5 @@ comptime {
     _ = context;
     _ = frame;
     _ = uri;
+    _ = uri_record;
 }

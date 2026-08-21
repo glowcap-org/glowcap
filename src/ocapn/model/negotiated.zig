@@ -42,6 +42,9 @@ pub const Preference = struct {
     codec: CodecId = .syrup,
     features: FeatureSet = FeatureSet.full(),
 
+    /// What pancake offers when a caller does not override the session profile.
+    pub const default_offer: Preference = .{};
+
     /// The profile every conforming peer speaks, and so what a peer has
     /// told us by telling us nothing.
     pub const baseline: Preference = .{ .features = FeatureSet.baseline() };
@@ -78,8 +81,8 @@ pub const CaptpVersion = enum {
     /// `"ocapn-1.0"` alias) are refused — pinned by `test/model/model_test.zig`
     /// and the Syrup decode negative in `test/codec/syrup_test.zig`.
     pub fn fromWireString(wire: []const u8) ?CaptpVersion {
-        inline for (@typeInfo(CaptpVersion).@"enum".fields) |field| {
-            const version: CaptpVersion = @enumFromInt(field.value);
+        inline for (@typeInfo(CaptpVersion).@"enum".field_values) |field_value| {
+            const version: CaptpVersion = @fromBackingInt(@intCast(field_value));
             if (std.mem.eql(u8, version.wireString(), wire)) return version;
         }
         return null;
@@ -103,9 +106,9 @@ pub const FeatureSet = struct {
     pub const wire_string_max_len = blk: {
         var len: usize = 0;
         var fields: usize = 0;
-        for (@typeInfo(FeatureSet).@"struct".fields) |field| {
+        for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
             if (fields != 0) len += 1; // comma
-            len += field.name.len;
+            len += field_name.len;
             fields += 1;
         }
         break :blk len;
@@ -132,8 +135,8 @@ pub const FeatureSet = struct {
     /// field list itself so a new feature joins automatically.
     pub fn full() FeatureSet {
         var out: FeatureSet = .{};
-        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-            @field(out, field.name) = true;
+        inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
+            @field(out, field_name) = true;
         }
         return out;
     }
@@ -151,8 +154,8 @@ pub const FeatureSet = struct {
     /// `engine.negotiation.negotiate`; the codec half lives there.
     pub fn intersect(self: FeatureSet, other: FeatureSet) FeatureSet {
         var out: FeatureSet = .{};
-        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-            @field(out, field.name) = @field(self, field.name) and @field(other, field.name);
+        inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
+            @field(out, field_name) = @field(self, field_name) and @field(other, field_name);
         }
         return out;
     }
@@ -164,16 +167,16 @@ pub const FeatureSet = struct {
     pub fn toWireString(self: FeatureSet, buf: []u8) error{NoSpace}![]const u8 {
         var len: usize = 0;
         var first = true;
-        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-            if (@field(self, field.name)) {
+        inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
+            if (@field(self, field_name)) {
                 if (!first) {
                     if (len == buf.len) return error.NoSpace;
                     buf[len] = ',';
                     len += 1;
                 }
-                if (buf.len - len < field.name.len) return error.NoSpace;
-                @memcpy(buf[len..][0..field.name.len], field.name);
-                len += field.name.len;
+                if (buf.len - len < field_name.len) return error.NoSpace;
+                @memcpy(buf[len..][0..field_name.len], field_name);
+                len += field_name.len;
                 first = false;
             }
         }
@@ -190,10 +193,10 @@ pub const FeatureSet = struct {
         while (it.next()) |name| {
             if (name.len == 0) return null;
             var matched = false;
-            inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-                if (std.mem.eql(u8, name, field.name)) {
-                    if (@field(out, field.name)) return null;
-                    @field(out, field.name) = true;
+            inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
+                if (std.mem.eql(u8, name, field_name)) {
+                    if (@field(out, field_name)) return null;
+                    @field(out, field_name) = true;
                     matched = true;
                 }
             }

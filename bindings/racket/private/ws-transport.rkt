@@ -20,13 +20,14 @@
 
 (require net/rfc6455
          net/url
-         "async.rkt")
+         "async.rkt"
+         "constants.rkt")
 
 (provide ws-transport)
 
 ;; A WebSocket message is a transport chunk and may coalesce several CapTP
 ;; frames. This bound is intentionally independent from DEFAULT-FRAME-CAP.
-(define WS-MESSAGE-HIGH-WATER (arithmetic-shift 1 20))
+(define WS-MESSAGE-HIGH-WATER BINDING-WEBSOCKET-MESSAGE-CAP-BYTES)
 
 ;; Open a WebSocket and adapt it. Procedures are injectable only at this private
 ;; seam so dogfood can force asynchronous failures without a timing-dependent

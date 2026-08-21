@@ -1,7 +1,7 @@
 (require "pancake.rkt"
          "pancake-iroh.rkt")
 
-;; Bind a key, not a place. Partners can dial this node id from anywhere.
+;; This listener is named by its node id. Partners can dial it from anywhere.
 (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
 (printf "~a\n" (iroh-server-uri server)) ; hand this locator to partners
 (define host (iroh-server-host server))

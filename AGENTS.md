@@ -49,8 +49,10 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 ## First Principles
 
 - Every change moves toward the vision in [`docs/vision.md`](docs/vision.md), or
-  holds a line that protects it. Performance, the architecture, and that
-  destination do not get traded for convenience.
+  holds a line that protects it. That destination is a networking library, not a
+  polite CapTP port: write the ambition as shape, never as a first-read slogan.
+  Performance, the architecture, and that destination do not get traded for
+  convenience.
 - Protocol correctness and capability semantics come before implementation
   convenience.
 - Match depth without lowering the bar. Progressive disclosure chooses what to
@@ -86,6 +88,11 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 - Engineering-taste reference names stay in prompts and plans, never in
   committed files; the taste lands as structure
   ([agent-scaffolding](.agents/rules/agent-scaffolding.md)).
+- pancake is AI-assisted and maintainer-directed, not an AI project. The
+  maintainer is a human learning OCapN and networking by building, answerable
+  for what lands, not an auditor of every line. Disclose assistance on
+  landings; [`PROVENANCE.md`](PROVENANCE.md) owns the rest. Do not write that
+  biography, a line-audit claim, or the destination's ambition into human docs.
 
 ## Agent Scaffolding
 

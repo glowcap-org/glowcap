@@ -25,18 +25,20 @@ installed under `zig-out/lib/`.
 | `libpancake_ocapn` | `pancake_ocapn.h` | Shared values, locators, frames, and URI helpers. |
 | `libpancake_host` | `pancake_host.h` | The byte-fed, multi-session CapTP host. |
 | `libpancake_driver` | `pancake_driver.h` | The native loop: it exports only `pancake_driver_*` and adopts an idle Host from `libpancake_host` through `pancake_driver_take_host`. |
-| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | The complete TCP transport archive: `tcp`, `keyed-tcp`, and `noise-tcp` provider package plus low-level blocking framed connections for a byte-fed Host. |
-| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | In-process connections for tests and local scenarios. |
-| `libpancake_net_transport_onion` | `pancake_net_transport_onion.h` | Tor onion services, through a Tor daemon you already run. The one transport the OCapN draft standardizes. |
 | `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | Optional encrypted QUIC transport. |
 | `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | Optional WebRTC DataChannel transport. |
+| `libpancake_net_transport_onion` | `pancake_net_transport_onion.h` | Tor onion services, through a Tor daemon you already run. The one transport the OCapN draft standardizes. |
 | `libpancake_net_transport_relay` | `pancake_net_transport_relay.h` | Native `keyed-relay` and end-to-end sealed `noise-relay` provider package, with pollable `ws` and `wss` carriers. |
+| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | The complete TCP transport archive: `noise-tcp`, `keyed-tcp`, and testing `tcp`, plus low-level blocking framed connections for a byte-fed Host. |
+| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | In-process connections for tests and local scenarios. |
 
-The driver archive starts with zero transports. Install the TCP package by
-creating a `PancakeTcpNetlayer`, calling `pancake_tcp_transport_provider`, and
-passing the result to `pancake_driver_add_provider`. That one package owns
-`tcp`, `keyed-tcp`, and `noise-tcp`; the driver only consumes its common provider
-ABI. The same TCP archive exposes the low-level blocking framed connections for
+The driver archive starts with zero transports. For a sealed in-tree path,
+create a `PancakeTcpNetlayer`, call `pancake_tcp_transport_provider`, and pass
+the result to `pancake_driver_add_provider`; use `noise-tcp` from that package.
+For encrypted QUIC, create a `PancakeIrohNetlayer` and install
+`pancake_iroh_transport_provider` the same way. The TCP package also owns
+`keyed-tcp` and testing `tcp`; the driver only consumes the common provider ABI.
+The same TCP archive exposes the low-level blocking framed connections for
 embedders that drive `libpancake_host` themselves. A key-addressed listener
 publishes one complete locator. Read it with
 `pancake_driver_listener_locator`, parse it through
@@ -50,6 +52,11 @@ caller-owned `PancakeDriverFailure`. Set its `abi_version` to
 then returns the stable result, exact primary name, first cleanup consequence,
 and total consequence count without making thread-local diagnostic text part
 of the program's control flow. The names in that record have process lifetime.
+If listener close returns `PANCAKE_ERR_WOULD_BLOCK`, the stop is committed but
+its provider barrier is still pending. Keep the listener id, continue stepping
+the driver, and retry after retirement. A failed asynchronous stop instead
+arrives once as `PANCAKE_DRIVER_EVENT_LISTENER_FAILED` with the same exact
+failure record.
 
 The relay archive takes declarative routes and trust policy. System roots are
 the default for WSS. A process owner may instead pass copied PEM bytes; the
@@ -117,8 +124,8 @@ as needed.
 Return an application retain with `pancake_host_ref_release`; stale and
 foreign-Host ids fail closed.
 
-Promise answers remain separate `uint64_t` vow handles because an unresolved
-answer is not a passable target identity.
+Promise answers remain separate `uint64_t` vow handles; only a resolved
+`PancakeReference` is a passable target identity.
 
 ## Host ownership versus session projection
 
@@ -126,7 +133,7 @@ answer is not a passable target identity.
 | --- | --- | --- |
 | `pancake_host_publish` | One actor and one replaceable Host-wide alias. | Nothing until a fetch or `published_ref` lazily creates a Port projection. |
 | `pancake_host_session_publish` / `_spawn` | The actor and its callback lifetime, through Host teardown. | The initial bootstrap name or projection on that session's Port. |
-| Send, tell, and turn verbs | The opaque capability identity and routing decision. | The peer/Port used when a route needs session context; it is not the actor's owner. |
+| Send, tell, and turn verbs | The opaque capability identity and routing decision. | The peer/Port used when a route needs session context. The Host owns the actor. |
 
 Closing the session that first published or spawned an actor removes that Port,
 not the actor. A capability already projected through another Port remains
@@ -146,11 +153,11 @@ borrowed `PancakeLocatorView`; owned locator handles project the same view with
 CapTP version: swiss-number path form belongs to the negotiated profile,
 so the C ABI refuses to infer or default it.
 
-The C transport archives are TCP, relay, in-process, onion, iroh, and WebRTC.
-Each carries bytes for a Host session and does not own CapTP state. Keyed TCP
-and Noise TCP live in the TCP package; keyed and Noise relay live in the relay
-package. iroh and WebRTC use Rust sidecars and therefore require Cargo when
-those optional archives are built.
+The C transport archives are iroh, WebRTC, onion, relay, TCP, and in-process.
+Each carries bytes for a Host session and does not own CapTP state. Noise TCP
+and keyed TCP live in the TCP package; Noise relay and keyed relay live in the
+relay package. iroh and WebRTC use Rust sidecars and therefore require Cargo
+when those optional archives are built.
 
 TCP, in-process, and onion expose explicit blocking frame shuttles. Their
 listener readiness descriptors keep an embedder from entering `accept` before

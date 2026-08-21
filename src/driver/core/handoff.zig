@@ -17,7 +17,7 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const enliven_mod = @import("enliven.zig");
 const capability = @import("capability.zig");
 const sessions_mod = @import("sessions.zig");
@@ -26,7 +26,7 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const resolvePublishedTarget = @import("publish.zig").resolvePublishedTarget;
 
-fn captureGiftTarget(ctx: ?*anyopaque, scope: engine.PeerId, export_position: model.ExportPosition) ?u64 {
+fn captureGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, export_position: model.ExportPosition) ?u64 {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return null;
     const ref = session.served.port.refForExport(export_position.int()) orelse return null;
@@ -47,7 +47,7 @@ fn releaseGiftTarget(ctx: ?*anyopaque, target: u64) void {
     host.vat.releaseActor(target);
 }
 
-fn projectGiftTarget(ctx: ?*anyopaque, scope: engine.PeerId, target: u64) !engine.bootstrap.ProjectedLocalTarget {
+fn projectGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return error.UnknownCapability;
     if (!session.host.vat.hasActor(target)) return actors.Error.NoSuchActor;
@@ -58,22 +58,22 @@ fn projectGiftTarget(ctx: ?*anyopaque, scope: engine.PeerId, target: u64) !engin
     };
 }
 
-fn rollbackGiftTarget(ctx: ?*anyopaque, scope: engine.PeerId, target: u64, projected: engine.bootstrap.ProjectedLocalTarget) void {
+fn rollbackGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64, projected: engine.bootstrap.gifts.ProjectedLocalTarget) void {
     if (!projected.created) return;
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return;
     session.served.port.rollbackExport(&host.vat, .{ .local = target }, projected.export_position.int());
 }
 
-fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []const u8) ?engine.bootstrap.GifterSession {
+fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []const u8) ?engine.bootstrap.gifts.GifterSession {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
-    const peer_id = host.partner_by_side.get(gifter_side) orelse return null;
-    const session = sessions_mod.liveIndexedSession(host, peer_id) orelse return null;
+    const peer_handle = host.partner_by_side.get(gifter_side) orelse return null;
+    const session = sessions_mod.liveIndexedSession(host, peer_handle) orelse return null;
     if (!session.sessionOpen()) return null;
     const peer = session.served.port.peer;
     if (!peer.verify_partner_handshake) return null;
     const key = engine.bootstrap.gifterKeyForSession(&peer.session_state, gifter_side, session_name) orelse return null;
-    return .{ .peer_id = peer_id, .key = key, .gifts = peer.giftRegistry() };
+    return .{ .peer_handle = peer_handle, .key = key, .gifts = peer.giftRegistry() };
 }
 
 /// Register the Host's publication and handoff callbacks on its node. The
@@ -122,7 +122,7 @@ fn finishCommittedEffect(self: *Host) !void {
 pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, session: *HostSession) !void {
     try self.refuseReentry();
     try self.checkSession(session);
-    try self.node.exporterDialed(ticket, session.peer_id);
+    try self.node.exporterDialed(ticket, session.peer_handle);
     // Enlivens parked on this ticket continue over the opened session,
     // each settling its pre-minted vow; their fetch frames ride the same
     // finish pump the withdraws do.
@@ -184,7 +184,7 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
-    try self.node.acceptGive(session.peer_id, answer, give, exporter_locator);
+    try self.node.acceptGive(session.peer_handle, answer, give, exporter_locator);
     try finishCommittedEffect(self);
 }
 
@@ -197,5 +197,5 @@ pub fn setExporterLocation(self: *Host, session: *HostSession, location: ?model.
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
-    try self.node.setExporterLocation(session.peer_id, location);
+    try self.node.setExporterLocation(session.peer_handle, location);
 }

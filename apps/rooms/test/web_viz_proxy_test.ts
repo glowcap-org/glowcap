@@ -7,6 +7,7 @@
 
 import { VIZ_REFUSED_CLOSE_CODE, vizCapUrl } from "../lib/viz_publish.ts";
 import { assert, freePort, roomsTest, ROOT, waitForHttp, within } from "./support/rooms_server.ts";
+import { spawnOwned, stopOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 
@@ -44,7 +45,7 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 	const httpPort = freePort();
 	const roomPort = freePort();
 	const vizPort = freePort();
-	const web = new Deno.Command("deno", {
+	const web = spawnOwned("deno", {
 		args: [
 			"run",
 			"--allow-ffi",
@@ -66,7 +67,7 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 		},
 		stdout: "null",
 		stderr: "null",
-	}).spawn();
+	});
 	try {
 		await within(waitForHttp(httpPort), "the web server to serve", 60_000);
 		const swiss = await within(readSwiss(stateDir), "the viz swiss", 30_000);
@@ -105,12 +106,7 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 			`expected the viewer leg's refusal through the origin: ${JSON.stringify(viewer)}`,
 		);
 	} finally {
-		try {
-			web.kill("SIGTERM");
-		} catch {
-			// already gone
-		}
-		await web.status;
+		await stopOwned(web);
 		await Deno.remove(stateDir, { recursive: true });
 	}
 });

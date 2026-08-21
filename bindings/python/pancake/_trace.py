@@ -96,9 +96,10 @@ def _owner_of(cookie: int):
                 return row.owner()
     return None
 # Payload bytes forwarded per message (whole frame under the cap, head +
-# true length above it). The TypeScript veneer exposes this as an
-# ``enableTrace`` option; make it configurable here when a consumer asks.
-_PAYLOAD_CAP = 4096
+# true length above it). The binding-policy mirror owns the shared default.
+_PAYLOAD_CAP = _abi.BINDING_TRACE_PAYLOAD_CAP_BYTES
+
+
 def _now_ns() -> int:
     return round((time.monotonic() - _t0) * 1_000_000_000)
 

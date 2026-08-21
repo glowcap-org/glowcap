@@ -83,7 +83,7 @@ comptime {
     for (active, 0..) |spec, i| {
         for (active[0..i]) |prior| {
             if (prior.id == spec.id)
-                @compileError("codec id " ++ std.fmt.comptimePrint("{d}", .{@intFromEnum(spec.id)}) ++
+                @compileError("codec id " ++ std.fmt.comptimePrint("{d}", .{@backingInt(spec.id)}) ++
                     " is registered more than once (" ++ @typeName(prior.module) ++ " and " ++ @typeName(spec.module) ++ ")");
         }
         const M = spec.module;

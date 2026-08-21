@@ -12,6 +12,7 @@ import secrets
 from typing import Optional, TYPE_CHECKING
 
 from . import _constants as _abi
+from ._abi_value import _DEFAULT_CODEC
 from ._errors import PancakeError
 from ._host import Host
 from ._locator import Locator, designator_host_port
@@ -114,7 +115,7 @@ async def _listen_tcp_profile(
     durable = None
     if transport in _IDENTITY_PROFILES:
         durable = host.seed if host is not None else (seed or secrets.token_bytes(32))
-    selected_codec = codec if codec is not None else (host.codec if host else "syrup")
+    selected_codec = codec if codec is not None else (host.codec if host else _DEFAULT_CODEC)
     prepared = prepare_driver_loop(host, selected_codec, seed=durable)
     loop = prepared.loop
     listener = None

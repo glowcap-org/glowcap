@@ -10,6 +10,7 @@ const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
 pub const OmittedFamily = shared.symbols.OmittedFamily;
+const omit = shared.symbols.omit_reason;
 
 pub const omitted_families = [_]OmittedFamily{};
 
@@ -92,14 +93,14 @@ pub const symbols = [_]Symbol{
     // on its row.
     .{
         .name = "pancake_onion_clear_last_error",
-        .ts_omit = "unused: the TS binding reads the slot after a failing call and never resets it",
-        .python_omit = "unused: the Python binding reads the slot after a failing call and never resets it",
-        .racket_omit = "unused: the Racket binding reads the slot after a failing call and never resets it",
+        .ts_omit = omit.ts_last_error,
+        .python_omit = omit.python_last_error,
+        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "pancake_onion_netlayer_new_in",
-        .ts_omit = "unused: the TS binding keeps its transports on the library allocator",
-        .python_omit = "unused: the Python binding keeps its transports on the library allocator",
-        .racket_omit = "unused: the Racket binding keeps its transports on the library allocator",
+        .ts_omit = omit.ts_transport_allocator,
+        .python_omit = omit.python_transport_allocator,
+        .racket_omit = omit.racket_transport_allocator,
     },
 };

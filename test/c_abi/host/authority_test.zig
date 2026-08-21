@@ -180,7 +180,7 @@ test "libpancake_host: rejected recursive projection releases every reference oc
             .exporter = .{ .transport = "memory", .designator = "exporter" },
             .gifter_exporter_session = "gifter-session",
             .gifter_side = "gifter-side",
-            .gift_id = &([_]u8{0x77} ** model.HANDOFF_GIFT_ID_BYTES),
+            .gift_id = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x77))),
             .signature = "give-signature",
         },
         .signature = "receive-signature",
@@ -325,10 +325,10 @@ test "libpancake_host: a 64-byte seed gives every session its own signing key" {
     // silently reuse the identity seed.
     const crypto = pancake.foundation.crypto;
 
-    const durable = [_]u8{0x71} ** 32;
+    const durable = @as([32]u8, @splat(0x71));
     var seed_with_root: [64]u8 = undefined;
     @memcpy(seed_with_root[0..32], &durable);
-    @memcpy(seed_with_root[32..], &[_]u8{0x72} ** 32);
+    @memcpy(seed_with_root[32..], &@as([32]u8, @splat(0x72)));
 
     var refused: ?*cd.PancakeHost = null;
     try std.testing.expectEqual(

@@ -6,7 +6,8 @@
 // anything: it is the state, and the questions with one obvious answer.
 
 import type { Ref, Session } from "@pancake/runtime";
-import { PRIVATE_ROOM_KEY_BYTES } from "../lib/limits.ts";
+import { RoomError, TOO_MANY_ROOMS } from "../lib/errors.ts";
+import { MAX_ROOMS_PER_CREATOR, PRIVATE_ROOM_KEY_BYTES } from "../lib/limits.ts";
 import type { RoomLinks } from "./state.ts";
 
 /** One subscriber: the nickname it chose and the capability to call it back on,
@@ -167,10 +168,18 @@ export const rooms = new Map<string, RoomState>();
 export const roomsPerCreator = new Map<Session, number>();
 
 /** File a new room, and count it against its creator's ceiling. The one place
- * `rooms` gains a row. */
+ * `rooms` gains a row is also the one that admits the memory: directory opens
+ * and cold durable-link reconstruction cannot drift into different limits. */
 export function registerRoom(state: RoomState): void {
+	const held = roomsPerCreator.get(state.creator) ?? 0;
+	if (held >= MAX_ROOMS_PER_CREATOR) {
+		throw new RoomError(
+			TOO_MANY_ROOMS,
+			`this connection already has ${MAX_ROOMS_PER_CREATOR} rooms open`,
+		);
+	}
 	rooms.set(state.key, state);
-	roomsPerCreator.set(state.creator, (roomsPerCreator.get(state.creator) ?? 0) + 1);
+	roomsPerCreator.set(state.creator, held + 1);
 }
 
 /** Drop a room and release its creator's count. The one place `rooms` loses a

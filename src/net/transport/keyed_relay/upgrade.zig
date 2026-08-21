@@ -1,7 +1,7 @@
 //! Bounded RFC 6455 client upgrade over an already-open carrier byte stream.
 
 const std = @import("std");
-const protocol = @import("../../websocket/client_protocol.zig");
+const protocol = @import("../../websocket.zig").client_protocol;
 const route = @import("route.zig");
 const upgrade_request = @import("upgrade_request.zig");
 

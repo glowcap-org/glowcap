@@ -109,7 +109,7 @@ test "noise-tcp: the borrowing blocking tier refuses the sealed symbol on both h
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x70} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x70)));
     var resident = net.tcp.noise.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
 

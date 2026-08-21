@@ -207,9 +207,11 @@ pub fn checkSingleJsonEscaper(
 }
 
 test "initializedPositive accepts only a bounded budget that closes its own initializer" {
-    // The budget-literal shape every real call in the tree uses now.
+    // Literal budgets and the shared defaults are both bounded.
     try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 10_000 } }", "handshake"));
     try std.testing.expect(deadlines.initializedPositive("", ".{\n    .settle = .{ .ms = 5000 },\n}", "settle"));
+    try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = driver.default_handshake_budget }", "handshake"));
+    try std.testing.expect(deadlines.initializedPositive("", ".{ .settle = pancake.driver.default_settle_budget }", "settle"));
 
     // The unbounded spelling, and the expired zero, however spelled.
     try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .unbounded }", "handshake"));
@@ -229,8 +231,8 @@ test "initializedPositive accepts only a bounded budget that closes its own init
 
 test "buffer-explicit session options require both bounded waits" {
     const file =
-        "const handshake_budget: driver.Budget = .{ .ms = 9 };\n" ++
-        "const settle_budget: driver.Budget = .{ .ms = 10 };";
+        "const handshake_budget = driver.default_handshake_budget;\n" ++
+        "const settle_budget = driver.default_settle_budget;";
     const bounded = "a, b, .{ .handshake = handshake_budget, .settle = settle_budget }";
     try std.testing.expect(deadlines.initializedPositive(file, bounded, "handshake"));
     try std.testing.expect(deadlines.initializedPositive(file, bounded, "settle"));

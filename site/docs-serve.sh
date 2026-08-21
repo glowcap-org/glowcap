@@ -2,8 +2,8 @@
 # Server-lifecycle launcher for `zig build docs-serve`.
 #
 # Why this exists: the root build's `docs-serve` step shells out to an inner
-# `zig build --build-file site/build.zig … docs-serve`, which in turn launches
-# Zine's development server as a long-running grandchild. `zig build` does not
+# `zig build … docs-serve` from `site/`, which in turn launches Zine's
+# development server as a long-running grandchild. `zig build` does not
 # reap that subtree when it is interrupted, so the Zine server is easily left
 # orphaned — reparented to init, still bound to its port and serving stale
 # content. We have repeatedly seen such orphans outlive the session.
@@ -36,8 +36,9 @@
 # or any foreground signal — is unaffected and tears down cleanly.
 #
 # Usage: docs-serve.sh <zig-exe> <build-args…>
-#   e.g. docs-serve.sh /usr/local/bin/zig --build-file site/build.zig \
-#          --cache-dir <cache> docs-serve [-Dport=N] [-Dhost=ADDR]
+#   e.g. docs-serve.sh /usr/local/bin/zig --cache-dir <cache> \
+#          --prefix <repo>/zig-out --fork <repo>/third_party/site-build/translate-c \
+#          --fork <repo>/third_party/site-build/superhtml docs-serve [-Dport=N] [-Dhost=ADDR]
 set -u
 
 zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
@@ -146,7 +147,10 @@ examples_watcher=$!
 # quiet stretch, and only once: later runs are cache hits.
 echo "docs-serve: compiling Zine if needed (a cold compile is silent and can take a few minutes)…" >&2
 set -m
-"${zig}" build "$@" &
+(
+  cd site || exit 1
+  "${zig}" build "$@"
+) &
 inner_pgid=$!
 set +m
 

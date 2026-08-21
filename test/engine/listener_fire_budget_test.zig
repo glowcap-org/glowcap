@@ -9,15 +9,10 @@
 //! the only allocations in the fire window are the frame encodes the wire
 //! requires plus fixed queue bookkeeping, pinned exactly below.
 //!
-//! The races the carrier accepts (and this file pins): an inbound
-//! `op:gc-answers` dropping the answer row between queue and encode leaves the
-//! fire moot: nothing emits, nothing dangles, and the session stays open. That
-//! matches the same semantics the `settled_answer` resolve carrier ships; a dropped
-//! fire's queue-time export retains stay stranded until session end (pinned
-//! below via the export refcount); and a released answer position *reused* by
-//! the partner before the fire encodes misses the carrier's row-identity
-//! stamp, so the stale fire can never ship the reused row's payload under the
-//! dead row's accounting.
+//! `op:gc-answers` releases the partner's pipelining position; it does not
+//! cancel a listener already accepted under `op:listen`. A queued fire owns a
+//! reference to the exact answer incarnation, so GC and legal position reuse
+//! neither silence it nor redirect it to the replacement row.
 //!
 //! A regression in *either* direction of the budget fails: it is an exact
 //! contract, not an upper bound.
@@ -142,7 +137,7 @@ test "live object export listen fires with zero payload copies" {
     try std.testing.expect(peer.takeOutbound() == null);
 }
 
-test "a fire whose answer row is GC'd between queue and encode emits nothing and the session lives on" {
+test "a listener accepted before answer GC still publishes exactly once" {
     const allocator = std.testing.allocator;
     var peer = preSpecPeer(allocator);
     defer peer.deinit();
@@ -150,44 +145,42 @@ test "a fire whose answer row is GC'd between queue and encode emits nothing and
 
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    var original_target: ?session.AnswerTarget = null;
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
+        if (event.kind() == .deliver) original_target = event.deliverAnswerTarget();
         event.deinit();
     }
 
-    // Resolve answer 42 with a payload that mentions local export 8 (the
-    // export-on-settlement mint: recording installs export 8 at its local
-    // baseline. The first step queues the listener callback, whose queue-time
-    // accounting retains the one wire mention (count 2); encode is pending.
-    try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{
-        .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(8) } } },
-    } } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try std.testing.expectEqual(@as(u64, 2), peer.session_state.exportRefcount(.from(8)));
-    try std.testing.expect(peer.takeOutbound() == null);
-
-    // The partner releases the answer row before the fire encodes: the stored
-    // resolution dies with the row, so the queued fire is moot. (The gc frame
-    // surfaces its own event; drain it so the post-race deliver below is the
-    // next one polled.)
+    // Releasing the pipelining name before the application replies cannot
+    // revoke the accepted listener. The surfaced event carries the exact
+    // incarnation token the application returns with its result.
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[42+]>", .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
     }
 
-    // Stepping pops the fire carrier, finds no row, and emits nothing — no
-    // crash, no frame, no dangling borrow.
+    // Resolve that detached incarnation with a payload mentioning local
+    // export 8. Recording installs export 8 at its local baseline; the first
+    // step queues the listener callback and its wire mention retain.
+    try peer.sendAnswerTargetResolutionCopying(original_target.?, .{
+        .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(8) } } },
+    });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expectEqual(@as(u64, 2), peer.session_state.exportRefcount(.from(8)));
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    // The retained answer incarnation supplies the callback payload exactly
+    // once even though its wire name is already free.
     while ((try peer.step()) != .idle) {}
+    var callback = peer.takeOutbound().?;
+    defer callback.deinit();
     try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expect(peer.sessionIsOpen());
 
-    // The stranded-retain posture, observed: only one mention of export 8
-    // reached the wire, but the dropped fire's queue-time retain stays recorded
-    // until session end — count 2 (baseline + stranded retain). Queue-time retains are
-    // load-bearing (they pin payload exports across the queue→encode window
-    // against a legal partner release), so the stranded count is the
-    // accepted price of a fire that never emits.
+    // The callback really published the queue-time wire mention; no retain is
+    // stranded behind a silently dropped carrier.
     try std.testing.expectEqual(@as(u64, 2), peer.session_state.exportRefcount(.from(8)));
 
     // Subsequent traffic still flows: a fresh deliver to the live export
@@ -198,7 +191,7 @@ test "a fire whose answer row is GC'd between queue and encode emits nothing and
     try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
 }
 
-test "a fire staled by answer-position reuse drops instead of shipping the new question's payload" {
+test "answer-position reuse neither cancels nor redirects an accepted listener fire" {
     const allocator = std.testing.allocator;
     var peer = preSpecPeer(allocator);
     defer peer.deinit();
@@ -219,9 +212,8 @@ test "a fire staled by answer-position reuse drops instead of shipping the new q
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     try std.testing.expect(peer.takeOutbound() == null);
 
-    // The partner releases answer 42 and (illegitimately — positions are
-    // never supposed to be reused) asks a new question at the same position.
-    // A fresh row is installed; the stale fire's carrier still sits queued.
+    // The partner releases answer 42 and legally reuses the position for a new
+    // question while the old listener fire is still queued.
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[42+]>", .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     while (peer.pollEvent()) |event_in| {
@@ -236,29 +228,30 @@ test "a fire staled by answer-position reuse drops instead of shipping the new q
         .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },
     } } });
 
-    // Draining emits no frame. The stale callback pops first, finds a live row
-    // whose identity stamp mismatches, and drops; the reused row has no
-    // listener, and next emits no settlement frame.
+    // Only the old listener callback crosses the wire; the next-profile
+    // settlement for the replacement row is local. Its payload must remain
+    // "old", never the replacement row's "new" value.
     while ((try peer.step()) != .idle) {}
     var frames: usize = 0;
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
         defer frame.deinit();
         frames += 1;
+        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "old") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "new") == null);
     }
-    try std.testing.expectEqual(@as(usize, 0), frames);
+    try std.testing.expectEqual(@as(usize, 1), frames);
     try std.testing.expect(peer.sessionIsOpen());
 }
 
-test "a settled-answer carrier staled by answer-position reuse resolves nothing, not the new question's payload" {
+test "answer-position reuse keeps stored settlements on their exact incarnation" {
     const allocator = std.testing.allocator;
     var peer = preSpecPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Question 1 opens answer 42; resolve it but do NOT drain — the settled
-    // answer carrier {42, rowA} sits queued in `pending_send`, its resolution
-    // moved into the store. This is the window the bug lived in.
+    // Question 1 opens answer 42; resolve it but do NOT drain. Its retained
+    // settlement carrier owns row A's payload while the wire name is reusable.
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
@@ -268,9 +261,8 @@ test "a settled-answer carrier staled by answer-position reuse resolves nothing,
         .fulfill = .{ .bytes = try allocator.dupe(u8, "old") },
     } } });
 
-    // The partner releases answer 42 and (illegitimately — positions are never
-    // meant to be reused) asks a new question at the same position. Row A is
-    // torn down and a fresh row B installed, while the stale carrier still sits
+    // The partner releases answer 42 and legally asks a new question at the
+    // same position. A fresh row B is installed while row A's carrier remains
     // queued ahead of everything.
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[42+]>", .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
@@ -279,16 +271,14 @@ test "a settled-answer carrier staled by answer-position reuse resolves nothing,
         event.deinit();
     }
 
-    // Resolve the new question before the stale carrier encodes, so the reused
-    // row holds "new" — the payload the stale carrier must never ship under the
-    // dead answer's identity.
+    // Resolve the new question before row A drains. Each payload must remain
+    // bound to its own incarnation.
     try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{
         .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },
     } } });
 
-    // Draining emits nothing. The stale carrier pops first, finds a live row
-    // whose identity stamp mismatches, and settles nothing. Row B has no
-    // listener, so next has no callback to send either.
+    // Next has no callback for either listener-free answer, so draining emits
+    // no frames. The live position must still expose row B's value, never row A.
     while ((try peer.step()) != .idle) {}
     var resolves: usize = 0;
     while (peer.takeOutbound()) |frame_in| {
@@ -297,5 +287,9 @@ test "a settled-answer carrier staled by answer-position reuse resolves nothing,
         resolves += 1;
     }
     try std.testing.expectEqual(@as(usize, 0), resolves);
+    try std.testing.expectEqualStrings(
+        "new",
+        peer.session_state.peekResolution(.from(42)).?.fulfill.bytes,
+    );
     try std.testing.expect(peer.sessionIsOpen());
 }

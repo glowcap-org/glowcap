@@ -11,6 +11,7 @@ import { Reachability } from "@pancake/iroh";
 
 import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
+import { spawnOwned, stopOwned } from "./children.ts";
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
 export const SERVER = new URL("../../server/main.ts", import.meta.url).pathname;
 export const RACKET_CLIENT = new URL("../../clients/racket/client.rkt", import.meta.url).pathname;
@@ -92,12 +93,12 @@ export function irohUsable(): Promise<boolean> {
 }
 
 export async function probeIroh(): Promise<boolean> {
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "0", "--transport=iroh"],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		const announced = await readAnnounce(proc, 20_000).then(() => true).catch(() => false);
 		if (announced) return true;
@@ -115,12 +116,7 @@ export async function probeIroh(): Promise<boolean> {
 		if (said.includes(IROH_UNAVAILABLE)) return false;
 		throw new Error(`the iroh room server would not start, and not for want of the library: ${said.trim()}`);
 	} finally {
-		try {
-			proc.kill("SIGKILL");
-		} catch {
-			// already gone
-		}
-		await proc.status.catch(() => {});
+		await stopOwned(proc);
 	}
 }
 
@@ -213,41 +209,31 @@ export function freeServerPort(): number {
 }
 
 export async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		await fn(await readPort(proc));
 	} finally {
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// Already gone.
-		}
-		await proc.status;
+		await stopOwned(proc);
 	}
 }
 
 export async function withCapturedServer(fn: (port: number) => Promise<void>): Promise<string> {
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	const stderr = new Response(proc.stderr).text();
 	try {
 		await fn(await readPort(proc));
 	} finally {
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// Already gone.
-		}
-		await proc.status;
+		await stopOwned(proc);
 	}
 	return await stderr;
 }
@@ -311,6 +297,9 @@ export async function restartStatefulServer(port: number, stateDirectory: string
 			await readPort(proc);
 			return proc;
 		} catch (refused) {
+			// The attempt that failed still owns whatever it managed to bind, so it
+			// goes before the next one rather than waiting for the end of the run.
+			await stopOwned(proc);
 			last = refused instanceof Error ? refused.message : String(refused);
 			if (!last.includes("already in use")) throw refused;
 		}
@@ -319,22 +308,17 @@ export async function restartStatefulServer(port: number, stateDirectory: string
 }
 
 export function startStatefulServer(port: number, stateDirectory: string): Deno.ChildProcess {
-	return new Deno.Command("deno", {
+	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, `--allow-write=${stateDirectory}`, SERVER, String(port)],
 		cwd: ROOT,
 		env: { PANCAKE_ROOMS_STATE: stateDirectory },
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 }
 
-export async function stopServer(proc: Deno.ChildProcess): Promise<void> {
-	try {
-		proc.kill("SIGTERM");
-	} catch {
-		// Already gone.
-	}
-	await proc.status;
+export function stopServer(proc: Deno.ChildProcess): Promise<void> {
+	return stopOwned(proc);
 }
 
 /** Read the server's announce token (`ROOMS-SERVER-LISTENING <token>`), the iroh
@@ -369,21 +353,16 @@ export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): 
 export async function withIrohServer(
 	fn: (uri: string) => Promise<void>,
 ): Promise<void> {
-	const proc = new Deno.Command("deno", {
+	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "--transport=iroh"],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		await fn(await readAnnounce(proc));
 	} finally {
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// Already gone.
-		}
-		await proc.status;
+		await stopOwned(proc);
 	}
 }
 

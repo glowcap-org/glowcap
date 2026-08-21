@@ -25,6 +25,9 @@ const signals = @import("../operability/signals.zig");
 const driver = pancake.driver;
 const model = pancake.ocapn.model;
 const Ctx = ctx_mod.Ctx;
+const FailureChain = pancake.foundation.FailureChain;
+const session_opts = @import("session_opts.zig");
+const listen_close = @import("listen_close.zig");
 
 /// One live background listener: the bound server, its accept thread, and
 /// the two atomics the fronts read. Freed only through `shutdown`.
@@ -51,29 +54,51 @@ pub const Handle = struct {
     /// listening. The bound socket stays held either way, so the locator in
     /// `info` stays honest.
     stop_reason: std.atomic.Value(?[*:0]const u8) = std.atomic.Value(?[*:0]const u8).init(null),
+    thread_joined: bool = false,
+    server_closed: bool = false,
 
     /// The benign stop: the one-partner listener served its partner and went
     /// quiet by design.
     pub const served_stop: [*:0]const u8 = "served its one partner";
 
-    /// Stop the accept thread through the latch, join it, and free
-    /// everything. Callable from the front's own thread only.
+    pub const Shutdown = struct {
+        failure: ?FailureChain,
+        /// False when the relay provider refused deinit: this handle is still
+        /// the retry owner and must stay in the process context.
+        consumed: bool,
+    };
+
+    /// Stop the accept thread through the latch, join it, and close the
+    /// Server through its explicit barrier. Callable from the front's own
+    /// thread only.
     ///
     /// The join can outlast the latch's poll cadence: the thread may be
     /// inside an accept, whose keyed handshake runs under the session
     /// handshake budget and does not consult the latch. A partner that
     /// connects and then says nothing therefore delays a `close` by that
     /// budget rather than by a poll interval.
-    pub fn shutdown(handle: *Handle, ctx: *Ctx) void {
+    pub fn shutdown(handle: *Handle, ctx: *Ctx) Shutdown {
         handle.stop.store(true, .release);
-        handle.thread.join();
-        handle.server.deinit();
+        if (!handle.thread_joined) {
+            handle.thread.join();
+            handle.thread_joined = true;
+        }
+        var failure: ?FailureChain = null;
+        if (!handle.server_closed) {
+            if (listen_close.closeServer(ctx, handle.server)) |chain| failure = chain;
+            handle.server_closed = true;
+        }
         if (handle.relay) |*provider| {
-            _ = relay_runtime.deinitAndReport(ctx, provider);
+            if (relay_runtime.deinitAndReport(ctx, provider)) |cleanup| {
+                ctx.retainCleanup(&failure, cleanup);
+                return .{ .failure = failure, .consumed = false };
+            }
+            handle.relay = null;
         }
         if (handle.publish) |name| handle.gpa.free(name);
         handle.gpa.free(handle.locator);
         handle.gpa.destroy(handle);
+        return .{ .failure = failure, .consumed = true };
     }
 };
 
@@ -129,7 +154,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         error.OutOfMemory => return err,
         else => return exit_codes.dial,
     };
-    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, ocapn.sessionOpts()) catch |err| {
+    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, session_opts.sessionOptsReporting(ctx)) catch |err| {
         ctx.logErr("listen: {s}", .{@errorName(err)});
         return exit_codes.dial;
     };
@@ -156,6 +181,8 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     handle.once = once;
     handle.locator = locator_copy;
     handle.stop_reason = .init(null);
+    handle.thread_joined = false;
+    handle.server_closed = false;
     handle.thread = try std.Thread.spawn(.{}, acceptLoop, .{handle});
     // The handle now owns the server and itself; the accept thread is live.
     server_owned = false;
@@ -205,7 +232,7 @@ fn acceptLoop(handle: *Handle) void {
             ocapn.publishBuiltin(session, name) catch continue;
         }
         _ = handle.accepted.fetchAdd(1, .monotonic);
-        serveUntilStop(session, &handle.stop);
+        serveUntilStop(session, handle);
         if (handle.once or handle.publish != null) {
             handle.stop_reason.store(Handle.served_stop, .release);
             return;
@@ -214,10 +241,17 @@ fn acceptLoop(handle: *Handle) void {
 }
 
 /// Serve until the partner leaves or the stop latch fires — the background
-/// twin of the argv front's signal-latched serve.
-fn serveUntilStop(session: *driver.Session, stop: *const std.atomic.Value(bool)) void {
-    while (!stop.load(.acquire)) {
-        const progress = session.stepReadable(signals.poll_ms) catch return;
+/// twin of the argv front's signal-latched serve. A partner drop is quiet; any
+/// other step failure is this loop's primary and is stored for `info`.
+fn serveUntilStop(session: *driver.Session, handle: *Handle) void {
+    while (!handle.stop.load(.acquire)) {
+        const progress = session.stepReadable(signals.poll_ms) catch |err| switch (err) {
+            error.ConnectionLost, error.TruncatedFrame => return,
+            else => {
+                handle.stop_reason.store(@errorName(err), .release);
+                return;
+            },
+        };
         if (progress) |p| if (p == .closed) return;
     }
 }

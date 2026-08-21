@@ -65,6 +65,17 @@ pub const PANCAKE_WEBRTC_EV_CANDIDATE: u32 = webrtc.ev_candidate;
 pub const PANCAKE_WEBRTC_EV_READABLE: u32 = webrtc.ev_readable;
 pub const PANCAKE_WEBRTC_EV_WRITABLE: u32 = webrtc.ev_writable;
 pub const PANCAKE_WEBRTC_EV_CLOSED: u32 = webrtc.ev_closed;
+pub const PANCAKE_WEBRTC_MAX_SIGNAL_BYTES: usize = webrtc.max_signal_bytes;
+pub const PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES: usize = webrtc.max_ice_candidate_bytes;
+pub const PANCAKE_WEBRTC_MAX_ICE_SERVERS: usize = webrtc.max_ice_servers;
+pub const PANCAKE_WEBRTC_MAX_ICE_URLS_PER_SERVER: usize = webrtc.max_ice_urls_per_server;
+pub const PANCAKE_WEBRTC_MAX_ICE_URL_BYTES: usize = webrtc.max_ice_url_bytes;
+pub const PANCAKE_WEBRTC_MAX_ICE_CREDENTIAL_BYTES: usize = webrtc.max_ice_credential_bytes;
+pub const PANCAKE_WEBRTC_MAX_PENDING_ICE_CANDIDATES: usize = webrtc.max_pending_ice_candidates;
+pub const PANCAKE_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES: usize = webrtc.pending_ice_candidate_queue_bytes;
+pub const PANCAKE_WEBRTC_DATA_CHANNEL_QUEUE_BYTES: usize = webrtc.data_channel_queue_bytes;
+pub const PancakeWebrtcStringView = webrtc.StringView;
+pub const PancakeWebrtcIceServer = webrtc.IceServerConfig;
 
 /// One readiness record. `subject` is `pancake_webrtc_peer_id(peer)` and is
 /// never reused during this netlayer's lifetime.
@@ -122,13 +133,18 @@ pub export fn pancake_webrtc_clear_last_error() void {
 /// **This is the authority for what these settings mean**; the resident and the
 /// sidecar mirror this struct and point here.
 ///
-/// `ice_servers` is a comma-separated list of ICE server URLs, borrowed for the
-/// call, and it decides how far a peer created from this endpoint can reach.
-/// Empty offers host candidates only, which connects two peers on one network
-/// and nothing beyond it, because neither end can discover the address a NAT
-/// gave it. A deployment crossing NAT names STUN servers here
-/// (`stun:host:port`). Credentialed TURN relaying is not expressible yet; see
-/// ADR-0089.
+/// `ice_servers` is a borrowed array of generic ICE server records. Empty offers
+/// host candidates only, which connects two peers on one network and nothing
+/// beyond it, because neither end can discover the address a NAT gave it. Each
+/// record has 1-`PANCAKE_WEBRTC_MAX_ICE_URLS_PER_SERVER` non-empty UTF-8
+/// `stun:`, `stuns:`, `turn:`, or `turns:` URLs. A configuration has at most
+/// `PANCAKE_WEBRTC_MAX_ICE_SERVERS` records. A deployment crossing NAT names
+/// STUN servers here; restrictive networks can add credentialed TURN records
+/// from any issuer that supplies URLs plus short-lived username/password
+/// credentials. Credentials are empty unless at least one URL in the record is
+/// TURN, and both username and credential are required for TURN. Provider
+/// endpoints, long-lived issuer tokens, expiry, and refresh policy stay outside
+/// this transport ABI.
 ///
 /// `include_loopback_candidates` offers loopback addresses too, which is what
 /// lets two peers in one process or on one host connect with no STUN. It is off
@@ -152,8 +168,8 @@ pub export fn pancake_webrtc_clear_last_error() void {
 /// caller's stack garbage. The `extern struct` counterpart of the header's
 /// `PancakeWebrtcConfig`.
 pub const PancakeWebrtcConfig = extern struct {
-    ice_servers: ?[*]const u8,
-    ice_servers_len: usize,
+    ice_servers: ?[*]const PancakeWebrtcIceServer,
+    ice_server_count: usize,
     include_loopback_candidates: u32,
     worker_threads: u32,
 };
@@ -190,10 +206,7 @@ fn netlayerNewIn(
     slot: *?*PancakeWebrtcNetlayer,
 ) i32 {
     slot.* = null;
-    const ice_servers = c.sliceFromC(cfg.ice_servers, cfg.ice_servers_len) catch |err| {
-        setLastError("webrtc netlayer_new: invalid ice_servers view: {s}", .{@errorName(err)});
-        return c.marshalErrorToCode(err);
-    };
+    const ice_servers = decodeIceServers(cfg) catch |err| return iceConfigPointerError(err);
     const payload = alloc.create(NetlayerPayload) catch |err|
         return c.failInternal("webrtc netlayer_new", err);
     payload.* = .{
@@ -203,12 +216,51 @@ fn netlayerNewIn(
             .worker_threads = cfg.worker_threads,
         }) catch |err| {
             alloc.destroy(payload);
-            return c.failIo("webrtc netlayer_new endpoint", err);
+            return residentInitError(err);
         },
         .allocator = alloc,
     };
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
+}
+
+fn decodeIceServers(cfg: *const PancakeWebrtcConfig) error{NullPointer}![]const PancakeWebrtcIceServer {
+    const servers = cfg.ice_servers;
+    const count = cfg.ice_server_count;
+    if (count == 0) return &.{};
+    const ptr = servers orelse return error.NullPointer;
+    return ptr[0..count];
+}
+
+fn iceConfigPointerError(err: error{NullPointer}) i32 {
+    switch (err) {
+        error.NullPointer => {
+            setLastError("webrtc netlayer_new: ICE server array is null with a non-zero count", .{});
+            return PANCAKE_ERR_NULL_POINTER;
+        },
+    }
+}
+
+fn residentInitError(err: webrtc.Resident.InitError) i32 {
+    switch (err) {
+        error.NullPointer => {
+            setLastError("webrtc netlayer_new: ICE configuration has a non-empty null view", .{});
+            return PANCAKE_ERR_NULL_POINTER;
+        },
+        error.TooManyIceServers => setLastError("webrtc netlayer_new: too many ICE server records", .{}),
+        error.MissingIceUrls => setLastError("webrtc netlayer_new: each ICE server needs at least one URL", .{}),
+        error.TooManyIceUrls => setLastError("webrtc netlayer_new: too many URLs in one ICE server", .{}),
+        error.EmptyIceUrl => setLastError("webrtc netlayer_new: ICE server URL must not be empty", .{}),
+        error.IceUrlTooLarge => setLastError("webrtc netlayer_new: ICE server URL is too large", .{}),
+        error.InvalidIceUrlUtf8 => setLastError("webrtc netlayer_new: ICE server URL is not UTF-8", .{}),
+        error.InvalidIceUrlScheme => setLastError("webrtc netlayer_new: ICE server URL must use stun:, stuns:, turn:, or turns:", .{}),
+        error.StunCredentials => setLastError("webrtc netlayer_new: STUN-only ICE records must not carry TURN credentials", .{}),
+        error.MissingTurnCredentials => setLastError("webrtc netlayer_new: TURN ICE records need both username and credential", .{}),
+        error.CredentialTooLarge => setLastError("webrtc netlayer_new: TURN credential text is too large", .{}),
+        error.InvalidCredentialUtf8 => setLastError("webrtc netlayer_new: TURN credential text is not UTF-8", .{}),
+        error.EndpointCreateFailed => return c.failIo("webrtc netlayer_new endpoint", err),
+    }
+    return PANCAKE_ERR_INVALID_ARGUMENT;
 }
 
 /// Borrow the netlayer's single read-only readiness fd. Register it once; do
@@ -291,7 +343,7 @@ fn peerNewIn(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: i32, ou
         .allocator = alloc,
         .netlayer = nl,
     };
-    nl.peers.put(nl.allocator, @intFromEnum(payload.peer.id()), payload) catch |err| {
+    nl.peers.put(nl.allocator, @backingInt(payload.peer.id()), payload) catch |err| {
         payload.peer.deinit();
         undoNetlayerRetain(nl);
         alloc.destroy(payload);
@@ -311,7 +363,11 @@ pub export fn pancake_webrtc_peer_authorize_remote(
 ) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes = designator orelse return PANCAKE_ERR_NULL_POINTER;
+    const bytes = keyDesignatorInput(designator, designator_len) catch |err| return keyDesignatorInputError(err);
+    const key = crypto.PeerKey.fromDesignator(bytes) orelse {
+        setLastError("webrtc authorize_remote: invalid durable key designator", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
     if (payload.peer.authorized_remote != null) {
         setLastError("webrtc authorize_remote: remote identity is already authorized", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -322,25 +378,42 @@ pub export fn pancake_webrtc_peer_authorize_remote(
     } else |err| switch (err) {
         error.WouldBlock => {},
         error.Closed => return PANCAKE_ERR_CLOSED,
+        error.Failed => return ioError("authorize_remote: the channel faulted"),
     }
-    const key = crypto.PeerKey.fromDesignator(bytes[0..designator_len]) orelse {
-        setLastError("webrtc authorize_remote: invalid durable key designator", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    };
     payload.peer.authorizeRemote(key);
     return PANCAKE_OK;
 }
 
+fn keyDesignatorInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, InvalidArgument }![]const u8 {
+    if (len != crypto.PeerKey.designator_len) return error.InvalidArgument;
+    const src = ptr orelse return error.NullPointer;
+    return src[0..crypto.PeerKey.designator_len];
+}
+
+fn keyDesignatorInputError(err: error{ NullPointer, InvalidArgument }) i32 {
+    return switch (err) {
+        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.InvalidArgument => {
+            setLastError("webrtc authorize_remote: remote identity must be a {d}-byte lowercase hex designator", .{crypto.PeerKey.designator_len});
+            return PANCAKE_ERR_INVALID_ARGUMENT;
+        },
+    };
+}
+
 /// Produce the offerer's SDP offer into `(out, cap)`, writing its length to
 /// `*out_len`. `PANCAKE_ERR_BUFFER_TOO_SMALL` still writes the required length,
-/// so the caller retries with a buffer that size. Offerer only.
+/// so the caller retries with a buffer that size. `PANCAKE_ERR_INVALID_ARGUMENT`
+/// means the generated SDP exceeds `PANCAKE_WEBRTC_MAX_SIGNAL_BYTES`. Offerer
+/// only.
 pub export fn pancake_webrtc_peer_create_offer(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     c.lastErrorClear();
     return produceSdp(peer, out, cap, out_len, .offer);
 }
 
 /// Produce the answerer's SDP answer into `(out, cap)`, writing its length to
-/// `*out_len`. Answerer only, after `pancake_webrtc_peer_set_remote_offer`.
+/// `*out_len`. `PANCAKE_ERR_INVALID_ARGUMENT` means the generated SDP exceeds
+/// `PANCAKE_WEBRTC_MAX_SIGNAL_BYTES`. Answerer only, after
+/// `pancake_webrtc_peer_set_remote_offer`.
 pub export fn pancake_webrtc_peer_create_answer(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     c.lastErrorClear();
     return produceSdp(peer, out, cap, out_len, .answer);
@@ -358,6 +431,7 @@ fn produceSdp(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usi
     };
     _ = result catch |err| return switch (err) {
         error.BufferTooSmall => PANCAKE_ERR_BUFFER_TOO_SMALL,
+        error.SignalTooLarge => signalOutputTooLarge("create_offer/answer", "generated SDP"),
         error.SignalFailed => ioError("create_offer/answer: the sidecar refused"),
     };
     return PANCAKE_OK;
@@ -377,10 +451,12 @@ pub export fn pancake_webrtc_peer_set_remote_answer(peer: ?*PancakeWebrtcPeer, s
 
 fn setRemote(peer: ?*PancakeWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize, is_offer: bool) i32 {
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const src = sdp orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes = src[0..sdp_len];
+    const bytes = signalInput(sdp, sdp_len) catch |err| return signalInputError(err, "set_remote", "SDP description");
     const result = if (is_offer) payload.peer.setRemoteOffer(bytes) else payload.peer.setRemoteAnswer(bytes);
-    result catch return ioError("set_remote: the sidecar refused the description");
+    result catch |err| return switch (err) {
+        error.SignalTooLarge => signalOutputTooLarge("set_remote", "SDP description"),
+        else => ioError("set_remote: the sidecar refused the description"),
+    };
     return PANCAKE_OK;
 }
 
@@ -389,14 +465,51 @@ fn setRemote(peer: ?*PancakeWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize, is_of
 pub export fn pancake_webrtc_peer_add_remote_candidate(peer: ?*PancakeWebrtcPeer, cand: ?[*]const u8, cand_len: usize) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const src = cand orelse return PANCAKE_ERR_NULL_POINTER;
-    payload.peer.addRemoteCandidate(src[0..cand_len]) catch return ioError("add_remote_candidate: the sidecar refused the candidate");
+    const bytes = candidateInput(cand, cand_len) catch |err| return candidateInputError(err, "add_remote_candidate", "ICE candidate");
+    payload.peer.addRemoteCandidate(bytes) catch |err| return switch (err) {
+        error.SignalTooLarge => candidateOutputTooLarge("add_remote_candidate", "ICE candidate"),
+        else => ioError("add_remote_candidate: the sidecar refused the candidate"),
+    };
     return PANCAKE_OK;
+}
+
+fn signalInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, SignalTooLarge }![]const u8 {
+    const src = ptr orelse return error.NullPointer;
+    if (len > webrtc.max_signal_bytes) return error.SignalTooLarge;
+    return src[0..len];
+}
+
+fn candidateInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, SignalTooLarge }![]const u8 {
+    const src = ptr orelse return error.NullPointer;
+    if (len > webrtc.max_ice_candidate_bytes) return error.SignalTooLarge;
+    return src[0..len];
+}
+
+fn signalInputError(err: error{ NullPointer, SignalTooLarge }, operation: []const u8, label: []const u8) i32 {
+    return switch (err) {
+        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.SignalTooLarge => {
+            setLastError("webrtc {s}: {s} exceeds PANCAKE_WEBRTC_MAX_SIGNAL_BYTES", .{ operation, label });
+            return PANCAKE_ERR_INVALID_ARGUMENT;
+        },
+    };
+}
+
+fn candidateInputError(err: error{ NullPointer, SignalTooLarge }, operation: []const u8, label: []const u8) i32 {
+    return switch (err) {
+        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.SignalTooLarge => {
+            setLastError("webrtc {s}: {s} exceeds PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES", .{ operation, label });
+            return PANCAKE_ERR_INVALID_ARGUMENT;
+        },
+    };
 }
 
 /// Drain the next locally gathered ICE candidate into `(out, cap)` as JSON,
 /// writing its length to `*out_len`. `PANCAKE_ERR_WOULD_BLOCK` when none is
 /// pending yet; `PANCAKE_ERR_BUFFER_TOO_SMALL` still writes the required length.
+/// `PANCAKE_ERR_INVALID_ARGUMENT` means the candidate exceeds
+/// `PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES`.
 pub export fn pancake_webrtc_peer_next_local_candidate(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -404,55 +517,70 @@ pub export fn pancake_webrtc_peer_next_local_candidate(peer: ?*PancakeWebrtcPeer
     const slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
     const candidate = payload.peer.nextLocalCandidate(dest[0..cap], slot) catch |err| return switch (err) {
         error.BufferTooSmall => PANCAKE_ERR_BUFFER_TOO_SMALL,
+        error.SignalTooLarge => candidateOutputTooLarge("next_local_candidate", "local ICE candidate"),
         error.SignalFailed => ioError("next_local_candidate: the sidecar refused"),
     };
     return if (candidate == null) PANCAKE_ERR_WOULD_BLOCK else PANCAKE_OK;
 }
 
+fn signalOutputTooLarge(operation: []const u8, label: []const u8) i32 {
+    setLastError("webrtc {s}: {s} exceeds PANCAKE_WEBRTC_MAX_SIGNAL_BYTES", .{ operation, label });
+    return PANCAKE_ERR_INVALID_ARGUMENT;
+}
+
+fn candidateOutputTooLarge(operation: []const u8, label: []const u8) i32 {
+    setLastError("webrtc {s}: {s} exceeds PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES", .{ operation, label });
+    return PANCAKE_ERR_INVALID_ARGUMENT;
+}
+
 /// Stable readiness identity for this peer, unique for the netlayer's lifetime.
 pub export fn pancake_webrtc_peer_id(peer: ?*PancakeWebrtcPeer) usize {
     const payload = payloadFromOpaque(peer) orelse return 0;
-    return @intFromEnum(payload.peer.id());
+    return @backingInt(payload.peer.id());
 }
 
-/// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness.
+/// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness;
+/// `PANCAKE_ERR_IO` means setup faulted before the channel opened.
 pub export fn pancake_webrtc_peer_is_open(peer: ?*PancakeWebrtcPeer) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     payload.peer.checkOpen() catch |err| return switch (err) {
         error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
         error.Closed => PANCAKE_ERR_CLOSED,
+        error.Failed => ioError("peer_is_open: the channel faulted"),
     };
     return PANCAKE_OK;
 }
 
-/// Non-blocking read of raw inbound bytes. Retry after READABLE readiness.
-pub export fn pancake_webrtc_peer_try_read(peer: ?*PancakeWebrtcPeer, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
+/// Non-blocking receive of one inbound packet. Retry after READABLE readiness.
+pub export fn pancake_webrtc_peer_try_receive_packet(peer: ?*PancakeWebrtcPeer, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_read orelse return PANCAKE_ERR_NULL_POINTER;
-    const n = payload.peer.tryRead(dest[0..len]) catch |err| return switch (err) {
+    const n = payload.peer.tryReceivePacket(dest[0..len]) catch |err| return switch (err) {
         error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
         error.Closed => PANCAKE_ERR_CLOSED,
-        error.Failed => ioError("peer_try_read: the channel faulted"),
+        error.BufferTooSmall => PANCAKE_ERR_BUFFER_TOO_SMALL,
+        error.Failed => ioError("peer_try_receive_packet: the channel faulted"),
     };
     slot.* = n;
     return PANCAKE_OK;
 }
 
-/// Hand a bounded prefix to the sidecar's outbound staging buffer and return
-/// immediately. Advance by `out_written`; after `PANCAKE_ERR_WOULD_BLOCK`,
-/// retry the remaining slice on WRITABLE readiness.
-pub export fn pancake_webrtc_peer_try_write(peer: ?*PancakeWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
+/// Hand one whole outbound packet to the sidecar's staging buffer and return
+/// immediately. On `PANCAKE_ERR_WOULD_BLOCK`, retry the same packet after
+/// WRITABLE readiness.
+pub export fn pancake_webrtc_peer_try_send_packet(peer: ?*PancakeWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const src = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_written orelse return PANCAKE_ERR_NULL_POINTER;
-    const n = payload.peer.tryWrite(src[0..len]) catch |err| return switch (err) {
+    const n = payload.peer.trySendPacket(src[0..len]) catch |err| return switch (err) {
         error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
         error.Closed => PANCAKE_ERR_CLOSED,
-        error.Failed => ioError("peer_try_write: the channel faulted"),
+        error.BufferTooSmall => PANCAKE_ERR_BUFFER_TOO_SMALL,
+        error.Failed => ioError("peer_try_send_packet: the channel faulted"),
     };
     slot.* = n;
     return PANCAKE_OK;
@@ -474,7 +602,7 @@ pub export fn pancake_webrtc_peer_release(peer: ?*PancakeWebrtcPeer) i32 {
     if (!payload.provider_claimed) {
         // tolerant: the driver may already have retired its ownership edge;
         // the caller's final handle release still owns this reference.
-        _ = payload.netlayer.peers.remove(@intFromEnum(payload.peer.id()));
+        _ = payload.netlayer.peers.remove(@backingInt(payload.peer.id()));
     }
     if (releasePeer(payload)) |failure|
         return c.failIo("webrtc peer release", failure);

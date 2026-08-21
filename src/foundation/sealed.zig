@@ -5,8 +5,8 @@
 //! It lives in `foundation` for the same reason `foundation.Spill` does: both
 //! stream tiers need one and neither imports the other. The byte-fed host
 //! core boxes one per sealed `HostSession` and runs it inside `Host.feedBytes`
-//! and `HostSession.takeOutbound`; the completion-loop tier composes the same
-//! machine inside a sealing completion-backend adapter
+//! and `HostSession.takeTransportOutbound`; the completion-loop tier composes
+//! the same machine inside a sealing completion-backend adapter
 //! (`net.noise_completion`), which finishes the handshake before the loop
 //! ever sees the connection open. One channel type, one authority for channel
 //! state per connection, two thin owners.
@@ -238,9 +238,8 @@ pub const SealedChannel = struct {
         return self.phase == .open;
     }
 
-    /// Whether inbound wire bytes or opened plaintext are parked and a later
-    /// feed may still move — the byte-fed owner's "call `Host.feedBytes` again with an empty
-    /// chunk" signal after a pause boundary.
+    /// Whether inbound wire bytes or opened plaintext are parked and the
+    /// byte-fed owner may still move them without reading from the transport.
     pub fn hasStagedInbound(self: *const SealedChannel) bool {
         return self.pending_plain_len != 0 or self.staged.isActive();
     }

@@ -6,7 +6,7 @@
 const std = @import("std");
 
 const completion = @import("../../../completion/contract.zig");
-const protocol = @import("../../../websocket/client_protocol.zig");
+const protocol = @import("../../../websocket.zig").client_protocol;
 const carrier_failure = @import("../../../carrier_failure.zig");
 
 pub fn Machine(
@@ -94,7 +94,7 @@ pub fn Machine(
             std.debug.assert(kind == .application or kind == .control);
             std.debug.assert(c.ws_send_kind == .none and c.ws_out.items.len == 0);
             var header: [max_header_len]u8 = undefined;
-            const prefix = try protocol.writeFrameHeader(&header, opcode, bytes.len, .{0} ** 4);
+            const prefix = try protocol.writeFrameHeader(&header, opcode, bytes.len, @splat(0));
             const frame_len = try std.math.add(usize, prefix.len, bytes.len);
             if (frame_len > backend.send_staging_bytes) return error.SendStagingTooSmall;
             try c.ws_out.ensureTotalCapacityPrecise(backend.allocator, frame_len);

@@ -51,7 +51,7 @@
     // Agent tools authenticate and keep user-level harness state for the host
     // user, not one checkout. These scoped binds give every worktree the same
     // login, sessions, configuration, and user resources without mounting all
-    // of ~/.config. initialize.sh creates every source before Docker sees it.
+    // of ~/.config. hooks/initialize.sh creates every source before Docker sees it.
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
     "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind",
     "source=${localEnv:HOME}/.cursor,target=/home/vscode/.cursor,type=bind",
@@ -62,8 +62,8 @@
     "source=${localEnv:HOME}/.config/agents,target=/home/vscode/.config/agents,type=bind",
     "source=${localEnv:HOME}/.serena,target=/home/vscode/.serena,type=bind"
   ],
-  "initializeCommand": "bash .devcontainer/initialize.sh",
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "initializeCommand": "bash .devcontainer/hooks/initialize.sh",
+  "postCreateCommand": "bash .devcontainer/hooks/post-create.sh",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -76,8 +76,7 @@
       "settings": {
         "deno.enable": true,
         "zig.path": "zig",
-        "zls.enable": true,
-        "zls.path": "zls",
+        "zls.enable": false,
         "files.watcherExclude": {
           "**/.cache/**": true,
           "**/.zig-cache/**": true,

@@ -11,6 +11,7 @@ const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const session = pancake.ocapn.session;
 const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
 const driver = pancake.driver;
 
 test "stateless GC releases a far introduced inside a nested argument" {
@@ -117,6 +118,60 @@ test "stateless GC's fallback walk matches the threaded record for the same nest
     try p1.feedOwned(gc_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     try std.testing.expectEqual(@as(u64, 1), p1.session_state.exports.count(.from(7)));
+}
+
+test "stateless GC skips a before-serve-claimed event" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var served = driver.Served.over(allocator, &p2);
+    defer served.deinit(&vat);
+    served.serve_options = .{
+        .gc_stateless = true,
+        .before_serve = struct {
+            fn hook(ctx: ?*anyopaque, s: *driver.Served, event: *engine.Event) anyerror!bool {
+                _ = s;
+                _ = event;
+                const claimed: *bool = @ptrCast(@alignCast(ctx.?));
+                claimed.* = true;
+                return true;
+            }
+        }.hook,
+    };
+
+    try p1.session_state.registerImport(.from(1));
+    try p2.session_state.registerExport(.from(1));
+    try p1.session_state.reserveExport(.from(7));
+
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(1) } },
+        .args = &.{
+            .{ .reference = .{ .near = .{ .export_position = .from(7) } } },
+        },
+        .answer = null,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedOwned(p1.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    try std.testing.expect(p2.session_state.hasImport(.from(7)));
+
+    var claimed = false;
+    served.serve_options.hook_ctx = &claimed;
+    {
+        var event = p2.pollEvent().?;
+        defer event.deinit();
+        try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
+        try served.serveEvent(&vat, &event);
+    }
+
+    try std.testing.expect(claimed);
+    try std.testing.expectEqual(engine.StepOutcome.idle, try p2.step());
+    try std.testing.expect(!p2.hasOutbound());
+    try std.testing.expect(p2.session_state.hasImport(.from(7)));
 }
 
 test "stateless GC releases every answer sharing a resolve callback" {

@@ -586,9 +586,7 @@ export function useStageEmptyGestures(args: {
         break;
       }
       case "double-click": {
-        // Drill-in not yet wired in PR 3c — host doesn't act on
-        // double-click for now. PR 4/5 wire the coordinated focus
-        // effect (Inspector + Stage + Timeline).
+        // Empty stage has no entity to drill into.
         break;
       }
     }

@@ -16,9 +16,9 @@
 
 const std = @import("std");
 
-const clock = @import("../../clock.zig");
 const completion = @import("../../completion/loop.zig");
-const onion_control = @import("control.zig");
+const model = @import("model");
+const completion_control = @import("completion/control.zig");
 const completion_state = @import("completion/state.zig");
 const socks5 = @import("socks5.zig");
 
@@ -42,17 +42,12 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
-        const State = Types.State;
         const Conn = Types.Conn;
+        const ControlTransaction = completion_control.Transaction(Self, Inner, Namespace, Types, Self.dispatchInternal);
 
         pub const connection_state_bytes = @sizeOf(Conn);
 
         const ConnMap = Types.ConnMap;
-        const setup_connect_ud = Types.setup_connect_ud;
-        const setup_send_ud = Types.setup_send_ud;
-        const setup_recv_ud = Types.setup_recv_ud;
-        const setup_close_ud = Types.setup_close_ud;
-
         allocator: std.mem.Allocator,
         inner: Inner,
         ready: completion.ReadyQueue,
@@ -100,7 +95,7 @@ pub fn InnerBackend(comptime Inner: type) type {
             const bound = Inner.listenerPort(inner_address) orelse return error.ListenerNotForwardable;
             const config = self.config orelse return error.OnionControlNotConfigured;
             const control_target = config.control orelse return error.OnionControlNotConfigured;
-            const service = self.publishService(control_target, bound, config) catch |err| return err;
+            const service = try ControlTransaction.publish(self, control_target, bound, config);
             self.listener_fd = fd;
             self.listener_service_id = service;
             self.listener_published = true;
@@ -121,7 +116,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[32]u8 {
-            if (idFromFd(fd)) |id| {
+            if (Types.idFromFd(fd)) |id| {
                 _ = self.conns.get(id) orelse return null;
                 return null;
             }
@@ -131,6 +126,11 @@ pub fn InnerBackend(comptime Inner: type) type {
         pub fn applyKeepalive(self: *Self, fd: Fd, keepalive: completion.Keepalive) !void {
             if (self.connection(fd)) |c| return self.inner.applyKeepalive(c.inner_fd, keepalive);
             return self.inner.applyKeepalive(fd, keepalive);
+        }
+
+        pub fn wireFraming(self: *Self, fd: Fd) model.transport.WireFraming {
+            if (self.connection(fd) != null) return .byte_stream;
+            return self.inner.wireFraming(fd);
         }
 
         pub fn startDial(self: *Self, user_data: u64, target: ConnectTarget) !Fd {
@@ -150,10 +150,10 @@ pub fn InnerBackend(comptime Inner: type) type {
             c.* = .{ .id = id, .inner_fd = undefined, .external_connect = user_data };
             errdefer c.deinit(self);
             _ = socks5.writeConnectRequest(&c.request, &target.service_id) catch return error.InvalidAddress;
-            c.inner_fd = try self.inner.startDial(internalUd(.connect, id), config.socks);
+            c.inner_fd = try self.inner.startDial(Types.internalUd(.connect, id), config.socks);
             c.pending.arm(.connect);
             self.conns.putAssumeCapacity(id, c);
-            return fdFromId(id);
+            return Types.fdFromId(id);
         }
 
         fn reserveId(self: *Self) !ConnId {
@@ -191,7 +191,7 @@ pub fn InnerBackend(comptime Inner: type) type {
             if (c.state != .open or c.external_send != null) return error.AlreadyWriting;
             c.external_send = user_data;
             errdefer c.external_send = null;
-            try self.inner.submitSend(internalUd(.send, c.id), c.inner_fd, bytes);
+            try self.inner.submitSend(Types.internalUd(.send, c.id), c.inner_fd, bytes);
             c.pending.arm(.send);
         }
 
@@ -201,7 +201,7 @@ pub fn InnerBackend(comptime Inner: type) type {
                 return error.InvalidCancelTarget;
             c.external_cancel = cancel_user_data;
             errdefer c.external_cancel = null;
-            try self.inner.submitCancel(internalUd(.cancel, c.id), internalUd(.recv, c.id), c.inner_fd);
+            try self.inner.submitCancel(Types.internalUd(.cancel, c.id), Types.internalUd(.recv, c.id), c.inner_fd);
             c.pending.arm(.cancel);
         }
 
@@ -295,8 +295,8 @@ pub fn InnerBackend(comptime Inner: type) type {
             for (tmp[0..n]) |comp| {
                 if (Namespace.ownsUserData(comp.user_data)) {
                     self.dispatchInternal(comp) catch |err| {
-                        if (internalId(comp.user_data) != 0) {
-                            if (self.conns.get(internalId(comp.user_data))) |c| self.fail(c);
+                        if (Types.internalId(comp.user_data) != 0) {
+                            if (self.conns.get(Types.internalId(comp.user_data))) |c| self.fail(c);
                         } else return err;
                     };
                 } else try self.ready.append(self.allocator, comp);
@@ -305,7 +305,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         fn dispatchInternal(self: *Self, comp: completion.Completion) !void {
-            const id = internalId(comp.user_data);
+            const id = Types.internalId(comp.user_data);
             if (id == 0) {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                 return error.UnexpectedControlCompletion;
@@ -314,7 +314,7 @@ pub fn InnerBackend(comptime Inner: type) type {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                 return;
             };
-            const op = internalOp(comp.user_data);
+            const op = Types.internalOp(comp.user_data);
             if (op == .close) {
                 std.debug.assert(c.inner_close == .in_flight);
             } else c.pending.retire(op);
@@ -506,7 +506,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         fn submitHandshake(self: *Self, c: *Conn) void {
             const whole: []const u8 = if (c.state == .greeting_send) &socks5.greeting else &c.request;
             const bytes = whole[c.handshake_send_offset..];
-            self.inner.submitSend(internalUd(.send, c.id), c.inner_fd, bytes) catch {
+            self.inner.submitSend(Types.internalUd(.send, c.id), c.inner_fd, bytes) catch {
                 self.owe(c, .send);
                 return;
             };
@@ -515,7 +515,7 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         fn armRecv(self: *Self, c: *Conn) void {
             if (c.state == .closing or c.pending.recv) return;
-            self.inner.submitRecv(internalUd(.recv, c.id), c.inner_fd) catch {
+            self.inner.submitRecv(Types.internalUd(.recv, c.id), c.inner_fd) catch {
                 self.owe(c, .recv);
                 return;
             };
@@ -524,7 +524,7 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         fn beginClose(self: *Self, c: *Conn) void {
             if (c.inner_close != .open or c.close_retry) return;
-            self.inner.submitClose(internalUd(.close, c.id), c.inner_fd) catch {
+            self.inner.submitClose(Types.internalUd(.close, c.id), c.inner_fd) catch {
                 self.inner.shutdownFd(c.inner_fd);
                 self.owe(c, .close);
                 return;
@@ -637,245 +637,8 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         fn connection(self: *Self, fd: Fd) ?*Conn {
-            return self.conns.get(idFromFd(fd) orelse return null);
+            return self.conns.get(Types.idFromFd(fd) orelse return null);
         }
-
-        const fdFromId = Types.fdFromId;
-        const idFromFd = Types.idFromFd;
-        const internalUd = Types.internalUd;
-        const internalId = Types.internalId;
-        const internalOp = Types.internalOp;
-
-        // The publication conversation is deliberately synchronous and bounded:
-        // it runs before the listener is returned, so Loop cannot arm accept on
-        // an unpublished service. The control fd itself remains open afterward.
-        fn publishService(
-            self: *Self,
-            target: Inner.ConnectTarget,
-            port: u16,
-            config: ConfigType,
-        ) ![socks5.service_id_len]u8 {
-            const fd = try self.inner.startDial(setup_connect_ud, target);
-            self.control_fd = fd;
-            errdefer {
-                if (self.control_fd != null) {
-                    self.inner.closeFd(fd);
-                    self.control_fd = null;
-                }
-            }
-            const deadline_ms = clock.nowMonotonicMs() + config.setup_timeout_ms;
-            const comp = try self.waitSetup(fd, setup_connect_ud, deadline_ms);
-            if (comp.result < 0) return error.ControlConnectionLost;
-
-            var reader: SetupReader = .{ .backend = self, .fd = fd, .deadline_ms = deadline_ms };
-            defer reader.deinit();
-            var request: [onion_control.max_line_bytes]u8 = undefined;
-            const auth = try onion_control.writeAuthenticate(&request, config.auth);
-            try self.setupSend(fd, auth, deadline_ms);
-            try self.setupOk(&reader);
-
-            var forward_buf: [32]u8 = undefined;
-            const forward = try std.fmt.bufPrint(&forward_buf, "127.0.0.1:{d}", .{port});
-            const add = if (config.service_key.len == 0)
-                try onion_control.writeAddOnionNew(&request, .{ .address = forward })
-            else
-                try onion_control.writeAddOnionRestore(&request, config.service_key, .{ .address = forward });
-            try self.setupSend(fd, add, deadline_ms);
-
-            var service_id: [socks5.service_id_len]u8 = undefined;
-            var have_id = false;
-            var lines: usize = 0;
-            while (true) {
-                lines += 1;
-                if (lines > 64) return error.ControlReplyTooLong;
-                const line = try reader.nextLine();
-                const reply = onion_control.parseLine(line) catch return error.ControlProtocolViolation;
-                if (!reply.isOk()) return error.ControlRefused;
-                if (reply.field()) |field| if (std.mem.eql(u8, field.key, "ServiceID")) {
-                    if (field.value.len != socks5.service_id_len) return error.ControlProtocolViolation;
-                    socks5.checkServiceId(field.value) catch return error.ControlProtocolViolation;
-                    @memcpy(&service_id, field.value);
-                    have_id = true;
-                };
-                if (reply.continuation == .end) break;
-            }
-            if (!have_id) return error.ControlProtocolViolation;
-            return service_id;
-        }
-
-        fn waitSetup(self: *Self, fd: Inner.Fd, wanted: u64, deadline_ms: i64) !completion.Completion {
-            var out: [8]completion.Completion = undefined;
-            while (true) {
-                const remaining = deadline_ms - clock.nowMonotonicMs();
-                if (remaining <= 0) {
-                    try self.abortSetup(fd, wanted);
-                    return error.ControlSetupTimedOut;
-                }
-                const timeout_ms: i32 = @intCast(@min(remaining, std.math.maxInt(i32)));
-                const n = try self.inner.poll(&out, timeout_ms);
-                try self.ready.ensureUnusedCapacity(self.allocator, n * 4);
-                var found: ?completion.Completion = null;
-                for (out[0..n]) |comp| {
-                    if (comp.user_data == wanted and found == null) {
-                        found = comp;
-                    } else if (Namespace.ownsUserData(comp.user_data) and internalId(comp.user_data) != 0) {
-                        try self.dispatchInternal(comp);
-                    } else if (!Namespace.ownsUserData(comp.user_data)) {
-                        self.ready.appendAssumeCapacity(comp);
-                    } else {
-                        if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                        return error.UnexpectedControlCompletion;
-                    }
-                }
-                if (found) |comp| return comp;
-            }
-        }
-
-        /// A timed-out setup operation still owns an inner completion seat.
-        /// Close the control handle and drain both records before returning to
-        /// normal polling, where an id-zero setup completion would be invalid.
-        fn abortSetup(self: *Self, fd: Inner.Fd, wanted: u64) !void {
-            self.inner.shutdownFd(fd);
-            var close_submitted = false;
-            var wanted_done = false;
-            var close_done = false;
-            var close_failed = false;
-            var out: [8]completion.Completion = undefined;
-
-            while (!wanted_done or (close_submitted and !close_done)) {
-                if (!close_submitted) {
-                    self.inner.submitClose(setup_close_ud, fd) catch {
-                        const n = try self.inner.poll(&out, 1);
-                        try self.harvestSetupAbort(out[0..n], wanted, &wanted_done, &close_done, &close_failed);
-                        if (wanted_done) break;
-                        continue;
-                    };
-                    close_submitted = true;
-                }
-                const n = try self.inner.poll(&out, -1);
-                try self.harvestSetupAbort(out[0..n], wanted, &wanted_done, &close_done, &close_failed);
-            }
-
-            if (!close_submitted or close_failed) self.inner.closeFd(fd);
-            self.control_fd = null;
-        }
-
-        fn harvestSetupAbort(
-            self: *Self,
-            completions: []const completion.Completion,
-            wanted: u64,
-            wanted_done: *bool,
-            close_done: *bool,
-            close_failed: *bool,
-        ) !void {
-            try self.ready.ensureUnusedCapacity(self.allocator, completions.len * 4);
-            for (completions) |comp| {
-                if (comp.user_data == wanted and !wanted_done.*) {
-                    wanted_done.* = true;
-                    if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                } else if (comp.user_data == setup_close_ud and !close_done.*) {
-                    close_done.* = true;
-                    close_failed.* = comp.result < 0;
-                    if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                } else if (Namespace.ownsUserData(comp.user_data) and internalId(comp.user_data) != 0) {
-                    try self.dispatchInternal(comp);
-                } else if (!Namespace.ownsUserData(comp.user_data)) {
-                    self.ready.appendAssumeCapacity(comp);
-                } else {
-                    if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                    return error.UnexpectedControlCompletion;
-                }
-            }
-        }
-
-        fn setupSend(self: *Self, fd: Inner.Fd, bytes: []const u8, deadline_ms: i64) !void {
-            var offset: usize = 0;
-            while (offset < bytes.len) {
-                try self.inner.submitSend(setup_send_ud, fd, bytes[offset..]);
-                const comp = try self.waitSetup(fd, setup_send_ud, deadline_ms);
-                if (comp.result <= 0) return error.ControlConnectionLost;
-                const sent: usize = @intCast(comp.result);
-                if (sent > bytes.len - offset) return error.ControlProtocolViolation;
-                offset += sent;
-            }
-        }
-
-        fn setupOk(_: *Self, reader: *SetupReader) !void {
-            var lines: usize = 0;
-            while (true) {
-                lines += 1;
-                if (lines > 64) return error.ControlReplyTooLong;
-                const line = try reader.nextLine();
-                const reply = onion_control.parseLine(line) catch return error.ControlProtocolViolation;
-                if (!reply.isOk()) return error.ControlRefused;
-                if (reply.continuation == .end) return;
-            }
-        }
-
-        const SetupReader = struct {
-            backend: *Self,
-            fd: Inner.Fd,
-            deadline_ms: i64,
-            held: ?completion.Completion = null,
-            offset: usize = 0,
-            line: [onion_control.max_line_bytes]u8 = undefined,
-            line_len: usize = 0,
-
-            fn deinit(self: *@This()) void {
-                self.releaseHeld();
-            }
-
-            fn nextLine(self: *@This()) ![]const u8 {
-                while (true) {
-                    if (self.held) |held| {
-                        const bytes = held.borrowed.recvBytes().?;
-                        const available = bytes[self.offset..];
-                        if (std.mem.indexOfScalar(u8, available, '\n')) |newline| {
-                            const fragment = available[0..newline];
-                            self.offset += newline + 1;
-                            if (self.line_len == 0) {
-                                return onion_control.trimLineEnding(fragment);
-                            }
-                            try self.append(fragment);
-                            const line_len = self.line_len;
-                            self.line_len = 0;
-                            if (self.offset == bytes.len) self.releaseHeld();
-                            return onion_control.trimLineEnding(self.line[0..line_len]);
-                        }
-                        try self.append(available);
-                        self.releaseHeld();
-                        continue;
-                    }
-
-                    try self.backend.inner.submitRecv(setup_recv_ud, self.fd);
-                    const comp = try self.backend.waitSetup(self.fd, setup_recv_ud, self.deadline_ms);
-                    if (comp.result <= 0 or comp.borrowed.recvBytes() == null) {
-                        if (comp.borrowed.active()) self.backend.inner.recycleBorrowed(comp);
-                        return error.ControlConnectionLost;
-                    }
-                    const bytes = comp.borrowed.recvBytes().?;
-                    if (@as(usize, @intCast(comp.result)) != bytes.len) {
-                        self.backend.inner.recycleBorrowed(comp);
-                        return error.ControlProtocolViolation;
-                    }
-                    self.held = comp;
-                    self.offset = 0;
-                }
-            }
-
-            fn append(self: *@This(), bytes: []const u8) !void {
-                if (bytes.len > self.line.len - self.line_len) return error.ControlReplyTooLong;
-                @memcpy(self.line[self.line_len..][0..bytes.len], bytes);
-                self.line_len += bytes.len;
-            }
-
-            fn releaseHeld(self: *@This()) void {
-                const held = self.held orelse return;
-                self.held = null;
-                self.offset = 0;
-                self.backend.inner.recycleBorrowed(held);
-            }
-        };
     };
 }
 

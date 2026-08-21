@@ -168,7 +168,10 @@ it.
   state into the loop's `Conn` would split channel authority, so the
   transport-agnostic machine moved down to where both tiers can compose it
   and each tier keeps one thin owner.
-- **`driver_core`**: the byte-fed tier's owner. `HostSession` gains one
+- **`driver_core`**: the byte-fed tier's owner, implemented by the internal
+  `src/driver/core/host/session.zig` shell/framing owner and its
+  `host/session/ingress.zig` dispatch leaf behind the supported Host surface.
+  `HostSession` gains one
   nullable boxed channel. `feedBytes` runs the handshake before any CapTP
   byte reaches the engine and decrypts afterwards; `takeOutbound` emits
   handshake messages first and seals afterwards. On completion the Host calls

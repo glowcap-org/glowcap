@@ -44,7 +44,8 @@ pub const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "honest scope", .why = "self-awarded praise; state the scope plainly (doc-voice)" },
         .{ .needle = "worth stating", .why = "throat-clearing; just state it (doc-voice)" },
         .{ .needle = "deliberately not", .why = "intent-adverb hedge; state the reason or drop the adverb (doc-voice)" },
-        .{ .needle = "This page is not", .why = "contrast-first opener; lead with what the page is (doc-voice)" },
+        .{ .needle = "tcp tab is the copy-paste first call", .why = "testing-only tcp does not occupy a first-call lead (doc-voice first-impression)" },
+        .{ .needle = "only the `pancake-next` profile speaks it", .why = "op:untag is accepted on 1.0; pancake sends it only when the partner advertises the feature (shipped.md)" },
         .{ .needle = "takes no part", .why = "theatrical restatement; say who does what (doc-voice)" },
         .{ .needle = "visible boundary", .why = "scaffold leftover; name the fact in speech (doc-voice)" },
         .{ .needle = "listen-oriented", .why = "scaffold leftover; write the ordinary path (doc-voice)" },
@@ -55,6 +56,12 @@ pub const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "hermetic", .why = "insider word; write \"in-tree\" or \"no network or external services\" (doc-voice)" },
         .{ .needle = "pre-1.0", .why = "prerelease: state the present boundary, not the transition producing it" },
         .{ .needle = "pre-publication", .why = "prerelease: state the present boundary, not the transition producing it" },
+        .{ .needle = "This page is not", .why = "contrast-first opener; lead with what the page is (doc-voice)" },
+        .{ .needle = "stands behind what lands", .why = "overclaim of personal audit; landings say the maintainer is answerable (doc-voice, PROVENANCE.md)" },
+        .{ .needle = "best networking library", .why = "destination ambition is the work's shape, not a first-read slogan (project-values)" },
+        .{ .needle = "colour", .why = "American English on human first-read pages (doc-voice); write color" },
+        .{ .needle = "recognise", .why = "American English on human first-read pages (doc-voice); write recognize" },
+        .{ .needle = "behaviour", .why = "American English on human first-read pages (doc-voice); write behavior" },
     };
     var rows: []const Ban = &.{};
     for (bans.human_doc_voice_scopes) |scope| {

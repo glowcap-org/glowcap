@@ -157,6 +157,34 @@ test "decomposeOutboundDeliver rejects a field step on the Syrup path" {
     model.freeMessage(allocator, message);
 }
 
+test "decomposeOutboundDeliver refuses answer exhaustion before moving payloads" {
+    const allocator = std.testing.allocator;
+    var sess = session.Session.init(allocator);
+    defer sess.deinit();
+    sess.next_outbound_answer = std.math.maxInt(u64) - 1;
+
+    const ops = try allocator.alloc(model.PipelineOp, 2);
+    inline for (.{ "a", "b" }, 0..) |label, i| {
+        const step_args = try allocator.alloc(model.Argument, 1);
+        step_args[0] = .{ .bytes = try allocator.dupe(u8, label) };
+        ops[i] = .{ .call = step_args };
+    }
+    const outer_args = try allocator.alloc(model.Argument, 1);
+    outer_args[0] = .{ .bytes = try allocator.dupe(u8, "c") };
+    const message = model.Message{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42), .path = .{ .ops = ops } } },
+        .args = outer_args,
+        .answer = .from(100),
+    } };
+
+    try std.testing.expectError(
+        error.OutboundAnswerSpaceExhausted,
+        pipeline.decomposeOutboundDeliver(allocator, &sess, message),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u64) - 1, sess.next_outbound_answer);
+    model.freeMessage(allocator, message);
+}
+
 test "classifyListenerDrain fires once on a non-promise fulfillment" {
     const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
     const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } });

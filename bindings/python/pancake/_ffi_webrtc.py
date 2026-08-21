@@ -40,14 +40,37 @@ class _WebrtcReadyEvent(ctypes.Structure):
 pin_struct(_WebrtcReadyEvent, "PANCAKE_WEBRTC_READY_EVENT")
 
 
+class _WebrtcStringView(ctypes.Structure):
+    """Borrowed UTF-8 text in WebRTC configuration records."""
+
+    _fields_ = [("ptr", ctypes.POINTER(ctypes.c_uint8)), ("len", ctypes.c_size_t)]
+
+
+pin_struct(_WebrtcStringView, "PANCAKE_WEBRTC_STRING_VIEW")
+
+
+class _WebrtcIceServer(ctypes.Structure):
+    """One STUN or TURN server record for WebRTC endpoint construction."""
+
+    _fields_ = [
+        ("urls", ctypes.POINTER(_WebrtcStringView)),
+        ("url_count", ctypes.c_size_t),
+        ("username", _WebrtcStringView),
+        ("credential", _WebrtcStringView),
+    ]
+
+
+pin_struct(_WebrtcIceServer, "PANCAKE_WEBRTC_ICE_SERVER")
+
+
 class _WebrtcConfig(ctypes.Structure):
     """One WebRTC endpoint's configuration; see the header's
     ``PancakeWebrtcConfig`` for what each setting means. Zero-initialized by
     ``ctypes.Structure``, and an unset field takes the transport's default."""
 
     _fields_ = [
-        ("ice_servers", ctypes.POINTER(ctypes.c_uint8)),
-        ("ice_servers_len", ctypes.c_size_t),
+        ("ice_servers", ctypes.POINTER(_WebrtcIceServer)),
+        ("ice_server_count", ctypes.c_size_t),
         ("include_loopback_candidates", ctypes.c_uint32),
         ("worker_threads", ctypes.c_uint32),
     ]

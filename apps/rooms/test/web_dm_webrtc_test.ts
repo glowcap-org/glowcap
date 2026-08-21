@@ -22,6 +22,8 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_webrtc_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -58,11 +60,17 @@ async function waitForHttp(port: number): Promise<void> {
 // Join `ROOM` as `nick` in a fresh, isolated tab, in webrtc DM mode, and wait
 // until the composer is live — the signal that the keyed session to the room
 // is up and the tab is advertising its `webrtc` identity.
-async function joinAs(browser: Browser, port: number, nick: string): Promise<{
+async function joinAs(
+	browser: Browser,
+	port: number,
+	nick: string,
+	vizSeed: { key: string; value: string },
+): Promise<{
 	context: BrowserContext;
 	tab: Page;
 }> {
 	const context = await browser.newContext();
+	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), vizSeed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	// Surface the page's own error logs (the UI reports a failed dial or a
@@ -110,14 +118,15 @@ async function awaitBubble(tab: Page, text: string, who: string): Promise<void> 
 	});
 }
 
-const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 120s"), 120_000);
+const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 28s"), 28_000);
 
 const httpPort = freePort();
 const roomPort = freePort();
+const vizPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
-const web = new Deno.Command("deno", {
+const web = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -131,19 +140,31 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
+	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "piped",
-	stderr: "inherit",
-}).spawn();
+	stderr: "piped",
+});
+const vizRef = scrapeVizSturdyref(web.stderr);
 
 let browser: Browser | null = null;
+let viewer: { close(): Promise<void> } | null = null;
 try {
 	await waitForHttp(httpPort);
+	const sturdyref = await vizRef;
+	let sawWebrtc = false;
+	let sawRelay = false;
+	viewer = await connectVizViewer(vizPort, sturdyref, (record) => {
+		if (record.kind !== "ocapn.session-opened") return;
+		if (record.transport === "webrtc") sawWebrtc = true;
+		if (record.transport === "keyed-relay") sawRelay = true;
+	});
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
+	const vizSeed = vizMemorySeed(httpPort, sturdyref);
 
 	// Both members advertise `webrtc` identities and file signaling inboxes.
-	const alice = await joinAs(browser, httpPort, "web-alice");
-	const bob = await joinAs(browser, httpPort, "web-bob");
+	const alice = await joinAs(browser, httpPort, "web-alice", vizSeed);
+	const bob = await joinAs(browser, httpPort, "web-bob", vizSeed);
 
 	// Alice redeems the introduction to Bob: her host's dial executor signals
 	// through the directory, the DataChannel opens, and the DM rides it.
@@ -159,6 +180,17 @@ try {
 	await send(bob.tab, REPLY_TEXT);
 	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
 
+	// Delivery alone is not transport evidence: an accidental relay selection
+	// carries the same application message. The live product timeline must have
+	// observed the actual browser-to-browser WebRTC session, and no keyed-relay
+	// session may have stood in for it.
+	const until = Date.now() + 5_000;
+	while (!sawWebrtc && Date.now() < until) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	if (!sawWebrtc) fail("the messages arrived but the live timeline observed no webrtc session");
+	if (sawRelay) fail("the WebRTC proof opened a keyed-relay session");
+
 	console.log(
 		"PASS: two browser tabs direct-messaged over a WebRTC DataChannel — the give's " +
 			"exporter locator named a bare webrtc designator, the redeeming host signaled " +
@@ -168,11 +200,7 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	if (viewer) await viewer.close().catch(() => {});
+	await reapOwned();
 }
 Deno.exit(0);

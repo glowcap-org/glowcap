@@ -73,7 +73,7 @@ export function originatedExchange(session: Session, designator: string): string
  * papering over. The transport a member reaches the *directory* over is not the
  * transport other members reach the *member* over. A browser peer talks to the
  * room through a relayed TCP socket while being reachable at a webrtc or
- * keyed-relay designator of its own, so its connection here proves nothing about the address
+ * noise-relay designator of its own, so its connection here proves nothing about the address
  * it advertises. Refusing that would refuse the app's headline feature; accepting
  * it is what the directory has always done. The honest statement is that an
  * unkeyed registration is a claim the directory passes on without vouching for,

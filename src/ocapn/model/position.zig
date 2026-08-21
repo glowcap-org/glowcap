@@ -31,11 +31,11 @@ pub const ExportPosition = enum(u64) {
     _,
 
     pub fn from(n: u64) ExportPosition {
-        return @enumFromInt(n);
+        return @fromBackingInt(@intCast(n));
     }
 
     pub fn int(self: ExportPosition) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Re-tag this position as another space's, preserving the wire integer.
@@ -55,11 +55,11 @@ pub const ImportPosition = enum(u64) {
     _,
 
     pub fn from(n: u64) ImportPosition {
-        return @enumFromInt(n);
+        return @fromBackingInt(@intCast(n));
     }
 
     pub fn int(self: ImportPosition) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Re-tag across position spaces. See `ExportPosition.reinterpret`.
@@ -77,11 +77,11 @@ pub const CapabilityRouteId = enum(u64) {
     _,
 
     pub fn from(n: u64) CapabilityRouteId {
-        return @enumFromInt(n);
+        return @fromBackingInt(@intCast(n));
     }
 
     pub fn int(self: CapabilityRouteId) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 
@@ -91,11 +91,11 @@ pub const AnswerPosition = enum(u64) {
     _,
 
     pub fn from(n: u64) AnswerPosition {
-        return @enumFromInt(n);
+        return @fromBackingInt(@intCast(n));
     }
 
     pub fn int(self: AnswerPosition) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Re-tag across position spaces. See `ExportPosition.reinterpret`.
@@ -111,11 +111,11 @@ pub const VirtualAnswer = enum(u64) {
     _,
 
     pub fn from(n: u64) VirtualAnswer {
-        return @enumFromInt(n);
+        return @fromBackingInt(@intCast(n));
     }
 
     pub fn int(self: VirtualAnswer) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 

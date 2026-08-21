@@ -3,10 +3,10 @@
 ;; (libpancake_host, ADR-0072 / ADR-0079).
 ;;
 ;; Owns the shared C drain (`pancake_host_pump_drain`) with sync park-only
-;; hooks, then honors each parked arm (`drain-host-actions!`). CapTP verbs stay
-;; in `private/session.rkt`; far-vow handles live in `private/promise.rkt`; the
-;; dial executor lives in `private/dial.rkt`; the host handle and vow table
-;; stay in `private/host.rkt`.
+;; hooks, then honors each parked arm (`drain-host-actions!`). The CapTP surface
+;; stays in the `private/session` module family; far-vow handles live in
+;; `private/promise.rkt`; the dial executor lives in `private/dial.rkt`; the
+;; host handle and vow table stay in `private/host/state.rkt`.
 ;; Session and host require this module eagerly; this module lazy-requires
 ;; dial for `run-dial!` and session for close / settle helpers so the
 ;; session ↔ action and dial ↔ action cycles stay breakable (same pattern as
@@ -20,10 +20,12 @@
          "abi-value.rkt"
          "vat.rkt"
          "host.rkt"
+         "host/state.rkt"
          "pump.rkt"
+         "session/state.rkt"
          "host-action-gen.rkt")
 
-;; Dial owns run-dial!; session owns session-close!. Promise owns settle-vow!.
+;; Dial owns run-dial!; session/close owns session-close!. Promise owns settle-vow!.
 ;; Lazy-require
 ;; breaks the dial/session ↔ action and promise ↔ session cycles.
 (lazy-require
@@ -33,9 +35,7 @@
   (run-dial!)]
  ["session.rkt"
   (finish-session-close!
-   record-session-outbound-failure!
-   retire-session-wire-failure!
-   run-drain-effects!)])
+   retire-session-wire-failure!)])
 
 (provide drain-host-actions!)
 

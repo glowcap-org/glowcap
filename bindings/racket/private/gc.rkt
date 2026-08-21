@@ -6,23 +6,17 @@
 
 (require ffi/unsafe
          racket/async-channel
-         racket/lazy-require
          "constants.rkt"
          "ffi-host.rkt"
          "errors.rkt"
          "value.rkt"
          "vat.rkt"
-         "host.rkt"
+         "host/state.rkt"
          "action.rkt"
-         "pump.rkt")
+         "pump.rkt"
+         "session/state.rkt")
 
-;; `session-host` / drain helpers live in session.rkt — lazy-require breaks
-;; the session ↔ gc cycle (session eagerly requires this module).
-(lazy-require
- ["session.rkt"
-  (session-host
-   session-ptr
-   with-host-drain)])
+;; Session state supplies `session-host`; pump owns the shared drain helpers.
 
 (provide session-with-gc!
          session-gc-enabled?
@@ -85,11 +79,6 @@
   (hash-ref! gc-states (session-host c)
              (lambda ()
                (gc-state (make-async-channel) (box '()) (box #f) (box '()))))
-  ;; Force the lazy `with-host-drain` stub now, on this user thread: the GC
-  ;; worker is spawned from the FFI finalizer thread, where module paths do
-  ;; not resolve (parameterization capture does not carry the expander's
-  ;; resolver there), so a stub first forced on the worker dies unresolved.
-  (with-host-drain (session-host c) (lambda () no-drain-effects))
   c)
 
 ;; Snapshot this session's opt-in when an application-facing vow is minted.

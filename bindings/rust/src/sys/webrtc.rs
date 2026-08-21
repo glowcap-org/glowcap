@@ -29,9 +29,25 @@ pub struct PancakeWebrtcPeer {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct PancakeWebrtcStringView {
+	pub ptr: *const u8,
+	pub len: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeWebrtcIceServer {
+	pub urls: *const PancakeWebrtcStringView,
+	pub url_count: usize,
+	pub username: PancakeWebrtcStringView,
+	pub credential: PancakeWebrtcStringView,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct PancakeWebrtcConfig {
-	pub ice_servers: *const u8,
-	pub ice_servers_len: usize,
+	pub ice_servers: *const PancakeWebrtcIceServer,
+	pub ice_server_count: usize,
 	pub include_loopback_candidates: u32,
 	pub worker_threads: u32,
 }
@@ -51,9 +67,17 @@ pub struct PancakeWebrtcReadyEvent {
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeWebrtcStringView>() == PANCAKE_WEBRTC_STRING_VIEW_SIZE);
+	assert!(offset_of!(PancakeWebrtcStringView, ptr) == PANCAKE_WEBRTC_STRING_VIEW_PTR_OFF);
+	assert!(offset_of!(PancakeWebrtcStringView, len) == PANCAKE_WEBRTC_STRING_VIEW_LEN_OFF);
+	assert!(size_of::<PancakeWebrtcIceServer>() == PANCAKE_WEBRTC_ICE_SERVER_SIZE);
+	assert!(offset_of!(PancakeWebrtcIceServer, urls) == PANCAKE_WEBRTC_ICE_SERVER_URLS_OFF);
+	assert!(offset_of!(PancakeWebrtcIceServer, url_count) == PANCAKE_WEBRTC_ICE_SERVER_URL_COUNT_OFF);
+	assert!(offset_of!(PancakeWebrtcIceServer, username) == PANCAKE_WEBRTC_ICE_SERVER_USERNAME_OFF);
+	assert!(offset_of!(PancakeWebrtcIceServer, credential) == PANCAKE_WEBRTC_ICE_SERVER_CREDENTIAL_OFF);
 	assert!(size_of::<PancakeWebrtcConfig>() == PANCAKE_WEBRTC_CONFIG_SIZE);
 	assert!(offset_of!(PancakeWebrtcConfig, ice_servers) == PANCAKE_WEBRTC_CONFIG_ICE_SERVERS_OFF);
-	assert!(offset_of!(PancakeWebrtcConfig, ice_servers_len) == PANCAKE_WEBRTC_CONFIG_ICE_SERVERS_LEN_OFF);
+	assert!(offset_of!(PancakeWebrtcConfig, ice_server_count) == PANCAKE_WEBRTC_CONFIG_ICE_SERVER_COUNT_OFF);
 	assert!(
 		offset_of!(PancakeWebrtcConfig, include_loopback_candidates)
 			== PANCAKE_WEBRTC_CONFIG_INCLUDE_LOOPBACK_CANDIDATES_OFF

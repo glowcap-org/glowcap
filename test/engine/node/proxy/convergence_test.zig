@@ -24,7 +24,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "converging next proxy subscriptions merge recipient groups behind one listener" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x44} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{ .captp_version = .next });
@@ -36,7 +36,7 @@ test "converging next proxy subscriptions merge recipient groups behind one list
         allocator,
         &node,
         node.peer(home).?,
-        [_]u8{0x45} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x45)),
     );
     defer counterpart.deinit();
     const home_peer = node.peer(home).?;
@@ -129,7 +129,7 @@ fn runMixedSettlingConvergence(
     source_is_node: bool,
     release_application_before_settlement: bool,
 ) !void {
-    var node = Node.init(allocator, [_]u8{0x46} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x46)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{ .captp_version = .next });
@@ -138,7 +138,7 @@ fn runMixedSettlingConvergence(
         allocator,
         &node,
         node.peer(home).?,
-        [_]u8{0x47} ** crypto.SEED_BYTES,
+        @as([crypto.SEED_BYTES]u8, @splat(0x47)),
     );
     defer counterpart.deinit();
     const home_peer = node.peer(home).?;

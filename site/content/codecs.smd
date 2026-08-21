@@ -1,8 +1,7 @@
 ---
 .title = "Codecs",
 .description = "Choose between Syrup, the compact OCapN interoperability format, and Cap'n Proto for measured pancake-to-pancake workloads.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -20,7 +19,7 @@ pancake ships two:
 
 [One message, two encodings. Syrup lays it out as variable-length byte records and Cap'n Proto as fixed 8-byte words; decode either and you get back the same message.]($image.siteAsset('diagram-codec.svg'))
 
-## Syrup
+# Syrup
 
 Syrup is the OCapN format and pancake's default. It is the only codec pancake
 uses with [Spritely Goblins](https://spritely.institute/goblins/) and other
@@ -35,7 +34,7 @@ Syrup is also pancake's signing format. Session location signatures and
 three-party handoff certificates use canonical Syrup bytes even when two
 pancake peers exchange their messages with Cap'n Proto.
 
-## Cap'n Proto
+# Cap'n Proto
 
 Cap'n Proto lays messages out in 8-byte words with fixed field offsets. That
 makes partial reads and random access cheap, but padding and pointer words make
@@ -47,7 +46,7 @@ with `pancake-next`, while Cap'n Proto can also carry V1.0 semantics between
 pancake peers. Set `codec = .capnp` and the version you need in Zig
 `SessionOptions`, or use the matching Host or binding preference.
 
-## Choosing
+# Choosing
 
 Stay on Syrup for ordinary CapTP traffic. It is the interoperability floor, the
 signing format, and the smaller wire representation.

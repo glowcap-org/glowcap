@@ -4,7 +4,7 @@
 // is that setting one moves exactly the rooms taking their answer from it.
 
 import type { Browser, Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail, fillSettled } from "./harness.ts";
 
 export async function run(
 	tab: Page,
@@ -247,6 +247,64 @@ export async function run(
 			// spent a quarter of the row on two small things.
 			else if (row.between > 12) {
 				fail(`the count and the way out sit ${row.between}px apart under a finger: ${JSON.stringify(row)}`);
+			}
+
+			// And the line under a name runs the whole row, under the mark that
+			// leaves it as well as under the name. On the pointer side that mark
+			// borrows the count's slot inside the room's own button, so a caption
+			// held to the first column already ends where the row's content ends.
+			// Here the mark has a column of its own beside that one, and a caption
+			// left in the first column stops a mark's width short of the line it
+			// belongs to. It reads as the row having been nudged, and only a
+			// coarse-pointed browser draws it, so nothing on the pointer side can
+			// see it.
+			//
+			// A caption needs a directory worth naming, which needs a second one to
+			// tell it from, so the tab reaches one: a room named in the rail, then
+			// sent to the other server from the panel's own destination line.
+			await finger.click("#newRoomBtn");
+			await finger.fill("#newRoomInput", "faraway");
+			await finger.focus("#newRoomElsewhere");
+			await finger.press("#newRoomElsewhere", "Enter");
+			await finger.waitForSelector("#joinForm", { timeout: 10_000 })
+				.catch(() => fail("the rail under a finger offered no way to reach another directory"));
+			await fillSettled(finger, "#locator", foreignLocator);
+			await finger.click("#joinBtn");
+			await finger.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
+				.catch(() => fail("the tab under a finger could not reach a room on the second directory"));
+			await finger.click("#backBtn");
+			await finger.waitForSelector("#roomList li .rwhere", { timeout: 20_000 })
+				.catch(() => fail("holding two directories under a finger put no directory line on a room row"));
+			const caption = await finger.evaluate(() => {
+				const li = document.querySelector("#roomList li:has(.rwhere)");
+				const line = li?.querySelector(".rwhere");
+				const open = li?.querySelector(".room-open");
+				const leave = li?.querySelector(".room-leave");
+				if (li == null || line == null || open == null || leave == null) return null;
+				const c = line.getBoundingClientRect();
+				const o = open.getBoundingClientRect();
+				const m = leave.getBoundingClientRect();
+				return {
+					// The two facts, each on its own: the mark stands beside the
+					// room's button rather than inside it, and the line under them
+					// runs past that button's edge to where the mark ends.
+					markIsBesideTheButton: Math.round(m.left - o.right),
+					endsWhereTheMarkEnds: Math.abs(c.right - m.right),
+					stopsAtTheButton: Math.abs(c.right - o.right),
+				};
+			});
+			if (caption === null) fail("no room row under a finger carried a directory line beside a way to leave");
+			else if (caption.markIsBesideTheButton < 0) {
+				fail(`the way out is inside the room's own button under a finger: ${JSON.stringify(caption)}`);
+			} else if (caption.endsWhereTheMarkEnds > 1) {
+				fail(
+					`a row's directory line stops ${caption.endsWhereTheMarkEnds.toFixed(1)}px short of the mark ` +
+						`that leaves the room, so it is pinned into the name's column: ${JSON.stringify(caption)}`,
+				);
+			} else if (caption.stopsAtTheButton <= 1) {
+				fail(
+					"a row's directory line ends where the room's button ends, so it never reached the mark beside it",
+				);
 			}
 		} finally {
 			await touch.close();

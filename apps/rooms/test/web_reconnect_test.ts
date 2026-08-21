@@ -14,7 +14,9 @@
 // holds the page to what should still be true afterwards.
 //
 //   1. The page notices. The composer closes rather than accepting lines into a
-//      session that is gone.
+//      session that is gone, and the room's own row in the rail says its
+//      directory is away. That is the one-directory case, where the line is the
+//      whole of what a row has to say about where it is.
 //   2. It comes back on its own, re-entering the room it was in, with nobody
 //      touching the browser.
 //   3. The conversation is still there. History belongs to the page, not to the
@@ -50,6 +52,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_reconnect_test.ts`.
 
 import { chromium } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -83,7 +86,7 @@ async function waitForHttp(port: number): Promise<void> {
 const httpPort = freePort();
 const roomPort = freePort();
 
-const web = new Deno.Command("deno", {
+const web = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -100,7 +103,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 /** Kill the room server, and only it.
  *
@@ -114,15 +117,7 @@ async function killRoomServer(): Promise<void> {
 	if (!killed.success) fail("could not find the room server to kill");
 }
 
-const deadline = setTimeout(() => {
-	console.error("FAIL: reconnect scenario timed out after 180s");
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	Deno.exit(1);
-}, 180_000);
+const deadline = setTimeout(() => fail("reconnect scenario timed out after 180s"), 180_000);
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
@@ -179,6 +174,26 @@ try {
 				"the page kept accepting lines after its session died; it never noticed the room was gone",
 			)
 		);
+
+	// And the room's own row says so. A room whose directory is away is a room
+	// this reader cannot reach, which is a fact about that row, so the row that
+	// carries the directory carries how it is doing. One directory is the case
+	// with no name worth drawing beside it, so the line arrives with the news and
+	// is the only thing on it. That is exactly the case a caption drawn only when
+	// a directory is worth naming would silently lose.
+	await tab.waitForFunction(
+		() =>
+			[...document.querySelectorAll("#roomList li")].some((row) =>
+				(row.querySelector(".rwhere-how")?.textContent ?? "").trim() !== ""
+			),
+		undefined,
+		{ timeout: 30_000 },
+	).catch(async () => {
+		const rail = await tab.evaluate(() =>
+			[...document.querySelectorAll("#roomList li")].map((row) => (row.textContent ?? "").trim())
+		);
+		fail(`the room held on a directory that went away says nothing about it: ${JSON.stringify(rail)}`);
+	});
 
 	// ── It comes back by itself ──────────────────────────────────────────
 	// Nobody touches the browser here. `serve.ts` respawns the room, the page
@@ -251,6 +266,23 @@ try {
 			fail(`reconnecting walked this reader back in without saying so: ${JSON.stringify(roster)}`);
 		});
 
+	// And the row goes quiet again. The line is drawn while a directory has
+	// something to say and goes when it stops, because a row repeating
+	// "Connected" for the life of the tab is furniture.
+	await tab.waitForFunction(
+		() =>
+			[...document.querySelectorAll("#roomList li")].every((row) =>
+				(row.querySelector(".rwhere-how")?.textContent ?? "").trim() === ""
+			),
+		undefined,
+		{ timeout: 30_000 },
+	).catch(async () => {
+		const rail = await tab.evaluate(() =>
+			[...document.querySelectorAll("#roomList li")].map((row) => (row.textContent ?? "").trim())
+		);
+		fail(`a room whose directory came back is still saying it is away: ${JSON.stringify(rail)}`);
+	});
+
 	// The directory answers the new session too: the page cleared what the old
 	// one told it, so a room in this list is one the new session reported.
 	// The room echo and the directory watcher update are separate eventual
@@ -271,11 +303,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

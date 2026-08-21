@@ -10,7 +10,8 @@ const std = @import("std");
 const model = @import("model");
 const session = @import("session");
 const bootstrap = @import("bootstrap.zig");
-const PeerId = @import("peer_id.zig").PeerId;
+const passable = @import("node/passable.zig");
+const PeerHandle = @import("peer_handle.zig").PeerHandle;
 
 pub const LoweringError = error{RouteNotLowerable};
 pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || error{
@@ -34,14 +35,14 @@ pub const PromiseShorteningError = std.mem.Allocator.Error || error{
 
 /// Scheduler-only identity for one gift dependency. The BLAKE3 tag keeps
 /// attacker-selected gift ids out of the Node's coordination tables while the
-/// gifter PeerId preserves session scope. This is never capability authority:
+/// gifter PeerHandle preserves session scope. This is never capability authority:
 /// the exact signed give and exact registry key are checked again at withdraw,
 /// so a digest collision can only cause an extra bounded wake.
 pub const HandoffDependency = struct {
-    gifter: PeerId,
+    gifter: PeerHandle,
     gift_tag: [16]u8,
 
-    pub fn init(gifter: PeerId, gift_id: []const u8) HandoffDependency {
+    pub fn init(gifter: PeerHandle, gift_id: []const u8) HandoffDependency {
         var gift_tag: [16]u8 = undefined;
         std.crypto.hash.Blake3.hash(gift_id, &gift_tag, .{});
         return .{ .gifter = gifter, .gift_tag = gift_tag };
@@ -50,23 +51,23 @@ pub const HandoffDependency = struct {
 
 pub const NodeServices = struct {
     ctx: *anyopaque,
-    peer_id: PeerId,
+    peer_handle: PeerHandle,
     /// Node-wide gate for the outbound token walk only.
     lowering_active: *const bool,
     vtable: *const VTable,
 
     pub const VTable = struct {
-        lower: *const fn (ctx: *anyopaque, peer_id: PeerId, reference: model.Reference) LoweringError!model.Reference,
-        stage_outbound: *const fn (ctx: *anyopaque, peer_id: PeerId, message: *model.Message) OutboundStagingError!bool,
-        local_object_projection: *const fn (ctx: *anyopaque) ?bootstrap.LocalObjectProjection,
-        gifter_session_resolver: *const fn (ctx: *anyopaque) ?bootstrap.GifterSessionResolver,
-        pending_withdraw_added: *const fn (ctx: *anyopaque, receiver: PeerId, dependency: HandoffDependency) std.mem.Allocator.Error!void,
-        pending_withdraw_removed: *const fn (ctx: *anyopaque, receiver: PeerId, dependency: HandoffDependency) void,
+        lower: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, reference: model.Reference) LoweringError!model.Reference,
+        stage_outbound: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool,
+        local_object_projection: *const fn (ctx: *anyopaque) ?bootstrap.gifts.LocalObjectProjection,
+        gifter_session_resolver: *const fn (ctx: *anyopaque) ?bootstrap.gifts.GifterSessionResolver,
+        pending_withdraw_added: *const fn (ctx: *anyopaque, receiver: PeerHandle, dependency: HandoffDependency) std.mem.Allocator.Error!void,
+        pending_withdraw_removed: *const fn (ctx: *anyopaque, receiver: PeerHandle, dependency: HandoffDependency) void,
         gift_deposited: *const fn (ctx: *anyopaque, dependency: HandoffDependency) void,
-        session_closed: *const fn (ctx: *anyopaque, peer_id: PeerId) void,
-        prepare_v1_emitted_handoff_count: *const fn (ctx: *anyopaque) HandoffCountError!bootstrap.PreparedHandoffCount,
-        prepare_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void,
-        commit_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) void,
+        session_closed: *const fn (ctx: *anyopaque, peer_handle: PeerHandle) void,
+        prepare_v1_emitted_handoff_count: *const fn (ctx: *anyopaque) HandoffCountError!bootstrap.gifts.PreparedHandoffCount,
+        prepare_promise_shortening: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void,
+        commit_promise_shortening: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, source: u64, target: u64, target_listener: u64, converges: bool) void,
         designator_scheme: *const fn (ctx: *anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
     };
 
@@ -76,7 +77,7 @@ pub const NodeServices = struct {
     /// only this adapter performs the internal erasure.
     pub fn bind(
         ctx: anytype,
-        peer_id: PeerId,
+        peer_handle: PeerHandle,
         lowering_active: *const bool,
         comptime implementation: Implementation(@TypeOf(ctx)),
     ) NodeServices {
@@ -86,27 +87,27 @@ pub const NodeServices = struct {
                 return @ptrCast(@alignCast(erased));
             }
 
-            fn lowerThunk(erased: *anyopaque, id: PeerId, reference: model.Reference) LoweringError!model.Reference {
+            fn lowerThunk(erased: *anyopaque, id: PeerHandle, reference: model.Reference) LoweringError!model.Reference {
                 return implementation.lower(context(erased), id, reference);
             }
 
-            fn stageOutboundThunk(erased: *anyopaque, id: PeerId, message: *model.Message) OutboundStagingError!bool {
-                return implementation.stage_outbound(context(erased), id, message);
+            fn stageOutboundThunk(erased: *anyopaque, id: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool {
+                return implementation.stage_outbound(context(erased), id, outbound);
             }
 
-            fn localObjectProjectionThunk(erased: *anyopaque) ?bootstrap.LocalObjectProjection {
+            fn localObjectProjectionThunk(erased: *anyopaque) ?bootstrap.gifts.LocalObjectProjection {
                 return implementation.local_object_projection(context(erased));
             }
 
-            fn gifterSessionResolverThunk(erased: *anyopaque) ?bootstrap.GifterSessionResolver {
+            fn gifterSessionResolverThunk(erased: *anyopaque) ?bootstrap.gifts.GifterSessionResolver {
                 return implementation.gifter_session_resolver(context(erased));
             }
 
-            fn pendingWithdrawAddedThunk(erased: *anyopaque, receiver: PeerId, dependency: HandoffDependency) std.mem.Allocator.Error!void {
+            fn pendingWithdrawAddedThunk(erased: *anyopaque, receiver: PeerHandle, dependency: HandoffDependency) std.mem.Allocator.Error!void {
                 return implementation.pending_withdraw_added(context(erased), receiver, dependency);
             }
 
-            fn pendingWithdrawRemovedThunk(erased: *anyopaque, receiver: PeerId, dependency: HandoffDependency) void {
+            fn pendingWithdrawRemovedThunk(erased: *anyopaque, receiver: PeerHandle, dependency: HandoffDependency) void {
                 implementation.pending_withdraw_removed(context(erased), receiver, dependency);
             }
 
@@ -114,19 +115,19 @@ pub const NodeServices = struct {
                 implementation.gift_deposited(context(erased), dependency);
             }
 
-            fn sessionClosedThunk(erased: *anyopaque, id: PeerId) void {
+            fn sessionClosedThunk(erased: *anyopaque, id: PeerHandle) void {
                 implementation.session_closed(context(erased), id);
             }
 
-            fn prepareV1EmittedHandoffCountThunk(erased: *anyopaque) HandoffCountError!bootstrap.PreparedHandoffCount {
+            fn prepareV1EmittedHandoffCountThunk(erased: *anyopaque) HandoffCountError!bootstrap.gifts.PreparedHandoffCount {
                 return implementation.prepare_v1_emitted_handoff_count(context(erased));
             }
 
-            fn preparePromiseShorteningThunk(erased: *anyopaque, id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
+            fn preparePromiseShorteningThunk(erased: *anyopaque, id: PeerHandle, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
                 return implementation.prepare_promise_shortening(context(erased), id, source, target, target_listener, converges);
             }
 
-            fn commitPromiseShorteningThunk(erased: *anyopaque, id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) void {
+            fn commitPromiseShorteningThunk(erased: *anyopaque, id: PeerHandle, source: u64, target: u64, target_listener: u64, converges: bool) void {
                 implementation.commit_promise_shortening(context(erased), id, source, target, target_listener, converges);
             }
 
@@ -152,7 +153,7 @@ pub const NodeServices = struct {
 
         return .{
             .ctx = ctx,
-            .peer_id = peer_id,
+            .peer_handle = peer_handle,
             .lowering_active = lowering_active,
             .vtable = &Adapter.vtable,
         };
@@ -160,66 +161,66 @@ pub const NodeServices = struct {
 
     fn Implementation(comptime Context: type) type {
         return struct {
-            lower: *const fn (Context, PeerId, model.Reference) LoweringError!model.Reference,
-            stage_outbound: *const fn (Context, PeerId, *model.Message) OutboundStagingError!bool,
-            local_object_projection: *const fn (Context) ?bootstrap.LocalObjectProjection,
-            gifter_session_resolver: *const fn (Context) ?bootstrap.GifterSessionResolver,
-            pending_withdraw_added: *const fn (Context, PeerId, HandoffDependency) std.mem.Allocator.Error!void,
-            pending_withdraw_removed: *const fn (Context, PeerId, HandoffDependency) void,
+            lower: *const fn (Context, PeerHandle, model.Reference) LoweringError!model.Reference,
+            stage_outbound: *const fn (Context, PeerHandle, *passable.Outbound) OutboundStagingError!bool,
+            local_object_projection: *const fn (Context) ?bootstrap.gifts.LocalObjectProjection,
+            gifter_session_resolver: *const fn (Context) ?bootstrap.gifts.GifterSessionResolver,
+            pending_withdraw_added: *const fn (Context, PeerHandle, HandoffDependency) std.mem.Allocator.Error!void,
+            pending_withdraw_removed: *const fn (Context, PeerHandle, HandoffDependency) void,
             gift_deposited: *const fn (Context, HandoffDependency) void,
-            session_closed: *const fn (Context, PeerId) void,
-            prepare_v1_emitted_handoff_count: *const fn (Context) HandoffCountError!bootstrap.PreparedHandoffCount,
-            prepare_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) PromiseShorteningError!void,
-            commit_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) void,
+            session_closed: *const fn (Context, PeerHandle) void,
+            prepare_v1_emitted_handoff_count: *const fn (Context) HandoffCountError!bootstrap.gifts.PreparedHandoffCount,
+            prepare_promise_shortening: *const fn (Context, PeerHandle, u64, u64, u64, bool) PromiseShorteningError!void,
+            commit_promise_shortening: *const fn (Context, PeerHandle, u64, u64, u64, bool) void,
             designator_scheme: *const fn (Context, []const u8) ?model.transport.DesignatorScheme,
         };
     }
 
     pub fn lower(self: NodeServices, reference: model.Reference) LoweringError!model.Reference {
-        return self.vtable.lower(self.ctx, self.peer_id, reference);
+        return self.vtable.lower(self.ctx, self.peer_handle, reference);
     }
 
-    /// Transfer an owned outbound message into Node staging when one of its
-    /// Passable values needs an inline three-party give. `true` means the Node
-    /// adopted the complete message; `false` leaves it with the caller.
-    pub fn stageOutbound(self: NodeServices, message: *model.Message) OutboundStagingError!bool {
-        return self.vtable.stage_outbound(self.ctx, self.peer_id, message);
+    /// Transfer an owned semantic payload into Node staging when one of its
+    /// Passable values needs cross-session projection. `true` means the Node
+    /// adopted the complete payload; `false` leaves it with the caller.
+    pub fn stageOutbound(self: NodeServices, outbound: *passable.Outbound) OutboundStagingError!bool {
+        return self.vtable.stage_outbound(self.ctx, self.peer_handle, outbound);
     }
 
-    pub fn localObjectProjection(self: NodeServices) ?bootstrap.LocalObjectProjection {
+    pub fn localObjectProjection(self: NodeServices) ?bootstrap.gifts.LocalObjectProjection {
         return self.vtable.local_object_projection(self.ctx);
     }
 
-    pub fn gifterSessionResolver(self: NodeServices) ?bootstrap.GifterSessionResolver {
+    pub fn gifterSessionResolver(self: NodeServices) ?bootstrap.gifts.GifterSessionResolver {
         return self.vtable.gifter_session_resolver(self.ctx);
     }
 
     pub fn pendingWithdrawAdded(self: NodeServices, dependency: HandoffDependency) std.mem.Allocator.Error!void {
-        try self.vtable.pending_withdraw_added(self.ctx, self.peer_id, dependency);
+        try self.vtable.pending_withdraw_added(self.ctx, self.peer_handle, dependency);
     }
 
     pub fn pendingWithdrawRemoved(self: NodeServices, dependency: HandoffDependency) void {
-        self.vtable.pending_withdraw_removed(self.ctx, self.peer_id, dependency);
+        self.vtable.pending_withdraw_removed(self.ctx, self.peer_handle, dependency);
     }
 
     pub fn giftDeposited(self: NodeServices, gift_id: []const u8) void {
-        self.vtable.gift_deposited(self.ctx, HandoffDependency.init(self.peer_id, gift_id));
+        self.vtable.gift_deposited(self.ctx, HandoffDependency.init(self.peer_handle, gift_id));
     }
 
     pub fn sessionClosed(self: NodeServices) void {
-        self.vtable.session_closed(self.ctx, self.peer_id);
+        self.vtable.session_closed(self.ctx, self.peer_handle);
     }
 
-    pub fn prepareV1EmittedHandoffCount(self: NodeServices) HandoffCountError!bootstrap.PreparedHandoffCount {
+    pub fn prepareV1EmittedHandoffCount(self: NodeServices) HandoffCountError!bootstrap.gifts.PreparedHandoffCount {
         return self.vtable.prepare_v1_emitted_handoff_count(self.ctx);
     }
 
     pub fn preparePromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
-        return self.vtable.prepare_promise_shortening(self.ctx, self.peer_id, source, target, target_listener, converges);
+        return self.vtable.prepare_promise_shortening(self.ctx, self.peer_handle, source, target, target_listener, converges);
     }
 
     pub fn commitPromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) void {
-        self.vtable.commit_promise_shortening(self.ctx, self.peer_id, source, target, target_listener, converges);
+        self.vtable.commit_promise_shortening(self.ctx, self.peer_handle, source, target, target_listener, converges);
     }
 
     pub fn designatorScheme(self: NodeServices, transport: []const u8) ?model.transport.DesignatorScheme {

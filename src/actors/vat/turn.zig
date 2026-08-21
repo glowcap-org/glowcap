@@ -9,6 +9,7 @@
 //! runs the same spine for inbound delivers.
 
 const std = @import("std");
+const engine = @import("engine");
 const model = @import("model");
 
 const boxed = @import("boxed.zig");
@@ -65,7 +66,7 @@ pub const Turn = struct {
         /// An inbound wire deliver, carrying the answer this turn must settle,
         /// or null for a no-answer deliver (a wire `tell`). `forward` defers
         /// the answer onto the forwarded send's vow.
-        served: ?model.AnswerName,
+        served: ?engine.AnswerTarget,
     },
     /// Set by `forward`: this turn handed its answer off to a forwarded send's
     /// vow, so `serve` must not resolve it from the handler's return value.
@@ -93,7 +94,8 @@ pub const Turn = struct {
         return self.vat.nearFromPort(self.port, self.ingress, target, msg);
     }
     /// Eventual-send to a local or far reference, returning the reply
-    /// `Vow` — the `<-` of this layer (see `Vat.send`).
+    /// `Vow` — the `<-` of this layer. Pure-local turns enter through
+    /// `Vat.send`; turns with a session projection enter through `Port.send`.
     pub fn send(self: *Turn, target: Ref, msg: Message) Error!Vow {
         if (self.port) |port| return port.sendFromIngress(self.vat, self.ingress, target, msg);
         return self.vat.sendFromIngress(self.ingress, target, msg);

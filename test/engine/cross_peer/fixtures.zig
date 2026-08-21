@@ -12,7 +12,7 @@ const syrup = pancake.ocapn.codec.syrup;
 const cross_peer = @import("../../support/cross_peer.zig");
 
 pub fn repeated(comptime n: usize, byte: u8) [n]u8 {
-    return [_]u8{byte} ** n;
+    return @splat(byte);
 }
 
 pub const recipient_key = repeated(32, 0x42);
@@ -47,22 +47,22 @@ pub fn sideOf(key: crypto.PeerKey) [32]u8 {
 }
 
 pub const GifterSessionFixture = struct {
-    peer_id: engine.PeerId = .from(0),
+    peer_handle: engine.PeerHandle = .from(0),
     side: [32]u8,
     session_name: [32]u8,
     key: [32]u8,
-    gifts: *engine.bootstrap.GiftRegistry,
+    gifts: *engine.bootstrap.gifts.GiftRegistry,
     resolve_calls: usize = 0,
 
-    pub fn resolve(ctx: ?*anyopaque, side: [32]u8, session_name: []const u8) ?engine.bootstrap.GifterSession {
+    pub fn resolve(ctx: ?*anyopaque, side: [32]u8, session_name: []const u8) ?engine.bootstrap.gifts.GifterSession {
         const self: *GifterSessionFixture = @ptrCast(@alignCast(ctx.?));
         self.resolve_calls += 1;
         if (!std.mem.eql(u8, &self.side, &side)) return null;
         if (!std.mem.eql(u8, &self.session_name, session_name)) return null;
-        return .{ .peer_id = self.peer_id, .key = self.key, .gifts = self.gifts };
+        return .{ .peer_handle = self.peer_handle, .key = self.key, .gifts = self.gifts };
     }
 
-    pub fn resolver(self: *GifterSessionFixture) engine.bootstrap.GifterSessionResolver {
+    pub fn resolver(self: *GifterSessionFixture) engine.bootstrap.gifts.GifterSessionResolver {
         return .{ .ctx = self, .resolve = resolve };
     }
 };
@@ -72,20 +72,20 @@ pub const GifterSessionFixture = struct {
 /// application-supplied, so the engine must not trust it to have established
 /// the fixed widths production resolution guarantees.
 pub const PermissiveGifterSessionFixture = struct {
-    peer_id: engine.PeerId = .from(0),
+    peer_handle: engine.PeerHandle = .from(0),
     key: [32]u8,
-    gifts: *engine.bootstrap.GiftRegistry,
+    gifts: *engine.bootstrap.gifts.GiftRegistry,
     resolve_calls: usize = 0,
 
-    pub fn resolve(ctx: ?*anyopaque, side: [32]u8, session_name: []const u8) ?engine.bootstrap.GifterSession {
+    pub fn resolve(ctx: ?*anyopaque, side: [32]u8, session_name: []const u8) ?engine.bootstrap.gifts.GifterSession {
         _ = side;
         _ = session_name;
         const self: *PermissiveGifterSessionFixture = @ptrCast(@alignCast(ctx.?));
         self.resolve_calls += 1;
-        return .{ .peer_id = self.peer_id, .key = self.key, .gifts = self.gifts };
+        return .{ .peer_handle = self.peer_handle, .key = self.key, .gifts = self.gifts };
     }
 
-    pub fn resolver(self: *PermissiveGifterSessionFixture) engine.bootstrap.GifterSessionResolver {
+    pub fn resolver(self: *PermissiveGifterSessionFixture) engine.bootstrap.gifts.GifterSessionResolver {
         return .{ .ctx = self, .resolve = resolve };
     }
 };

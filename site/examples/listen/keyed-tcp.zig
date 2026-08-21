@@ -2,7 +2,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const seed = [_]u8{7} ** 32; // load durable secret bytes in a real service
+    const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
     var keyed_resident = pancake.net.tcp.keyed.Resident{ .io = io };
     var server = try pancake.driver.listen(

@@ -213,8 +213,8 @@ async fn listen_tcp_profile(
 		})?;
 	let shared = host.shared();
 	let lp = shared.ensure_driver_loop(
-		crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u32,
-		crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u32,
+		crate::abi_constants::DRIVER_DEFAULT_HANDSHAKE_MS,
+		crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS,
 	)?;
 	crate::tcp::ensure_loop_provider(&lp, config)?;
 	let listener = lp

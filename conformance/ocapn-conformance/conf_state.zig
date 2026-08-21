@@ -19,7 +19,7 @@ const tcp = net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const PeerId = engine.PeerId;
+const PeerHandle = engine.PeerHandle;
 
 const use_onion = peer_options.use_onion;
 
@@ -99,7 +99,7 @@ pub const ConfCtx = struct {
     shared: *Shared,
     session: *HostSession,
     host_serve_options: driver.core.ServeOptions,
-    resolver_map: std.AutoHashMapUnmanaged(u64, model.AnswerName) = .{},
+    resolver_map: std.AutoHashMapUnmanaged(u64, engine.AnswerTarget) = .{},
 };
 
 /// A gifter enliven waiting for an exporter session to open before its fetch
@@ -108,8 +108,8 @@ pub const ConfCtx = struct {
 pub const PendingEnliven = struct {
     exporter_uuid: []u8,
     swiss: []u8,
-    recipient_peer: PeerId,
-    answer: model.AnswerName,
+    recipient_peer: PeerHandle,
+    answer: engine.AnswerTarget,
 };
 
 /// A Host-driving effect classified under the before-serve callback latch and
@@ -126,8 +126,8 @@ pub const DeferredAction = union(enum) {
     fetch: struct {
         exporter: *HostSession,
         swiss: []u8,
-        recipient_peer: PeerId,
-        answer: model.AnswerName,
+        recipient_peer: PeerHandle,
+        answer: engine.AnswerTarget,
     },
     dial: []u8,
 
@@ -149,12 +149,19 @@ pub const Shared = struct {
     bridge: *ConfBridge,
     /// Per-session conformance state, keyed by session. Only accepted sessions
     /// (desks) register here; dialed exporter/redeem legs never do.
-    confs: std.AutoHashMapUnmanaged(PeerId, *ConfCtx) = .{},
+    confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .{},
     /// Gifter enlivens whose exporter session was not yet open when the enliven
     /// arrived; drained in `on_open`.
     pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
     /// Host-driving effects held until the before-serve callback latch opens.
     deferred: std.ArrayListUnmanaged(DeferredAction) = .empty,
+    /// Exact failure from a callback that has no return slot. Drained at the
+    /// next `confServe` boundary so a gifter intercept cannot vanish as success.
+    callback_err: ?anyerror = null,
+
+    pub fn noteCallbackErr(self: *Shared, err: anyerror) void {
+        if (self.callback_err == null) self.callback_err = err;
+    }
 
     pub fn deinit(self: *Shared) void {
         var it = self.confs.valueIterator();

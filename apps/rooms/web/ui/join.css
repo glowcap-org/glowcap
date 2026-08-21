@@ -184,6 +184,17 @@
 /* Held locators, hanging off the directory mark. The same rows a message menu
    uses; the box is this field's, stretched to its width so a long name still
    belongs to the question it fills. */
+/* Under the field it finishes, spanning its width. The card is a short stack of
+   short fields, so a list beside it would leave the page and a list that pushed
+   the fields down would move the button out from under the reader's hand. */
+.join-field-wrap .suggest-pop {
+	top: calc(100% + 6px);
+	bottom: auto;
+	left: 0;
+	right: 0;
+	width: auto;
+	max-width: none;
+}
 .locator-picks {
 	animation: rise-in .12s ease-out;
 	position: absolute;

@@ -89,6 +89,10 @@ export function directorySignalingAuthority(
 export async function serveWebrtcSignaling(opts: {
 	host: import("@pancake/runtime").Host;
 	dir: () => Directory | null;
+	/** ICE servers this side answers through. It must match the reach the
+	 * dialing side was given: a candidate one peer cannot produce is a path
+	 * neither can use. */
+	iceServers?: RTCIceServer[] | (() => Promise<RTCIceServer[]>);
 	onError?: (err: unknown) => void;
 }): Promise<WebrtcSignalingServer> {
 	const onError = opts.onError ?? (() => {});
@@ -116,7 +120,14 @@ export async function serveWebrtcSignaling(opts: {
 	};
 
 	const answerOffer = async (id: string, sdp: string): Promise<void> => {
-		const peer = new RtcPeer({ offerer: false });
+		let configuredIce: RTCIceServer[] | undefined;
+		try {
+			configuredIce = typeof opts.iceServers === "function" ? await opts.iceServers() : opts.iceServers;
+		} catch (err) {
+			onError(err);
+			return;
+		}
+		const peer = new RtcPeer({ offerer: false, iceServers: configuredIce });
 		const candidateSends = new SignalingSendOwner("rooms WebRTC answer", () => peer.close());
 		peers.set(id, peer);
 		try {

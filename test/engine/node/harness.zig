@@ -18,11 +18,14 @@ const Node = engine.Node;
 /// so a host reads it off the wire; a white-box test drives `claimResolve`
 /// directly and recovers it from the node's single pending withdraw. Asserts
 /// exactly one withdraw is parked, on `exporter`.
-pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerId) u64 {
-    std.testing.expectEqual(@as(usize, 1), node.pending_withdraws.count()) catch unreachable;
-    var it = node.pending_withdraws.keyIterator();
+pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerHandle) u64 {
+    std.testing.expectEqual(
+        @as(usize, 1),
+        node.redeems.withdrawals.rows.count(),
+    ) catch unreachable;
+    var it = node.redeems.withdrawals.rows.keyIterator();
     const key = it.next().?.*;
-    std.testing.expectEqual(exporter, key.peer_id) catch unreachable;
+    std.testing.expectEqual(exporter, key.peer_handle) catch unreachable;
     return key.answer;
 }
 
@@ -76,15 +79,15 @@ pub fn testGiveBytes(allocator: std.mem.Allocator) ![]u8 {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(location);
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x77)));
     return engine.handoff_gifter.buildSignedGive(
         allocator,
         secret,
-        &([_]u8{0x01} ** 32),
+        &(@as([32]u8, @splat(0x01))),
         location,
-        &([_]u8{0x02} ** 32),
-        &([_]u8{0x03} ** 32),
-        &([_]u8{0x04} ** 32),
+        &(@as([32]u8, @splat(0x02))),
+        &(@as([32]u8, @splat(0x03))),
+        &(@as([32]u8, @splat(0x04))),
     );
 }
 
@@ -94,8 +97,8 @@ pub fn testGiveBytes(allocator: std.mem.Allocator) ![]u8 {
 /// the settled Node route id.
 pub fn mintRedeemedRoute(
     node: *Node,
-    recipient: engine.PeerId,
-    exporter: engine.PeerId,
+    recipient: engine.PeerHandle,
+    exporter: engine.PeerHandle,
     answer: u64,
     far_id: u64,
     locator: []const u8,

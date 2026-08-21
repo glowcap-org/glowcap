@@ -1,12 +1,9 @@
-"""Private ABI constants for the Python pancake binding.
+"""Private constants for the Python pancake binding.
 
-The reflected integer families (return codes, reference and argument kinds,
-codec, abort domains, the dial plan, and the caps) are generated into
-``_constants_gen`` from the C ABI and re-exported here, so a value is mirrored
-once and ``zig build gen-binding-constants-check`` rejects a stale copy.
-Transport and locator-hint strings are generated there from
-``model.transport``. ``HOST_ACTION_*`` lives in the generated
-``_host_action_gen`` module.
+Reflected ABI constants, model-owned transport vocabulary, and shared binding
+policy are generated into ``_constants_gen`` and re-exported here. ``zig build
+gen-binding-constants-check`` rejects stale mirrors. ``HOST_ACTION_*`` lives in
+the generated ``_host_action_gen`` module.
 
 :class:`DurableProvenance` lives here too, beside the
 ``DURABLE_PROVENANCE_*`` integers it names. Two surfaces read the same fact

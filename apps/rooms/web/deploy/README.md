@@ -152,6 +152,32 @@ root:
 docker compose -f apps/rooms/web/deploy/docker-compose.yml restart rooms
 ```
 
+Browser-to-browser WebRTC uses `stun:stun.cloudflare.com:3478` by default so
+ordinary NATs can advertise server-reflexive candidates. Set
+`PANCAKE_ROOMS_ICE_SERVERS` in Compose to a comma-separated STUN list to choose
+another discovery service, or to an empty string for host candidates only. The
+server validates the value at startup and serves that exact configuration to
+both browser halves.
+
+Symmetric NATs and restrictive firewalls need a TURN candidate. Rooms keeps the
+long-lived credential authority on the server and publishes only short-lived
+username/password rows to browsers. For Cloudflare Realtime TURN, create a TURN
+key and configure its [credential-generation endpoint](https://developers.cloudflare.com/realtime/turn/generate-credentials/):
+
+```sh
+export PANCAKE_ROOMS_TURN_CREDENTIALS_URL="https://rtc.live.cloudflare.com/v1/turn/keys/<TURN_KEY_ID>/credentials/generate-ice-servers"
+export PANCAKE_ROOMS_TURN_BEARER_TOKEN="<TURN_KEY_API_TOKEN>"
+export PANCAKE_ROOMS_TURN_TTL_SECONDS=86400
+docker compose -f apps/rooms/web/deploy/docker-compose.yml up -d
+```
+
+The URL and token must be present together, the issuer must use HTTPS, and the
+TTL is bounded to 5 minutes–48 hours. Each new WebRTC connection asks `/ice`
+for fresh credentials, so a tab left open does not age out of TURN reachability.
+If the issuer is configured but unavailable, `/ice` answers 503 rather than
+quietly degrading to STUN-only. This TURN relay remains below WebRTC's DTLS
+channel; it is not Rooms' separately selectable Noise-sealed relay DM transport.
+
 ## How the container is assembled
 
 The image contains Deno on the same pinned glibc-based Debian image used by the
@@ -202,7 +228,7 @@ TCP room instead, remove `--transport=iroh` and configure `PANCAKE_ROOMS_BIND` a
 
 The devcontainer and this deployment each have an `EGRESS_NET`, but they
 usually name different networks. Their shared network is always `rooms-net`.
-See [devcontainer networking](../../../../.devcontainer/networking.md) for that
+See [devcontainer networking](../../../../.devcontainer/docs/networking.md) for that
 side of the setup.
 
 ## Use it from a larger Compose project

@@ -12,8 +12,8 @@ const syrup = pancake.ocapn.codec.syrup;
 const engine = pancake.ocapn.engine;
 const net = pancake.net;
 
-const zero_pubkey = [_]u8{0} ** 32;
-const zero_sig = [_]u8{0} ** 64;
+const zero_pubkey = @as([32]u8, @splat(0));
+const zero_sig = @as([64]u8, @splat(0));
 
 /// These tests prove byte-stream framing, not handshake authentication, and the
 /// `op:start-session` they feed carries the stub zero signature, so the peers

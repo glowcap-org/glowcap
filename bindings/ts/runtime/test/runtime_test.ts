@@ -7,6 +7,7 @@ import { Runtime } from "../runtime.ts";
 import { Context, recordCallerlessFailure, takeRuntimeFailures } from "../context.ts";
 import type { Session } from "../session.ts";
 import { requireArchiveFingerprint } from "../internal/ffi/runtime.ts";
+import { deferFinalizerRetry, pendingFinalizerRetryCount } from "../finalizer_retry.ts";
 
 function assert(value: unknown, message: string): asserts value {
 	if (!value) throw new Error(message);
@@ -65,6 +66,23 @@ Deno.test("callerless failure without a surviving Context reaches the process se
 	assert(failures.length === 1, "callerless failure disappeared");
 	assert(failures[0].operation === "driver-loop.finalizer.release", "operation identity changed");
 	assert(failures[0].primaryMessage === "release refused", "failure detail changed");
+});
+
+Deno.test("public Host boundaries retry one claimed finalizer batch without spinning", async () => {
+	let attempts = 0;
+	const attemptCount = () => attempts;
+	const retry = () => {
+		attempts++;
+		if (attempts === 1) deferFinalizerRetry(retry);
+	};
+	deferFinalizerRetry(retry);
+	const host = new Host();
+	assert(attemptCount() === 1, "one boundary retried a refusal more than once");
+	assert(pendingFinalizerRetryCount() === 1, "a repeated refusal lost its owner");
+	host.drainParkedReleases();
+	assert(attemptCount() === 2, "the next public boundary did not retry the retained release");
+	assert(pendingFinalizerRetryCount() === 0, "a successful retry stayed retained");
+	await host.close();
 });
 
 Deno.test("allocator callback exceptions stay inside the Context boundary", () => {

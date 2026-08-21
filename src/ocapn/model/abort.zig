@@ -57,8 +57,8 @@ pub const AbortKind = enum {
     /// the exact string `wireName` emits, so the two directions cannot drift and
     /// a new variant is covered the moment it has a `wireName` arm.
     pub fn fromWireName(name: []const u8) ?AbortKind {
-        inline for (@typeInfo(AbortKind).@"enum".fields) |field| {
-            const kind: AbortKind = @enumFromInt(field.value);
+        inline for (@typeInfo(AbortKind).@"enum".field_values) |field_value| {
+            const kind: AbortKind = @fromBackingInt(@intCast(field_value));
             if (std.mem.eql(u8, kind.wireName(), name)) return kind;
         }
         return null;

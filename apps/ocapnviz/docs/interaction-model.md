@@ -494,8 +494,9 @@ the browser called first.
 
 Reading the tables: adding a held gesture is one row, and the keyup and blur
 lifecycle come with it. Space is contextual, claimed by the pan gesture over the
-stage and toggling the transport everywhere else. File commands exist in every
-mode, while history, clipboard, and delete are Build-only. Tool keys route
+stage and toggling the transport in Play and Build. Live has no transport: Space,
+R, and arrow-seek do not run there. File commands exist in every mode, while
+history, clipboard, and delete are Build-only. Tool keys route
 through `onPickTool`, but `toolsForMode` is the authority that refuses an
 authoring tool outside Build. Arrow keys nudge the selection in Build when a
 nudge consumes the gesture, and otherwise scrub time, with Shift as the coarse

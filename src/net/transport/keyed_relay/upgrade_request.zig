@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const protocol = @import("../../websocket/client_protocol.zig");
+const protocol = @import("../../websocket.zig").client_protocol;
 const route = @import("route.zig");
 
 pub const Formatter = struct {

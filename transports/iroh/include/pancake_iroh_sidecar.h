@@ -2,7 +2,7 @@
  *
  * Hand-written. The implementation is transports/iroh/src/lib.rs (a Rust
  * staticlib over the iroh crate, emitting libpancake_iroh_sidecar.a); the
- * consumer is the Zig resident src/net/transport/iroh.zig. The explicitly
+ * consumer is the Zig sidecar owner src/net/transport/iroh/sidecar.zig. The
  * explicitly blocking calls (connect_blocking/accept/conn_read/conn_write)
  * block the calling thread. Evented connect, accept, and stream I/O report
  * terminal/readiness state over one fd so a single loop thread multiplexes
@@ -101,11 +101,15 @@ typedef struct pancake_iroh_sidecar_conn pancake_iroh_sidecar_conn;
  * else ends the connection. There is no keep-alive beside it; the sidecar
  * derives the heartbeat from this timeout so the two cannot be put out of step.
  *
- * 0 means the built-in default for either timeout. */
+ * `worker_threads` sizes this endpoint's private tokio runtime; 0 selects the
+ * sidecar default. It is an endpoint cost, not a per-connection cost.
+ *
+ * 0 means the built-in default for either timeout or the worker count. */
 typedef struct pancake_iroh_sidecar_endpoint_config {
   uint32_t reachability;
   uint64_t connect_timeout_ms;
   uint64_t idle_timeout_ms;
+  uint32_t worker_threads;
 } pancake_iroh_sidecar_endpoint_config;
 
 /* Create an endpoint and bind its UDP sockets. `secret_seed32` is either NULL
@@ -160,10 +164,14 @@ pancake_iroh_sidecar_conn *pancake_iroh_sidecar_connect_blocking(
 /* Wait at most timeout_ms for a partner connection and first bidirectional
  * stream. Returns only after the dialer has written its first bytes (QUIC bi
  * streams are lazy; OCapN's dialer writes op:start-session immediately), or
- * NULL on timeout, failure, endpoint close, or a negative timeout. Private
- * resident-listener primitive; does not arm or drain readiness. */
+ * NULL with out_code set to the same classification connect_blocking uses:
+ * 2 for a bounded timeout, 1 for a null endpoint or negative timeout, and 4
+ * for endpoint close, panic, or stream-handle construction failure. out_code
+ * is mandatory. Private resident-listener primitive; does not arm or drain
+ * readiness. */
 pancake_iroh_sidecar_conn *pancake_iroh_sidecar_accept_timeout(
-    pancake_iroh_sidecar_endpoint *ep, int32_t timeout_ms);
+    pancake_iroh_sidecar_endpoint *ep, int32_t timeout_ms,
+    int32_t *out_code);
 
 /* Write the connection's QUIC-authenticated remote endpoint id — the 32-byte
  * Ed25519 public key TLS verified during the handshake — into `out_key32`

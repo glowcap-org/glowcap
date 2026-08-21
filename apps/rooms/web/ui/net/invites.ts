@@ -5,11 +5,13 @@
 // the privacy: there is no member list to be on and no check to pass, which
 // is why these verbs are about references rather than names.
 
+import type { Ref } from "@pancake/runtime";
 import * as store from "../store.ts";
 import type { DirId } from "../types.ts";
 import { reason } from "./common.ts";
 import { dirAddress, dirSession, isCurrent, type Live } from "./live.ts";
-import { notePickedRoom } from "./bootstrap.ts";
+import { FIRST_BACKOFF_MS, linkDirectory, notePickedRoom } from "./bootstrap.ts";
+import { leaveDirectory, openDirectory } from "./connection.ts";
 import { takeHandedRoom } from "./direct.ts";
 import { enterRoom } from "./rooms.ts";
 
@@ -30,20 +32,26 @@ import { enterRoom } from "./rooms.ts";
 export async function acceptInvite(id: string): Promise<string> {
 	const invite = store.get().invites.find((row) => row.id === id);
 	if (invite === undefined) return "that offer is no longer good";
+	const nick = store.dirNick(invite.dir) || store.reachingNick();
+	if (!nick) return "join a room here first, so this directory knows what to call you";
+	if (invite.way === "link") {
+		// Redeemed where the link says, not where it arrived. A link is data and
+		// names its own peer, so an offer that reached this tab over a direct
+		// line on one directory may well be for a room on another, and taking it
+		// up does not wait on the directory it arrived over.
+		store.dropInvite(id);
+		notePickedRoom();
+		return await takeRoomLink(invite.link, invite.label, nick);
+	}
 	const session = dirSession(invite.dir);
 	// A reconnect does not invalidate a Host-scoped handed reference. Keep the
 	// row so the same press can succeed once its directory is back, instead of
 	// deleting the only UI path to an occurrence we still own.
 	if (session === null) return "not connected to that room directory yet";
-	const nick = store.dirNick(session.id) || store.reachingNick();
-	if (!nick) return "join a room here first, so this directory knows what to call you";
 	store.dropInvite(id);
 	// Taking one up is asking to be in the room, so it opens on screen the way
 	// pressing a room in the rail does.
 	notePickedRoom();
-	if (invite.way === "link") {
-		return await takeRoomLink(session.id, invite.link, invite.label, nick);
-	}
 	// Moved out, never read twice: whatever happens next, this id spends its
 	// reference exactly once.
 	const handed = takeHandedRoom(id);
@@ -71,21 +79,72 @@ export async function acceptInvite(id: string): Promise<string> {
 	return `${why}. The offer is spent; ask ${invite.from} to offer the room again`;
 }
 
-/** Redeem a room link on one directory's session and enter what it opens.
+/** Redeem a room link and enter what it opens.
  *
- * The link is the authority and the label is the reader's own word for the
- * room, which is why the label is passed rather than asked for: a private room
- * restored from a link has none to give. */
-export async function takeRoomLink(dir: DirId, link: string, label: string, nick: string): Promise<string> {
+ * A link is a sturdyref, so it names its own directory: the room it reaches is
+ * hosted by whatever peer minted it, which need not be a peer this tab has ever
+ * spoken to. So the link decides where it is redeemed. A directory this tab
+ * already holds is used as it stands, and one it does not is opened first. That
+ * is the same act the join card performs, and it grants no more than the card
+ * does: a session, a name registered on it, and the rooms reachable through it.
+ *
+ * Redeeming stays a session-level `enliven` either way, and that is the whole
+ * of the trust boundary here. The session-level verb never dials and refuses a
+ * sturdyref for another peer, so the room that comes back is provably the
+ * directory's own, which is what `enterRoom` is told when it decides whether a
+ * name voucher may be presented. `Host.enliven` would dial by itself and answer
+ * without saying which session hosts the result, turning a reader's paste into
+ * an unbidden dial and leaving the room on a session no directory row owns.
+ *
+ * `nick` is what the reader would like to be called, used when the directory
+ * being entered has granted them nothing yet; a directory that has granted a
+ * name is answered by that grant. The label is passed rather than asked for,
+ * because a private room restored from a link has none to give. */
+export async function takeRoomLink(link: string, label: string, nick: string): Promise<string> {
+	const named = linkDirectory(link);
+	if (named === null) return "that is not a room link";
+	// Whether this tab had anything of that directory before the link named it:
+	// a live session, or a row still reconnecting to one. A directory this
+	// redeem opened from nothing and did not seat a room in is given back rather
+	// than left in the rail as a server the reader never asked to hold; one that
+	// was already there is never touched, because it is somebody's home page or
+	// it is carrying their other rooms.
+	const wasHeld = dirSession(named.id) !== null || store.get().dirs.has(named.id);
+	if (dirSession(named.id) === null) {
+		const unreachable = await openDirectory(named.address, FIRST_BACKOFF_MS);
+		if (unreachable !== "") return unreachable;
+	}
+	const why = await redeemOn(named.id, link, label, nick);
+	if (why !== "" && !wasHeld && store.joinedRooms(named.id).length === 0) leaveDirectory(named.id);
+	return why;
+}
+
+/** Bring the link to life on the directory it names, and enter the room.
+ *
+ * The two failures are kept apart on purpose. A directory that will not answer
+ * the link is one that does not know the room — a link for a room that has been
+ * let go, or a swissnum that is not one this peer ever minted — and there is
+ * nothing the reader can do with it. A room that refuses the subscribe is a
+ * live room saying no, which is a different sentence and often an actionable
+ * one. */
+async function redeemOn(dir: DirId, link: string, label: string, nick: string): Promise<string> {
 	const session = dirSession(dir);
 	if (session === null) return "not connected to the room directory yet";
+	let room: Ref;
 	try {
-		const room = await session.dir.session.enliven(link);
-		if (!isCurrent(session)) return "";
-		return await enterRoom(dir, label || "a room", nick, 0, { key: store.heldRoomKey(), room });
+		room = await session.dir.session.enliven(link);
 	} catch (err) {
-		return reason(err);
+		// A session that went away underneath the redeem is a connection ending,
+		// not the directory refusing the link, and saying the second about the
+		// first would send the reader to fix a link that is perfectly good.
+		if (!isCurrent(session)) return "the connection to that directory ended before the link was answered";
+		return `that directory has no room by that link: ${reason(err)}`;
 	}
+	if (!isCurrent(session)) return "";
+	return await enterRoom(dir, label || "a room", store.dirNick(dir) || nick, 0, {
+		key: store.heldRoomKey(),
+		room,
+	});
 }
 
 /** Let an offer go.

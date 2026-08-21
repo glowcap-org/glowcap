@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 
 /// What the pipeline draws from the root build graph.
 pub const Context = struct {
@@ -71,14 +72,14 @@ pub fn register(ctx: Context) Registered {
         .name = "gen-site-examples",
         .root_module = site_examples_mod,
     });
-    const site_examples_write = b.addRunArtifact(site_examples_exe);
+    const site_examples_write = execution.addArtifact(b, .build_tool, site_examples_exe);
     site_examples_write.setCwd(b.path("."));
     site_examples_write.addArg("write");
     site_examples_write.has_side_effects = true;
     const site_examples_write_step = b.step("gen-site-examples", "Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages");
     site_examples_write_step.dependOn(&site_examples_write.step);
 
-    const site_examples_check_run = b.addRunArtifact(site_examples_exe);
+    const site_examples_check_run = execution.addArtifact(b, .{ .deterministic = 30 }, site_examples_exe);
     site_examples_check_run.setCwd(b.path("."));
     site_examples_check_run.addArg("check");
     const site_examples_check_step = b.step("gen-site-examples-check", "Verify site transport example tabs match site/examples snippets (fails if stale)");
@@ -93,15 +94,15 @@ pub fn register(ctx: Context) Registered {
     // cannot ship unchecked. A `PLANNED:` marker excludes a snippet exactly
     // as `tools/check/site_binding_examples.py` excludes it, and that checker
     // holds planned snippets to comment-only bodies. The iroh Zig tabs are
-    // the one named exception, compiled beside the iroh resident module in
-    // the root's iroh section, because that module intentionally stays
-    // outside the default pancake graph.
+    // compiled beside the iroh resident module, and the relay Zig tabs beside
+    // the native relay module, because those modules stay outside the default
+    // pancake graph.
     // Walk the snippet dirs from the build root, not process cwd. `zig build`
     // from a subdirectory still loads this `build.zig`, and `Dir.cwd()` would
     // miss `site/examples/` and panic before any step ran. Later compile
     // steps already take `b.path(snippet_path)`, which is build-root-relative.
     const snippets_io = b.graph.io;
-    const snippets_root = b.build_root.handle;
+    const snippets_root = b.root.root_dir.handle;
     var site_zig_snippets: std.ArrayList([]const u8) = .empty;
     var site_ts_snippets: std.ArrayList([]const u8) = .empty;
     for ([_][]const u8{
@@ -120,7 +121,8 @@ pub fn register(ctx: Context) Registered {
             if (entry.kind != .file) continue;
             const is_zig = std.mem.endsWith(u8, entry.name, ".zig");
             if (!is_zig and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
-            if (is_zig and std.mem.eql(u8, entry.name, "iroh.zig")) continue;
+            if (is_zig and (std.mem.eql(u8, entry.name, "iroh.zig") or
+                std.mem.endsWith(u8, entry.name, "-relay.zig"))) continue;
             const path = b.fmt("{s}/{s}", .{ dir_path, entry.name });
             const body = snippets_root.readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|
                 std.debug.panic("site snippet {s}: {s}", .{ path, @errorName(err) });
@@ -155,21 +157,21 @@ pub fn register(ctx: Context) Registered {
     }
 
     const site_ts_examples_check = b.step("site-ts-examples-check", "Type-check the authoritative TypeScript transport site examples");
-    const site_ts_check = b.addSystemCommand(&.{ "deno", "check", "--config", "deno.json" });
+    const site_ts_check = execution.addSystemCommand(b, .build_tool, &.{ "deno", "check", "--config", "deno.json" });
     for (site_ts_snippets.items) |snippet_path| site_ts_check.addArg(snippet_path);
     site_ts_examples_check.dependOn(&site_ts_check.step);
     check_step.dependOn(site_ts_examples_check);
 
     const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples");
-    const site_python_check = common.addRootedSystemCommand(b, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
+    const site_python_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
     site_python_examples_check.dependOn(&site_python_check.step);
 
     const site_rust_examples_check = b.step("site-rust-examples-check", "Type-check the authoritative Rust transport site examples");
-    const site_rust_check = common.addInstalledSystemRun(b, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
+    const site_rust_check = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
     site_rust_examples_check.dependOn(&site_rust_check.step);
 
     const site_racket_examples_check = b.step("site-racket-examples-check", "Compile the authoritative Racket transport site examples");
-    const site_racket_check = common.addRootedSystemCommand(b, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
+    const site_racket_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
     site_racket_examples_check.dependOn(&site_racket_check.step);
 
     // ── Documentation site (sibling of `check`) ──────────────────────────────
@@ -180,14 +182,18 @@ pub fn register(ctx: Context) Registered {
     const docs_step = b.step("docs", "Generate the Zig API reference (autodoc) under zig-out/docs/");
     docs_step.dependOn(&install_docs.step);
 
-    const site_cache_dir = b.pathJoin(&.{ b.build_root.path.?, ".zig-cache" });
-    const render_site = b.addSystemCommand(&.{
+    const site_cache_dir = common.rootPath(b, ".zig-cache");
+    const translate_c_fork = common.rootPath(b, "third_party/site-build/translate-c");
+    const superhtml_fork = common.rootPath(b, "third_party/site-build/superhtml");
+    const render_site = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe, "build",
-        "--build-file",  "site/build.zig",
         "--cache-dir",   site_cache_dir,
-        "--prefix",      b.install_prefix,
+        "--prefix",      common.rootPath(b, "zig-out"),
+        "--fork",        translate_c_fork,
+        "--fork",        superhtml_fork,
         "site",
     });
+    render_site.setCwd(b.path("site"));
     render_site.has_side_effects = true;
 
     // The reference section is the generated autodoc for the public `pancake`
@@ -213,14 +219,14 @@ pub fn register(ctx: Context) Registered {
         .name = "site-output-check",
         .root_module = site_output_check_mod,
     });
-    const run_site_output_check = b.addRunArtifact(site_output_check_exe);
-    run_site_output_check.addArg(b.getInstallPath(.prefix, "site"));
+    const run_site_output_check = execution.addArtifact(b, .{ .deterministic = 30 }, site_output_check_exe);
+    run_site_output_check.addArg(common.rootPath(b, "zig-out/site"));
     run_site_output_check.step.dependOn(&site_docs_install.step);
     const site_output_check_tests = b.addTest(.{
         .name = "site-output-check-tests",
         .root_module = site_output_check_mod,
     });
-    const run_site_output_check_tests = b.addRunArtifact(site_output_check_tests);
+    const run_site_output_check_tests = execution.addZigTest(b, site_output_check_tests, .{ .deterministic = 30 });
     check_step.dependOn(&run_site_output_check_tests.step);
 
     const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/");
@@ -243,11 +249,13 @@ pub fn register(ctx: Context) Registered {
     // its own process group and tears the whole group down on any stop signal or
     // exit. It is the lifecycle detail of this step, not a new user command; the
     // public `zig build docs-serve` is unchanged.
-    const serve_site = b.addSystemCommand(&.{
-        "bash",           b.pathJoin(&.{ b.build_root.path.?, "site", "docs-serve.sh" }),
-        b.graph.zig_exe,  "--build-file",
-        "site/build.zig", "--cache-dir",
-        site_cache_dir,   "docs-serve",
+    const serve_site = execution.addSystemCommand(b, .service, &.{
+        "bash",                        common.rootPath(b, "site/docs-serve.sh"),
+        b.graph.zig_exe,               "--cache-dir",
+        site_cache_dir,                "--prefix",
+        common.rootPath(b, "zig-out"), "--fork",
+        translate_c_fork,              "--fork",
+        superhtml_fork,                "docs-serve",
     });
     if (ctx.pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));
     serve_site.has_side_effects = true;

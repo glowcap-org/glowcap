@@ -43,7 +43,7 @@ pub const ResolverNomination = struct {
 /// `v1_0.mintOutboundResolver` binds an answer its own caller already owns, so
 /// it shares only `bindFreshResolverExport` below.
 pub fn nominateResolverExport(self: *Session) !ResolverNomination {
-    const answer = self.allocateOutboundAnswer();
+    const answer = try self.allocateOutboundAnswer();
     const resolver_export = try bindFreshResolverExport(self, answer, .object);
     errdefer abandonResolverExport(self, resolver_export);
     try self.installOutboundAnswer(answer);

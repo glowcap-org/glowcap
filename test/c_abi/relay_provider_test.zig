@@ -250,7 +250,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     );
     const table = keyedTable(provider);
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x63} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x63)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
@@ -336,7 +336,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     // claims and removes that exact tombstone. Neither result may reappear at
     // final provider release.
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.PANCAKE_ERR_WOULD_BLOCK,
         table.conn_close.?(table.ctx, conn, &failure),
     );
     var close_ready = false;
@@ -394,7 +394,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x64} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x64)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
@@ -481,7 +481,7 @@ test "relay C listener cancellation and stop each settle through the route id" {
     try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
     const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        [_]u8{0x65} ** pancake.foundation.crypto.SEED_BYTES,
+        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x65)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
@@ -524,7 +524,7 @@ test "relay C listener cancellation and stop each settle through the route id" {
                 table.finish_listen.?(table.ctx, route_id, &listener, &failure),
             );
             try std.testing.expect(listener != null);
-            try std.testing.expectEqual(c.PANCAKE_OK, table.stop_listen.?(listener, &failure));
+            try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, table.stop_listen.?(listener, &failure));
         }
 
         ready = false;
@@ -538,9 +538,13 @@ test "relay C listener cancellation and stop each settle through the route id" {
         }
         try std.testing.expect(ready);
         failure = c.transport_provider.emptyProviderFailure();
-        try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
+        if (index == 0)
+            try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure))
+        else
+            try std.testing.expectEqual(c.PANCAKE_OK, table.stop_listen.?(listener, &failure));
         try std.testing.expectEqual(@as(i32, 0), failure.result);
-        try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
+        if (index == 0)
+            try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
     }
     try server_future.await(io);
 }

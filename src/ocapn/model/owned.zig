@@ -118,6 +118,15 @@ pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.
     return total;
 }
 
+/// Requested payload bytes an owned `Reference` retains, excluding allocator
+/// metadata and the inline union itself. Long-lived owners use this before
+/// adoption so a bounded row count cannot hide variable-size reference trees.
+pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.ProjectError!usize {
+    var total: usize = 0;
+    try measureReference(&total, reference, 0);
+    return total;
+}
+
 /// Requested payload bytes an owned `Message` retains, excluding allocator
 /// metadata and alignment padding.  Engine outbound admission calls this once
 /// when a message enters its staged queue; the charge travels with that queue
@@ -163,6 +172,15 @@ pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!
             try addBytes(&total, untag.tag.len);
         },
     }
+    return total;
+}
+
+/// Requested payload bytes retained by one owned semantic resolution. The
+/// inline union is included so callers can charge a resolution without
+/// manufacturing a wire `op:resolve` message around it.
+pub fn measureResolutionOwnedBytes(resolution: model.Resolution) model.view.ProjectError!usize {
+    var total: usize = @sizeOf(model.Resolution);
+    try measureResolution(&total, resolution);
     return total;
 }
 

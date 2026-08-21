@@ -99,9 +99,7 @@ if (before.length === 0) {
 }
 const lead = before[0]!;
 console.log(
-  `peers seen: ${before.length}; lead = ${lead.id} @ world(${
-    lead.wx.toFixed(0)
-  }, ${lead.wy.toFixed(0)})`,
+  `peers seen: ${before.length}; lead = ${lead.id} @ world(${lead.wx.toFixed(0)}, ${lead.wy.toFixed(0)})`,
 );
 
 // Helper: drag from world-A to world-B by screen coords; lead's
@@ -293,7 +291,7 @@ const results: Test[] = [];
 //     the lead; every peer's Y stays put, X shifts uniformly.
 {
   // Rubber-band across the whole stage to populate the store
-  // with every peer (Cmd-A → store isn't wired until PR 4b).
+  // with every peer. Select-all does not write the store.
   await page.mouse.move(320, 120);
   await page.mouse.down({ button: "left" });
   for (let i = 1; i <= 12; i++) {

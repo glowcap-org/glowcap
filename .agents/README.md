@@ -76,6 +76,7 @@ file shape: [`personas/README.md`](personas/README.md).
 | ------- | ------- |
 | [agentic-lead](personas/agentic-lead.md) | Multi-agent orchestration lead (default rooms-team lead) |
 | [engineering-steward](personas/engineering-steward.md) | Domain-neutral engineering judgment: root fixes, evidence, automation, and economy without lower standards |
+| [first-impression](personas/first-impression.md) | The first code, tab, and recipe are the product — testing scaffolds do not occupy the lead |
 | [fresh-eyes](personas/fresh-eyes.md) | Seasoned engineer, zero OCapN exposure — does the doc teach a newcomer, or is it rehearsed? |
 | [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness — short skills, gates over folklore |
 | [stability-steward](personas/stability-steward.md) | Support tiers a consumer can plan against — a claim is the evidence that runs for it |

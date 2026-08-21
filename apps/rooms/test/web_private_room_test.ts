@@ -28,11 +28,20 @@
 //   ada  hands hers over. bo takes it up and hears what she said next.
 //   bo   is offered a second one and declines it, which lets the reference go.
 //
+// And then the link on its own, which is the part no directory has to be in on.
+// A second room server stands beside the page's own, di makes a room there and
+// reads its link out, and bo — who holds only the directory his page serves —
+// pastes it. The link names its own peer, so that is the peer the room is
+// redeemed on: the tab opens that directory beside the one it had. The two ways
+// a link can be no good are told apart on the way, and neither leaves a server
+// behind in the rail.
+//
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web_private_room_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -125,11 +134,85 @@ function said(tab: Page): Promise<string> {
 	return tab.evaluate(() => document.getElementById("log")?.textContent ?? "");
 }
 
-const deadline = setTimeout(() => fail("web-private-room scenario timed out after 180s"), 180_000);
+/** Wait until something is accepting connections on `port`. The second room
+ * server announces on stdout, but this scenario only ever needs to know that a
+ * browser can reach it, and that is the question a connect answers. */
+async function waitForTcp(port: number, what: string): Promise<void> {
+	for (let i = 0; i < 400; i++) {
+		try {
+			const probe = await Deno.connect({ hostname: "127.0.0.1", port });
+			probe.close();
+			return;
+		} catch {
+			// not listening yet
+		}
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	fail(`${what} never began listening on ${port}`);
+}
+
+/** The link one tab reads out of its own room, as text a person could copy. */
+async function roomLink(tab: Page, who: string): Promise<string> {
+	await say(tab, "/link");
+	const shown = await tab.waitForFunction(
+		() => {
+			const line = [...document.querySelectorAll("#log .sys")]
+				.map((row) => row.textContent ?? "")
+				.find((text) => text.includes("ocapn://"));
+			return line === undefined ? null : (line.match(/ocapn:\/\/\S+/) ?? [null])[0];
+		},
+		undefined,
+		{ timeout: 30_000 },
+	).then((handle) => handle.jsonValue()).catch(() => null);
+	if (typeof shown !== "string" || !shown.includes("/s/")) {
+		fail(`/link did not say a link to ${who}'s room: ${JSON.stringify(shown)}`);
+	}
+	return shown;
+}
+
+/** How many rows in this tab's rooms list name the directory they are on. The
+ * rail names one only once there is more than one to tell apart, so this is
+ * "does this tab hold a second directory" asked the way a reader sees it. */
+function directoriesNamed(tab: Page): Promise<number> {
+	return tab.locator("#roomList .rwhere").count();
+}
+
+/** What the page said last about a link that was pasted into it. */
+function refusalAbout(tab: Page): Promise<string> {
+	return tab.evaluate(() =>
+		[...document.querySelectorAll("#log .sys")]
+			.map((row) => row.textContent ?? "")
+			.filter((text) => text.includes("That link did not open a room"))
+			.at(-1) ?? ""
+	);
+}
+
+const deadline = setTimeout(() => fail("web-private-room scenario timed out after 240s"), 240_000);
 
 const httpPort = freePort();
 const roomPort = freePort();
-const web = new Deno.Command("deno", {
+// A second authority: another room server, not another room on the page's own.
+// A port nothing ever listens on stands for a link whose peer is not there.
+const foreignRoomPort = freePort();
+const deadPort = freePort();
+const foreignLocator = `127.0.0.1:${foreignRoomPort}`;
+
+spawnOwned("deno", {
+	args: [
+		"run",
+		"--allow-ffi",
+		"--allow-read",
+		"--allow-net",
+		"--allow-env",
+		`${ROOT}apps/rooms/server/main.ts`,
+		String(foreignRoomPort),
+	],
+	cwd: ROOT,
+	stdout: "null",
+	stderr: "inherit",
+});
+
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -143,9 +226,13 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
+	// A relay dials iroh anywhere and cleartext TCP only where it is told, so
+	// the two addresses this scenario's links name are named here. Production
+	// cross-server joins use authenticated iroh, which needs no such list.
+	env: { PANCAKE_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${deadPort}` },
 	stdout: "null",
 	stderr: "inherit",
-}).spawn();
+});
 
 let browser: Browser | null = null;
 try {
@@ -291,20 +378,7 @@ try {
 	// An invitation through the rail is one channel; the link under it is the
 	// authority, and it works with no channel at all. Ada reads hers out, cy
 	// arrives knowing nothing, and pasting it is the whole of getting in.
-	await say(ada, "/link");
-	const shown = await ada.waitForFunction(
-		() => {
-			const line = [...document.querySelectorAll("#log .sys")]
-				.map((row) => row.textContent ?? "")
-				.find((text) => text.includes("ocapn://"));
-			return line === undefined ? null : (line.match(/ocapn:\/\/\S+/) ?? [null])[0];
-		},
-		undefined,
-		{ timeout: 30_000 },
-	).then((handle) => handle.jsonValue()).catch(() => null);
-	if (typeof shown !== "string" || !shown.includes("/s/")) {
-		fail(`/link did not say a link to this room: ${JSON.stringify(shown)}`);
-	}
+	const shown = await roomLink(ada, "ada");
 	// Redeemed by somebody who was never offered anything, on their own session.
 	await say(cy, `/join ${shown} plans`);
 	await cy.waitForFunction(
@@ -327,6 +401,118 @@ try {
 	if (named?.name !== "plans") {
 		fail(`a room taken up by link is not called what the reader called it: ${JSON.stringify(named)}`);
 	}
+	// And it cost him no second connection to the server he was already on. A
+	// link for a directory this tab holds is redeemed on that very session:
+	// two live sessions to one peer would split its rooms, its granted name and
+	// its direct lines between them, and the rail marks directories the moment
+	// there is more than one to tell apart.
+	if (await directoriesNamed(cy) !== 0) {
+		fail("a link for the directory this tab already held opened a second session to it");
+	}
+
+	// ── A link from a server this tab has never met ──────────────────────
+	// The link is the whole authority and it names its own peer, so the room it
+	// reaches need not be on any directory the reader holds. Di makes a private
+	// room on a second server and reads its link out.
+	await waitForTcp(foreignRoomPort, "the second room server");
+	const di = await browser.newPage();
+	await di.goto(`http://127.0.0.1:${httpPort}/`);
+	await di.waitForSelector("#joinBtn", { timeout: 20_000 });
+	await di.fill("#locator", foreignLocator);
+	await di.fill("#nick", "di");
+	await di.fill("#room", "elsewhere");
+	await di.click("#joinPrivate");
+	await di.click("#joinBtn");
+	await di.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
+		.catch(async () => {
+			const status = await di.textContent("#status").catch(() => "?");
+			fail(`di never reached a private room on the second server; status="${status}"`);
+		});
+	const elsewhere = await roomLink(di, "di");
+	// The address in the link is the one her room is actually on. Everything
+	// below turns on that, so it is checked rather than assumed.
+	if (!elsewhere.includes(`%3A${foreignRoomPort}.`)) {
+		fail(`the link di read out does not name the server hosting her room: ${JSON.stringify(elsewhere)}`);
+	}
+
+	// Two ways a link can be no good, and they are not the same news. This one
+	// names a peer that is not there, so it fails on the way to the room.
+	const nowhere = elsewhere.replace(`%3A${foreignRoomPort}.`, `%3A${deadPort}.`);
+	if (nowhere === elsewhere) fail("could not aim a link at a port nothing is holding");
+	await say(cy, `/join ${nowhere} nowhere`);
+	await cy.waitForFunction(
+		() =>
+			[...document.querySelectorAll("#log .sys")].some((row) =>
+				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("could not reach")
+			),
+		undefined,
+		{ timeout: 60_000 },
+	).catch(async () =>
+		fail(
+			`a link naming a peer nobody is holding was not refused in words: ${
+				JSON.stringify(await refusalAbout(cy))
+			}`,
+		)
+	);
+	if (await directoriesNamed(cy) !== 0) {
+		fail("a link that could not be reached left its server in the rail");
+	}
+
+	// This one names the right peer and the wrong room, so it fails at the
+	// directory. The reader is told which of the two happened.
+	const wrongSecret = elsewhere.slice(0, -1) + (elsewhere.endsWith("0") ? "1" : "0");
+	await say(cy, `/join ${wrongSecret} nothing`);
+	await cy.waitForFunction(
+		() =>
+			[...document.querySelectorAll("#log .sys")].some((row) =>
+				(row.textContent ?? "").includes("has no room by that link")
+			),
+		undefined,
+		{ timeout: 60_000 },
+	).catch(async () =>
+		fail(`a link with the wrong secret was not refused in words: ${JSON.stringify(await refusalAbout(cy))}`)
+	);
+	// Redeeming that one opened the directory it named, and it did not seat a
+	// room there. A server the reader never asked to hold is given back rather
+	// than left in the rail with nothing under it.
+	if (await directoriesNamed(cy) !== 0) {
+		fail("a link the directory refused left that directory held with no room in it");
+	}
+
+	// Bo holds only the directory his page serves. Pasting di's link is the
+	// whole of getting into a room on a server he has never spoken to.
+	await say(bo, `/join ${elsewhere} elsewhere`);
+	await bo.waitForFunction(
+		() => [...document.querySelectorAll("#roomList .rname")].some((row) => row.textContent === "elsewhere"),
+		undefined,
+		{ timeout: 60_000 },
+	).catch(async () => {
+		const log = (await bo.textContent("#log").catch(() => "?")) ?? "?";
+		fail(`a link minted on another server did not open its room: ${JSON.stringify(log.slice(-300))}`);
+	});
+	// Under the peer that hosts it, which is the whole claim: the room is on a
+	// session to di's server, not proxied through the one that served the page.
+	const under = await bo.evaluate(() => {
+		const row = [...document.querySelectorAll("#roomList li")]
+			.find((li) => li.querySelector(".rname")?.textContent === "elsewhere");
+		return {
+			where: row?.querySelector(".rwhere-said")?.textContent ?? "",
+			locked: row?.querySelector(".hash svg") !== null,
+		};
+	});
+	if (!under.where.includes(`127.0.0.1:${foreignRoomPort}`)) {
+		fail(`the room bo reached by link is not filed under the server hosting it: ${JSON.stringify(under)}`);
+	}
+	if (!under.locked) fail("a private room reached by link is not drawn as one");
+	// And it is the room, not a room: what di says next reaches him.
+	const across = "the link was the whole of the introduction";
+	await say(di, across);
+	await bo.waitForFunction(
+		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
+		across,
+		{ timeout: 30_000 },
+	).catch(() => fail("bo redeemed the link but the room on the second server never reached him"));
 
 	// ── Declined ─────────────────────────────────────────────────────────
 	// A second room, offered and refused. Declining lets the reference go, so
@@ -388,16 +574,14 @@ try {
 		"PASS: a private room is reachable only by the authority to it — it is in no list, " +
 			"naming the same thing opens a different room, an offer over a direct line is what " +
 			"puts somebody else in it, and the link under that offer gets a reader in with no " +
-			"channel at all; a declined offer leaves them out",
+			"channel at all; a declined offer leaves them out. A link redeems where it says: on " +
+			"the session this tab already holds when it names that directory, and on one opened " +
+			"beside it when it names another. A link whose peer is not there and a link whose " +
+			"secret is wrong are refused in words of their own, and neither leaves a server behind",
 	);
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

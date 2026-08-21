@@ -8,6 +8,8 @@ from enum import Enum
 import threading
 
 from ._constants_gen import (
+    DEFAULT_FAILURE_CAPACITY,
+    DEFAULT_FAILURE_PAYLOAD_CAP,
     ERR_INTERNAL,
     ERR_TIMEOUT,
     FAILURE_LAYER_APPLICATION_OBSERVER,
@@ -90,13 +92,12 @@ _SCOPES = {
     FAILURE_SCOPE_TRANSPORT: FailureScope.TRANSPORT,
     FAILURE_SCOPE_OPERATION: FailureScope.OPERATION,
 }
-_PAYLOAD_CAP = 512
 _U64_MAX = (1 << 64) - 1
 
 
 def _bounded_text(fields: tuple[str, ...]) -> tuple[tuple[str, ...], int]:
     """Copy one native-sized UTF-8 prefix across the ordered schema fields."""
-    remaining = _PAYLOAD_CAP
+    remaining = DEFAULT_FAILURE_PAYLOAD_CAP
     retained = []
     flags = 0
     for index, field in enumerate(fields):
@@ -113,7 +114,7 @@ def _bounded_text(fields: tuple[str, ...]) -> tuple[tuple[str, ...], int]:
 class _RuntimeFailureQueue:
     """Bounded surviving owner for failures observed after resource owners die."""
 
-    def __init__(self, capacity: int = 64) -> None:
+    def __init__(self, capacity: int = DEFAULT_FAILURE_CAPACITY) -> None:
         if capacity <= 0:
             raise ValueError("runtime failure capacity must be positive")
         self._events: deque[FailureEvent] = deque(maxlen=capacity)

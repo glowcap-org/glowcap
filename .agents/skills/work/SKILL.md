@@ -48,7 +48,8 @@ per [serena-mcp rule](../../rules/serena-mcp.md).
 ## 2. Assess (every touched surface)
 
 - **Inevitability:** Would a competent reader think this is the obvious shape
-  for an OCapN implementation at this layer? If not, that gap is the work.
+  for a networking library at this layer? "Good enough for CapTP" is not the
+  bar. If not, that gap is the work.
 - **Names:** Do file, module, type, and function names say what they own?
 - **Boundaries:** Is authority in session, I/O in adapters, semantics out of
   codecs? Is the core still sync and no-I/O?

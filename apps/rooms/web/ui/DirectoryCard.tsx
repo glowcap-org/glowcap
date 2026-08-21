@@ -1,7 +1,8 @@
 // What is known about one directory this tab holds, on its own surface.
 //
-// A room's row says which directory it is on; this is what that line opens. It
-// answers the three questions a locator raises and a name cannot. Settings
+// Every row in the rail says which directory it is on, and pressing those words
+// is what opens this. It answers the three questions a locator raises and a
+// name cannot. Settings
 // keeps this page's locators and opens this same card for the directory that
 // served the page, so asking about a directory gives one answer wherever it is
 // asked.

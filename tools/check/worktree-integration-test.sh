@@ -12,6 +12,7 @@ tree=${scratch}/tree1
 git init -q -b main "${repo}"
 git -C "${repo}" config user.name "pancake test"
 git -C "${repo}" config user.email "test@pancake.invalid"
+git -C "${repo}" config commit.gpgsign false
 printf 'base\n' >"${repo}/base"
 git -C "${repo}" add base
 git -C "${repo}" commit -qm base

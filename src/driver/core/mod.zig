@@ -14,12 +14,12 @@ const vocab = @import("vocab.zig");
 const host = @import("host.zig");
 const capability = @import("capability.zig");
 const value = @import("value.zig");
-const host_action = @import("host_action.zig");
+const host_action = @import("host/action.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const action_drain = @import("action_drain.zig");
 const dial_plan = @import("dial_plan.zig");
 const gc = @import("gc.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const close = @import("close.zig");
 
 /// Narrow support for white-box core tests. Empty in production builds so
@@ -35,8 +35,8 @@ pub const testing = if (builtin.is_test) struct {
         try host_pump.condemn(core_host, session, kind, message);
     }
 
-    pub fn markDirty(core_host: *host.Host, peer_id: @import("engine").PeerId) void {
-        host_pump.testing.markDirty(core_host, peer_id);
+    pub fn markDirty(core_host: *host.Host, peer_handle: @import("engine").PeerHandle) void {
+        host_pump.testing.markDirty(core_host, peer_handle);
     }
 
     pub fn finishCommittedWork(core_host: *host.Host, session: *host.HostSession) void {
@@ -55,6 +55,7 @@ pub const DriveError = served.DriveError;
 pub const ServeOptions = served.ServeOptions;
 pub const BeforeServeHook = served.BeforeServeHook;
 pub const Publish = served.Publish;
+pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;
 
 // The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions
 // executed with no socket (see `host.zig`). `driver.Bridge` and
@@ -66,7 +67,7 @@ pub const HostSession = host.HostSession;
 /// per-session signing seed; embedders supply one fresh session root per Host.
 pub const HostAction = host_action.HostAction;
 pub const VowFailure = host_action.VowFailure;
-pub const HostFailure = @import("host_failure.zig").HostFailure;
+pub const HostFailure = @import("host/failure.zig").HostFailure;
 /// The live trace tap: the sink vocabulary a Host reports its own session
 /// opens, message verbs, and closes through (`Host.setTrace`).
 pub const trace = @import("trace.zig");
@@ -101,6 +102,11 @@ pub const Hosting = host.Hosting;
 pub const HostTurn = host.HostTurn;
 
 pub const Error = vocab.Error;
+pub const default_handshake_timeout_ms = vocab.default_handshake_timeout_ms;
+pub const default_handshake_budget = vocab.default_handshake_budget;
+pub const discovery_retry_ms = vocab.discovery_retry_ms;
+pub const discovery_max_attempts = vocab.discovery_max_attempts;
+pub const max_local_forward_hops = vocab.max_local_forward_hops;
 pub const Budget = vocab.Budget;
 pub const SettleCapture = vocab.SettleCapture;
 pub const SettleFlag = vocab.SettleFlag;

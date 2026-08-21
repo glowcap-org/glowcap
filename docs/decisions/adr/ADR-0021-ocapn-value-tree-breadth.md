@@ -32,9 +32,11 @@ passable value tree as 14 variants: `bytes`, `symbol`, `reference`, `error`,
 `tagged`, and `keyword`. Every value Goblins can marshal therefore has a model
 home, so decoding never forces a crash.
 
-The Syrup codec in
-[`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig)
-renders and lifts every modeled positional passable:
+The Syrup renderer in
+[`src/ocapn/codec/syrup/encode.zig`](../../../src/ocapn/codec/syrup/encode.zig)
+and lifter in
+[`src/ocapn/codec/syrup/decode/values.zig`](../../../src/ocapn/codec/syrup/decode/values.zig)
+cover every modeled positional passable:
 
 - `writeArgument` encodes `bytes`, `symbol`, `reference`, `string`, `handoff`,
   `integer`, `float64` (`'D'` + 8 bytes IEEE-754 big-endian), `boolean`, `list`,

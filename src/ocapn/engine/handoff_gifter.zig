@@ -198,7 +198,7 @@ pub fn sendDepositGift(peer: *Peer, gift_id: []const u8, gifted: model.Reference
 
 /// Where the recipient half of an originated give settles.
 pub const GiveDestination = union(enum) {
-    answer: model.AnswerName,
+    answer: session.AnswerTarget,
     relayed: struct {
         import_position: model.ImportPosition,
         row_id: u64,
@@ -240,12 +240,16 @@ pub fn queueOriginatedGive(
 }
 
 /// Resolve `answer` with a signed `desc:handoff-give` decoded from `give_bytes`.
-pub fn sendResolveHandoffGive(peer: *Peer, answer: model.AnswerName, give_bytes: []const u8) !void {
+pub fn sendResolveHandoffGive(peer: *Peer, answer: session.AnswerTarget, give_bytes: []const u8) !void {
     const handoff = try decodeHandoffGive(peer.allocator, give_bytes);
     // `send` takes the boxed handoff on every outcome. The signed give is
     // already owned, so routing it through `sendCopying` would deep-clone the
     // complete tree only to free this original immediately afterward.
-    try outbound.enqueueAnswerResolutionOwned(peer, answer, .{ .fulfill = .{ .handoff = handoff } });
+    try outbound.enqueueAnswerTargetResolutionOwned(
+        peer,
+        answer,
+        .{ .fulfill = .{ .handoff = handoff } },
+    );
 }
 
 /// Store a signed `desc:handoff-give` as the relayed resolution of

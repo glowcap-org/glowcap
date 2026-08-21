@@ -19,7 +19,7 @@ const tcp = pancake.net.tcp;
 const driver = pancake.driver;
 
 const HostSession = driver.core.HostSession;
-const PeerId = engine.PeerId;
+const PeerHandle = engine.PeerHandle;
 const use_onion = peer_options.use_onion;
 
 const ConfCtx = conf_state.ConfCtx;
@@ -35,8 +35,8 @@ const transport_name = conf_state.transport_name;
 /// verbs are legal — and `interceptFulfilledRoute` only queues a `need_gift_id`.
 const GifterWait = struct {
     shared: *Shared,
-    recipient_peer: PeerId,
-    answer: model.AnswerName,
+    recipient_peer: PeerHandle,
+    answer: engine.AnswerTarget,
 
     fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *GifterWait = @ptrCast(@alignCast(ctx.?));
@@ -48,7 +48,7 @@ const GifterWait = struct {
                         self.recipient_peer,
                         self.answer,
                         value.reference.routed.id,
-                    ) catch {};
+                    ) catch |err| self.shared.noteCallbackErr(err);
                 }
             },
             else => {},
@@ -211,7 +211,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
             shared.deferred.appendAssumeCapacity(.{ .fetch = .{
                 .exporter = exporter,
                 .swiss = swiss_owned,
-                .recipient_peer = conf.session.peer_id,
+                .recipient_peer = conf.session.peer_handle,
                 .answer = answer,
             } });
             return true;
@@ -227,7 +227,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
         shared.pending.appendAssumeCapacity(.{
             .exporter_uuid = uuid_owned,
             .swiss = swiss_owned,
-            .recipient_peer = conf.session.peer_id,
+            .recipient_peer = conf.session.peer_handle,
             .answer = answer,
         });
         shared.deferred.appendAssumeCapacity(.{ .dial = designator_owned });
@@ -248,7 +248,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
 
 /// Fetch `swiss` on the exporter session and arm a `GifterWait` on the vow so
 /// the fulfilled foreign object is claimed into a signed give for the recipient.
-pub fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8, recipient_peer: PeerId, answer: model.AnswerName) !void {
+pub fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8, recipient_peer: PeerHandle, answer: engine.AnswerTarget) !void {
     const wait = try shared.allocator.create(GifterWait);
     errdefer shared.allocator.destroy(wait);
     wait.* = .{ .shared = shared, .recipient_peer = recipient_peer, .answer = answer };
@@ -317,8 +317,9 @@ fn findSessionByDesignator(shared: *Shared, designator: []const u8) ?*HostSessio
 /// The virtual inbound answer a V1.0 enliven deliver resolves through — its
 /// wire answer-position, or the answer the classifier allocated for its
 /// `resolve_me_desc` resolver-callback.
-fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?model.AnswerName {
-    if (deliver.answer) |a| return .fromWire(a);
+fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?engine.AnswerTarget {
+    if (deliver.answer) |a|
+        return peer.session_state.answerTargetNamed(.fromWire(a));
     if (deliver.resolve_me_desc) |rmd| {
         const import_position = switch (rmd) {
             .far => |far| far.import_position,
@@ -326,7 +327,7 @@ fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?model.AnswerN
             else => return null,
         };
         const answer = peer.session_state.answerForResolverImport(import_position) orelse return null;
-        return answer;
+        return peer.session_state.answerTargetNamed(answer);
     }
     return null;
 }

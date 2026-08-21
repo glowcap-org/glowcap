@@ -111,13 +111,27 @@ fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 	let ep = direct_endpoint(200);
 	assert!(!ep.is_null(), "endpoint_new");
 	let started = Instant::now();
-	let conn = pancake_iroh_sidecar_accept_timeout(ep, 20);
+	let mut code = -1;
+	let conn = pancake_iroh_sidecar_accept_timeout(ep, 20, &mut code);
 	assert!(conn.is_null());
+	assert_eq!(code, DIAL_TIMEOUT);
 	assert!(started.elapsed() >= Duration::from_millis(5));
 	assert!(started.elapsed() < Duration::from_secs(1));
 	let endpoint = unsafe { &*ep };
 	assert!(endpoint.readiness.get().is_none());
 	assert!(endpoint.accept.get().is_none());
+	pancake_iroh_sidecar_endpoint_free(ep);
+}
+
+#[test]
+fn blocking_accept_reports_endpoint_close_as_lost_not_timeout() {
+	let ep = direct_endpoint(200);
+	assert!(!ep.is_null(), "endpoint_new");
+	pancake_iroh_sidecar_endpoint_close(ep);
+	let mut code = -1;
+	let conn = pancake_iroh_sidecar_accept_timeout(ep, 1000, &mut code);
+	assert!(conn.is_null());
+	assert_eq!(code, DIAL_LOST);
 	pancake_iroh_sidecar_endpoint_free(ep);
 }
 

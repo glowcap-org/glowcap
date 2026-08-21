@@ -35,23 +35,30 @@ const discriminant_consts = [_][]const u8{
     "PANCAKE_FEATURE_STURDYREF",    "PANCAKE_FEATURE_UNTAG",
     "PANCAKE_FEATURE_MINIMUM",      "PANCAKE_FEATURE_BASELINE",
     "PANCAKE_FEATURE_FULL",         "PANCAKE_FRAME_SHAPE_BYTE",
-    "PANCAKE_FRAME_SHAPE_WORD",     "PANCAKE_ARG_INTEGER",
-    "PANCAKE_ARG_FLOAT64",          "PANCAKE_ARG_BOOLEAN",
-    "PANCAKE_ARG_BYTES",            "PANCAKE_ARG_STRING",
-    "PANCAKE_ARG_SYMBOL",           "PANCAKE_ARG_VOID",
-    "PANCAKE_ARG_REFERENCE",        "PANCAKE_ARG_LIST",
-    "PANCAKE_ARG_SET",              "PANCAKE_ARG_TAGGED",
-    "PANCAKE_ARG_KEYWORD",          "PANCAKE_ARG_BIG_INTEGER",
-    "PANCAKE_ARG_STRUCT",           "PANCAKE_ARG_ERROR",
-    "PANCAKE_RESOLUTION_FULFILL",   "PANCAKE_RESOLUTION_BREAK",
-    "PANCAKE_RESOLUTION_HANDOFF",   "PANCAKE_ABORT_DOMAIN_CODEC",
-    "PANCAKE_ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_FOREIGN",
+    "PANCAKE_DEFAULT_CODEC",        "PANCAKE_DEFAULT_CAPTP_VERSION",
+    "PANCAKE_DEFAULT_FEATURES",     "PANCAKE_FRAME_SHAPE_WORD",
+    "PANCAKE_ARG_INTEGER",          "PANCAKE_ARG_FLOAT64",
+    "PANCAKE_ARG_BOOLEAN",          "PANCAKE_ARG_BYTES",
+    "PANCAKE_ARG_STRING",           "PANCAKE_ARG_SYMBOL",
+    "PANCAKE_ARG_VOID",             "PANCAKE_ARG_REFERENCE",
+    "PANCAKE_ARG_LIST",             "PANCAKE_ARG_SET",
+    "PANCAKE_ARG_TAGGED",           "PANCAKE_ARG_KEYWORD",
+    "PANCAKE_ARG_BIG_INTEGER",      "PANCAKE_ARG_STRUCT",
+    "PANCAKE_ARG_ERROR",            "PANCAKE_RESOLUTION_FULFILL",
+    "PANCAKE_RESOLUTION_BREAK",     "PANCAKE_RESOLUTION_HANDOFF",
+    "PANCAKE_ABORT_DOMAIN_CODEC",   "PANCAKE_ABORT_DOMAIN_SESSION",
+    "PANCAKE_ABORT_DOMAIN_FOREIGN",
 };
 const locator_consts = [_][]const u8{
     "PANCAKE_LOCATOR_VIEW_ABI_VERSION", "PANCAKE_HINT_STRING",
     "PANCAKE_HINT_BYTES",               "PANCAKE_HINT_BOOLEAN",
     "PANCAKE_HINT_INTEGER",             "PANCAKE_HINTS_MAP",
     "PANCAKE_HINTS_BOOLEAN_FALSE",
+};
+const resource_consts = [_][]const u8{
+    "PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP",
+    "PANCAKE_DEFAULT_FAILURE_CAPACITY",
+    "PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP",
 };
 const failure_consts = [_][]const u8{
     "PANCAKE_FAILURE_EVENT_ABI_VERSION",
@@ -91,6 +98,12 @@ const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_ERR_NOT_FOUND", .doc = "The requested locator field or hint is absent." },
     .{ .name = "PANCAKE_ERR_BUFFER_TOO_SMALL", .doc = "The caller-provided output buffer is too small." },
     .{ .name = "PANCAKE_ERR_TIMEOUT", .doc = "The configured time budget expired." },
+    .{ .name = "PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP", .doc = "Default max_frame_bytes for direct blocking transport frame-shuttle helpers." },
+    .{ .name = "PANCAKE_DEFAULT_CODEC", .doc = "Default codec selector for byte-fed Host constructors." },
+    .{ .name = "PANCAKE_DEFAULT_CAPTP_VERSION", .doc = "Default CapTP profile selector for byte-fed Host constructors." },
+    .{ .name = "PANCAKE_DEFAULT_FEATURES", .doc = "Default feature bitmask for byte-fed Host constructors." },
+    .{ .name = "PANCAKE_DEFAULT_FAILURE_CAPACITY", .doc = "Default records retained by a Context diagnostic queue." },
+    .{ .name = "PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP", .doc = "Default aggregate text bytes retained per Context diagnostic record." },
 };
 
 const emitted_fn_names = [_][]const u8{
@@ -160,15 +173,15 @@ comptime {
     @setEvalBranchQuota(40000);
     E.guardFns("c_abi", "pancake_");
 
-    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts ++ failure_consts;
-    for (@typeInfo(c).@"struct".decls) |decl| {
-        if (!std.mem.startsWith(u8, decl.name, "PANCAKE_")) continue;
-        if (@typeInfo(@TypeOf(@field(c, decl.name))) != .int) continue;
+    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts ++ resource_consts ++ failure_consts;
+    for (@typeInfo(c).@"struct".decl_names) |decl_name| {
+        if (!std.mem.startsWith(u8, decl_name, "PANCAKE_")) continue;
+        if (@typeInfo(@TypeOf(@field(c, decl_name))) != .int) continue;
         var found = false;
         for (all) |name| {
-            if (std.mem.eql(u8, name, decl.name)) found = true;
+            if (std.mem.eql(u8, name, decl_name)) found = true;
         }
-        if (!found) @compileError("constant not emitted to pancake_ocapn.h: " ++ decl.name);
+        if (!found) @compileError("constant not emitted to pancake_ocapn.h: " ++ decl_name);
     }
 }
 
@@ -198,6 +211,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     inline for (error_consts) |name| try emitConst(&b, gpa, name);
     try section(&b, gpa, "Shared discriminants");
     inline for (discriminant_consts) |name| try emitConst(&b, gpa, name);
+    try section(&b, gpa, "Resource limits");
+    inline for (resource_consts) |name| try emitConst(&b, gpa, name);
 
     try section(&b, gpa, "Frames");
     try emitStruct(&b, gpa, c.PancakeFrame, "PancakeFrame", &.{
@@ -286,8 +301,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_uri_parse_peer_in", &.{ "context", "uri", "uri_len", "out_locator" }, "Parse a peer URI into a locator allocated through context.");
     try emitFn(&b, gpa, "pancake_uri_parse_sturdyref", &.{ "captp_version", "uri", "uri_len", "out_sturdyref" }, "Parse an ocapn:// sturdyref URI under the selected PANCAKE_CAPTP_* profile into an owned sturdyref.");
     try emitFn(&b, gpa, "pancake_uri_parse_sturdyref_in", &.{ "context", "captp_version", "uri", "uri_len", "out_sturdyref" }, "Parse a sturdyref URI under the selected PANCAKE_CAPTP_* profile through context.");
-    try emitFn(&b, gpa, "pancake_uri_format_peer", &.{ "transport", "transport_len", "designator", "designator_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a peer locator into a caller-owned buffer.");
-    try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "captp_version", "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a caller-owned buffer.");
+    try emitFn(&b, gpa, "pancake_uri_format_peer", &.{ "transport", "transport_len", "designator", "designator_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a peer locator into a caller-owned buffer. out_len is mandatory and\nreceives the required byte length, excluding any NUL terminator. A null output\nis allowed only with cap == 0 to query that length; a short buffer reports the\nrequired length and returns PANCAKE_ERR_BUFFER_TOO_SMALL.");
+    try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "captp_version", "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a\ncaller-owned buffer. out_len is mandatory and receives the required byte length,\nexcluding any NUL terminator. A null output is allowed only with cap == 0 to\nquery that length; a short buffer reports the required length and returns\nPANCAKE_ERR_BUFFER_TOO_SMALL.");
     try emitFn(&b, gpa, "pancake_locator_new", &.{ "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an owned OCapN peer locator.");
     try emitFn(&b, gpa, "pancake_locator_new_in", &.{ "context", "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an OCapN peer locator allocated through context.");
     try emitFn(&b, gpa, "pancake_locator_clone", &.{ "view", "out_locator" }, "Clone a borrowed locator view into an owned OCapN locator.");

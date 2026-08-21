@@ -26,6 +26,7 @@ const linux = std.os.linux;
 const IoUring = linux.IoUring;
 
 const completion = @import("loop.zig");
+const model = @import("model");
 const poll_wait = @import("../poll.zig");
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
@@ -222,6 +223,10 @@ pub const Backend = struct {
         return tcp_keepalive.apply(@intCast(fd), keepalive);
     }
 
+    pub fn wireFraming(_: *Backend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
         std.debug.assert(comp.borrowed.kind == .recv);
         const buffer_id: u16 = @intCast(comp.borrowed.token);
@@ -344,7 +349,7 @@ pub const Backend = struct {
         return self.buffers[pos .. pos + self.buf_bytes];
     }
 
-    const enobufs_res: i32 = -@as(i32, @intFromEnum(linux.E.NOBUFS));
+    const enobufs_res: i32 = -@as(i32, @backingInt(linux.E.NOBUFS));
 
     pub fn openListener(self: *Backend, port: u16) !Fd {
         std.debug.assert(self.listener_fd == null);
@@ -388,7 +393,7 @@ const ListenerCancelDisposition = enum { resolved, wait_for_target };
 /// nothing about whether the target will complete, so the backend conservatively
 /// keeps draining rather than freeing beneath a live accept.
 fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
-    const not_found = -@as(i32, @intFromEnum(linux.E.NOENT));
+    const not_found = -@as(i32, @backingInt(linux.E.NOENT));
     if (result >= 0 or result == not_found) return .resolved;
     return .wait_for_target;
 }

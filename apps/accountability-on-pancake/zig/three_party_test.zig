@@ -98,7 +98,7 @@ fn deliverGive(
 fn withdrawGift(
     recipient: *engine.Peer,
     exporter_peer: *engine.Peer,
-    gifter_gifts: *engine.bootstrap.GiftRegistry,
+    gifter_gifts: *engine.bootstrap.gifts.GiftRegistry,
     receive: model.HandoffReceive,
     verifier: cross_peer.SignatureVerifier,
 ) !void {
@@ -207,7 +207,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     // C publishes the Affordance.
     var served: usize = 0;
-    var last_subject = [_]u8{0} ** said.SAID_LEN;
+    var last_subject = @as([said.SAID_LEN]u8, @splat(0));
     var c_vat = actors.Vat.init(allocator);
     defer c_vat.deinit();
     var c_port = actors.Port.init(allocator, &exporter);
@@ -229,25 +229,25 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     // give; B signs the receive that embeds it. Nothing here is a placeholder
     // signature, so C authorizes the withdrawal only because the certificates
     // actually verify.
-    const gifter_secret = crypto.SecretKey.fromSeed([_]u8{0x51} ** 32);
-    const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** 32);
+    const gifter_secret = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x51)));
+    const recipient_secret = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x52)));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
     var gifter_recipient = try engine.pairing.pairedWithKeys(
         allocator,
-        [_]u8{0x51} ** 32,
-        [_]u8{0x52} ** 32,
+        @as([32]u8, @splat(0x51)),
+        @as([32]u8, @splat(0x52)),
     );
     defer gifter_recipient.deinit();
     // B names the side it really is on the session it withdraws over.
     const recipient_side = try engine.handoff_recipient.sideName(recipient_pub.asBytes());
 
-    const gift_id = [_]u8{0x42} ** 32;
+    const gift_id = @as([32]u8, @splat(0x42));
     var give: model.HandoffGive = .{
         .recipient_key = recipient_pub.asBytes(),
         .exporter = .{ .transport = "memory", .designator = "C" },
-        .gifter_exporter_session = &([_]u8{0} ** 32),
-        .gifter_side = &([_]u8{0} ** 32),
+        .gifter_exporter_session = &(@as([32]u8, @splat(0))),
+        .gifter_side = &(@as([32]u8, @splat(0))),
         .gift_id = &gift_id,
         .signature = "",
     };
@@ -264,7 +264,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     // B builds the receive over the signed give and signs it with its own key.
     var receive: model.HandoffReceive = .{
-        .receiving_session = &([_]u8{0xdd} ** 32),
+        .receiving_session = &(@as([32]u8, @splat(0xdd))),
         .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,

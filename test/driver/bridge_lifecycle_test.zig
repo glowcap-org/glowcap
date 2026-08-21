@@ -81,7 +81,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = runaway_budget,
     });
@@ -168,7 +168,7 @@ test "a second attach is refused" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
@@ -194,7 +194,7 @@ test "bridge retains an extension transport symbol without a private length ceil
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
 
-    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, threaded.io(), &loop, .{});
@@ -214,7 +214,7 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, blk: {
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0b)), blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -290,7 +290,7 @@ test "Bridge reports a keyed-relay dial to a TCP-only loop as unsupported" {
 
     try bridge.attach(model.transport.Known.tcp.metadata(), "127.0.0.1:1", &.{});
 
-    const key = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0xab} ** 32).publicKey().toDesignator();
+    const key = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xab))).publicKey().toDesignator();
     try std.testing.expectError(
         error.UnknownTransport,
         bridge.dialOutbound(.{
@@ -305,7 +305,7 @@ test "Bridge application dial releases its owned request when admission allocati
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 2 });
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
-    var host = test_host.init(std.testing.allocator, [_]u8{0x5a} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x5a)), .{});
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(failing.allocator(), &host, threaded.io(), &loop, .{});

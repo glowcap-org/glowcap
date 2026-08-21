@@ -231,6 +231,11 @@ or listener setup failure preserves a caller-supplied Host and its valid loop so
 the caller can retry; only a Host minted by the failed operation is torn down.
 The transactional claim is the `pancake_driver_take_host` call itself: if that
 call refuses, the original Host remains byte-fed and untouched.
+Final driver release has the same ownership distinction. A non-consuming
+refusal leaves one binding-owned release lease, which retries once per later
+safe runtime boundary rather than spinning or disappearing with a background
+task. A consuming result commits Host-wrapper retirement once; release and
+wrapper-cleanup failures remain ordered consequences of the terminal primary.
 Retained outbound frames on partial multiplexed-provider writes and the settle mailbox
 minted at init so its descriptor is in the set from the start are each
 owned by a named test. The self-wake nudge when step returns with work
@@ -257,6 +262,7 @@ Builds on [ADR-0090](ADR-0090-owning-host-face.md) (the projected tier),
 set), and [ADR-0057](ADR-0057-iroh-completion-loop-bridge.md) (the endpoint
 readiness shape). Amends [ADR-0072](ADR-0072-driver-tier-over-c-abi.md) by
 adding the optional loop tier beside its byte-fed primitive. The sealed
-channel of [ADR-0107](ADR-0107-sealed-byte-channel.md) is orthogonal: it
-lives below `feedBytes` on the core Host, so loop-tier and byte-fed consumers
-inherit it identically.
+channel of [ADR-0107](ADR-0107-sealed-byte-channel.md) is orthogonal and has
+two thin owners: byte-fed sessions compose it in `HostSession`, while
+completion-loop dials compose it in `net.noise_completion` before publishing
+connect.

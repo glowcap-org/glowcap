@@ -79,6 +79,10 @@ pub const FakeBackend = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *FakeBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     /// The inbound wire script, set by the test before `Loop.init`.
     pub var chunks: []const []const u8 = &.{};
     /// Test-only pressure injection for listener cancellation. Connection

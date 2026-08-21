@@ -76,7 +76,7 @@ pub fn main(init: std.process.Init) !void {
         var rest = std.process.Args.Iterator.init(init.minimal.args);
         _ = rest.next();
         while (rest.next()) |a| {
-            try z_argv.append(arena, (try arena.dupeZ(u8, a)).ptr);
+            try z_argv.append(arena, (try arena.dupeSentinel(u8, a, 0)).ptr);
         }
         try z_argv.append(arena, null);
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.c.environ);

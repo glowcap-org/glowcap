@@ -39,8 +39,8 @@ const HostedGreeter = harness.HostedGreeter;
 // Both arms are pinned deterministically here by feeding a `BlockingSession`
 // over a fixed reader that yields the exact framing failure — no timing.
 
-const zero_pubkey_fault = [_]u8{0} ** 32;
-const zero_sig_fault = [_]u8{0} ** 64;
+const zero_pubkey_fault = @as([32]u8, @splat(0));
+const zero_sig_fault = @as([64]u8, @splat(0));
 
 /// A whole stub-key `op:start-session` frame, encoded so the caller can take a
 /// prefix of it to drive a mid-frame EOF (`TruncatedFrame`).

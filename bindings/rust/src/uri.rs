@@ -359,9 +359,49 @@ fn format_uri(
 
 	let t = transport.as_bytes();
 	let d = designator.as_bytes();
-	// Size with a generous buffer; the call reports the exact length, so a
-	// too-small buffer is retried at the reported size.
-	let mut cap = 256usize;
+	let mut cap: usize = 0;
+	let rc = unsafe {
+		if let Some((swiss, captp_version)) = swissnum {
+			sys::pancake_uri_format_sturdyref(
+				captp_version.to_c(),
+				t.as_ptr(),
+				t.len(),
+				d.as_ptr(),
+				d.len(),
+				swiss.as_ptr(),
+				swiss.len(),
+				kp,
+				klp,
+				vp,
+				vlp,
+				n,
+				core::ptr::null_mut(),
+				0,
+				&mut cap,
+			)
+		} else {
+			sys::pancake_uri_format_peer(
+				t.as_ptr(),
+				t.len(),
+				d.as_ptr(),
+				d.len(),
+				kp,
+				klp,
+				vp,
+				vlp,
+				n,
+				core::ptr::null_mut(),
+				0,
+				&mut cap,
+			)
+		}
+	};
+	if rc != sys::ERR_BUFFER_TOO_SMALL {
+		check(rc)?;
+		if cap == 0 {
+			return Ok(String::new());
+		}
+	}
 	loop {
 		let mut buf = vec![0u8; cap];
 		let mut out_len: usize = 0;

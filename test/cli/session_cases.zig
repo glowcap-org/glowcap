@@ -9,7 +9,7 @@ const model = pancake.ocapn.model;
 const ip = std.Io.net;
 
 fn testSecret() pancake.foundation.crypto.SecretKey {
-    return pancake.foundation.crypto.SecretKey.fromSeed([_]u8{7} ** 32);
+    return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(7)));
 }
 
 fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Environ.Map) Ctx {
@@ -109,8 +109,8 @@ test "CLI session opts refuse unbounded CapTP waits" {
     const opts = cli.ocapn.sessionOpts();
     try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_handshake_timeout_ms }, opts.handshake);
     try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_settle_timeout_ms }, opts.settle);
-    // Not merely non-zero: the product front must name a bound, and `unbounded`
-    // is now a thing it has to say out loud rather than inherit.
+    // Not merely non-zero: the product front must name a bound. `.unbounded`
+    // is an explicit choice, not a silent default.
     try std.testing.expect(opts.handshake == .ms and opts.handshake.ms > 0);
     try std.testing.expect(opts.settle == .ms and opts.settle.ms > 0);
 }
@@ -395,4 +395,52 @@ test "info reports a background listener that died on its own" {
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
     try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, capture.items, "served its one partner") != null);
+}
+
+test "close composition keeps the primary and notes cleanup as a consequence" {
+    const FailureChain = pancake.foundation.FailureChain;
+    var failure: ?FailureChain = FailureChain.init(error.ConnectionLost);
+    var unused: cli.ctx.Ctx = undefined;
+    unused.retainCleanup(&failure, FailureChain.init(error.CloseTimedOut));
+    try std.testing.expectEqual(error.ConnectionLost, failure.?.cause);
+    try std.testing.expectEqual(error.CloseTimedOut, failure.?.secondary_cause.?);
+    try std.testing.expectEqual(@as(u16, 1), failure.?.secondary_count);
+
+    var empty: ?FailureChain = null;
+    unused.retainCleanup(&empty, FailureChain.init(error.Busy));
+    try std.testing.expectEqual(error.Busy, empty.?.cause);
+    try std.testing.expectEqual(@as(u16, 0), empty.?.secondary_count);
+}
+
+test "close keeps injected listener failure as the command outcome" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+    defer c.deinit();
+    c.front = .mcp;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
+
+    var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer parsed.deinit();
+    try parsed.setString("bind", "127.0.0.1:0");
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
+
+    c.background_listener.?.server.runtime.noteTerminalFailure(error.ConnectionLost);
+    capture.clearRetainingCapacity();
+    var close_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer close_parsed.deinit();
+    try std.testing.expectEqual(cli.exit_codes.dial, try cli.ocapn.cmdClose(&c, &close_parsed));
+    try std.testing.expect(c.background_listener == null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ConnectionLost") != null);
+
+    // Consuming: a second close has no listener left to retry.
+    capture.clearRetainingCapacity();
+    var again = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer again.deinit();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdClose(&c, &again));
 }

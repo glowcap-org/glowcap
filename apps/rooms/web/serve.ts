@@ -235,6 +235,16 @@ function requestStop(exitCode: number): void {
 	});
 }
 
+// Answer an interrupt from here on, which is before the first room server is
+// spawned rather than after the page is being served. These listeners replace
+// the default action, so until they exist an interrupt ends this process
+// outright and the room server it had already started is left holding its port
+// with nobody above it. Startup is where that window is widest: an onion or
+// iroh announce can take a minute. Everything `stop` touches is initialized
+// above, which is what makes registering this early safe.
+Deno.addSignalListener("SIGINT", () => requestStop(0));
+Deno.addSignalListener("SIGTERM", () => requestStop(0));
+
 function spawnRoomServer(): Deno.ChildProcess {
 	// The onion arm keeps ROOM_PORT as its positional: the server binds it as
 	// the local endpoint Tor forwards the service to, which is also where the
@@ -573,6 +583,3 @@ await prepareAndListen({
 // Last, after everything above is serving: one block, ending on the ready
 // line, because the last lines are the ones an operator sees.
 await printServingBlock();
-
-Deno.addSignalListener("SIGINT", () => requestStop(0));
-Deno.addSignalListener("SIGTERM", () => requestStop(0));

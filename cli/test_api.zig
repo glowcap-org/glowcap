@@ -16,6 +16,7 @@ pub const rooms_peer = @import("app/rooms_peer.zig");
 pub const rooms_peer_harness = @import("app/rooms_peer/harness.zig");
 pub const rooms_peer_common = @import("app/rooms_peer/common.zig");
 pub const rooms_peer_phase = @import("app/rooms_peer/phase.zig");
+pub const rooms_peer_wire = @import("app/rooms_peer/wire.zig");
 pub const cmd = @import("cmd/mod.zig");
 pub const cmd_types = @import("cmd/types.zig");
 pub const cmd_help = @import("cmd/help.zig");

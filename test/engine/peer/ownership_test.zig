@@ -28,7 +28,7 @@ test "originated handoff transaction requires distinct peer sessions" {
         "gift",
         .{ .far = model.FarRef.object(1) },
         "give",
-        .{ .answer = .fromWire(.from(1)) },
+        .{ .answer = .{ .name = .fromWire(.from(1)), .row_id = 1 } },
     ));
 }
 
@@ -36,7 +36,7 @@ test "failed withdraw construction does not consume its handoff count" {
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
-    const recipient_secret = foundation.crypto.SecretKey.fromSeed([_]u8{0x35} ** foundation.crypto.SEED_BYTES);
+    const recipient_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x35)));
 
     try std.testing.expectError(
         codec.syrup.Error.MalformedFrame,
@@ -50,15 +50,15 @@ test "failed withdraw construction does not consume its handoff count" {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(exporter_location);
-    const gifter_secret = foundation.crypto.SecretKey.fromSeed([_]u8{0x36} ** foundation.crypto.SEED_BYTES);
+    const gifter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x36)));
     const give = try engine.handoff_gifter.buildSignedGive(
         allocator,
         gifter_secret,
         recipient_secret.publicKey().asBytes(),
         exporter_location,
-        &([_]u8{0x37} ** 32),
-        &([_]u8{0x38} ** 32),
-        &([_]u8{0x39} ** model.HANDOFF_GIFT_ID_BYTES),
+        &(@as([32]u8, @splat(0x37))),
+        &(@as([32]u8, @splat(0x38))),
+        &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x39))),
     );
     defer allocator.free(give);
 
@@ -79,7 +79,7 @@ test "outbound waterline refuses one arbitrarily large producer before authority
     peer.outbound_budget = 256;
     try peer.session_state.registerImport(.from(7));
 
-    const oversized = [_]u8{0x5a} ** 512;
+    const oversized = @as([512]u8, @splat(0x5a));
     try std.testing.expectError(error.OutboundBackpressure, peer.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = &oversized }},
@@ -103,7 +103,7 @@ test "one inbound frame admits its maintenance carriers as one outbound producer
     // They are one consequence of one accepted frame: the first may cross the
     // line, but the second must not be mistaken for a new producer and refuse
     // the otherwise atomic inbound transaction.
-    const ballast = [_]u8{0x5a} ** 512;
+    const ballast = @as([512]u8, @splat(0x5a));
     try peer.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(9) },
         .args = &.{.{ .bytes = &ballast }},
@@ -365,7 +365,7 @@ test "peer sendCopying does not advance session state when clone allocation fail
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
-    const too_large = [_]u8{'x'} ** 4096;
+    const too_large = @as([4096]u8, @splat('x'));
     const args = [_]model.Argument{.{ .bytes = too_large[0..] }};
 
     try std.testing.expectError(error.OutOfMemory, peer.sendCopying(.{

@@ -8,10 +8,10 @@
 //! five-part shape ADR-0086 names, in Rust: the WebSocket adapter is
 //! tokio-tungstenite, the pump is the two tasks in `pump`, the byte channel is a
 //! `TcpStream` or (with `--features iroh`) the binding's `Stream`, the dial
-//! dispatcher is `handle`, and the config is the constant below. Backpressure is
-//! the awaited write on both legs: the target leg blocks on the kernel or the
-//! iroh sidecar, the browser-bound leg on tokio-tungstenite's sink. Teardown is
-//! pair-atomic: whichever leg ends first aborts the other.
+//! dispatcher is `handle`, and the config comes from generated binding policy.
+//! Backpressure is the awaited write on both legs: the target leg blocks on the
+//! kernel or the iroh sidecar, the browser-bound leg on tokio-tungstenite's sink.
+//! Teardown is pair-atomic: whichever leg ends first aborts the other.
 //!
 //! Two transports, dispatched by what the WebSocket names:
 //!   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
@@ -36,7 +36,9 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
-const READ_CHUNK: usize = 1 << 16; // 64 KiB
+mod policy_gen;
+
+const READ_CHUNK: usize = policy_gen::RELAY_READ_CHUNK_BYTES;
 
 /// The per-connection WebSocket buffers, named rather than inherited.
 ///
@@ -50,11 +52,11 @@ const READ_CHUNK: usize = 1 << 16; // 64 KiB
 /// 16 KiB per direction matches `steady_outbound_bytes`, the per-connection
 /// steady figure the Zig side already budgets against, so the relay and the
 /// sessions it carries answer to one number.
-const WS_BUFFER_BYTES: usize = 16 * 1024;
+const WS_BUFFER_BYTES: usize = policy_gen::RELAY_WEBSOCKET_BUFFER_BYTES;
 /// A WebSocket message is a transport chunk, independent from any CapTP frame
 /// limit. The relay never needs to materialize a larger message to stay byte
 /// transparent.
-const WS_MESSAGE_BYTES: usize = 1 << 20;
+const WS_MESSAGE_BYTES: usize = policy_gen::WEBSOCKET_MESSAGE_CAP_BYTES;
 
 fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
 	tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
@@ -64,13 +66,9 @@ fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
 		.max_frame_size(Some(WS_MESSAGE_BYTES))
 }
 
-// The two bounded-resources knobs ADR-0086's contract names, matching the
-// @pancake/relay gold standard. The idle timeout reclaims a stalled pair; the
-// per-session byte total is a runaway backstop over the session's life, not a
-// memory bound (instantaneous memory is bounded by the backpressure on both
-// legs). Both sit far above any real session.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_BYTES_PER_SESSION: usize = 1 << 30; // 1 GiB
+// The bounded resource defaults come from generated binding policy.
+const IDLE_TIMEOUT: Duration = Duration::from_millis(policy_gen::RELAY_IDLE_TIMEOUT_MS);
+const MAX_BYTES_PER_SESSION: usize = policy_gen::RELAY_MAX_BYTES_PER_SESSION;
 
 #[derive(Debug)]
 struct RelayFailure {
@@ -279,7 +277,7 @@ where
 			}
 			// Named boundary copy: tokio-tungstenite's `Message::binary` owns its
 			// bytes, so the read chunk is copied once into an owned buffer before
-			// the async send. Bounded by `READ_CHUNK` (64 KiB) and off pancake's
+			// the async send. Bounded by `READ_CHUNK` and off pancake's
 			// own wire path — the WebSocket-sink shape of memory.md's binding
 			// outbound flush copy.
 			if let Err(error) = ws_write.send(Message::binary(buf[..n].to_vec())).await {

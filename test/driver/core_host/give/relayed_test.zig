@@ -55,11 +55,11 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     const allocator = std.testing.allocator;
     var options = Host.Options.withFrameCap(frame_cap);
     options.codec = codec_id;
-    var relay = test_host.init(allocator, [_]u8{0x81} ** 32, options);
+    var relay = test_host.init(allocator, @as([32]u8, @splat(0x81)), options);
     defer relay.deinit();
-    var home = test_host.init(allocator, [_]u8{0x82} ** 32, options);
+    var home = test_host.init(allocator, @as([32]u8, @splat(0x82)), options);
     defer home.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x83} ** 32, options);
+    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x83)), options);
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -76,11 +76,11 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     const source_export = try home_pair.b.served.port.peer.session_state.allocatePromiseExport();
     try home_pair.a.served.port.peer.session_state.registerImport(.from(source_export.int()));
     const source_token = try relay.node.enrollForeign(
-        home_pair.a.peer_id,
+        home_pair.a.peer_handle,
         .{ .far = model.FarRef.promise(source_export.int()) },
     );
     const projected = (try relay.node.proxyForeignPromiseFulfill(
-        recipient_pair.a.peer_id,
+        recipient_pair.a.peer_handle,
         source_token.routed.id,
     )).?;
     const recipient_import = model.ImportPosition.from(projected.near.export_position.int());
@@ -125,7 +125,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     try std.testing.expect(try shuttle(home_pair));
     while (try drainActions(allocator, &.{ &relay, &home, &recipient }, &dials)) {}
     try std.testing.expect(!relay.node.isProxyHomeListener(
-        home_pair.a.peer_id,
+        home_pair.a.peer_handle,
         listener_position.int(),
     ));
 

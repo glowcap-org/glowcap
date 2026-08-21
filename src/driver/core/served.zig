@@ -47,6 +47,12 @@ pub const ServeOptions = struct {
     before_serve: ?BeforeServeHook = null,
 };
 
+/// Default finite local-turn amplification cap for multi-session loop hosts.
+/// `null` remains the blocking/single-session default; loop demos and benches
+/// opt into this cap so one amplifying partner cannot monopolize their shared
+/// Host.
+pub const default_loop_local_turn_budget: usize = 4096;
+
 /// The sans-io serve core: an `actors.Port` over one borrowed `engine.Peer`,
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
 /// address); this borrows it. It reads no
@@ -228,11 +234,12 @@ pub const Served = struct {
 
     /// Serve one already-polled event: retain a partner abort, run the
     /// `before_serve` hook, dispatch into the vat unless the hook claimed it, then
-    /// emit stateless GC. This is the one per-event serve spine — a socket `step`,
-    /// a completion loop, and a byte-fed feed all serve through it, so they serve
-    /// identically. The `before_serve` hook is the injection point for I/O-tier
-    /// serve policy (node claim, crossed-hellos); it reaches what it needs through
-    /// its `ctx`, keeping this sans-io. The caller owns the event's lifetime.
+    /// emit stateless GC only for vat-served events. This is the one per-event
+    /// serve spine — a socket `step`, a completion loop, and a byte-fed feed all
+    /// serve through it, so they serve identically. The `before_serve` hook is the
+    /// injection point for I/O-tier serve policy (node claim, crossed-hellos); it
+    /// reaches what it needs through its `ctx`, keeping this sans-io. The caller
+    /// owns the event's lifetime.
     pub fn serveEvent(self: *Served, vat: *actors.Vat, event: *engine.Event) !void {
         // Retain the partner's abort diagnostic (bounded, copied) before anything
         // else sees the event, so a later close can break the far vows with the
@@ -243,9 +250,10 @@ pub const Served = struct {
             try hook(self.serve_options.hook_ctx, self, event)
         else
             false;
-        if (!skip_serve) _ = try self.port.serve(vat, event);
-
-        if (self.serve_options.gc_stateless) try gc.emitStatelessAfter(self.port.peer, event);
+        if (!skip_serve) {
+            _ = try self.port.serve(vat, event);
+            if (self.serve_options.gc_stateless) try gc.emitStatelessAfter(self.port.peer, event);
+        }
     }
 
     /// The loop drivers' post-batch policy in one spelling: drive one inbound
@@ -253,9 +261,10 @@ pub const Served = struct {
     /// per-connection amplification cap), and treat `.more_pending` as the
     /// runaway error a loop closes that one connection on — a single message
     /// that amplifies past its budget must not stall or grow in memory. The
-    /// Both scale paths ride this through `Host` + `Bridge` (TCP `net.TcpLoop`,
-    /// iroh `completion.Loop(iroh.Backend, iroh.DialResolver)`). The blocking one-connection-per-
-    /// thread path drives unbounded through `drainEvents` instead.
+    /// Scale paths ride this through `Host` + `Bridge` (TCP `net.TcpLoop`,
+    /// iroh `completion.Loop(iroh.Backend, iroh.DialResolver)`). The blocking
+    /// one-connection-per-thread path drives unbounded through `drainEvents`
+    /// instead.
     pub fn drivePostBatch(self: *Served, vat: *actors.Vat, budget: usize) !void {
         switch (try vat.driveIngressBudgeted(self.port.ingress, budget)) {
             .drained => {},

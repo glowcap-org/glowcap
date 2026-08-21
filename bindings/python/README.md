@@ -1,7 +1,7 @@
 # Python binding
 
-This package uses `ctypes`, `asyncio`, and the standard library. It is not
-published yet; import it from a pinned checkout after running `zig build`.
+This package uses `ctypes`, `asyncio`, and the standard library. Pin a
+checkout, run `zig build`, and import it from the tree.
 CPython 3.11 or newer on an LP64 platform is required.
 
 ```python
@@ -42,12 +42,12 @@ vow does.
 callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
-Under `Runtime` and `listen`, a `tcp`, `keyed-tcp`, `noise-tcp`, or `iroh`
+Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
 connection runs on pancake's native loop posture: Python loads the separate
 Host and driver archives, and one stepping native loop owns the provider,
 framing, pumping, and session release while asyncio parks on its readiness
-descriptor. The application supplies `tcp.provider(config)`,
-`iroh.provider(config)`, or another transport package explicitly; the driver
+descriptor. The application supplies `iroh.provider(config)`,
+`tcp.provider(config)`, or another transport package explicitly; the driver
 starts with no providers and receives the selected package through the common
 provider ABI. A routed `keyed-relay` or `noise-relay` locator likewise loads
 the relay archive and installs its complete provider package. Both roads carry

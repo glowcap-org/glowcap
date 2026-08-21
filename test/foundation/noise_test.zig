@@ -147,13 +147,13 @@ const Fixture = struct {
 
     fn make() Fixture {
         return .{
-            .init_static = crypto.X25519KeyMaterial.fromSecret([_]u8{0x11} ** 32).?,
-            .resp_static = crypto.X25519KeyMaterial.fromSecret([_]u8{0x22} ** 32).?,
+            .init_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x11))).?,
+            .resp_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x22))).?,
         };
     }
 
     fn initiator(self: *const Fixture, ephemeral_seed: u8, prologue: []const u8) noise.HandshakeState {
-        const ephemeral = crypto.X25519KeyMaterial.fromSecret([_]u8{ephemeral_seed} ** 32).?;
+        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed))).?;
         return noise.HandshakeState.initInitiator(
             &self.init_static,
             self.resp_static.public,
@@ -163,7 +163,7 @@ const Fixture = struct {
     }
 
     fn responder(self: *const Fixture, ephemeral_seed: u8, prologue: []const u8) noise.HandshakeState {
-        const ephemeral = crypto.X25519KeyMaterial.fromSecret([_]u8{ephemeral_seed} ** 32).?;
+        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed))).?;
         return noise.HandshakeState.initResponder(
             &self.resp_static,
             &ephemeral,
@@ -285,7 +285,7 @@ test "split before the third message is refused" {
 }
 
 test "nonce exhaustion refuses the reserved value in both directions" {
-    var cipher = noise.CipherState.init([_]u8{0x07} ** 32);
+    var cipher = noise.CipherState.init(@as([32]u8, @splat(0x07)));
     cipher.n = std.math.maxInt(u64);
     var out: [64]u8 = undefined;
     try std.testing.expectError(noise.NoiseError.NonceExhausted, cipher.encrypt("", "x", &out));
@@ -300,8 +300,8 @@ test "nonce exhaustion refuses the reserved value in both directions" {
 }
 
 test "rekey preserves the nonce and keeps both directions in agreement" {
-    var sender = noise.CipherState.init([_]u8{0x07} ** 32);
-    var receiver = noise.CipherState.init([_]u8{0x07} ** 32);
+    var sender = noise.CipherState.init(@as([32]u8, @splat(0x07)));
+    var receiver = noise.CipherState.init(@as([32]u8, @splat(0x07)));
     var sealed_buf: [64]u8 = undefined;
     var open_buf: [64]u8 = undefined;
 
@@ -330,8 +330,8 @@ test "rekey preserves the nonce and keeps both directions in agreement" {
 }
 
 test "record framing round-trips and holds its bounds" {
-    var sender = noise.CipherState.init([_]u8{0x09} ** 32);
-    var receiver = noise.CipherState.init([_]u8{0x09} ** 32);
+    var sender = noise.CipherState.init(@as([32]u8, @splat(0x09)));
+    var receiver = noise.CipherState.init(@as([32]u8, @splat(0x09)));
     var record_buf: [512]u8 = undefined;
     var open_buf: [512]u8 = undefined;
 
@@ -353,8 +353,8 @@ test "record framing round-trips and holds its bounds" {
 }
 
 test "Ed25519 conversion agrees across both halves and both peers" {
-    const alice = crypto.SecretKey.fromSeed([_]u8{0xA1} ** 32);
-    const bob = crypto.SecretKey.fromSeed([_]u8{0xB2} ** 32);
+    const alice = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xA1)));
+    const bob = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xB2)));
 
     const alice_material = crypto.x25519FromSecretKey(&alice).?;
     const bob_material = crypto.x25519FromSecretKey(&bob).?;
@@ -379,13 +379,13 @@ test "Ed25519 conversion agrees across both halves and both peers" {
 }
 
 test "a full handshake through converted durable keys settles both ways" {
-    const dialer_identity = crypto.SecretKey.fromSeed([_]u8{0xC3} ** 32);
-    const answerer_identity = crypto.SecretKey.fromSeed([_]u8{0xD4} ** 32);
+    const dialer_identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xC3)));
+    const answerer_identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xD4)));
     const dialer_static = crypto.x25519FromSecretKey(&dialer_identity).?;
     const answerer_static = crypto.x25519FromSecretKey(&answerer_identity).?;
     const answerer_point = crypto.x25519FromPeerKey(answerer_identity.publicKey()).?;
-    const dialer_ephemeral = crypto.X25519KeyMaterial.fromSecret([_]u8{0x51} ** 32).?;
-    const answerer_ephemeral = crypto.X25519KeyMaterial.fromSecret([_]u8{0x61} ** 32).?;
+    const dialer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x51))).?;
+    const answerer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x61))).?;
 
     var dialer = noise.HandshakeState.initInitiator(
         &dialer_static,

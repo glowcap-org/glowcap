@@ -1,23 +1,25 @@
-//! The session's sturdyref-enliven dedup state (ADR-0012): the resolved-
-//! enlivenment cache and the in-flight enliven set, as `*Session` helpers.
+//! Sturdyref-enliven dedup state for one Session (ADR-0012).
 //!
 //! Both are non-load-bearing dedup: a cache miss costs one extra bootstrap-fetch
 //! round-trip, never correctness, so the cache evicts its oldest entry on
 //! overflow rather than erroring, and the in-flight set only collapses
 //! concurrent enlivens of the same swissnum onto one outstanding answer. The
-//! engine driver of this seam is `engine.sturdyref`; the cache row type
-//! (`SturdyrefCacheEntry`) and the storage fields it operates on
-//! (`sturdyref_cache`, `sturdyref_cache_index`, `pending_enlivens`,
-//! `pending_enliven_by_answer`) live on
-//! `Session` in `mod.zig`. These functions are aliased back into the `Session`
-//! namespace there, so a caller still writes `sess.cacheSturdyrefEnlivenment(...)`.
+//! The row type lives here with the cache transitions. Storage remains on
+//! `Session`; these helpers are aliased back into its method index.
 
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 
 const Session = session.Session;
-const SturdyrefCacheEntry = session.SturdyrefCacheEntry;
+const SturdyrefCacheEntry = Entry;
+
+/// One resolved sturdyref enlivenment. `swissnum` is owned by the cache row;
+/// `far` is stored whole so the far-kind survives cache hits.
+pub const Entry = struct {
+    swissnum: []u8,
+    far: model.FarRef,
+};
 
 /// The cached enlivenment row for `swissnum`, by value, or null on a cache
 /// miss (ADR-0012), one O(1) index lookup answering both halves of the

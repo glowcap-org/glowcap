@@ -2,8 +2,9 @@
 //! park-only hooks, then honor each parked arm (dial / flush / close /
 //! gift-id / settle / fail). Decode/types and the exhaustive dispatch come
 //! from the generated [`host_action_gen`](crate::host_action_gen) module
-//! (`zig build gen-binding-host-action`). The CapTP [`Host`](crate::Host) and
-//! vow table stay in `host.rs`; this module is the drain's park+execute half
+//! (`zig build gen-binding-host-action`). The CapTP [`Host`](crate::Host) facade
+//! and its vow table live in `host/public.rs` and `host/vows.rs`; this module is
+//! the drain's park+execute half
 //! that [`HostShared::kick_actions`](crate::host::HostShared::kick_actions)
 //! drives. Async I/O never runs inside the C callback.
 
@@ -62,6 +63,17 @@ pub(crate) fn park(host: &HostShared) -> Result<(Vec<HostAction>, bool)> {
 /// Per-arm I/O for the generated [`host_action_gen::dispatch`] inventory.
 struct Handlers<'a> {
 	host: &'a Rc<HostShared>,
+}
+
+fn answer_gift_id<E>(
+	draw: impl FnOnce() -> core::result::Result<[u8; 32], E>,
+	provide: impl FnOnce(&[u8; 32]) -> Result<()>,
+	failed: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+	match draw() {
+		Ok(gift_id) => provide(&gift_id),
+		Err(_) => failed(),
+	}
 }
 
 /** A detached Host-progress task has no caller to return an error to. Settle
@@ -141,16 +153,18 @@ impl HostActionHandlers for Handlers<'_> {
 	}
 
 	async fn need_gift_id(&self, ticket: u64) -> Result<()> {
-		let mut gift_id = [0u8; 32];
-		let provided = getrandom::fill(&mut gift_id).is_ok()
-			&& check_host(unsafe {
-				ffi::pancake_host_provide_gift_id(self.host.raw(), ticket, gift_id.as_ptr(), gift_id.len())
-			})
-			.is_ok();
-		if provided {
-			return Ok(());
-		}
-		check_host(unsafe { ffi::pancake_host_gift_id_failed(self.host.raw(), ticket) })
+		answer_gift_id(
+			|| {
+				let mut gift_id = [0u8; 32];
+				getrandom::fill(&mut gift_id).map(|()| gift_id)
+			},
+			|gift_id| {
+				check_host(unsafe {
+					ffi::pancake_host_provide_gift_id(self.host.raw(), ticket, gift_id.as_ptr(), gift_id.len())
+				})
+			},
+			|| check_host(unsafe { ffi::pancake_host_gift_id_failed(self.host.raw(), ticket) }),
+		)
 	}
 
 	async fn settle(&self, ticket: u64, value: crate::Argument) -> Result<()> {
@@ -175,6 +189,38 @@ impl HostActionHandlers for Handlers<'_> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn gift_id_completion_does_not_reclassify_provide_refusal() {
+		let mut failed = 0;
+		let observed = answer_gift_id(
+			|| Ok::<_, ()>([0u8; 32]),
+			|_| {
+				Err(Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"ticket refused".to_string(),
+				))
+			},
+			|| {
+				failed += 1;
+				Ok(())
+			},
+		)
+		.expect_err("provide refusal must remain exact");
+		assert_eq!(observed.code(), sys::ERR_INVALID_ARGUMENT);
+		assert_eq!(failed, 0);
+
+		answer_gift_id(
+			|| Err::<[u8; 32], _>(()),
+			|_| panic!("entropy failure reached provide"),
+			|| {
+				failed += 1;
+				Ok(())
+			},
+		)
+		.expect("entropy failure report");
+		assert_eq!(failed, 1);
+	}
 
 	#[test]
 	fn unknown_native_action_kind_is_a_returned_callback_failure() {

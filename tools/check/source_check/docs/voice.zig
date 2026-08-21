@@ -1,5 +1,6 @@
 //! Human doc voice: the banned scaffold needles, habitual em-dash shapes,
-//! connective arrows outside fences, and the prose sentence-length ceiling.
+//! connective arrows outside fences, headings that spend contrast before the
+//! subject has a name, and the prose sentence-length ceiling.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -10,8 +11,8 @@ const bans = @import("../bans.zig");
 /// The human-doc-voice phrase and `.agents/` link bans live in
 /// `source_check/bans.zig` (`human_doc_voice`), driven by
 /// `bans.human_doc_voice_scopes`. This walks those same scopes and holds the
-/// one doc-voice ban that needs line and fence structure: the
-/// connective-arrow check.
+/// doc-voice bans that need line and fence structure: connective arrows and
+/// headings that define a subject by what it is not.
 pub fn checkHumanDocVoice(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -30,9 +31,12 @@ pub fn checkHumanDocVoice(
         bans.collectFiles(io, arena, root, scope.where, &files) catch continue;
         for (files.items) |path| {
             // A read failure is either an optional file or already reported
-            // by the ban rows; the arrow check stays silent on it.
+            // by the ban rows; these line-structure checks stay silent on it.
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
             try banConnectiveArrowOutsideFences(gpa, violations, path, contents);
+            if (std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd")) {
+                try banNegationHeadings(gpa, violations, path, contents);
+            }
         }
     }
 
@@ -59,7 +63,14 @@ const em_dash_overuse_scopes = [_]bans.Where{
     // The registered living-state pages a reviewer opens before any code.
     // They carried the least-checked prose on the branch that added most of
     // it, which is the wrong way round for the first thing anyone reads.
-    .{ .files = &.{ "README.md", "SECURITY.md", "PROVENANCE.md", "CONTRIBUTING.md" } },
+    .{ .files = &.{
+        "README.md",
+        "SECURITY.md",
+        "PROVENANCE.md",
+        "CONTRIBUTING.md",
+        "apps/rooms/README.md",
+        "ui/README.md",
+    } },
     .{ .tree = .{ .dir = "conformance/ocapn-findings", .suffixes = &.{".md"} } },
 };
 
@@ -118,6 +129,72 @@ fn banConnectiveArrowOutsideFences(
         }
         line_start = i + 1;
     }
+}
+
+/// A heading that spends contrast before the subject has a name (`The relay is
+/// a pipe, not a peer name`) is habit, not the tool. Name the subject.
+/// Load-bearing distinctions belong in the paragraph.
+fn banNegationHeadings(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    const needles = [_][]const u8{
+        " is not a ",
+        " is not the ",
+        ", not a ",
+        ", not the ",
+        " starts no ",
+    };
+    var in_fence = false;
+    var line_no: usize = 0;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |line| {
+        line_no += 1;
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        const fence_line = blk: {
+            var rest = trimmed;
+            while (std.mem.startsWith(u8, rest, ">")) {
+                rest = std.mem.trimStart(u8, rest[1..], " \t");
+            }
+            break :blk std.mem.startsWith(u8, rest, "```");
+        };
+        if (fence_line) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if (in_fence) continue;
+        const heading = headingSubject(trimmed) orelse continue;
+        for (needles) |needle| {
+            if (std.mem.indexOf(u8, heading, needle) != null) {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}:{d}: heading defines the subject by what it is not (`{s}`); name the subject (doc-voice)",
+                    .{ path, line_no, heading },
+                );
+                return;
+            }
+        }
+    }
+}
+
+fn headingSubject(trimmed: []const u8) ?[]const u8 {
+    var rest = trimmed;
+    while (std.mem.startsWith(u8, rest, ">")) {
+        rest = std.mem.trimStart(u8, rest[1..], " \t");
+    }
+    const title_prefix = ".title = \"";
+    if (std.mem.startsWith(u8, rest, title_prefix)) {
+        const inner = rest[title_prefix.len..];
+        const close = std.mem.indexOfScalar(u8, inner, '"') orelse return inner;
+        return inner[0..close];
+    }
+    var i: usize = 0;
+    while (i < rest.len and rest[i] == '#') i += 1;
+    if (i == 0 or i >= rest.len or rest[i] != ' ') return null;
+    return std.mem.trim(u8, rest[i + 1 ..], " \t\r");
 }
 
 /// The longest a sentence may run on a page written for people.

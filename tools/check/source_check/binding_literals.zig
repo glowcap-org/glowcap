@@ -8,6 +8,7 @@ const std = @import("std");
 const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
+const readSourceSubject = util.readSourceSubject;
 
 pub fn check(
     io: std.Io,
@@ -83,7 +84,7 @@ pub fn check(
             required_in_owner: []const []const u8,
         }{
             .{
-                .connection = "bindings/python/pancake/_session.py",
+                .connection = "bindings/python/pancake/_session/",
                 .owner = "bindings/python/pancake/_socket_address.py",
                 .banned_in_connection = &.{
                     "def _socket_addr_designator",
@@ -130,8 +131,8 @@ pub fn check(
             },
         };
         for (locator_grammar_home) |entry| {
-            const conn_contents = root.readFileAlloc(io, entry.connection, gpa, .limited(2 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: failed to read for locator-grammar home check with {s}", .{ entry.connection, @errorName(err) });
+            const conn_contents = (try readSourceSubject(io, gpa, root, entry.connection)) orelse {
+                try appendViolation(gpa, violations, "{s}: failed to read for locator-grammar home check", .{entry.connection});
                 continue;
             };
             defer gpa.free(conn_contents);

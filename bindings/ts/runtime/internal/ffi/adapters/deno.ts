@@ -19,6 +19,7 @@ import type {
 	SymbolDef,
 	Symbols,
 } from "../runtime.ts";
+import { BINDING_STREAM_READ_CHUNK_BYTES } from "@pancake/abi";
 import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -98,7 +99,7 @@ const ffi: RuntimeFfi = {
 function wrapConn(conn: Deno.Conn): NetConn {
 	return {
 		async read(): Promise<Uint8Array | null> {
-			const buf = new Uint8Array(64 * 1024);
+			const buf = new Uint8Array(BINDING_STREAM_READ_CHUNK_BYTES);
 			const n = await conn.read(buf);
 			return n === null ? null : buf.subarray(0, n);
 		},

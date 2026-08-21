@@ -1,17 +1,17 @@
 ---
-.title = "The relay: a peer without a socket",
+.title = "The relay",
 .description = "A relay carries a browser peer's keyed CapTP session over a WebSocket to a peer that has a socket. Only bytes cross it; it holds no capability of yours.",
-.date = @date("2026-07-21T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-21T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-A browser opens no listening socket and dials no raw TCP or QUIC, so it has no
-netlayer of its own. The relay only carries bytes
+The relay carries CapTP bytes over a WebSocket to a peer that can open a
+socket. A browser cannot listen or dial raw TCP or QUIC, so it uses this path.
+The session's keys stay at the two ends
 ([ADR-0086](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
-## Byte transparency
+# Byte transparency
 
 The keyed `op:start-session` handshake and every capability that follows it run
 between the browser and the far peer. The relay never parses a frame and never
@@ -21,12 +21,12 @@ the intermediary must see only ciphertext, the byte-fed Host owns the sealing.
 The session's authority is the keys at its two ends, so the relay carries a
 session without being party to it.
 
-## Reaching the other side
+# Reaching the other side
 
 A peer with a socket dials the address it wants. A browser has none, so the relay
 reaches the far side two ways.
 
-### Dialing a far peer
+## Dialing a far peer
 
 The browser names a target and the relay dials it. The reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
@@ -43,21 +43,21 @@ pins its TCP target to the room server, so a classified TCP dial reaches the roo
 and nothing else. An iroh target may be any key-verified node, a wider reach the
 app accepts and bounds with its own admission caps.
 
-### Cold-dial rendezvous
+## Cold-dial rendezvous
 
 When both ends are browsers, neither can be dialed. A browser registers its key with
 the relay and leaves an inbound socket held there. A second browser, holding an
 introduction that names that key, cold-dials it, and the relay bridges the dialer to
-the held socket
+the held socket. The room that made the introduction carries no part of the
+session
 ([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
-The room that made the introduction carries no part of the session.
 
 [One browser registers and waits; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
 
 Both paths run through one byte pump, so rendezvous and direct dialing share
 their backpressure and teardown behavior.
 
-## Bounded resources
+# Bounded resources
 
 A relay carries other peers' sessions, so it bounds what it holds. Backpressure on
 both legs caps the bytes in flight: a stalled reader stops the relay reading its
@@ -68,58 +68,63 @@ the live-session and held-registration counts as admission policy, which the
 [rooms demo]($link.page('examples')) sets. The relay counts bytes and sessions, never
 messages, because it reads none.
 
-## One contract, every runtime
+# The same contract on every runtime
 
 The relay is a small contract an embedder runs in its own runtime.
 `@pancake/relay` is the Deno reference; Python, Rust, and Racket provide the
 same forwarding, backpressure, and idle-reclaim behavior.
 
-## Not a netlayer
+# Locators
 
-The relay *service* is not a netlayer. A dial dispatches on a
+A transport symbol (`iroh`, `noise-tcp`, `keyed-tcp`, `webrtc`, `inproc`, and
+the rest) is how you name a peer.
+The relay is a WebSocket that forwards bytes to someone who already has one of
+those names. A dial dispatches on a
 [locator]($link.page('concepts'))'s transport symbol, and the relay registers
-none of those residents: not `tcp`, `keyed-tcp`, `noise-tcp`, `inproc`, `iroh`,
-`webrtc`, or the others.
+none of those residents.
 [Choosing a transport]($link.page('transports/choosing')) lists them.
 
-A `keyed-relay` locator names the waiting peer's key, not the relay. The
-dialing host's configured relay URL is how that resident reaches the peer
+A `keyed-relay` locator names the waiting peer's key. The dialing host's
+configured relay URL is how that resident reaches the peer
 ([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
-`noise-relay` uses the same pipe and seals the CapTP stream before it begins.
-Peers dialing an ordinary netlayer never touch the relay service. The
-[Noise guide]($link.page('transports/noise')) covers the sealed path.
+`noise-relay` uses the same forwarding path and seals the CapTP stream before
+it begins. Peers dialing an ordinary netlayer never touch the relay service.
+The [Noise guide]($link.page('transports/noise')) covers the sealed path.
 
-## Dial
+# Dial
 
 Choose `noise-relay` for an end-to-end sealed stream. Use `keyed-relay` only
 when the relay and network are already trusted. Each tab below stops once the
 transport-specific runtime and locator are ready; the binding page owns the
 common connect, fetch, and call workflow.
 
-The native provider accepts validated `ws` and `wss` routes with IP literals or
-DNS names; the Noise profile still encrypts the CapTP stream inside that
-WebSocket. Native WSS uses the configured immutable system-root or copied-PEM
-trust snapshot, SNI, and hostname verification. The completion-backed native
-carrier drives the same TLS and WebSocket state machines without a
-per-connection thread. Browser and managed connectors use their platform
-WebSocket instead. Live public-certificate evidence remains on the roadmap.
+The snippets use `wss://` with platform trust: native code passes `.system`,
+and the bindings use the host WebSocket. The native provider also accepts
+cleartext `ws` on a network you already trust. Live public-certificate
+evidence remains on the roadmap.
 
 ```=html
 <!-- site-examples:dial:relay GENERATED by `zig build gen-site-examples`; edits are overwritten -->
 ```
-### Noise
+## Noise
 
 > []($block.attrs('code-tabs'))
 > **Zig**
 > ```zig
 > const std = @import("std");
 > const pancake = @import("pancake");
+> const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const relay_url = "ws://192.0.2.10:8080/relay";
->     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .noise);
->     defer relay_resident.deinit();
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
+>     // Noise_XK seals the session end to end; the relay forwards ciphertext.
+>     const relay_url = "wss://relay.example/relay";
+>     var relay: native_relay.Provider = undefined;
+>     switch (relay.init(io, allocator, relay_url, null, .system)) {
+>         .ready => {},
+>         .failed => return error.RelayUnavailable,
+>     }
+>     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
+>     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
 >     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = pancake.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
@@ -131,7 +136,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const relayUrl = "wss://relay.example/relay";
 > const partner = noise.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
@@ -157,7 +162,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "ws://192.0.2.10:8080/relay"
+> relay_url = "wss://relay.example/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -168,7 +173,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "ws://192.0.2.10:8080/relay";
+> let relay_url = "wss://relay.example/relay";
 > let partner = relay::noise::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -181,25 +186,31 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "ws://192.0.2.10:8080/relay")
+> (define relay-url "wss://relay.example/relay")
 > (define partner (noise-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
 > ```
 
-### Keyed
+## Keyed
 
 > []($block.attrs('code-tabs'))
 > **Zig**
 > ```zig
 > const std = @import("std");
 > const pancake = @import("pancake");
+> const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const relay_url = "ws://192.0.2.10:8080/relay";
->     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .keyed);
->     defer relay_resident.deinit();
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
+>     // The key names the peer; the hint names the relay that can reach it.
+>     const relay_url = "wss://relay.example/relay";
+>     var relay: native_relay.Provider = undefined;
+>     switch (relay.init(io, allocator, relay_url, null, .system)) {
+>         .ready => {},
+>         .failed => return error.RelayUnavailable,
+>     }
+>     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
+>     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
 >     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = pancake.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
@@ -211,7 +222,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const relayUrl = "wss://relay.example/relay";
 > const partner = keyed.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
@@ -237,7 +248,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > # The key names the peer; the hint names the relay that can reach it.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "ws://192.0.2.10:8080/relay"
+> relay_url = "wss://relay.example/relay"
 > partner = relay.keyed.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -248,7 +259,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "ws://192.0.2.10:8080/relay";
+> let relay_url = "wss://relay.example/relay";
 > let partner = relay::keyed::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -261,7 +272,7 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "ws://192.0.2.10:8080/relay")
+> (define relay-url "wss://relay.example/relay")
 > (define partner (keyed-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -270,38 +281,49 @@ WebSocket instead. Live public-certificate evidence remains on the roadmap.
 <!-- /site-examples:dial:relay -->
 ```
 
-## Listen
+# Listen
 
 A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
-the advertised locator survives a restart.
+the advertised locator survives a restart. TypeScript's first-call is
+`noise.listen`. Zig registers through the native relay provider and
+`driver.listen`, with platform trust for `wss://`. Python, Rust, and
+Racket still need that helper; their tabs are the planned shape. A browser
+never listens.
+
+Cleartext keyed registration is the same program with `resident(.keyed)` in
+Zig or `keyed.listen` in TypeScript. The locator is still identity-addressed;
+the relay path is not sealed.
 
 ```=html
 <!-- site-examples:listen:relay GENERATED by `zig build gen-site-examples`; edits are overwritten -->
 ```
-### Noise
-
 > []($block.attrs('code-tabs'))
 > **Zig**
 > ```zig
 > const std = @import("std");
 > const pancake = @import("pancake");
+> const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const seed = [_]u8{7} ** 32; // load durable secret bytes in a real service
+>     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+>     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
->     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
->         allocator,
+>     var relay: native_relay.Provider = undefined;
+>     switch (relay.init(
 >         io,
->         "ws://192.0.2.10:8080/relay",
->         "ws://192.0.2.10:8080/register",
->         secret.publicKey(),
->         .noise,
->     );
->     defer relay_resident.deinit();
+>         allocator,
+>         "wss://relay.example/relay",
+>         "wss://relay.example/register",
+>         .system,
+>     )) {
+>         .ready => {},
+>         .failed => return error.RelayUnavailable,
+>     }
+>     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
 >     var server = try pancake.driver.listen(
 >         allocator,
->         relay_resident.netlayer(),
+>         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
 >         .{ .keyed = secret },
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -315,48 +337,73 @@ the advertised locator survives a restart.
 >     try serve(&server);
 > }
 > ```
-
-### Keyed
-
-> []($block.attrs('code-tabs'))
-> **Zig**
-> ```zig
-> const std = @import("std");
-> const pancake = @import("pancake");
+> **TypeScript**
+> ```ts
+> import type { Argument } from "@pancake/runtime";
+> import { noise } from "@pancake/relay";
 >
-> pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const seed = [_]u8{7} ** 32; // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
->     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
->         allocator,
->         io,
->         "ws://192.0.2.10:8080/relay",
->         "ws://192.0.2.10:8080/register",
->         secret.publicKey(),
->         .keyed,
->     );
->     defer relay_resident.deinit();
->     var server = try pancake.driver.listen(
->         allocator,
->         relay_resident.netlayer(),
->         .{ .designator = "" },
->         .{ .keyed = secret },
->         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
->     );
->     defer server.deinit();
->
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
->     defer allocator.free(uri);
->     std.debug.print("{s}\n", .{uri}); // key designator plus rendezvous-relay hint
->
->     try serve(&server);
-> }
+> // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> const seed = crypto.getRandomValues(new Uint8Array(32));
+> await using server = await noise.listen({
+> 	relayUrl: "wss://relay.example/relay",
+> 	registerUrl: "wss://relay.example/register",
+> 	seed,
+> });
+> ```
+> **Python (planned)**
+> ```python
+> # PLANNED: Python has no managed relay listen helper yet.
+> # The provider already accepts a registration URL. This shows the planned
+> # first-call, the same shape as tcp.noise.listen.
+> #
+> # from pancake import relay
+> # import os
+> #
+> # seed = os.urandom(32)
+> # async with await relay.noise.listen(
+> #     "wss://relay.example/relay",
+> #     "wss://relay.example/register",
+> #     seed=seed,
+> # ) as server:
+> ```
+> **Rust (planned)**
+> ```rust
+> // PLANNED: Rust has no managed relay listen helper yet.
+> // Config::with_register_url already exists. This shows the planned
+> // first-call, the same shape as tcp::noise::listen.
+> //
+> // use pancake::relay;
+> //
+> // let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+> // let server = relay::noise::listen(
+> //     "wss://relay.example/relay",
+> //     "wss://relay.example/register",
+> //     relay::ListenOptions {
+> //         identity: relay::ListenerIdentity::Seed(seed),
+> //         ..relay::ListenOptions::default()
+> //     },
+> // )
+> // .await?;
+> ```
+> **Racket (planned)**
+> ```scheme
+> ;; PLANNED: Racket has no managed relay listen helper yet.
+> ;; relay-provider already accepts #:register-url. This shows the planned
+> ;; first-call, the same shape as listen-noise-tcp.
+> ;;
+> ;; (require "pancake.rkt" "pancake-relay.rkt")
+> ;;
+> ;; (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+> ;; (define server (listen-noise-relay
+> ;;                 "wss://relay.example/relay"
+> ;;                 "wss://relay.example/register"
+> ;;                 #:seed seed))
 > ```
 ```=html
 <!-- /site-examples:listen:relay -->
 ```
 
-## Running one
+# Running one
 
 The Deno reference relay is a single file you point at a port:
 

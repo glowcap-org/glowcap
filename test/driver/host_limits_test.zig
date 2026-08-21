@@ -14,7 +14,7 @@ test "Host.Options projects full SessionLimits into minted peers" {
     limits.max_frame_bytes = 4096;
     limits.queue_cap = 17;
     limits.max_imports = 42;
-    var host = test_host.init(allocator, [_]u8{0xab} ** 32, .{ .limits = limits });
+    var host = test_host.init(allocator, @as([32]u8, @splat(0xab)), .{ .limits = limits });
     defer host.deinit();
 
     try std.testing.expectEqual(@as(usize, 4096), host.opts.frameCap());
@@ -50,11 +50,11 @@ test "Host initialization returns invalid option failures before publication" {
     durable.bootstrap_durability = .durable_bootstrap;
     try std.testing.expectError(
         error.DurableBootstrapUnavailable,
-        Host.init(std.testing.allocator, [_]u8{0x31} ** 32, [_]u8{0x32} ** 32, durable),
+        Host.init(std.testing.allocator, @as([32]u8, @splat(0x31)), @as([32]u8, @splat(0x32)), durable),
     );
     try std.testing.expectError(
         error.InvalidHostWorkQuantum,
-        Host.init(std.testing.allocator, [_]u8{0x33} ** 32, [_]u8{0x34} ** 32, .{
+        Host.init(std.testing.allocator, @as([32]u8, @splat(0x33)), @as([32]u8, @splat(0x34)), .{
             .host_work_quantum = 0,
         }),
     );
@@ -67,7 +67,7 @@ test "Host mint projects full SessionLimits onto an adopted peer" {
     limits.queue_cap = 17;
     limits.max_imports = 42;
 
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{ .limits = limits });
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{ .limits = limits });
     defer server.deinit();
 
     var pinned = engine.Peer.initNegotiating(allocator);
@@ -82,7 +82,7 @@ test "Host mint projects full SessionLimits onto an adopted peer" {
 
 test "Host refuses a full session operation counter before commit" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x4a} ** 32, .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x4a)), .{});
     defer host.deinit();
 
     var pinned = engine.Peer.initNegotiating(allocator);

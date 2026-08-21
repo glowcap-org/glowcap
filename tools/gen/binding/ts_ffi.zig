@@ -18,17 +18,17 @@ const cr = @import("c_abi_net_transport_relay");
 fn checkInventory(comptime M: type) void {
     comptime {
         @setEvalBranchQuota(40_000);
-        for (@typeInfo(M).@"struct".decls) |d| {
-            if (!std.mem.startsWith(u8, d.name, "pancake_")) continue;
-            if (@typeInfo(@TypeOf(@field(M, d.name))) != .@"fn") continue;
+        for (@typeInfo(M).@"struct".decl_names) |decl_name| {
+            if (!std.mem.startsWith(u8, decl_name, "pancake_")) continue;
+            if (@typeInfo(@TypeOf(@field(M, decl_name))) != .@"fn") continue;
             var listed = false;
             for (M.symbols.symbols) |row| {
-                if (std.mem.eql(u8, row.name, d.name)) listed = true;
+                if (std.mem.eql(u8, row.name, decl_name)) listed = true;
             }
             for (M.symbols.omitted_families) |fam| {
-                if (std.mem.startsWith(u8, d.name, fam.prefix)) listed = true;
+                if (std.mem.startsWith(u8, decl_name, fam.prefix)) listed = true;
             }
-            if (!listed) @compileError("export '" ++ d.name ++ "' has no row (or omitted-family match) in its symbols.zig inventory");
+            if (!listed) @compileError("export '" ++ decl_name ++ "' has no row (or omitted-family match) in its symbols.zig inventory");
         }
         for (M.symbols.symbols) |row| {
             // Resolving the name proves the row still names a live export.
@@ -134,7 +134,7 @@ const RowParts = struct {
 fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, used: *UsedClasses) !RowParts {
     const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
     inline for (row.out_params) |op| {
-        if (op >= info.params.len) {
+        if (op >= info.param_types.len) {
             @compileError(row.name ++ " names an out parameter beyond its reflected arity");
         }
     }
@@ -142,9 +142,9 @@ fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, use
     errdefer params.deinit(gpa);
     try params.appendSlice(gpa, "parameters: [");
     var any_buffer = false;
-    inline for (info.params, 0..) |p, i| {
+    inline for (info.param_types, 0..) |param_type, i| {
         if (i != 0) try params.appendSlice(gpa, ", ");
-        var class = tsParamClass(p.type.?);
+        var class = tsParamClass(param_type.?);
         inline for (row.pointer_params) |pp| {
             if (pp == i) class = "P";
         }

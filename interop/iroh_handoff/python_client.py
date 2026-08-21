@@ -103,7 +103,7 @@ async def run() -> None:
         TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}
     )
     gifter_runtime = await Runtime.open(
-        provider=provider(IrohConfig(Reachability.DIRECT)), host=gifter.host
+        provider=provider(IrohConfig(Reachability.DIRECT)), adopt_host=gifter.host
     )
     to_exporter = await gifter_runtime.connect(exporter_uri)
     greeter_ref = await to_exporter.fetch("greeter")

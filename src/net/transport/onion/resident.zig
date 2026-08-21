@@ -291,7 +291,7 @@ pub const Listener = struct {
     service_id: [socks5.service_id_len]u8,
     /// The key Tor returned for a freshly minted service, so a caller can store
     /// it and restore the same address later. Empty for a restored service.
-    service_key_store: [256]u8,
+    service_key_store: [session_mod.service_key_cap]u8,
     service_key_len: usize,
     /// The Unix socket path this listener bound, when it bound one, so `close`
     /// can remove it. Tor does not clean up a forward target it only connected

@@ -4,6 +4,7 @@ import { HINT_DIRECT_ADDRESSES, type Locator, PancakeError, Reachability, TRANSP
 import type { DriverLoop } from "@pancake/runtime/transport";
 import {
 	ab,
+	BUFFER_TOO_SMALL,
 	CLOSED,
 	ffi,
 	INVALID_ARGUMENT,
@@ -12,6 +13,7 @@ import {
 	IROH_CONFIG_REACHABILITY_OFF,
 	IROH_CONFIG_SIZE,
 	IROH_CONFIG_WORKER_THREADS_OFF,
+	IROH_NODE_ID_BYTES,
 	NativeDiagnostic,
 	NULL,
 	OK,
@@ -55,6 +57,10 @@ function readUsize(buf: Uint8Array): number {
 	return Number(new DataView(buf.buffer).getBigUint64(0, true));
 }
 
+function readUsizeView(view: DataView): number {
+	return Number(view.getBigUint64(0, true));
+}
+
 /** One iroh endpoint's configuration, field-for-field with the header's
  * `PancakeIrohConfig`, which documents what each setting means. An omitted
  * timeout takes the transport's default.
@@ -88,6 +94,9 @@ export class IrohNetlayer {
 	#releasePromise: Promise<void> | null = null;
 	#children = new Set<IrohConnection>();
 	#releaseRequested = false;
+	readonly #countOut = new Uint8Array(8);
+	readonly #countView = new DataView(this.#countOut.buffer);
+	readonly #connOut = new Uint8Array(8);
 	readonly #releaseDiagnostic = new NativeDiagnostic("iroh");
 
 	/** Bind an endpoint. `config` carries the endpoint's settings, mandatory
@@ -172,7 +181,7 @@ export class IrohNetlayer {
 	/** This endpoint's id, its Ed25519 public key as lowercase hex, the dialable
 	 * designator a keyed locator signs and a partner passes to `connect`. */
 	nodeId(): string {
-		const cap = 64;
+		const cap = IROH_NODE_ID_BYTES;
 		const out = new Uint8Array(cap);
 		const len = new Uint8Array(8);
 		irohCheck(
@@ -185,18 +194,35 @@ export class IrohNetlayer {
 	 * a partner needs because the sidecar binds relay-less and lookup-less. Empty
 	 * when the endpoint has no direct addresses yet. */
 	directAddresses(): string {
-		const cap = 1024;
-		const out = new Uint8Array(cap);
-		const len = new Uint8Array(8);
-		irohCheck(
-			irohS().pancake_iroh_netlayer_direct_addrs(
+		const probeLen = new Uint8Array(8);
+		const probeRc = irohS().pancake_iroh_netlayer_direct_addrs(
+			this.#raw,
+			null,
+			0n,
+			probeLen,
+		);
+		let cap = readUsize(probeLen);
+		if (probeRc !== BUFFER_TOO_SMALL) {
+			irohCheck(probeRc);
+			if (cap === 0) return "";
+		}
+		for (;;) {
+			const out = new Uint8Array(cap);
+			const len = new Uint8Array(8);
+			const rc = irohS().pancake_iroh_netlayer_direct_addrs(
 				this.#raw,
 				out,
 				BigInt(cap),
 				len,
-			),
-		);
-		return new TextDecoder().decode(out.subarray(0, readUsize(len)));
+			);
+			const required = readUsize(len);
+			if (rc === BUFFER_TOO_SMALL && required > cap) {
+				cap = required;
+				continue;
+			}
+			irohCheck(rc);
+			return new TextDecoder().decode(out.subarray(0, required));
+		}
 	}
 
 	// ── The event-driven loop surface (ADR-0057) ───────────────────────────────
@@ -224,17 +250,16 @@ export class IrohNetlayer {
 	 * blocking. Returns the record count (0 when none); throws on fault. Call it
 	 * when `readinessFd` signals, then again until it returns fewer than `cap`. */
 	drainReady(buf: Uint8Array, cap: number): number {
-		const out = new Uint8Array(8);
 		const rc = irohS().pancake_iroh_netlayer_drain_ready(
 			this.#raw,
 			ab(buf),
 			BigInt(cap),
-			ab(out),
+			ab(this.#countOut),
 		);
 		if (rc !== OK) {
 			throw new PancakeError(rc, irohLastError() ?? `iroh drain_ready failed (code ${rc})`);
 		}
-		return Number(new DataView(out.buffer).getBigUint64(0, true));
+		return readUsizeView(this.#countView);
 	}
 
 	/** Borrow this endpoint's archive-owned provider package. */
@@ -271,11 +296,10 @@ export class IrohNetlayer {
 
 	/** Claim one accepted non-blocking connection, or null when none is pending. */
 	tryAccept(): IrohConnection | null {
-		const out = new Uint8Array(8);
-		const code = irohS().pancake_iroh_netlayer_try_accept(this.#raw, out);
+		const code = irohS().pancake_iroh_netlayer_try_accept(this.#raw, this.#connOut);
 		if (code === WOULD_BLOCK) return null;
 		irohCheck(code);
-		return new IrohConnection(outPointer(out), this);
+		return new IrohConnection(outPointer(this.#connOut), this);
 	}
 
 	startConnect(requestId: bigint, nodeId: string, addrHints: string): void {
@@ -294,11 +318,10 @@ export class IrohNetlayer {
 	}
 
 	finishConnect(requestId: bigint): IrohConnection {
-		const out = new Uint8Array(8);
 		irohCheck(
-			irohS().pancake_iroh_netlayer_finish_connect(this.#raw, requestId, out),
+			irohS().pancake_iroh_netlayer_finish_connect(this.#raw, requestId, this.#connOut),
 		);
-		return new IrohConnection(outPointer(out), this);
+		return new IrohConnection(outPointer(this.#connOut), this);
 	}
 
 	cancelConnect(requestId: bigint): void {
@@ -360,6 +383,9 @@ export class IrohNetlayer {
 export class IrohConnection {
 	#raw: Ptr;
 	readonly #netlayer: IrohNetlayer;
+	readonly #countOut = new Uint8Array(8);
+	readonly #countView = new DataView(this.#countOut.buffer);
+
 	constructor(raw: Ptr, netlayer: IrohNetlayer) {
 		this.#raw = raw;
 		this.#netlayer = netlayer;
@@ -384,7 +410,7 @@ export class IrohConnection {
 	 * `Session.bindVerifiedChannelKey`, which `_connectIroh`
 	 * below do for every session this module establishes. */
 	remoteNodeId(): string | null {
-		const cap = 64;
+		const cap = IROH_NODE_ID_BYTES;
 		const out = new Uint8Array(cap);
 		const len = new Uint8Array(8);
 		const rc = irohS().pancake_iroh_conn_remote_node_id(
@@ -401,12 +427,11 @@ export class IrohConnection {
 	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of
 	 * stream, or throws on a fault. The caller frames these bytes itself. */
 	tryReadInto(buf: Uint8Array): number {
-		const out = new Uint8Array(8);
 		const rc = irohS().pancake_iroh_conn_try_read(
 			this.#raw,
 			ab(buf),
 			BigInt(buf.length),
-			ab(out),
+			ab(this.#countOut),
 		);
 		if (rc === WOULD_BLOCK || rc === CLOSED) return rc;
 		if (rc !== OK) {
@@ -415,19 +440,18 @@ export class IrohConnection {
 				irohLastError() ?? `iroh conn try_read failed (code ${rc})`,
 			);
 		}
-		return Number(new DataView(out.buffer).getBigUint64(0, true));
+		return readUsizeView(this.#countView);
 	}
 
 	/** Non-blocking write of `buf`'s raw bytes: the count written (possibly a
 	 * prefix), or `WOULD_BLOCK` when the outbound buffer has no room. Throws on a
 	 * fault. */
 	tryWrite(buf: Uint8Array): number {
-		const out = new Uint8Array(8);
 		const rc = irohS().pancake_iroh_conn_try_write(
 			this.#raw,
 			ab(buf),
 			BigInt(buf.length),
-			ab(out),
+			ab(this.#countOut),
 		);
 		if (rc === WOULD_BLOCK) return rc;
 		if (rc !== OK) {
@@ -436,7 +460,7 @@ export class IrohConnection {
 				irohLastError() ?? `iroh conn try_write failed (code ${rc})`,
 			);
 		}
-		return Number(new DataView(out.buffer).getBigUint64(0, true));
+		return readUsizeView(this.#countView);
 	}
 
 	release(): void {

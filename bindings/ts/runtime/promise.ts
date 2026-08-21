@@ -168,7 +168,6 @@ export function sendFar(
 	const verbBytes = utf8Encoder.encode(verb);
 	const keep: Uint8Array[] = [];
 	const argsBuf = encodeArgs(args, keep);
-	const argsArg = args.length ? ab(argsBuf) : new Uint8Array(0);
 	const out = new Uint8Array(8);
 	if (target instanceof RemotePromise) {
 		// Promise pipelining: eventual-send to the unresolved answer. A local
@@ -179,7 +178,7 @@ export function sendFar(
 			sourceVow,
 			ab(verbBytes),
 			BigInt(verbBytes.length),
-			argsArg,
+			ab(argsBuf),
 			BigInt(args.length),
 			ab(out),
 		));
@@ -189,7 +188,7 @@ export function sendFar(
 			ab(refStruct(target)),
 			ab(verbBytes),
 			BigInt(verbBytes.length),
-			argsArg,
+			ab(argsBuf),
 			BigInt(args.length),
 			ab(out),
 		));

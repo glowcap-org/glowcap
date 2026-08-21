@@ -3,7 +3,7 @@ const pancake = @import("pancake");
 const iroh = @import("iroh");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const seed = [_]u8{7} ** 32; // keep this seed to preserve the node id
+    const seed = @as([32]u8, @splat(7)); // keep this seed to preserve the node id
     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});

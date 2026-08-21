@@ -17,7 +17,7 @@ import type { Session } from "@pancake/runtime";
 import type { Room } from "../../../lib/room_client.ts";
 import { BLOB_EXPIRED, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
-import type { DmConv, Item, RoomConv, ViewerDirection } from "../types.ts";
+import type { Item, ViewerDirection } from "../types.ts";
 import { reason } from "./common.ts";
 import { convSession, type HeldFile, isCurrent, type Live } from "./live.ts";
 
@@ -251,10 +251,6 @@ export function releaseFiles(session: Live): void {
 }
 
 /** Release media whose conversation history is about to disappear. */
-export function releaseConversationFiles(session: Live, conv: RoomConv | DmConv): void {
-	releaseLines(session, conv.key, conv.history);
-}
-
 /** Let go of everything a set of lines was holding: the bytes of each file they
  * carried, the URL a picture was drawn from, and the reference that governed one
  * of our own. Called for a conversation that is going, and for the oldest lines

@@ -16,7 +16,6 @@ import { type DirId, type DmConv } from "../types.ts";
 import { reason } from "./common.ts";
 import { convSession, dirAddress, dirSession, isCurrent } from "./live.ts";
 import { actLocator, notePickedRoom } from "./bootstrap.ts";
-import { releaseConversationFiles } from "./files.ts";
 import { dropLine, releaseBackChannel } from "./direct.ts";
 import { enterRoom } from "./enter.ts";
 export { enterRoom } from "./enter.ts";
@@ -225,8 +224,6 @@ export function leaveRoom(key: string): void {
 	// stands on its own, so leaving this room should leave a reader where they
 	// are unless this room *is* where they are.
 	const wasReading = store.get().activeKey === key;
-	const conv = store.getConv(key);
-	if (owner && conv?.type === "room") releaseConversationFiles(owner, conv);
 	store.forgetConv(key);
 	if (wasReading) {
 		const next = [...store.get().convs.keys()][0];
@@ -267,7 +264,6 @@ export function closeDm(conv: DmConv): void {
 	const key = conv.key;
 	const s = store.get();
 	const owner = dirSession(conv.dir);
-	if (owner) releaseConversationFiles(owner, conv);
 	store.forgetConv(key);
 	// Hand the line's own connection back. A redeemed introduction holds one open
 	// to the member for as long as the line lives, so forgetting the line here

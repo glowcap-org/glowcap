@@ -8,8 +8,8 @@
 ;; byte-fed Host. It never classifies a locator into a transport-specific sum.
 ;;
 ;; Lazy-require breaks the session ↔ dial cycle: dial lazy-requires session
-;; for serve / drain choreography; the public barrel
-;; (`pancake.rkt`) requires dial directly.
+;; for serve / drain choreography and session/close for terminal close; the
+;; public barrel (`pancake.rkt`) requires dial directly.
 
 (require ffi/unsafe
          racket/lazy-require
@@ -21,12 +21,18 @@
          "locator.rkt"
          "async.rkt"
          "host.rkt"
+         "host/state.rkt"
          "transport.rkt"
-         (only-in "abi-value.rkt" feature-mask)
+         (only-in "abi-value.rkt"
+                  DEFAULT-CAPTP-VERSION-SYMBOL
+                  DEFAULT-CODEC-SYMBOL
+                  DEFAULT-FEATURES-SYMBOL
+                  feature-mask)
          "action.rkt"
+         "session/state.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
          ;; the dial and the accept rule spell their default with one constant.
-         (only-in "pump.rkt" HANDSHAKE-TIMEOUT-MS))
+         (only-in "pump.rkt" HANDSHAKE-TIMEOUT-MS with-host-drain))
 
 (lazy-require
  ["loop.rkt"
@@ -36,10 +42,9 @@
    driver-loop-abort!
    loop-connect-session)]
  ["session.rkt"
-  (session-close!
-   session-serve
-   session-ptr
-   with-host-drain)])
+  (session-serve)]
+ ["session/close.rkt"
+  (session-close!)])
 
 (provide dial-exporter
          run-dial!
@@ -93,13 +98,13 @@
   (or adopted-host
       (if seed
           (make-host seed
-                     #:codec (or codec 'syrup)
-                     #:captp-version (or captp-version 'v1_0)
-                     #:features (or features 'full))
+                     #:codec (or codec DEFAULT-CODEC-SYMBOL)
+                     #:captp-version (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL)
+                     #:features (or features DEFAULT-FEATURES-SYMBOL))
           (make-fresh-host
-           #:codec (or codec 'syrup)
-           #:captp-version (or captp-version 'v1_0)
-           #:features (or features 'full)))))
+           #:codec (or codec DEFAULT-CODEC-SYMBOL)
+           #:captp-version (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL)
+           #:features (or features DEFAULT-FEATURES-SYMBOL)))))
 
 (define (check-composition who values predicate transports-of label)
   (unless (and (list? values) (pair? values) (andmap predicate values))
@@ -247,10 +252,10 @@
      (with-handlers ([converts-to-broken?
                       (lambda (e)
                         (set! failure (exn->message e)))])
-       (define-values (rc locator-view)
+       (define-values (rc locator-handle)
          (pancake_host_pending_dial (host-ptr m) ticket))
        (check/host rc)
-       (define loc (clone-locator-view locator-view))
+       (define loc (call-with-owned-locator-handle locator-handle owned-locator->locator))
        (set! c (dial-exporter m loc))
        (with-host-drain m
          (lambda ()

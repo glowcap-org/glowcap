@@ -117,10 +117,11 @@ comptime {
         _ = @import("net/readiness_test.zig");
     if (@import("builtin").os.tag == .linux)
         _ = @import("net/uring_test.zig");
-    if (@import("builtin").os.tag == .linux)
+    if (@import("builtin").os.tag == .linux) {
         _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
-    _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
-    _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
+    }
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("driver/host_runtime_step/serve_test.zig");
     _ = @import("driver/host_runtime_step/staged_dial_test.zig");
@@ -144,6 +145,7 @@ comptime {
     _ = @import("session/traffic_test.zig");
     _ = @import("session/set_uniqueness_test.zig");
     _ = @import("session/answer_test.zig");
+    _ = @import("session/answer_notification_test.zig");
     _ = @import("session/gc_test.zig");
     _ = @import("session/grant_test.zig");
     _ = @import("session/handoff_test.zig");
@@ -182,6 +184,7 @@ comptime {
     _ = @import("engine/bootstrap_test.zig");
     _ = @import("engine/sturdyref_test.zig");
     _ = @import("engine/gift_registry_test.zig");
+    _ = @import("engine/gift_registry_budget_test.zig");
     _ = @import("engine/cross_peer/authority_test.zig");
     _ = @import("engine/cross_peer/withdraw_test.zig");
     _ = @import("engine/cross_peer/parked_test.zig");
@@ -194,7 +197,9 @@ comptime {
     _ = @import("engine/node/tables_test.zig");
     _ = @import("engine/node/proxy_test.zig");
     _ = @import("engine/node/proxy/convergence_test.zig");
+    _ = @import("engine/node/proxy/lifecycle_test.zig");
     _ = @import("engine/node/gift_test.zig");
+    _ = @import("engine/node/answer_settlement_test.zig");
     _ = @import("engine/node/gift_failure_test.zig");
     _ = @import("engine/node/dial_test.zig");
     _ = @import("engine/node/withdraw_test.zig");
@@ -208,6 +213,8 @@ comptime {
     _ = @import("driver/core_host/finish_test.zig");
     _ = @import("driver/core_host/pressure_test.zig");
     _ = @import("driver/core_host/give_test.zig");
+    _ = @import("driver/core_host/capability_projection_test.zig");
+    _ = @import("driver/core_host/routing_depth_test.zig");
     _ = @import("driver/core_host/give/relayed_test.zig");
     _ = @import("driver/core_host/locator_test.zig");
     _ = @import("driver/core_host/redeem_test.zig");

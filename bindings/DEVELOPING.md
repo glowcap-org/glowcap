@@ -9,7 +9,7 @@ binding loads `libpancake_host` for the `pancake_host_*` family and
 `libpancake_driver` for the `pancake_driver_*` family. The driver adopts a
 quiescent Host; it neither re-exports nor duplicates Host state. Transport
 archives contribute packages through `pancake_driver_add_provider`: the TCP
-archive's one package owns `tcp`, `keyed-tcp`, and `noise-tcp`, while the iroh
+archive's one package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`, while the iroh
 package owns both dial and listener execution. Bindings load and register a
 package; they do not mirror its profiles, implementation tables, socket
 choreography, or callback lifetime.
@@ -52,14 +52,14 @@ provided/failed. The shared Zig helper
 loop from drifting across runtimes.
 
 The same commit discipline governs work created by a language finalizer or a
-detached progress task. Finalizers only park opaque Host IDs; they never call
-the C ABI. The pumping thread calls `pancake_host_ref_release`, removes a token
-only after PANCAKE_OK, and leaves the refused token and unattempted tail owned
-for retry. A scheduled drain has no immediate caller, so the Host wrapper
-retains its exact typed failure and surfaces it at the next verb head. Bindings
-do not classify failures or invent release semantics: the C ABI guarantees
-that non-OK committed no release, and the core remains the authority for what
-the release means.
+detached progress task. Capability-GC finalizers only park opaque Host ref IDs;
+they never call the C ABI. The pumping thread calls `pancake_host_ref_release`,
+removes a token only after `PANCAKE_OK`, and leaves the refused token and
+unattempted tail owned for retry. A scheduled drain has no immediate caller, so
+the Host wrapper retains its exact typed failure and surfaces it at the next
+verb head. Bindings do not classify capability-release failures or invent
+release semantics: the C ABI guarantees that a non-OK ref release committed no
+release, and the core remains the authority for what the release means.
 
 Inbound byte streams go through `pancake_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
@@ -123,6 +123,10 @@ A behavior that closes its own session must park the release until the callback
 returns. A reachable Host stays on its owning thread. Once a language finalizer
 has exclusive terminal ownership, `pancake_host_release` may run on that
 finalizer thread; it cannot race a Host call or leave a live verb to migrate.
+Terminal Host and driver release use a different result contract from
+capability-GC release. Only a pre-consumption refusal keeps the native handle
+live for retry; every teardown outcome consumes it and leaves any failure at
+the terminal close or diagnostic owner.
 
 Every vow-producing function returns its vow ID. Insert that ID into the
 binding's promise table immediately. Its result later arrives as a `SETTLE` or

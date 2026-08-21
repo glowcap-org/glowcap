@@ -119,7 +119,7 @@ pub const binding_public_api_retirements: []const Ban = &.{
         .why = "Racket host-close! is the one Host policy barrier; the retired host-release! verb must not return",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host.py" },
+        .where = .{ .tree = .{ .dir = "bindings/python/pancake/_host", .suffixes = &.{".py"} } },
         .kind = .forbid,
         .needles = &.{
             "async def release_async",
@@ -209,8 +209,8 @@ pub const test_only_surface: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "src/driver/core/host_action.zig",
-            "src/driver/core/host_pump.zig",
+            "src/driver/core/host/action.zig",
+            "src/driver/core/host/pump.zig",
         } },
         .kind = .forbid,
         .needles = &.{ "pub fn testingMarkDirty", "pub fn testingQueueUniqueSessionAction" },

@@ -68,8 +68,8 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed([_]u8{0x11} ** crypto.SEED_BYTES);
-    const secret2 = crypto.SecretKey.fromSeed([_]u8{0x22} ** crypto.SEED_BYTES);
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x22)));
 
     // Each side proactively signs and queues its own keyed start-session, exactly
     // as a real handshake (and a live Goblins partner) does.
@@ -100,8 +100,8 @@ test "sendKeyedStartSession advertises non-baseline features into the signed hel
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:11", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:12", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed([_]u8{0x12} ** crypto.SEED_BYTES);
-    const secret2 = crypto.SecretKey.fromSeed([_]u8{0x23} ** crypto.SEED_BYTES);
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x12)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x23)));
 
     try p1.sendKeyedStartSession(loc1, secret1);
     try p2.sendKeyedStartSession(loc2, secret2);
@@ -151,8 +151,8 @@ test "sendKeyedStartSession preserves arbitrary locator hint maps" {
         .designator = "peer-two",
         .hints = model.Hints.emptyFalse(),
     };
-    try p1.sendKeyedStartSession(loc1, crypto.SecretKey.fromSeed([_]u8{0x31} ** crypto.SEED_BYTES));
-    try p2.sendKeyedStartSession(loc2, crypto.SecretKey.fromSeed([_]u8{0x32} ** crypto.SEED_BYTES));
+    try p1.sendKeyedStartSession(loc1, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x31))));
+    try p2.sendKeyedStartSession(loc2, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x32))));
 
     var i: usize = 0;
     while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
@@ -198,9 +198,9 @@ test "a hello naming anything but the baseline version is refused before it is s
     try std.testing.expectError(session.Error.CaptpVersionMismatch, peer.sendCopying(.{
         .start_session = .{
             .captp_version = .next,
-            .session_pubkey = .{ .bytes = &[_]u8{0} ** 32 },
+            .session_pubkey = .{ .bytes = &@as([32]u8, @splat(0)) },
             .acceptable_location = loc,
-            .acceptable_location_sig = .{ .bytes = &[_]u8{0} ** 64 },
+            .acceptable_location_sig = .{ .bytes = &@as([64]u8, @splat(0)) },
         },
     }));
     try std.testing.expect(!peer.session_state.handshake_local_sent);
@@ -223,7 +223,7 @@ test "a negotiated fallback retains its hello under the baseline profile" {
     };
     try sender.sendKeyedStartSession(
         locator,
-        crypto.SecretKey.fromSeed([_]u8{0x42} ** crypto.SEED_BYTES),
+        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x42))),
     );
     try std.testing.expectEqual(engine.StepOutcome.progress, try sender.step());
     try receiver.feedOwned(sender.takeOutbound().?);
@@ -267,7 +267,7 @@ test "exact keyed start-session refuses an unstamped non-baseline profile" {
     defer peer.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x44} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x44)));
     try std.testing.expectError(
         session.Error.MalformedMessage,
         peer.sendKeyedStartSessionExact(loc, secret),
@@ -289,7 +289,7 @@ test "exact keyed start-session refuses duplicate locator hints before signing" 
         .designator = "127.0.0.1:1",
         .hints = .{ .entries = &hints },
     };
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x45} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x45)));
     try std.testing.expectError(
         session.Error.MalformedMessage,
         peer.sendKeyedStartSessionExact(loc, secret),
@@ -299,8 +299,8 @@ test "exact keyed start-session refuses duplicate locator hints before signing" 
 
 test "keyed start-session refuses an unregistered preferred codec before signing" {
     const allocator = std.testing.allocator;
-    const unknown: model.CodecId = @enumFromInt(0xfffe);
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x46} ** crypto.SEED_BYTES);
+    const unknown: model.CodecId = @fromBackingInt(@intCast(0xfffe));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x46)));
     const loc: model.PeerLocator = .{
         .transport = "tcp",
         .designator = "127.0.0.1:1",
@@ -329,8 +329,8 @@ test "keyed start-session refuses an unregistered preferred codec before signing
 
 test "a signed hello advertising an unknown codec falls back before dispatch" {
     const allocator = std.testing.allocator;
-    const local_secret = crypto.SecretKey.fromSeed([_]u8{0x47} ** crypto.SEED_BYTES);
-    const remote_secret = crypto.SecretKey.fromSeed([_]u8{0x48} ** crypto.SEED_BYTES);
+    const local_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x47)));
+    const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x48)));
 
     var peer = engine.Peer.initNegotiatingWith(allocator, .{
         .captp_version = .next,

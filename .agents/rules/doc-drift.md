@@ -39,7 +39,6 @@ change as the state they describe:
 - `docs/community-review.md`
 - `docs/decisions/README.md`
 - `docs/protocol-diagrams/**`
-- `docs/issues/**`
 - `site/content/**`
 - `bindings/README.md`
 - `bindings/DEVELOPING.md`
@@ -69,8 +68,8 @@ change as the state they describe:
 - `bench/goblins/METHODOLOGY.md`
 - `conformance/ocapn-findings/README.md`
 - `.devcontainer/README.md`
-- `.devcontainer/networking.md`
-- `.devcontainer/host-configuration.md`
+- `.devcontainer/docs/networking.md`
+- `.devcontainer/docs/host-configuration.md`
 - `AGENTS.md`
 - `.agents/**`
 - `.cursor/README.md`, `.cursor/*.json`, and `.cursor/rules/*.mdc`

@@ -32,11 +32,11 @@ const TraceLog = harness.TraceLog;
 
 test "core host: listen refuses a foreign near target before routing" {
     const allocator = std.testing.allocator;
-    var caller = test_host.init(allocator, [_]u8{0x38} ** 32, Host.Options.withFrameCap(frame_cap));
+    var caller = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.withFrameCap(frame_cap));
     defer caller.deinit();
-    var owner = test_host.init(allocator, [_]u8{0x39} ** 32, Host.Options.withFrameCap(frame_cap));
+    var owner = test_host.init(allocator, @as([32]u8, @splat(0x39)), Host.Options.withFrameCap(frame_cap));
     defer owner.deinit();
-    var partner = test_host.init(allocator, [_]u8{0x3a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -50,9 +50,9 @@ test "core host: listen refuses a foreign near target before routing" {
 
 test "core host: publication refuses callback reentry before Vat spawn" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -76,11 +76,11 @@ test "core host: publication refuses callback reentry before Vat spawn" {
 
 test "core host: foreign release validates before trace close" {
     const allocator = std.testing.allocator;
-    var caller = test_host.init(allocator, [_]u8{0x3d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var caller = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
     defer caller.deinit();
-    var owner = test_host.init(allocator, [_]u8{0x3e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var owner = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.withFrameCap(frame_cap));
     defer owner.deinit();
-    var partner = test_host.init(allocator, [_]u8{0x3f} ** 32, Host.Options.withFrameCap(frame_cap));
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var caller_log = TraceLog{};
     try caller.setTrace(.{ .ctx = &caller_log, .emit = TraceLog.emit });
@@ -98,9 +98,9 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     // ADR-0098 step 4 at the byte-fed tier: the same select-or-dial the native
     // HostRuntime performs, driven here by an embedder that only answers actions.
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -124,7 +124,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     // DIAL: an unreached peer parks the enliven on a staged dial, which
     // reaches the embedder as the ordinary `dial` action — one ticket space,
     // so the embedder's dial arm is unchanged.
-    var second = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var second = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer second.deinit();
     const parked_vow = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7802", "widget"));
     try std.testing.expect(parked_vow != selected);
@@ -177,7 +177,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
 
 test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer {
@@ -199,7 +199,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     while (try client.nextAction()) |action| {
         switch (action) {
             .failed => |f| if (f.vow_id == parked_vow) {
-                try std.testing.expect(f.peer_id == null);
+                try std.testing.expect(f.peer_handle == null);
                 try std.testing.expectEqual(driver.core.VowFailure.broken, f.failure);
                 broke = true;
             },
@@ -211,7 +211,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
 
 test "core host: a failed pending path reuses its ticket for the next locator" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x0d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     const alternative = try model.uri.writePeer(allocator, .{
@@ -257,9 +257,9 @@ test "core host: a failed pending path reuses its ticket for the next locator" {
 
 test "core host: sturdyref peer mismatch and accepted TCP assertion refuse before fetch" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -287,7 +287,7 @@ test "core host: sturdyref peer mismatch and accepted TCP assertion refuse befor
 
 test "core host: feedBytes rejects an outer length over cap before its body" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(8));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(8));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7010", &.{});
     try std.testing.expectError(error.FrameTooLarge, host.feedBytes(session, "9:"));
@@ -295,9 +295,9 @@ test "core host: feedBytes rejects an outer length over cap before its body" {
 
 test "core host: publish, fetch, and a settled send over fed bytes" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

@@ -21,8 +21,8 @@ const engine = pancake.ocapn.engine;
 const codec = pancake.ocapn.codec;
 const crypto = foundation.crypto;
 
-pub const zero_pubkey = [_]u8{0} ** 32;
-pub const zero_sig = [_]u8{0} ** 64;
+pub const zero_pubkey = @as([32]u8, @splat(0));
+pub const zero_sig = @as([64]u8, @splat(0));
 
 /// The unsigned loopback `op:start-session`. The receiving peer must run
 /// with `verify_partner_handshake = false`; a verifying peer refuses it.

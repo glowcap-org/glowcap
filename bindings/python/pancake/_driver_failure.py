@@ -132,6 +132,8 @@ def _close_listener(handle, listener: int) -> None:
         "driver listener_close",
         lambda out: _driver.pancake_driver_listener_close(handle, listener, out),
     )
+    if outcome.code == _c.WOULD_BLOCK:
+        raise PancakeError(_c.WOULD_BLOCK, "driver listener_close is still pending")
     if outcome.error is not None:
         raise outcome.error
 

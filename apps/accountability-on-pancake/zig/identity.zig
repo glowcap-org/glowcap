@@ -81,7 +81,7 @@ pub const Identity = struct {
         // with the `i`/`d` fields zero-filled, then substituted back, the
         // standard self-addressing dance.
         const next_digest = nextKeyDigest(next.verkey());
-        var placeholder: [SAID_LEN]u8 = .{blank} ** SAID_LEN;
+        var placeholder: [SAID_LEN]u8 = @splat(blank);
         const draft = try self.renderInception(allocator, placeholder, next_digest);
         defer allocator.free(draft);
         self.aid = saidOf(draft);
@@ -171,7 +171,7 @@ pub const Identity = struct {
 const testing = std.testing;
 
 fn seededKey(seed_byte: u8) !Key {
-    return Key.fromSeed(.{seed_byte} ** SEED_BYTES);
+    return Key.fromSeed(@as([SEED_BYTES]u8, @splat(seed_byte)));
 }
 
 fn codedVerkey(key: Key) [SAID_LEN]u8 {

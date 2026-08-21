@@ -69,7 +69,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     try b.print(gpa, "#define PANCAKE_RELAY_CONFIG_ABI_VERSION {d}u\n", .{c.PANCAKE_RELAY_CONFIG_ABI_VERSION});
     try b.print(gpa, "#define PANCAKE_RELAY_TRUST_SYSTEM {d}u\n", .{c.PANCAKE_RELAY_TRUST_SYSTEM});
-    try b.print(gpa, "#define PANCAKE_RELAY_TRUST_COPIED_PEM {d}u\n\n", .{c.PANCAKE_RELAY_TRUST_COPIED_PEM});
+    try b.print(gpa, "#define PANCAKE_RELAY_TRUST_COPIED_PEM {d}u\n", .{c.PANCAKE_RELAY_TRUST_COPIED_PEM});
+    try b.print(gpa, "#define PANCAKE_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES {d}u\n\n", .{c.PANCAKE_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES});
     try E.emitStruct(&b, gpa, c.PancakeRelayConfig, "PancakeRelayConfig", &.{
         "Must equal PANCAKE_RELAY_CONFIG_ABI_VERSION.",
         "Must equal sizeof(PancakeRelayConfig).",

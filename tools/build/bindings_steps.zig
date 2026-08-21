@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 const site_build = @import("site.zig");
 
 const addRootedSystemCommand = common.addRootedSystemCommand;
@@ -17,12 +18,14 @@ pub const dogfoods = [_]struct {
     description: []const u8,
     argv: []const []const u8,
     needs_iroh_abi: bool,
+    posture: execution.Posture,
 }{
     .{
         .step_name = "rust-dogfood",
         .description = "Run Rust C ABI dogfood tests against the pancake C ABI archives (needs cargo)",
         .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async" },
         .needs_iroh_abi = false,
+        .posture = .{ .deterministic = 5 },
     },
     .{
         .step_name = "deno-dogfood",
@@ -32,24 +35,28 @@ pub const dogfoods = [_]struct {
         // dropped import releases its export.
         .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--v8-flags=--expose-gc", "bindings/ts/dogfood/zig_smoke.ts" },
         .needs_iroh_abi = true,
+        .posture = .{ .deterministic = 15 },
     },
     .{
         .step_name = "bun-dogfood",
         .description = "Run the Bun C ABI dogfood against the pancake C ABI archives — same multi-runtime binding as Deno (needs bun)",
         .argv = &.{ "bun", "run", "bindings/ts/dogfood/zig_smoke.ts" },
         .needs_iroh_abi = true,
+        .posture = .{ .deterministic = 15 },
     },
     .{
         .step_name = "python-dogfood",
         .description = "Run the Python C ABI dogfood against the pancake C ABI archives (needs python3)",
         .argv = &.{ "python3", "bindings/python/zig_smoke.py" },
         .needs_iroh_abi = true,
+        .posture = .{ .deterministic = 10 },
     },
     .{
         .step_name = "racket-dogfood",
         .description = "Run the Racket C ABI dogfood against the pancake C ABI archives (needs racket)",
         .argv = &.{ "racket", "-y", "bindings/racket/zig-smoke.rkt" },
         .needs_iroh_abi = true,
+        .posture = .{ .deterministic = 15 },
     },
 };
 
@@ -75,18 +82,42 @@ pub fn register(
     // this repo's devcontainer.
     var dogfood_runs: [dogfoods.len]*std.Build.Step.Run = undefined;
     for (dogfoods, 0..) |dogfood, i| {
-        dogfood_runs[i] = addRootedSystemCommand(b, dogfood.argv);
+        dogfood_runs[i] = addRootedSystemCommand(b, dogfood.posture, dogfood.argv);
         dogfood_runs[i].step.dependOn(b.getInstallStep());
         b.step(dogfood.step_name, dogfood.description).dependOn(&dogfood_runs[i].step);
     }
+    // Compile/cache work is deliberately outside the bounded proof process:
+    // the deadline measures execution and teardown, not a cold Cargo build or
+    // first Deno dependency fetch.
+    const rust_dogfood_compile = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async",
+    });
+    rust_dogfood_compile.step.dependOn(b.getInstallStep());
+    dogfood_runs[0].step.dependOn(&rust_dogfood_compile.step);
+    const deno_dogfood_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "cache", "bindings/ts/dogfood/zig_smoke.ts",
+    });
+    dogfood_runs[1].step.dependOn(&deno_dogfood_cache.step);
+    const python_artifact_smoke = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "python3", "bindings/python/smoke/artifact.py",
+    });
+    python_artifact_smoke.step.dependOn(b.getInstallStep());
+    dogfood_runs[2].step.dependOn(&python_artifact_smoke.step);
     // The macOS Rust test executable resolves pancake's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
     // this step installed.
-    const dogfood_lib_dir = b.pathFromRoot("zig-out/lib");
+    const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
     dogfood_runs[0].setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
+    rust_dogfood_compile.setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
     switch (builtin.os.tag) {
-        .macos => dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir),
-        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => dogfood_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir),
+        .macos => {
+            dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
+            rust_dogfood_compile.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
+        },
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
+            dogfood_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
+            rust_dogfood_compile.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
+        },
         else => {},
     }
     const python_relay_tests = [_][]const u8{
@@ -94,11 +125,11 @@ pub fn register(
         "bindings/python/test/relay_test.py",
     };
     for (python_relay_tests) |test_file| {
-        const run = addRootedSystemCommand(b, &.{
-            "uv", "run", "--project", "bindings/python", "--locked", "python3", test_file,
+        const run = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+            "uv", "run", "--project", "bindings/python", "--extra", "rendezvous", "--locked", "python3", test_file,
         });
         run.step.dependOn(b.getInstallStep());
-        run.setEnvironmentVariable("PYTHONPATH", b.pathFromRoot("bindings/python"));
+        run.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
         run.setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
         switch (builtin.os.tag) {
             .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir),
@@ -111,7 +142,7 @@ pub fn register(
     // this compile-only leg keeps that claim a gate instead of a sentence (the
     // cfg-gated surface plus the dead-code deny make it the likeliest shape to
     // rot silently).
-    const rust_core_only = addRootedSystemCommand(b, &.{
+    const rust_core_only = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features",
     });
     rust_core_only.step.dependOn(b.getInstallStep());
@@ -136,13 +167,14 @@ pub fn register(
         "conformance/goblins-peer/racket/rooms-dm.rkt",
         "bindings/racket/private/gc.rkt",
         "bindings/racket/private/driver-failure.rkt",
+        "bindings/racket/private/host.rkt",
         "bindings/racket/private/lib-resolve.rkt",
         "bindings/racket/private/relay-provider.rkt",
         "bindings/racket/private/ws-transport.rkt",
     };
     const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");
     for (racket_tests) |file| {
-        const run = b.addSystemCommand(&.{ "racket", "-y", "tools/check/racket-test.rkt", file });
+        const run = execution.addSystemCommand(b, .{ .deterministic = 10 }, &.{ "racket", "-y", "tools/check/racket-test.rkt", file });
         run.step.dependOn(b.getInstallStep());
         run.has_side_effects = true;
         racket_test_step.dependOn(&run.step);
@@ -161,7 +193,7 @@ pub fn register(
     // give and messages the exporter *directly*, the broker never relays. Proves
     // the gifter half (ADR-0009) and the engine's swiss re-resolution end to end
     // through the binding, with no Goblins or manual export bookkeeping.
-    const run_gifter_handoff = b.addSystemCommand(&.{
+    const run_gifter_handoff = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                  "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
         "bindings/ts/dogfood/gifter_handoff.ts",
     });
@@ -198,17 +230,34 @@ pub fn registerChecks(
     // indentation policy itself lives in `.editorconfig`, `rustfmt.toml`, and
     // the `deno.json` `fmt` blocks; these steps only run the tools.
     //
-    // `site/zig-pkg/` (Zig's fetched-package dir for the site sub-build) is
-    // generated and never formatted, so the site rows name its two source files
-    // directly rather than the `site` directory.
+    // Zig package caches under `site/zig-pkg/` and `tools/consumer/zig-pkg/`
+    // are generated and never formatted. Name the authored files and
+    // directories instead of their parents.
     const zig_fmt_paths = [_][]const u8{
-        "build.zig",          "build.zig.zon", "src",     "test",     "tools",
-        "bench",              "conformance",   "interop", "examples", "site/build.zig",
-        "site/build.zig.zon", "cli",           "apps",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "test",
+        "tools/build",
+        "tools/check",
+        "tools/consumer/build.zig",
+        "tools/consumer/build.zig.zon",
+        "tools/consumer/main.zig",
+        "tools/fuzz",
+        "tools/gen",
+        "bench",
+        "conformance",
+        "interop",
+        "examples",
+        "site/build.zig",
+        "site/build.zig.zon",
+        "cli",
+        "apps",
     };
-    const fmt_write = b.addFmt(.{ .paths = &zig_fmt_paths });
+    const fmt_paths = b.pathList(&zig_fmt_paths);
+    const fmt_write = b.addFmt(.{ .paths = fmt_paths });
     b.step("fmt", "Format Zig sources in place (zig fmt)").dependOn(&fmt_write.step);
-    const fmt_check = b.addFmt(.{ .paths = &zig_fmt_paths, .check = true });
+    const fmt_check = b.addFmt(.{ .paths = fmt_paths, .check = true });
     b.step("fmt-check", "Check Zig formatting without writing (zig fmt --check)").dependOn(&fmt_check.step);
     check_step.dependOn(&fmt_check.step);
 
@@ -226,10 +275,10 @@ pub fn registerChecks(
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");
     for (rust_manifests) |manifest| {
-        const write = addRootedSystemCommand(b, &.{ "cargo", "fmt", "--manifest-path", manifest });
+        const write = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--manifest-path", manifest });
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = addRootedSystemCommand(b, &.{ "cargo", "fmt", "--check", "--manifest-path", manifest });
+        const check = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--check", "--manifest-path", manifest });
         bindings_fmt_check_step.dependOn(&check.step);
     }
     // The loose TypeScript under the root `deno.json` and the `bindings/ts` deno
@@ -245,14 +294,14 @@ pub fn registerChecks(
     // and uv checks that ship with it.
     for ([_][]const u8{ ".", "bindings/ts" }) |dir| {
         const gated = std.mem.eql(u8, dir, ".");
-        const write = b.addSystemCommand(&.{ "deno", "fmt" });
+        const write = execution.addSystemCommand(b, .build_tool, &.{ "deno", "fmt" });
         write.setCwd(b.path(dir));
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = b.addSystemCommand(&.{ "deno", "fmt", "--check" });
+        const check = execution.addSystemCommand(b, .build_tool, &.{ "deno", "fmt", "--check" });
         check.setCwd(b.path(dir));
         bindings_fmt_check_step.dependOn(&check.step);
-        const lint = b.addSystemCommand(&.{ "deno", "lint" });
+        const lint = execution.addSystemCommand(b, .build_tool, &.{ "deno", "lint" });
         lint.setCwd(b.path(dir));
         bindings_fmt_check_step.dependOn(&lint.step);
         if (gated) check_step.dependOn(&check.step);
@@ -265,7 +314,7 @@ pub fn registerChecks(
     // rather than passing `.` because `site/zig-pkg/` is Zig's generated
     // fetched-package tree and carries third-party fixtures that are not ours
     // to compile.
-    const deno_check_root = b.addSystemCommand(&.{
+    const deno_check_root = execution.addSystemCommand(b, .build_tool, &.{
         "deno", "check", "apps", "bindings/proofs", "interop", "transports", "bench", "tools",
     });
     bindings_fmt_check_step.dependOn(&deno_check_root.step);
@@ -277,11 +326,11 @@ pub fn registerChecks(
     // dogfood run reaches only if it happens to touch that line. `uvx` pins
     // both tools, so the gate does not drift with whatever the host has
     // installed; `uv` is already a `check-external` prerequisite.
-    const ruff_check = b.addSystemCommand(&.{
+    const ruff_check = execution.addSystemCommand(b, .build_tool, &.{
         "uvx", "ruff@0.9.10", "check", "bindings/python", "tools/run-with-timeout.py",
     });
     bindings_fmt_check_step.dependOn(&ruff_check.step);
-    const mypy_check = b.addSystemCommand(&.{
+    const mypy_check = execution.addSystemCommand(b, .build_tool, &.{
         "uvx", "mypy@1.15.0", "--ignore-missing-imports", "bindings/python/pancake", "tools/run-with-timeout.py",
     });
     bindings_fmt_check_step.dependOn(&mypy_check.step);
@@ -293,15 +342,31 @@ pub fn registerChecks(
     // proof here. The graph is the Deno one: the experimental
     // Node adapter imports `node:ffi`, which Deno cannot resolve, so it stays out
     // (it is `@ts-nocheck` and only loaded under Node).
-    const deno_check = b.addSystemCommand(&.{ "deno", "task", "check" });
+    const deno_check = execution.addSystemCommand(b, .build_tool, &.{ "deno", "task", "check" });
     deno_check.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_check.step);
     // Pure binding-edge invariants: no FFI permissions, but still a real
     // executable test because codec/profile input refusal is behavior.
-    const deno_stack_test = b.addSystemCommand(&.{
+    const deno_stack_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",
         "test",
         "runtime/test/errors_test.ts",
+        "runtime/test/action_test.ts",
+        "runtime/test/terminal_release_test.ts",
+        "runtime/test/driver_failure_test.ts",
+        "runtime/test/value_test.ts",
+        "runtime/test/native_handle_test.ts",
+        "runtime/test/websocket_stack_test.ts",
+        "runtime/test/cancellation_test.ts",
+        "relay/test/relay_test.ts",
+    });
+    const deno_stack_cache = execution.addSystemCommand(b, .build_tool, &.{
+        "deno",
+        "test",
+        "--no-run",
+        "runtime/test/errors_test.ts",
+        "runtime/test/action_test.ts",
+        "runtime/test/terminal_release_test.ts",
         "runtime/test/driver_failure_test.ts",
         "runtime/test/value_test.ts",
         "runtime/test/native_handle_test.ts",
@@ -310,23 +375,38 @@ pub fn registerChecks(
         "relay/test/relay_test.ts",
     });
     deno_stack_test.setCwd(b.path("bindings/ts"));
+    deno_stack_cache.setCwd(b.path("bindings/ts"));
+    deno_stack_test.step.dependOn(&deno_stack_cache.step);
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
-    // This ownership proof takes and reads a real native pointer but opens no
-    // archive; keep that capability out of the otherwise pure stack suite.
-    const deno_native_frame_test = addInstalledSystemRun(b, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts",
+    // These tests touch native FFI but open no sockets; keep that capability out
+    // of the otherwise pure stack suite.
+    const deno_native_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
     });
-    bindings_fmt_check_step.dependOn(&deno_native_frame_test.step);
-    const deno_runtime_test = addInstalledSystemRun(b, &.{
+    const deno_native_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
+    });
+    deno_native_runtime_test.step.dependOn(&deno_native_runtime_cache.step);
+    bindings_fmt_check_step.dependOn(&deno_native_runtime_test.step);
+    const deno_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
     });
+    const deno_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
+    });
+    deno_runtime_test.step.dependOn(&deno_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_runtime_test.step);
-    const deno_driver_listener_test = addInstalledSystemRun(b, &.{
+    const deno_driver_listener_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                         "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env",
         "bindings/ts/tcp/test/driver_listener_test.ts",
     });
+    const deno_driver_listener_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno",                                         "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env",
+        "bindings/ts/tcp/test/driver_listener_test.ts",
+    });
+    deno_driver_listener_test.step.dependOn(&deno_driver_listener_cache.step);
     bindings_fmt_check_step.dependOn(&deno_driver_listener_test.step);
-    const deno_onion_test = b.addSystemCommand(&.{
+    const deno_onion_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",
         "test",
         "--allow-ffi",

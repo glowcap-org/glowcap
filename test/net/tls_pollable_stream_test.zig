@@ -7,6 +7,32 @@ const tls = pancake.net.tls.engine;
 const PollableStream = pancake.net.tls.pollable_stream.Stream;
 const record_bytes = 18 * 1024;
 
+fn writeAllNonblocking(io: std.Io, fd: std.c.fd_t, bytes: []const u8) !void {
+    const deadline = pancake.net.clock.nowMs(io) + 1_000;
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const rc = std.c.send(fd, bytes[offset..].ptr, bytes.len - offset, 0);
+        if (rc < 0) switch (std.c.errno(rc)) {
+            .AGAIN => {
+                if (pancake.net.clock.nowMs(io) >= deadline) return error.WriteTimedOut;
+                try std.Io.sleep(io, .fromMilliseconds(1), .real);
+                continue;
+            },
+            .INTR => continue,
+            else => return error.WriteFailed,
+        };
+        const written: usize = @intCast(rc);
+        if (written == 0) return error.WriteZero;
+        offset += written;
+    }
+}
+
+fn setSocketBuffer(fd: std.c.fd_t, opt: u32, bytes: c_int) !void {
+    var value = bytes;
+    const rc = std.c.setsockopt(fd, std.c.SOL.SOCKET, opt, &value, @sizeOf(c_int));
+    if (rc != 0) return error.SocketBufferSetupFailed;
+}
+
 test "pollable TLS connection state has a measured footprint" {
     try std.testing.expectEqual(
         @as(usize, 45_616),
@@ -185,9 +211,7 @@ test "pollable TLS owns bidirectional bytes and reports truncation once" {
     } };
     defer peer.close(io);
     var peer_read_store: [32]u8 = undefined;
-    var peer_write_store: [32]u8 = undefined;
     var peer_reader = peer.reader(io, &peer_read_store);
-    var peer_writer = peer.writer(io, &peer_write_store);
 
     var fake = IdentityEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
@@ -199,8 +223,7 @@ test "pollable TLS owns bidirectional bytes and reports truncation once" {
     try peer_reader.interface.readSliceAll(&observed);
     try std.testing.expectEqualStrings("outbound", &observed);
 
-    try peer_writer.interface.writeAll("inbound");
-    try peer_writer.interface.flush();
+    try writeAllNonblocking(io, pair.write, "inbound");
     try std.testing.expectEqual(
         pancake.net.tls.pollable_stream.TryProgress.progress,
         try stream.tryFill(),
@@ -231,9 +254,6 @@ test "pollable TLS blocking read advances on one available ciphertext prefix" {
         .address = undefined,
     } };
     defer peer.close(io);
-    var peer_write_store: [32]u8 = undefined;
-    var peer_writer = peer.writer(io, &peer_write_store);
-
     var fake = IdentityEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
     try stream.establish(pancake.net.clock.nowMs(io) + 1_000, null);
@@ -242,8 +262,7 @@ test "pollable TLS blocking read advances on one available ciphertext prefix" {
     // returns this prefix immediately; readSliceShort would issue another raw
     // read in an attempt to fill the TLS record window and turn ordinary
     // partial arrival into a refusal (or park forever on a blocking socket).
-    try peer_writer.interface.writeAll("now");
-    try peer_writer.interface.flush();
+    try writeAllNonblocking(io, pair.write, "now");
     var observed: [3]u8 = undefined;
     try stream.reader.interface.readSliceAll(&observed);
     try std.testing.expectEqualStrings("now", &observed);
@@ -263,16 +282,14 @@ test "pollable TLS reclaims consumed prefix before a fragmented record grows" {
         .address = undefined,
     } };
     defer peer.close(io);
-    var peer_write_store: [record_bytes + 1]u8 = undefined;
-    var peer_writer = peer.writer(io, &peer_write_store);
-
+    try setSocketBuffer(pair.read, std.c.SO.RCVBUF, 4 * record_bytes);
+    try setSocketBuffer(pair.write, std.c.SO.SNDBUF, 4 * record_bytes);
     var fake = FragmentedRecordEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
     try stream.establish(pancake.net.clock.nowMs(io) + 1_000, null);
 
-    const ciphertext = [_]u8{'x'} ** (record_bytes + 1);
-    try peer_writer.interface.writeAll(&ciphertext);
-    try peer_writer.interface.flush();
+    const ciphertext = @as([record_bytes + 1]u8, @splat('x'));
+    try writeAllNonblocking(io, pair.write, &ciphertext);
     try std.testing.expectEqual(
         pancake.net.tls.pollable_stream.TryProgress.progress,
         try stream.tryFill(),

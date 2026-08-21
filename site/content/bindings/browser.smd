@@ -1,8 +1,7 @@
 ---
 .title = "In the browser",
 .description = "Run a full pancake peer in the browser with @pancake/web, including fetch, send, hosted objects, handoff, relays, and WebRTC.",
-.date = @date("2026-07-22T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -11,22 +10,19 @@ The `@pancake/web` package compiles pancake's protocol core to WebAssembly. A
 browser uses the same `Session` operations as the native TypeScript binding;
 JavaScript supplies the byte channel and scheduling.
 
-## Dial
+# Dial
 
-Your page is the dialing half of a conversation, so this walkthrough assumes
-the other half already exists: a service of yours listening on the keyed TCP
-transport in a managed binding. Starting it hands you its
-`ocapn://` locator, one pasteable string carrying the service's public key and
-socket address. One wrinkle before the code: that listener speaks raw TCP and
-a page can only open WebSockets, so the dial reaches it through a
-[relay]($link.page('relay')). Raw `keyed-relay` reaches the peer by key but
-leaves CapTP frames in the clear, so the relay can read them and nothing proves
-who answered. The browser can install the explicit keyed-relay connector when
-that route is intended.
+A page cannot bind a socket, so every path below is a dial. The first tab is
+iroh: encrypted QUIC, the same node-id identity native peers use. The page
+reaches that peer through a [relay]($link.page('relay')) over `wss://`; the
+locator is still an iroh node id. `noise-relay` is a peer that registered at
+the relay, with Noise_XK sealing the CapTP stream so the relay forwards
+ciphertext. Later tabs include `keyed-tcp` and `keyed-relay`, which name a
+key but leave CapTP frames in the clear, and testing-only `tcp`.
 
-Load the wasm module to use the `@pancake/runtime` API. The built-in browser
-runtime opens `tcp` and `keyed-tcp` through WebSocket, and can add iroh,
-keyed-relay, or WebRTC connectors explicitly. The locator transport determines
+Load the wasm module to use the `@pancake/runtime` API. Install an iroh,
+Noise-relay, or WebRTC connector for those locators. The built-in runtime also
+opens `tcp` and `keyed-tcp` through WebSocket. The locator transport determines
 how the bytes travel.
 
 ```=html
@@ -134,7 +130,7 @@ hands back the configured browser runtime. From there `connect`, `fetch`,
 [TypeScript page]($link.page('bindings/ts')). The one browser-specific part is how
 a dial reaches its peer, below.
 
-## Browser dial paths
+# Browser dial paths
 
 A web page binds no socket, so the browser always dials. It reaches other peers
 through the connectors installed on its managed Runtime.
@@ -152,7 +148,7 @@ To reach **another browser**, open a direct
 server sits on the byte path. Two browser peers that first met through a relay can also
 cold-dial each other by identity, which `init`'s `rendezvousUrl` enables.
 
-## Next
+# Next
 
 The [TypeScript page]($link.page('bindings/ts')) is the full API, and the
 browser uses every verb of it except `listen`. For how those bytes get carried or

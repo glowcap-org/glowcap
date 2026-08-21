@@ -7,7 +7,7 @@
 import { impossibleStatus, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
 import { MAX_ROOM_LINKS } from "../lib/limits.ts";
 import { loopbackTcpDesignator } from "../lib/locator.ts";
-import { DIRECTORY, SNAPSHOT } from "../lib/protocol.ts";
+import { DIRECTORY, SNAPSHOT, SUBSCRIBE } from "../lib/protocol.ts";
 import { Directory, Room, snapshotDiagnostics, takeDiagnostics } from "../lib/room_client.ts";
 import { RoomServerState } from "../server/state.ts";
 import {
@@ -35,6 +35,7 @@ import {
 	withServer,
 } from "./support/rooms_server.ts";
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { spawnOwned, stopOwned } from "./support/children.ts";
 
 roomsTest("a private room mints a link that reaches it, and nothing else does", async () => {
 	// The capability answer to inviting somebody: a durable authority asked for
@@ -180,6 +181,36 @@ roomsTest("a room sturdyref reaches the same room publication after server resta
 	}
 });
 
+roomsTest("a refused first subscription leaves no cold linked room behind", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const directory = await Directory.connect(locator, (address) => dial(address));
+		try {
+			const room = await Room.subscribe(directory.session, await directory.open("cold-rollback"), "maker");
+			const link = await room.link(locator);
+			await room.leave();
+
+			const cold = await directory.session.enliven(link);
+			let refused = "";
+			await directory.session.send(cold, SUBSCRIBE, ["broken", null]).catch((error) => {
+				refused = error instanceof Error ? error.message : String(error);
+			});
+			assertMatch(refused, /subscribe needs an inbox capability/);
+
+			// The failed first call did not commit the reconstructed room. Its
+			// public name is free again, and a valid open can take it immediately.
+			const recovered = await Room.subscribe(
+				directory.session,
+				await directory.open("cold-rollback"),
+				"recovered",
+			);
+			await recovered.leave();
+		} finally {
+			await directory.close();
+		}
+	});
+});
+
 roomsTest("an iroh room sturdyref enlivens directly into its room capability", async () => {
 	if (!(await irohUsable())) return;
 	await withIrohServer(async (uri) => {
@@ -195,7 +226,7 @@ roomsTest("an iroh room sturdyref enlivens directly into its room capability", a
 			await joinerSession.enliven(link),
 			"joiner",
 		);
-		await waitForLine(roomLines(joinerRoom), /^room: welcome joiner/);
+		await waitForLine(roomLines(joinerRoom), /^room: in the room:/);
 		// The welcome only says the link handed back a room. This says it handed
 		// back *this* one: a redemption that reached a fresh room of the same name
 		// would welcome the joiner just as warmly and never reach the owner.
@@ -209,18 +240,18 @@ roomsTest("an iroh room sturdyref enlivens directly into its room capability", a
 	});
 });
 
-roomsTest("rooms server over iroh welcomes a subscriber by its ocapn:// URI", async () => {
+roomsTest("rooms server over iroh answers a subscriber dialing its ocapn:// URI", async () => {
 	if (!(await irohUsable())) return; // needs `zig build iroh-abi` (cargo)
 	await withIrohServer(async (uri) => {
 		assertMatch(uri, /^ocapn:\/\/[0-9a-f]+\.iroh/);
 		assertMatch(
 			await subscribeOnceIroh(uri, "general", "iroh-first"),
-			/1 in the room: iroh-first$/,
+			/^in the room: iroh-first$/,
 		);
 		// A name freed by a clean close is grantable again to the next dialer.
 		await waitForMatch(
 			() => subscribeOnceIroh(uri, "general", "iroh-second"),
-			/1 in the room: iroh-second$/,
+			/^in the room: iroh-second$/,
 		);
 	});
 });
@@ -251,20 +282,20 @@ roomsTest("a second server on one port stops rather than sharing it", async () =
 	// against a real one already listening rather than against a bind in
 	// isolation.
 	const port = freeServerPort();
-	const first = new Deno.Command("deno", {
+	const first = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, String(port)],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
-	}).spawn();
+	});
 	try {
 		await readPort(first);
-		const second = new Deno.Command("deno", {
+		const second = spawnOwned("deno", {
 			args: [...DENO_FLAGS, SERVER, String(port)],
 			cwd: ROOT,
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
+		});
 		const [status, said] = await Promise.all([
 			second.status,
 			new Response(second.stderr).text(),
@@ -274,12 +305,7 @@ roomsTest("a second server on one port stops rather than sharing it", async () =
 		assertMatch(said, /already in use/);
 		assertMatch(said, new RegExp(String(port)));
 	} finally {
-		try {
-			first.kill("SIGTERM");
-		} catch {
-			// Already gone.
-		}
-		await first.status;
+		await stopOwned(first);
 	}
 });
 
@@ -295,7 +321,7 @@ roomsTest("a server that cannot start says so and exits saying so", async () => 
 			`${dir}/rooms.json`,
 			JSON.stringify({ version: 1, identitySeed: "zz", roomLinkSecret: "zz", linkedRooms: [] }) + "\n",
 		);
-		const proc = new Deno.Command("deno", {
+		const proc = spawnOwned("deno", {
 			// Its own write grant, because reading the state file is the point and
 			// the ordinary server child is given none.
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, SERVER, "0"],
@@ -303,7 +329,7 @@ roomsTest("a server that cannot start says so and exits saying so", async () => 
 			env: { PANCAKE_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
+		});
 		const [status, said, out] = await Promise.all([
 			proc.status,
 			new Response(proc.stderr).text(),
@@ -342,7 +368,7 @@ Deno.test("a status no version defines is read as a mismatched library, not as i
 roomsTest("inspect is a fetched capability, not a directory method", async () => {
 	const stateDir = await Deno.makeTempDir();
 	const spawn = () =>
-		new Deno.Command("deno", {
+		spawnOwned("deno", {
 			args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 			cwd: ROOT,
 			env: {
@@ -352,15 +378,7 @@ roomsTest("inspect is a fetched capability, not a directory method", async () =>
 			},
 			stdout: "piped",
 			stderr: "piped",
-		}).spawn();
-	const stop = async (proc: Deno.ChildProcess) => {
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// Already gone.
-		}
-		await proc.status;
-	};
+		});
 	try {
 		const proc = spawn();
 		let swiss = "";
@@ -403,7 +421,7 @@ roomsTest("inspect is a fetched capability, not a directory method", async () =>
 				"the directory answered snapshot, so inspect is not a separate capability",
 			);
 		} finally {
-			await stop(proc);
+			await stopOwned(proc);
 		}
 		const againProc = spawn();
 		try {
@@ -421,7 +439,7 @@ roomsTest("inspect is a fetched capability, not a directory method", async () =>
 				`the reused swiss did not fetch inspect: ${JSON.stringify(takenAgain.rows)}`,
 			);
 		} finally {
-			await stop(againProc);
+			await stopOwned(againProc);
 		}
 	} finally {
 		await Deno.remove(stateDir, { recursive: true });

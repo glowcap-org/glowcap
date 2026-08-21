@@ -11,7 +11,9 @@ description: >-
 
 Find the architecture the code should have, move things where they belong, and
 enforce it so it cannot rot back. Ambition without the gate is recklessness; the
-gate without ambition is stagnation. Hold both.
+gate without ambition is stagnation. Hold both. The ambition is the
+[Release Bar](../../rules/project-values.md): a networking library, not a
+polite CapTP port.
 
 Distrust the first, smaller fix when it imports a phantom migration cost
 ([prerelease](../../rules/prerelease.md)). Re-derive against the full option set —

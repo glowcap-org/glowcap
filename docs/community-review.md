@@ -6,9 +6,9 @@ draft text or a live peer.
 
 pancake pins the OCapN suite and Goblins source and runs both in the public
 check workflow for main-branch pushes and pull requests. It has not asked to be
-listed as an OCapN implementation. Because the repository is written largely
-with LLM agents, it also sends no unsolicited patches, issues, or comments to
-projects that may not want them. The policy is in
+listed as an OCapN implementation. Because the work is AI-assisted, it
+sends no unsolicited patches, issues, or comments to projects whose policies
+forbid them. The policy is in
 [`PROVENANCE.md`](../PROVENANCE.md).
 
 ## Vocabulary map
@@ -29,9 +29,11 @@ will be reproduced by hand if an upstream maintainer asks for it.
 
 ## Interop Target
 
-The Goblins-facing path is signed CapTP 1.0 over Syrup on cleartext TCP. That
-is the default used by the C ABI, `driver.connect`, the upstream suite, and the
-live Goblins checks.
+The Goblins-facing path is signed CapTP 1.0 over Syrup. Recurring live
+checks, the C ABI, `driver.connect`, and the upstream suite use cleartext
+TCP: pancake's testing adapter. Goblins ships onion
+(and an in-process `fake`). `zig build goblins-onion` is the meeting on
+that netlayer, both directions; it needs Tor and is on demand.
 
 TCP itself authenticates no durable peer identity. The fresh session key signs
 the hello, so pancake can verify session continuity and signed handoff
@@ -40,7 +42,7 @@ such as iroh, WebRTC signaling, or an embedder-supplied channel binding.
 
 The pancake-native profile is a separate job. Native peers can negotiate
 `"pancake-next"` with Cap'n Proto, and iroh supplies encrypted reachability.
-Neither is a Goblins compatibility claim. The only outside CapTP
+Neither is offered as Goblins compatibility. The only outside CapTP
 implementations exercised today are the upstream suite and Racket Goblins.
 
 ## Known gaps
@@ -95,7 +97,8 @@ cannot remain marked as recurring evidence.
 | `zig build check` (includes `oracle-check`) | yes | In-tree protocol scenarios, message-arm coverage, committed Syrup fixtures, Cap'n Proto goldens, resource budgets, and a complete six-peer handoff scenario. | A live outside peer or a fresh upstream Syrup run. |
 | `zig build ocapn-conformance` | yes | The upstream suite's CapTP modules against the production Host stack, plus handshake refusal and a portable pre-setup abort check. | Future suite netlayers or transport recovery after abort; the raw upstream `tests.op_abort` rejects Linux TCP reset. |
 | `zig build ocapn-findings-check` | yes | The pinned sources still disagree on `op:listen` arity and locator-hints typing. | Which form upstream should choose. |
-| `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, or iroh. |
+| `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, onion, or iroh. |
+| `zig build goblins-onion` | no | Live Goblins sessions both ways over the Goblins onion netlayer and pancake's Tor resident. | Recurring CI (needs `tor` and outbound network), live scale, or hinted-onion sturdyrefs. |
 | `zig build goblins-iroh` | no | Live Goblins sessions both ways over the iroh netlayer this repository wrote for Goblins. | Recurring CI (needs cargo + racket), hole-punching, or non-TCP handoff roles beyond the on-demand rooms row below. |
 | `zig build goblins-handoff` | yes | pancake redeems a Goblins give. | pancake as gifter or exporter. |
 | `zig build goblins-gift` | yes | pancake mints a give that Goblins redeems. | pancake as recipient or exporter. |
@@ -153,7 +156,8 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
 
 ## Reproduce
 
-Initialize the submodules once:
+The devcontainer initializes the submodules when it opens. From a checkout
+that has not been through that hook:
 
 ```sh
 bash conformance/bootstrap-submodules.sh
@@ -171,11 +175,13 @@ zig build goblins-handoff
 zig build goblins-gift
 zig build goblins-gift-hints
 zig build goblins-relayed-give
+zig build goblins-exporter
 zig build goblins-gc
 ```
 
 The live steps need Racket with Goblins; the suite needs `uv`. The devcontainer
-provides both. Pin changes live in
+provides both. `zig build goblins-onion` is the Goblins-native netlayer meeting;
+it needs Tor and is not in that list. Pin changes live in
 [`.devcontainer/pins.sh`](../.devcontainer/pins.sh).
 
 Report protocol-invariant breaks privately through

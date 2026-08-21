@@ -222,7 +222,7 @@ test "a single collection wider than the decode element cap is refused" {
     // collection — the lazy view's len/at, session validation, owned
     // materialization — is linear in the element count. The codec caps a
     // single list / set / struct at 1 << 20 elements
-    // (`max_collection_elements` in syrup/decode.zig, the width sibling of
+    // (`max_collection_elements` in syrup/decode/syntax.zig, the width sibling of
     // `max_decode_nesting`) and refuses past it during the slice walk, before
     // any of those walks run. The cap sits just above what the default
     // streaming byte cap can carry, so it binds the uncapped whole-frame
@@ -318,6 +318,20 @@ test "decodeBody exposes borrowed views for start-session and nested handoff" {
         try std.testing.expect(handoff == .receive);
         try std.testing.expect(handoff.receive.signed_give.raw_signed != null);
     }
+}
+
+test "standalone signed handoff-give decode refuses trailing bytes" {
+    const allocator = std.testing.allocator;
+    const fixture = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;
+    var bytes: std.ArrayList(u8) = .empty;
+    defer bytes.deinit(allocator);
+
+    try bytes.appendSlice(allocator, fixture.bytes());
+    try bytes.append(allocator, 'x');
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeSignedHandoffGiveOwned(allocator, bytes.items),
+    );
 }
 
 test "decodeOwned materializes start-session fields" {
@@ -452,9 +466,9 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
         .{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } },
         .{ .start_session = .{
             .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
+            .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0xab))) },
             .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
-            .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
+            .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0xcd))) },
         } },
     };
 

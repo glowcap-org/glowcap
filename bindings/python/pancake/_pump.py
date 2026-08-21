@@ -40,8 +40,9 @@ async def _run_handshake(session) -> None:
     # action queue, so the drain puts it on the wire first. The core stops
     # consuming at the frame that opens the session, so a fast partner's
     # application frames coalesced behind start-session stay buffered until
-    # serve() — otherwise a pipelined fetch would answer before the object it
-    # names exists. Abandonment on failure stays on Session._establish.
+    # the Host-owned resume step — otherwise a pipelined fetch would answer
+    # before the object it names exists. Abandonment on failure stays on
+    # Session._establish.
     await session.host.kick_actions()
     while not session.session_open:
         chunk = await session.transport.read()
@@ -53,9 +54,7 @@ async def _run_handshake(session) -> None:
 async def _serve_loop(session) -> None:
     failure: BaseException | None = None
     try:
-        # Frames that rode behind the handshake's tail wait in the session's
-        # own tail; an empty feed dispatches them before parking on the wire.
-        await _feed(session, b"")
+        await _resume_feed(session)
         while True:
             if session.released:
                 break
@@ -120,10 +119,9 @@ async def _feed(session, chunk: bytes) -> None:
     # it, then the actions the dispatch queued drain. The library owns the
     # unconsumed tail — a partial frame straddling two reads stays buffered
     # in the session — so one borrowed call moves the whole chunk (c_char_p
-    # points at `chunk`'s own bytes, which the synchronous feed only reads);
-    # an empty chunk resumes frames the session held behind its handshake
-    # open. A mid-feed close parks its C release; it drains the moment the
-    # feed returns.
+    # points at `chunk`'s own bytes, which the synchronous feed only reads).
+    # The serve loop resumes any handshake-held tail through _resume_feed. A
+    # mid-feed close parks its C release; it drains the moment the feed returns.
     n = len(chunk)
     ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p) if n else None
     while True:
@@ -137,6 +135,28 @@ async def _feed(session, chunk: bytes) -> None:
         session.host.drain_parked_releases()
         # The feed dispatched frames and may have advanced close-relevant
         # state even when it queued no action; wake any parked close driver.
+        session.host.signal_close_activity()
+        if rc == _OK:
+            break
+        if rc == _WOULD_BLOCK:
+            await session.host.kick_actions()
+            continue
+        await _raise_feed_refusal(session, rc)
+    await session.host.kick_actions()
+
+
+async def _resume_feed(session) -> None:
+    # Resume frames the Host held behind the handshake open. Stream sessions
+    # may dispatch a retained tail; packet-framed sessions have no hidden tail.
+    while True:
+        if session.released:
+            return
+        prior = _enter_deliver(session)
+        try:
+            rc = _host.pancake_host_session_resume_feed(session.raw)
+        finally:
+            _exit_deliver(prior)
+        session.host.drain_parked_releases()
         session.host.signal_close_activity()
         if rc == _OK:
             break

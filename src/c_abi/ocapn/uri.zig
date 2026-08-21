@@ -21,7 +21,6 @@
 const std = @import("std");
 
 const model = @import("model");
-const engine = @import("engine");
 
 const c = @import("mod.zig");
 const shared = @import("c_abi_shared");
@@ -29,6 +28,7 @@ const locator_abi = shared.locator;
 const locator_adapter = shared.locator_adapter;
 const ctx = @import("context.zig");
 const accessors = @import("uri/accessors.zig");
+const format = @import("uri/format.zig");
 const ownership = @import("uri/ownership.zig");
 
 const PancakeLocator = c.PancakeLocator;
@@ -41,8 +41,6 @@ const PANCAKE_OK = c.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = c.PANCAKE_ERR_INVALID_ARGUMENT;
 const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_BUFFER_TOO_SMALL = c.PANCAKE_ERR_BUFFER_TOO_SMALL;
-
 const LocatorPayload = ownership.LocatorPayload;
 const locFromOpaque = ownership.locFromOpaque;
 const sturdyFromOpaque = ownership.sturdyFromOpaque;
@@ -499,39 +497,11 @@ fn buildErrToCode(err: BuildError) i32 {
     };
 }
 
-fn writeErrToCode(err: model.uri.Error) i32 {
-    return switch (err) {
-        error.OutOfMemory => blk: {
-            setLastError("uri format: OutOfMemory", .{});
-            break :blk PANCAKE_ERR_INTERNAL;
-        },
-        else => blk: {
-            setLastError("uri format: {s}", .{@errorName(err)});
-            break :blk PANCAKE_ERR_INVALID_ARGUMENT;
-        },
-    };
-}
-
-/// Copy the rendered URI into the caller's buffer. `out_len` always receives the
-/// full length (so a too-small buffer can be retried); a NULL buffer or a buffer
-/// smaller than the URI is PANCAKE_ERR_BUFFER_TOO_SMALL with the length reported.
-fn copyOut(rendered: []const u8, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
-    const l = out_len orelse return PANCAKE_ERR_NULL_POINTER;
-    l.* = rendered.len;
-    const dest = out orelse {
-        setLastError("uri format: out is null; provide the reported length as buffer capacity", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    };
-    if (cap < rendered.len) return PANCAKE_ERR_BUFFER_TOO_SMALL;
-    @memcpy(dest[0..rendered.len], rendered);
-    return PANCAKE_OK;
-}
-
 /// Format a peer locator as an `ocapn://` URI into `out`. Hints are parallel
 /// key/value string arrays of `hint_count` entries; all inputs are borrowed.
 /// `out_len` receives the full URI length; a buffer too small is
-/// PANCAKE_ERR_BUFFER_TOO_SMALL (a NULL buffer is PANCAKE_ERR_INVALID_ARGUMENT)
-/// with the length still reported.
+/// PANCAKE_ERR_BUFFER_TOO_SMALL with the length still reported. A null output is
+/// allowed only with `cap == 0` to query the size.
 pub export fn pancake_uri_format_peer(
     transport: ?[*]const u8,
     transport_len: usize,
@@ -547,6 +517,11 @@ pub export fn pancake_uri_format_peer(
     out_len: ?*usize,
 ) i32 {
     shared.lastErrorClear();
+    if (out_len == null) return PANCAKE_ERR_NULL_POINTER;
+    if (out == null and cap != 0) {
+        setLastError("uri format: out is null with nonzero capacity", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
     const t = transport orelse return PANCAKE_ERR_NULL_POINTER;
     const d = designator orelse return PANCAKE_ERR_NULL_POINTER;
     const alloc = ctx.library_allocator;
@@ -559,9 +534,7 @@ pub export fn pancake_uri_format_peer(
         .designator = d[0..designator_len],
         .hints = .{ .entries = entries, .wire_form = .map },
     };
-    const rendered = model.uri.writePeer(alloc, locator) catch |err| return writeErrToCode(err);
-    defer alloc.free(rendered);
-    return copyOut(rendered, out, cap, out_len);
+    return format.peer(locator, out, cap, out_len);
 }
 
 /// Format a sturdyref locator (peer + swissnum) as an `ocapn://…/s/<swiss>` URI.
@@ -586,6 +559,11 @@ pub export fn pancake_uri_format_sturdyref(
     out_len: ?*usize,
 ) i32 {
     shared.lastErrorClear();
+    if (out_len == null) return PANCAKE_ERR_NULL_POINTER;
+    if (out == null and cap != 0) {
+        setLastError("uri format: out is null with nonzero capacity", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
     const profile = shared.captpVersionFromC(captp_version) orelse {
         shared.setLastError("uri: captp_version must be a PANCAKE_CAPTP_* value", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -606,43 +584,5 @@ pub export fn pancake_uri_format_sturdyref(
         },
         .swissnum = sw[0..swissnum_len],
     };
-    const rendered = model.uri.writeSturdyrefForProfile(alloc, profile, sturdyref) catch |err| return writeErrToCode(err);
-    defer alloc.free(rendered);
-    return copyOut(rendered, out, cap, out_len);
-}
-
-/// Encode the verbatim `<ocapn-peer>` record embedded in a signed handoff
-/// locator. The result is owned and must be released with
-/// `pancake_locator_record_bytes_release`.
-pub export fn pancake_locator_record_encode(
-    locator: ?*const shared.PancakeLocatorView,
-    out: ?*?[*]u8,
-    out_len: ?*usize,
-) i32 {
-    shared.lastErrorClear();
-    const out_slot = out orelse return PANCAKE_ERR_NULL_POINTER;
-    const out_len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
-    const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
-    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
-    var borrowed = shared.locator_adapter.BorrowedLocator.init(ctx.library_allocator, view, &hint_stack) catch |err| {
-        return locatorErrToCode(err);
-    };
-    defer borrowed.deinit(ctx.library_allocator);
-
-    const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, borrowed.value) catch |err| switch (err) {
-        error.OutOfMemory => return locatorErrToCode(err),
-        else => {
-            setLastError("locator record encode: {s}", .{@errorName(err)});
-            return c.PANCAKE_ERR_CODEC;
-        },
-    };
-    out_slot.* = bytes.ptr;
-    out_len_slot.* = bytes.len;
-    return PANCAKE_OK;
-}
-
-/// Release bytes returned by `pancake_locator_record_encode`. NULL is a no-op.
-pub export fn pancake_locator_record_bytes_release(bytes: ?[*]u8, len: usize) void {
-    const ptr = bytes orelse return;
-    ctx.library_allocator.free(ptr[0..len]);
+    return format.sturdyref(profile, sturdyref, out, cap, out_len);
 }

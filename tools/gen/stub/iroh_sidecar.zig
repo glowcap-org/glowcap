@@ -18,8 +18,15 @@
 
 const msg = "iroh sidecar stub: reflection/test link only; link libpancake_iroh_sidecar.a to run";
 
-export fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*anyopaque {
-    _ = .{ secret_seed32, reachability, connect_timeout_ms };
+const EndpointConfig = extern struct {
+    reachability: u32,
+    connect_timeout_ms: u64,
+    idle_timeout_ms: u64,
+    worker_threads: u32,
+};
+
+export fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, config: *const EndpointConfig) ?*anyopaque {
+    _ = .{ secret_seed32, config };
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_endpoint_node_id(ep: *const anyopaque, out: [*]u8, out_cap: usize) isize {
@@ -41,8 +48,8 @@ export fn pancake_iroh_sidecar_connect_blocking(
     _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len, out_code };
     @panic(msg);
 }
-export fn pancake_iroh_sidecar_accept_timeout(ep: *anyopaque, timeout_ms: i32) ?*anyopaque {
-    _ = .{ ep, timeout_ms };
+export fn pancake_iroh_sidecar_accept_timeout(ep: *anyopaque, timeout_ms: i32, out_code: *i32) ?*anyopaque {
+    _ = .{ ep, timeout_ms, out_code };
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_conn_read(conn: *anyopaque, buf: [*]u8, len: usize) isize {

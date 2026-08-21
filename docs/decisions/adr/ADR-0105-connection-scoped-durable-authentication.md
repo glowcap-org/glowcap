@@ -49,7 +49,7 @@ records a verified remote either, so `driver_core.publish.durableProvenance`
 answers `.unauthenticated`. The dialer asked for a specific durable identity,
 opened a session, and can prove nothing about who answered.
 
-Four more instances of the same shape are live in the tree, which is what makes
+Three more instances of the same shape are live in the tree, which is what makes
 this a class rather than a browser bug.
 
 - The blocking face derives the pin basis from the resident's declaration
@@ -58,11 +58,6 @@ this a class rather than a browser bug.
   resident's own `residentDial` never upgrades it. The same iroh dial to the same
   node reports `.authenticated_transport` through one driver face and
   `.unauthenticated` through another.
-- A WebRTC leg whose signaling owner named no peer identity leaves
-  `webrtc.Peer.authorized_remote` null, so `webrtc.Peer.connection` installs no
-  binding. The transport table still says `authenticated_transport`, so no
-  credential is demanded either, and the session opens with nothing proved and
-  nothing said.
 - A binding-hosted iroh listener has an end-to-end QUIC connection and no way to
   say so. The C ABI exports no seam for a verified remote key, and
   `pancake_iroh_netlayer_try_accept` surfaces no remote node id, so every
@@ -276,7 +271,7 @@ rather than a withdrawal nobody watches. At 500,000 sessions the second key is
 keys are fixed-width and live in the struct.
 
 The assertion stays a ceiling rather than an equality, unlike the `Conn` slot
-overhead in `src/net/completion/loop.zig`. That one measures a difference
+overhead in `src/net/completion/loop/state.zig`. That one measures a difference
 between two sizes on one target; this one measures a struct full of pointers,
 and `wasm32` makes it genuinely smaller, so no single number is the measurement
 everywhere.

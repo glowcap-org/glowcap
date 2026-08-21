@@ -10,7 +10,7 @@ pub fn Identity(comptime Namespace: type, comptime ConnId: type, comptime DialOp
                 marker |
                     (@as(u64, connection_id) << 7) |
                     (@as(u64, leg_slot) << 1) |
-                    @intFromEnum(operation),
+                    @backingInt(operation),
             );
         }
 
@@ -23,7 +23,7 @@ pub fn Identity(comptime Namespace: type, comptime ConnId: type, comptime DialOp
         }
 
         pub fn op(user_data: u64) DialOp {
-            return @enumFromInt(@as(u1, @truncate(user_data)));
+            return @fromBackingInt(@intCast(@as(u1, @truncate(user_data))));
         }
 
         pub fn owns(user_data: u64) bool {

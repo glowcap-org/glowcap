@@ -143,7 +143,7 @@ fn chooseCaptpVersion(local: []const model.CaptpVersion, remote: []const model.C
             const score = local_idx + remote_idx;
             if (best) |current| {
                 if (score < current.score or
-                    (score == current.score and @intFromEnum(lp) < @intFromEnum(current.captp_version)))
+                    (score == current.score and @backingInt(lp) < @backingInt(current.captp_version)))
                 {
                     best = .{ .score = score, .captp_version = lp };
                 }
@@ -163,7 +163,7 @@ fn chooseCodec(local: []const model.CodecId, remote: []const model.CodecId) ?mod
             const score = local_idx + remote_idx;
             if (best) |current| {
                 if (score < current.score or
-                    (score == current.score and @intFromEnum(lc) < @intFromEnum(current.codec)))
+                    (score == current.score and @backingInt(lc) < @backingInt(current.codec)))
                 {
                     best = .{ .score = score, .codec = lc };
                 }

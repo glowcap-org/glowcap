@@ -43,7 +43,7 @@ test "keyed-relay completion rejects send staging too small for control frames" 
         error.InvalidSendStagingBytes,
         AdmissionBackend.initWithRelay(std.testing.allocator, 8, 1, 64, .{
             .url = "ws://127.0.0.1:1/relay",
-            .entropy_seed = [_]u8{0x91} ** std.Random.DefaultCsprng.secret_seed_length,
+            .entropy_seed = @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0x91)),
             .send_staging_bytes = 0,
         }),
     );
@@ -52,7 +52,7 @@ test "keyed-relay completion rejects send staging too small for control frames" 
 test "keyed-relay refused dial releases construction state and reuses its handle" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
 
     backend.platform.fail_dial = true;
     try std.testing.expectError(
@@ -74,7 +74,7 @@ test "keyed-relay refused dial releases construction state and reuses its handle
 test "keyed-relay completion preserves clear connect cause and carrier phase" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
 
     _ = try backend.startDial(8, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     const internal_ud = backend.platform.pending_connect.?.user_data;
@@ -110,7 +110,7 @@ test "keyed-relay completion preserves clear connect cause and carrier phase" {
 test "keyed-relay completion keeps its bounded address race full and joins losers" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
 
     _ = try backend.startDial(9, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     var addresses: [10]std.Io.net.IpAddress = undefined;
@@ -139,7 +139,7 @@ test "keyed-relay completion keeps its bounded address race full and joins loser
 test "keyed-relay completion retains address failures in resolver order" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
 
     _ = try backend.startDial(12, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     const addresses = [_]std.Io.net.IpAddress{
@@ -185,7 +185,7 @@ test "keyed-relay completion retains address failures in resolver order" {
 test "keyed-relay completion rolls back a winner when loser retirement fails" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
 
     _ = try backend.startDial(13, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     const addresses = [_]std.Io.net.IpAddress{
@@ -556,7 +556,7 @@ test "keyed-relay upgrade bounds only HTTP bytes and preserves coalesced frame r
         8192,
         .{
             .url = "ws://127.0.0.1:1/relay",
-            .entropy_seed = [_]u8{0x92} ** std.Random.DefaultCsprng.secret_seed_length,
+            .entropy_seed = @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0x92)),
             .send_staging_bytes = frame_cap,
         },
     );

@@ -9,9 +9,9 @@
 // The library owns every CapTP decision — routing, three-party redemption,
 // gift origination, far vows. On Deno a provider-backed `Runtime.connect` rides a
 // stepping native loop (`./driver_loop.ts`) that owns the socket and the
-// pumping; for explicit embedder-supplied channels the binding moves bytes
-// itself: each `Session`'s serve loop feeds raw reads to the core's stream
-// delimiter and honors the host's action queue (dial, flush, entropy,
+// pumping; for explicit embedder-supplied channels the binding moves transport
+// packets itself: each `Session`'s serve loop feeds the Host transport seam
+// and honors the host's action queue (dial, flush, entropy,
 // settle). A transport
 // that links its own pancake archive lives in its own module beside this one —
 // `@pancake/tcp`, `@pancake/inproc`, `@pancake/onion`, and the optional
@@ -26,7 +26,7 @@
 // decode+execute), `promise` (the `RemotePromise` send returns), `gc`
 // (ADR-0063), `runtime` (Host + transport composition), `dial` (the internal
 // connector executor), `session` (the `Session` verbs and mint/handshake),
-// `pump` (the byte-fed embedder serve/feed/flush
+// `pump` (the packet-fed embedder serve/feed/flush
 // choreography), and `locator` (OCapN URIs).
 //
 //   await using runtime = await Runtime.open({ providers: [tcp.provider()] });

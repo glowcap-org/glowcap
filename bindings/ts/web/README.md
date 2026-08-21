@@ -6,8 +6,8 @@ This is [ADR-0070] Milestone 1: the same `@pancake/runtime` surface every dlopen
 of a swapped runtime adapter, with no protocol reimplemented in JavaScript. The build check covers
 the keyed handshake, fetch and call, a call back into a wasm-hosted object, both wire grammars
 (Syrup and Cap'n Proto), and a native peer cold-dialing a Chromium-hosted object over
-`noise-relay`. Handoff redeem through a browser dial is compiled in but has no browser-path check
-yet.
+`noise-relay`. `zig build rooms-web-dm-noise` additionally has one browser redeem a room
+introduction by dialing another browser over that sealed relay path, then carries the reply back.
 
 [ADR-0070]: ../../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md
 

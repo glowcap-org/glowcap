@@ -17,8 +17,8 @@ done
 repo_root=$(cd -P "$(dirname "${source_path}")/../../../.." && pwd)
 workdir=${PANCAKE_DEV_WORKDIR:-/workspaces/pancake}
 
-# shellcheck source=../../../../.devcontainer/lib.sh
-source "${repo_root}/.devcontainer/lib.sh"
+# shellcheck source=../../../../.devcontainer/lib/mod.sh
+source "${repo_root}/.devcontainer/lib/mod.sh"
 worktree=$(pancake_devcontainer_worktree_name "${repo_root}/.devcontainer")
 if [[ -n "${PANCAKE_DEV_CONTAINER:-}" ]]; then
 	container_name="${PANCAKE_DEV_CONTAINER}"

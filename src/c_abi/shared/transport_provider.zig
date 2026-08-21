@@ -29,6 +29,9 @@ pub const PANCAKE_DESIGNATOR_SCHEME_KEY: u32 = 1;
 pub const PANCAKE_SEALED_CHANNEL_NONE: u32 = 0;
 pub const PANCAKE_SEALED_CHANNEL_NOISE_XK: u32 = 1;
 
+pub const PANCAKE_WIRE_FRAMING_BYTE_STREAM: u32 = 0;
+pub const PANCAKE_WIRE_FRAMING_MESSAGE: u32 = 1;
+
 /// Optional carrier acquisition or byte-lifecycle phase on a structured
 /// provider failure. Zero means that this provider cannot name a carrier
 /// phase; progress states such as would-block never use this field.
@@ -44,10 +47,6 @@ pub const PANCAKE_CARRIER_PHASE_SHUTDOWN: u32 = 8;
 pub const PANCAKE_CARRIER_DETAIL_PEER_ALERT: u32 = 1 << 0;
 pub const PANCAKE_CARRIER_DETAIL_ENGINE_CODE: u32 = 1 << 1;
 
-pub fn carrierPhaseValid(value: u32) bool {
-    return value <= PANCAKE_CARRIER_PHASE_SHUTDOWN;
-}
-
 /// Locator and channel semantics for one transport symbol. A provider entry
 /// points at one profile and one execution implementation, keeping semantic
 /// authority independent of the implementation's I/O model.
@@ -58,6 +57,8 @@ pub const PancakeTransportProfile = extern struct {
     transport_name_len: usize,
     designator_scheme: u32,
     sealed_channel: u32,
+    wire_framing: u32,
+    max_packet_bytes: usize,
 };
 
 /// Borrowed provider-owned configuration for one dial or listener operation.
@@ -190,6 +191,11 @@ pub fn profileFromMetadata(metadata: model.transport.Metadata) PancakeTransportP
             PANCAKE_SEALED_CHANNEL_NOISE_XK
         else
             PANCAKE_SEALED_CHANNEL_NONE,
+        .wire_framing = switch (metadata.wire_framing) {
+            .byte_stream => PANCAKE_WIRE_FRAMING_BYTE_STREAM,
+            .message => PANCAKE_WIRE_FRAMING_MESSAGE,
+        },
+        .max_packet_bytes = metadata.max_packet_bytes,
     };
 }
 

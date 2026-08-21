@@ -357,31 +357,40 @@ async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
 }
 
 /// Wait at most `timeout_ms` for a partner connection and first bidirectional
-/// stream, returning an owned connection handle or null on timeout, failure, or
-/// endpoint close. A negative timeout is invalid and returns null. This is the
-/// resident listener's private bounded primitive; it never arms or drains the
-/// endpoint readiness queue.
+/// stream, returning an owned connection handle or null with an exact dial code.
+/// Timeout is distinct from endpoint close so the resident can retry only the
+/// former. A negative timeout is invalid. This is the resident listener's
+/// private bounded primitive; it never arms or drains the endpoint readiness
+/// queue.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 	ep: *mut PancakeIrohEndpoint,
 	timeout_ms: i32,
+	out_code: *mut i32,
 ) -> *mut PancakeIrohConn {
-	if ep.is_null() || timeout_ms < 0 {
+	if out_code.is_null() {
 		return std::ptr::null_mut();
 	}
-	let result = catch_unwind(AssertUnwindSafe(|| {
+	let result = catch_unwind(AssertUnwindSafe(|| -> Result<usize, i32> {
+		if ep.is_null() || timeout_ms < 0 {
+			return Err(DIAL_INVALID);
+		}
 		let ep = unsafe { &*ep };
 		ep.rt.block_on(async {
-			tokio::time::timeout(std::time::Duration::from_millis(timeout_ms as u64), accept_one(ep))
-				.await
-				.ok()
-				.flatten()
-				.and_then(|raw| make_conn(ep, raw))
-				.map(|handle| handle as usize)
+			match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms as u64), accept_one(ep)).await {
+				Err(_) => Err(DIAL_TIMEOUT),
+				Ok(None) => Err(DIAL_LOST),
+				Ok(Some(raw)) => make_conn(ep, raw).map(|handle| handle as usize).ok_or(DIAL_LOST),
+			}
 		})
 	}));
-	match result {
-		Ok(Some(handle)) => handle as *mut PancakeIrohConn,
-		_ => std::ptr::null_mut(),
+	let (handle, code) = match result {
+		Ok(Ok(handle)) => (handle as *mut PancakeIrohConn, DIAL_OK),
+		Ok(Err(code)) => (std::ptr::null_mut(), code),
+		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
+	};
+	unsafe {
+		*out_code = code;
 	}
+	handle
 }

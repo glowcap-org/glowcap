@@ -78,13 +78,13 @@ fn fixtures() [12]Fixture {
         } }, .bytes = @embedFile("capnp_fixtures/op_untag.bin") },
         .{ .name = "op_start_session.bin", .message = .{ .start_session = .{
             .captp_version = .next,
-            .session_pubkey = .{ .bytes = &([_]u8{0x11} ** 32) },
+            .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0x11))) },
             .acceptable_location = .{
                 .transport = "tcp",
                 .designator = "127.0.0.1:9",
                 .hints = model.Hints.emptyFalse(),
             },
-            .acceptable_location_sig = .{ .bytes = &([_]u8{0x22} ** 64) },
+            .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0x22))) },
         } }, .bytes = @embedFile("capnp_fixtures/op_start_session.bin") },
     };
 }

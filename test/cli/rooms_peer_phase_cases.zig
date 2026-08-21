@@ -102,6 +102,48 @@ test "rooms-peer phase abandon request no-ops outside .joining" {
     try std.testing.expect(phase == .joined);
 }
 
+test "rooms-peer phase stays joining until subscribe fulfills" {
+    const session = dummySession();
+    var phase: Phase = .{ .joining = .{
+        .session = session,
+        .directory = farRef(1),
+        .room = farRef(2),
+    } };
+    try std.testing.expect(phase == .joining);
+    try std.testing.expect(phase_mod.noteSubscribed(&phase, 7));
+    try std.testing.expect(phase == .joined);
+    try std.testing.expectEqual(session, phase.joined.session);
+    try std.testing.expectEqual(@as(u64, 1), phase.joined.directory.far.import_position.int());
+    try std.testing.expectEqual(@as(u64, 2), phase.joined.room.far.import_position.int());
+    try std.testing.expectEqual(@as(u32, 7), phase.joined.reg.pending);
+}
+
+test "rooms-peer stale subscribe session cannot name a later joining attempt" {
+    const old_session = dummySession();
+    const Other = struct {
+        var dummy: HostSession = undefined;
+    };
+    const new_session = &Other.dummy;
+    var phase: Phase = .{ .joining = .{ .session = new_session } };
+    try std.testing.expect(!phase_mod.isJoiningSession(&phase, old_session));
+    try std.testing.expect(phase_mod.isJoiningSession(&phase, new_session));
+
+    phase = .{ .down = .{ .cooldown = 0 } };
+    try std.testing.expect(!phase_mod.isJoiningSession(&phase, new_session));
+}
+
+test "rooms-peer phase subscribe refusal takes existing abandon path" {
+    const session = dummySession();
+    var phase: Phase = .{ .joining = .{
+        .session = session,
+        .directory = farRef(1),
+        .room = farRef(2),
+    } };
+    try std.testing.expect(phase_mod.requestAbandon(&phase));
+    try std.testing.expect(phase == .abandoning);
+    try std.testing.expectEqual(session, phase.abandoning);
+}
+
 test "rooms-peer phase registered-notify flips only a live .joined" {
     const session = dummySession();
     var phase: Phase = .{ .joined = .{

@@ -51,9 +51,9 @@ const TraceLog = harness.TraceLog;
 test "core host: inbound OOM leaves a borrowed hello retryable" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var host = test_host.init(allocator, [_]u8{0x31} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x31)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    var peer = test_host.init(std.testing.allocator, [_]u8{0x32} ** 32, Host.Options.withFrameCap(frame_cap));
+    var peer = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x32)), Host.Options.withFrameCap(frame_cap));
     defer peer.deinit();
 
     const accepted = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7091", &.{});
@@ -80,14 +80,14 @@ test "core host: inbound OOM leaves a borrowed hello retryable" {
 
 test "core host: a finite quantum resumes round-robin work behind a sibling" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x33} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x33)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x34} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x34)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
     defer host.deinit();
-    var other = test_host.init(allocator, [_]u8{0x35} ** 32, Host.Options.withFrameCap(frame_cap));
+    var other = test_host.init(allocator, @as([32]u8, @splat(0x35)), Host.Options.withFrameCap(frame_cap));
     defer other.deinit();
 
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -107,7 +107,7 @@ test "core host: a finite quantum resumes round-robin work behind a sibling" {
     // The first dirty row is the sibling. `flushSession(first)` adds the
     // resumed session behind it; one finite quantum must therefore serve the
     // sibling and leave the first session for the next continuation.
-    driver.core.testing.markDirty(&host, second.peer_id);
+    driver.core.testing.markDirty(&host, second.peer_handle);
     try host.flushSession(first);
     try std.testing.expectEqual(@as(usize, 0), first_hits);
     try std.testing.expectEqual(@as(usize, 1), second_hits);
@@ -118,9 +118,9 @@ test "core host: a finite quantum resumes round-robin work behind a sibling" {
 
 test "core host: staged outbound pressure refuses before the shared high-water is exceeded" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x36} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x36)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x37} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x37)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .outbound_high_water_bytes = 1024,
     });
@@ -153,9 +153,9 @@ test "core host: staged outbound pressure refuses before the shared high-water i
 
 test "core host: committed relayed listeners resume after outbound pressure" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x3a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -182,7 +182,7 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     });
     try std.testing.expect(peer.session_state.importedPromiseResolution(relayed) != null);
 
-    driver.core.testing.markDirty(&host, pair.b.peer_id);
+    driver.core.testing.markDirty(&host, pair.b.peer_handle);
     driver.core.testing.finishCommittedWork(&host, pair.b);
     try std.testing.expect(!pair.b.isTerminating());
     try std.testing.expect((try pair.b.takeOutbound()) == null);
@@ -190,12 +190,12 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     // Popping the first wake clears its dedupe bit. The next drain retries the
     // parked carrier, meets the same pressure, and must publish another FLUSH
     // rather than condemning the Host or reporting an empty action queue.
-    try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
-    try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
+    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
+    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
     try std.testing.expect(!pair.b.isTerminating());
 
     peer.outbound_budget = std.math.maxInt(usize);
-    try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
+    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
     var fire = (try pair.b.takeOutbound()) orelse return error.MissingListenerFire;
     fire.deinit();
     try host.flushSession(pair.b);
@@ -204,9 +204,9 @@ test "core host: committed relayed listeners resume after outbound pressure" {
 
 test "core host: unbounded feed condemns an event consumed before serve OOM" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x3d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -239,8 +239,8 @@ test "core host: unbounded feed condemns an event consumed before serve OOM" {
 
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {
-        .close => |peer_id| {
-            try std.testing.expectEqual(pair.b.peer_id, peer_id);
+        .close => |peer_handle| {
+            try std.testing.expectEqual(pair.b.peer_handle, peer_handle);
             saw_close = true;
         },
         else => {},
@@ -250,9 +250,9 @@ test "core host: unbounded feed condemns an event consumed before serve OOM" {
 
 test "core host: feedBytes retains only the unapplied suffix after mid-chunk pressure" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x38} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x38)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x39} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x39)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .outbound_high_water_bytes = 1024,
     });

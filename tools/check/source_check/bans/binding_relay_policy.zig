@@ -1,0 +1,181 @@
+//! Ban rows: generated binding relay and WebSocket policy mirrors.
+
+const bans = @import("../bans.zig");
+const Ban = bans.Ban;
+
+/// Binding WebSocket and reference relay resource defaults share generated
+/// policy owners. These are transport-message and adapter-resource limits, not
+/// CapTP frame admission, so the C ABI and protocol core do not own them.
+pub const rows: []const Ban = &.{
+    .{
+        .where = .{ .file = "tools/gen/binding/policy.zig" },
+        .kind = .require,
+        .needles = &.{
+            "pub const relay_idle_timeout_ms: usize = 60 * 1000;",
+            "pub const relay_max_bytes_per_session: usize = 1024 * 1024 * 1024;",
+            "pub const relay_read_chunk_bytes: usize = stream_read_chunk_bytes;",
+            "pub const relay_tcp_dial_timeout_ms: usize = 5 * 1000;",
+            "pub const relay_websocket_buffer_bytes: usize = 16 * 1024;",
+            "pub const websocket_message_cap_bytes: usize = 1024 * 1024;",
+            "pub const websocket_send_high_water_bytes: usize = 1024 * 1024;",
+            "pub const websocket_drain_poll_ms: usize = 4;",
+            "pub const websocket_close_timeout_ms: usize = relay_tcp_dial_timeout_ms;",
+            "pub const websocket_inbound_high_water_bytes: usize = 1024 * 1024;",
+        },
+        .check = "relay-websocket-policy",
+        .why = "binding WebSocket and reference relay resource defaults live in binding_policy and reach runtimes through generated mirrors",
+    },
+    .{
+        .where = .{ .file = "tools/gen/binding/constants.zig" },
+        .kind = .require,
+        .needles = &.{
+            ".{ .path = \"bindings/rust/relay/src/policy_gen.rs\", .generate = generateRustRelay }",
+            "con(\"BINDING_WEBSOCKET_MESSAGE_CAP_BYTES\", binding_policy.websocket_message_cap_bytes",
+            "pub const WEBSOCKET_MESSAGE_CAP_BYTES: usize =",
+        },
+        .check = "relay-websocket-policy",
+        .why = "generated binding constants and the standalone Rust relay mirror must consume binding_policy",
+    },
+    .{
+        .where = .{ .file = "tools/gen/binding/ts_abi.zig" },
+        .kind = .require,
+        .needles = &.{
+            "kp(\"BINDING_RELAY_IDLE_TIMEOUT_MS\", binding_policy.relay_idle_timeout_ms)",
+            "kp(\"BINDING_WEBSOCKET_MESSAGE_CAP_BYTES\", binding_policy.websocket_message_cap_bytes)",
+            "kp(\"BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS\", binding_policy.websocket_close_timeout_ms)",
+        },
+        .check = "relay-websocket-policy",
+        .why = "TypeScript's ABI mirror must expose the binding-owned relay and WebSocket policy defaults",
+    },
+    .{
+        .where = .{ .file = "bindings/python/relay.py" },
+        .kind = .require,
+        .needles = &.{
+            "_abi.BINDING_RELAY_IDLE_TIMEOUT_MS",
+            "MAX_BYTES_PER_SESSION = _abi.BINDING_RELAY_MAX_BYTES_PER_SESSION",
+            "READ_CHUNK = _abi.BINDING_RELAY_READ_CHUNK_BYTES",
+            "CLOSE_TIMEOUT_S = _abi.BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS / 1000.0",
+        },
+        .check = "relay-websocket-policy",
+        .why = "Python's reference relay must consume generated binding-policy defaults instead of local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/relay.rkt" },
+        .kind = .require,
+        .needles = &.{
+            "BINDING-RELAY-IDLE-TIMEOUT-MS",
+            "(define MAX-BYTES-PER-SESSION BINDING-RELAY-MAX-BYTES-PER-SESSION)",
+            "(define READ-CHUNK BINDING-RELAY-READ-CHUNK-BYTES)",
+            "(define CLOSE-TIMEOUT-MS BINDING-WEBSOCKET-CLOSE-TIMEOUT-MS)",
+        },
+        .check = "relay-websocket-policy",
+        .why = "Racket's reference relay must consume generated binding-policy defaults instead of local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/relay/src/main.rs" },
+        .kind = .require,
+        .needles = &.{
+            "mod policy_gen;",
+            "READ_CHUNK: usize = policy_gen::RELAY_READ_CHUNK_BYTES",
+            "WS_BUFFER_BYTES: usize = policy_gen::RELAY_WEBSOCKET_BUFFER_BYTES",
+            "WS_MESSAGE_BYTES: usize = policy_gen::WEBSOCKET_MESSAGE_CAP_BYTES",
+            "MAX_BYTES_PER_SESSION: usize = policy_gen::RELAY_MAX_BYTES_PER_SESSION",
+        },
+        .check = "relay-websocket-policy",
+        .why = "the standalone Rust relay must consume its generated binding-policy mirror instead of depending on the full binding crate",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/relay/serve.ts" },
+        .kind = .require,
+        .needles = &.{
+            "BINDING_RELAY_IDLE_TIMEOUT_MS",
+            "maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION",
+        },
+        .check = "relay-websocket-policy",
+        .why = "Deno's reference relay must consume generated binding-policy defaults instead of local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/relay/deno_channels.ts" },
+        .kind = .require,
+        .needles = &.{"defaultTcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS"},
+        .check = "relay-websocket-policy",
+        .why = "the Deno relay TCP channel must consume the generated dial timeout",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/relay/ws_relay.ts" },
+        .kind = .require,
+        .needles = &.{"MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = BINDING_WEBSOCKET_MESSAGE_CAP_BYTES"},
+        .check = "relay-websocket-policy",
+        .why = "the TypeScript relay adapter must consume the generated WebSocket message cap",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/websocket.ts" },
+        .kind = .require,
+        .needles = &.{
+            "wsSendHighWaterBytes = BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES",
+            "wsDrainPollMs = BINDING_WEBSOCKET_DRAIN_POLL_MS",
+            "defaultWsCloseTimeoutMs = BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS",
+            "defaultWsInboundHighWaterBytes = BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES",
+        },
+        .check = "relay-websocket-policy",
+        .why = "the shared TypeScript WebSocket byte channel must consume generated binding-policy defaults",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_ws.py" },
+        .kind = .require,
+        .needles = &.{"_WS_MESSAGE_HIGH_WATER = _abi.BINDING_WEBSOCKET_MESSAGE_CAP_BYTES"},
+        .check = "relay-websocket-policy",
+        .why = "Python's WebSocket byte transport must consume the generated WebSocket message cap",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/private/ws-transport.rkt" },
+        .kind = .require,
+        .needles = &.{"(define WS-MESSAGE-HIGH-WATER BINDING-WEBSOCKET-MESSAGE-CAP-BYTES)"},
+        .check = "relay-websocket-policy",
+        .why = "Racket's WebSocket byte transport must consume the generated WebSocket message cap",
+    },
+    .{
+        .where = .{ .file = "apps/rooms/web/relay.ts" },
+        .kind = .require,
+        .needles = &.{
+            "maxBytesPerSession = BINDING_RELAY_MAX_BYTES_PER_SESSION",
+            "tcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS",
+        },
+        .check = "relay-websocket-policy",
+        .why = "the rooms relay reuses shared reference-relay resource defaults while retaining its own app-specific liveness policy",
+    },
+    .{
+        .where = .{ .files = &.{
+            "bindings/python/relay.py",
+            "bindings/racket/relay.rkt",
+            "bindings/rust/relay/src/main.rs",
+            "bindings/ts/relay/serve.ts",
+            "bindings/ts/relay/deno_channels.ts",
+            "bindings/ts/relay/ws_relay.ts",
+            "bindings/ts/runtime/websocket.ts",
+            "bindings/python/pancake/_ws.py",
+            "bindings/racket/private/ws-transport.rkt",
+            "apps/rooms/web/relay.ts",
+        } },
+        .kind = .forbid,
+        .needles = &.{
+            "1 << 20",
+            "1 << 30",
+            "1024 * 1024 * 1024",
+            "1024 * 1024",
+            "60_000",
+            "\"60000\"",
+            "5_000",
+            "5000",
+            "1 << 16",
+            "65536",
+            "16 * 1024",
+            "64 KiB",
+            "(expt 2 30)",
+            "(arithmetic-shift 1 20)",
+            "(define READ-CHUNK 65536)",
+        },
+        .check = "relay-websocket-policy",
+        .why = "relay and WebSocket resource defaults use generated binding-policy constants, not local literals",
+    },
+};

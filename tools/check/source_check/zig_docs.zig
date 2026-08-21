@@ -333,7 +333,7 @@ pub fn checkMemoryLedgerSymbolClaims(
 
 /// A backticked identifier whose final segment is lower camelCase with an
 /// interior capital (`ownedFrameFromView`, `model.cloneMessage`,
-/// `Node.stagePendingDial`) reads as a function this tree declares. Only the
+/// `Node.stageDial`) reads as a function this tree declares. Only the
 /// last segment is tested, so the owner may be a module or a type or absent;
 /// `checkSpan` above covers the `Type.method` shape more strictly and this
 /// covers the rest. Snake_case segments are fields, constants, and wire names

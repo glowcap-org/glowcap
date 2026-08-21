@@ -1,8 +1,7 @@
 ---
 .title = "API reference",
 .description = "The generated API reference for pancake: both the Zig declarations and the C ABI, kept from going stale by a build check.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -12,14 +11,14 @@ the library. A build check rejects stale output. To choose an API, start with
 [Choose an API]($link.page('surfaces')); to build a first client, use [Start
 building]($link.page('start')).
 
-## The Zig API
+# The Zig API
 
 The [Zig API reference]($link.page('reference/api')) documents the public
 `pancake` module imported by applications. Ownership and lifetime notes live
 with the declarations they govern. [The modules]($link.page('modules'))
 explains how those declarations are divided by responsibility.
 
-## The C ABI
+# The C ABI
 
 The C ABI is split into composable archives. Each generated header describes
 one archive and includes only the shared definitions it needs.
@@ -29,12 +28,12 @@ one archive and includes only the shared definitions it needs.
 | `libpancake_ocapn` | [`pancake_ocapn.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
 | `libpancake_host` | [`pancake_host.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_host.h) | the byte-fed host tier (`pancake_host_*`) |
 | `libpancake_driver` | [`pancake_driver.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_driver.h) | the native loop; exports only `pancake_driver_*` and adopts a Host from `libpancake_host` through `pancake_driver_take_host` |
-| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_tcp.h) | the `tcp`, `keyed-tcp`, and `noise-tcp` provider package plus low-level framed cleartext TCP endpoints |
-| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
-| `libpancake_net_transport_onion` | [`pancake_net_transport_onion.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_onion.h) | Tor onion services over a daemon you run |
 | `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
 | `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
+| `libpancake_net_transport_onion` | [`pancake_net_transport_onion.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_onion.h) | Tor onion services over a daemon you run |
 | `libpancake_net_transport_relay` | [`pancake_net_transport_relay.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_relay.h) | native `keyed-relay` and end-to-end sealed `noise-relay` provider package |
+| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` provider package plus low-level framed TCP endpoints |
+| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
 
 The driver and transport headers are companions, not supersets: each one
 `#include`s `pancake_ocapn.h`, declares only its own family, and expects its

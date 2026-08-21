@@ -39,17 +39,25 @@ let heldBytes = 0;
  * the member may write, and released when the upload is posted or dropped. */
 let pendingBytes = 0;
 
-/** Admit one upload of `size` bytes against the server's in-flight budget, or
- * refuse it.
+/** Reserve and allocate one upload of `size` bytes against the server's
+ * in-flight budget, or refuse it.
  *
  * Held media can be evicted; bytes nobody has seen cannot, because there is no
  * owner to tell. So an upload that would not fit is refused against the size it
- * declares, before a byte moves. The reservation and the releases that undo it
- * live together here: a budget maintained from two files is one that drifts. */
-export function admitUpload(size: number): boolean {
-	if (pendingBytes + size > MAX_SERVER_PENDING_BYTES) return false;
+ * declares, before allocating the buffer it would fill. Allocation belongs in
+ * this transaction too: if it fails after admission, the reservation is
+ * restored here before the error escapes. The reservation and the releases
+ * that undo it live together here; a budget maintained from two files is one
+ * that drifts. */
+export function allocateUpload(size: number): Uint8Array | null {
+	if (pendingBytes + size > MAX_SERVER_PENDING_BYTES) return null;
 	pendingBytes += size;
-	return true;
+	try {
+		return new Uint8Array(size);
+	} catch (error) {
+		pendingBytes -= size;
+		throw error;
+	}
 }
 
 /** Forget one held file's bytes wherever they are counted. The record and its

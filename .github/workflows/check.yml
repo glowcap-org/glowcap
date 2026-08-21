@@ -27,7 +27,7 @@ jobs:
       # managed external networks it names.
       - name: Prepare the devcontainer's external networks
         run: |
-          bash .devcontainer/configure.sh
+          bash .devcontainer/bin/configure.sh
           docker network create rooms-net 2>/dev/null || true
           docker network create pancake-main-egress 2>/dev/null || true
 

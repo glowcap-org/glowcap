@@ -17,13 +17,21 @@ const actors = @import("actors");
 const value_mod = @import("value.zig");
 
 const host_mod = @import("host.zig");
-const host_action = @import("host_action.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const vocab = @import("vocab.zig");
+const completion = @import("vows/completion.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
+
+pub fn ensureFreshVowId(self: *Host) !void {
+    if (self.next_vow == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+}
+
+fn ensureFreshResolverId(self: *Host) !void {
+    if (self.next_resolver == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+}
 const asFarRef = host_mod.asFarRef;
 
 /// One live host vow. The row holds the vow's single vat listener slot
@@ -38,7 +46,7 @@ pub const VowRow = struct {
     /// Session-scoped vow verbs refuse a resolver row (`SessionlessVow`). Its
     /// resolver settle normally retires it; teardown of the session whose
     /// answer it carries breaks and retires it before freeing that Port.
-    peer_id: ?engine.PeerId,
+    peer_handle: ?engine.PeerHandle,
     id: u64,
     vow: actors.Vow,
     kind: Kind = .plain,
@@ -47,10 +55,10 @@ pub const VowRow = struct {
     /// (ADR-0102), recorded by `deferTurn` so the settle can mark it
     /// dirty — a resolver settle is the one vat settle that runs outside
     /// any `feed`, so nothing else would encode the resolved answer.
-    /// Distinct from `peer_id` on purpose: the row itself is sessionless, but
+    /// Distinct from `peer_handle` on purpose: the row itself is sessionless, but
     /// this owner makes teardown cancel the deferred answer and its pending
     /// operation before the Port it would resolve through is freed.
-    forwarded_peer: ?engine.PeerId = null,
+    forwarded_peer: ?engine.PeerHandle = null,
 
     /// What settlement does to the resolution before it is dispatched: a
     /// `fetch` vow's fulfilled far capability is enrolled under a
@@ -102,7 +110,7 @@ pub fn vowSession(self: *Host, vow_id: u64) !*HostSession {
 pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
     self.assertOwner();
     try self.admitApplicationOperation();
-    if (session.host != self or self.sessions.get(session.peer_id) != session)
+    if (session.host != self or self.sessions.get(session.peer_handle) != session)
         return HostError.ForeignTurn;
     if (turn.vat != &self.vat) return HostError.ForeignTurn;
     switch (turn.origin) {
@@ -113,6 +121,8 @@ pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
         turn.ingress != session.served.port.ingress)
         return HostError.ForeignTurn;
     try self.admitSessionOperation(session);
+    try ensureFreshVowId(self);
+    try ensureFreshResolverId(self);
     const row = try reserveVowRow(self, null, .plain, self.next_vow);
     errdefer self.allocator.destroy(row);
     try self.resolver_index.ensureUnusedCapacity(self.allocator, 1);
@@ -130,7 +140,7 @@ pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
         .vat_resolver = pair.resolver,
     });
     turn.forwardReservedVow(forward_reservation, pair.vow);
-    row.forwarded_peer = session.peer_id;
+    row.forwarded_peer = session.peer_handle;
     self.beginSessionOperation(session);
     return resolver_id;
 }
@@ -236,7 +246,7 @@ fn commitVowSend(
     if (drive_now)
         host_pump.finishCommittedVow(self, resolved.session)
     else
-        host_pump.markDirty(self, resolved.session.peer_id);
+        host_pump.markDirty(self, resolved.session.peer_handle);
     return id;
 }
 
@@ -267,6 +277,7 @@ pub fn reserveVow(
     location: actors.VowLocation,
     kind: VowRow.Kind,
 ) !VowReservation {
+    try ensureFreshVowId(self);
     return reserveVowAt(self, session, location, kind, self.next_vow);
 }
 
@@ -297,6 +308,7 @@ pub fn cancelVowReservation(self: *Host, reservation: VowReservation) void {
 /// its producer later settles it through `fireVow` and may transfer its
 /// session ownership with `moveDeferredVow` before that settlement.
 pub fn mintDeferredVow(self: *Host, session: *HostSession) !u64 {
+    try ensureFreshVowId(self);
     const id = self.next_vow;
     const row = try reserveVowRow(self, session, .plain, id);
     row.vow = .{ .local = id };
@@ -310,11 +322,11 @@ pub fn mintDeferredVow(self: *Host, session: *HostSession) !u64 {
 /// caller learned the promise to the session that now owns its real send.
 pub fn moveDeferredVow(self: *Host, vow_id: u64, target: *HostSession) void {
     const row = self.vows.get(vow_id) orelse return;
-    const source_peer = row.peer_id orelse unreachable;
-    if (source_peer == target.peer_id) return;
+    const source_peer = row.peer_handle orelse unreachable;
+    if (source_peer == target.peer_handle) return;
     if (self.sessions.get(source_peer)) |source| self.finishSessionOperation(source);
     self.beginSessionOperation(target);
-    row.peer_id = target.peer_id;
+    row.peer_handle = target.peer_handle;
 }
 
 /// Attach a pre-minted deferred Host vow directly to the real Vat/Port vow.
@@ -347,6 +359,7 @@ pub fn commitVow(
         vow,
         .{ .ctx = reservation.row, .func = VowRow.fire },
     );
+    std.debug.assert(id == self.next_vow);
     self.next_vow += 1;
     return id;
 }
@@ -383,7 +396,7 @@ fn reserveVowRow(self: *Host, session: ?*HostSession, kind: VowRow.Kind, id: u64
     errdefer self.allocator.destroy(row);
     row.* = .{
         .host = self,
-        .peer_id = if (session) |s| s.peer_id else null,
+        .peer_handle = if (session) |s| s.peer_handle else null,
         .id = id,
         .vow = undefined,
         .kind = kind,
@@ -403,27 +416,27 @@ fn reserveVowRow(self: *Host, session: ?*HostSession, kind: VowRow.Kind, id: u64
 fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
     const inner = row.inner;
     const kind = row.kind;
-    const maybe_peer = row.peer_id;
+    const maybe_peer = row.peer_handle;
     const id = row.id;
     std.debug.assert(self.vows.remove(id));
-    if (maybe_peer) |peer_id| {
-        if (self.sessions.get(peer_id)) |session| self.finishSessionOperation(session);
+    if (maybe_peer) |peer_handle| {
+        if (self.sessions.get(peer_handle)) |session| self.finishSessionOperation(session);
     }
     self.allocator.destroy(row);
     // A resolver row (ADR-0102) has no session and never queues a
     // completion: the settle is the resolver holder's own act, so it
     // already knows the outcome. Defensive — the resolver verbs retire
     // their row before the vat settles, so no fire reaches here.
-    const peer_id = maybe_peer orelse {
+    const peer_handle = maybe_peer orelse {
         if (inner) |listener| listener.func(listener.ctx, resolution);
         return;
     };
-    const routed = if (kind == .fetch) enrollFetched(self, peer_id, resolution) else resolution;
+    const routed = if (kind == .fetch) enrollFetched(self, peer_handle, resolution) else resolution;
     if (inner) |listener| {
         listener.func(listener.ctx, routed);
         return;
     }
-    queueCompletion(self, peer_id, id, routed);
+    completion.queueVowCompletion(self, peer_handle, id, routed);
 }
 
 /// Settle a vow by id — the enliven bridge's path to the shared retire
@@ -434,63 +447,6 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
 pub fn fireVow(self: *Host, vow_id: u64, resolution: actors.Resolution) void {
     const row = self.vows.get(vow_id) orelse return;
     settleRow(self, row, resolution);
-}
-
-/// Queue a settled vow's completion for the embedder — infallible by
-/// reservation (`createVowRow` and every fallible enqueue keep one spare
-/// slot per live vow), so a fire can never strand. The fulfilled value
-/// is deep-cloned onto the host: the settle fires inside `feed` while
-/// the resolution is turn-borrowed, and the embedder drains after `feed`
-/// returns, so an owning completion is the only correct holder (the
-/// in-process `vowOn` path stays borrowed and pays no clone). A clone
-/// failure degrades to a `failed` completion with an allocation-free
-/// diagnostic rather than a stranded vow.
-fn queueCompletion(self: *Host, peer_id: engine.PeerId, vow_id: u64, resolution: actors.Resolution) void {
-    switch (resolution) {
-        .fulfilled => |value| {
-            const cloned = model.cloneArgument(self.allocator, value) catch {
-                self.actions.pushReserved(.{ .failed = .{
-                    .peer_id = peer_id,
-                    .vow_id = vow_id,
-                    .failure = .broken,
-                    .message = host_action.failure_detail_allocation_message,
-                    .message_owned = false,
-                } });
-                return;
-            };
-            self.actions.pushReserved(.{ .settled = .{ .peer_id = peer_id, .vow_id = vow_id, .value = cloned } });
-        },
-        .broken => |message| {
-            const retained = host_action.retainFailureMessage(self.allocator, message);
-            self.actions.pushReserved(.{ .failed = .{
-                .peer_id = peer_id,
-                .vow_id = vow_id,
-                .failure = vowFailure(self, peer_id),
-                .message = retained.bytes,
-                .message_owned = retained.owned,
-            } });
-        },
-        // Unreachable by construction — the host claims every inbound
-        // give before the vat can settle a vow with it (auto-redeem) —
-        // but a defensive break beats a crash if that invariant moves.
-        .give => {
-            const retained = host_action.retainFailureMessage(self.allocator, "raw handoff reached a settle listener");
-            self.actions.pushReserved(.{ .failed = .{
-                .peer_id = peer_id,
-                .vow_id = vow_id,
-                .failure = .broken,
-                .message = retained.bytes,
-                .message_owned = retained.owned,
-            } });
-        },
-    }
-}
-
-/// Classify a vat break while the owning session row is still authoritative.
-/// Finishing keeps admitted work live, so only terminal teardown is closure.
-fn vowFailure(self: *const Host, peer_id: engine.PeerId) host_action.VowFailure {
-    const session = self.sessions.get(peer_id) orelse return .closed;
-    return if (session.isTerminating()) .closed else .broken;
 }
 
 fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
@@ -507,7 +463,7 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     var reservation_live = true;
     errdefer if (reservation_live) cancelVowReservation(self, reservation);
     const peer = resolved.session.served.port.peer;
-    const answer = model.AnswerPosition.from(peer.allocateAnswer());
+    const answer = model.AnswerPosition.from(try peer.allocateAnswer());
     const receiver: model.Reference = .{ .promise = .{ .answer_position = source } };
     switch (projection) {
         .index => |index| try peer.sendCopying(.{ .index = .{
@@ -532,8 +488,8 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
 fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
     self.assertOwner();
     const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-    const peer_id = row.peer_id orelse return HostError.SessionlessVow;
-    const session = self.sessions.get(peer_id) orelse return HostError.NoSuchVow;
+    const peer_handle = row.peer_handle orelse return HostError.SessionlessVow;
+    const session = self.sessions.get(peer_handle) orelse return HostError.NoSuchVow;
     try self.checkSession(session);
     return .{ .row = row, .session = session };
 }
@@ -555,10 +511,10 @@ fn settleResolverRow(self: *Host, resolver_id: u64, resolution: actors.Resolutio
     self.allocator.destroy(row);
     // This settle runs outside any feed, so the deferred answer's session
     // is encoded here or not at all.
-    if (forwarded_peer) |peer_id| {
-        const session = self.sessions.get(peer_id) orelse return;
+    if (forwarded_peer) |peer_handle| {
+        const session = self.sessions.get(peer_handle) orelse return;
         self.finishSessionOperation(session);
-        host_pump.markDirty(self, peer_id);
+        host_pump.markDirty(self, peer_handle);
         host_pump.finishCommittedWork(self, session);
     }
 }
@@ -571,11 +527,11 @@ fn settleResolverRow(self: *Host, resolver_id: u64, resolution: actors.Resolutio
 /// would double-wrap it into a reference no session can lower. An
 /// unenrollable capability would mis-route a later re-gift, so it fails
 /// loud as a break rather than surfacing half-usable.
-fn enrollFetched(self: *Host, peer_id: engine.PeerId, resolution: actors.Resolution) actors.Resolution {
+fn enrollFetched(self: *Host, peer_handle: engine.PeerHandle, resolution: actors.Resolution) actors.Resolution {
     if (resolution == .fulfilled and resolution.fulfilled == .reference and
         resolution.fulfilled.reference == .routed) return resolution;
     if (resolution == .fulfilled) if (asFarRef(resolution.fulfilled)) |far| {
-        const route = self.node.enrollForeign(peer_id, .{ .far = far }) catch |err| {
+        const route = self.node.enrollForeign(peer_handle, .{ .far = far }) catch |err| {
             return .{ .broken = @errorName(err) };
         };
         return .{ .fulfilled = .{ .reference = route } };
@@ -591,7 +547,7 @@ fn enrollFetched(self: *Host, peer_id: engine.PeerId, resolution: actors.Resolut
 /// removed here. Removal invalidates each iterator, so both scans collect a
 /// bounded stack batch and remove between scans.
 pub fn dropVowRows(self: *Host, session: *HostSession, reason: []const u8) void {
-    const peer_id = session.peer_id;
+    const peer_handle = session.peer_handle;
     var doomed: [64]u64 = undefined;
 
     while (true) {
@@ -599,7 +555,7 @@ pub fn dropVowRows(self: *Host, session: *HostSession, reason: []const u8) void 
         var resolvers = self.resolver_index.iterator();
         while (resolvers.next()) |entry| {
             const row = self.vows.get(entry.value_ptr.vow_id) orelse unreachable;
-            if (row.forwarded_peer != peer_id) continue;
+            if (row.forwarded_peer != peer_handle) continue;
             doomed[n] = entry.key_ptr.*;
             n += 1;
             if (n == doomed.len) break;
@@ -608,7 +564,7 @@ pub fn dropVowRows(self: *Host, session: *HostSession, reason: []const u8) void 
         for (doomed[0..n]) |resolver_id| {
             const entry = self.resolver_index.get(resolver_id) orelse unreachable;
             const row = self.vows.get(entry.vow_id) orelse unreachable;
-            std.debug.assert(row.forwarded_peer == peer_id);
+            std.debug.assert(row.forwarded_peer == peer_handle);
             self.vat.breakVow(entry.vat_resolver, reason) catch unreachable;
             std.debug.assert(self.resolver_index.remove(resolver_id));
             std.debug.assert(self.vows.remove(entry.vow_id));
@@ -621,8 +577,8 @@ pub fn dropVowRows(self: *Host, session: *HostSession, reason: []const u8) void 
         var n: usize = 0;
         var it = self.vows.iterator();
         while (it.next()) |entry| {
-            const row_peer = entry.value_ptr.*.peer_id orelse continue;
-            if (row_peer != peer_id) continue;
+            const row_peer = entry.value_ptr.*.peer_handle orelse continue;
+            if (row_peer != peer_handle) continue;
             doomed[n] = entry.key_ptr.*;
             n += 1;
             if (n == doomed.len) break;

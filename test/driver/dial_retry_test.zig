@@ -5,6 +5,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const driver = pancake.driver;
+const driver_core = pancake.driver.core;
 const c_abi_host = @import("c_abi_host");
 const DialError = pancake.net.netlayer.DialError;
 
@@ -35,7 +36,9 @@ fn fatalDial(ctx: ?*anyopaque) DialError!void {
     return error.InvalidAddress;
 }
 
-test "discovery budget lockstep: driver, C ABI, DialRetry policy" {
+test "discovery budget is one driver_core default projected through driver, C ABI, and DialRetry" {
+    try std.testing.expectEqual(driver_core.discovery_retry_ms, driver.discovery_retry_ms);
+    try std.testing.expectEqual(driver_core.discovery_max_attempts, driver.discovery_max_attempts);
     try std.testing.expectEqual(driver.discovery_retry_ms, c_abi_host.PANCAKE_DISCOVERY_DIAL_RETRY_MS);
     try std.testing.expectEqual(driver.discovery_max_attempts, c_abi_host.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS);
     const p = driver.DialPolicy.discovery();

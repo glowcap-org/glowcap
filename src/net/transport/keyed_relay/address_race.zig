@@ -15,7 +15,7 @@ pub fn FailureLedger(comptime Failure: type) type {
         const Self = @This();
 
         values: [max_resolved_addresses]?Failure =
-            [_]?Failure{null} ** max_resolved_addresses,
+            @as([max_resolved_addresses]?Failure, @splat(null)),
 
         pub fn note(self: *Self, address_index: usize, failure: Failure) void {
             std.debug.assert(address_index < self.values.len);

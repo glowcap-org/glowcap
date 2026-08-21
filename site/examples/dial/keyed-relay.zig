@@ -1,11 +1,17 @@
 const std = @import("std");
 const pancake = @import("pancake");
+const native_relay = @import("native_relay");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const relay_url = "ws://192.0.2.10:8080/relay";
-    var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .keyed);
-    defer relay_resident.deinit();
-    const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
+    // The key names the peer; the hint names the relay that can reach it.
+    const relay_url = "wss://relay.example/relay";
+    var relay: native_relay.Provider = undefined;
+    switch (relay.init(io, allocator, relay_url, null, .system)) {
+        .ready => {},
+        .failed => return error.RelayUnavailable,
+    }
+    defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
+    const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
     const partner = pancake.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);

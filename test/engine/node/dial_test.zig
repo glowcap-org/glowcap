@@ -32,7 +32,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "acceptGive with no dialable exporter locator fails the answer closed" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{2} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(2)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -47,7 +47,7 @@ test "acceptGive with no dialable exporter locator fails the answer closed" {
 
 test "an unknown exporter becomes one dial action; a second give joins it" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(4)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -77,10 +77,97 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try std.testing.expect(node.nextAction() == null);
 }
 
+test "fresh dial ticket exhaustion refuses atomically and remains retryable" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x40)));
+    defer node.deinit();
+
+    const locator = "ocapn://127.0.0.1%3A9050.tcp";
+    node.actions.next_ticket = std.math.maxInt(u64);
+    try std.testing.expectError(error.CapabilitySpaceExhausted, node.stageDial(locator));
+    try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
+    try std.testing.expectEqual(@as(usize, 0), node.redeems.dials.by_identity.count());
+    try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
+    try std.testing.expect(node.nextAction() == null);
+
+    node.actions.next_ticket = 0;
+    const retried = try node.stageDial(locator);
+    try std.testing.expectEqual(@as(u64, 0), retried.pending);
+    try std.testing.expectEqual(retried.pending, node.nextAction().?.dial.pending);
+}
+
+test "fresh give dial ticket exhaustion retains no waiter or action" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x42)));
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9051.tcp";
+    node.actions.next_ticket = std.math.maxInt(u64);
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        node.acceptGive(recipient, 17, "give", locator),
+    );
+    try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
+    try std.testing.expectEqual(@as(usize, 0), node.redeems.dials.by_identity.count());
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        node.redeems.dials.waiter_action_reservations,
+    );
+    try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
+    try std.testing.expect(node.nextAction() == null);
+
+    node.actions.next_ticket = 0;
+    try node.acceptGive(recipient, 17, "give", locator);
+    try std.testing.expectEqual(@as(u64, 0), node.nextAction().?.dial.pending);
+}
+
+test "cache hits and identity joins mint no pending ticket" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x43)));
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9052.tcp";
+    const first_give = try testGiveBytes(allocator);
+    defer allocator.free(first_give);
+    const second_give = try testGiveBytes(allocator);
+    defer allocator.free(second_give);
+    const third_give = try testGiveBytes(allocator);
+    defer allocator.free(third_give);
+    try node.acceptGive(recipient, 18, first_give, locator);
+    const pending = node.nextAction().?.dial.pending;
+    node.actions.next_ticket = std.math.maxInt(u64);
+
+    // The second give joins the existing canonical-identity row; max is still
+    // the unissued sentinel and no second dial action appears.
+    try node.acceptGive(recipient, 19, second_give, locator);
+    try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
+    try std.testing.expectEqual(@as(usize, 1), node.pendingDialCount());
+    try std.testing.expect(node.nextAction() == null);
+
+    const exporter = try node.registerPeer(.{});
+    var counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(exporter).?,
+        @as([crypto.SEED_BYTES]u8, @splat(0x44)),
+    );
+    defer counterpart.deinit();
+    try node.exporterDialed(pending, exporter);
+    try std.testing.expectEqual(exporter, node.nextAction().?.flush);
+    try std.testing.expectEqual(exporter, node.nextAction().?.flush);
+
+    // The live cache likewise starts a withdrawal without minting a ticket.
+    try node.acceptGive(recipient, 20, third_give, locator);
+    try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
+    try std.testing.expectEqual(exporter, node.nextAction().?.flush);
+}
+
 test "dial failure settles every waiter when diagnostics cannot allocate" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, [_]u8{0x41} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x41)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -106,7 +193,7 @@ test "dial failure settles every waiter when diagnostics cannot allocate" {
 test "owner cancellation settles every queued dial waiter without allocation" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, [_]u8{0x44} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -132,7 +219,7 @@ test "owner cancellation settles every queued dial waiter without allocation" {
 
 test "owner cancellation settles in-flight dial waiters once before physical join" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x45} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x45)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -163,7 +250,7 @@ test "owner cancellation settles in-flight dial waiters once before physical joi
 
 test "acceptGive materializes dial view once for pendingDial" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(4)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -181,7 +268,7 @@ test "acceptGive materializes dial view once for pendingDial" {
 
 test "alternative locators retry in order on one ticket and a later path succeeds" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2a} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2a)));
     defer node.deinit();
 
     const first_alt = try peerUri(allocator, "127.0.0.1:9050");
@@ -224,7 +311,7 @@ test "alternative locators retry in order on one ticket and a later path succeed
 
 test "alternative locator staging refuses malformed and oversized hints" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2b} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2b)));
     defer node.deinit();
     const recipient = try node.registerPeer(.{});
 
@@ -265,7 +352,7 @@ test "alternative locator staging refuses malformed and oversized hints" {
 
 test "alternative locator retry exhaustion breaks waiters only after the last path" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2c} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2c)));
     defer node.deinit();
     const recipient = try node.registerPeer(.{});
     const alternative = try peerUri(allocator, "127.0.0.1:9052");
@@ -292,7 +379,7 @@ test "alternative locator retry exhaustion breaks waiters only after the last pa
 
 test "ordinary primary dial success keeps the existing pending ticket contract" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2d} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2d)));
     defer node.deinit();
 
     const staged = try node.stageDial("ocapn://127.0.0.1%3A9053.tcp");
@@ -308,7 +395,7 @@ test "ordinary primary dial success keeps the existing pending ticket contract" 
 
 test "pending alternative paths are released when the node tears down" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x2e} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2e)));
     defer node.deinit();
 
     const alternative = try peerUri(allocator, "127.0.0.1:9054");
@@ -326,7 +413,7 @@ test "pending alternative paths are released when the node tears down" {
 
 test "acceptGive fails closed on unparseable exporter locator" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(6)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -342,7 +429,7 @@ test "exporterDialed frees empty hint sentinel without leaking" {
     // Hint-less URI stages an unowned empty hint; exporterDialed must free
     // through freeDialPart (not raw allocator.free on "").
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(7)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -362,7 +449,7 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
     // the same transport+designator must share one in-flight dial even when the
     // URI bytes differ (query hints / encoding).
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{5} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(5)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -385,7 +472,7 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
 
 test "a dialed exporter whose session never opened fails the redeem closed" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(6)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -409,7 +496,7 @@ test "exporter completion settles the whole batch across outbound allocation fai
     while (fail_offset < 128 and !exercised_partial_batch) : (fail_offset += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var node = Node.init(allocator, [_]u8{0x42} ** crypto.SEED_BYTES);
+        var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x42)));
         defer node.deinit();
 
         const recipient = try node.registerPeer(.{});
@@ -418,7 +505,7 @@ test "exporter completion settles the whole batch across outbound allocation fai
             allocator,
             &node,
             node.peer(exporter).?,
-            [_]u8{0x43} ** crypto.SEED_BYTES,
+            @as([crypto.SEED_BYTES]u8, @splat(0x43)),
         );
         defer counterpart.deinit();
 
@@ -459,7 +546,7 @@ test "exporter completion settles the whole batch across outbound allocation fai
         exercised_partial_batch = true;
         var answers: [3]u64 = undefined;
         var answer_count: usize = 0;
-        var withdraws = node.pending_withdraws.keyIterator();
+        var withdraws = node.redeems.withdrawals.rows.keyIterator();
         while (withdraws.next()) |key| {
             answers[answer_count] = key.answer;
             answer_count += 1;
@@ -471,8 +558,8 @@ test "exporter completion settles the whole batch across outbound allocation fai
             try std.testing.expect(try node.claimResolve(exporter, answer, .{ .broken = "missing" }));
             while (node.nextAction()) |action| switch (action) {
                 .fail => {},
-                .retire_exporter => |peer_id| {
-                    try std.testing.expectEqual(exporter, peer_id);
+                .retire_exporter => |peer_handle| {
+                    try std.testing.expectEqual(exporter, peer_handle);
                     retire_count += 1;
                 },
                 else => return error.UnexpectedNodeAction,

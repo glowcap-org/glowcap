@@ -84,11 +84,7 @@ fn openOwned(
                 .{
                     .phase = .secure_handshake,
                     .chain = failure.chain,
-                    .detail = .{
-                        .verification_flags = failure.detail.verification_flags,
-                        .peer_alert = failure.detail.peer_alert,
-                        .engine_code = failure.detail.engine_code,
-                    },
+                    .detail = failure.detail,
                 },
             ) },
         };
@@ -121,11 +117,7 @@ fn openOwned(
                 if (exact) |failure| .{
                     .phase = .secure_handshake,
                     .chain = failure.chain,
-                    .detail = .{
-                        .verification_flags = failure.detail.verification_flags,
-                        .peer_alert = failure.detail.peer_alert,
-                        .engine_code = failure.detail.engine_code,
-                    },
+                    .detail = failure.detail,
                 } else carrier_failure.Failure.init(.secure_handshake, err),
             ) };
         };

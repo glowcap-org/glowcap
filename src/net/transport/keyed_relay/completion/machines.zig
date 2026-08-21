@@ -7,7 +7,7 @@
 const completion = @import("../../../completion/loop.zig");
 const completion_contract = @import("../../../completion/contract.zig");
 const carrier_failure = @import("../../../carrier_failure.zig");
-const protocol = @import("../../../websocket/client_protocol.zig");
+const protocol = @import("../../../websocket.zig").client_protocol;
 
 const buffers = @import("buffers.zig");
 const dispatch_machine = @import("dispatch.zig");

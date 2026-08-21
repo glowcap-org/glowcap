@@ -49,17 +49,17 @@ pub struct PancakeOnionConfig {
 
 /// An unauthenticated control endpoint, which is what a Unix control socket with
 /// no authentication gives and what upstream Goblins assumes.
-pub const ONION_AUTH_NONE: core::ffi::c_uint = 0;
+pub const ONION_AUTH_NONE: core::ffi::c_uint = crate::abi_constants_gen::ONION_AUTH_NONE;
 /// Authenticate with the bytes of the file `CookieAuthFile` names, sent as
 /// hexadecimal. The common default on a distribution's Tor package.
-pub const ONION_AUTH_COOKIE: core::ffi::c_uint = 1;
+pub const ONION_AUTH_COOKIE: core::ffi::c_uint = crate::abi_constants_gen::ONION_AUTH_COOKIE;
 /// Authenticate with the cleartext of a `HashedControlPassword` setup.
-pub const ONION_AUTH_PASSWORD: core::ffi::c_uint = 2;
+pub const ONION_AUTH_PASSWORD: core::ffi::c_uint = crate::abi_constants_gen::ONION_AUTH_PASSWORD;
 
 /// A version 3 onion service id is always exactly this many characters.
-pub const ONION_SERVICE_ID_LEN: usize = 56;
+pub const ONION_SERVICE_ID_LEN: usize = crate::abi_constants_gen::ONION_SERVICE_ID_LEN;
 /// An upper bound on the private-key blob Tor returns for a fresh service.
-pub const ONION_SERVICE_KEY_CAP: usize = 256;
+pub const ONION_SERVICE_KEY_CAP: usize = crate::abi_constants_gen::ONION_SERVICE_KEY_CAP;
 
 // The raw extern block is generated (`onion_fns_gen.rs`, `zig build
 // gen-binding-rust-ffi`): types reflected from the Zig exports, parameter

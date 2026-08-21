@@ -1,6 +1,6 @@
 //! Persistent immutable collections — actor-support for vat time-travel.
 //!
-//! A persistent actor (see `actors/vat.zig`, ADR-0060) produces its next state
+//! A persistent actor (see `actors/vat/mod.zig`, ADR-0060) produces its next state
 //! with `Turn.become` instead of mutating `self`, which is what lets a vat
 //! snapshot share the value with no copy-on-write. If that state is a large map,
 //! rebuilding it every turn would make `become` O(size). `PersistentMap` closes

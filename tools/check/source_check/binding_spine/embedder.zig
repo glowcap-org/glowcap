@@ -11,6 +11,7 @@ const expectFileContains = util.expectFileContains;
 const fileContains = util.fileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
+const readSourceSubject = util.readSourceSubject;
 
 /// Handwritten binding contexts that discuss, inspect, or raise an ABI error.
 /// A negative integer on one of these lines restates generated ABI vocabulary.
@@ -50,14 +51,19 @@ pub fn checkBindingEmbedderPump(
             continue;
         };
         defer gpa.free(contents);
-        const markers = [_][]const u8{
+        const ts_pump = std.mem.eql(u8, path, "bindings/ts/runtime/pump.ts");
+        const markers = if (ts_pump) &[_][]const u8{
+            "pancake_host_session_feed_packet",
+            "take_packet",
+            "transport_closed",
+        } else &[_][]const u8{
             "pancake_host_session_feed_bytes",
             "take_outbound",
             "transport_closed",
         };
         for (markers) |needle| {
             if (std.mem.indexOf(u8, contents, needle) == null) {
-                try appendViolation(gpa, violations, "{s}: pump missing `{s}` — conn byte choreography", .{ path, needle });
+                try appendViolation(gpa, violations, "{s}: pump missing `{s}` — transport choreography", .{ path, needle });
             }
         }
         // Feed-refusal / last_abort: the FFI reader lives in pump (Pass 1b).
@@ -144,13 +150,13 @@ pub fn checkBindingEmbedderPump(
     const handshake_msg = "connection closed during the OCapN handshake";
     const session_paths = [_][]const u8{
         "bindings/ts/runtime/session.ts",
-        "bindings/python/pancake/_session.py",
+        "bindings/python/pancake/_session/",
         "bindings/rust/src/session.rs",
         "bindings/racket/private/session.rkt",
     };
     for (session_paths) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for handshake-spine check with {s}", .{ path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for handshake-spine check", .{path});
             continue;
         };
         defer gpa.free(contents);
@@ -168,13 +174,13 @@ pub fn checkBindingEmbedderPump(
     }
 
     const park = [_]struct { path: []const u8, inside: []const u8, park: []const u8, release_path: []const u8, release: []const u8 }{
-        .{ .path = "bindings/ts/runtime/session.ts", .inside = "insideTurn", .park = "parkRelease", .release_path = "bindings/ts/runtime/session.ts", .release = "pancake_host_session_release" },
-        .{ .path = "bindings/python/pancake/_session.py", .inside = "_inside_turn", .park = "park_release", .release_path = "bindings/python/pancake/_session.py", .release = "pancake_host_session_release" },
-        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "park_session_release", .release_path = "bindings/rust/src/host.rs", .release = "pancake_host_session_release" },
-        // Racket's close path releases through host.rkt's
+        .{ .path = "bindings/ts/runtime/session/lifecycle.ts", .inside = "insideTurn", .park = "parkRelease", .release_path = "bindings/ts/runtime/session/lifecycle.ts", .release = "pancake_host_session_release" },
+        .{ .path = "bindings/python/pancake/_session/lifecycle.py", .inside = "_inside_turn", .park = "park_release", .release_path = "bindings/python/pancake/_session/lifecycle.py", .release = "pancake_host_session_release" },
+        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "finalizer::park_session", .release_path = "bindings/rust/src/host.rs", .release = "pancake_host_session_release" },
+        // Racket's close path releases through host/state.rkt's
         // `native-session-release!`, the one owner of the loop-vs-byte-fed
         // branch (`pancake_driver_session_release` beside
-        // `pancake_host_session_release`, ADR-0112); host.rkt is held to
+        // `pancake_host_session_release`, ADR-0112); host/state.rkt is held to
         // both spellings below.
         .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release_path = "bindings/racket/private/session.rkt", .release = "native-session-release!" },
     };
@@ -199,13 +205,12 @@ pub fn checkBindingEmbedderPump(
             try appendViolation(gpa, violations, "{s}: missing `{s}` — close path release", .{ row.release_path, row.release });
         }
     }
-    // The Racket release branch's own authorities: host.rkt owns the branch
-    // and the byte-fed spelling, loop.rkt fills the hook with the loop
-    // spelling, so a rename cannot quietly point `native-session-release!`
-    // at nothing.
+    // The Racket release branch's own authorities: host/state.rkt owns the branch
+    // and the byte-fed spelling, loop/core.rkt owns the loop spelling, so a
+    // rename cannot quietly point `native-session-release!` at nothing.
     const release_branch = [_]struct { path: []const u8, needles: []const []const u8 }{
-        .{ .path = "bindings/racket/private/host.rkt", .needles = &.{ "native-session-release!", "pancake_host_session_release" } },
-        .{ .path = "bindings/racket/private/loop.rkt", .needles = &.{"pancake_driver_session_release"} },
+        .{ .path = "bindings/racket/private/host/state.rkt", .needles = &.{ "native-session-release!", "pancake_host_session_release" } },
+        .{ .path = "bindings/racket/private/loop/core.rkt", .needles = &.{"pancake_driver_session_release"} },
     };
     for (release_branch) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -375,12 +380,12 @@ pub fn checkBindingEmbedderTrampoline(
     // Local send/tell arms and ADR-0064 proxy factories live in trampoline
     // (Pass 4c / 4e), not session.
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "#sendLocal" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "throw new Error(\"Revoked\")" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "throw new Error(\"Attenuated\")" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def _send_local" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "raise ValueError(\"Revoked\")" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "raise ValueError(\"Attenuated\")" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "#sendLocal" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "throw new Error(\"Revoked\")" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "throw new Error(\"Attenuated\")" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def _send_local" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "raise ValueError(\"Revoked\")" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "raise ValueError(\"Attenuated\")" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn run_local_send" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn run_hosted(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "Break(\"Revoked\"" },
@@ -392,31 +397,31 @@ pub fn checkBindingEmbedderTrampoline(
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(spawn (caretaker-behavior" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(spawn (attenuate-behavior" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(hash-set! (vat-revocables" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_session_send" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_vow_send" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_session_send" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_vow_send" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_session_spawn" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_session_publish" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_session_spawn" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_session_publish" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_send" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_send" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_send" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_vow_send" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_spawn" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_publish" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_spawn" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_publish" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_spawn" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_publish" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (register-hosted-actor!" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "#registerActor" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "def _register_actor" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "class _SessionGcHandle" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_session_tell" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_session_tell" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_vow_index" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "pancake_host_vow_untag" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "return sendLocal(" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "await tellLocal(" },
-        .{ .path = "bindings/ts/runtime/session.ts", .needle = "return sendFar(" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "return _send_local(" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "await _tell_local(" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "return _send_far(" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "await _tell_far(" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "#registerActor" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "def _register_actor" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "class _SessionGcHandle" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_tell" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_tell" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_index" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_untag" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "return sendLocal(" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "await tellLocal(" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "return sendFar(" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "return _send_local(" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "await _tell_local(" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "return _send_far(" },
+        .{ .path = "bindings/python/pancake/_session/", .needle = "await _tell_far(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "tell_local(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "tell_wire(" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(session-send-local c" },
@@ -424,8 +429,8 @@ pub fn checkBindingEmbedderTrampoline(
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(await-vow c (session-far-send" },
     };
     for (banned) |b| {
-        const contents = root.readFileAlloc(io, b.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for trampoline-factory ban with {s}", .{ b.path, @errorName(err) });
+        const contents = (try readSourceSubject(io, gpa, root, b.path)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read for trampoline-factory ban", .{b.path});
             continue;
         };
         defer gpa.free(contents);

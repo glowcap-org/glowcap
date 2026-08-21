@@ -36,7 +36,7 @@ opt-in, named, and off the default path).
 
 ## Decision
 
-Actor state in [`src/actors/vat.zig`](../../../src/actors/vat/mod.zig) moves behind
+Actor state in [`src/actors/vat/mod.zig`](../../../src/actors/vat/mod.zig) moves behind
 a heap-allocated `StateBox` carrying the state pointer, a non-atomic reference
 count, the behavior's `handle`/`destroy`/`clone` function pointers, and a
 `persistent` flag. A `Cell` becomes a single `*StateBox`. The reference count is
@@ -113,7 +113,7 @@ snapshots.
 
 ## Consequences
 
-`src/actors/vat.zig` is rewritten around `StateBox`: `Cell`, `spawn`,
+`src/actors/vat/mod.zig` is rewritten around `StateBox`: `Cell`, `spawn`,
 `callLocal`, `serve`, and `deinit` route through the box; `snapshot`, `restore`,
 `Snapshot`, and `Turn.become` are added, with `NotQuiescent` and
 `NotSnapshottable` joining the `Error` set. `test/actors` gains

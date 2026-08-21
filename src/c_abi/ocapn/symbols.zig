@@ -8,6 +8,7 @@
 const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
+const omit = shared.symbols.omit_reason;
 pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
@@ -84,9 +85,9 @@ pub const symbols = [_]Symbol{
     },
     .{
         .name = "pancake_clear_last_error",
-        .ts_omit = "unused: the TS binding reads the slot after a failing call and never resets it",
-        .python_omit = "unused: the Python binding reads the slot after a failing call and never resets it",
-        .racket_omit = "unused: the Racket binding reads the slot after a failing call and never resets it",
+        .ts_omit = omit.ts_last_error,
+        .python_omit = omit.python_last_error,
+        .racket_omit = omit.racket_last_error,
     },
     .{
         .name = "pancake_locator_hint",

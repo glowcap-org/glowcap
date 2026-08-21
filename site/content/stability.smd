@@ -1,58 +1,34 @@
 ---
 .title = "What you can depend on",
 .description = "The recurring evidence behind pancake's protocol, transports, bindings, and platforms.",
-.date = @date("2026-07-25T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-25T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-pancake has no stable release yet. This table records the evidence available
-for each area, whether it crosses into independently maintained code, and what
-it leaves open. Some checks run on every main-branch push and pull request;
-others need external runtimes or network access and run on demand. None is a
-compatibility or security promise.
+pancake has no stable release yet. Pin a commit, and treat the API as able to
+move. None of the checks below is a compatibility or security promise.
 
-## Evidence by area
+Three kinds of evidence sit behind a claim:
 
-| Area | Evidence | What remains |
-| --- | --- | --- |
-| Protocol core | The upstream OCapN suite and a live Goblins peer exercise V1.0 model, session, engine, calls, promises, and all three handoff roles. In-tree scenarios exercise the next-profile promise-listen behavior (OCapN PR 282) in `pancake-next`. | No outside peer exercises the next profile; community review lists the other exact gaps. |
-| Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
-| Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads pancake's hand-written format. |
-| `tcp` | Live Goblins interoperability runs over pancake's cleartext TCP adapter. The upstream OCapN suite uses its own `tcp-testing-only` transport. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |
-| `iroh` | `iroh-interop` and relay checks use real iroh endpoints and its QUIC stack. The on-demand `goblins-iroh` check reaches a Goblins vat through pancake's adapter. | Two-NAT hole-punching is not in CI. Goblins ships no iroh netlayer, and `goblins-iroh` requires Cargo and Racket. |
-| `keyed-tcp` and `inproc` | In-tree restart, refusal, and end-to-end netlayer tests run under `check`. | No outside peer speaks these transport symbols; `inproc` is test-only. |
-| `noise-tcp` | In-tree sealed-channel and netlayer tests run under `check`. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. | No outside CapTP peer speaks Noise; this is pancake-to-pancake. `BlockingSession` cannot apply the sealed-channel protocol. |
-| `keyed-relay` | In-tree netlayer tests run under `check`. On-demand rendezvous checks (`bindings-keyed-relay-rendezvous`, `zig-keyed-relay-register`) cold-dial a registered, non-listening peer through the reference relay. | Those checks need Deno and are not in the recurring list. The channel is cleartext and unauthenticated. |
-| `noise-relay` | In-tree tests carry an authenticated fetch through a relay observer that asserts CapTP plaintext never appears. The resident loopback resolves `localhost`, and the recurring native-binding matrix makes Deno, Python, Rust, and Racket project exact hostname and unknown-CA refusals before each completes a locator-routed WSS call and close barrier. The recurring `native-tls-build` drives real local certificate chains through both pollable and completion WSS carriers. It pins exact TLS refusals, allocation ceilings, close-notify delivery, fixed connection footprints, and bounded sliding hostname races. The recurring `web-peer-test` has the native CLI cold-dial and call an object hosted by a real Chromium Wasm peer over local WSS. The relay proves the CapTP canary stayed sealed. | No outside CapTP peer speaks this pancake transport profile. Public-certificate and non-Linux runtime evidence remain open. |
-| `onion` | Fake-daemon tests drive the blocking resident, provider lifecycle, native completion loop, and every native binding. Live checks cover two pancake peers, both Goblins directions, the portable upstream suite plus the strict abort probe, fresh-process service restoration, and Rooms with two independent clients. | Live Tor checks need Tor and outbound network, so they run on demand. No live scale run is recorded. |
-| `webrtc` | Rust sidecar tests cover inbound backpressure, partial writes, oversized-message refusal, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | Native DataChannel, browser, and signaling-mesh checks run on demand. `webrtc-loop` and `webrtc-bridge-redeem` exercise Host adoption and three-party redemption and require Cargo. |
-| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. | There is no independent C consumer; binding interoperability checks still pass through this ABI. |
-| Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client and in both handoff roles. | Only Deno has a live check in which Goblins dials the binding. |
-| TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and fail-closed native-loop admission. | Bun's synchronous FFI cannot host the native driver or blocking transport lifecycles. No Bun-native Goblins check runs. |
-| Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are pancake-native APIs with no outside implementation to compare. |
-| Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes pancake's outbound GC or binding finalizers. |
-| Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
-| CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
-| Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
-| Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
-| macOS | Cross-compilation checks the library and kqueue backend. | Nothing executes on macOS in CI. |
-| Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
-| Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by pancake. |
+- In-tree checks (`zig build check`) show pancake agrees with itself: scenarios,
+  fixtures, budgets, and public examples.
+- Recurring live checks on every main-branch push talk to the upstream OCapN
+  suite and to a [Spritely Goblins](https://spritely.institute/goblins/) vat.
+- On-demand checks cover Tor, two-NAT iroh, public certificates, and browsers
+  that CI does not install.
 
-External evidence applies only to the boundary it crosses. A live iroh
-endpoint checks the transport stack, not agreement with another CapTP
-implementation. A live Goblins session checks protocol interop, not API
-stability.
+A live Goblins session proves protocol interop, not API stability. A live iroh
+endpoint proves the transport stack, not agreement with another CapTP
+implementation.
 
-The detailed outside-peer matrix is in
-[community review](https://github.com/jimisaacs/pancake/blob/main/docs/community-review.md).
 The evidence is current only when the
 [checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml)
 is green for the commit you are evaluating. The
-[repository page](https://github.com/jimisaacs/pancake/blob/main/docs/stability.md)
-owns the exact recurring list and distinguishes it from on-demand checks.
+[repository stability page](https://github.com/jimisaacs/pancake/blob/main/docs/stability.md)
+owns the row-by-row matrix, including what each check does not prove.
+[Community review](https://github.com/jimisaacs/pancake/blob/main/docs/community-review.md)
+is the outside-peer brief.
 
 Use [Choosing a transport]($link.page('transports/choosing')) for deployment
 tradeoffs and [Performance]($link.page('performance')) for measured costs. The

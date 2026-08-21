@@ -15,11 +15,11 @@ const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
 const capability_ids = @import("capability_ids.zig");
-const host_actions = @import("host_actions.zig");
-const host_lifecycle = @import("host_lifecycle.zig");
-const host_plan = @import("host_plan.zig");
-const host_publications = @import("host_publications.zig");
-const host_trace = @import("host_trace.zig");
+const host_actions = @import("actions.zig");
+const host_lifecycle = @import("lifecycle.zig");
+const host_plan = @import("plan.zig");
+const host_publications = @import("publications.zig");
+const host_trace = @import("trace.zig");
 
 const crypto = foundation.crypto;
 
@@ -334,8 +334,9 @@ pub export fn pancake_host_set_session_limits(
 // allocation, every view borrowing the caller input.
 
 /// Project the complete in-flight locator for `ticket` through caller-owned
-/// hint storage. On BUFFER_TOO_SMALL, `out_hint_count` reports the required
-/// capacity and `out_locator` is untouched.
+/// hint storage. A null `hint_storage` with zero capacity probes the required
+/// hint count. On BUFFER_TOO_SMALL, `out_hint_count` reports the exact capacity
+/// and `out_locator` is untouched.
 pub export fn pancake_host_pending_dial(
     host: ?*PancakeHost,
     ticket: u64,

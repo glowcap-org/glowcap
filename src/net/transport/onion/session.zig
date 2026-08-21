@@ -38,6 +38,9 @@ pub const Error = error{
 /// stream without end.
 pub const max_reply_lines = 64;
 
+/// Upper bound for Tor's `ED25519-V3:` private-key blob returned by ADD_ONION.
+pub const service_key_cap: usize = 256;
+
 // --- The SOCKS dial ------------------------------------------------------
 
 /// Run the SOCKS5 handshake for `service_id` over an already-connected stream to
@@ -137,7 +140,7 @@ pub const ControlSession = struct {
     /// Storage for the key `ADD_ONION` returns. Owned here so a `Service` can
     /// borrow it for as long as this session is open. A version 3 key blob is
     /// well under this.
-    key_store: [256]u8,
+    key_store: [service_key_cap]u8,
     key_len: usize = 0,
     read_buf: [control.max_line_bytes]u8 = undefined,
     write_buf: [control.max_line_bytes]u8 = undefined,

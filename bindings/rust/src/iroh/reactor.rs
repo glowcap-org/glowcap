@@ -115,9 +115,7 @@ impl IrohLoop {
 			let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
 			remove_conn_wakers(&mut st, key)
 		};
-		for w in wakers {
-			w.wake();
-		}
+		wakers.wake_all();
 	}
 
 	pub(super) async fn dial(&self, node_id: &str, hints: &str) -> Result<usize> {
@@ -200,7 +198,6 @@ impl IrohLoop {
 			if rc != sys::OK || count == 0 {
 				break;
 			}
-			let mut wakers: Vec<Waker> = Vec::new();
 			for ev in buf.iter().take(count) {
 				if ev.events & PANCAKE_IROH_EV_CONNECT != 0 {
 					let mut conn: *mut PancakeIrohConn = core::ptr::null_mut();
@@ -225,11 +222,12 @@ impl IrohLoop {
 					}
 					continue;
 				}
-				let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
-				dispatch(&mut st, ev.subject, ev.events, &mut wakers);
-			}
-			for w in wakers {
-				w.wake();
+				let mut wakers = ReadyWakers::default();
+				{
+					let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
+					dispatch(&mut st, ev.subject, ev.events, &mut wakers);
+				}
+				wakers.wake_all();
 			}
 			if count < DRAIN_READY_CAP {
 				break;
@@ -310,25 +308,50 @@ impl IrohLoop {
 	}
 }
 
-fn remove_conn_wakers(st: &mut LoopState, key: usize) -> Vec<Waker> {
-	let mut wakers = Vec::new();
+fn remove_conn_wakers(st: &mut LoopState, key: usize) -> ReadyWakers {
+	let mut wakers = ReadyWakers::default();
 	if let Some(mut slot) = st.conns.remove(&key) {
-		wakers.extend(slot.read_waker.take());
-		wakers.extend(slot.write_waker.take());
+		wakers.push(slot.read_waker.take());
+		wakers.push(slot.write_waker.take());
 	}
 	wakers
 }
 
+// One drained record is coalesced by subject before Rust sees it, so it can
+// wake one accept waiter or one connection's read/write pair.
+#[derive(Default)]
+struct ReadyWakers([Option<Waker>; 2]);
+
+impl ReadyWakers {
+	fn push(&mut self, waker: Option<Waker>) {
+		if let Some(waker) = waker {
+			if self.0[0].is_none() {
+				self.0[0] = Some(waker);
+			} else {
+				assert!(
+					self.0[1].is_none(),
+					"one iroh readiness record can wake at most two tasks"
+				);
+				self.0[1] = Some(waker);
+			}
+		}
+	}
+
+	fn wake_all(self) {
+		for waker in self.0.into_iter().flatten() {
+			waker.wake();
+		}
+	}
+}
+
 // Route one readiness record to its waiter (collected, woken after the lock is
 // released). An accept record carries a null connection.
-fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Vec<Waker>) {
+fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut ReadyWakers) {
 	if events & PANCAKE_IROH_EV_ACCEPT != 0 {
 		// Record the pending accept first, then wake the byte-fed channel waiter;
 		// the count survives a wake that races waiter registration.
 		st.accept_pending += 1;
-		if let Some(w) = st.accept_waker.take() {
-			wakers.push(w);
-		}
+		wakers.push(st.accept_waker.take());
 		return;
 	}
 	if let Some(slot) = st.conns.get_mut(&conn_key) {
@@ -337,11 +360,11 @@ fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Vec<W
 		}
 		if events & (PANCAKE_IROH_EV_READABLE | PANCAKE_IROH_EV_CLOSED) != 0 {
 			slot.readable = true;
-			wakers.extend(slot.read_waker.take());
+			wakers.push(slot.read_waker.take());
 		}
 		if events & (PANCAKE_IROH_EV_WRITABLE | PANCAKE_IROH_EV_CLOSED) != 0 {
 			slot.writable = true;
-			wakers.extend(slot.write_waker.take());
+			wakers.push(slot.write_waker.take());
 		}
 	}
 }
@@ -364,68 +387,6 @@ mod tests {
 		Waker::from(Arc::new(CountWake(Arc::clone(count))))
 	}
 
-	static RELEASE_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-	unsafe fn count_release(_raw: usize) -> i32 {
-		RELEASE_COUNT.fetch_add(1, Ordering::SeqCst);
-		sys::OK
-	}
-
-	unsafe fn panic_release(_raw: usize) -> i32 {
-		panic!("release failed");
-	}
-
-	unsafe fn fail_release(_raw: usize) -> i32 {
-		sys::ERR_IO
-	}
-
-	#[test]
-	fn poisoned_internal_mutex_is_recovered_and_diagnosed() {
-		let _serial = crate::RUNTIME_FAILURE_TEST_LOCK
-			.lock()
-			.unwrap_or_else(std::sync::PoisonError::into_inner);
-		crate::take_runtime_failures();
-		let value = Mutex::new(7usize);
-		let guard = value.lock().unwrap();
-		let recovered = recover_iroh_lock(&value, Err(std::sync::PoisonError::new(guard)), "iroh-test-lock-poison");
-		assert_eq!(*recovered, 7);
-		drop(recovered);
-		assert!(!value.is_poisoned());
-		let diagnostics = crate::take_runtime_failures();
-		assert!(diagnostics.iter().any(|failure| {
-			failure.operation == "iroh-test-lock-poison"
-				&& failure.primary_message == "iroh synchronization state was poisoned"
-		}));
-	}
-
-	#[tokio::test]
-	async fn netlayer_release_waits_and_claims_once() {
-		RELEASE_COUNT.store(0, Ordering::SeqCst);
-		let release = Arc::new(NetlayerRelease::new());
-		release.start(0, count_release);
-		release.start(0, count_release);
-		release.wait().await.unwrap();
-		release.wait().await.unwrap();
-		assert_eq!(RELEASE_COUNT.load(Ordering::SeqCst), 1);
-
-		let fallback = Arc::new(NetlayerRelease::new());
-		fallback.phase.store(RELEASE_RESERVED, Ordering::Release);
-		fallback.fallback(0, count_release);
-		fallback.wait().await.unwrap();
-		assert_eq!(RELEASE_COUNT.load(Ordering::SeqCst), 2);
-
-		let panicked = Arc::new(NetlayerRelease::new());
-		panicked.start(0, panic_release);
-		let panic_error = panicked.wait().await.unwrap_err();
-		assert_eq!(panic_error.message(), Some("iroh netlayer release panicked"));
-		assert_eq!(panicked.phase.load(Ordering::Acquire), RELEASE_DONE);
-
-		let failed = Arc::new(NetlayerRelease::new());
-		failed.start(0, fail_release);
-		assert!(failed.wait().await.is_err());
-		assert!(failed.wait().await.is_err(), "the release barrier retains its failure");
-	}
-
 	#[test]
 	fn unregister_wakes_read_and_write_waiters() {
 		let count = Arc::new(AtomicUsize::new(0));
@@ -439,11 +400,41 @@ mod tests {
 			},
 		);
 
-		for w in remove_conn_wakers(&mut state, 7) {
-			w.wake();
-		}
+		remove_conn_wakers(&mut state, 7).wake_all();
 
 		assert_eq!(count.load(Ordering::Relaxed), 2);
 		assert!(!state.conns.contains_key(&7));
+	}
+
+	#[test]
+	fn dispatch_wakes_read_and_write_waiters() {
+		let count = Arc::new(AtomicUsize::new(0));
+		let mut state = LoopState::default();
+		state.conns.insert(
+			9,
+			ConnSlot {
+				read_waker: Some(count_waker(&count)),
+				write_waker: Some(count_waker(&count)),
+				..ConnSlot::default()
+			},
+		);
+
+		let mut wakers = ReadyWakers::default();
+		dispatch(
+			&mut state,
+			9,
+			PANCAKE_IROH_EV_READABLE | PANCAKE_IROH_EV_WRITABLE,
+			&mut wakers,
+		);
+
+		assert_eq!(count.load(Ordering::Relaxed), 0);
+		let slot = state.conns.get(&9).expect("registered conn");
+		assert!(slot.readable);
+		assert!(slot.writable);
+		assert!(slot.read_waker.is_none());
+		assert!(slot.write_waker.is_none());
+
+		wakers.wake_all();
+		assert_eq!(count.load(Ordering::Relaxed), 2);
 	}
 }

@@ -249,7 +249,7 @@
 
 ;; The C behavior callback. `_fun` makes a Racket closure C-callable; the
 ;; closure must stay reachable while the host may invoke it (the host's
-;; strong `keep` table in `private/host.rkt` provides that).
+;; strong `keep` table in `private/host/state.rkt` provides that).
 ;; PancakeTraceEvent — one live-trace fact (pancake_host_set_trace); the
 ;; layout facts in layouts-gen.rkt pin the mirror.
 (define-cstruct _PancakeTraceEvent

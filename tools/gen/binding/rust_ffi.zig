@@ -62,9 +62,9 @@ fn rustParamType(comptime T: type, comptime specials: []const Special) []const u
     return switch (@typeInfo(T)) {
         .optional => |o| rustParamType(o.child, specials),
         .pointer => |p| blk: {
-            const mutability = if (p.is_const) "*const " else "*mut ";
+            const mutability = if (p.attrs.@"const") "*const " else "*mut ";
             const child = switch (@typeInfo(p.child)) {
-                .optional => |inner| return (if (p.is_const) "*const " else "*mut ") ++ rustParamType(inner.child, specials),
+                .optional => |inner| return (if (p.attrs.@"const") "*const " else "*mut ") ++ rustParamType(inner.child, specials),
                 else => p.child,
             };
             const child_name = if (child == u8)
@@ -167,8 +167,8 @@ fn renderArchive(
                 return error.PrototypeMissingFromHeader;
             defer gpa.free(names);
             const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-            if (names.len != info.params.len) {
-                std.debug.print("param count mismatch for {s}: header {d} vs reflected {d}\n", .{ row.name, names.len, info.params.len });
+            if (names.len != info.param_types.len) {
+                std.debug.print("param count mismatch for {s}: header {d} vs reflected {d}\n", .{ row.name, names.len, info.param_types.len });
                 return error.HeaderParamCountMismatch;
             }
 
@@ -176,17 +176,17 @@ fn renderArchive(
             // Single-line when it fits rustfmt's width (a tab counting four);
             // one-parameter-per-line otherwise, the hand blocks' own shape.
             var width: usize = 4 + 7 + row.name.len + 2 + 1;
-            inline for (info.params, 0..) |p, i| {
+            inline for (info.param_types, 0..) |param_type, i| {
                 if (i != 0) width += 2;
-                width += names[i].len + @intFromBool(isRustKeyword(names[i])) + 2 + (comptime rustParamType(p.type.?, specials)).len;
+                width += names[i].len + @intFromBool(isRustKeyword(names[i])) + 2 + (comptime rustParamType(param_type.?, specials)).len;
             }
             if (ret.len != 0) width += 4 + ret.len;
             if (width <= 120) {
                 try out.print(gpa, "\tpub fn {s}(", .{row.name});
-                inline for (info.params, 0..) |p, i| {
+                inline for (info.param_types, 0..) |param_type, i| {
                     if (i != 0) try out.appendSlice(gpa, ", ");
                     try appendRustParamName(&out, gpa, names[i]);
-                    try out.print(gpa, ": {s}", .{comptime rustParamType(p.type.?, specials)});
+                    try out.print(gpa, ": {s}", .{comptime rustParamType(param_type.?, specials)});
                 }
                 if (ret.len != 0) {
                     try out.print(gpa, ") -> {s};\n", .{ret});
@@ -195,10 +195,10 @@ fn renderArchive(
                 }
             } else {
                 try out.print(gpa, "\tpub fn {s}(\n", .{row.name});
-                inline for (info.params, 0..) |p, i| {
+                inline for (info.param_types, 0..) |param_type, i| {
                     try out.appendSlice(gpa, "\t\t");
                     try appendRustParamName(&out, gpa, names[i]);
-                    try out.print(gpa, ": {s},\n", .{comptime rustParamType(p.type.?, specials)});
+                    try out.print(gpa, ": {s},\n", .{comptime rustParamType(param_type.?, specials)});
                 }
                 if (ret.len != 0) {
                     try out.print(gpa, "\t) -> {s};\n", .{ret});

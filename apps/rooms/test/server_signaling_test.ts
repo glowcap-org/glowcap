@@ -246,10 +246,8 @@ roomsTest("the directory will not carry a bring-up larger than a bring-up", asyn
 			await registerAndWatch(target, targetDirectory, "shouted-at", `ocapn://${designator}.webrtc`);
 			await target.send(targetDirectory, OFFER_SIGNALING, [target.spawn(() => null)]);
 
-			// The room hands an offer to the other member exactly as it arrives, so
-			// this is the one place a member reaches another with a string of their
-			// own choosing. The exchange is bounded and expires and only its own two
-			// sides may write to it; how large it is was nobody's rule.
+			// The room carries the offer bytes exactly as they arrive, so the relay
+			// bound is the room's to enforce before it forwards them to another member.
 			let refused = "";
 			await origin.send(originDirectory, SIGNAL_OFFER, [
 				designator,

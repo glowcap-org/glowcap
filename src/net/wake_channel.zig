@@ -27,7 +27,7 @@ pub const Failure = error{ WakeNudgeFailed, WakeDrainFailed };
 pub const FailureLatch = struct {
     const State = enum(u8) { healthy, nudge_failed, drain_failed };
 
-    state: std.atomic.Value(u8) = .init(@intFromEnum(State.healthy)),
+    state: std.atomic.Value(u8) = .init(@backingInt(State.healthy)),
 
     pub fn record(self: *FailureLatch, cause: Failure) void {
         const next: State = switch (cause) {
@@ -35,8 +35,8 @@ pub const FailureLatch = struct {
             error.WakeDrainFailed => .drain_failed,
         };
         _ = self.state.cmpxchgStrong(
-            @intFromEnum(State.healthy),
-            @intFromEnum(next),
+            @backingInt(State.healthy),
+            @backingInt(next),
             .release,
             .monotonic,
         );
@@ -44,9 +44,9 @@ pub const FailureLatch = struct {
 
     pub fn failure(self: *const FailureLatch) ?Failure {
         return switch (self.state.load(.acquire)) {
-            @intFromEnum(State.healthy) => null,
-            @intFromEnum(State.nudge_failed) => error.WakeNudgeFailed,
-            @intFromEnum(State.drain_failed) => error.WakeDrainFailed,
+            @backingInt(State.healthy) => null,
+            @backingInt(State.nudge_failed) => error.WakeNudgeFailed,
+            @backingInt(State.drain_failed) => error.WakeDrainFailed,
             // Corrupt or incompletely initialized adapter state is itself a
             // contained wake failure, never grounds for a process panic.
             else => error.WakeDrainFailed,

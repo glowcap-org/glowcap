@@ -102,19 +102,19 @@ fn float64Hash(x: f64) u64 {
 /// under-approximates, which costs a collision at worst, where hashing a path
 /// the equality walks differently could split an Equal pair.
 fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
-    h.update(std.mem.asBytes(&@intFromEnum(std.meta.activeTag(ref))));
+    h.update(std.mem.asBytes(&@backingInt(std.meta.activeTag(ref))));
     switch (ref) {
         .near => |x| {
             h.update(std.mem.asBytes(&x.export_position.int()));
-            h.update(std.mem.asBytes(&@intFromEnum(x.kind)));
+            h.update(std.mem.asBytes(&@backingInt(x.kind)));
         },
         .far => |x| {
             h.update(std.mem.asBytes(&x.import_position.int()));
-            h.update(std.mem.asBytes(&@intFromEnum(x.kind)));
+            h.update(std.mem.asBytes(&@backingInt(x.kind)));
         },
         .routed => |x| {
             h.update(std.mem.asBytes(&x.id.int()));
-            h.update(std.mem.asBytes(&@intFromEnum(x.kind)));
+            h.update(std.mem.asBytes(&@backingInt(x.kind)));
         },
         .promise => |x| h.update(std.mem.asBytes(&x.answer_position.int())),
         .sturdy => |x| {
@@ -133,7 +133,7 @@ fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
 /// recipient key already separate distinct handoffs, and hashing less than
 /// equality compares only ever costs a collision.
 fn hashHandoff(h: *std.hash.Wyhash, handoff: anytype) void {
-    h.update(std.mem.asBytes(&@intFromEnum(std.meta.activeTag(handoff))));
+    h.update(std.mem.asBytes(&@backingInt(std.meta.activeTag(handoff))));
     switch (handoff) {
         .give => |give| {
             h.update(give.gift_id);
@@ -174,7 +174,7 @@ pub fn viewArgumentHash(arg: model.view.Argument) model.view.ProjectError!u64 {
 
 fn viewArgumentHashDepth(arg: model.view.Argument, depth: usize) model.view.ProjectError!u64 {
     if (depth > model.max_value_depth) return 0;
-    var h = std.hash.Wyhash.init(@intFromEnum(arg));
+    var h = std.hash.Wyhash.init(@backingInt(arg));
     switch (arg) {
         .bytes => |x| h.update(x),
         .symbol => |x| h.update(x),

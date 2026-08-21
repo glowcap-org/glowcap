@@ -348,7 +348,7 @@ pub fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Wa
             return false;
         }
         pub fn needGiftId(_: @This(), host: ?*cd.PancakeHost, action: *const cd.PancakeHostAction) !bool {
-            const gift_id = [_]u8{0x5a} ** 32;
+            const gift_id = @as([32]u8, @splat(0x5a));
             try expectOk(cd.pancake_host_provide_gift_id(host, action.ticket, &gift_id, gift_id.len));
             return true;
         }
@@ -380,17 +380,31 @@ pub fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Wa
                     return c.PANCAKE_OK;
                 }
             };
-            var hint_storage: [8]cd.PancakeLocatorHintView = undefined;
             var view: cd.PancakeLocatorView = undefined;
             var hint_count: usize = 0;
-            try expectOk(cd.pancake_host_pending_dial(
+            const probe_rc = cd.pancake_host_pending_dial(
                 host,
                 action.ticket,
-                &hint_storage,
-                hint_storage.len,
+                null,
+                0,
                 &view,
                 &hint_count,
-            ));
+            );
+            if (probe_rc == c.PANCAKE_ERR_BUFFER_TOO_SMALL) {
+                try std.testing.expect(hint_count > 0);
+                var hint_storage: [8]cd.PancakeLocatorHintView = undefined;
+                try std.testing.expect(hint_count <= hint_storage.len);
+                try expectOk(cd.pancake_host_pending_dial(
+                    host,
+                    action.ticket,
+                    &hint_storage,
+                    hint_count,
+                    &view,
+                    &hint_count,
+                ));
+            } else {
+                try expectOk(probe_rc);
+            }
             try expectOk(Capture.receive(&parked, &view));
             try std.testing.expectEqual(view.hint_count, hint_count);
             self.dials.items[self.dials.len] = parked;

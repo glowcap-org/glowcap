@@ -43,6 +43,23 @@ const Capture = struct {
     }
 };
 
+test "resolver pair id exhaustion refuses before publishing either side" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    vat.next_vow = std.math.maxInt(u64);
+    try std.testing.expectError(actors.Error.ResourceExhausted, vat.spawnVow());
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+    try std.testing.expectEqual(@as(usize, 0), vat.resolver_vows.count());
+
+    vat.next_vow = 1;
+    vat.next_resolver = std.math.maxInt(u64);
+    try std.testing.expectError(actors.Error.ResourceExhausted, vat.spawnVow());
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+    try std.testing.expectEqual(@as(usize, 0), vat.resolver_vows.count());
+}
+
 test "a resolver pair settles its listener once, and every second path refuses" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -326,7 +343,7 @@ test "forwardVow checks vows that are settled or already observed" {
         .self_ref = .{ .local = 0 },
         .ingress = .local,
         .arena = allocator,
-        .origin = .{ .served = .fromWire(.from(1)) },
+        .origin = .{ .served = .{ .name = .fromWire(.from(1)), .row_id = 1 } },
     };
     try std.testing.expectError(actors.Error.AlreadySettled, settled_turn.forwardVow(settled.vow));
     try std.testing.expect(!settled_turn.forwarded);
@@ -340,7 +357,7 @@ test "forwardVow checks vows that are settled or already observed" {
         .self_ref = .{ .local = 0 },
         .ingress = .local,
         .arena = allocator,
-        .origin = .{ .served = .fromWire(.from(2)) },
+        .origin = .{ .served = .{ .name = .fromWire(.from(2)), .row_id = 2 } },
     };
     try std.testing.expectError(actors.Error.AlreadyListening, observed_turn.forwardVow(observed.vow));
     try std.testing.expect(!observed_turn.forwarded);

@@ -234,7 +234,7 @@ test "native OnionLoop composes the onion adapter, completion Loop, and driver B
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
 
-    var host = test_host.init(allocator, [_]u8{0x81} ** 32, Host.Options.withFrameCap(4096));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x81)), Host.Options.withFrameCap(4096));
     defer host.deinit();
 
     const platform = try net.Backend.init(allocator, 8, 1, 4096);
@@ -330,7 +330,7 @@ test "onion completion accepts every legal SOCKS bound-address tail" {
     const replies = [_][]const u8{
         &[_]u8{ 0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x23, 0x55 },
         &[_]u8{ 0x05, 0x00, 0x00, 0x03, 3, 'f', 'o', 'o', 0x23, 0x55 },
-        &[_]u8{ 0x05, 0x00, 0x00, 0x04 } ++ [_]u8{0} ** 16 ++ [_]u8{ 0x23, 0x55 },
+        &[_]u8{ 0x05, 0x00, 0x00, 0x04 } ++ @as([16]u8, @splat(0)) ++ [_]u8{ 0x23, 0x55 },
     };
     for (replies, 0..) |reply, i| {
         const chunks = [_][]const u8{ &[_]u8{ 0x05, 0x00 }, reply };

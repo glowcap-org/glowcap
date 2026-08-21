@@ -6,7 +6,7 @@
 //! equivalent routing (and a real Ed25519 verifier) in its adapter, so it
 //! lives in test support. The engine keeps the seams these helpers drive:
 //! `engine.cross_peer.SignatureVerifier` and each session's
-//! `engine.bootstrap.GiftRegistry`. Each helper takes a `*Peer` per
+//! `engine.bootstrap.gifts.GiftRegistry`. Each helper takes a `*Peer` per
 //! participating session; the compiler's exclusive mutable borrows already
 //! guarantee no two of them alias, so there is no shared state to guard.
 

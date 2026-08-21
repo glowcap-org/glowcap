@@ -9,9 +9,9 @@ const actors = @import("actors");
 const engine = @import("engine");
 const model = @import("model");
 const capability = @import("capability.zig");
-const promise_values = @import("capability_promise_values.zig");
+const promise_values = @import("capability_promise/values.zig");
 const host_mod = @import("host.zig");
-const host_pump = @import("host_pump.zig");
+const host_pump = @import("host/pump.zig");
 const value_mod = @import("value.zig");
 
 const Host = host_mod.Host;
@@ -22,7 +22,7 @@ pub const Row = struct {
     /// the recipient identity accepted by the exporter; closing that session
     /// therefore ends redemption authority even when another session has
     /// already pipelined through this Host identity.
-    introducing_peer: engine.PeerId,
+    introducing_peer: engine.PeerHandle,
     state: State = .pending,
     abandoned: bool = false,
     projections: std.ArrayListUnmanaged(Projection) = .empty,
@@ -30,17 +30,17 @@ pub const Row = struct {
     operation_head: usize = 0,
 
     pub const Projection = struct {
-        peer_id: engine.PeerId,
+        peer_handle: engine.PeerHandle,
         export_position: model.ExportPosition,
-        answer_name: model.AnswerName,
+        answer_target: engine.AnswerTarget,
     };
 
     pub const PendingOperation = struct {
-        source_peer: engine.PeerId,
+        source_peer: engine.PeerHandle,
         result_vow: ?u64,
         stage: union(enum) {
             queued,
-            dispatched: engine.PeerId,
+            dispatched: engine.PeerHandle,
         } = .queued,
         action: Action,
 
@@ -120,7 +120,7 @@ pub fn liftInlineGive(
 
     if (self.next_capability_promise == std.math.maxInt(u64))
         return error.CapabilitySpaceExhausted;
-    const id: capability.PromiseId = @enumFromInt(self.next_capability_promise);
+    const id: capability.PromiseId = @fromBackingInt(@intCast(self.next_capability_promise));
     try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
     const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
     var ref_live = true;
@@ -129,7 +129,7 @@ pub fn liftInlineGive(
     };
 
     self.capability_promises.putAssumeCapacity(id, .{
-        .introducing_peer = session.peer_id,
+        .introducing_peer = session.peer_handle,
     });
     errdefer std.debug.assert(self.capability_promises.remove(id));
     const locator = switch (projected.locator) {
@@ -137,8 +137,8 @@ pub fn liftInlineGive(
         .absent, .malformed => "",
     };
     try self.node.acceptInlineGive(
-        session.peer_id,
-        @intFromEnum(id),
+        session.peer_handle,
+        @backingInt(id),
         projected.bytes() orelse "",
         locator,
     );
@@ -155,7 +155,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
     const lifted = switch (row.state) {
         .pending => blk: {
             const route = self.node.routeCapability(route_id) orelse return error.UnknownCapability;
-            const session = self.sessions.get(route.peer_id) orelse return error.UnknownCapability;
+            const session = self.sessions.get(route.peer_handle) orelse return error.UnknownCapability;
             const lifted = try self.liftCapabilityTracked(
                 session,
                 .{ .routed = .{ .id = route_id } },
@@ -170,7 +170,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
     const resolved = lifted.ref;
     while (row.projections.items.len != 0) {
         const projection = row.projections.items[row.projections.items.len - 1];
-        const recipient = self.sessions.get(projection.peer_id) orelse {
+        const recipient = self.sessions.get(projection.peer_handle) orelse {
             _ = row.projections.pop();
             continue;
         };
@@ -178,17 +178,17 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         defer prepared.deinit();
         const outcome = try self.interceptFulfilledReference(
             recipient,
-            projection.answer_name,
+            projection.answer_target,
             prepared.reference(),
         );
         switch (outcome) {
             .claimed => {},
             .resolve => |projected| {
-                try recipient.served.port.peer.sendAnswerResolutionCopying(
-                    projection.answer_name,
+                try recipient.served.port.peer.sendAnswerTargetResolutionCopying(
+                    projection.answer_target,
                     .{ .fulfill = projected },
                 );
-                host_pump.markDirty(self, projection.peer_id);
+                host_pump.markDirty(self, projection.peer_handle);
             },
         }
         _ = prepared.commit();
@@ -241,9 +241,9 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                     self.attachDeferredVow(pending.result_vow.?, routed.session, listener, vow);
                 },
             }
-            self.node.exporterApplicationOwned(routed.session.peer_id);
-            host_pump.markDirty(self, routed.session.peer_id);
-            pending.stage = .{ .dispatched = routed.session.peer_id };
+            self.node.exporterApplicationOwned(routed.session.peer_handle);
+            host_pump.markDirty(self, routed.session.peer_handle);
+            pending.stage = .{ .dispatched = routed.session.peer_handle };
         }
         try releaseRetainedCapabilities(self, pending);
         if (pending.action == .tell) if (self.sessions.get(pending.source_peer)) |source|
@@ -285,12 +285,12 @@ fn breakPromiseImpl(
     };
     while (row.projections.items.len != 0) {
         const projection = row.projections.items[row.projections.items.len - 1];
-        const recipient = self.sessions.get(projection.peer_id) orelse {
+        const recipient = self.sessions.get(projection.peer_handle) orelse {
             _ = row.projections.pop();
             continue;
         };
-        recipient.served.port.peer.sendAnswerResolutionCopying(
-            projection.answer_name,
+        recipient.served.port.peer.sendAnswerTargetResolutionCopying(
+            projection.answer_target,
             .{ .@"break" = .{ .message = reason } },
         ) catch |err| {
             if (!terminal) return err;
@@ -303,7 +303,7 @@ fn breakPromiseImpl(
             _ = row.projections.pop();
             continue;
         };
-        host_pump.markDirty(self, projection.peer_id);
+        host_pump.markDirty(self, projection.peer_handle);
         _ = row.projections.pop();
     }
     const failure = Row.Failure.init(reason);
@@ -405,7 +405,7 @@ fn queueMessage(
         .retained_capabilities = retained.items,
     };
     row.operations.appendAssumeCapacity(.{
-        .source_peer = source.peer_id,
+        .source_peer = source.peer_handle,
         .result_vow = result_vow,
         .action = switch (kind) {
             .send => .{ .send = message },
@@ -421,7 +421,7 @@ pub fn queueListen(self: *Host, id: capability.PromiseId, source: *HostSession) 
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     const vow_id = try self.mintDeferredVow(source);
     row.operations.appendAssumeCapacity(.{
-        .source_peer = source.peer_id,
+        .source_peer = source.peer_handle,
         .result_vow = vow_id,
         .action = .listen,
     });
@@ -459,7 +459,7 @@ pub fn prepareProjection(self: *Host, id: capability.PromiseId, session: *HostSe
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
     if (row.state != .pending and row.state != .settling) return error.PromiseNotPending;
     for (row.projections.items) |projection| {
-        if (projection.peer_id == session.peer_id) return .{
+        if (projection.peer_handle == session.peer_handle) return .{
             .reference = .{ .near = model.NearRef.promise(projection.export_position.int()) },
             .created = false,
         };
@@ -467,9 +467,9 @@ pub fn prepareProjection(self: *Host, id: capability.PromiseId, session: *HostSe
     try row.projections.ensureUnusedCapacity(self.allocator, 1);
     const projection = try session.served.port.peer.session_state.allocateLocalPromiseProjection();
     row.projections.appendAssumeCapacity(.{
-        .peer_id = session.peer_id,
+        .peer_handle = session.peer_handle,
         .export_position = projection.export_position,
-        .answer_name = projection.answer_name,
+        .answer_target = projection.answer_target,
     });
     return .{
         .reference = .{ .near = model.NearRef.promise(projection.export_position.int()) },
@@ -480,9 +480,9 @@ pub fn prepareProjection(self: *Host, id: capability.PromiseId, session: *HostSe
 pub fn rollbackProjection(self: *Host, id: capability.PromiseId, session: *HostSession, export_position: model.ExportPosition) void {
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     for (row.projections.items, 0..) |projection, index| {
-        if (projection.peer_id != session.peer_id or projection.export_position != export_position) continue;
+        if (projection.peer_handle != session.peer_handle or projection.export_position != export_position) continue;
         const removed = row.projections.swapRemove(index);
-        std.debug.assert(removed.peer_id == session.peer_id and removed.export_position == export_position);
+        std.debug.assert(removed.peer_handle == session.peer_handle and removed.export_position == export_position);
         session.served.port.peer.session_state.abandonLocalPromiseProjection(export_position);
         return;
     }
@@ -492,7 +492,7 @@ pub fn rollbackProjection(self: *Host, id: capability.PromiseId, session: *HostS
 /// Forget projections whose session is being destroyed. The session itself
 /// owns and frees its export/answer tables; this only prevents a later redeem
 /// from addressing the dead shell.
-pub fn sessionReleased(self: *Host, peer_id: engine.PeerId, reason: []const u8) void {
+pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []const u8) void {
     // The signed give names the introducing session's key as recipient. Once
     // that session closes, no future exporter dial may truthfully withdraw it.
     // Find one row at a time because terminal vow callbacks may mutate maps.
@@ -500,13 +500,13 @@ pub fn sessionReleased(self: *Host, peer_id: engine.PeerId, reason: []const u8) 
         var introduced: ?capability.PromiseId = null;
         var promise_rows = self.capability_promises.iterator();
         while (promise_rows.next()) |entry| {
-            if (entry.value_ptr.introducing_peer != peer_id) continue;
+            if (entry.value_ptr.introducing_peer != peer_handle) continue;
             if (entry.value_ptr.state != .pending and entry.value_ptr.state != .settling) continue;
             introduced = entry.key_ptr.*;
             break;
         }
         const id = introduced orelse break;
-        self.node.cancelInlineGive(peer_id, @intFromEnum(id));
+        self.node.cancelInlineGive(peer_handle, @backingInt(id));
         breakPromiseImpl(self, id, reason, true) catch unreachable;
     }
 
@@ -514,9 +514,9 @@ pub fn sessionReleased(self: *Host, peer_id: engine.PeerId, reason: []const u8) 
     while (rows.next()) |row| {
         var index: usize = 0;
         while (index < row.projections.items.len) {
-            if (row.projections.items[index].peer_id == peer_id) {
+            if (row.projections.items[index].peer_handle == peer_handle) {
                 const removed = row.projections.swapRemove(index);
-                std.debug.assert(removed.peer_id == peer_id);
+                std.debug.assert(removed.peer_handle == peer_handle);
             } else index += 1;
         }
     }
@@ -537,14 +537,14 @@ pub fn sessionReleased(self: *Host, peer_id: engine.PeerId, reason: []const u8) 
                     .queued => pending.source_peer,
                     .dispatched => |target_peer| target_peer,
                 };
-                if (owner_peer != peer_id) continue;
+                if (owner_peer != peer_handle) continue;
                 detached = row.operations.orderedRemove(index);
                 break;
             }
             if (detached != null) break;
         }
         var pending = detached orelse break;
-        releaseRetainedCapabilitiesTerminal(self, &pending, peer_id);
+        releaseRetainedCapabilitiesTerminal(self, &pending, peer_handle);
         if (pending.result_vow) |vow_id| if (self.vows.contains(vow_id))
             self.fireVow(vow_id, .{ .broken = reason });
         if (pending.action == .tell) if (self.sessions.get(pending.source_peer)) |source|
@@ -586,7 +586,7 @@ pub fn deinit(self: *Host) void {
     self.capability_promises = .empty;
 }
 
-fn releaseRetainedCapabilitiesTerminal(self: *Host, pending: *Row.PendingOperation, closing_peer: ?engine.PeerId) void {
+fn releaseRetainedCapabilitiesTerminal(self: *Host, pending: *Row.PendingOperation, closing_peer: ?engine.PeerHandle) void {
     switch (pending.action) {
         .send, .tell => |*message| while (message.release_head < message.retained_capabilities.len) {
             const retained = message.retained_capabilities[message.release_head];

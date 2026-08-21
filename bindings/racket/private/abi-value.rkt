@@ -22,6 +22,29 @@
 ;; The `PANCAKE-CAPTP-*` id for a CapTP profile (ADR-0003): `v1_0` is the
 ;; interop floor a Goblins vat speaks, `next` the pancake-to-pancake track
 ;; `Offer.native` prefers with Cap'n Proto.
+(define (captp-version<-id version)
+  (cond
+    [(= version CAPTP-V1-0) 'v1_0]
+    [(= version CAPTP-NEXT) 'next]
+    [else (error 'captp-version<-id "generated unknown default CapTP version: ~a" version)]))
+
+(define (codec<-id codec)
+  (cond
+    [(= codec CODEC-SYRUP) 'syrup]
+    [(= codec CODEC-CAPNP) 'capnp]
+    [else (error 'codec<-id "generated unknown default codec: ~a" codec)]))
+
+(define (features<-mask features)
+  (cond
+    [(= features FEATURE-FULL) 'full]
+    [(= features FEATURE-BASELINE) 'baseline]
+    [(= features FEATURE-MINIMUM) 'minimum]
+    [else features]))
+
+(define DEFAULT-CODEC-SYMBOL (codec<-id DEFAULT-CODEC))
+(define DEFAULT-CAPTP-VERSION-SYMBOL (captp-version<-id DEFAULT-CAPTP-VERSION))
+(define DEFAULT-FEATURES-SYMBOL (features<-mask DEFAULT-FEATURES))
+
 (define (captp-version-id version)
   (case version
     [(v1_0) CAPTP-V1-0]
@@ -105,14 +128,7 @@
                      (define-values (ptr cnt) (args->c (tagged-arg-value a) keep))
                      (set-PancakeArgument-items! c ptr) (set-PancakeArgument-items-len! c cnt)]
     [(struct-arg? a) (set-PancakeArgument-kind! c ARG-STRUCT)
-                     (define flat
-                       (apply append
-                              (for/list ([entry (in-list (struct-arg-entries a))])
-                                (unless (and (pair? entry) (string? (car entry)))
-                                  (raise-pancake 'arg->c ERR-UNSUPPORTED-VALUE
-                                                  "Struct entries must be String/value pairs: ~a" entry))
-                                (list (car entry) (cdr entry)))))
-                     (define-values (ptr cnt) (args->c flat keep))
+                     (define-values (ptr cnt) (struct-entries->c (struct-arg-entries a) keep))
                      (set-PancakeArgument-items! c ptr) (set-PancakeArgument-items-len! c cnt)]
     [(pset? a) (set-PancakeArgument-kind! c ARG-SET)
                (define-values (ptr cnt) (args->c (pset-items a) keep))
@@ -123,6 +139,21 @@
     [else (raise-pancake 'arg->c ERR-UNSUPPORTED-VALUE
                          "unsupported argument type: ~a" a)])
   c)
+
+(define (struct-entries->c entries keep)
+  (define n (* 2 (length entries)))
+  (cond
+    [(zero? n) (values #f 0)]
+    [else
+     (define arr (malloc (* n (ctype-sizeof _PancakeArgument)) 'atomic-interior))
+     (set-box! keep (cons arr (unbox keep)))
+     (for ([entry (in-list entries)] [i (in-naturals)])
+       (unless (and (pair? entry) (string? (car entry)))
+         (raise-pancake 'arg->c ERR-UNSUPPORTED-VALUE
+                        "Struct entries must be String/value pairs: ~a" entry))
+       (ptr-set! arr _PancakeArgument (* i 2) (arg->c (car entry) keep))
+       (ptr-set! arr _PancakeArgument (add1 (* i 2)) (arg->c (cdr entry) keep)))
+     (values arr n)]))
 
 (define (set-bytes-field! c kind bs keep)
   (define buf (pin-immobile bs))
@@ -157,17 +188,15 @@
      (let ([magnitude (string->number (bytes->string/utf-8 (bytes<-c (PancakeArgument-bytes c) (PancakeArgument-bytes-len c))))])
        (if (not (zero? (PancakeArgument-boolean c))) (- magnitude) magnitude))]
     [(= k ARG-STRUCT)
-     (define flat (args<-c (PancakeArgument-items c) (PancakeArgument-items-len c)))
-     (unless (even? (length flat))
+     (define len (PancakeArgument-items-len c))
+     (unless (even? len)
        (raise-pancake 'pancake ERR-INTERNAL "ABI returned an odd Struct item count"))
      (struct-arg
-      (let loop ([rest flat] [entries '()])
-        (if (null? rest)
-            (reverse entries)
-            (begin
-              (unless (string? (car rest))
-                (raise-pancake 'pancake ERR-INTERNAL "ABI returned a non-String Struct key"))
-              (loop (cddr rest) (cons (cons (car rest) (cadr rest)) entries))))))]
+      (for/list ([i (in-range 0 len 2)])
+        (define key (arg<-c (ptr-ref (PancakeArgument-items c) _PancakeArgument i)))
+        (unless (string? key)
+          (raise-pancake 'pancake ERR-INTERNAL "ABI returned a non-String Struct key"))
+        (cons key (arg<-c (ptr-ref (PancakeArgument-items c) _PancakeArgument (add1 i))))))]
     [else (raise-pancake 'pancake ERR-INTERNAL
                          "ABI returned unknown argument kind: ~a" k)]))
 

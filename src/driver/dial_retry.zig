@@ -4,18 +4,18 @@
 //! into transient vs permanent. It retries only transient faults and never
 //! pretends Peer tables survive a rebuild: each successful dial is a new
 //! CapTP session the caller must adopt. Discovery dial budgets across
-//! bindings and the Zig reachability driver share this one policy.
+//! bindings and the Zig reachability driver share the `driver_core` defaults
+//! this executor projects.
 
 const std = @import("std");
+const driver_core = @import("driver_core");
 const net = @import("net");
 
 const DialError = net.netlayer.DialError;
 
-/// Shared discovery-posture dial budget (pkarr / n0 DNS propagation).
-/// ~72s total; every binding and `iroh-reachability` must match these numbers
-/// (exported as `PANCAKE_DISCOVERY_DIAL_*` over the driver C ABI).
-pub const discovery_retry_ms: u64 = 3_000;
-pub const discovery_max_attempts: u32 = 24;
+/// Shared discovery-posture dial defaults; retry execution stays in `driver`.
+pub const discovery_retry_ms: u64 = driver_core.discovery_retry_ms;
+pub const discovery_max_attempts: u32 = driver_core.discovery_max_attempts;
 
 /// Caller-supplied dial policy. Defaults match the discovery budget.
 pub const DialPolicy = struct {

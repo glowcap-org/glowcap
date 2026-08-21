@@ -7,9 +7,9 @@
 //! share boxes by refcount (zero bytes copied), copy-on-write clones a shared
 //! box the first time a turn would mutate it, and a persistent actor's
 //! functional `become` stages a fresh box installed when its outermost frame
-//! unwinds. `releaseBox` is the one lifetime chokepoint. The `Vat` re-binds
-//! the public verbs (`snapshot`, `restore`); everything else is reached by the
-//! sibling vat modules.
+//! unwinds. `releaseBox` is the one lifetime chokepoint. The `Vat` exposes the
+//! local snapshot verbs (`snapshot`, `restore`); everything else is reached by
+//! the sibling vat modules.
 
 const std = @import("std");
 const model = @import("model");

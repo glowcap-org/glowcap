@@ -6,7 +6,8 @@
 // reader has typed under it, and what this browser remembers, which is what
 // lets the whole question be answered in a test without a page.
 
-import type { DirId } from "./types.ts";
+import { type DirId, dirMark, dirMarkIn, type DirView } from "./types.ts";
+import { directoryName } from "./text.ts";
 import {
 	type Act,
 	type Answer,
@@ -32,6 +33,68 @@ export function thisDirectoryLocator(value: string, home: DirId | null): string 
 	if (typed === "") return "";
 	if (home !== null && typed === (home as string)) return "";
 	return value;
+}
+
+/** Where a locator field is aimed: the mark that destination wears, and what to
+ * call it.
+ *
+ * One classification, read by everything that draws the answer. The card's top
+ * stripe, the card's opening line, and the rail panel's line are asking the
+ * same question about the same field, and asking it separately is how they came
+ * to disagree in front of a reader who was typing into one of them. The answer
+ * is by identity — `typedAs` is what the text resolves to — so a hinted route
+ * and a bare authority are one destination.
+ *
+ * The field is empty or names this page's own directory, it names another this
+ * tab holds, or it names something else. `hereWord` is what the first of those
+ * is called in the sentence being written: the rail's line calls it what every
+ * row beneath it calls a directory, while the card's line says whose page it is,
+ * because the reader is looking at the field that could name another.
+ *
+ * `dirs` is what this tab holds, passed in because naming a directory takes
+ * them and the rest of this module answers without them.
+ */
+export function destination(
+	locator: string,
+	typedAs: DirId | null,
+	dirs: ReadonlyMap<DirId, DirView>,
+	home: DirId | null,
+	hereWord: string,
+): { mark: string | undefined; name: string } {
+	// The two arms below answer the ramp's ceiling differently, and the
+	// difference is the point rather than an oversight.
+	//
+	// This page's own directory keeps its mark however many are held, because
+	// `home` is not a slot in the ramp: it is the product's own teal, the one
+	// Settings and this card have always worn, and it is not telling this
+	// directory apart from any other. Asking the ceiling here would take that
+	// teal off the card's field borders, its hash and its private-room prefix
+	// while a single directory is held, which is every ordinary reader. That
+	// repaints the ordinary view to enforce a rule about telling several
+	// directories apart, and there are none to tell apart.
+	//
+	// The arm below does ask it, because there a color really is one directory's
+	// answer against the others, and past the ramp there is no answer to give.
+	if (thisDirectoryLocator(locator, home) === "" || (home != null && typedAs === home)) {
+		return { mark: home != null ? dirMark(home, home, undefined) : undefined, name: hereWord };
+	}
+	const held = typedAs != null ? dirs.get(typedAs) : undefined;
+	// The mark the rail is showing for that directory, and `unknown` when the
+	// rail is showing none: past the ramp no directory wears a color of its own,
+	// which puts a field aimed at one in the same position as a field aimed at an
+	// address nobody here holds. Falling through to no mark instead would let the
+	// card's stripe take its own fallback, which is the teal this page's own
+	// directory wears, so a card aimed elsewhere would draw itself as home.
+	if (held != null) {
+		return { mark: dirMarkIn(held.id, home, dirs) ?? "unknown", name: directoryName(held.id, home) };
+	}
+	// Not a directory this tab holds. It may still be a perfectly good address,
+	// so it is named the way any directory is named rather than read back as the
+	// forty characters somebody pasted, and it is marked rather than left
+	// unmarked. "Unknown" is a mark like any other: every part of the card that
+	// colours itself reads one property, and an absence let each of them fall
+	// back to its own answer instead.
+	return { mark: "unknown", name: typedAs != null ? directoryName(typedAs, home) : "that directory" };
 }
 
 /** Every field of the card, each with the evidence behind it, and how the

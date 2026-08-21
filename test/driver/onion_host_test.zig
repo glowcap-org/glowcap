@@ -57,7 +57,8 @@ test "onion at the host tier: publish, dial, fetch, and call with no Tor" {
         @as(?usize, fake.service_key.len),
         try server.restorationState(&short),
     );
-    try std.testing.expectEqualSlices(u8, &([_]u8{0xa5} ** short.len), &short);
+    const expected_short: [short.len]u8 = @splat(0xa5);
+    try std.testing.expectEqualSlices(u8, &expected_short, &short);
     var restoration_key: [fake.service_key.len]u8 = undefined;
     try std.testing.expectEqual(
         @as(?usize, fake.service_key.len),

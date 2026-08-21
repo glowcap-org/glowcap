@@ -48,6 +48,19 @@ const Shared = struct {
     fetched: std.atomic.Value(bool) = .init(false),
     poked: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
+    failed: std.atomic.Value(bool) = .init(false),
+    err_int: std.atomic.Value(u16) = .init(0),
+
+    fn noteErr(self: *Shared, err: anyerror) void {
+        _ = self.err_int.cmpxchgStrong(0, @intFromError(err), .seq_cst, .seq_cst);
+        self.failed.store(true, .seq_cst);
+    }
+
+    fn takeErr(self: *const Shared) ?anyerror {
+        const n = self.err_int.load(.seq_cst);
+        if (n == 0) return null;
+        return @errorFromInt(n);
+    }
 };
 
 fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
@@ -61,24 +74,19 @@ fn expired(io: std.Io, d: std.Io.Clock.Timestamp) bool {
     return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, d);
 }
 
-fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
+fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool), shared: *const Shared) !void {
     const d = deadlineAfter(io);
     while (!flag.load(.acquire)) {
+        if (shared.failed.load(.seq_cst)) return shared.takeErr() orelse error.ObserverFailed;
         if (expired(io, d)) return error.WaitTimedOut;
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
+    if (shared.failed.load(.seq_cst)) return shared.takeErr() orelse error.ObserverFailed;
 }
 
-fn runLoopUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror, loop_done: *std.atomic.Value(bool)) void {
-    loop.runUntil(done, 0) catch |err| {
-        out_err.* = err;
-        loop_done.store(true, .release);
-        return;
-    };
-    loop.closeAndDrain() catch |err| {
-        out_err.* = err;
-    };
-    loop_done.store(true, .release);
+fn runLoopUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool)) !void {
+    try loop.runUntil(done, 0);
+    try loop.closeAndDrain();
 }
 
 fn pokeListener(io: std.Io, port: u16) void {
@@ -93,6 +101,7 @@ fn pokeListener(io: std.Io, port: u16) void {
 const ExporterState = struct {
     host: *Host,
     bridge: *TcpBridge,
+    shared: *Shared,
     g_session: ?*HostSession = null,
 };
 
@@ -114,14 +123,25 @@ fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, slot: *TcpBridge.Slot) a
 
 fn onDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
-    const session = state.g_session orelse return;
+    const session = state.g_session orelse {
+        state.shared.noteErr(error.MissingGifterSession);
+        return;
+    };
     switch (resolution) {
         .fulfilled => |value| {
-            if (value != .reference) return;
-            _ = state.host.send(session, value.reference, .{ .verb = "ready", .args = &.{} }) catch return;
-            state.bridge.drainActions() catch {};
+            if (value != .reference) {
+                state.shared.noteErr(error.UnexpectedDeskPayload);
+                return;
+            }
+            _ = state.host.send(session, value.reference, .{ .verb = "ready", .args = &.{} }) catch |err| {
+                state.shared.noteErr(err);
+                return;
+            };
+            // The completion loop drains. drainActions from this listener is
+            // ReenteredHost; that refusal is not a failed ready.
         },
-        else => {},
+        .broken => state.shared.noteErr(error.DeskBroke),
+        .give => state.shared.noteErr(error.UnexpectedGive),
     }
 }
 
@@ -132,13 +152,13 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
 
     var session_root: [32]u8 = undefined;
     try io.randomSecure(&session_root);
-    var host = try Host.init(allocator, [_]u8{0x0e} ** 32, session_root, blk: {
+    var host = try Host.init(allocator, @as([32]u8, @splat(0x0e)), session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
     });
     defer host.deinit();
-    var state = ExporterState{ .host = &host, .bridge = undefined };
+    var state = ExporterState{ .host = &host, .bridge = undefined, .shared = shared };
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
         .publish = publishTarget,
@@ -166,17 +186,8 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
         .hints = model.Hints.emptyFalse(),
     });
 
-    var loop_err: ?anyerror = null;
-    var loop_done = std.atomic.Value(bool).init(false);
-    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
-    defer {
-        shared.done.store(true, .release);
-        pokeListener(io, loop.port().?);
-        loop_future.await(io);
-        if (loop_err) |err| std.debug.print("many-sessions: exporter loop: {s}\n", .{@errorName(err)});
-    }
-
-    try waitFlag(io, &shared.done);
+    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done });
+    try loop_future.await(io);
 }
 
 // ── Gifter G ─────────────────────────────────────────────────────────────────
@@ -192,11 +203,16 @@ const GifterState = struct {
         const self: *GifterState = @ptrCast(@alignCast(ctx.?));
         switch (resolution) {
             .fulfilled => |value| {
-                if (value == .reference) self.widget = value.reference;
+                if (value != .reference) {
+                    self.shared.noteErr(error.UnexpectedFetchPayload);
+                    return;
+                }
+                self.widget = value.reference;
+                self.shared.fetched.store(true, .release);
             },
-            else => {},
+            .broken => self.shared.noteErr(error.FetchBroke),
+            .give => self.shared.noteErr(error.UnexpectedGive),
         }
-        self.shared.fetched.store(true, .release);
     }
 };
 
@@ -237,37 +253,59 @@ fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) 
 
 const ClientState = struct {
     host: *Host,
-    poked: *std.atomic.Value(bool),
+    shared: *Shared,
     g_session: ?*HostSession = null,
 
     fn onIntroducer(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
-        const session = self.g_session orelse return;
+        const session = self.g_session orelse {
+            self.shared.noteErr(error.MissingGifterSession);
+            return;
+        };
         switch (resolution) {
             .fulfilled => |value| {
-                if (value != .reference) return;
-                const vow = self.host.send(session, value.reference, .{ .verb = "introduce", .args = &.{} }) catch return;
-                self.host.vowOn(vow, .{ .ctx = self, .func = onIntroduced }) catch return;
+                if (value != .reference) {
+                    self.shared.noteErr(error.UnexpectedIntroducerPayload);
+                    return;
+                }
+                const vow = self.host.send(session, value.reference, .{ .verb = "introduce", .args = &.{} }) catch |err| {
+                    self.shared.noteErr(err);
+                    return;
+                };
+                self.host.vowOn(vow, .{ .ctx = self, .func = onIntroduced }) catch |err| self.shared.noteErr(err);
             },
-            else => {},
+            .broken => self.shared.noteErr(error.IntroducerBroke),
+            .give => self.shared.noteErr(error.UnexpectedGive),
         }
     }
 
     fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
-        const session = self.g_session orelse return;
+        const session = self.g_session orelse {
+            self.shared.noteErr(error.MissingGifterSession);
+            return;
+        };
         switch (resolution) {
             .fulfilled => |value| {
                 const widget = switch (value) {
                     .reference => |r| r,
-                    else => return,
+                    else => {
+                        self.shared.noteErr(error.UnexpectedIntroducePayload);
+                        return;
+                    },
                 };
                 std.debug.print("many-sessions: introduced to a capability on another peer, redeemed inside the settle\n", .{});
-                const vow = self.host.send(session, widget, .{ .verb = "poke", .args = &.{} }) catch return;
-                self.host.vowOn(vow, .{ .ctx = self, .func = onPoked }) catch return;
+                const vow = self.host.send(session, widget, .{ .verb = "poke", .args = &.{} }) catch |err| {
+                    self.shared.noteErr(err);
+                    return;
+                };
+                self.host.vowOn(vow, .{ .ctx = self, .func = onPoked }) catch |err| self.shared.noteErr(err);
             },
-            .broken => |reason| std.debug.print("many-sessions: introduce broke: {s}\n", .{reason}),
-            else => {},
+            .broken => |reason| {
+                std.debug.print("many-sessions: introduce broke: {s}\n", .{reason});
+                self.shared.noteErr(error.IntroduceBroke);
+            },
+            .give => self.shared.noteErr(error.UnexpectedGive),
         }
     }
 
@@ -275,11 +313,18 @@ const ClientState = struct {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
         switch (resolution) {
             .fulfilled => |value| {
-                if (value == .string) std.debug.print("many-sessions: {s}\n", .{value.string});
-                self.poked.store(true, .release);
+                if (value != .string) {
+                    self.shared.noteErr(error.UnexpectedPokePayload);
+                    return;
+                }
+                std.debug.print("many-sessions: {s}\n", .{value.string});
+                self.shared.poked.store(true, .release);
             },
-            .broken => |reason| std.debug.print("many-sessions: poke broke: {s}\n", .{reason}),
-            else => {},
+            .broken => |reason| {
+                std.debug.print("many-sessions: poke broke: {s}\n", .{reason});
+                self.shared.noteErr(error.PokeBroke);
+            },
+            .give => self.shared.noteErr(error.UnexpectedGive),
         }
     }
 };
@@ -303,7 +348,7 @@ pub fn main(init: std.process.Init) !void {
     var shared = Shared{};
     var gifter_session_root: [32]u8 = undefined;
     try io.randomSecure(&gifter_session_root);
-    var gifter_host = try Host.init(allocator, [_]u8{0x06} ** 32, gifter_session_root, blk: {
+    var gifter_host = try Host.init(allocator, @as([32]u8, @splat(0x06)), gifter_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -337,30 +382,31 @@ pub fn main(init: std.process.Init) !void {
     const gifter_designator = tcp.locatorFromAddress(&designator_buf, gifter_designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), gifter_designator, &.{});
 
-    var loop_err: ?anyerror = null;
-    var loop_done = std.atomic.Value(bool).init(false);
-    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
-    defer {
-        shared.done.store(true, .release);
-        pokeListener(io, loop.port().?);
-        loop_future.await(io);
-        if (loop_err) |err| std.debug.print("many-sessions: gifter loop: {s}\n", .{@errorName(err)});
-    }
+    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done });
     var exporter_future = try io.concurrent(exporterTask, .{ allocator, &shared, @as([]const u8, gifter_designator) });
-    defer exporter_future.await(io) catch |err| std.debug.print("many-sessions: exporter: {s}\n", .{@errorName(err)});
+    var gifter_joined = false;
+    defer {
+        if (!gifter_joined) {
+            shared.done.store(true, .release);
+            pokeListener(io, loop.port().?);
+            pokeListener(io, shared.exporter_port.load(.acquire));
+            // Unwind join only. The success path uses try await before print.
+            loop_future.await(io) catch {};
+            exporter_future.await(io) catch {};
+        }
+    }
 
-    try waitFlag(io, &shared.fetched);
+    try waitFlag(io, &shared.fetched, &shared);
 
-    var poked = std.atomic.Value(bool).init(false);
     var recipient_session_root: [32]u8 = undefined;
     try io.randomSecure(&recipient_session_root);
-    var recipient_host = try Host.init(allocator, [_]u8{0x0c} ** 32, recipient_session_root, blk: {
+    var recipient_host = try Host.init(allocator, @as([32]u8, @splat(0x0c)), recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
     });
     defer recipient_host.deinit();
-    var r_state = ClientState{ .host = &recipient_host, .poked = &poked };
+    var r_state = ClientState{ .host = &recipient_host, .shared = &shared };
     var r_loop: net.TcpLoop = undefined;
     var r_bridge = TcpBridge.init(allocator, &recipient_host, io, &r_loop, .{
         .on_open = clientOnOpen,
@@ -384,21 +430,27 @@ pub fn main(init: std.process.Init) !void {
         .hints = model.Hints.emptyFalse(),
     });
 
-    var r_err: ?anyerror = null;
-    var r_done = std.atomic.Value(bool).init(false);
-    var r_future = try io.concurrent(runLoopUntil, .{ &r_loop, &shared.done, &r_err, &r_done });
+    var r_future = try io.concurrent(runLoopUntil, .{ &r_loop, &shared.done });
+    var recipient_joined = false;
     defer {
-        shared.done.store(true, .release);
-        pokeListener(io, r_loop.port().?);
-        r_future.await(io);
-        if (r_err) |err| std.debug.print("many-sessions: recipient loop: {s}\n", .{@errorName(err)});
+        if (!recipient_joined) {
+            shared.done.store(true, .release);
+            pokeListener(io, r_loop.port().?);
+            // Unwind join only. The success path uses try await before print.
+            r_future.await(io) catch {};
+        }
     }
 
-    try waitFlag(io, &poked);
+    try waitFlag(io, &shared.poked, &shared);
 
     shared.done.store(true, .release);
     pokeListener(io, loop.port().?);
     pokeListener(io, r_loop.port().?);
     pokeListener(io, shared.exporter_port.load(.acquire));
+    try r_future.await(io);
+    recipient_joined = true;
+    try exporter_future.await(io);
+    try loop_future.await(io);
+    gifter_joined = true;
     std.debug.print("many-sessions: introduce and redeem OK\n", .{});
 }

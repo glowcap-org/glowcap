@@ -58,32 +58,38 @@ pub const LayerSpec = struct {
 
 /// Create the `arch-check` build step over the authoritative layer table.
 pub fn create(b: *Build, table: []const LayerSpec) *Step {
-    const wrapper = b.allocator.create(ArchCheck) catch @panic("OOM");
-    wrapper.* = .{
-        .step = Step.init(.{
-            .id = .custom,
-            .name = "arch-check",
-            .owner = b,
-            .makeFn = make,
-        }),
-        .table = table,
-    };
-    return &wrapper.step;
+    const table_file = b.addWriteFiles().add("arch_check_table.zig", renderLayerTable(b, table));
+    const check_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/arch_check.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const table_mod = b.createModule(.{
+        .root_source_file = table_file,
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    table_mod.addImport("arch_check", check_mod);
+    const main_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/arch_check_main.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    main_mod.addImport("arch_check", check_mod);
+    main_mod.addImport("arch_check_table", table_mod);
+    const exe = b.addExecutable(.{ .name = "arch-check-tool", .root_module = main_mod });
+    const run = b.addRunArtifact(exe);
+    run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
+    return &run.step;
 }
 
-const ArchCheck = struct {
-    step: Step,
+pub fn check(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
     table: []const LayerSpec,
-};
-
-fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
-    const b = step.owner;
-    const io = b.graph.io;
-    const gpa = options.gpa;
-    const check: *ArchCheck = @fieldParentPtr("step", step);
-    const table = check.table;
-
-    var src_dir = try b.build_root.handle.openDir(io, "src", .{ .iterate = true });
+) anyerror!usize {
+    var src_dir = try root.openDir(io, "src", .{ .iterate = true });
     defer src_dir.close(io);
 
     var violations: std.ArrayList([]const u8) = .empty;
@@ -188,12 +194,13 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         // not only std.Io. `std.Thread` is never allowed in a core layer for
         // spawning or scheduling, and `std.atomic` is never allowed at all —
         // concurrency primitives belong in adapters. One sanctioned exception:
-        // `std.Thread.getCurrentId` in the byte-fed Host asserts the
-        // single-owning-thread contract already in prose (ADR-0072) — affinity
+        // `std.Thread.getCurrentId` in the byte-fed Host admission owner
+        // asserts the single-owning-thread contract already in prose
+        // (ADR-0072) — affinity
         // only, never spawn — allowlisted by path so any other core atomic /
         // Thread still fails loud. (The engine's GiftRegistry carries no lock;
         // ADR-0056 deleted the prior spinlock, so no atomic is sanctioned there.)
-        const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host.zig");
+        const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host/admission.zig");
         if (spec.core and !allows_thread_id and std.mem.indexOf(u8, contents, "std.Thread") != null) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
@@ -302,8 +309,33 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("arch-check: {s}\n", .{msg});
-        return step.fail("arch-check found {d} violation(s)", .{violations.items.len});
     }
+    return violations.items.len;
+}
+
+fn renderLayerTable(b: *Build, table: []const LayerSpec) []const u8 {
+    const gpa = b.allocator;
+    var out: std.ArrayList(u8) = .empty;
+    out.appendSlice(gpa, "const arch_check = @import(\"arch_check\");\n\npub const layer_table = [_]arch_check.LayerSpec{\n") catch @panic("OOM");
+    for (table) |spec| {
+        out.appendSlice(gpa, "    .{ .name = \"") catch @panic("OOM");
+        out.appendSlice(gpa, spec.name) catch @panic("OOM");
+        out.appendSlice(gpa, "\", .prefix = \"") catch @panic("OOM");
+        out.appendSlice(gpa, spec.prefix) catch @panic("OOM");
+        out.appendSlice(gpa, "\", .imports = &.{") catch @panic("OOM");
+        for (spec.imports, 0..) |edge, i| {
+            if (i != 0) out.appendSlice(gpa, ", ") catch @panic("OOM");
+            out.appendSlice(gpa, "\"") catch @panic("OOM");
+            out.appendSlice(gpa, edge) catch @panic("OOM");
+            out.appendSlice(gpa, "\"") catch @panic("OOM");
+        }
+        out.appendSlice(gpa, "}, .core = ") catch @panic("OOM");
+        out.appendSlice(gpa, if (spec.core) "true" else "false") catch @panic("OOM");
+        if (!spec.graph) out.appendSlice(gpa, ", .graph = false") catch @panic("OOM");
+        out.appendSlice(gpa, " },\n") catch @panic("OOM");
+    }
+    out.appendSlice(gpa, "};\n") catch @panic("OOM");
+    return out.items;
 }
 
 /// The sanctioned injected-module seams: files whose build module is minted

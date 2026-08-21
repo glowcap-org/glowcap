@@ -299,8 +299,8 @@ pub fn enumFromWire(comptime E: type, raw: u64) Error!E {
     // spell the same message.
     if (raw >> 17 != 0) return Error.MalformedFrame;
     const value: u16 = @truncate(raw);
-    inline for (@typeInfo(E).@"enum".fields) |field| {
-        if (value == field.value) return @enumFromInt(value);
+    inline for (@typeInfo(E).@"enum".field_values) |field_value| {
+        if (value == field_value) return @fromBackingInt(@intCast(value));
     }
     return Error.MalformedFrame;
 }

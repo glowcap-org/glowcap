@@ -4,10 +4,10 @@ const std = @import("std");
 pub const Entity = enum(u32) {
     _,
     pub fn index(self: Entity) u32 {
-        return @intFromEnum(self) & 0xffff;
+        return @backingInt(self) & 0xffff;
     }
     pub fn generation(self: Entity) u16 {
-        return @intCast((@intFromEnum(self) >> 16) & 0xffff);
+        return @intCast((@backingInt(self) >> 16) & 0xffff);
     }
 };
 
@@ -15,8 +15,8 @@ pub fn World(comptime max_entities: u16) type {
     return struct {
         const Self = @This();
         gpa: std.mem.Allocator,
-        gen: [max_entities]u16 = [_]u16{0} ** max_entities,
-        alive: [max_entities]bool = [_]bool{false} ** max_entities,
+        gen: [max_entities]u16 = @splat(0),
+        alive: [max_entities]bool = @splat(false),
         free: std.ArrayList(u16) = .empty,
         next_slot: u16 = 0,
 
@@ -37,7 +37,7 @@ pub fn World(comptime max_entities: u16) type {
             };
             self.alive[slot] = true;
             const g = self.gen[slot];
-            return @enumFromInt((@as(u32, g) << 16) | slot);
+            return @fromBackingInt(@intCast((@as(u32, g) << 16) | slot));
         }
     };
 }

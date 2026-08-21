@@ -42,11 +42,10 @@ provenance and upstream-contact policy live in
 
 The destination is 500,000 live CapTP sessions on one node.
 
-That is a target, not a current result. It is reached only when a recorded run
-holds that many real socket sessions with acceptable memory and scheduling
-cost. Until then, per-session footprint checks and allocation budgets keep the
-design moving in the right direction. [The route to 1.0](ladder.md) owns the
-measured numbers.
+That is a target. A recorded run has to hold that many real socket sessions
+with acceptable memory and scheduling cost. Until then, per-session footprint
+checks and allocation budgets keep the design moving in the right direction.
+[The route to 1.0](ladder.md) owns the measured numbers.
 
 The core cannot create scale by itself; the connection loop and operating
 system do the serving. Its responsibility is to avoid making the target
@@ -71,16 +70,17 @@ should not grow framework policy to serve one runtime.
 
 ## Reachability
 
-OCapN does not require one transport. A peer locator carries the designator and
-hints a netlayer needs to reach it; only identity-aware transports bind that
-designator to a cryptographic peer identity. The same CapTP semantics should
-work over a local process, a cleartext development socket, or an encrypted
-peer-to-peer channel.
+OCapN does not require one transport. A peer is reached by an address string
+called a locator. Encrypted transports prove who answered; a cleartext test
+socket does not. The CapTP session above them stays the same, whether the
+bytes travel over encrypted discovery, a sealed TCP stream, a local process,
+or a development socket.
 
 The destination includes real internet reachability: authenticated peer
 identity, encryption, NAT traversal, and relays without folding those concerns
-into CapTP. Three-party handoff must establish a direct relationship between
-the introduced peers; the transport must make that relationship reachable.
+into CapTP. Passing a third party a live reference must end in a direct session
+between those two, not a permanent proxy, and the transport has to make that
+session reachable.
 
 Browsers are peers too. After obtaining a channel, they should be able to host
 objects, answer calls, pass capabilities, and take part in handoff without

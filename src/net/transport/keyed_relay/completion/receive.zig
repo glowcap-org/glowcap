@@ -7,7 +7,7 @@
 const std = @import("std");
 
 const completion = @import("../../../completion/loop.zig");
-const protocol = @import("../../../websocket/client_protocol.zig");
+const protocol = @import("../../../websocket.zig").client_protocol;
 
 pub fn Machine(
     comptime Backend: type,

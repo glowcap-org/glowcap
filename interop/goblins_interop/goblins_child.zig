@@ -22,6 +22,32 @@ pub fn isOpen(peer: *engine.Peer) bool {
     return peer.session_state.state == .open;
 }
 
+/// Per-read hang cap against a Goblins vat. Finite is the contract: a
+/// timeout of 0 on `runUntil` / `pump` parks a silent accept forever.
+pub const wait_ms: i32 = 60_000;
+
+/// Poll slice for loops that already own a wall-clock cap. Quiet is not
+/// failure: the caller checks `harness.expired` and retries.
+pub const poll_ms: i32 = 50;
+
+fn flushAndWait(conn: anytype, timeout_ms: i32) !bool {
+    try conn.flush();
+    return conn.waitReadable(timeout_ms);
+}
+
+/// One inbound pump under `wait_ms`. Flushes first so a request still
+/// queued locally cannot deadlock the wait. A silent peer is `error.Timeout`.
+pub fn pumpBounded(conn: anytype) !net.Progress {
+    if (!try flushAndWait(conn, wait_ms)) return error.Timeout;
+    return conn.pump();
+}
+
+/// One inbound pump, or `.idle` if nothing arrived before `poll_ms`.
+pub fn pumpPoll(conn: anytype) !net.Progress {
+    if (!try flushAndWait(conn, poll_ms)) return .idle;
+    return conn.pump();
+}
+
 /// Run the keyed `op:start-session` bracket against a live Goblins peer: draw
 /// a fresh Ed25519 seed, sign a `tcp`/`#f`-hints locator for `designator` (so
 /// Goblins' verification, which re-encodes `#f`, matches), and pump until the
@@ -55,7 +81,7 @@ pub fn openKeyedSessionWith(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     }, secret);
-    _ = try conn.runUntil(isOpen, 0);
+    _ = try conn.runUntil(isOpen, wait_ms);
 }
 
 /// Bootstrap-fetch a cap by its swiss-num over the live connection, pumping
@@ -71,7 +97,7 @@ pub fn fetchCap(
     try peer.send(prepared.message);
 
     while (true) {
-        const progress = try conn.pump();
+        const progress = try pumpBounded(conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
@@ -121,7 +147,7 @@ pub fn enlivenCap(
     try peer.send(prepared.message);
 
     while (true) {
-        const progress = try conn.pump();
+        const progress = try pumpBounded(conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();

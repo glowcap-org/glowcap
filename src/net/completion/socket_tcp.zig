@@ -267,7 +267,7 @@ fn bind(comptime os: Os, fd: i32, addr: *SockaddrIn(os)) !void {
                 // Name the one actionable fault, exactly as the Linux arm
                 // does: a caller retrying a pinned-port restart must tell
                 // "held" from a fatal misconfig.
-                if (c._errno().* == @intFromEnum(c.E.ADDRINUSE)) return error.AddressInUse;
+                if (c._errno().* == @backingInt(c.E.ADDRINUSE)) return error.AddressInUse;
                 return error.BindFailed;
             }
         },

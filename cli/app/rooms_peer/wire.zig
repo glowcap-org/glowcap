@@ -15,6 +15,7 @@ const driver = common.driver;
 const net = common.net;
 const Hosting = driver.core.Hosting;
 const HostTurn = driver.core.HostTurn;
+const HostSession = common.HostSession;
 const Value = driver.core.Value;
 const Capability = driver.core.Capability;
 const RoomsBridge = common.RoomsBridge;
@@ -23,20 +24,78 @@ const max_nick = common.max_nick;
 const max_dm_inboxes = common.max_dm_inboxes;
 const recordInbox = harness.recordInbox;
 
-/// The room calls `notify(from, text, ...)` back on this exported inbox. A
-/// presence line carries a string kind at args[2]; a plain chat line does not.
-/// We record only chat lines from another member.
+pub const RoomLine = struct {
+    from: []const u8,
+    text: []const u8,
+};
+
+/// Parse the subset of room notifications this harness persists. The room's
+/// structured vocabulary lives in the third argument: `line` is durable chat;
+/// presence, typing, edits, and file lifecycle events are not new chat lines.
+/// Untagged `(from, text)` is the protocol's plain-line form.
+pub fn roomLine(args: []const model.Argument, own_nick: []const u8) ?RoomLine {
+    const from = if (args.len > 0 and args[0] == .string) args[0].string else return null;
+    const text = if (args.len > 1 and args[1] == .string) args[1].string else return null;
+    const tag = if (args.len > 2 and args[2] == .string) args[2].string else "line";
+    if (!std.mem.eql(u8, tag, "line")) return null;
+    if (from.len == 0 or std.mem.eql(u8, from, "room") or std.mem.eql(u8, from, own_nick)) return null;
+    return .{ .from = from, .text = text };
+}
+
+pub const SubscribeSettlement = enum { fulfilled, refused, malformed };
+
+/// The room contract may grant topic authority as a capability or fulfill void
+/// when it grants none. A broken vow is a server refusal; every other
+/// fulfillment shape (and a handoff, which the Host tier should have redeemed)
+/// is malformed and must not publish a false joined state.
+pub fn classifySubscribeSettlement(resolution: actors.Resolution) SubscribeSettlement {
+    return switch (resolution) {
+        .fulfilled => |value| switch (value) {
+            .reference, .void => .fulfilled,
+            else => .malformed,
+        },
+        .broken => .refused,
+        .give => .malformed,
+    };
+}
+
+/// Persist one delivered line. Incoming room and DM callbacks must remain
+/// available if the local scrollback cannot be appended, but losing the line
+/// is never silent: the process diagnostic names the channel, author, and exact
+/// failure.
+pub fn recordReceived(
+    io: common.Io,
+    gpa: common.Allocator,
+    dir: []const u8,
+    channel: []const u8,
+    author: []const u8,
+    text: []const u8,
+    peer: []const u8,
+) void {
+    recordInbox(io, gpa, dir, "msg", channel, author, text, peer) catch |err| {
+        log.err(io, "recording {s} line from \"{s}\" failed: {s}", .{ channel, author, @errorName(err) });
+    };
+}
+
+/// The room calls `notify(from, text, ...)` back on this exported inbox, and
+/// tags what kind of event it is with a string after the display text: `line`
+/// is somebody talking, while `join`, `leave`, `typing`, `edited`, `withdrawn`
+/// and `refiled` are presence or changes to a line this harness does not model.
+/// We record only what was said, by another member.
+///
+/// The tag is read for its value, not counted. Every broadcast the room makes
+/// carries one, and a posted line carries its line id after it, so asking
+/// whether a third argument merely exists answered "presence" for every line
+/// in the room: peers joined, appeared in the roster, sent normally, and heard
+/// nothing at all.
 const RoomInbox = struct {
     state: *st.PeerState,
 
     pub fn handle(self: *RoomInbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
-        const from = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
-        const text = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
-        const is_presence = msg.args.len >= 3 and msg.args[2] == .string;
-        if (!is_presence and from.len > 0 and !std.mem.eql(u8, from, "room") and !std.mem.eql(u8, from, self.state.nick)) {
-            recordInbox(self.state.io, self.state.gpa, self.state.dir, "msg", "room", from, text, "") catch {};
+        if (roomLine(msg.args, self.state.nick)) |line| {
+            recordReceived(self.state.io, self.state.gpa, self.state.dir, "room", line.from, line.text, "");
         }
         return .{ .void = {} };
     }
@@ -62,7 +121,7 @@ const DmInbox = struct {
             rememberDmBack(self.state, self.peer, args[1].capability);
         }
         if (text.len > 0) {
-            recordInbox(self.state.io, self.state.gpa, self.state.dir, "msg", "dm", self.peer, text, self.peer) catch {};
+            recordReceived(self.state.io, self.state.gpa, self.state.dir, "dm", self.peer, text, self.peer);
         }
         return .void;
     }
@@ -310,15 +369,15 @@ fn sendDirectoryVerb(state: *st.PeerState, verb: []const u8, cb: *const fn (?*an
     _ = st.flushBridge(state, .host);
 }
 
-/// Spawn our room inbox, hand it to the room in `subscribe`, register for
-/// introductions, and mark joined.
+/// Spawn our room inbox, hand it to the room in `subscribe`, and observe the
+/// answer. The settlement callback alone may mark the peer joined.
 fn subscribeRoom(state: *st.PeerState, room: model.Reference) void {
     if (state.phase != .joining) return;
     const joining = state.phase.joining;
     const session = joining.session;
     // The chain guarantees a directory (onDirectory set it before any verb
     // could settle); fail toward a redial rather than crash if that breaks.
-    const directory = joining.directory orelse {
+    _ = joining.directory orelse {
         state.requestAbandonJoin();
         return;
     };
@@ -327,21 +386,66 @@ fn subscribeRoom(state: *st.PeerState, room: model.Reference) void {
         state.requestAbandonJoin();
         return;
     };
-    _ = state.host.send(session, room, .{
+    state.phase.joining.room = room;
+    const pending = state.gpa.create(SubscribeContext) catch {
+        log.err(state.io, "subscribe listener allocation failed: OutOfMemory", .{});
+        state.requestAbandonJoin();
+        return;
+    };
+    pending.* = .{ .state = state, .session = session };
+    const vow = state.host.queueSend(session, room, .{
         .verb = "subscribe",
         .args = &.{ .{ .string = state.nick }, inbox.arg() },
     }) catch |err| {
+        state.gpa.destroy(pending);
         log.err(state.io, "subscribe failed: {s}", .{@errorName(err)});
         state.requestAbandonJoin();
         return;
     };
+    state.host.vowOn(vow, .{ .ctx = pending, .func = onSubscribed }) catch |err| {
+        state.gpa.destroy(pending);
+        log.err(state.io, "subscribe vowOn failed: {s}", .{@errorName(err)});
+        state.requestAbandonJoin();
+        return;
+    };
     _ = st.flushBridge(state, .host);
-    state.phase = .{ .joined = .{
-        .session = session,
-        .directory = directory,
-        .room = room,
-        .reg = .{ .pending = redial_cooldown_wakes },
-    } };
+}
+
+const SubscribeContext = struct {
+    state: *st.PeerState,
+    session: *HostSession,
+};
+
+fn onSubscribed(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+    const pending: *SubscribeContext = @ptrCast(@alignCast(ctx.?));
+    const state = pending.state;
+    const session = pending.session;
+    // A registered far-vow listener fires exactly once, including when its
+    // Port is broken during session/Host teardown, so this context has one
+    // owner and one release point.
+    defer state.gpa.destroy(pending);
+    if (!phase_mod.isJoiningSession(&state.phase, session)) return;
+    switch (classifySubscribeSettlement(resolution)) {
+        .fulfilled => if (!phase_mod.noteSubscribed(&state.phase, redial_cooldown_wakes)) {
+            log.err(state.io, "subscribe fulfilled without a complete joining state", .{});
+            state.requestAbandonJoin();
+            return;
+        },
+        .refused => {
+            const reason = switch (resolution) {
+                .broken => |text| text,
+                else => unreachable,
+            };
+            log.err(state.io, "subscribe refused: {s}", .{reason});
+            state.requestAbandonJoin();
+            return;
+        },
+        .malformed => {
+            log.err(state.io, "subscribe settled with an invalid result", .{});
+            state.requestAbandonJoin();
+            return;
+        },
+    }
     state.join_attempts = 0;
     st.g_ever_joined = true;
     state.writeStateNow("joined");

@@ -2,12 +2,13 @@
 //! seam where the actor architecture meets OCapN.
 //!
 //! A `Vat` is a turn loop over actors. You `spawn` local actors, near-call them
-//! (`$`, `Vat.near`, synchronous, same-vat only), or eventual-send (`<-`,
-//! `Vat.send`, returning a `Vow`). A `Ref` is local *or* far, and a
-//! `Port` routes `send` uniformly: a local target queues a Vat turn; a far target
-//! leaves as an `op:deliver` over that Port's peer. Ports own wire exports and
-//! far-vow answer names while the Vat owns actors and scheduling. Both remain
-//! sync and no-I/O; the application drives the socket.
+//! (`$`, `Vat.near`, synchronous, same-vat only), or eventual-send (`<-`) through
+//! either a pure-local `Vat.send` or a session `Port.send`, each returning a
+//! `Vow`. A `Ref` is local *or* far, and a `Port` routes `send` uniformly: a
+//! local target queues a Vat turn; a far target leaves as an `op:deliver` over
+//! that Port's peer. Ports own wire exports and far-vow answer names while the
+//! Vat owns actors and scheduling. Both remain sync and no-I/O; the application
+//! drives the socket.
 
 const vat = @import("vat/mod.zig");
 const ocap_mod = @import("ocap.zig");

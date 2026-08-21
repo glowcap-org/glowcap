@@ -11,26 +11,20 @@
 // authority — whoever reads it can redeem the capability from any client, not
 // only this page — which is exactly what the take modal's hint says out loud.
 
-import { LS } from "../store/core.ts";
-import type { DirId, OpsCap } from "../types.ts";
-
-/** Where a remembered swiss was redeemed: a directory for the session-fetched
- * capabilities, the endpoint URL for viz. */
-type OpsScope = DirId | string;
-
-const key = (cap: OpsCap, home: OpsScope) => `rooms.ops-swiss.${cap}.${home}`;
+import { LS } from "../storage.ts";
+import { type OpsCap, type OpsScope, opsSwissKey } from "../types.ts";
 
 /** Keep `pasted` for `cap` on `home`, replacing any earlier memory. */
 export function rememberOpsSwiss(cap: OpsCap, home: OpsScope, pasted: string): void {
-	LS.set(key(cap, home), pasted.trim());
+	LS.set(opsSwissKey(cap, home), pasted.trim());
 }
 
 /** Erase what was remembered for `cap` on `home`. Idempotent. */
 export function forgetOpsSwiss(cap: OpsCap, home: OpsScope): void {
-	LS.remove(key(cap, home));
+	LS.remove(opsSwissKey(cap, home));
 }
 
 /** What this browser remembers for `cap` on `home`, or null. */
 export function rememberedOpsSwiss(cap: OpsCap, home: OpsScope): string | null {
-	return LS.get(key(cap, home));
+	return LS.get(opsSwissKey(cap, home));
 }

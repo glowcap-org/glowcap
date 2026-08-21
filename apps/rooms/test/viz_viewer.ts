@@ -11,6 +11,8 @@
 
 import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
 import { vizCapUrl } from "../lib/viz_publish.ts";
+import { originVizUrl } from "../web/ui/prefs.ts";
+import { opsSwissKey } from "../web/ui/types.ts";
 
 export type VizRecord = Record<string, unknown>;
 
@@ -64,11 +66,20 @@ export function vizCapOf(sturdyref: string): string {
 
 /** The localStorage row that arms a rooms tab's publishing from first load:
  * the remembered-swiss auto-redeem is production code, and a proof seeds it
- * the way a reader who checked "Remember on this device" would have. The key
- * is the ops-memory key for the viz capability on the page's own endpoint. */
-export function vizMemorySeed(vizPort: number, sturdyref: string): { key: string; value: string } {
+ * the way a reader who checked "Remember on this device" would have.
+ *
+ * `pagePort` is the port the tab is served from, not the endpoint's own. A
+ * browser reaches the timeline through `/viz` and `/publish` on the server
+ * that served it, so the endpoint's port is not a name a tab ever holds, and
+ * the row it looks up is keyed by that proxied address. Both halves of the
+ * key come from the modules that read it rather than being written out here,
+ * because a seed under a key nothing reads is silent: the tab arms nothing,
+ * joins and chats as usual, and the proof fails much later at the endpoint
+ * having heard from one producer. */
+export function vizMemorySeed(pagePort: number, sturdyref: string): { key: string; value: string } {
+	const endpoint = originVizUrl({ protocol: "http:", host: `127.0.0.1:${pagePort}` });
 	return {
-		key: `rooms.ops-swiss.viz.ws://127.0.0.1:${vizPort}/`,
+		key: opsSwissKey("viz", endpoint),
 		value: vizCapOf(sturdyref),
 	};
 }

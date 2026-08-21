@@ -80,7 +80,10 @@ publish: the tab's sending arms only while it holds the viz swiss, taken through
 Settings under Advanced (the same take-and-remember flow as the other operations capabilities, presented to the
 endpoint rather than fetched on the directory session). What it sends travels on a socket that carries nothing back but the endpoint's
 admission mark. The conversation stays private; the timeline only merges the telemetry, and when both ends of one
-conversation report it, the endpoint draws it once.
+conversation report it, the endpoint draws it once. What a tab sends is who it talked to, when, which verb, and
+how many bytes, never the bytes themselves: the other end of a direct message never agreed to appear on a shared
+timeline. The room server publishes its own frames in full, so a room line still shows its bytes on the timeline
+and a direct message never does.
 
 The same works with the browser UI. The web supervisor forwards the flag to the room server it spawns, so `-Dviz` on
 `rooms-web` or `rooms-web-tcp` traces the room and every tab's sessions with it:
@@ -261,7 +264,7 @@ The main scenarios are:
 | `zig build rooms-web-dm`                 | Browser-to-native direct messaging.                                                                                                       | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-tabs`            | Two tabs cold-dial through one relay and message off-room.                                                                                | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-native`          | A native peer cold-dials a browser member through the relay rendezvous.                                                                   | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-webrtc`          | Two members direct-message over a WebRTC DataChannel the room only signaled.                                                              | Deno and Playwright Chromium.                        |
+| `zig build rooms-web-dm-webrtc`          | Two members DM over a DataChannel the room only signaled; the live timeline must name `webrtc`, never relay substitution.                   | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-retarget`        | A direct conversation does not follow a reused nickname.                                                                                  | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-reopen`          | Reopening a closed conversation opens a second connection, and that one carries.                                                          | Deno and Playwright Chromium.                        |
 
@@ -397,19 +400,25 @@ export positions, and frame movement remain below them.
 
 ## The browser interface
 
-The page is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`.
-Styles live in `page.css` plus the sheets it imports, split along the page's sections. Shared UI state lives in
-`store.ts`: every fact the page shows, and every verb that changes one. State that belongs to one control stays in that
-component: a half-typed room name, an open emoji tray, the composer caret. UI state must not live in the DOM. An
-element's own value outlives closing the control or switching conversations, and comes back carrying an earlier
-intention.
+The page is a conversation. A rail lists rooms and direct lines. The workarea is the column for the one you have open:
+a topbar, a log of messages, and a composer that floats over the bottom of that column. The log owns the messages and
+the fade at their lower edge. The composer holds the controls that sit on that edge. The topbar stripe and the welcome
+card take their color from the rail row that opened the conversation, room or direct line. On the join screen the
+topbar keeps a stripe from rail selection, which is not the join card's aim. The rail's teal-to-orange header fade stays
+static. Orange controls stay orange.
+
+It is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`. Styles live
+in `page.css` plus the sheets it imports, split along those sections. Shared UI state lives in `store.ts`: every fact the
+page shows, and every verb that changes one. State that belongs to one control stays in that component: a half-typed
+room name, an open emoji tray, the composer caret. UI state must not live in the DOM. An element's own value outlives
+closing the control or switching conversations, and comes back carrying an earlier intention.
 
 `net.ts` owns the CapTP session outside the React tree and reads and writes only the store. The opening screen in
 `page.html` stays until `boot.ts` has the peer's first answer. `zig build source-check`
 (`tools/check/source_check/rooms_ui.zig`) holds the ids and classes the browser proofs select on, and keeps `net.ts` and
 `store.ts` off the document.
 
-### What a form offers, and why
+### Form answers
 
 A field a reader did not fill is not state to be kept. It is an answer, and an answer only makes sense beside the
 question that was asked. Following a link to a room asks a different question from pressing "add a room" in the rail,
@@ -442,78 +451,101 @@ without anybody having to clear anything.
 The join card is the surface this runs today, in `joining.ts`. It says what it is answering once, in its opening line,
 rather than annotating each field it filled: a card reached by following an address is answering that address, and a
 card opened from the rail is answering nothing in particular, so that is the one sentence that differs between them.
-`intent_test.ts` drives the precedence itself and `web_routes_test.ts` drives which act each route files. Other forms in
-the page hold values that belong to one control and are cleared when it closes, so they have no act to answer; a form
-that starts keeping a value across screens needs one.
+While that card is the workarea, the rail's room panel is a second view of it: one room name, one lock, and one
+destination, all read from the card's own answers and all changed from either side. Picking a directory on the panel's
+line writes the card's locator exactly as typing in the panel's field writes the card's room name, so the panel's
+line, the card's field and the card's stripe move together because all three read that one answer. Those picks are
+edits and file no act, which is what lets them leave every other answer standing; an act would supersede the one the
+reader is answering and take what they had typed under it away. The last row of that menu is the way to an address
+this tab does not hold, and both surfaces offer the same one: on the card it puts the caret in the field the menu
+hangs from, and from the panel, which has nowhere to type an address, it hands that same field over.
 
-## Where the interface is heading
+The two halves stay on screen together, because working in one is not leaving the other. A caret or a press landing on
+the card leaves the panel standing, and what puts the panel away is a conversation opening, which is the moment there
+stops being a card for it to be a view of. With a room open there is no card to be a second view of, so the panel names
+the directory of the room being read — standing in a room has one reading of where the next one goes — and stepping out
+to another directory is then an ordinary press that files an act, leaving the panel where it is, since that press has
+just given it its other half. That press ends where the menu's last row ends, in the card's locator field: a reader who
+asked to change directory is about to name one, and arriving in front of a card with the caret nowhere asks them to go
+and find the field the press was about.
 
-Present boundaries with a decided direction, so a session picking one up starts from the decision rather than re-opening
-it.
+The rooms list holds one panel however many directories this tab is on. Where a room lands is something the panel
+states and offers to change, rather than something the place the panel sits in decides, so a second directory adds no
+second field: the destination line names the directory the room is going to, and the menu under it picks another one the
+tab already holds or steps out to an address it does not.
+`intent_test.ts` drives the precedence itself and `web_routes_test.ts` drives which act each route files. Other
+forms in the page hold values that belong to one control and are cleared when it closes, so they have no act to
+answer; a form that starts keeping a value across screens needs one.
 
-- **Media in messages.** Built, and the shape is worth knowing before you change it. The composer holds selected files
-  locally. Send asks the room for one upload capability per file, publishes their records as one message, then fills
-  those capabilities concurrently in bounded chunks. Every member can start reading the room-hosted blob immediately; a
-  read at the moving edge parks on that file and wakes when its next bytes arrive. Holding an upload capability is the
-  whole authority to fill that file, so `write` never names who is uploading.
+## Media
 
-  The room hosts the bytes rather than relaying a reference to the sender's own blob, and that was the decision.
-  Sender-hosted media reads as the purer capability story until you follow it: the recipient must dial the sender, which
-  a browser tab cannot answer without per-viewer WebRTC signaling, and the picture dies when the tab closes. Room-hosted
-  media works for every client and outlives the poster, which is what a chat application means by posting a picture. The
-  cost is that the server has ceilings to keep, and they are the interesting part of the design.
+The composer holds selected files locally. Send asks the room for one upload capability per file, publishes their
+records as one message, then fills those capabilities concurrently in bounded chunks. Every member can start reading the
+room-hosted blob immediately; a read at the moving edge parks on that file and wakes when its next bytes arrive.
+Holding an upload capability is the whole authority to fill that file, so `write` never names who is uploading.
 
-  `MAX_SERVER_ATTACHMENT_BYTES` bounds held media across every room, evicting the oldest file anywhere; the per-room
-  `MAX_ROOM_ATTACHMENT_BYTES` and `MAX_ROOM_ATTACHMENTS` sit under it so no single room takes the lot. A dropped file's
-  reference stays valid and breaks `blob-expired`, because answering an empty file is indistinguishable from a real one.
-  Bytes still in flight are the opposite case: their message may already be visible and their parked readers must
-  receive an answer, so they are refused rather than evicted, against the size an upload declares at `attach` and under
-  the server-wide `MAX_SERVER_PENDING_BYTES`. That reservation is what `UPLOAD_IDLE_MS` exists for. Without it,
-  declaring the largest file a room takes and then writing nothing would hold a share of the server's budget for as long
-  as the connection lasted.
+The room hosts the bytes rather than relaying a reference to the sender's own blob. Sender-hosted media reads as the
+purer capability story until you follow it: the recipient must dial the sender, which a browser tab cannot answer without
+per-viewer WebRTC signaling, and the picture dies when the tab closes. Room-hosted media works for every client and
+outlives the poster, which is what a chat application means by posting a picture. The cost is that the server has
+ceilings to keep.
 
-  How a file is met is decided in one place, `web/ui/media.ts`, and there are four answers. A picture draws in the line
-  and opens full-screen, fitted to the stage. When the file is larger than the window, a click or the bar's zoom control
-  shows it at actual size and the stage scrolls. A video plays where it was posted and opens full-screen too. Sound gets
-  a player and no viewer, because a player is the whole of what a listener wants. Everything else is a row whose one
-  control fetches the bytes
-  and hands them to the browser to save, in a single press: asking twice, once to fetch and once to save, is a seam from
-  the implementation showing through.
+`MAX_SERVER_ATTACHMENT_BYTES` bounds held media across every room, evicting the oldest file anywhere; the per-room
+`MAX_ROOM_ATTACHMENT_BYTES` and `MAX_ROOM_ATTACHMENTS` sit under it so no single room takes the lot. A dropped file's
+reference stays valid and breaks `blob-expired`, because answering an empty file is indistinguishable from a real one.
+Bytes still in flight are the opposite case: their message may already be visible and their parked readers must receive
+an answer, so they are refused rather than evicted, against the size an upload declares at `attach` and under the
+server-wide `MAX_SERVER_PENDING_BYTES`. That reservation is what `UPLOAD_IDLE_MS` exists for. Without it, declaring the
+largest file a room takes and then writing nothing would hold a share of the server's budget for as long as the
+connection lasted.
 
-  Two things make the log settle rather than jump. A sender measures a picture before posting it and the record carries
-  that shape, so a reader reserves the right box before the bytes arrive. And that box shimmers while they are on the
-  way, so a rectangle about to become a picture says so with the space it is already holding.
+How a file is met is decided in one place, `web/ui/media.ts`, and there are four answers. A picture draws in the line and
+opens full-screen, fitted to the stage. When the file is larger than the window, a click or the bar's zoom control shows
+it at actual size and the stage scrolls. A video plays where it was posted and opens full-screen too. Sound gets a
+player and no viewer, because a player is the whole of what a listener wants. Everything else is a row whose one control
+fetches the bytes and hands them to the browser to save, in a single press: asking twice, once to fetch and once to
+save, is a seam from the implementation showing through.
 
-  The viewer is an overlay over the whole interface, beside Settings in `App.tsx` rather than inside a message,
-  dismissed by its backdrop and by the one Escape chain that dismisses every overlay. It carries none of Settings'
-  chrome: that is a panel because it is a form with fields and a title, while a picture is the content and a frame
-  around it would only take space from it.
+Two things make the log settle rather than jump. A sender measures a picture before posting it and the record carries
+that shape, so a reader reserves the right box before the bytes arrive. And that box shimmers while they are on the way,
+so a rectangle about to become a picture says so with the space it is already holding.
 
-  Relaying a capability the _sender_ hosts is still not something pancake can express: the draft says a reference
-  imported from another session rides as a `desc:handoff-give` inline in the argument, and the receiver builds a local
-  promise for it and redeems. pancake refuses such an argument today (`ForeignArgument`), and the reply path's
-  transparent gifter is the only handoff arm it implements. That gap is `docs/boundaries.md`'s to record, not this
-  feature's to work around.
+The viewer is an overlay over the whole interface, beside Settings in `App.tsx` rather than inside a message, dismissed
+by its backdrop and by the one Escape chain that dismisses every overlay. It carries none of Settings' chrome: that is a
+panel because it is a form with fields and a title, while a picture is the content and a frame around it would only take
+space from it.
+
+Relaying a capability the _sender_ hosts is still not something pancake can express: the draft says a reference imported
+from another session rides as a `desc:handoff-give` inline in the argument, and the receiver builds a local promise for
+it and redeems. pancake refuses such an argument today (`ForeignArgument`), and the reply path's transparent gifter is
+the only handoff arm it implements. That gap is `docs/boundaries.md`'s to record, not this feature's to work around.
+
+## Present boundaries
+
+These are decided directions, so a session picking one up starts from the decision rather than re-opening it.
+
 - **Emoji breadth.** `web/ui/emoji.ts` is a curated table and the one authority the tray, `:code:` substitution, and
   completion derive from. The widening path is a generator that fills the same entry shape from a pinned CLDR-backed
   dataset at generation time, keeping the runtime dependency-free.
-- **Filterable lists, and where `cmdk` fits.** The split is who owns focus. Inline completion happens inside the
-  composer's textarea, which keeps focus and the caret while the list shows, and the query is a substring of the draft
-  rather than an input's value. `web/ui/complete.ts` is written for exactly that, and the two parts that make it work —
-  which sigil the caret is in, and how accepting splices back into the draft — are ours whatever draws the list.
+- **Filterable lists.** The split is who owns focus. Inline completion happens inside the composer's textarea, which
+  keeps focus and the caret while the list shows, and the query is a substring of the draft rather than an input's
+  value. `web/ui/complete.ts` is written for exactly that, and the two parts that make it work — which sigil the caret
+  is in, and how accepting splices back into the draft — are ours whatever draws the list.
 
-  Every other filterable list in this interface would own its own input: a command palette, the sidebar's room and
-  direct-line filter, a searchable emoji picker over the same table the tray reads, settings search. Those are where
+  Every other filterable list in this interface owns its own input. The rail's filter already does, and it is
+  deliberately small: one question per property of a room, drawn from `web/ui/sidebar/filter.ts`, with no ranking and no
+  reordering to speak of. The ones still to come are larger: a command palette, a searchable emoji picker over the same
+  table the tray reads, settings search. Those are where
   [`cmdk`](https://github.com/pacocoursey/cmdk) fits, and it is the one pre-approved dependency candidate for them. It
   is a combobox primitive rather than a palette widget: it renders inline, works without its own input, takes a custom
   ranking function or none at all, and brings keyboard navigation, groups, and tested ARIA. The price is that it brings
   four Radix packages with it, one of which is their dialog, into a page whose whole runtime dependency today is React.
   Worth paying once those surfaces exist together; not worth it for one listbox.
-- **IRC is a front, not a netlayer.** An IRC server endpoint beside the web page — rooms as channels, nick claims as
-  nicks — would let any IRC client join, the way the terminal clients already do. Carrying CapTP itself over IRC is
-  refused: a 512-byte line protocol with a server that may inject cannot keep an OCapN session insertable only by its
-  participants, which is the netlayer contract. The complete design (room links, directory peering, a channel bridge,
-  and this front) is [the room links and IRC plan](../../docs/planning/rooms-locators-and-irc.md).
+- **IRC is a front.** An IRC server endpoint beside the web page — rooms as channels, nick claims as nicks — would let
+  any IRC client join, the way the terminal clients already do. Carrying CapTP itself over IRC is refused: a 512-byte
+  line protocol with a server that may inject cannot keep an OCapN session insertable only by its participants, which is
+  the netlayer contract. The complete design (room links, directory peering, a channel bridge, and this front) is
+  [the room links and IRC plan](../../docs/planning/rooms-locators-and-irc.md).
 
 ## Source map
 

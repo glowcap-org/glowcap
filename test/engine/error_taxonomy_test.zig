@@ -16,13 +16,13 @@ test "every codec / session / engine / projection error classifies to a non-fore
         pancake.ocapn.model.view.ProjectError,
         pancake.ocapn.engine.EngineError,
     }) |ErrSet| {
-        inline for (@typeInfo(ErrSet).error_set.?) |e| {
+        inline for (@typeInfo(ErrSet).error_set.error_names.?) |error_name| {
             // `OutOfMemory` is the one error a codec set carries (via
             // `std.mem.Allocator.Error`) that is legitimately host-internal:
             // it has no protocol meaning, so it stays `.foreign` with no abort.
             // Every *protocol* error must classify to codec/session.
-            if (comptime std.mem.eql(u8, e.name, "OutOfMemory")) continue;
-            const ev: anyerror = @field(ErrSet, e.name);
+            if (comptime std.mem.eql(u8, error_name, "OutOfMemory")) continue;
+            const ev: anyerror = @field(ErrSet, error_name);
             try std.testing.expect(abort.classify(ev).domain != .foreign);
         }
     }

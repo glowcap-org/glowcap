@@ -63,7 +63,7 @@ test "settle mailbox: full, oversized, and capability-bearing posts refuse loudl
         mb.post(io, 1, .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(5) } } }),
     );
     // A payload past the slot's fixed storage refuses; the slot stays free.
-    const big = [_]u8{'x'} ** (driver.settle_mailbox.slot_payload_bytes + 1);
+    const big = @as([driver.settle_mailbox.slot_payload_bytes + 1]u8, @splat('x'));
     try std.testing.expectError(
         error.ValueTooLarge,
         mb.post(io, 1, .{ .fulfilled = .{ .string = &big } }),
@@ -229,7 +229,7 @@ fn loopServerTask(
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = test_host.init(allocator, [_]u8{0x4d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x4d)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var state = LoopState{ .host = &host, .out = parked };
     var loop: net.TcpLoop = undefined;

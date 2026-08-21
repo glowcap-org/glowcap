@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pancake — format a single agent-edited file (Zig, Rust, TypeScript/JavaScript).
+# pancake — format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
 # Python and Racket have no single-file formatter on PATH; the
 # `bindings-fmt-check` gate holds them.
 #
@@ -40,7 +40,7 @@ case "$abs_path" in
     # discovers upward from the file.
     rustfmt "$abs_path" >&2 || true
     ;;
-  *.ts|*.js)
+  *.ts|*.tsx|*.js)
     if ! command -v deno >/dev/null 2>&1; then
       printf 'pancake hook: deno not on PATH; skipping %s\n' "$abs_path" >&2
       exit 0

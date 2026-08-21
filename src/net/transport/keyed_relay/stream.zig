@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const blocking_frame = @import("blocking_frame.zig");
-const protocol = @import("../../websocket/client_protocol.zig");
+const protocol = @import("../../websocket.zig").client_protocol;
 const byte_stream = @import("carrier/byte_stream.zig");
 const carrier_runtime = @import("carrier/runtime.zig");
 

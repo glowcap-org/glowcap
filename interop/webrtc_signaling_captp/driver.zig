@@ -58,17 +58,19 @@ const ip = std.Io.net;
 const SignalingInbox = webrtc_common.SignalingInbox;
 const bringUpViaCapTP = webrtc_common.bringUpViaCapTP;
 const waitOpen = webrtc_common.waitOpen;
-const sig_frame_cap = webrtc_common.sig_frame_cap;
+const signaling_frame_bytes = webrtc_common.signaling_frame_bytes;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc signaling captp";
 
 /// The published actor: answers `greet` with a static greeting.
 const Greeter = struct {
+    done: *std.atomic.Value(bool),
+
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
         _ = turn;
-        _ = msg;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        self.done.store(true, .release);
         return .{ .string = greeting };
     }
 };
@@ -77,23 +79,22 @@ const Greeter = struct {
 /// the recipient's channel is up (it closes the signaling session), then serve a
 /// Greeter behind the keyed handshake over the open DataChannel.
 fn exporterHalf(
-    io: std.Io,
     listener: *tcp.Listener,
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    secret: crypto.SecretKey,
+    seed: [crypto.SEED_BYTES]u8,
 ) anyerror!void {
     // 1. Signaling over CapTP: accept the recipient and route offer/candidate/poll
     //    to the sidecar peer until the recipient closes the session.
     {
         var sig_peer = engine.Peer.initNegotiating(allocator);
         defer sig_peer.deinit();
-        sig_peer.session_state.limits.max_frame_bytes = sig_frame_cap;
+        sig_peer.session_state.limits.max_frame_bytes = signaling_frame_bytes;
 
-        const read_buf = try allocator.alloc(u8, sig_frame_cap);
+        const read_buf = try allocator.alloc(u8, signaling_frame_bytes);
         defer allocator.free(read_buf);
-        const write_buf = try allocator.alloc(u8, sig_frame_cap);
+        const write_buf = try allocator.alloc(u8, signaling_frame_bytes);
         defer allocator.free(write_buf);
 
         var sig = try driver.acceptVia(allocator, listener.asNetlayer(), &sig_peer, .ephemeral, read_buf, write_buf, .{
@@ -108,31 +109,23 @@ fn exporterHalf(
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
     try waitOpen(resident, peer, 2000);
 
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
+    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
+    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
+    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
 
-    const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer vat.deinit();
-
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
-        .transport = webrtc.transport_name,
-        .designator = designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
-    _ = try vat.publish("greeter", Greeter, .{});
-    try vat.serve();
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    var served = std.atomic.Value(bool).init(false);
+    _ = try host.publish(session, "greeter", Greeter, .{ .done = &served });
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
 }
 
 /// The recipient half: bring the channel up over the signaling session, then
@@ -144,18 +137,18 @@ fn recipientHalf(
     resident: *webrtc.Resident,
     offerer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    secret: crypto.SecretKey,
+    seed: [crypto.SEED_BYTES]u8,
     expect_designator: []const u8,
 ) anyerror!void {
     // 1. Signaling over CapTP: dial the exporter's inbox and drive the channel up.
     {
         var sig_peer = engine.Peer.initNegotiating(allocator);
         defer sig_peer.deinit();
-        sig_peer.session_state.limits.max_frame_bytes = sig_frame_cap;
+        sig_peer.session_state.limits.max_frame_bytes = signaling_frame_bytes;
 
-        const read_buf = try allocator.alloc(u8, sig_frame_cap);
+        const read_buf = try allocator.alloc(u8, signaling_frame_bytes);
         defer allocator.free(read_buf);
-        const write_buf = try allocator.alloc(u8, sig_frame_cap);
+        const write_buf = try allocator.alloc(u8, signaling_frame_bytes);
         defer allocator.free(write_buf);
 
         const tcp_provider = try tcp.Provider.create(allocator, io, .{});
@@ -168,55 +161,36 @@ fn recipientHalf(
         });
         defer sig.deinit();
         const inbox = try sig.fetch("signaling");
+        offerer.authorizeRemote(crypto.PeerKey.fromDesignator(expect_designator) orelse
+            return error.InvalidDesignator);
         try bringUpViaCapTP(&sig, inbox, resident, offerer, allocator);
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
-    var engine_peer = engine.Peer.initNegotiating(allocator);
-    defer engine_peer.deinit();
-    engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Demand the identity the far peer must claim, before any byte is fed
-    // (ADR-0105). The channel came up through the signaling capability above,
-    // but nothing told the WebRTC resident whose channel it is. The resident
-    // asserts nothing, so this is a target check and provenance remains
-    // unauthenticated.
-    engine_peer.demandPartnerDurableKey(
-        crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator,
-    );
+    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
+    const session = try host.openDialedLocator(webrtc_common.locator(expect_designator));
+    try webrtc_common.bindAuthorizedChannel(&host, session, offerer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
 
-    const conn = try offerer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer vat.deinit();
+    try webrtc_common.waitFor(resident, offerer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    const partner = try host.partnerIdentity(session);
+    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
 
-    const designator = secret.publicKey().toDesignator();
-    const self_locator: model.PeerLocator = .{
-        .transport = webrtc.transport_name,
-        .designator = designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try vat.startKeyedSessionWithSecret(self_locator, secret);
-
-    const partner = engine_peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
-    if (!std.mem.eql(u8, partner, expect_designator)) return error.PartnerMismatch;
-
-    const greeter = try vat.fetch("greeter");
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const settled = try vat.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} }, arena_state.allocator());
-    switch (settled) {
-        .fulfilled => |arg| {
-            if (arg != .string or !std.mem.eql(u8, arg.string, greeting)) return error.WrongReply;
-        },
-        .broken, .give => return error.CallBroke,
-    }
+    const greeter = try webrtc_common.fetchRef(resident, offerer, &pump, &host, session, "greeter", 10_000);
+    try webrtc_common.sendAndExpectString(resident, offerer, &pump, &host, session, greeter, .{
+        .verb = "greet",
+        .args = &.{.{ .string = "pancake" }},
+    }, greeting, 10_000);
+    _ = try pump.drive(&host, session, offerer);
+    offerer.close();
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -226,8 +200,9 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const exporter_secret = crypto.SecretKey.fromSeed([_]u8{0x63} ** crypto.SEED_BYTES);
-    const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x64} ** crypto.SEED_BYTES);
+    const exporter_seed = @as([crypto.SEED_BYTES]u8, @splat(0x63));
+    const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(0x64));
+    const exporter_secret = crypto.SecretKey.fromSeed(exporter_seed);
     const exporter_designator = exporter_secret.publicKey().toDesignator();
 
     // The recipient offers (it initiates the reach); the exporter answers.
@@ -245,8 +220,8 @@ pub fn main(init: std.process.Init) !void {
     defer listener.deinit();
     const address = listener.localAddress();
 
-    var exporter_future = try io.concurrent(exporterHalf, .{ io, &listener, &answerer_resident, &answerer, allocator, exporter_secret });
-    const recipient_result = recipientHalf(address, io, &offerer_resident, &offerer, allocator, recipient_secret, exporter_designator[0..]);
+    var exporter_future = try io.concurrent(exporterHalf, .{ &listener, &answerer_resident, &answerer, allocator, exporter_seed });
+    const recipient_result = recipientHalf(address, io, &offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..]);
     const exporter_result = exporter_future.await(io);
     try recipient_result;
     try exporter_result;

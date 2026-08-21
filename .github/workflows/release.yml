@@ -38,7 +38,7 @@ jobs:
 
       - name: Install the pinned Zig
         run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/install-zig.sh
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
       - name: Install the pinned Rust

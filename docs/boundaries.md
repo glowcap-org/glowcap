@@ -21,7 +21,7 @@ tested. The [roadmap](roadmap.md) owns future work.
   Prefer `noise-tcp` or `noise-relay` for pancake-to-pancake sealed channels,
   iroh when discovery or NAT traversal is needed, and WebRTC for a direct
   browser channel.
-- **An address is not an identity.** On plain TCP, the crossed-connection
+- **A TCP locator names a socket.** On plain TCP, the crossed-connection
   tiebreak trusts the location each peer declares. A peer that can connect and
   claim an address you are dialing can make your outgoing session lose that
   tiebreak. Only a channel-authenticated key designator can collapse a session,
@@ -29,7 +29,7 @@ tested. The [roadmap](roadmap.md) owns future work.
 - **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
   and `[::1]` are different designators, and neither is an identity pancake
   will act on, so nothing joins the two sessions. A key-designator transport
-  with channel proof recognises the peer by its durable name and keeps one.
+  with channel proof recognizes the peer by its durable name and keeps one.
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
 - **`onion` is proven live against the portable upstream suite, but not at scale.** `zig build
@@ -155,7 +155,7 @@ not ship a native Zig QUIC or WebRTC stack.
   package may impose a narrower runtime limit. Closing the selected listener
   leaves no acceptable route until the caller selects another.
 - **Provider packages own which profiles the loop can open.** The TCP package
-  realizes `tcp`, `keyed-tcp`, and `noise-tcp`. Key-addressed profiles take
+  realizes `noise-tcp`, `keyed-tcp`, and testing `tcp`. Key-addressed profiles take
   their designator from the wrapped Host and expose the bound address as a
   separate listener hint; `noise-tcp` seals and authenticates the channel in
   the Host. Other transports arrive as packages. Iroh's multiplexed provider
@@ -278,12 +278,26 @@ peer alerts, malformed TLS, and authenticated truncation without
 record and a hostname open through its asynchronous resolver and bounded
 eight-seat address race. No public-certificate relay check yet proves a native
 peer reaching a browser through a deployed secure route; the recurring proof
-deliberately owns its local authority so expiry, hostname, and plaintext
-observation stay deterministic.
-Native `rooms-peer` composes iroh and keyed-relay, not WebRTC, so it cannot
-cold-introduce to a default browser tab. It answers on the inbound reply
-capability. A tab that wants native-initiated DMs picks Via this server (relay)
-in Settings or opens with `?dm=relay`.
+uses a local authority so expiry, hostname, and plaintext observation stay
+deterministic.
+
+Rooms gives browser WebRTC peers public STUN by default, so ordinary NATs can
+produce server-reflexive candidates. A deployment can configure an HTTPS TURN
+credential issuer for symmetric NATs and restrictive firewalls: the Rooms
+server retains the issuer bearer token and publishes bounded, short-lived
+credentials to each new browser connection. With no issuer configured, the
+posture remains STUN-only and those networks can still leave no candidate pair.
+TURN is a relay under the end-to-end DTLS channel, not an automatic switch to
+the browser's separately selectable **Through the room relay** transport.
+Native WebRTC embeddings pass the same provider-neutral ICE facts as fixed C
+records: URLs plus optional username/password credentials. They still own any
+credential API, expiry, and refresh policy above the transport.
+
+Native `rooms-peer` composes iroh and the sealed relay backend, not WebRTC, so
+it cannot signal a default browser tab. It answers on an inbound WebRTC reply
+capability, or cold-dials a tab that selected `noise-relay`. A tab that wants
+native-initiated DMs picks **Through the room relay** in Settings or opens with
+`?dm=relay`.
 
 A room stores posted files under its room and server ceilings. A direct-message
 file has no server in its path, so its sender hosts the blob on the direct

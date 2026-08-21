@@ -73,11 +73,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 
     var echoed = false;
     while (!echoed) {
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpBounded(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body == .resolve and body.resolve.answer.int() == echo_answer) {
                 switch (body.resolve.resolution) {
                     // The echo actor is `(lambda args args)`: it returns its
@@ -130,11 +130,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 
     var projected = false;
     while (!projected) {
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpBounded(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body == .resolve and body.resolve.answer.int() == index_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
@@ -179,11 +179,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 
     var got = false;
     while (!got) {
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpBounded(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body == .resolve and body.resolve.answer.int() == get_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
@@ -235,11 +235,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 
     var tallied = false;
     while (!tallied) {
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpBounded(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body == .resolve and body.resolve.answer.int() == tally_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
@@ -285,11 +285,11 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     } });
     var enliven_echoed = false;
     while (!enliven_echoed) {
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpBounded(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch continue;
+            const body = event.view() catch |err| return err;
             if (body == .resolve and body.resolve.answer.int() == enliven_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {

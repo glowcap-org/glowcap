@@ -15,18 +15,19 @@ import {
 	type Symbols,
 	WOULD_BLOCK,
 } from "@pancake/runtime/ffi";
-import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
+import {
+	BINDING_IROH_READ_CHUNK_BYTES,
+	BINDING_READINESS_DRAIN_CAP,
+	DISCOVERY_DIAL_MAX_ATTEMPTS,
+	DISCOVERY_DIAL_RETRY_MS,
+} from "@pancake/abi";
 import { IrohConnection, IrohNetlayer } from "./native.ts";
 
-// Mirrors the core's read chunk; the Host stream delimiter frames these bytes.
-const READ_CHUNK = 64 * 1024;
+const READ_CHUNK = BINDING_IROH_READ_CHUNK_BYTES;
 
 // ── The iroh readiness dispatcher (ADR-0057) ─────────────────────────────────
 
-// How many readiness records one `drain_ready` call pulls. When the fd signals,
-// the loop drains in a batch and re-drains until a short count, so a queue
-// deeper than the cap is never stranded.
-const DRAIN_READY_CAP = 64;
+const DRAIN_READY_CAP = BINDING_READINESS_DRAIN_CAP;
 
 // `dup(2)` from libc, opened lazily. The readiness fd is owned by the netlayer;
 // the loop's `node:net` socket owns and closes *its own* dup on teardown, so the

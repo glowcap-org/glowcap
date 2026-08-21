@@ -27,6 +27,7 @@ export function LeftRail({
   engine,
   liveSturdyref,
   liveConnected,
+  liveObserved,
   liveRecording,
   onScenarioChange,
   onLiveSturdyrefChange,
@@ -43,6 +44,7 @@ export function LeftRail({
   engine: Engine;
   liveSturdyref: string;
   liveConnected: boolean;
+  liveObserved: boolean;
   liveRecording: boolean;
   onScenarioChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
   onLiveSturdyrefChange: (sturdyref: string) => void;
@@ -94,6 +96,7 @@ export function LeftRail({
           engine={engine}
           liveSturdyref={liveSturdyref}
           liveConnected={liveConnected}
+          liveObserved={liveObserved}
           liveRecording={liveRecording}
           onScenarioChange={onScenarioChange}
           onLiveSturdyrefChange={onLiveSturdyrefChange}

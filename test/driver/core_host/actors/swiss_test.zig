@@ -54,9 +54,9 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     // produces only names inside it, removal reclaims the row, and a fresh
     // Host (the restart) simply misses — no tombstone anywhere.
     const allocator = std.testing.allocator;
-    var server = test_host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var client = test_host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -78,7 +78,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     // Mint a durable name and reach it over the wire like any published name.
     var kept_freed = false;
     var kept_row = TaggedRow{ .tag = "durable", .freed = &kept_freed };
-    const minted = try server.publishDurable([_]u8{0xab} ** 16, Tagged, .{ .row = &kept_row });
+    const minted = try server.publishDurable(@as([16]u8, @splat(0xab)), Tagged, .{ .row = &kept_row });
     try std.testing.expect(pancake.ocapn.session.Session.isDurableSwiss(minted.slice()));
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, minted.slice()), .{ .ctx = &fetched, .func = CapturedRef.record });
@@ -94,7 +94,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     var usurper_row = TaggedRow{ .tag = "usurper", .freed = &usurper_freed };
     try std.testing.expectError(
         error.DurableNameCollision,
-        server.publishDurable([_]u8{0xab} ** 16, Tagged, .{ .row = &usurper_row }),
+        server.publishDurable(@as([16]u8, @splat(0xab)), Tagged, .{ .row = &usurper_row }),
     );
 
     // Removal reclaims the row: a fresh fetch of the old sturdyref misses,
@@ -104,15 +104,15 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     try client.vowOn(try client.fetch(pair.a, minted.slice()), .{ .ctx = &missed, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     try std.testing.expect(missed.broken);
-    const reminted = try server.publishDurable([_]u8{0xcd} ** 16, Tagged, .{ .row = &kept_row });
+    const reminted = try server.publishDurable(@as([16]u8, @splat(0xcd)), Tagged, .{ .row = &kept_row });
     try std.testing.expect(!std.mem.eql(u8, reminted.slice(), minted.slice()));
 
     // The restart: a fresh Host with an empty durable registry. The old
     // sturdyref misses rather than retargets, and a mutable alias still
     // cannot squat the durable bytes.
-    var restarted = test_host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var restarted = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
     defer restarted.deinit();
-    var client2 = test_host.init(allocator, [_]u8{0x6c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client2 = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
     defer client2.deinit();
     try std.testing.expectError(
         error.ReservedDurableNamespace,

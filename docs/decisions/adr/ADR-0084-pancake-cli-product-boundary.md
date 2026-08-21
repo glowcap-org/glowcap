@@ -45,7 +45,7 @@ layer.
    [`pancake-a2a-on-captp-design.md`](../../planning/pancake-a2a-on-captp-design.md);
    the griddle sim runtime and ocapnviz have shipped, and what remains of the
    observability family is recorded in [`docs/roadmap.md`](../../roadmap.md)
-   and [ADR-0106](ADR-0106-viz-control-capability.md).
+   and [ADR-0106](ADR-0106-viz-observation-capability.md).
    **Brand:** `pancake griddle` is a subtree of this CLI (`run`, `status`,
    `help`). argv[0] remains `pancake`; CapTP ops stay under `ocapn` / `repl`.
    An optional `griddle` → `pancake griddle` shim may land later.

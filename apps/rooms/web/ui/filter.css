@@ -1,0 +1,256 @@
+/* ── How much of the rail you are looking at ──────────────────────────────
+   The rooms heading, which is also what opens the rail's questions, and the
+   panel it opens.
+
+   The control is the heading and nothing more: the funnel, the words the
+   section is called, and the count once something is hidden. A line of its own
+   over both lists read as a second heading with no list under it, and it said
+   nothing at all most of the time.
+
+   The panel is the opposite trade. It is a floating box with a line per
+   question, each given the same room as the one above it, because the
+   questions are peers and a panel that gave one of them the width and the
+   others a corner would be answering a different question than the one asked. */
+.rail-filter {
+	min-width: 0;
+}
+/* The label's own type, taken from the heading it stands in rather than
+   restated, so a heading that is pressable and one that is not read as the
+   same words.
+
+   What it adds is the funnel in front of them and the room to be aimed at. Both
+   are taken as padding against a matching negative margin, so the line it sits
+   on is no taller and no wider for being pressable: the "+" beside it does not
+   move, the two rails' headings stay level, and the ground the press takes
+   reaches the same left edge a room's pill below it reaches. What the funnel
+   does move is the words, a mark's width to the right. That is how a room's own
+   name sits beside its sigil, so the heading is built like one of the rows it
+   is over. */
+.rail-filter-head {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: var(--mark-gap);
+	min-width: 0;
+	padding: 3px var(--row-pad);
+	margin: -3px calc(-1 * var(--row-pad));
+	border-radius: var(--radius-chip);
+	color: inherit;
+	cursor: pointer;
+	transition: background-color .12s ease, color .12s ease;
+}
+.rail-filter-head .icon-svg {
+	flex: none;
+}
+.rail-filter-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* How much of the rail is on screen, said on the heading once something is
+   hidden and absent while nothing is. It is the one thing on this line that is
+   not the section's name, so it takes the teal the rest of the page gives to a
+   fact about a state rather than to the state itself.
+
+   Teal and nothing else. The heading beside it is the loud thing on this line
+   and an aside does not compete with it, so a second signal here would be two
+   spent to say one thing. Nothing is riding on the colour either: the words
+   read "2 of 4", so a reader who cannot tell teal from the ink around it still
+   has the whole fact. */
+.rail-filter-count {
+	flex: none;
+	letter-spacing: 0;
+	text-transform: none;
+	font-weight: 400;
+	color: var(--teal-ink);
+}
+@media (hover: hover) {
+	.rail-filter-head:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+}
+.rail-filter-head:active {
+	background: var(--hover);
+	color: var(--ink);
+}
+.rail-filter-head:focus-visible {
+	outline: 2px solid var(--teal);
+	outline-offset: 1px;
+}
+/* A finger cannot approach, so where there is no pointer this grows a hit area
+   to be tapped by, taken as padding against a negative margin the way the
+   button family's own small variants take theirs. The line it sits on is no
+   taller for it, so the "+" beside it does not move and the two rails' headings
+   stay level. */
+@media (hover: none) {
+	.rail-filter-head {
+		padding-block: 8px;
+		margin-block: -8px;
+	}
+}
+/* It rises over the rows it covers, so it floats the way the page's other
+   menus float, and it is as wide as the section it hangs from rather than as
+   the words that opened it.
+
+   It also says its own type. The heading it hangs from is a label, set at
+   eleven pixels in uppercase with letterspacing, and every word in the panel
+   inherited all three. The questions came out shouting and the answers were
+   spaced like a caption. A floating panel is not part of the line it opened
+   from. */
+.filter-panel {
+	/* One height for every answer a question takes, typed or ticked. The panel is
+	   a column of controls and reads as one, so the two kinds are sized from a
+	   single number here rather than from paddings tuned apart until they nearly
+	   agree. Each control spends it differently: the field has a border to fit
+	   inside it and the rows sit hairline to hairline in their well. */
+	--filter-row-h: 28px;
+	/* Answers speak a rung below the rest of the page's controls, which is what
+	   lets a directory named after the address it was reached by fit its row
+	   whole instead of ending in an ellipsis. Two addresses cut at the same
+	   prefix are the same row to read, and telling them apart is the row's whole
+	   job. It stays a rung above the labels, so a question is still larger than
+	   its answers and the two are not separated by weight alone. */
+	--filter-answer: var(--type-caption);
+	animation: rise-in .12s ease-out;
+	font-size: var(--filter-answer);
+	font-weight: 400;
+	letter-spacing: normal;
+	text-transform: none;
+	color: var(--ink);
+	position: absolute;
+	top: calc(100% + 2px);
+	left: 0;
+	right: 0;
+	z-index: 8;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	padding: 8px;
+	box-shadow: var(--shadow);
+}
+/* One question. A grid rather than a flow, so a question whose answers wrap
+   onto a second line keeps its label where every other question's label is. */
+.filter-ask {
+	display: grid;
+	row-gap: 4px;
+	min-width: 0;
+}
+/* What a question is called. Quieter and smaller than the answers under it, at
+   the type ramp's smallest rung rather than at a size of its own, and not set as
+   a heading: the rail has two headings and they name its two lists, so a third
+   voice at that weight would read as a third list. The weight is what leads,
+   since the size alone is one rung and a name has to win it. */
+.filter-label {
+	font-size: var(--type-tiny);
+	color: var(--ink-soft);
+	font-weight: 600;
+}
+.filter-field {
+	width: 100%;
+	height: var(--filter-row-h);
+	font: inherit;
+	font-size: var(--filter-answer);
+	padding: 0 8px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-control);
+	background: var(--paper);
+	color: var(--ink);
+}
+.filter-field::placeholder {
+	color: var(--ink-soft);
+}
+.filter-field:focus-visible {
+	outline: 2px solid var(--accent-ink);
+	outline-offset: -1px;
+}
+/* The answers to one question: one row each, standing in the same recessed well
+   the tab bar's cells stand in, at the same corner. A question offers a closed
+   set of answers, and rows loose on the panel read as an open one, as things
+   somebody added and a reader could add to. The well is what says these are the
+   answers and there are no others.
+
+   Stacked rather than side by side, because each answer is included or excluded
+   on its own and none of them is a choice between the others. Stacking is also
+   what lets a directory named after the address it was reached by have the
+   panel's full width before it has to cut.
+
+   The divisions are drawn between rows rather than spaced, so the well reads as
+   one box divided rather than as a pile of boxes. They are borders and not a
+   gap showing the ground, because this list is a column and a border cannot
+   land anywhere a column does not want one. */
+.filter-choices {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-well);
+	box-shadow: inset 0 1px 2px var(--shadow-sm-color);
+	overflow: hidden;
+}
+/* One answer. The whole row is the label, so a press anywhere on the line is a
+   press on the box, which is what the page's other labelled checkbox rows
+   already promise. Quiet until it is in view, and then the row's own ink comes
+   up with the mark: the mark is the answer and the ink follows it, so a reader
+   who cannot use either colour still has the drawn check. */
+.filter-choice {
+	gap: 8px;
+	min-width: 0;
+	min-height: var(--filter-row-h);
+	padding: 0 8px;
+	transition: background-color .12s ease, color .12s ease;
+}
+.filter-choice + .filter-choice {
+	border-top: 1px solid var(--rule);
+}
+/* Both inks are named through the well rather than on the row alone. A labelled
+   checkbox row states the page's plain ink, and that rule and a bare
+   `.filter-choice` weigh the same, so whichever stylesheet loads last decides
+   and the quiet state was being drawn at full strength. Naming the well is one
+   more class and settles it here rather than by load order. */
+.filter-choices .filter-choice {
+	/* Named through the well for the same reason the ink below is: a labelled
+	   checkbox row states the page's own control size, and that rule and a bare
+	   `.filter-choice` weigh the same. */
+	font-size: var(--filter-answer);
+	color: var(--ink-soft);
+}
+.filter-choices {
+	--checkbox-size: 17px;
+}
+.filter-choices .filter-choice:has(.checkbox:checked) {
+	color: var(--ink);
+}
+/* The wash every other row in this page takes under a pointer. Touch sticks
+   :hover, so it is pointer-only, and the row answers a press instead. */
+@media (hover: hover) {
+	.filter-choices .filter-choice:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+}
+.filter-choices .filter-choice:active {
+	background: var(--hover);
+	color: var(--ink);
+}
+/* A directory is named after the address it was reached by, so a long one ends
+   in an ellipsis here rather than running under the edge of the rail. The line
+   box is taller than the type's own, because an element that clips sideways for
+   an ellipsis clips top and bottom too. */
+.filter-choice-said {
+	line-height: 1.45;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.filter-none {
+	font-size: var(--filter-answer);
+	color: var(--ink-soft);
+}

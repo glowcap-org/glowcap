@@ -50,9 +50,48 @@ const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
 const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
+test "Host owner extraction preserves the aggregate footprint and supported verb shapes" {
+    try std.testing.expectEqual(@as(usize, 2224), @sizeOf(Host));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
+    try std.testing.expect(Host.InitError == error{ DurableBootstrapUnavailable, InvalidHostWorkQuantum });
+    try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
+    try std.testing.expectEqual(@as(usize, 2), @typeInfo(Host.BootstrapDurability).@"enum".field_names.len);
+    try std.testing.expectEqual(@as(usize, 4), @typeInfo(Host.LifecyclePhase).@"enum".field_names.len);
+    try std.testing.expectEqual(@as(usize, 10), @typeInfo(Host.Options).@"struct".field_names.len);
+
+    const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
+    const flush_session: *const fn (*Host, *HostSession) anyerror!void = &Host.flushSession;
+    const fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.fetch;
+    const queue_fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.queueFetch;
+    const listen: *const fn (*Host, *HostSession, model.Reference) anyerror!u64 = &Host.listenTo;
+    const queue_listen: *const fn (*Host, *HostSession, model.Reference) anyerror!u64 = &Host.queueListenTo;
+    const listen_capability: *const fn (*Host, *HostSession, driver.core.Capability) anyerror!u64 = &Host.listenToCapability;
+    const queue_listen_capability: *const fn (*Host, *HostSession, driver.core.Capability) anyerror!u64 = &Host.queueListenToCapability;
+    const set_trace: *const fn (*Host, ?driver.core.trace.Sink) error{WrongThread}!void = &Host.setTrace;
+    const with_frame_cap: *const fn (usize) Host.Options = &Host.Options.withFrameCap;
+    const frame_cap_method: *const fn (Host.Options) usize = &Host.Options.frameCap;
+    const outbound_high_water: *const fn (Host.Options) usize = &Host.Options.outboundHighWaterBytes;
+    const complete_pending_work: *const fn (*Host.PendingWorkLease) void = &Host.PendingWorkLease.complete;
+    _ = .{
+        set_session_limits,
+        flush_session,
+        fetch,
+        queue_fetch,
+        listen,
+        queue_listen,
+        listen_capability,
+        queue_listen_capability,
+        set_trace,
+        with_frame_cap,
+        frame_cap_method,
+        outbound_high_water,
+        complete_pending_work,
+    };
+}
+
 test "Host transport profiles own extension semantics and refuse ambiguity" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x5d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x5d)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     try std.testing.expectError(error.UnknownTransport, host.designatorScheme("custom-key"));
@@ -67,7 +106,7 @@ test "Host transport profiles own extension semantics and refuse ambiguity" {
     try std.testing.expectEqualStrings(defined, try host.defineTransport(.{ .symbol = "custom-key", .designator_scheme = .key }));
     try std.testing.expectError(error.TransportSemanticsConflict, host.defineTransport(.{ .symbol = "custom-key", .designator_scheme = .address }));
 
-    const remote = crypto.SecretKey.fromSeed([_]u8{0x61} ** 32).publicKey();
+    const remote = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x61))).publicKey();
     const remote_designator = remote.toDesignator();
     try host.ensureAdvertisedLocator("custom-key");
     const session = try host.openDialedLocator(.{
@@ -80,16 +119,16 @@ test "Host transport profiles own extension semantics and refuse ambiguity" {
 
 test "registered custom key transport governs the engine's partner hello claim" {
     const allocator = std.testing.allocator;
-    var dialer = test_host.init(allocator, [_]u8{0x62} ** 32, Host.Options.withFrameCap(frame_cap));
+    var dialer = test_host.init(allocator, @as([32]u8, @splat(0x62)), Host.Options.withFrameCap(frame_cap));
     defer dialer.deinit();
-    var acceptor = test_host.init(allocator, [_]u8{0x63} ** 32, Host.Options.withFrameCap(frame_cap));
+    var acceptor = test_host.init(allocator, @as([32]u8, @splat(0x63)), Host.Options.withFrameCap(frame_cap));
     defer acceptor.deinit();
     _ = try dialer.defineTransport(.{ .symbol = "custom-key", .designator_scheme = .key });
     _ = try acceptor.defineTransport(.{ .symbol = "custom-key", .designator_scheme = .key });
 
     try dialer.ensureAdvertisedLocator("custom-key");
     try acceptor.ensureAdvertisedLocator("custom-key");
-    const demanded = crypto.SecretKey.fromSeed([_]u8{0x64} ** 32).publicKey().toDesignator();
+    const demanded = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x64))).publicKey().toDesignator();
     const dialed = try dialer.openDialedLocator(.{
         .transport = "custom-key",
         .designator = &demanded,
@@ -106,7 +145,7 @@ test "registered custom key transport governs the engine's partner hello claim" 
 test "registered extension profile governs sealed-channel composition" {
     const allocator = std.testing.allocator;
     const options = Host.Options.withFrameCap(frame_cap);
-    var host = test_host.init(allocator, [_]u8{0x65} ** 32, options);
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x65)), options);
     defer host.deinit();
     _ = try host.defineTransport(.{
         .symbol = "private-noise-stream",
@@ -117,7 +156,7 @@ test "registered extension profile governs sealed-channel composition" {
     });
     try host.ensureAdvertisedLocator("private-noise-stream");
 
-    const remote = crypto.SecretKey.fromSeed([_]u8{0x66} ** 32).publicKey().toDesignator();
+    const remote = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x66))).publicKey().toDesignator();
     const session = try host.openDialedLocator(.{
         .transport = "private-noise-stream",
         .designator = &remote,
@@ -129,14 +168,14 @@ test "registered extension profile governs sealed-channel composition" {
 
 test "session release refuses an ingress disagreement before consuming the handle" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x67} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x67)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var log = TraceLog{};
     try host.setTrace(.{ .ctx = &log, .emit = TraceLog.emit });
 
     try host.ensureAdvertisedLocator("tcp");
     const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7067"));
-    const peer_id = session.peer_id;
+    const peer_handle = session.peer_handle;
 
     // Inject the lifecycle disagreement the public release used to treat as
     // unreachable. The Vat no longer owns the ingress, while the Host shell
@@ -144,7 +183,7 @@ test "session release refuses an ingress disagreement before consuming the handl
     // changing lifecycle, or freeing the caller's session handle.
     try host.vat.cancelIngress(session.served.port.ingress, "injected retirement");
     try std.testing.expectError(error.UnknownIngress, host.releaseSession(session));
-    try std.testing.expect(host.sessions.get(peer_id) == session);
+    try std.testing.expect(host.sessions.get(peer_handle) == session);
     try std.testing.expectEqual(HostSession.LifecyclePhase.active, session.lifecyclePhase());
     try std.testing.expect(!log.contains("close"));
 }
@@ -152,7 +191,7 @@ test "session release refuses an ingress disagreement before consuming the handl
 test "byte-fed iroh dial pin: a hello claiming another identity is refused; a same-name forgery is unproven" {
     const allocator = std.testing.allocator;
 
-    const honest_seed = [_]u8{0x41} ** 32;
+    const honest_seed = @as([32]u8, @splat(0x41));
     const honest = crypto.SecretKey.fromSeed(honest_seed);
     const designator = honest.publicKey().toDesignator();
     var uri_buf: [96]u8 = undefined;
@@ -161,7 +200,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     // Happy path: the acceptor advertises the dialed identity, so the dialer's
     // claim pin holds and the session opens.
     {
-        var dialer = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+        var dialer = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
         var acceptor = test_host.init(allocator, honest_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
@@ -189,9 +228,9 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     // before the session opens — the claim pin, which is what survives fresh
     // session keys (ADR-0097).
     {
-        const other_seed = [_]u8{0x43} ** 32;
+        const other_seed = @as([32]u8, @splat(0x43));
         const other_designator = crypto.SecretKey.fromSeed(other_seed).publicKey().toDesignator();
-        var dialer = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+        var dialer = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
         var acceptor = test_host.init(allocator, other_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
@@ -216,7 +255,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     // (ADR-0105). The forgery is refused at the squatter's own side, by the
     // seam that would have signed the hello, so it never reaches the wire.
     {
-        const squatter_seed = [_]u8{0x42} ** 32;
+        const squatter_seed = @as([32]u8, @splat(0x42));
         var acceptor = test_host.init(allocator, squatter_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
         try std.testing.expectError(
@@ -233,8 +272,8 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     // The claim must match the dial target, but its provenance remains
     // unauthenticated because no realizer vouched for the channel.
     {
-        const squatter_seed = [_]u8{0x42} ** 32;
-        var dialer = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+        const squatter_seed = @as([32]u8, @splat(0x42));
+        var dialer = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
         try dialer.ensureAdvertisedLocator("iroh");
         const loc = try model.uri.parsePeer(allocator, uri);
@@ -258,12 +297,12 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
 
 test "queueUniqueSessionAction keeps one flush and one close per session" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const a_session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7101", &.{});
     const b_session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7102", &.{});
-    const a = a_session.peer_id;
-    const b = b_session.peer_id;
+    const a = a_session.peer_handle;
+    const b = b_session.peer_handle;
     try driver.core.testing.queueUniqueSessionAction(&host, .flush, a);
     try driver.core.testing.queueUniqueSessionAction(&host, .flush, a);
     try driver.core.testing.queueUniqueSessionAction(&host, .close, a);
@@ -290,7 +329,7 @@ test "queueUniqueSessionAction keeps one flush and one close per session" {
 
 test "reserved session notifications remain allocation-free after mint" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = test_host.init(failing.allocator(), [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7103", &.{});
 
@@ -298,8 +337,8 @@ test "reserved session notifications remain allocation-free after mint" {
     // protocol ownership has moved. Mint reserved these two slots; neither
     // enqueue may consult the allocator in that irreversible window.
     failing.fail_index = failing.alloc_index;
-    try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_id);
-    try driver.core.testing.queueUniqueSessionAction(&host, .close, session.peer_id);
+    try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_handle);
+    try driver.core.testing.queueUniqueSessionAction(&host, .close, session.peer_handle);
     try std.testing.expect(!failing.has_induced_failure);
 
     failing.fail_index = std.math.maxInt(usize);
@@ -311,7 +350,7 @@ test "reserved session notifications remain allocation-free after mint" {
     // reaching appendAssumeCapacity at the physical end of the backing.
     failing.fail_index = failing.alloc_index;
     for (0..256) |_| {
-        try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_id);
+        try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_handle);
         try std.testing.expect((try host.takeAction()).? == .flush);
     }
     try std.testing.expect(!failing.has_induced_failure);
@@ -319,7 +358,7 @@ test "reserved session notifications remain allocation-free after mint" {
 
 test "abort encode OOM still closes authority and exposes close notification" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = test_host.init(failing.allocator(), [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x3b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7104", &.{});
 
@@ -334,8 +373,8 @@ test "abort encode OOM still closes authority and exposes close notification" {
     failing.fail_index = std.math.maxInt(usize);
     var saw_close = false;
     while (try host.takeAction()) |action| switch (action) {
-        .close => |peer_id| {
-            try std.testing.expectEqual(session.peer_id, peer_id);
+        .close => |peer_handle| {
+            try std.testing.expectEqual(session.peer_handle, peer_handle);
             saw_close = true;
         },
         else => {},
@@ -345,9 +384,9 @@ test "abort encode OOM still closes authority and exposes close notification" {
 
 test "partner abort immediately retires a byte-fed session without an echo" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -379,13 +418,13 @@ test "partner abort immediately retires a byte-fed session without an echo" {
 
     const action = (try client.takeAction()) orelse return error.MissingClose;
     try std.testing.expect(action == .close);
-    try std.testing.expectEqual(pair.a.peer_id, action.close);
+    try std.testing.expectEqual(pair.a.peer_handle, action.close);
     try std.testing.expect((try client.takeAction()) == null);
 }
 
 test "partner abort before start-session retires an accepted session without an echo" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x7b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7108", &.{});
 
@@ -395,7 +434,7 @@ test "partner abort before start-session retires an accepted session without an 
     hello.deinit();
     const hello_action = (try host.takeAction()) orelse return error.MissingFlush;
     try std.testing.expect(hello_action == .flush);
-    try std.testing.expectEqual(session.peer_id, hello_action.flush);
+    try std.testing.expectEqual(session.peer_handle, hello_action.flush);
     try std.testing.expect((try host.takeAction()) == null);
 
     var abort_frame = try pancake.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
@@ -412,13 +451,13 @@ test "partner abort before start-session retires an accepted session without an 
 
     const action = (try host.takeAction()) orelse return error.MissingClose;
     try std.testing.expect(action == .close);
-    try std.testing.expectEqual(session.peer_id, action.close);
+    try std.testing.expectEqual(session.peer_handle, action.close);
     try std.testing.expect((try host.takeAction()) == null);
 }
 
 test "release cleanup OOM remains resumable through the action drain" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = test_host.init(failing.allocator(), [_]u8{0x4b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(failing.allocator(), @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const remaining = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7105", &.{});
     const released = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7106", &.{});
@@ -427,7 +466,7 @@ test "release cleanup OOM remains resumable through the action drain" {
         .kind = .graceful_shutdown,
         .message = "queued before release",
     } });
-    driver.core.testing.markDirty(&host, remaining.peer_id);
+    driver.core.testing.markDirty(&host, remaining.peer_handle);
 
     // `releaseSession` has committed the other shell before its cleanup pump.
     // Encode OOM is therefore swallowed, but the dirty row must survive for
@@ -440,7 +479,7 @@ test "release cleanup OOM remains resumable through the action drain" {
     failing.fail_index = std.math.maxInt(usize);
     const action = (try host.takeAction()) orelse return error.MissingRetriedFlush;
     try std.testing.expect(action == .flush);
-    try std.testing.expectEqual(remaining.peer_id, action.flush);
+    try std.testing.expectEqual(remaining.peer_handle, action.flush);
     var frame = (try remaining.takeOutbound()) orelse return error.MissingRetriedFrame;
     frame.deinit();
 }
@@ -454,7 +493,7 @@ test "a keyed dial to a malformed designator refuses without freeing it twice" {
     // `pancake_host_session_open_dialed_locator`, which passes an embedder's
     // transport and designator through untouched.
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x21} ** 32, .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x21)), .{});
     defer host.deinit();
     try host.ensureAdvertisedLocator("keyed-tcp");
 

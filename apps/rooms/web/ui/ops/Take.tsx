@@ -57,12 +57,7 @@ export function OpsTakeModal(
 	const take = () => {
 		setWhy(null);
 		setTaking(true);
-		const verb = showing === "listeners"
-			? peer.takeListenersCap
-			: showing === "viz"
-			? peer.takeVizCap
-			: peer.takeDiagnosticCap;
-		void verb(pasted, remember).then((refused) => {
+		void peer.takeOpsCap(showing, pasted, remember).then((refused) => {
 			setTaking(false);
 			if (refused !== "") {
 				setWhy(refused);

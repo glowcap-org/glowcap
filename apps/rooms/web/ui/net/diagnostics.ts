@@ -14,7 +14,7 @@ import { snapshotDiagnostics, takeDiagnostics } from "../../../lib/room_client.t
 import * as store from "../store.ts";
 import type { DirId } from "../types.ts";
 import { dirs } from "./live.ts";
-import { reason } from "./common.ts";
+import { opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 
 /** The inspect capability this tab fetched, while it still holds it.
@@ -64,12 +64,17 @@ export async function takeDiagnosticCap(pasted: string, remember = false): Promi
 	}
 }
 
-/** Ask the inspect capability in hand for a fresh snapshot. */
+/** Ask the inspect capability in hand for a fresh snapshot.
+ *
+ * A refusal ends the capability rather than leaving a stale table on screen
+ * under a toggle that says it is held, and says so: this is the one way a
+ * capability goes that the reader did not ask for and cannot see coming. */
 export async function refreshDiagnostics(): Promise<void> {
 	if (inspectHeld === null) return;
 	try {
 		store.setDiagnostics(await snapshotDiagnostics(inspectHeld.session, inspectHeld.cap));
-	} catch {
+	} catch (error) {
 		dropInspect();
+		opsLost("diagnostics", reason(error));
 	}
 }

@@ -149,3 +149,22 @@ test "draining the set wake preserves genuine member readiness" {
     fds[0].revents = 0;
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&fds, 0));
 }
+
+test "ready set switches one carrier between write and read progress" {
+    var set = try net.readiness.ReadySet.init();
+    defer set.deinit();
+    var carrier = try WakeChannel.open();
+    defer carrier.deinit();
+
+    try set.setInterest(carrier.read, .write);
+    var fds = [_]std.posix.pollfd{
+        .{ .fd = set.descriptor(), .events = std.posix.POLL.IN, .revents = 0 },
+    };
+    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 0));
+
+    try set.setInterest(carrier.read, .read);
+    fds[0].revents = 0;
+    try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&fds, 0));
+    _ = try carrier.nudge();
+    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 0));
+}

@@ -115,6 +115,19 @@ extern "C" {
 		bytes: *const c_uchar,
 		len: usize,
 	) -> c_int;
+	pub fn pancake_host_session_feed_packet(
+		session: *mut PancakeHostSession,
+		bytes: *const c_uchar,
+		len: usize,
+	) -> c_int;
+	pub fn pancake_host_session_resume_feed(session: *mut PancakeHostSession) -> c_int;
+	pub fn pancake_host_session_take_packet(
+		session: *mut PancakeHostSession,
+		out_frame: *mut PancakeManagedFrame,
+		out_prefix: *mut c_uchar,
+		prefix_cap: usize,
+		out_prefix_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_host_session_take_outbound(
 		session: *mut PancakeHostSession,
 		out_frame: *mut PancakeManagedFrame,

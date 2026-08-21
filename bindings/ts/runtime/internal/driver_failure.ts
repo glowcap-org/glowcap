@@ -3,15 +3,23 @@
 // binding copies borrowed names and attaches the first counted consequence,
 // but owns no transport or lifecycle policy.
 
-import { DRIVER_FAILURE_ABI_VERSION, INTERNAL, OK } from "@pancake/abi";
+import { DRIVER_FAILURE_ABI_VERSION, INTERNAL, OK, WOULD_BLOCK } from "@pancake/abi";
 import { PancakeError, retainSecondaryFailure } from "../errors.ts";
 import { type CarrierFailure, decodeCarrierFailure } from "../carrier_failure.ts";
 import { loopS } from "./ffi/driver.ts";
 import { ffi, NULL, type Ptr } from "./ffi/runtime.ts";
 import { L } from "./layout.ts";
-import { ab, readBytes } from "./seam.ts";
+import { ab, readBytes, readErrorSlot } from "./seam.ts";
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
+
+export function driverLastError(): string | null {
+	return readErrorSlot(loopS.pancake_driver_last_error);
+}
+
+export function checkDriver(rc: number): void {
+	if (rc !== OK) throw new PancakeError(rc, driverLastError() ?? undefined);
+}
 
 export interface DriverFailure {
 	readonly primaryResult: number;
@@ -130,11 +138,14 @@ export function addDriverProvider(
 	if (outcome.error !== null) throw outcome.error;
 }
 
-/** Stop one listener through the deterministic native teardown record. */
-export function closeDriverListener(handle: Ptr, listener: bigint): void {
+/** Request one listener stop. False means native retirement is committed and
+ * the loop must keep stepping before the same identity can be claimed. */
+export function closeDriverListener(handle: Ptr, listener: bigint): boolean {
 	const outcome = driverCall(
 		"driver listener_close",
 		(out) => loopS.pancake_driver_listener_close(handle, listener, out),
 	);
+	if (outcome.code === WOULD_BLOCK) return false;
 	if (outcome.error !== null) throw outcome.error;
+	return true;
 }

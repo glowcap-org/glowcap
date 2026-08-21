@@ -15,9 +15,11 @@ names the transport, so its tabs name languages and show only that setup.
 
 Binding tabs follow the deployment order from Choosing a transport: production
 paths first, then trusted-network paths, then testing-only paths. A page that
-covers more than one transport profile gives each profile its own group; the
-Noise page separates TCP from relay, while the relay page separates Noise from
-keyed cleartext.
+covers more than one transport profile gives each profile its own group when
+the programs differ: the Noise page separates TCP from relay, and the relay
+dial axis separates Noise from keyed cleartext. Relay listen is the sealed
+path once; keyed registration is the same constructor with a different
+profile, not a second full program.
 
 ## Layout
 
@@ -43,8 +45,8 @@ Those shared tabs are:
 
 | Tab | Why it earns a place |
 | --- | --- |
-| `noise-tcp` | Same sockets as keyed; Noise_XK seals CapTP |
 | `iroh` | Node-id URI + discovery reachability; optional archive |
+| `noise-tcp` | Same sockets as keyed; Noise_XK seals CapTP |
 | `keyed-tcp` | Key designator, cleartext; restart-stable identity |
 | `tcp` | Cleartext address dial; testing and the Goblins TCP suite |
 

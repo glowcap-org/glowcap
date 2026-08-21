@@ -6,7 +6,7 @@
 
 const std = @import("std");
 
-const protocol = @import("../../../websocket/client_protocol.zig");
+const protocol = @import("../../../websocket.zig").client_protocol;
 
 pub const steady_raw_in_bytes = protocol.max_header_len + protocol.max_control_payload;
 

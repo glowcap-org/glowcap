@@ -1,6 +1,6 @@
 # PLANNED: pancake has no managed WebRTC Runtime adapter yet.
 # The Python WebRTC dial API is not yet public; this shows the planned shape.
-# Signaling is a capability you already hold, not a constructor.
+# Pass the signaling capability you already hold.
 #
 # from pancake import Runtime
 # from pancake.webrtc import SignalingAuthority, connector, locator

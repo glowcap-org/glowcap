@@ -39,6 +39,7 @@ and the same five shapes appear in every language's relay.
 ## Usage
 
 ```ts
+import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@pancake/abi";
 import { webSocketRelay } from "@pancake/relay";
 import { dialLocatorForRelay, Reachability } from "@pancake/iroh";
 
@@ -48,7 +49,10 @@ webSocketRelay(
 	socket,
 	() => dialLocatorForRelay(locator, Reachability.Discovery),
 	"iroh relay dial failed",
-	{ idleTimeoutMs: 60_000, maxBytesPerSession: 1 << 30 },
+	{
+		idleTimeoutMs: BINDING_RELAY_IDLE_TIMEOUT_MS,
+		maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION,
+	},
 );
 ```
 

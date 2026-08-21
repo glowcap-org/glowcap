@@ -34,6 +34,7 @@
 import { Buffer } from "node:buffer";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { inkContrast } from "./ink_contrast.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -181,7 +182,7 @@ const roomPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the whole proof is deno-only.
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -197,7 +198,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 let browser: Browser | null = null;
 try {
@@ -444,11 +445,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

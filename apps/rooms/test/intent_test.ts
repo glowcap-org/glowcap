@@ -178,3 +178,71 @@ Deno.test("the card says what it is for once, and only an address gets to say it
 		"what was used last was described as somewhere the reader was going",
 	);
 });
+
+Deno.test("where a locator field is aimed is one answer, whoever is drawing it", () => {
+	// The card's stripe, the card's opening line, and the rail panel's line all
+	// ask this, and asking it three times is how they came to disagree while the
+	// reader was typing into the one field they all answer to.
+	const away = dirId(AWAY);
+	const held = new Map([
+		[HOME, { id: HOME, slot: null }],
+		[away, { id: away, slot: 2 }],
+	]) as unknown as ReadonlyMap<
+		import("../web/ui/types.ts").DirId,
+		import("../web/ui/types.ts").DirView
+	>;
+	const aimed = (locator: string, typedAs: import("../web/ui/types.ts").DirId | null) =>
+		joining.destination(locator, typedAs, held, HOME, "this directory");
+
+	// The empty field is this page's own directory, and so is an address that
+	// resolves to it however it was written.
+	assert(aimed("", null).name === "this directory", "an empty field was not read as this page's directory");
+	assert(aimed("", null).mark === "home", "this page's directory did not wear its own mark");
+	assert(
+		aimed("ocapn://home.iroh?hint=1", HOME).name === "this directory",
+		"a hinted route to this page's directory was read as somewhere else",
+	);
+
+	// One this tab holds is named the way its rows are named, and wears the mark
+	// they wear.
+	assert(aimed(AWAY, away).name === "elsewhere", "a held directory was not named the way its rows name it");
+	assert(aimed(AWAY, away).mark === "2", "a held directory did not wear the mark its rows wear");
+
+	// One it does not hold may still be a perfectly good address, so it is named
+	// rather than read back as the characters somebody pasted; text that is no
+	// address at all has nothing to name.
+	const stranger = dirId("ocapn://stranger.iroh");
+	assert(aimed("ocapn://stranger.iroh", stranger).name === "stranger", "an address in no hand was not named");
+	// It wears a mark all the same, because everything the card colours reads
+	// the one property that mark sets, and an unmarked card let each of those
+	// choose for itself — the stripe choosing the mark this page's own
+	// directory wears.
+	assert(aimed("ocapn://stranger.iroh", stranger).mark === "unknown", "an unheld directory wore no mark");
+	assert(aimed("not an address", null).name === "that directory", "text that names nowhere claimed a destination");
+});
+
+Deno.test("past the ramp the join card stops claiming a color the rail is not showing", () => {
+	// Six directories is one more than there are marks, so nothing is marked at
+	// all: a color for five of them beside none for the sixth claims a sameness
+	// that is not there. The card reads that same answer, because a card wearing
+	// a color the rail has put away is naming a distinction nobody can see.
+	const ramp = new Map(
+		[1, 2, 3, 4, 5, 6].map((slot) => {
+			const id = dirId(`ocapn://dir-${slot}.iroh`);
+			return [id, { id, slot }];
+		}),
+	) as unknown as ReadonlyMap<
+		import("../web/ui/types.ts").DirId,
+		import("../web/ui/types.ts").DirView
+	>;
+	const crowded = dirId("ocapn://dir-3.iroh");
+	const aimed = joining.destination("ocapn://dir-3.iroh", crowded, ramp, HOME, "this directory");
+	assert(aimed.name === "dir-3", "a held directory stopped being named when its color went");
+	assert(aimed.mark === "unknown", `the card wore ${JSON.stringify(aimed.mark)} where the rail wears nothing`);
+
+	// And within the ramp it still wears the slot the rail wears, so this is a
+	// ceiling rather than the card giving up on color.
+	const few = new Map([...ramp].slice(0, 3)) as typeof ramp;
+	const inRamp = joining.destination("ocapn://dir-3.iroh", crowded, few, HOME, "this directory");
+	assert(inRamp.mark === "3", `a held directory within the ramp wore ${JSON.stringify(inRamp.mark)}`);
+});

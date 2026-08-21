@@ -10,7 +10,7 @@ Canonical home for hook scripts that fire around agent file edits.
 
 - `*.zig` with `zig fmt`
 - `*.rs` with `rustfmt` (discovers root `rustfmt.toml`)
-- `*.ts` / `*.js` with `deno fmt` (from the file's directory, so the nearest
+- `*.ts` / `*.tsx` / `*.js` with `deno fmt` (from the file's directory, so the nearest
   `deno.json` applies)
 
 Python and Racket have no single-file formatter on PATH here; `zig build

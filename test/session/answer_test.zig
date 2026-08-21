@@ -247,6 +247,17 @@ test "virtual answer exhaustion returns a typed failure instead of wrapping" {
     try std.testing.expectError(error.VirtualAnswerSpaceExhausted, s.allocateInboundAnswer());
 }
 
+test "outbound answer exhaustion returns a typed failure instead of wrapping" {
+    var s = session.Session.init(std.testing.allocator);
+    defer s.deinit();
+    s.next_outbound_answer = std.math.maxInt(u64) - 1;
+
+    try std.testing.expectEqual(std.math.maxInt(u64) - 1, (try s.allocateOutboundAnswer()).int());
+    try std.testing.expectEqual(std.math.maxInt(u64), s.next_outbound_answer);
+    try std.testing.expectError(error.OutboundAnswerSpaceExhausted, s.allocateOutboundAnswer());
+    try std.testing.expectEqual(std.math.maxInt(u64), s.next_outbound_answer);
+}
+
 test "wire gc-answers cannot alias a private local-promise answer" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{

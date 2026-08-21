@@ -1,6 +1,6 @@
 import * as tcp from "@pancake/tcp";
 
-import { INTERNAL, INVALID_ARGUMENT, IO } from "@pancake/abi";
+import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, INTERNAL, INVALID_ARGUMENT, IO } from "@pancake/abi";
 
 import {
 	abiVersion,
@@ -96,7 +96,8 @@ export async function run(): Promise<void> {
 			"the process fallback preserves the recorder failure separately",
 		);
 
-		for (let index = 0; index < 40; index++) {
+		const overflowAttempts = Math.floor(DEFAULT_FAILURE_CAPACITY / 2) + 8;
+		for (let index = 0; index < overflowAttempts; index++) {
 			recordCallerlessFailure(context, {
 				layer: "binding",
 				scope: "process",
@@ -106,9 +107,14 @@ export async function run(): Promise<void> {
 			});
 		}
 		const bounded = takeRuntimeFailures();
-		assert(bounded.length === 64 && bounded[0].droppedBefore === 16n, "the process fallback exposes saturation");
+		const producedRecords = overflowAttempts * 2;
 		assert(
-			new TextEncoder().encode(bounded.at(-2)!.operation).byteLength <= 512 &&
+			bounded.length === DEFAULT_FAILURE_CAPACITY &&
+				bounded[0].droppedBefore === BigInt(producedRecords - DEFAULT_FAILURE_CAPACITY),
+			"the process fallback exposes saturation",
+		);
+		assert(
+			new TextEncoder().encode(bounded.at(-2)!.operation).byteLength <= DEFAULT_FAILURE_PAYLOAD_CAP &&
 				!bounded.at(-2)!.operation.includes("�"),
 			"the process fallback truncates UTF-8 at the shared byte bound",
 		);

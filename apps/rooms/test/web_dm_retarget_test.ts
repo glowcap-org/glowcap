@@ -17,6 +17,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_retarget_test.ts`.
 
 import { chromium } from "playwright";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -50,7 +51,7 @@ async function waitForHttp(port: number): Promise<void> {
 const httpPort = freePort();
 const roomPort = freePort();
 
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -66,17 +67,9 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
-const deadline = setTimeout(() => {
-	console.error("FAIL: dm-retarget scenario timed out after 180s");
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	Deno.exit(1);
-}, 180_000);
+const deadline = setTimeout(() => fail("dm-retarget scenario timed out after 180s"), 180_000);
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
@@ -209,11 +202,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

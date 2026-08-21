@@ -116,7 +116,7 @@
   (register-finalizer lst (lambda (q) (listener-release! q)))
   lst)
 
-(define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096]
+(define (netlayer-connect nl host port [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP]
                           #:options [options #f])
   (define bs (string->bytes/utf-8 host))
   (define cn
@@ -146,7 +146,7 @@
 (define (listener-readiness-fd lst)
   (or (listener-fd lst) (error 'listener-readiness-fd "listener is closed")))
 
-(define (listener-accept lst [codec 'syrup] [max-frame 4096]
+(define (listener-accept lst [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP]
                          #:options [options #f])
   (call-with-semaphore
    (listener-accept-gate lst)

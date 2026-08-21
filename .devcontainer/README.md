@@ -11,45 +11,48 @@ Open the repository with **Dev Containers: Reopen in Container**, then run:
 zig build check
 ```
 
-On first use, `initialize.sh` runs [`configure.sh`](configure.sh). The primary
-checkout needs no setup: the command derives its Git common directory, writes
-the ignored `.env`, and creates an isolated `pancake-main-egress` network.
-`post-create.sh` runs automatically after the image is ready and verifies the
-toolchains before the editor opens the workspace.
+On first use, `hooks/initialize.sh` runs
+[`bin/configure.sh`](bin/configure.sh). The primary checkout needs no setup:
+the command derives its Git common directory, writes the ignored `.env`, and
+creates an isolated `pancake-main-egress` network. `hooks/post-create.sh` runs
+automatically after the image is ready, verifies the toolchains, and initializes
+the conformance submodules before the editor opens the workspace.
 
-The same container can be started from a host shell instead. [`up.sh`](up.sh)
-drives the [devcontainer CLI](https://github.com/devcontainers/cli), the engine
-behind the editor commands, so the editor later attaches to, reuses, or
-rebuilds the container it started as if the editor had created it:
+The same container can be started from a host shell instead.
+[`bin/up.sh`](bin/up.sh) drives the [devcontainer
+CLI](https://github.com/devcontainers/cli), the engine behind the editor
+commands, so the editor later attaches to, reuses, or rebuilds the container it
+started as if the editor had created it:
 
 ```sh
-bash .devcontainer/up.sh              # Reopen in Container
-bash .devcontainer/up.sh --rebuild    # Rebuild Container
-bash .devcontainer/up.sh --no-cache   # Rebuild Container Without Cache
+bash .devcontainer/bin/up.sh              # Reopen in Container
+bash .devcontainer/bin/up.sh --rebuild    # Rebuild Container
+bash .devcontainer/bin/up.sh --no-cache   # Rebuild Container Without Cache
 ```
 
-[`enter.sh`](enter.sh) wraps that in tmux. It starts or reuses the named
+[`bin/enter.sh`](bin/enter.sh) wraps that in tmux. It starts or reuses the named
 worktree's container, then attaches the default tmux session or an explicitly
 named alternate session. `pancake` is the CapTP CLI inside the container, so
 the host launcher does not take that name. Run it from the checkout, or symlink
 it onto the host `PATH` under another name:
 
 ```sh
-bash .devcontainer/enter.sh                          # tmux: pancake-main
-bash .devcontainer/enter.sh --session review         # tmux: pancake-main-review
-bash .devcontainer/enter.sh tree1                    # tmux: pancake-tree1
-bash .devcontainer/enter.sh tree1 --session review   # tmux: pancake-tree1-review
-bash .devcontainer/enter.sh tree1 --session review --rebuild
+bash .devcontainer/bin/enter.sh                          # tmux: pancake-main
+bash .devcontainer/bin/enter.sh --session review         # tmux: pancake-main-review
+bash .devcontainer/bin/enter.sh tree1                    # tmux: pancake-tree1
+bash .devcontainer/bin/enter.sh tree1 --session review   # tmux: pancake-tree1-review
+bash .devcontainer/bin/enter.sh tree1 --session review --rebuild
 
-ln -s "$(pwd)/.devcontainer/enter.sh" ~/.local/bin/pancake-enter
+ln -s "$(pwd)/.devcontainer/bin/enter.sh" ~/.local/bin/pancake-enter
 pancake-enter tree1 --session review
 ```
 
 The launcher follows its symlink and asks Git for the primary checkout, so it
 contains no host path and works from any current directory. `main` is that
 checkout. Every other name must be a linked worktree Git lists with that
-directory basename. The launcher always asks the selected checkout's
-[`up.sh`](up.sh) to start or reuse the container, then attaches.
+directory basename. The launcher always asks the selected checkout's own
+`up.sh` to start or reuse the container, looking under `bin/` first and
+beside compose if that checkout has not moved it yet, then attaches.
 
 The option `--session NAME` selects another tmux session without creating
 another Docker container. Omitting it preserves the default
@@ -70,56 +73,91 @@ shell integration installed, an ssh session from one.
 The same identity names both Docker artifacts. A `tree1` checkout uses the
 container `pancake-tree1` and builds the image `vsc-pancake-tree1`.
 
-[`enter-grid.sh`](enter-grid.sh) opens many worktrees at once: one tmux
+[`bin/enter-grid.sh`](bin/enter-grid.sh) opens many worktrees at once: one tmux
 session holding a grid with one column per worktree. With no arguments, every
 worktree Git registers becomes a column; naming worktrees narrows the grid to
-those columns. It runs the same per-checkout `up.sh` lifecycle as `enter.sh`,
-so each column's panes share that worktree's container, and `--rebuild`,
-`--no-cache`, `--session`, `--cc`, and `--no-cc` work as in `enter.sh`, with
-sessions named `pancake-grid` or `pancake-grid-<name>`. Percentage splits
-need tmux 3.1 or newer.
+those columns. It runs that checkout's own `up.sh`, looking under `bin/` first
+and beside compose if that checkout still keeps it there, so each column keeps
+the tooling and ports it was built with. `--rebuild`, `--no-cache`,
+`--session`, `--cc`, and `--no-cc` work as in `bin/enter.sh`, with sessions
+named `pancake-grid` or `pancake-grid-<name>`. Percentage splits need tmux 3.1
+or newer.
 
 ```sh
-bash .devcontainer/enter-grid.sh                  # tmux: pancake-grid
-bash .devcontainer/enter-grid.sh main tree2       # only these columns
-bash .devcontainer/enter-grid.sh --session review # tmux: pancake-grid-review
+bash .devcontainer/bin/enter-grid.sh                  # tmux: pancake-grid
+bash .devcontainer/bin/enter-grid.sh main tree2       # only these columns
+bash .devcontainer/bin/enter-grid.sh --session review # tmux: pancake-grid-review
 ```
 
 Each worktree configures its own column through the ignored
-`.devcontainer/panes.sh` in that checkout: plain bash that
-[`pane-rc.sh`](pane-rc.sh) sources in each of the column's panes after the
-container shell's own `~/.bashrc`. Top-level lines run in every pane, so an
-export there configures the whole column. A `pane1`, `pane2`, … function runs
-as that pane's startup command, and the highest `paneN` declared sets the
-column's row count: one full-height shell when the file declares none or is
-absent, at most twelve. Each command behaves as if typed at the prompt: it
-can be interrupted,
-it joins shell history, and the pane returns to its prompt when the command
-exits, so re-running it is its function name or one up-arrow.
-[`panes.example.sh`](panes.example.sh) shows the shape. With `--session NAME`,
-a `panes-NAME.sh` file is preferred when it exists, so one worktree can carry
-different grids, and different row counts, for different sessions.
+`.devcontainer/pane/panes.sh` in that checkout: plain shell that the pane
+runtime sources in each of the column's panes after the container shell's own
+`~/.zshrc`. Top-level lines run in every pane, so an export there configures
+the whole column. A `pane1`, `pane2`, … function runs as that pane's startup
+command, and the highest `paneN` declared sets the column's row count: one
+full-height shell when the file declares none or is absent, at most twelve.
+Each command behaves as if typed at the prompt: it can be interrupted, it joins
+shell history, and the pane returns to its prompt when the command exits, so
+re-running it is its function name or one up-arrow.
+[`panes.example.sh`](pane/panes.example.sh) shows the shape. With `--session
+NAME`, a `pane/panes-NAME.sh` file is preferred when it exists, so one worktree
+can carry different grids, and different row counts, for different sessions. A
+session opened by `bin/enter.sh` reads the same file and runs no startup
+command, so its pane functions are defined and waiting to be named at the
+prompt.
+
+## Entering and leaving the container
+
+Every pane both launchers open keeps a shell on the host, in that worktree's
+checkout, and runs the container shell inside it. Two words move between them:
+
+```sh
+pancake_devcontainer_exit    # step out to the host, in this worktree
+pancake_devcontainer_enter   # go back into the container
+```
+
+`exit` still ends the pane, container shell and tmux pane together, because
+the shell it ends is the host shell the container one was opened from. Only
+the verb above steps out and keeps the pane. On the host side the prompt
+carries a `(host <worktree>)` marker, and you are free to move around: `cd`
+anywhere, run whatever the host has, and come back when you want the
+container again.
+
+Going back in runs that pane's startup command again, so leaving and
+re-entering is how a pane restarts what it runs. Add `--bare` to enter without
+it, for a look around that must not restart a server. If the container stopped
+or was rebuilt while you were away, entering starts it again through
+[`bin/up.sh`](bin/up.sh), and a container shell that a signal ends leaves the
+pane standing rather than closing it.
+
+Each side is named for the shell that reads it. The container half is
+`pane/container/.zshrc`, because zsh is what the image configures for the
+workspace user, and zsh finds an rc only through a directory, which is why
+that side is a directory holding one file. The host half is
+`pane/host/.bashrc`, the shell most hosts still start scripts with, found by
+path. Neither one replaces your shell: each sources your own `~/.zshrc` or
+`~/.bashrc` first and adds the two verbs to it.
 
 ## Worktree identity
 
 Each checkout has one short name in its ignored `.devcontainer/.env`.
-[`configure.sh`](configure.sh) derives the name and Git common directory. The
-primary checkout uses `main`, so its Docker container is `pancake-main`. A
-linked worktree uses the same lowercase name as its directory; its branch name
-remains independent. Create and configure one with:
+[`bin/configure.sh`](bin/configure.sh) derives the name and Git common
+directory. The primary checkout uses `main`, so its Docker container is
+`pancake-main`. A linked worktree uses the same lowercase name as its
+directory; its branch name remains independent. Create and configure one with:
 
 ```sh
 git worktree add .worktrees/tree1 -b failure-sweep
 cd .worktrees/tree1
-bash .devcontainer/configure.sh --port-offset 10000
+bash .devcontainer/bin/configure.sh --port-offset 10000
 ```
 
-The offset produces host ports 18000, 19099, 19200, 19300, 15173, and 11990. Requiring that
-one explicit choice prevents a setup command from guessing whether ports are
-free and then racing Docker for them.
+The offset produces host ports 18000, 19099, 19200, 19300, 15173, and 11990.
+Requiring that one explicit choice prevents a setup command from guessing
+whether ports are free and then racing Docker for them.
 
-`configure.sh` validates but never overwrites an existing `.env`. To change an
-identity, port offset, or egress network, stop that checkout's container,
+`bin/configure.sh` validates but never overwrites an existing `.env`. To change
+an identity, port offset, or egress network, stop that checkout's container,
 remove the ignored file, and run the command again with the new choice.
 
 Opening that checkout creates `pancake-tree1`, even though its branch is
@@ -145,8 +183,8 @@ is necessary with the current Dev Containers CLI: its automatic common-dir
 mount is not applied to custom Compose workspace mounts.
 
 The same ignored file owns that worktree's host ports. The primary checkout
-uses 8000, 9099, 9200, 9300, 5173, and 1990. `configure.sh --port-offset` gives every
-concurrently running worktree a different set. The generated `tree1` file
+uses 8000, 9099, 9200, 9300, 5173, and 1990. `configure.sh --port-offset` gives
+every concurrently running worktree a different set. The generated `tree1` file
 contains:
 
 ```dotenv
@@ -158,17 +196,18 @@ PANCAKE_OCAPNVIZ_HOST_PORT=15173
 PANCAKE_DOCS_HOST_PORT=11990
 ```
 
-The file uses one plain `KEY=value` assignment per line. Exported host variables take
-precedence over Compose `.env` files, so startup refuses an inherited
-`PANCAKE_*` or `EGRESS_NET` value that differs from this checkout's file.
+The file uses one plain `KEY=value` assignment per line. Exported host
+variables take precedence over Compose `.env` files, so startup refuses an
+inherited `PANCAKE_*` or `EGRESS_NET` value that differs from this checkout's
+file.
 
 ## What runs when
 
 | Phase | What runs |
 | --- | --- |
-| Before creation | `initialize.sh` creates the shared host agent-state paths and missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
-| Image build | `Dockerfile`, `install-*.sh`, then `verify-toolchains.sh` |
-| First open | `post-create.sh` fixes persistent-volume ownership and verifies the environment |
+| Before creation | `hooks/initialize.sh` creates the shared host agent-state paths and missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
+| Image build | `Dockerfile`, `image/` installers, then `image/verify-toolchains.sh` |
+| First open | `hooks/post-create.sh` fixes persistent-volume ownership, verifies the environment, and fills the conformance submodules |
 | Development | You run `zig build check` and focused build steps |
 
 ## Toolchains
@@ -178,11 +217,11 @@ in [`checksums.sh`](checksums.sh).
 
 | Group | Tools | Installer |
 | --- | --- | --- |
-| Zig | Zig and ZLS at matching versions | `install-zig.sh`, `install-zls.sh` |
-| Conformance | Python, Racket, and Goblins | `install-python.sh`, `install-racket-goblins.sh` |
-| Bindings | Rust, Deno, Node, npm, and Bun | `install-rust.sh`, `install-js-toolchains.sh` |
-| Browsers | Playwright's Chromium and the libraries it needs | `install-playwright.sh` |
-| Agents | Serena, Claude Code, the Cursor agent CLI, opencode, and Codex | their `install-*.sh` scripts |
+| Zig | Zig, with ZLS disabled until upstream supports the pinned compiler | `image/zig.sh`, `image/zls.sh` |
+| Conformance | Python, Racket, and Goblins | `image/python.sh`, `image/racket-goblins.sh` |
+| Bindings | Rust, Deno, Node, npm, and Bun | `image/rust.sh`, `image/js-toolchains.sh` |
+| Browsers | Playwright's Chromium and the libraries it needs | `image/playwright.sh` |
+| Agents | Serena, Claude Code, the Cursor agent CLI, opencode, and Codex | their `image/` installers |
 | Debugging | gdb, lldb, strace, valgrind, perf, hyperfine | `Dockerfile` |
 | Tor | the `tor` daemon the `onion` netlayer's live checks talk to | `Dockerfile` |
 
@@ -195,8 +234,8 @@ Cursor's agent CLI answers to both of the names upstream installs, `agent` and
 part of the image, under `/usr/local/share/cursor-agent`, so the pinned build
 comes with the container. Its own `agent update` still writes into
 `~/.local/bin`, which sits after `/usr/local/bin` on the path, so the pinned
-build keeps answering and `update-pins.sh` stays the way to move it. There is
-no browser in the container, so sign in with `NO_OPEN_BROWSER=1 agent login`
+build keeps answering and `bin/update-pins.sh` stays the way to move it. There
+is no browser in the container, so sign in with `NO_OPEN_BROWSER=1 agent login`
 and open the printed URL on the host; `agent status` says who you are.
 
 No Tor is running when the container opens, and that is deliberate: pancake
@@ -206,13 +245,13 @@ binary and stops there. A check that needs a live daemon starts its own with its
 own configuration and shuts it down again; the in-tree onion checks talk to a
 fake daemon instead and need no Tor at all.
 
-To update a tool, use [`update-pins.sh`](update-pins.sh) rather than editing
-by hand:
+To update a tool, use [`bin/update-pins.sh`](bin/update-pins.sh) rather than
+editing by hand:
 
 ```sh
-.devcontainer/update-pins.sh               # report pins vs upstream + submodule drift
-.devcontainer/update-pins.sh bump <dep>    # rewrite pins.sh and checksums.sh
-.devcontainer/update-pins.sh bump --safe   # bump everything outside the build graph
+.devcontainer/bin/update-pins.sh               # report pins vs upstream + submodule drift
+.devcontainer/bin/update-pins.sh bump <dep>    # rewrite pins.sh and checksums.sh
+.devcontainer/bin/update-pins.sh bump --safe   # bump everything outside the build graph
 ```
 
 It fetches versions and hashes from each tool's own release channel, stages
@@ -221,7 +260,7 @@ a container rebuild; the report names the build check that proves anything
 deeper (a new Zig means `zig build check`, a new Racket or Goblins means
 `zig build check-external`). Path changes are still hand edits: keep the
 `Dockerfile` environment and `devcontainer.json` `containerEnv` aligned with
-`pins.sh`, which `check-env-sync.sh` enforces.
+`pins.sh`, which `test/env-sync.sh` enforces.
 
 Host-side startup also uses the `DEVCONTAINER_CLI_VERSION` pin. An installed
 CLI is used only when its version matches; otherwise `npx` runs the pinned
@@ -240,15 +279,14 @@ release.
 | `CURSOR_CONFIG_DIR`, `CURSOR_DATA_DIR` | `/home/vscode/.cursor` | settings host bind; Linux tokens use `~/.config/cursor` |
 
 Rustup seeds the image under `/usr/local/cargo`; open containers persist
-downloaded crates in the user volume. `post-create.sh` also makes the ZLS cache
-writable.
+downloaded crates in the user volume.
 
 The last two rows are what make an agent CLI's settings survive a rebuild.
 Both tools choose their state directory from the environment, and both are
 pointed at the directories [`devcontainer.json`](devcontainer.json) binds from
 the host. The Cursor agent CLI on Linux still writes login tokens under
 `~/.config/cursor`, so that path is a separate host bind.
-[Host configuration](host-configuration.md) covers the mounts themselves.
+[Host configuration](docs/host-configuration.md) covers the mounts themselves.
 
 Playwright's default download directory is `~/.cache/ms-playwright`, which is
 neither a volume nor a bind mount here, so a browser landing there would have to
@@ -266,9 +304,9 @@ use `racket --version`, not `raco --version`.
 
 Two detailed guides cover the parts that vary by machine:
 
-- [Docker networking](networking.md): the rooms network, the private egress
+- [Docker networking](docs/networking.md): the rooms network, the private egress
   network, and how the rooms peer reaches the deployed app.
-- [Host configuration](host-configuration.md): Git, SSH, shared agent and
+- [Host configuration](docs/host-configuration.md): Git, SSH, shared agent and
   authentication state, keyrings, and commit signing.
 
 ### Ports the container forwards
@@ -290,42 +328,64 @@ container ports. A host-side client uses the corresponding `*_HOST_PORT` value;
 for the example above, the live trace is `ws://127.0.0.1:19300/`.
 
 If a host port is already taken, the container will not start. Change that
-worktree's offset by removing its ignored `.env` and rerunning `configure.sh`;
-the editor never silently remaps it.
+worktree's offset by removing its ignored `.env` and rerunning
+`bin/configure.sh`; the editor never silently remaps it.
 
-## Files
+## Layout
+
+Each directory has one job, so a reader knows where to look before opening
+anything. The root holds what the container tooling requires by name, the two
+files that carry versions, and the front-door prose.
+
+| Directory | Holds |
+| --- | --- |
+| `bin/` | The commands a person or a tool runs: configure a checkout, bring its container up, open a tmux session, find a container, bump the pins |
+| `lib/` | The shared shell library, one module per subject, entered through `lib/mod.sh` |
+| `image/` | Everything the image is built from: one installer per toolchain group, the patches they apply, and the version check that closes the build |
+| `hooks/` | The lifecycle hooks the devcontainer CLI runs, on the host before creation and in the container after it |
+| `pane/` | The tmux pane runtime, one directory per side of the container boundary, beside the example pane configuration |
+| `test/` | This directory's own checks, which `zig build source-check` runs |
+| `docs/` | The longer prose: host setup and networking |
 
 Each script declares where it runs and refuses the wrong side: host-side
 scripts call `pancake_require_host`, container-side ones
-`pancake_require_devcontainer` (`lib.sh` owns the detection). The two
-exceptions are noted in their own headers: `install-zig.sh` also runs on CI
-runners (including macOS), and `check-env-sync.sh` is pure file checks.
-`post-create.sh` runs shellcheck over this whole family, so a lint finding
-fails container open and the CI push checks.
+`pancake_require_devcontainer`, and `lib/context.sh` owns the detection. The
+two exceptions are noted in their own headers: `image/zig.sh` also runs on CI
+runners, macOS included, and `test/env-sync.sh` is pure file checks.
+`hooks/post-create.sh` runs shellcheck over every shell file here, so a lint
+finding fails container open and the CI push checks.
 
 | File | Role | Runs |
 | --- | --- | --- |
-| `pins.sh`, `checksums.sh` | Versions, paths, and download hashes | sourced |
-| `update-pins.sh` | Reports and bumps the pins against upstream | container |
-| `lib.sh` | Shared installer functions and context guards | sourced |
-| `launcher-lib.sh` | Shared mechanics of the tmux launchers: option grammar, lifecycle delegation, pane commands, attach | sourced |
-| `check-env-sync.sh` | Checks pins, mounts, names, and host lifecycle contracts | anywhere |
-| `test-host-invariants.sh` | Tests checkout configuration, identity, networks, and Git-owned lookup | anywhere |
+| `devcontainer.json` | Editor settings, mounts, and the lifecycle hooks | editor / CLI |
 | `Dockerfile` | Builds the image | image build |
-| `devcontainer.json` | Editor settings and volumes | editor / CLI |
-| `.env.example` | Annotated primary-checkout form generated by `configure.sh` | host |
-| `configure.sh` | Creates the ignored checkout identity, paths, ports, and egress name | host |
 | `docker-compose.yml` | Worktree-specific container and image names, networks, host ports, and ptrace | host compose |
-| `initialize.sh` | Bootstraps and validates checkout configuration, then prepares managed networks | host |
-| `enter.sh` | Starts or reuses a worktree container and attaches its default or a named tmux session | host |
-| `enter-grid.sh` | Starts or reuses every column worktree's container and attaches one tmux grid, rows per column set by each worktree's `panes.sh` | host |
-| `pane-rc.sh` | Initializes one grid pane's shell, then runs that pane's function from the worktree's ignored `panes.sh` | container |
-| `up.sh` | Starts or rebuilds the container from a host shell | host |
-| `post-create.sh` | Verifies and prepares an open container | container |
-| `verify-toolchains.sh` | Checks installed versions | image build + container |
-| `verify-ptrace.sh` | Checks ptrace access | container |
-| `install-zig.sh` | Installs pinned Zig | image build, container, CI runners |
-| other `install-*.sh` | Installs one toolchain group | image build + container |
+| `.env.example` | Annotated primary-checkout form generated by `bin/configure.sh` | host |
+| `pins.sh`, `checksums.sh` | Versions, paths, and download hashes | sourced |
+| `.shellcheckrc` | One lint setting for editors, hand runs, and the hook alike | sourced by shellcheck |
+| `bin/configure.sh` | Creates the ignored checkout identity, paths, ports, and egress name | host |
+| `bin/up.sh` | Starts or rebuilds the container from a host shell | host |
+| `bin/container-id.sh` | Names this checkout's running container, starting it when it is down | host |
+| `bin/enter.sh` | Starts or reuses a worktree container and attaches its default or a named tmux session | host |
+| `bin/enter-grid.sh` | Starts or reuses every column worktree's container and attaches one tmux grid, rows per column set by each worktree's `pane/panes.sh` | host |
+| `bin/update-pins.sh` | Reports and bumps the pins against upstream | container |
+| `lib/mod.sh` | The library's front door, and the one call that loads a checkout's pins | sourced |
+| `lib/launcher.sh` | Shared mechanics of the tmux launchers: option grammar, checkout resolution, pane commands, attach | sourced |
+| other `lib/*.sh` | One subject each: context guards, name grammars, settings tables, checkout lookup, the ignored `.env`, Docker, verified downloads | sourced |
+| `image/zig.sh` | Installs pinned Zig | image build, container, CI runners |
+| other `image/*.sh` | Installs one toolchain group | image build + container |
+| `image/verify-toolchains.sh` | Checks installed versions | image build + container |
+| `hooks/initialize.sh` | Bootstraps and validates checkout configuration, then prepares managed networks | host |
+| `hooks/post-create.sh` | Verifies an open container and fills the conformance submodules | container |
+| `hooks/verify-ptrace.sh` | Checks ptrace access | container |
+| `pane/host/.bashrc` | Host half of the pane runtime: enters the container, and decides whether the pane ends with the shell that leaves it | host |
+| `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `pancake_devcontainer_exit` | container |
+| `pane/panes.example.sh` | The shape a worktree's own `pane/panes.sh` takes | example |
+| `test/env-sync.sh` | Checks pins, mounts, names, structure, and host lifecycle contracts | anywhere |
+| `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | anywhere |
+
+Both files under `test/` run in `zig build source-check`, so this directory
+answers to the same gate as the rest of the repository.
 
 Cursor users can enable Serena from [`.cursor/mcp.json`](../.cursor/mcp.json).
 The [Serena rule](../.agents/rules/serena-mcp.md) covers project use.

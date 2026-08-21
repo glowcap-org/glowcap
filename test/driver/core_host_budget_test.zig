@@ -37,17 +37,17 @@ const EventServeOutOfMemory = struct {
 
 test "finite host quantum emits resume actions for host-global internal work" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x0d} ** 32, .{ .host_work_quantum = 1 });
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), .{ .host_work_quantum = 1 });
     defer host.deinit();
 
     // These no-op retirement actions model the Node's internal action chain:
     // none names a live session, so no FLUSH/CLOSE or other external action is
     // created. The action queue itself is the only remaining work.
-    try host.node.actions.reserve(allocator, 3);
-    const absent = engine.PeerId.from(999);
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    try host.node.actions.queue.reserve(allocator, 3);
+    const absent = engine.PeerHandle.from(999);
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
 
     var resumes: usize = 0;
     while (try host.nextAction()) |action| {
@@ -65,9 +65,9 @@ test "finite host quantum emits resume actions for host-global internal work" {
 
 test "finite host quantum does not starve Node work behind a hot session" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x2d)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x2e} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x2e)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
@@ -81,10 +81,10 @@ test "finite host quantum does not starve Node work behind a hot session" {
         .{ .verb = "hit", .args = &.{} },
     );
     host.next_work_lane = .session;
-    driver.core.testing.markDirty(&host, pair.b.peer_id);
+    driver.core.testing.markDirty(&host, pair.b.peer_handle);
 
-    try host.node.actions.reserve(allocator, 1);
-    host.node.actions.pushReserved(.{ .retire_exporter = engine.PeerId.from(1234) });
+    try host.node.actions.queue.reserve(allocator, 1);
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = engine.PeerHandle.from(1234) });
 
     // The first slice serves one local turn. The persisted lane cursor makes
     // the next slice retire the Node action even though three turns remain.
@@ -119,8 +119,8 @@ const RetryEntropy = struct {
 };
 
 const NoopActionExec = struct {
-    pub fn flush(_: @This(), _: engine.PeerId) !void {}
-    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn flush(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
     pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
     pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
     pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
@@ -129,8 +129,8 @@ const NoopActionExec = struct {
 const RetryDialExec = struct {
     fail_next: *bool,
 
-    pub fn flush(_: @This(), _: engine.PeerId) !void {}
-    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn flush(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
     pub fn dial(self: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {
         if (self.fail_next.*) {
             self.fail_next.* = false;
@@ -145,8 +145,8 @@ const RetryCancelExec = struct {
     host: *Host,
     fail_next: *bool,
 
-    pub fn flush(_: @This(), _: engine.PeerId) !void {}
-    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn flush(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
     pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
     pub fn cancelDial(self: @This(), cancel: @FieldType(driver.core.HostAction, "cancel_dial")) !void {
         if (self.fail_next.*) {
@@ -171,8 +171,8 @@ const RetryPrepareExec = struct {
             return error.PublicationUnavailable;
         }
     }
-    pub fn flush(_: @This(), _: engine.PeerId) !void {}
-    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn flush(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
     pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
     pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
     pub fn complete(self: @This(), action: driver.core.HostAction) !void {
@@ -182,14 +182,14 @@ const RetryPrepareExec = struct {
 
 test "standard host action drain yields between finite-quantum slices" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x0e} ** 32, .{ .host_work_quantum = 1 });
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), .{ .host_work_quantum = 1 });
     defer host.deinit();
 
-    try host.node.actions.reserve(allocator, 3);
-    const absent = engine.PeerId.from(1000);
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
-    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    try host.node.actions.queue.reserve(allocator, 3);
+    const absent = engine.PeerHandle.from(1000);
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.queue.pushReserved(.{ .retire_exporter = absent });
 
     // One drain turn consumes exactly one continuation boundary. The
     // embedder can return to its reactor before asking for the next slice.
@@ -211,13 +211,14 @@ test "standard host action drain yields between finite-quantum slices" {
 
 test "standard host action drain retains a gift-id request when entropy fails" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x1e} ** 32, .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x1e)), .{});
     defer host.deinit();
 
     const recipient = try host.node.registerPeer(.{});
     const exporter = try host.node.registerPeer(.{});
     try host.node.peer(exporter).?.session_state.registerImport(.from(4));
     const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    try host.node.peer(recipient).?.session_state.installInboundAnswer(.from(77));
     try std.testing.expect(try host.node.interceptFulfilledRoute(recipient, 77, gift.routed.id));
 
     var fail_next = true;
@@ -237,7 +238,7 @@ test "standard host action drain retains a gift-id request when entropy fails" {
 
 test "standard host action drain retries a dial whose executor fails" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x1f} ** 32, .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x1f)), .{});
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7095"));
@@ -264,7 +265,7 @@ test "standard host action drain retries a dial whose executor fails" {
 }
 
 test "standard host action drain retains a completion when publication preparation fails" {
-    var host = test_host.init(std.testing.allocator, [_]u8{0x3f} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x3f)), .{});
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7099"));
@@ -291,7 +292,7 @@ test "standard host action drain retains a completion when publication preparati
 }
 
 test "standard host action drain retries cancellation until physical acknowledgement" {
-    var host = test_host.init(std.testing.allocator, [_]u8{0x21} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x21)), .{});
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7098"));
@@ -323,7 +324,7 @@ test "standard host action drain retries cancellation until physical acknowledge
 
 test "borrowed action refusal retries in place without reordering" {
     const allocator = std.testing.allocator;
-    var host = test_host.init(allocator, [_]u8{0x20} ** 32, .{});
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x20)), .{});
     defer host.deinit();
 
     _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7096"));
@@ -357,9 +358,9 @@ fn tcpSturdyref(designator: []const u8) model.SturdyRef {
 
 test "event serve OOM condemns the consumed event instead of retrying it" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0f} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0f)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var host = test_host.init(allocator, [_]u8{0x10} ** 32, .{
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x10)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .host_work_quantum = 1,
     });
@@ -388,8 +389,8 @@ test "event serve OOM condemns the consumed event instead of retrying it" {
 
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {
-        .close => |peer_id| {
-            try std.testing.expectEqual(pair.b.peer_id, peer_id);
+        .close => |peer_handle| {
+            try std.testing.expectEqual(pair.b.peer_handle, peer_handle);
             saw_close = true;
         },
         else => {},
@@ -459,9 +460,9 @@ fn fetchRef(pair: Pair, name: []const u8) !model.Reference {
 
 test "a fed frame whose own dispatch amplifies past the budget fails that feed" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -487,11 +488,11 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
 
 test "a fed connection flooding a sibling condemns the sibling with a close action; the fed verb and connection survive" {
     const allocator = std.testing.allocator;
-    var client_a = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client_a = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client_a.deinit();
-    var client_b = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client_b = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer client_b.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -532,7 +533,7 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
     var saw_close = false;
     while (try server.nextAction()) |action| {
         if (action == .close) {
-            try std.testing.expect(action.close == pair_b.b.peer_id);
+            try std.testing.expect(action.close == pair_b.b.peer_handle);
             saw_close = true;
         }
     }

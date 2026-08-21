@@ -180,7 +180,7 @@ fn hostFeedOneWithAllocator(
     // Accepted but still negotiating: the handshake regime, where almost
     // everything is refused.
     {
-        var host = test_host.init(gpa, [_]u8{0x11} ** 32, .{ .limits = bounds.tight });
+        var host = test_host.init(gpa, @as([32]u8, @splat(0x11)), .{ .limits = bounds.tight });
         defer host.deinit();
         const session = host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9000", &.{}) catch return;
         drainHost(&host, session);
@@ -195,9 +195,9 @@ fn hostFeedOneWithAllocator(
         // hello and its signature check. Down here they arrive after the
         // handshake, so the two verifications are unreachable from the input —
         // and they were most of what each iteration spent its time on.
-        var dialer = test_host.init(gpa, [_]u8{0x22} ** 32, .{ .limits = bounds.tight, .verify_partner = false });
+        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .limits = bounds.tight, .verify_partner = false });
         defer dialer.deinit();
-        var acceptor = test_host.init(gpa, [_]u8{0x33} ** 32, .{ .limits = bounds.tight, .verify_partner = false });
+        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .limits = bounds.tight, .verify_partner = false });
         defer acceptor.deinit();
         const pair = host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001") catch return;
 
@@ -232,9 +232,9 @@ test "fuzz: arbitrary read boundaries never crash or leak a working host session
     // The application has to really be running, otherwise this target quietly
     // becomes the cold-start one and nothing says so.
     {
-        var dialer = test_host.init(gpa, [_]u8{0x22} ** 32, .{ .limits = bounds.tight });
+        var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .limits = bounds.tight });
         defer dialer.deinit();
-        var acceptor = test_host.init(gpa, [_]u8{0x33} ** 32, .{ .limits = bounds.tight });
+        var acceptor = test_host.init(gpa, @as([32]u8, @splat(0x33)), .{ .limits = bounds.tight });
         defer acceptor.deinit();
         const pair = try host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001");
         _ = try pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{});

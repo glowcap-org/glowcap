@@ -18,6 +18,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const store = await import("../web/ui/store.ts");
 const types = await import("../web/ui/types.ts");
+const text = await import("../web/ui/text.ts");
 const { canRetry, dirId, isUnsent } = types;
 const { MAX_SCROLLBACK } = await import("../lib/limits.ts");
 
@@ -278,6 +279,33 @@ Deno.test("clearing a conversation hands back what its lines were holding", () =
 	assert(store.getConv(room.key)?.history.length === 0, "the history was not actually cleared");
 });
 
+Deno.test("forgetting a conversation hands its lines back, while it can still be found", () => {
+	// Leaving a room and closing a direct line both drop the whole conversation,
+	// and that is the third way lines leave. It goes through the same seam as
+	// the other two, from inside the store rather than from each caller: an
+	// invariant every caller has to remember is one caller away from being
+	// wrong.
+	//
+	// It fires before the row goes, and that ordering is load-bearing. The side
+	// that listens finds the session by asking the store which directory the
+	// conversation was on, so a conversation deleted first is one whose lines
+	// can no longer be given back.
+	const room = store.ensureRoom(dirId("test-dir"), "forget-release");
+	let released: readonly unknown[] = [];
+	let foundWhileReleasing = false;
+	store.onLinesDropped((key, gone) => {
+		if (key !== room.key) return;
+		released = gone;
+		foundWhileReleasing = store.getConv(key) !== null;
+	});
+	store.deliver(room.key, store.chatItem("alice", "one", false));
+	store.deliver(room.key, store.chatItem("alice", "two", false));
+	store.forgetConv(room.key);
+	assert(released.length === 2, `forgetting did not hand its lines to the release seam: ${released.length}`);
+	assert(foundWhileReleasing, "the conversation was already gone when its lines were handed back");
+	assert(store.getConv(room.key) === null, "the conversation was not actually forgotten");
+});
+
 Deno.test("the last submitted line is recalled per conversation, including a command", () => {
 	const room = store.ensureRoom(dirId("test-dir"), "recall-here");
 	const other = store.ensureRoom(dirId("test-dir"), "recall-there");
@@ -342,6 +370,62 @@ Deno.test("this directory wears one mark across the page", () => {
 	assert(types.dirMark(home, home, 1) === "home", "this directory wore a ramp slot");
 	assert(types.dirMark(other, home, 2) === "2", "a foreign directory did not wear its slot");
 	assert(types.dirMark(home, null, 1) === "1", "with no home, a directory was treated as this page's");
+});
+
+Deno.test("a directory is named in words however many are held, and colored only within the ramp", () => {
+	// The words and the color used to be one predicate, capped at the ramp's
+	// five, so the sixth directory took the name off every row as well as the
+	// color: a reader lost the words at exactly the point there was most to tell
+	// apart. Two questions, and only the color has a ceiling.
+	const home = dirId("ocapn://home.iroh");
+	const held = (count: number) =>
+		new Map(
+			Array.from({ length: count }, (_, i) => {
+				const id = i === 0 ? home : dirId(`ocapn://dir-${i}.iroh`);
+				return [id, { id, slot: i + 1 }];
+			}),
+		) as unknown as ReadonlyMap<
+			import("../web/ui/types.ts").DirId,
+			import("../web/ui/types.ts").DirView
+		>;
+
+	const alone = held(1);
+	assert(!types.dirsAreNamed(alone), "one directory was named on every row, where there is nothing to tell apart");
+	assert(!types.dirsWearMarks(alone), "one directory wore a color to be told apart from itself");
+
+	for (const count of [2, 3, 4, 5]) {
+		assert(types.dirsAreNamed(held(count)), `${count} directories said nothing about which is which`);
+		assert(types.dirsWearMarks(held(count)), `${count} directories wore no color, inside the ramp`);
+	}
+
+	const crowded = held(6);
+	assert(types.dirsAreNamed(crowded), "six directories took the words off the rows that needed them most");
+	assert(!types.dirsWearMarks(crowded), "six directories wore five colors and a gap");
+
+	// And the two answers arrive as one value, so a row cannot be handed a color
+	// with no words behind it. That is the whole rule stated as a type: a mark is
+	// reachable only through a name.
+	const far = dirId("ocapn://dir-1.iroh");
+	const inRamp = text.dirWhere(far, home, held(3));
+	assert(inRamp.name === "dir-1" && inRamp.mark === "2", `a row inside the ramp read ${JSON.stringify(inRamp)}`);
+	const pastRamp = text.dirWhere(far, home, crowded);
+	assert(pastRamp.name === "dir-1", "past the ramp a row stopped saying which directory it is on");
+	assert(pastRamp.mark === undefined, `past the ramp a row wore ${JSON.stringify(pastRamp.mark)}`);
+	const only = text.dirWhere(home, home, alone);
+	assert(only.name === null && only.mark === undefined, `one directory drew ${JSON.stringify(only)} on every row`);
+
+	// Whatever this tab holds, a color never arrives without the words that say
+	// the same thing, which is the invariant the rail rows are drawn from.
+	for (const count of [1, 2, 5, 6, 9]) {
+		const dirs = held(count);
+		for (const id of dirs.keys()) {
+			const where = text.dirWhere(id, home, dirs);
+			assert(
+				where.mark === undefined || where.name !== null,
+				`with ${count} held, a row wore ${JSON.stringify(where.mark)} and named no directory`,
+			);
+		}
+	}
 });
 
 Deno.test("a direct line is not opened with yourself", () => {

@@ -98,6 +98,54 @@ pub fn fileContains(
     return std.mem.indexOf(u8, contents, needle) != null;
 }
 
+/// Read one source file, or concatenate every regular file beneath a package
+/// directory when `path` ends in `/`. Directory subjects keep ownership bans
+/// honest after a module becomes a package: a new leaf cannot evade a rule
+/// that used to scan the single monolith.
+pub fn readSourceSubject(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    path: []const u8,
+) !?[]u8 {
+    if (!std.mem.endsWith(u8, path, "/")) {
+        return root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch null;
+    }
+    const dir_path = path[0 .. path.len - 1];
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch {
+            out.deinit(gpa);
+            return null;
+        };
+        defer gpa.free(body);
+        try out.appendSlice(gpa, body);
+        try out.append(gpa, '\n');
+    }
+    return try out.toOwnedSlice(gpa);
+}
+
+test "readSourceSubject includes every nested package leaf" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = std.testing.io;
+    try tmp.dir.createDirPath(io, "pkg/nested");
+    try tmp.dir.writeFile(io, .{ .sub_path = "pkg/root.py", .data = "root-marker" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "pkg/nested/leaf.py", .data = "leaf-marker" });
+    const subject = (try readSourceSubject(io, gpa, tmp.dir, "pkg/")) orelse
+        return error.TestUnexpectedResult;
+    defer gpa.free(subject);
+    try std.testing.expect(std.mem.indexOf(u8, subject, "root-marker") != null);
+    try std.testing.expect(std.mem.indexOf(u8, subject, "leaf-marker") != null);
+}
+
 fn parseLeadingInt(s: []const u8) ?i64 {
     var i: usize = 0;
     var neg = false;

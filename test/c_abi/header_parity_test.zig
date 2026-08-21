@@ -6,7 +6,7 @@
 //! test is the compiler-checked guarantee that their layouts and constants match
 //! the source.
 //!
-//! `@cImport` translates the four headers into one namespace; every assertion
+//! The build translates the headers into the `c_headers` module; every assertion
 //! compares a C declaration against the Zig `extern struct` / constant /
 //! function it is supposed to equal. The shared vocabulary (frame/context types,
 //! codes) is declared once in `pancake_ocapn.h`, which the transport headers
@@ -22,23 +22,15 @@ const cabi_loop = @import("c_abi_driver");
 const cabi_tcp = @import("c_abi_net_transport_tcp");
 const cabi_relay = @import("c_abi_net_transport_relay");
 const cabi_inproc = @import("c_abi_net_transport_inproc");
-const c = @cImport({
-    @cInclude("pancake_ocapn.h");
-    @cInclude("pancake_host.h");
-    @cInclude("pancake_driver.h");
-    @cInclude("pancake_net_transport_tcp.h");
-    @cInclude("pancake_net_transport_relay.h");
-    @cInclude("pancake_net_transport_inproc.h");
-    @cInclude("pancake_net_transport_webrtc.h");
-});
+const c = @import("c_headers");
 
 /// Every field of the Zig struct sits at the same offset in the C struct, and
 /// the structs are the same total size.
 fn expectLayoutParity(comptime C: type, comptime Z: type) !void {
     try std.testing.expectEqual(@sizeOf(C), @sizeOf(Z));
     try std.testing.expectEqual(@alignOf(C), @alignOf(Z));
-    inline for (@typeInfo(Z).@"struct".fields) |field| {
-        try std.testing.expectEqual(@offsetOf(C, field.name), @offsetOf(Z, field.name));
+    inline for (@typeInfo(Z).@"struct".field_names) |field_name| {
+        try std.testing.expectEqual(@offsetOf(C, field_name), @offsetOf(Z, field_name));
     }
 }
 
@@ -54,11 +46,11 @@ fn expectFunctionsDeclared(comptime Mod: type, comptime header: []const u8) void
     // A `pancake_*` function added to the Zig source but forgotten in its header
     // (or removed from one side only) fails to compile here.
     @setEvalBranchQuota(40000);
-    inline for (@typeInfo(Mod).@"struct".decls) |decl| {
-        if (comptime std.mem.startsWith(u8, decl.name, "pancake_")) {
-            if (comptime isFunction(@field(Mod, decl.name))) {
-                if (!@hasDecl(c, decl.name)) {
-                    @compileError("exported function missing from " ++ header ++ ": " ++ decl.name);
+    inline for (@typeInfo(Mod).@"struct".decl_names) |decl_name| {
+        if (comptime std.mem.startsWith(u8, decl_name, "pancake_")) {
+            if (comptime isFunction(@field(Mod, decl_name))) {
+                if (!@hasDecl(c, decl_name)) {
+                    @compileError("exported function missing from " ++ header ++ ": " ++ decl_name);
                 }
             }
         }
@@ -128,7 +120,7 @@ test "C header discriminants match the Zig c_abi source" {
     try std.testing.expect(c.PANCAKE_CODEC_SYRUP != c.PANCAKE_CODEC_UNKNOWN);
     try std.testing.expect(c.PANCAKE_CODEC_CAPNP != c.PANCAKE_CODEC_UNKNOWN);
     try std.testing.expectEqual(@as(?pancake.ocapn.model.CodecId, null), cabi.codecFromC(cabi.PANCAKE_CODEC_UNKNOWN));
-    try std.testing.expectEqual(cabi.PANCAKE_CODEC_UNKNOWN, cabi.codecToC(@enumFromInt(42)));
+    try std.testing.expectEqual(cabi.PANCAKE_CODEC_UNKNOWN, cabi.codecToC(@fromBackingInt(@intCast(42))));
     try expectConst(c.PANCAKE_FRAME_SHAPE_BYTE, cabi.PANCAKE_FRAME_SHAPE_BYTE);
     try expectConst(c.PANCAKE_FRAME_SHAPE_WORD, cabi.PANCAKE_FRAME_SHAPE_WORD);
 
@@ -154,6 +146,10 @@ test "C header discriminants match the Zig c_abi source" {
     try expectConst(c.PANCAKE_VERSION_MAJOR, cabi.PANCAKE_VERSION_MAJOR);
     try expectConst(c.PANCAKE_VERSION_MINOR, cabi.PANCAKE_VERSION_MINOR);
     try expectConst(c.PANCAKE_VERSION_PATCH, cabi.PANCAKE_VERSION_PATCH);
+}
+
+test "C header resource limits match the Zig c_abi source" {
+    try expectConst(c.PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP, cabi.PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP);
 }
 
 test "C feature mask names every model feature exactly once" {

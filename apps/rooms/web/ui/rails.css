@@ -165,8 +165,15 @@
 	border-top: 1px solid var(--rule);
 }
 /* How this rail's label carries its "+", the rest of it being the label both
-   rails share, up beside the numbers they share. */
+   rails share, up beside the numbers they share.
+
+   It is also what the rail's filter panel hangs from, which is why it is a
+   positioned box. The panel is as wide as the section's content and starts at
+   its left edge, so it needs a containing block with those edges, and the head
+   already has them: the section pays the rail's padding, and the head's own
+   insets are padding rather than margin. */
 .section-head {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -287,7 +294,7 @@
 }
 /* The identity row: the home directory's grant, and a quiet count of the other
    names other directories granted, the full list on the row's title.
-   
+
    While this tab holds several marked directories the row wears that
    directory's own `data-dir`, and a pip in its colour leads the name — the
    same colour its rooms wear in the rail above, so the name reads as one

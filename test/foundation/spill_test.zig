@@ -22,7 +22,7 @@ test "a small straddle costs a small buffer, not a fixed floor" {
     var spill: Spill = .{};
     defer spill.deinit(allocator);
 
-    try spill.absorbBytes(allocator, &[_]u8{0} ** 10);
+    try spill.absorbBytes(allocator, &@as([10]u8, @splat(0)));
     try std.testing.expectEqual(@as(usize, 10), spill.bytes().len);
     try std.testing.expect(spill.buf.len < 64);
 }
@@ -35,7 +35,7 @@ test "a whole read buffer lands in one allocation" {
     var spill: Spill = .{};
     defer spill.deinit(allocator);
 
-    try spill.absorbBytes(allocator, &[_]u8{0} ** 16384);
+    try spill.absorbBytes(allocator, &@as([16384]u8, @splat(0)));
     try std.testing.expectEqual(@as(usize, 16384), spill.buf.len);
 }
 
@@ -62,13 +62,13 @@ test "a drained spill keeps what its tier asked it to keep" {
     defer spill.deinit(allocator);
 
     // Retain zero: the stream-reader posture, where spilling is the exception.
-    try spill.absorbBytes(allocator, &[_]u8{0} ** 8192);
+    try spill.absorbBytes(allocator, &@as([8192]u8, @splat(0)));
     spill.consume(allocator, 8192, 0);
     try std.testing.expect(!spill.isActive());
     try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
 
     // Retain a steady size: the byte-fed posture, where straddling is ordinary.
-    try spill.absorbBytes(allocator, &[_]u8{0} ** 8192);
+    try spill.absorbBytes(allocator, &@as([8192]u8, @splat(0)));
     spill.consume(allocator, 8192, 4096);
     try std.testing.expect(!spill.isActive());
     try std.testing.expectEqual(@as(usize, 4096), spill.buf.len);
@@ -76,7 +76,7 @@ test "a drained spill keeps what its tier asked it to keep" {
     // Under the bound, a drain keeps what it has rather than growing to meet it.
     var small: Spill = .{};
     defer small.deinit(allocator);
-    try small.absorbBytes(allocator, &[_]u8{0} ** 10);
+    try small.absorbBytes(allocator, &@as([10]u8, @splat(0)));
     const grown = small.buf.len;
     small.consume(allocator, 10, 4096);
     try std.testing.expectEqual(grown, small.buf.len);

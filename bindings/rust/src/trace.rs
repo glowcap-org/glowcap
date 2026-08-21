@@ -20,7 +20,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::abi_constants_gen::{TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN};
+use crate::abi_constants_gen::{
+	BINDING_TRACE_PAYLOAD_CAP_BYTES, TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN,
+};
 use crate::session::DurableProvenance;
 use crate::sys::host as ffi;
 
@@ -107,9 +109,8 @@ pub struct PayloadSummary {
 }
 
 /// Payload bytes forwarded per message (whole frame under the cap, head +
-/// true length above it). The TypeScript veneer exposes this as an
-/// `enableTrace` option; make it configurable here when a consumer asks.
-const PAYLOAD_CAP: usize = 4096;
+/// true length above it).
+const PAYLOAD_CAP: usize = BINDING_TRACE_PAYLOAD_CAP_BYTES;
 
 /// What this producer answers when a record asks what it runs. A constant and
 /// not an option: the host behind this binding is a pancake host, and letting

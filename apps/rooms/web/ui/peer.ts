@@ -19,7 +19,6 @@ import { createContext, useContext } from "react";
 import type { Reach } from "./intent.ts";
 import type {
 	AttachmentView,
-	Banner,
 	DirId,
 	DmConv,
 	OpsCap,
@@ -69,6 +68,14 @@ export interface Peer {
 	 * empty for as long as it is up; picking anything in the rail comes straight
 	 * back. */
 	reachFor(act: Reach): void;
+	/** Put the join card in front of the reader, filing no act.
+	 *
+	 * The card is already up and already answering something; this is somebody
+	 * walking back to it — from a phone's list screen, or from the rail's own
+	 * field — rather than asking to reach anywhere new. Filing an act here would
+	 * supersede the one they are answering and take every answer they had typed
+	 * under it with it. */
+	showJoinCard(): void;
 	/** Show what is known about one directory: its locator, how it is reaching
 	 * us, the name it granted, and Leave. Settings can open the same card for
 	 * the directory that served this page; every directory this tab holds uses
@@ -81,10 +88,6 @@ export interface Peer {
 	leaveDirectory(dir: DirId): void;
 	openConv(key: string): void;
 	closeDm(conv: DmConv): void;
-	/** Session status in the conversation column: reconnecting, and the like.
-	 * It stays until the session says otherwise. A refused copy or a refused
-	 * name is not this — those are `toast`. */
-	banner(message: Banner): void;
 	/** A page notice above every layer, including a modal. Several may be up;
 	 * each leaves on its own. */
 	toast(kind: ToastKind, text: string): void;
@@ -116,29 +119,21 @@ export interface Peer {
 	openOpsTake(cap: OpsCap): void;
 	/** Put Settings back after the take modal, taken or dismissed alike. */
 	closeOpsTake(): void;
+	/** Redeem the swiss number the server printed for `cap`, the way that
+	 * capability is redeemed: the two session-fetched ones on the live
+	 * directory session, the visualizer by presenting it to the timeline
+	 * endpoint. Empty when this tab now holds it, otherwise the reason it
+	 * would not take. `remember` keeps the swiss in this browser, keyed by
+	 * where it was redeemed, so a reload takes it again unasked. */
+	takeOpsCap(cap: OpsCap, pasted: string, remember?: boolean): Promise<string>;
 	/** Let go of a held operations capability: its toggle falls off, its pane
 	 * goes, and its swiss number is forgotten. */
 	dropOpsCap(cap: OpsCap): void;
+	/** Ask a held capability to say again what it holds. Nothing to ask, or
+	 * not held, is silently nothing. */
+	refreshOpsCap(cap: OpsCap): Promise<void>;
 	/** Which operations pane is selected while more than one is held. */
 	setOpsTab(tab: OpsCap): void;
-	/** Fetch the inspect capability printed when the rooms app was started
-	 * with `--diagnostics`. Empty when this tab now holds it. `remember`
-	 * keeps the swiss in this browser for the home directory, so a reload
-	 * takes it again unasked. */
-	takeDiagnosticCap(pasted: string, remember?: boolean): Promise<string>;
-	/** Ask the inspect capability in hand for a fresh snapshot. */
-	refreshDiagnostics(): Promise<void>;
-	/** Fetch the listeners capability printed when the rooms app was started
-	 * with `--admin-listeners`. Empty when this tab now holds it. `remember`
-	 * as above. */
-	takeListenersCap(pasted: string, remember?: boolean): Promise<string>;
-	/** Ask the listeners capability in hand for the live listeners. */
-	refreshListeners(): Promise<void>;
-	/** Present the viz swiss (minted when the rooms app was started with
-	 * `--viz`) to the live timeline endpoint; holding it is what
-	 * arms this tab's trace publishing. Empty when this tab now holds it.
-	 * `remember` as above, keyed by the endpoint rather than a directory. */
-	takeVizCap(pasted: string, remember?: boolean): Promise<string>;
 	/** Bring a listener up on a transport the server's own list named, with
 	 * values for whichever of the seat's declared knobs the reader filled in.
 	 * Empty when it came up, otherwise the refusal for the pane to show. */

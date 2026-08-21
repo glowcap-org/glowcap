@@ -289,8 +289,8 @@ pub fn main(init: std.process.Init) !void {
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
-    var addrs_buf: [512]u8 = undefined;
-    const server_addrs = try server.directAddrs(&addrs_buf);
+    const server_addrs = try server.directAddrsOwned(allocator);
+    defer allocator.free(server_addrs);
     std.debug.print("iroh-interop: server endpoint id {s} direct addrs {s}\n", .{ server_id, server_addrs });
 
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};

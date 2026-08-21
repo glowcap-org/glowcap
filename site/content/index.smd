@@ -1,8 +1,7 @@
 ---
 .title = "Object-capability RPC for OCapN, in Zig",
 .description = "pancake is a Zig library for OCapN and CapTP: object-capability RPC with no ambient authority to fall back on.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
 ---
@@ -13,19 +12,28 @@ it has been handed, and it cannot construct one it was not given. That is
 [OCapN](https://github.com/ocapn/ocapn). pancake is a
 [Zig](https://ziglang.org/) library that speaks it.
 
-Most network authorization works the other way around. You prove who you are,
-the service looks up what you are allowed to do, and anything you hand your
-credentials to inherits all of it. With references there is nothing to inherit:
-a program gets the objects you passed it and has no way to name anything else.
-[Why OCapN]($link.page('why')) explains the difference using protocols you
-already run.
+pancake is built with AI coding assistants. The maintainer directs the work
+and is answerable for what lands.
+[PROVENANCE.md](https://github.com/jimisaacs/pancake/blob/main/PROVENANCE.md)
+records how.
+
+If capabilities are new, [Why OCapN]($link.page('why')) holds them against the
+bearer tokens and login tables you already run.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
+The [rooms chat]($link.page('examples')) is that conversation between people:
+open a room, pick a member, and press Message. Native peers meet over
+[iroh]($link.page('transports/iroh')), encrypted QUIC with the node id as the
+identity.
+
+The same fetch-and-call over iroh:
+
 ```zig
-var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
-const partner = pancake.net.tcp.locator(designator);
+var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
+const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
+const node_id = "<64 lowercase hex characters from the server>";
+const partner = iroh.locator(node_id);
 const session = try pancake.driver.connect(
     allocator,
     &netlayers,
@@ -41,20 +49,20 @@ const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, a
 ```
 
 That is the conversation: dial, fetch a capability this peer published, call
-it. [Start building]($link.page('start')) fills in the transport resident, the
-allocators, and the deadlines.
+it. [Start building]($link.page('start')) fills in the other languages and
+transports.
 
-pancake is not released yet. Pin a commit, and expect the API to move.
+Pin a commit, and expect the API to move.
 [What you can depend on]($link.page('stability')) separates checked behavior
 from areas that still need external evidence.
 
 The protocol core does no I/O of its own. It is a synchronous state machine you
 feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
-in your program where you can see them. Peers can meet over Tor
-([onion]($link.page('transports/onion'))), sealed TCP
-([Noise]($link.page('transports/noise'))), encrypted discovery
-([iroh]($link.page('transports/iroh'))), or a browser DataChannel
-([WebRTC]($link.page('transports/webrtc'))), among other paths.
+in your program where you can see them. Peers can meet over encrypted discovery
+([iroh]($link.page('transports/iroh'))), sealed TCP
+([Noise]($link.page('transports/noise'))), a browser DataChannel
+([WebRTC]($link.page('transports/webrtc'))), or Tor
+([onion]($link.page('transports/onion'))), among other paths.
 [Choosing a transport]($link.page('transports/choosing')) is the decision table.
 
 Hold the library as a Zig package, a plain C ABI, or a native binding (Rust,
@@ -65,5 +73,4 @@ puts the `pancake` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.
 
 If the ideas are new, start at [Why OCapN]($link.page('why')). If you are ready
-to dial, go to [Start building]($link.page('start')). To see the same protocol
-as a conversation between people, run the [rooms chat]($link.page('examples')).
+to dial, go to [Start building]($link.page('start')).

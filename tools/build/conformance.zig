@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 const goblins_build = @import("goblins.zig");
 
 const pancakeExecutable = common.pancakeExecutable;
@@ -35,7 +36,7 @@ pub fn register(
     // breaks this consumer then fails fast on `zig build check` rather than only
     // under the uv-driven ocapn-conformance sibling.
     check_step.dependOn(&ocapn_peer_exe.step);
-    const ocapn_conformance = b.addSystemCommand(&.{ "bash", "conformance/ocapn-conformance/run-against-pancake.sh", "--peer" });
+    const ocapn_conformance = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "conformance/ocapn-conformance/run-against-pancake.sh", "--peer" });
     ocapn_conformance.addArtifactArg(ocapn_peer_exe);
     ocapn_conformance.setCwd(b.path("."));
     ocapn_conformance.has_side_effects = true;
@@ -59,7 +60,7 @@ pub fn register(
     const ocapn_onion_peer_options = b.addOptions();
     ocapn_onion_peer_options.addOption(bool, "use_onion", true);
     ocapn_onion_peer_exe.root_module.addOptions("ocapn_peer_options", ocapn_onion_peer_options);
-    const ocapn_conformance_onion = b.addSystemCommand(&.{ "bash", "conformance/ocapn-conformance/run-against-pancake-onion.sh", "--peer" });
+    const ocapn_conformance_onion = execution.addSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-pancake-onion.sh", "--peer" });
     ocapn_conformance_onion.addArtifactArg(ocapn_onion_peer_exe);
     ocapn_conformance_onion.setCwd(b.path("."));
     ocapn_conformance_onion.has_side_effects = true;
@@ -69,7 +70,7 @@ pub fn register(
     // Reproduce neutral discrepancies across the exact OCapN spec, suite, and
     // Goblins revisions pinned here. Unlike a prose watch item, the comparison
     // fails on a pin bump until the observation is re-evaluated.
-    const ocapn_findings = b.addSystemCommand(&.{ "sh", "conformance/ocapn-findings/check.sh" });
+    const ocapn_findings = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "sh", "conformance/ocapn-findings/check.sh" });
     ocapn_findings.setCwd(b.path("."));
     const ocapn_findings_step = b.step("ocapn-findings-check", "Reproduce neutral protocol discrepancies across the pinned OCapN spec, suite, and Goblins sources");
     ocapn_findings_step.dependOn(&ocapn_findings.step);
@@ -80,10 +81,10 @@ pub fn register(
     // step (needs racket + the syrup collection), not part of the hermetic
     // check; a deliberate corpus change regenerates with
     // `racket test/oracle/generate.rkt test/oracle/corpus`.
-    const fixture_gen = b.addSystemCommand(&.{"racket"});
+    const fixture_gen = execution.addSystemCommand(b, .build_tool, &.{"racket"});
     fixture_gen.addFileArg(b.path("test/oracle/generate.rkt"));
     const fixture_gen_out = fixture_gen.addOutputDirectoryArg("generated-fixtures");
-    const fixture_diff = b.addSystemCommand(&.{ "diff", "-r" });
+    const fixture_diff = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "diff", "-r" });
     fixture_diff.addDirectoryArg(b.path("test/oracle/corpus"));
     fixture_diff.addDirectoryArg(fixture_gen_out);
     const fixture_gen_check_step = b.step("fixture-gen-check", "Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup)");
@@ -117,7 +118,7 @@ pub fn register(
     // required; optional language runtimes exercise their production
     // validators when present and name each skipped port. It remains in
     // `check` because a soft-green extract is a footgun.
-    const c_abi_extract = b.addSystemCommand(&.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
+    const c_abi_extract = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     c_abi_extract.setCwd(b.path("."));
     const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse zip-slip/symlink, accept clean lib/ (ADR-0077)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);

@@ -29,8 +29,20 @@ static int fail(const char *what) {
     return 1;
 }
 
-/* Honor FLUSH by draining take_outbound into `pipe`. Other arms are NULL on
-   the hooks (no dials, no vows) — enough for the handshake shuttle. */
+/* Honor FLUSH by draining take_outbound into `pipe`. CLOSE, COMPLETE, DIAL,
+   and NEED_GIFT_ID fail the scene: a NULL arm would skip-consume them. */
+static int32_t refuse_unexpected(void *ctx, PancakeHost *host,
+    const PancakeHostAction *action, uint32_t *out_progressed) {
+    (void)ctx;
+    (void)host;
+    if (out_progressed) {
+        *out_progressed = 0;
+    }
+    fprintf(stderr, "host_embedder_pump: unexpected action kind %u\n",
+        (unsigned)action->kind);
+    return PANCAKE_ERR_INVALID_ARGUMENT;
+}
+
 static int32_t on_flush(void *ctx, PancakeHost *host,
     const PancakeHostAction *action, uint32_t *out_progressed) {
     FlushCtx *f = (FlushCtx *)ctx;
@@ -39,7 +51,8 @@ static int32_t on_flush(void *ctx, PancakeHost *host,
         *out_progressed = 0;
     }
     if (action->kind != PANCAKE_HOST_ACTION_FLUSH || action->session != f->session) {
-        return PANCAKE_OK;
+        fprintf(stderr, "host_embedder_pump: unexpected flush target\n");
+        return PANCAKE_ERR_INVALID_ARGUMENT;
     }
     for (;;) {
         PancakeManagedFrame frame;
@@ -75,19 +88,21 @@ static int drain_actions(PancakeHost *host, BytePipe *pipe, PancakeHostSession *
     PancakeHostPumpHooks hooks = {
         .ctx = &ctx,
         .flush = on_flush,
-        .close = NULL,
-        .need_gift_id = NULL,
-        .complete = NULL,
-        .dial = NULL,
+        .close = refuse_unexpected,
+        .need_gift_id = refuse_unexpected,
+        .complete = refuse_unexpected,
+        .dial = refuse_unexpected,
     };
     return pancake_host_pump_drain(host, &hooks, NULL, NULL);
 }
 
 static int feed_pipe(PancakeHostSession *to, BytePipe *pipe) {
     /* The library owns framing and the unconsumed tail, so one call moves
-       the whole pipe; an empty feed resumes frames the session held behind
-       its handshake open. */
-    int32_t rc = pancake_host_session_feed_bytes(to, pipe->buf, pipe->len);
+       the whole pipe; the resume verb dispatches frames the session held
+       behind its handshake open. */
+    int32_t rc = pipe->len == 0
+        ? pancake_host_session_resume_feed(to)
+        : pancake_host_session_feed_bytes(to, pipe->buf, pipe->len);
     if (rc != PANCAKE_OK) {
         return rc;
     }
@@ -171,18 +186,26 @@ static int32_t open_dialed(
     return pancake_host_session_open_dialed_locator(host, &locator, out_session);
 }
 
-static void release_session(PancakeHostSession **session) {
-    if (*session) {
-        pancake_host_session_release(*session);
+static int32_t release_session(PancakeHostSession **session) {
+    if (!*session) {
+        return PANCAKE_OK;
+    }
+    const int32_t rc = pancake_host_session_release(*session);
+    if (rc == PANCAKE_OK) {
         *session = NULL;
     }
+    return rc;
 }
 
-static void release_host(PancakeHost **host) {
-    if (*host) {
-        pancake_host_release(*host);
+static int32_t release_host(PancakeHost **host) {
+    if (!*host) {
+        return PANCAKE_OK;
+    }
+    const int32_t rc = pancake_host_release(*host);
+    if (rc == PANCAKE_OK) {
         *host = NULL;
     }
+    return rc;
 }
 
 static int scene_handshake(void) {
@@ -232,10 +255,22 @@ static int scene_handshake(void) {
     status = 0;
 
 done:
-    release_session(&dialed);
-    release_session(&accepted);
-    release_host(&client);
-    release_host(&server);
+    if (release_session(&dialed) != PANCAKE_OK) {
+        (void)fail("session_release");
+        status = 1;
+    }
+    if (release_session(&accepted) != PANCAKE_OK) {
+        (void)fail("session_release");
+        status = 1;
+    }
+    if (release_host(&client) != PANCAKE_OK) {
+        (void)fail("host_release");
+        status = 1;
+    }
+    if (release_host(&server) != PANCAKE_OK) {
+        (void)fail("host_release");
+        status = 1;
+    }
     return status;
 }
 
@@ -291,10 +326,22 @@ static int scene_refusal(void) {
     status = 0;
 
 done:
-    release_session(&tiny_acc);
-    release_session(&peer_dial);
-    release_host(&tiny);
-    release_host(&peer);
+    if (release_session(&tiny_acc) != PANCAKE_OK) {
+        (void)fail("session_release");
+        status = 1;
+    }
+    if (release_session(&peer_dial) != PANCAKE_OK) {
+        (void)fail("session_release");
+        status = 1;
+    }
+    if (release_host(&tiny) != PANCAKE_OK) {
+        (void)fail("host_release");
+        status = 1;
+    }
+    if (release_host(&peer) != PANCAKE_OK) {
+        (void)fail("host_release");
+        status = 1;
+    }
     return status;
 }
 
@@ -325,8 +372,14 @@ static int scene_transport_closed(void) {
     status = 0;
 
 done:
-    release_session(&c);
-    release_host(&h);
+    if (release_session(&c) != PANCAKE_OK) {
+        (void)fail("session_release");
+        status = 1;
+    }
+    if (release_host(&h) != PANCAKE_OK) {
+        (void)fail("host_release");
+        status = 1;
+    }
     return status;
 }
 

@@ -215,8 +215,8 @@ fn pairedWithLimitsInternal(
     });
     errdefer p2.deinit();
 
-    const zero_pubkey = [_]u8{0} ** crypto.PEER_KEY_BYTES;
-    const zero_sig = [_]u8{0} ** crypto.SIGNATURE_BYTES;
+    const zero_pubkey = @as([crypto.PEER_KEY_BYTES]u8, @splat(0));
+    const zero_sig = @as([crypto.SIGNATURE_BYTES]u8, @splat(0));
 
     try sendStartSession(&p1, defaultLocator("p1"), &zero_pubkey, &zero_sig);
     try sendStartSession(&p2, defaultLocator("p2"), &zero_pubkey, &zero_sig);

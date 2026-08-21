@@ -33,18 +33,20 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._host import Host
 
-from ._abi_value import _codec_id
-from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
+from ._abi_value import _DEFAULT_CODEC, _codec_id
+from ._constants import OK as _OK
 from ._constants import (
+    BINDING_STREAM_READ_CHUNK_BYTES,
     HINT_DIRECT_ADDRESSES,
+    RAW_TRANSPORT_DEFAULT_FRAME_CAP,
     TRANSPORT_KEYED_TCP,
     TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
 )
 from ._errors import PancakeError
 from ._ffi_ocapn import (
+    _borrowed_byte_frame,
     _copy_managed_frame,
-    _Frame,
     _ManagedFrame,
     _read_last_error,
     _str_buf,
@@ -129,7 +131,7 @@ class _TcpByteChannel:
         self._writer = writer
 
     async def read(self) -> "Optional[bytes]":
-        chunk = await self._reader.read(65536)
+        chunk = await self._reader.read(BINDING_STREAM_READ_CHUNK_BYTES)
         return chunk or None
 
     async def write(self, data: bytes) -> None:
@@ -280,8 +282,7 @@ class TcpConnection(_NativeHandleOwner):
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
-        buf = ctypes.create_string_buffer(frame, len(frame))
-        f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
+        f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._native.lease() as raw:
             _check_tcp(
                 _tcp_lib.pancake_tcp_conn_write_frame(
@@ -338,8 +339,8 @@ class TcpListener(_NativeHandleOwner):
 
     def accept(
         self,
-        codec: str = "syrup",
-        max_frame_bytes: int = 4096,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
         *,
         options: "Optional[StreamOptions]" = None,
     ) -> TcpConnection:
@@ -454,8 +455,8 @@ class TcpNetlayer(_NativeHandleOwner):
         self,
         host: str,
         port: int,
-        codec: str = "syrup",
-        max_frame_bytes: int = 4096,
+        codec: str = _DEFAULT_CODEC,
+        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
         *,
         options: "Optional[StreamOptions]" = None,
     ) -> TcpConnection:

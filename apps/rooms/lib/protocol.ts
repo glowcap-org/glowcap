@@ -262,7 +262,7 @@ export const OFFER_ROOM = "offerRoom";
  * directory repeats a claim it cannot vouch for: everyone it introduces will
  * dial what the registrant asked them to. The transport a member reaches the
  * directory over is not the one others reach the member over — a browser peer
- * arrives over relayed TCP while being reachable at a webrtc or keyed-relay
+ * arrives over relayed TCP while being reachable at a webrtc or noise-relay
  * designator —
  * so this is not a property of the member's own transport, and keying the
  * directory's connections is what would close it. */

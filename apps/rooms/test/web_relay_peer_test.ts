@@ -23,6 +23,7 @@ import { init } from "@pancake/web";
 // binds its adapter at load. So the browser peer's Host is minted from the
 // `init` returns, wearing the same pair every other rooms peer wears.
 import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -58,7 +59,7 @@ const deadline = setTimeout(() => fail("relay-peer scenario timed out after 30s"
 
 const httpPort = freePort();
 const roomPort = freePort();
-const web = new Deno.Command("deno", {
+spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -74,7 +75,7 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
-}).spawn();
+});
 
 try {
 	await waitForHttp(httpPort);
@@ -110,11 +111,6 @@ try {
 	);
 } finally {
 	clearTimeout(deadline);
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

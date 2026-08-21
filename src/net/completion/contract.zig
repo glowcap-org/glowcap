@@ -47,6 +47,9 @@
 //!     negative close result means the handle remains owned and the loop calls
 //!     `closeFd`.
 //!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;`
+//!   * `pub fn wireFraming(self: *Backend, fd: Fd)
+//!     model.transport.WireFraming;` — whether recv completions are arbitrary
+//!     byte-stream chunks or complete message packets for this connection.
 //!   * `pub fn recycleBorrowed(self: *Backend, completion: Completion) void;`
 //!     — release the exact receive buffer or cold-path failure record after the
 //!     loop has consumed it.
@@ -186,6 +189,7 @@ pub fn validateBackend(comptime Backend: type) void {
         "closeFd",
         "startDial",
         "shutdownFd",
+        "wireFraming",
         "submitAccept",
         "submitRecv",
         "submitSend",

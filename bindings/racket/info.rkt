@@ -9,5 +9,6 @@
 (define collection 'multi)
 (define deps '("base" "rfc6455"))
 (define build-deps '())
-;; Dogfood entry only — do not omit private/c-abi-resolve.json.
-(define compile-omit-paths '("zig-smoke.rkt"))
+;; Dogfood entries only — do not omit private/c-abi-resolve.json.
+(define compile-omit-paths '("zig-smoke.rkt" "test"))
+(define source-omit-files '("zig-smoke.rkt" "zig-smoke-fake-tor.rkt" "test"))

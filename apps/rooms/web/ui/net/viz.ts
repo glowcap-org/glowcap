@@ -22,7 +22,7 @@ import { publishViz, type VizPublisher } from "../../../lib/viz_publish.ts";
 import { pastedSwiss } from "../../../lib/operations.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
-import { reason } from "./common.ts";
+import { opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberedOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 
 /** How long a take waits for the endpoint's answer. Refusal and admission
@@ -66,11 +66,17 @@ function arm(
 		onRefused: (why) => {
 			if (held?.publisher !== publisher) return;
 			dropVizCap();
-			console.error("rooms: the timeline endpoint refused this tab's capability:", why);
 			hooks.onRefused(why);
 		},
 	});
-	held = { url, publisher, uninstall: enableTrace(publisher.sink) };
+	// Telemetry, not contents. The trace tap can forward each frame's bytes,
+	// and this tab's frames include direct messages whose other end never
+	// agreed to appear on a shared timeline. Room lines lose nothing by it:
+	// the room server publishes the same frames from its own side, and the
+	// endpoint folds the two sightings together on the frame digest, which is
+	// carried whatever the payload cap. What still travels from here is who
+	// this tab talked to, when, which verb, and how many bytes.
+	held = { url, publisher, uninstall: enableTrace(publisher.sink, { payloadCap: 0 }) };
 	store.setVizPublish({ url, connected: false });
 }
 
@@ -102,11 +108,16 @@ export async function takeVizCap(pasted: string, remember = false): Promise<stri
 	if (held !== null) dropVizCap();
 	const outcome = await new Promise<string>((resolve) => {
 		let settled = false;
-		const settle = (why: string) => {
-			if (settled) return;
+		// Whether this call is what answered the take, so a refusal arriving
+		// after an admitted one — the endpoint restarting under a swiss it no
+		// longer mints — is reported to the reader instead of resolving a
+		// promise nobody is waiting on any more.
+		const settle = (why: string): boolean => {
+			if (settled) return false;
 			settled = true;
 			clearTimeout(expiry);
 			resolve(why);
+			return true;
 		};
 		const expiry = setTimeout(
 			() => settle("The timeline endpoint did not answer. Check the visualizer URL and the server."),
@@ -114,7 +125,9 @@ export async function takeVizCap(pasted: string, remember = false): Promise<stri
 		);
 		arm(url, swiss, {
 			onAdmitted: () => settle(""),
-			onRefused: (why) => settle(why),
+			onRefused: (why) => {
+				if (!settle(why)) opsLost("viz", why);
+			},
 		});
 	});
 	if (outcome !== "") {
@@ -142,5 +155,8 @@ export async function ensureVizPublisher(): Promise<void> {
 	const swiss = rememberedOpsSwiss("viz", url);
 	if (swiss === null) return;
 	if (held !== null) return;
-	arm(url, pastedSwiss(swiss), { onRefused: () => {} });
+	// Nobody is waiting on this arm, so its refusal has no return path: a
+	// restarted endpoint minting a fresh swiss would otherwise turn the toggle
+	// off with no word for a capability the reader had asked to keep.
+	arm(url, pastedSwiss(swiss), { onRefused: (why) => opsLost("viz", why) });
 }

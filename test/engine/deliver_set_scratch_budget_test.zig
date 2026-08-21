@@ -2,7 +2,7 @@
 //!
 //! The borrowed inbound-deliver path validates a set argument by materializing
 //! its elements into the session's `recv_scratch` arena to hash them for
-//! duplicate refusal (`session.validate.checkInboundSetUniqueness`). That arena
+//! duplicate refusal (`session/validate/passable.zig`'s set-uniqueness fold). That arena
 //! is turn-scratch: `Session.validateInboundDeliverView` must reset it every turn,
 //! exactly as the other recv entry points do. Without the reset a partner
 //! streaming set-carrying `op:deliver` frames grows `recv_scratch` for the

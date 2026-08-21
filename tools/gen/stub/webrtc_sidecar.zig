@@ -77,19 +77,11 @@ export fn pancake_webrtc_sidecar_peer_is_open(peer: *const anyopaque) i32 {
     _ = peer;
     @panic(msg);
 }
-export fn pancake_webrtc_sidecar_conn_read(peer: *anyopaque, buf: [*]u8, len: usize) isize {
+export fn pancake_webrtc_sidecar_conn_try_receive_packet(peer: *anyopaque, buf: [*]u8, len: usize) isize {
     _ = .{ peer, buf, len };
     @panic(msg);
 }
-export fn pancake_webrtc_sidecar_conn_write(peer: *anyopaque, buf: [*]const u8, len: usize) isize {
-    _ = .{ peer, buf, len };
-    @panic(msg);
-}
-export fn pancake_webrtc_sidecar_conn_try_read(peer: *anyopaque, buf: [*]u8, len: usize) isize {
-    _ = .{ peer, buf, len };
-    @panic(msg);
-}
-export fn pancake_webrtc_sidecar_conn_try_write(peer: *anyopaque, buf: [*]const u8, len: usize) isize {
+export fn pancake_webrtc_sidecar_conn_try_send_packet(peer: *anyopaque, buf: [*]const u8, len: usize) isize {
     _ = .{ peer, buf, len };
     @panic(msg);
 }

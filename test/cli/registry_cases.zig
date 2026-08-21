@@ -159,7 +159,7 @@ test "json CapTP failure writes non-empty sink body (MCP/argv --json)" {
         .front = .mcp,
         .json = .json,
         .sink = .{ .buffer = &capture },
-        .secret = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{9} ** 32),
+        .secret = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
     };
     defer c.deinit();
 
@@ -305,7 +305,7 @@ test "registry dispatch unknown verb is usage" {
         .gpa = gpa,
         .environ = &environ,
         .front = .argv,
-        .secret = @import("pancake").foundation.crypto.SecretKey.fromSeed([_]u8{9} ** 32),
+        .secret = @import("pancake").foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
     };
     defer c.deinit();
     const code = try cli.registry.dispatch(&c, "no-such-verb", &.{});

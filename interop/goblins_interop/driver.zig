@@ -378,12 +378,12 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     // under load they routinely land together. `latchInboundAnswer` reads the
     // position off the deliver itself, which is the one place it is still
     // visible.
-    var seen_ops = [_]bool{false} ** 8;
+    var seen_ops = @as([8]bool, @splat(false));
     std.debug.assert(scenario.expect_inbound_ops.len <= seen_ops.len);
     const pump_deadline = harness.deadlineAfter(io, deadline_ms);
     while (true) {
         if (harness.expired(io, pump_deadline)) break;
-        const progress = try conn.pump();
+        const progress = try goblins_child.pumpPoll(&conn);
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();

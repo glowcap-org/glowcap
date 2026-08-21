@@ -1,8 +1,7 @@
 ---
 .title = "Bindings",
 .description = "Use pancake from Rust, TypeScript, Python, or Racket through one shared C ABI and composable transport archives.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -16,7 +15,7 @@ these bindings with the Zig package, C ABI, CLI, and browser package.
 
 [All four bindings wrap the same C ABI, so the session operations and transport choices stay aligned across languages.]($image.siteAsset('diagram-bindings.svg'))
 
-## One contract, four idioms
+# One contract, four idioms
 
 A `Session` gives you the verbs in the
 [bindings contract](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md).
@@ -44,15 +43,16 @@ Stay at the level you need: synchronous verbs, the language's own async sockets,
 or the Goblins-shaped actor layer on top with near-call and eventual-send
 ([modules]($link.page('modules'))).
 
-## Use a binding from a checkout
+# Use a binding from a checkout
 
-The packages and archives are not published yet. Pin a pancake checkout, run
-`zig build`, and use the binding in that checkout. Bindings find
+The packages and archives live in a pancake checkout. Pin a commit, run
+`zig build`, and use the binding in that tree. Bindings find
 `zig-out/lib` by default; set `PANCAKE_LIB_DIR` if the archives live elsewhere.
 
 The [binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md)
-has the path for each language. The TCP provider archive already carries
-`tcp`, `keyed-tcp`, and `noise-tcp`. Add an optional transport archive when you
-need [iroh]($link.page('transports/iroh')),
-[onion]($link.page('transports/onion')), or
-[WebRTC]($link.page('transports/webrtc')).
+has the path for each language. Compose
+[iroh]($link.page('transports/iroh')),
+[onion]($link.page('transports/onion')),
+[Noise]($link.page('transports/noise')), or
+[WebRTC]($link.page('transports/webrtc'))
+from their archives. The TCP archive also carries testing `tcp`.

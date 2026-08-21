@@ -272,7 +272,7 @@ pub const HelloHints = struct {
         }
         if (effective.codec != baseline.codec) {
             // A `u16` in decimal fits five digits; the buffer holds eight.
-            const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@intFromEnum(effective.codec)}) catch unreachable;
+            const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@backingInt(effective.codec)}) catch unreachable;
             entries[write] = .{ .name = model.transport.hint_codec, .value = .{ .string = digits } };
             write += 1;
         }
@@ -324,6 +324,55 @@ fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bo
         .designator = locator.designator,
         .hints = model.Hints.emptyFalse(),
     };
+}
+
+/// Verify the partner's `op:start-session` location signature: real Ed25519
+/// over the profile-level canonical `<my-location …>` signing input, against
+/// the claimed session key. Syrup preserves exact received location bytes;
+/// codecs without that capture canonicalize the neutral locator into the same
+/// signing domain. Malformed material or a failed check returns
+/// `InvalidStartSessionSignature`.
+///
+/// This is the one verification body for inbound dispatch and the in-process
+/// keyed pairing driver, so the two handshake paths cannot drift. Canonical
+/// signing bytes are transient and nothing is retained.
+pub fn verifyPartnerStartSession(
+    allocator: std.mem.Allocator,
+    ss: model.view.StartSession,
+) !void {
+    const crypto = foundation.crypto;
+    const pubkey = crypto.PeerKey.fromSlice(ss.session_pubkey) catch
+        return error.InvalidStartSessionSignature;
+    const sig = switch (ss.acceptable_location_sig) {
+        .halves => |h| crypto.Signature.fromParts(h.r, h.s) catch
+            return error.InvalidStartSessionSignature,
+        .raw => |raw| crypto.Signature.fromSlice(raw) catch
+            return error.InvalidStartSessionSignature,
+    };
+    const signed = if (ss.acceptable_location_raw) |raw|
+        try codec.signed.locationBytesRaw(allocator, raw)
+    else signed: {
+        // Borrow transport/designator and projected hints; materialize only the
+        // lazy arm. Signing needs full hint fidelity, not URI projection.
+        var owned_hints: ?model.Hints = null;
+        defer if (owned_hints) |h| model.freeHints(allocator, h);
+        const hints: model.Hints = switch (ss.acceptable_location.hints) {
+            .empty => |wire_form| .{ .wire_form = wire_form },
+            .projected => |h| h,
+            .lazy => blk: {
+                owned_hints = try ss.acceptable_location.hints.toOwned(allocator);
+                break :blk owned_hints.?;
+            },
+        };
+        const location: model.PeerLocator = .{
+            .transport = ss.acceptable_location.transport,
+            .designator = ss.acceptable_location.designator,
+            .hints = hints,
+        };
+        break :signed try codec.signed.locationBytes(allocator, location);
+    };
+    defer allocator.free(signed);
+    crypto.verify(pubkey, signed, sig) catch return error.InvalidStartSessionSignature;
 }
 
 /// The common locator has at most one routing hint plus the three profile

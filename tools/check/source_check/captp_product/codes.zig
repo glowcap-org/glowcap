@@ -26,8 +26,8 @@ pub fn checkHostErrorCodeMap(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const declaring = "src/driver/core/host.zig";
-    const mapping = "src/driver/core/host_failure.zig";
+    const declaring = "src/driver/core/host/errors.zig";
+    const mapping = "src/driver/core/host/failure.zig";
     const projection = "src/ocapn/engine/abort_projection.zig";
 
     const host_source = root.readFileAlloc(io, declaring, gpa, .limited(4 << 20)) catch |err| {

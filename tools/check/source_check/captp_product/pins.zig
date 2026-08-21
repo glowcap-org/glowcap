@@ -23,9 +23,10 @@ const expectFileContains = util.expectFileContains;
 ///
 /// The verbs are the whole story only while nothing reaches the state
 /// behind them, so the last row is containment rather than a call ban: the
-/// field name `durable_pin` may appear in the file that declares it and
-/// nowhere else. That covers a field write, a flag write inside the pin, and a
-/// read that would let a caller re-derive a verdict of its own — which the
+/// field name `durable_pin` may appear only in the aggregate that declares it
+/// and the identity owner that implements its verbs. That covers a field
+/// write, a flag write inside the pin, and a read that would let a caller
+/// re-derive a verdict of its own — which the
 /// previous spelling, a ban on one assignment form, did not: the pin's fields
 /// are public, so `peer.durable_pin.?.remote_proved = true` matched no needle
 /// and wrote evidence from anywhere. Reads go through the accessors beside the
@@ -88,14 +89,17 @@ pub fn checkDurablePinWriters(
         .{
             .call = ".bindVerifiedChannelKey(",
             .declaration = "pub fn bindVerifiedChannelKey(",
-            .declared_in = "src/ocapn/engine/mod.zig",
+            .declared_in = "src/ocapn/engine/peer/identity.zig",
             .speakers = &.{
-                "src/net/transport/iroh.zig",
-                "src/net/transport/webrtc.zig",
+                "src/net/transport/iroh/resident.zig",
                 "src/driver/bridge.zig",
-                "src/driver/host_runtime.zig",
-                "src/driver/core/host.zig",
+                "src/driver/host_runtime/connections.zig",
+                "src/driver/host_runtime/opens.zig",
+                "src/driver/host_runtime/resident_pump.zig",
+                "src/driver/core/host/session.zig",
+                "src/driver/core/host/session/ingress.zig",
                 "src/c_abi/host/session.zig",
+                "interop/webrtc_common.zig",
             },
             .standing = "it realized the connection, or it carries the testimony of an embedder that did",
             .foreign = .{ .entry = "pancake_host_session_bind_verified_channel_key" },
@@ -104,8 +108,11 @@ pub fn checkDurablePinWriters(
             .call = "durable_pin",
             .declaration = "durable_pin: DurablePin = .{}",
             .declared_in = "src/ocapn/engine/mod.zig",
-            .speakers = &.{"src/ocapn/engine/mod.zig"},
-            .standing = "it declares the pin, so every write goes through the verbs beside it and every read through the accessors beside them",
+            .speakers = &.{
+                "src/ocapn/engine/mod.zig",
+                "src/ocapn/engine/peer/identity.zig",
+            },
+            .standing = "the aggregate declares the pin and the identity module owns all its verbs, so no other reader or writer can re-derive provenance",
             .foreign = .{ .none_because = "it is the state the verbs write, not a fact anyone states; C reads the verdict through pancake_host_session_partner_identity" },
         },
     };

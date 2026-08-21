@@ -437,16 +437,22 @@
 /* Inline completion: the list a sigil raises over the composer. One column,
    keyboard-first — the picked row is state, not :hover, so the arrows and the
    pointer highlight the same way. Anchored like the emoji tray, sized to its
-   rows, and never taller than a handful: ranking already did the narrowing. */
+   rows. A command list is every command this conversation can run, which is more
+   than fits above a composer, so the box is bounded and scrolls rather than
+   growing until it meets the topbar. Bounded in rows rather than pixels, so the
+   fold lands between two rows and not through one: a half-drawn row is the
+   clearest thing a list can do to say there is more, and a list cut mid-row
+   reads as broken. The keyboard scrolls with the pick, in Composer.tsx, because
+   a row picked below the fold is otherwise picked invisibly. */
 /* Against the field it is completing, not the band around it. Anchored to the
-   composer's own top edge it stood forty-three pixels clear of the input, with
-   the reserved hint line in the space between, and read as a thing that had
-   arrived rather than one the caret had raised. This measures past the fade and
-   that line so it rests just above the box being typed in. */
+   composer's own top edge it stood forty-three pixels clear of the input and
+   read as a thing that had arrived rather than one the caret had raised. Only
+   the clear space above the field stands between the two now, so that is all
+   this measures past, and the list rests just above the box being typed in. */
 .complete-pop {
 	position: absolute;
-	bottom: calc(100% - var(--composer-fade) - var(--composer-status-h) - var(--composer-status-gap) + 6px);
-	left: 20px;
+	bottom: calc(100% - var(--composer-clear) + 6px);
+	left: var(--composer-side);
 	/* As wide as what it holds, up to the cap: one name is a small list and was
 	   being drawn as a bar the width of the longest command's summary. */
 	width: max-content;
@@ -462,9 +468,17 @@
 	padding: 3px;
 	box-shadow: var(--shadow);
 	z-index: 6;
+	/* One row, derived from what a row is made of rather than measured off one,
+	   so the fold stays on a row boundary if either part moves. */
+	--complete-row-h: calc((var(--type-ui) * 1.35) + 10px);
+	max-height: calc((var(--complete-row-h) * 8.5) + 6px);
+	overflow-y: auto;
+	/* The log is behind this, and reading it is not what a reader is doing while
+	   they are picking a command. */
+	overscroll-behavior: contain;
 }
-/* While the list is up, the line above the field is answering the wrong
-   question: it says what Enter does, and Enter belongs to the list. */
+/* While the list is up, the line under the field is answering the wrong
+   question. It says what Enter does, and Enter belongs to the list. */
 .composer:has(#completePop) .composer-status {
 	visibility: hidden;
 }

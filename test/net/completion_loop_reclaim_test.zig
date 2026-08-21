@@ -33,6 +33,11 @@ const DeadPeerBackend = struct {
     pub fn applyKeepalive(_: *DeadPeerBackend, _: Fd, _: completion.Keepalive) !void {
         return error.OperationUnsupported;
     }
+
+    pub fn wireFraming(_: *DeadPeerBackend, _: Fd) model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     const ok_fd: Fd = 200;
     // -ECONNRESET on Linux: the shape a vanished-then-surfaced peer produces.
     const read_error: i64 = -104;

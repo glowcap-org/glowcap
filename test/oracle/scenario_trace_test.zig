@@ -153,7 +153,7 @@ test "driven gc releases the export and the answer across paired peers" {
 test "driven handoff parks the early withdraw, settles it on deposit, and the redeemed cap answers directly" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenHandoff(allocator, .syrup);
+    const actual = try oracle.handoff.run(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -234,9 +234,9 @@ test "projections trace is identical on Syrup and Cap'n Proto" {
 test "handoff trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runDrivenHandoff(allocator, .syrup);
+    const syrup = try oracle.handoff.run(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runDrivenHandoff(allocator, .capnp);
+    const capnp = try oracle.handoff.run(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);

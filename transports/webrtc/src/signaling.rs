@@ -38,17 +38,20 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			endpoint: endpoint.clone(),
 			id,
 			close_started: AtomicBool::new(false),
+			pc: Mutex::new(None),
 			dc: Mutex::new(None),
 			inbound: Arc::new((
 				Mutex::new(Inbound {
-					buf: VecDeque::new(),
+					packets: VecDeque::new(),
+					queued_bytes: 0,
 					closed: false,
+					failed: false,
 				}),
 				Condvar::new(),
 			)),
 			drained: Arc::new(Notify::new()),
 			outbound: Arc::new(Mutex::new(Outbound {
-				buf: BytesMut::new(),
+				packets: VecDeque::new(),
 				queued_bytes: 0,
 				closed: false,
 			})),
@@ -56,8 +59,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			open: Arc::new(Mutex::new(OpenGate {
 				open: false,
 				closed: false,
+				failed: false,
 			})),
-			local_candidates: Arc::new(Mutex::new(VecDeque::new())),
+			local_candidates: Arc::new(Mutex::new(LocalCandidates::new())),
 		});
 		let handler = Arc::new(PeerEvents {
 			shared: shared.clone(),
@@ -74,6 +78,10 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			Ok(pc) => pc,
 			Err(_) => return std::ptr::null_mut(),
 		};
+		*shared.pc.lock().unwrap() = Some(Arc::downgrade(&pc));
+		if shared.open.lock().unwrap().closed {
+			close_shared_async(&shared);
+		}
 
 		if is_offerer != 0 {
 			let init = RTCDataChannelInit {
@@ -102,7 +110,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 /// must retry with a larger buffer.
 ///
 /// # Safety
-/// `out` must point to `cap` writable bytes; `out_len` must be a valid pointer.
+/// `out` must point to `cap` writable bytes. `out_len` may be null; when
+/// non-null it receives the required byte count.
 unsafe fn write_out(text: &str, out: *mut u8, cap: usize, out_len: *mut usize) -> i32 {
 	let bytes = text.as_bytes();
 	if !out_len.is_null() {
@@ -113,6 +122,51 @@ unsafe fn write_out(text: &str, out: *mut u8, cap: usize, out_len: *mut usize) -
 	}
 	std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len());
 	OK
+}
+
+pub(crate) fn signal_output_fits(text: &str) -> bool {
+	text.len() <= MAX_SIGNAL_BYTES
+}
+
+pub(crate) unsafe fn signal_output_too_large(text: &str, out_len: *mut usize) -> bool {
+	if signal_output_fits(text) {
+		return false;
+	}
+	if !out_len.is_null() {
+		*out_len = text.len();
+	}
+	true
+}
+
+pub(crate) unsafe fn signal_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
+	if ptr.is_null() || len > MAX_SIGNAL_BYTES {
+		return None;
+	}
+	std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).ok()
+}
+
+pub(crate) unsafe fn candidate_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
+	if ptr.is_null() || len > MAX_ICE_CANDIDATE_BYTES {
+		return None;
+	}
+	std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).ok()
+}
+
+pub(crate) unsafe fn write_local_candidate(
+	queue: &mut LocalCandidates,
+	out: *mut u8,
+	cap: usize,
+	out_len: *mut usize,
+) -> i32 {
+	let text = match queue.items.front() {
+		Some(text) => text.as_str(),
+		None => return WOULD_BLOCK,
+	};
+	let rc = write_out(text, out, cap, out_len);
+	if rc == OK {
+		queue.release_front();
+	}
+	rc
 }
 
 /// Produce this peer's SDP offer: `create_offer` then `set_local_description`,
@@ -136,6 +190,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_offer(
 			Ok(offer) => offer,
 			Err(_) => return ERR,
 		};
+		if signal_output_too_large(&offer.sdp, out_len) {
+			return SIGNAL_TOO_LARGE;
+		}
 		if peer
 			.shared
 			.endpoint
@@ -172,6 +229,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 			Ok(answer) => answer,
 			Err(_) => return ERR,
 		};
+		if signal_output_too_large(&answer.sdp, out_len) {
+			return SIGNAL_TOO_LARGE;
+		}
 		if peer
 			.shared
 			.endpoint
@@ -191,7 +251,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 /// (set by the offerer).
 ///
 /// # Safety
-/// `peer` live; `sdp` points to `sdp_len` readable bytes of UTF-8.
+/// `peer` live; `sdp` points to `sdp_len` readable bytes of UTF-8, with
+/// `sdp_len <= MAX_SIGNAL_BYTES`.
 #[no_mangle]
 pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
 	peer: *mut PancakeWebrtcPeer,
@@ -204,13 +265,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		if sdp.is_null() {
-			return ERR;
-		}
-		let bytes = std::slice::from_raw_parts(sdp, sdp_len);
-		let text = match std::str::from_utf8(bytes) {
-			Ok(text) => text.to_string(),
-			Err(_) => return ERR,
+		let text = match signal_text(sdp, sdp_len) {
+			Some(text) => text.to_string(),
+			None => return ERR,
 		};
 		let desc = if is_offer != 0 {
 			RTCSessionDescription::offer(text)
@@ -239,7 +296,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
 /// `peer_next_local_candidate` produced.
 ///
 /// # Safety
-/// `peer` live; `cand` points to `cand_len` readable bytes of UTF-8 JSON.
+/// `peer` live; `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
+/// `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
 #[no_mangle]
 pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_add_remote_candidate(
 	peer: *mut PancakeWebrtcPeer,
@@ -251,13 +309,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_add_remote_candidate(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		if cand.is_null() {
-			return ERR;
-		}
-		let bytes = std::slice::from_raw_parts(cand, cand_len);
-		let text = match std::str::from_utf8(bytes) {
-			Ok(text) => text,
-			Err(_) => return ERR,
+		let text = match candidate_text(cand, cand_len) {
+			Some(text) => text,
+			None => return ERR,
 		};
 		let init: RTCIceCandidateInit = match serde_json::from_str(text) {
 			Ok(init) => init,
@@ -295,16 +349,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_next_local_candidate(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let mut queue = peer.shared.local_candidates.lock().unwrap();
-		let text = match queue.front() {
-			Some(text) => text.clone(),
-			None => return WOULD_BLOCK,
-		};
-		let rc = write_out(&text, out, cap, out_len);
-		if rc == OK {
-			queue.pop_front();
-		}
-		rc
+		write_local_candidate(&mut peer.shared.local_candidates.lock().unwrap(), out, cap, out_len)
 	}))
 	.unwrap_or(ERR)
 }

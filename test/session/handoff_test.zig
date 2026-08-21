@@ -83,16 +83,16 @@ test "inbound give admission rejects wrong recipient and gift width atomically" 
         s.deinit();
     }
 
-    const local_key = [_]u8{0x31} ** 32;
-    const remote_key = [_]u8{0x32} ** 32;
+    const local_key = @as([32]u8, @splat(0x31));
+    const remote_key = @as([32]u8, @splat(0x32));
     try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
     try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
     s.captp_version = .next;
 
-    const session_name = [_]u8{0x41} ** 32;
-    const gifter_side = [_]u8{0x42} ** 32;
-    const valid_gift_id = [_]u8{0x43} ** model.HANDOFF_GIFT_ID_BYTES;
-    const wrong_key = [_]u8{0x44} ** 32;
+    const session_name = @as([32]u8, @splat(0x41));
+    const gifter_side = @as([32]u8, @splat(0x42));
+    const valid_gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x43));
+    const wrong_key = @as([32]u8, @splat(0x44));
     var handoff = model.Handoff{ .give = .{
         .recipient_key = &wrong_key,
         .exporter = .{ .transport = "memory", .designator = "exporter" },
@@ -128,12 +128,12 @@ test "v1 inbound give admission enforces recipient and gift-id domain" {
     var s = session.Session.initWith(std.testing.allocator, .{ .negotiating = true });
     defer s.deinit();
 
-    const local_key = [_]u8{0x51} ** 32;
-    const remote_key = [_]u8{0x52} ** 32;
+    const local_key = @as([32]u8, @splat(0x51));
+    const remote_key = @as([32]u8, @splat(0x52));
     try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
     try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
 
-    const valid_gift_id = [_]u8{0x53} ** model.HANDOFF_GIFT_ID_BYTES;
+    const valid_gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x53));
     var handoff = model.Handoff{ .give = .{
         .recipient_key = "not-this-session-key",
         .exporter = .{ .transport = "memory", .designator = "exporter" },
@@ -166,9 +166,9 @@ test "outbound give admission requires the partner session key" {
     var s = session.Session.initWith(std.testing.allocator, .{ .negotiating = true });
     defer s.deinit();
 
-    const local_key = [_]u8{0x61} ** 32;
-    const partner_key = [_]u8{0x62} ** 32;
-    const gift_id = [_]u8{0x63} ** model.HANDOFF_GIFT_ID_BYTES;
+    const local_key = @as([32]u8, @splat(0x61));
+    const partner_key = @as([32]u8, @splat(0x62));
+    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x63));
     try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
     try s.recordRecv(startSessionMessageWithKey(.v1_0, &partner_key));
 

@@ -47,6 +47,10 @@ extern "C" {
 #define PANCAKE_SEALED_CHANNEL_NONE 0
 /* PancakeTransportProfile.sealed_channel: Host composes Noise_XK. */
 #define PANCAKE_SEALED_CHANNEL_NOISE_XK 1
+/* PancakeTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0110 envelopes. */
+#define PANCAKE_WIRE_FRAMING_BYTE_STREAM 0
+/* PancakeTransportProfile.wire_framing: each packet is one bare codec frame. */
+#define PANCAKE_WIRE_FRAMING_MESSAGE 1
 /* PancakeProviderFailure.carrier_phase: no carrier phase is available. */
 #define PANCAKE_CARRIER_PHASE_NONE 0
 /* Carrier failure occurred during name resolution. */
@@ -230,6 +234,10 @@ typedef struct PancakeTransportProfile {
     uint32_t designator_scheme;
     /* PANCAKE_SEALED_CHANNEL_*. */
     uint32_t sealed_channel;
+    /* PANCAKE_WIRE_FRAMING_*. */
+    uint32_t wire_framing;
+    /* Maximum packet payload bytes, or 0 for no transport cap. */
+    size_t max_packet_bytes;
 } PancakeTransportProfile;
 typedef struct PancakeStreamTransport {
     /* PANCAKE_STREAM_TRANSPORT_ABI_VERSION. */

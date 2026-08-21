@@ -54,11 +54,11 @@
    (get-ffi-obj 'pancake_webrtc_peer_id L (_fun _pointer -> _size))
    'peer-is-open
    (get-ffi-obj 'pancake_webrtc_peer_is_open L (_fun _pointer -> _int32))
-   'peer-try-read
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_read L (_fun _pointer _pointer _size _pointer -> _int32))
+   'peer-try-receive-packet
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_receive_packet L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
-   'peer-try-write
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_write L (_fun _pointer _pointer _size _pointer -> _int32))
+   'peer-try-send-packet
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_send_packet L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-close
    (get-ffi-obj 'pancake_webrtc_peer_close L (_fun _pointer -> _void))

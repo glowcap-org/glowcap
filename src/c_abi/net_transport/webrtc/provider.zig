@@ -1,7 +1,7 @@
 //! Generic multiplexed-provider projection of the WebRTC ownership graph.
 //!
 //! Signaling remains in the public WebRTC ABI. This leaf only lets the driver
-//! claim an already-authorized open peer and perform nonblocking byte I/O.
+//! claim an already-authorized open peer and perform nonblocking packet I/O.
 
 const std = @import("std");
 
@@ -59,6 +59,7 @@ fn claimExternal(ctx: ?*anyopaque, subject: u64, out_conn: ?*u64, out_failure: ?
     peer.peer.checkOpen() catch |err| return switch (err) {
         error.WouldBlock => c.transport_provider.failProvider(out_failure, PANCAKE_ERR_WOULD_BLOCK, err),
         error.Closed => c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, err),
+        error.Failed => c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err),
     };
     peer.provider_claimed = true;
     peer.references += 1;
@@ -71,8 +72,9 @@ fn tryRead(ctx: ?*anyopaque, conn: u64, buf: ?[*]u8, cap: usize) callconv(.c) is
     const dest = buf orelse return -1;
     const peer = payload.peers.get(@intCast(conn)) orelse return -1;
     if (!peer.provider_claimed) return -1;
-    const n = peer.peer.tryRead(dest[0..cap]) catch |err| {
+    const n = peer.peer.tryReceivePacket(dest[0..cap]) catch |err| {
         if (err == error.WouldBlock) return c.multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
+        if (err == error.Closed) return 0;
         if (c.transport_provider.providerFailureEmpty(peer.failure))
             c.transport_provider.setProviderFailure(&peer.failure, PANCAKE_ERR_IO, err);
         return -1;
@@ -85,7 +87,7 @@ fn tryWrite(ctx: ?*anyopaque, conn: u64, bytes: ?[*]const u8, len: usize) callco
     const src = bytes orelse return -1;
     const peer = payload.peers.get(@intCast(conn)) orelse return -1;
     if (!peer.provider_claimed) return -1;
-    const n = peer.peer.tryWrite(src[0..len]) catch |err| {
+    const n = peer.peer.trySendPacket(src[0..len]) catch |err| {
         if (err == error.WouldBlock) return c.multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(peer.failure))
             c.transport_provider.setProviderFailure(&peer.failure, PANCAKE_ERR_IO, err);
@@ -157,6 +159,8 @@ fn ensureInitialized(payload: *NetlayerPayload) void {
         .transport_name_len = transport_name.len,
         .designator_scheme = c.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY,
         .sealed_channel = c.transport_provider.PANCAKE_SEALED_CHANNEL_NONE,
+        .wire_framing = c.transport_provider.PANCAKE_WIRE_FRAMING_MESSAGE,
+        .max_packet_bytes = webrtc.max_packet_bytes,
     };
     payload.multiplexed_transport = .{
         .abi_version = c.multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION,

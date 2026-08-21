@@ -8,6 +8,7 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const pancake = @import("pancake");
 const model = pancake.ocapn.model;
+const crypto = pancake.foundation.crypto;
 const keyed_relay = pancake.net.relay;
 const stream_framing = pancake.foundation.stream_framing;
 
@@ -81,9 +82,9 @@ fn appendStreamOutbound(pipe: *BytePipe, prefix: []const u8, bytes: []const u8) 
 /// pancake_host_session_feed_bytes, presenting at most `chunk` bytes per
 /// call so frames split at pathological boundaries, including mid-frame. The
 /// library owns the tail, so every presented byte is consumed; the leading
-/// empty feed resumes any frames the session held behind its handshake open.
+/// resume feeds any frames the session held behind its handshake open.
 fn shuttleBytes(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession, pipe: *BytePipe, chunk: usize) !bool {
-    try expectOk(cd.pancake_host_session_feed_bytes(to, null, 0));
+    try expectOk(cd.pancake_host_session_resume_feed(to));
     var moved = false;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
@@ -111,6 +112,50 @@ fn shuttleBytes(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession, pipe
     }
     pipe.len = 0;
     return moved;
+}
+
+/// Drain `from` through the generic transport-packet seam and feed each packet
+/// to `to`. WebRTC is message-framed, so the Host must return no stream prefix:
+/// one drained frame is one transport packet.
+fn shuttleMessagePackets(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession) !bool {
+    var moved = false;
+    while (true) {
+        var mf: c.PancakeManagedFrame = undefined;
+        var prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+        var prefix_len: usize = undefined;
+        const rc = cd.pancake_host_session_take_packet(
+            from,
+            &mf,
+            &prefix,
+            prefix.len,
+            &prefix_len,
+        );
+        if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
+        try expectOk(rc);
+        defer c.pancake_managed_frame_release(&mf);
+        try std.testing.expectEqual(@as(usize, 0), prefix_len);
+        try expectOk(cd.pancake_host_session_feed_packet(to, mf.bytes, mf.len));
+        moved = true;
+    }
+    return moved;
+}
+
+fn pumpMessagePackets(hosts: []const ?*cd.PancakeHost, pair: Pair, dials: *Dials, watches: *Watches) !void {
+    var rounds: usize = 0;
+    var quiet: usize = 0;
+    while (rounds < 128) : (rounds += 1) {
+        var progressed = false;
+        if (try shuttleMessagePackets(pair.a, pair.b)) progressed = true;
+        if (try shuttleMessagePackets(pair.b, pair.a)) progressed = true;
+        if (try drainActions(hosts, dials, watches)) progressed = true;
+        if (progressed) {
+            quiet = 0;
+        } else {
+            quiet += 1;
+            if (quiet == 2) return;
+        }
+    }
+    return error.PumpDidNotQuiesce;
 }
 
 /// `pump`, but every frame crosses as a chunked byte stream. Quiesces after
@@ -185,6 +230,33 @@ test "libpancake_host: feed_bytes delimits a chunked byte stream end to end, bot
         try std.testing.expectEqual(@as(usize, 0), pipes[0].len);
         try std.testing.expectEqual(@as(usize, 0), pipes[1].len);
     }
+}
+
+test "libpancake_host: transport packets carry bare frames for message-framed transports" {
+    const client = try newHost(0x91);
+    defer _ = cd.pancake_host_release(client);
+    const server = try newHost(0x92);
+    defer _ = cd.pancake_host_release(server);
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+
+    const server_seed = hostSeed(0x92);
+    const server_designator = crypto.SecretKey.fromSeed(server_seed[0..32].*).publicKey().toDesignator();
+    try ensureAdvertisedLocator(client, "webrtc");
+    var accepted: ?*cd.PancakeHostSession = null;
+    try expectOk(openAcceptedKeyed(server, "webrtc", server_designator[0..], "", &accepted));
+    var dialed: ?*cd.PancakeHostSession = null;
+    try expectOk(openDialed(client, "webrtc", 6, server_designator[0..].ptr, server_designator.len, &dialed));
+    const pair = Pair{ .a = dialed, .b = accepted };
+    try pumpMessagePackets(&hosts, pair, &dials, &watches);
+    try std.testing.expect(cd.pancake_host_session_is_open(dialed) != 0);
+    try std.testing.expect(cd.pancake_host_session_is_open(accepted) != 0);
+    try expectOk(cd.pancake_host_session_resume_feed(accepted));
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_CODEC,
+        cd.pancake_host_session_feed_packet(accepted, null, 0),
+    );
 }
 
 test "libpancake_host: producers honor their minted outbound high-water until frames drain" {
@@ -539,13 +611,13 @@ test "libpancake_host: feed_bytes stops at the session-open transition so a coal
     try expectOk(cd.pancake_host_session_feed_bytes(accepted, &buf, len));
     try std.testing.expect(cd.pancake_host_session_is_open(accepted) != 0);
 
-    // The embedder acts on the fresh session — publish — then resumes the
-    // held tail with an empty feed, and the fetch that rode behind the hello
+    // The embedder acts on the fresh session — publish — then asks the Host
+    // to resume retained input, and the fetch that rode behind the hello
     // answers correctly.
     var counter = Counter{};
     var widget_local_ref: c.PancakeReference = .{ .id = 0 };
     try expectOk(cd.pancake_host_session_publish(accepted, "widget", 6, widgetBehavior, &counter, null, &widget_local_ref));
-    try expectOk(cd.pancake_host_session_feed_bytes(accepted, null, 0));
+    try expectOk(cd.pancake_host_session_resume_feed(accepted));
 
     var dials = Dials{};
     var watches = Watches{};

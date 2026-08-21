@@ -82,7 +82,7 @@ pub fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
 pub fn applyExportRange(self: *Node, target: *engine.Peer) !void {
     const promised = std.math.add(
         usize,
-        self.freed_export_bases.items.len,
+        self.freed_export_bases.liveLen(),
         self.export_base_return_reservations,
     ) catch return error.OutOfMemory;
     const required = std.math.add(usize, promised, 1) catch return error.OutOfMemory;
@@ -107,24 +107,7 @@ pub fn exportBaseEndFor(base: u64) u64 {
 /// this node to hold every range in its slot at once, which the connection
 /// budget stops first; a node that merely churns connections recycles.
 pub fn takeExportBase(self: *Node) !u64 {
-    const queued = self.freed_export_bases.items;
-    if (self.freed_export_head < queued.len) {
-        const base = queued[self.freed_export_head];
-        self.freed_export_head += 1;
-        const live = queued.len - self.freed_export_head;
-        if (live == 0) {
-            self.freed_export_bases.clearRetainingCapacity();
-            self.freed_export_head = 0;
-        } else if (self.freed_export_head >= live and self.freed_export_head >= 64) {
-            // Slide the queue down once the dead prefix has grown past what
-            // is still in it, so steady churn holds capacity near the
-            // outstanding count instead of growing a cursor forever.
-            std.mem.copyForwards(u64, queued[0..live], queued[self.freed_export_head..]);
-            self.freed_export_bases.shrinkRetainingCapacity(live);
-            self.freed_export_head = 0;
-        }
-        return base;
-    }
+    if (self.freed_export_bases.pop(self.allocator)) |base| return base;
     if (self.next_export_base >= self.export_base_end) return session_mod.Error.ExportRangeExhausted;
     const base = self.next_export_base;
     self.next_export_base += export_range_span;
@@ -137,6 +120,6 @@ pub fn takeExportBase(self: *Node) !u64 {
 /// finite range space under allocator pressure.
 pub fn recycleExportBase(self: *Node, base: u64) void {
     std.debug.assert(self.export_base_return_reservations != 0);
-    self.freed_export_bases.appendAssumeCapacity(base);
+    self.freed_export_bases.pushReserved(base);
     self.export_base_return_reservations -= 1;
 }

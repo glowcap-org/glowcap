@@ -96,9 +96,9 @@ the bytes and raise the budget deliberately, in the constant and in
 | --- | --- |
 | `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1136) | one session's struct |
 | `test/engine/footprint_budget_test.zig` | a warmed session's core state at or under 2 KiB |
-| `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (128). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
+| `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop/state.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (128). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
 | `CompletionBackend.connection_state_bytes` / `secure_connection_state_bytes` in `test/net/keyed_relay_completion*_test.zig` | the completion-backed keyed-relay adapter state at exactly 248 bytes for a clear leg; WSS alone adds a sparse 37,216-byte TLS state including its two fixed 18 KiB record windows. Clear legs pay none of it. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
-| `@sizeOf(HostSession)` comptime in `src/driver/core/host.zig` | the byte-fed host shell. The Host session ceiling is 528 bytes (ADR-0107's sealed-channel pointer is the last eight); narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per session, and a `Peer` lives behind a pointer |
+| `@sizeOf(HostSession)` comptime in `src/driver/core/host/session.zig` | the byte-fed host shell. The Host session ceiling is 528 bytes (ADR-0107's sealed-channel pointer is the last eight); narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per session, and a `Peer` lives behind a pointer |
 | `test/actors/vat_footprint_budget_test.zig` | a burst-then-quiescent Vat back under the arena and one-spare bounds |
 | `test/engine/deliver_set_scratch_budget_test.zig` | a big-set frame's recv scratch under its bound |
 
@@ -106,9 +106,9 @@ Retained capacity is bounded per owner, so a burst cannot pin its peak for the
 connection's life:
 
 - The engine's four peer queues each bound retained backing at
-  `steady_queue_bytes = 4096` (`src/ocapn/engine/mod.zig`), freeing burst
-  capacity at the drain for the named price of one growth re-allocation when the
-  next burst begins.
+  `steady_retain_bytes: usize = 4096` (`src/ocapn/engine/peer/queue.zig`),
+  freeing burst capacity at the drain for the named price of one growth
+  re-allocation when the next burst begins.
 - `Session.recv_scratch` keeps only `steady_recv_scratch_bytes = 384`
   (`src/ocapn/session/mod.zig`, beside the field). It is far smaller than the
   queues' bound because the session answers to the 2 KiB core-state budget and
@@ -195,8 +195,8 @@ pointing it at nothing.
   only while nonzero does `step` scan imported-promise rows for stored values
   with listeners. No clone anywhere on the single-store path; held by behavior
   tests rather than a budget test.
-- **Proxy fan-out** — `Node.proxyForeignPromiseFulfill`,
-  `Node.stageInlinePassable`. One home `op:listen` is shared across recipients,
+- **Proxy fan-out** — `proxy_admission.foreignPromiseFulfill`,
+  `passable_batches.stage`. One home `op:listen` is shared across recipients,
   never N listens. The Host lifts the fire once; each recipient owns one bounded
   materialization because its references, gives, and promise positions differ.
   Admission owns one fixed terminal-break buffer and action seat per recipient,
@@ -269,12 +269,16 @@ pointing it at nothing.
   An immediate withdrawal never owns the inbound tree. A Syrup-forwarded give
   carries its exact signed envelope, so receive bypasses typed hints; Cap'n
   Proto's lazy hints project into bounded scratch freed before return.
-- **Gift registry** — `engine.bootstrap.GiftRegistry`. Per-`Peer` rows on the gpa
-  with precise frees, **never a bump arena**, which cannot reclaim an overwritten
-  row and would leak every re-deposit. The outbound message is built and queued
-  before an infallible commit removes the gift, so queue OOM leaves it
-  retryable. **Because a consumed row is gone, the row count _is_ the live-gift
-  count**, so `max_deposited_gifts` needs no parallel counter.
+- **Gift registry** — `engine.bootstrap.gifts.GiftRegistry`. A lazy per-`Peer`
+  owner keeps rows on the gpa with precise frees, **never a bump arena**, which
+  cannot reclaim an overwritten row and would leak every re-deposit. Whole-row
+  requested bytes — map key/slice, payload tag, opaque id, provenance, and
+  variable owned reference data — are admitted before allocation or authority
+  adoption, then charged exactly through replacement, withdrawal, and teardown.
+  The outbound message is built and queued before an infallible commit removes
+  the gift, so queue OOM leaves it retryable. **Because a consumed row is gone,
+  the row count _is_ the live-gift count**, so `max_deposited_gifts` needs no
+  parallel counter; `max_deposited_gift_bytes` owns cumulative retained size.
 - **Swissnum miss diagnostic** — `resolveForSwissnum` (`engine/bootstrap.zig`).
   One string dupe on the unknown-name break path, because the diagnostic must
   outlive the resolving frame and `send` frees the resolution it rides in. The
@@ -289,7 +293,7 @@ pointing it at nothing.
   attacker-selected gift-id length out of coordination state**; signed bytes stay
   the authority, so a collision costs one bounded retry. Deposit and close
   notification allocate nothing after the first group.
-- **Redeem dial parts** — `Node.stagePendingDial`. Parse the exporter URI once
+- **Redeem dial parts** — `Node.stageDial`. Parse the exporter URI once
   into identity and dial parts, keep no verbatim URI, and carry only the ticket
   in `Node.Action.dial` / `HostAction.dial`. An unparseable locator fails closed
   with no staged heap. **No re-parse anywhere on the redeem dial path.**
@@ -412,8 +416,8 @@ pointing it at nothing.
   directly into that same WebSocket staging path; refused TLS sends retry from
   allocation-free intrusive links in bounded turns, never by cloning the
   application payload or adding a per-connection thread.
-- **iroh provider connection-id table** — `LoopAdapter`
-  (`src/c_abi/net_transport/iroh/mod.zig`, ADR-0112). One POD row per live
+- **iroh provider connection-id table** — `MultiplexedAdapter`
+  (`src/c_abi/net_transport/iroh/ownership.zig`, ADR-0112). One POD row per live
   loop connection, mapping the sidecar's stable id to its handle, because
   drained records carry ids while the sidecar verbs take handles. Rows enter
   at `finish_connect`, free precisely at `conn_close`, and netlayer release
@@ -447,6 +451,9 @@ pointing it at nothing.
   `WouldBlock` alone is coalesced success because unread bytes already make the
   fd readable; every other write or drain fault is latched by the owning
   runtime and settles or terminalizes its admitted work.
+  Locally gathered ICE candidates are retained only in that peer's signaling
+  queue, capped at 256 records and 64 KiB total text; overflow terminalizes the
+  peer as a transport failure instead of growing control-plane memory.
 - **WebRTC signaling transfer** — `SignalPayloadPool` in the native completion
   backend. `provideAnswer` and `provideRemoteCandidate` are callable from
   foreign threads, while a caller-supplied Zig allocator may be single-threaded.
@@ -508,7 +515,7 @@ pointing it at nothing.
   blocking wait (`BlockingSession.call`, `driver.Promise.settle`, `SettleCapture`).
   Severs the turn-borrowed resolution so the returned `Settled` outlives the
   drive. `fetch` and `enliven` stay allocation-free.
-- **Unobserved vow completion** — `driver_core` host `queueCompletion`. One deep
+- **Unobserved vow completion** — `queueVowCompletion`. One deep
   clone per settle with no in-process listener, **moved, never re-cloned**, into
   whoever drains it, because the embedder reads it after `feed` returns. The
   drain-side re-clone was re-derived against the full option set and deleted: the

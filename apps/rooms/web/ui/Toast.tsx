@@ -1,10 +1,11 @@
 // Transient notices above every layer of the page, including a modal dialog.
 //
 // A refused invite, a rail that would not take a name, a copy the browser
-// blocked — anything that answers for a moment and then should get out of the
-// way — lands here rather than in the conversation banner, which is a status of
-// the session and stays until the session says otherwise. Several may be up at
-// once. A new one pushes the others down; dismissing one lets them close the gap.
+// blocked. Anything that answers for a moment and then should get out of the way
+// lands here rather than on a row in the rail, where a directory's own standing
+// is said and stays until that directory says otherwise. Several may be up at
+// once. A new one pushes the others down, and dismissing one lets them close the
+// gap.
 //
 // A native modal makes the rest of the document inert, and the dialog itself
 // covers the viewport, so a stack that lived beside it could paint above and

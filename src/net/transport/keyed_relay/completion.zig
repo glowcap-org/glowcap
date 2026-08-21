@@ -7,17 +7,19 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
+const model = @import("model");
 const carrier_failure = @import("../../carrier_failure.zig");
 const completion = @import("../../completion/loop.zig");
-const protocol = @import("../../websocket/client_protocol.zig");
+const protocol = @import("../../websocket.zig").client_protocol;
 const completion_buffers = @import("completion/buffers.zig");
 const completion_dial_race = @import("completion/dial_race.zig");
 const completion_dial_identity = @import("completion/dial_identity.zig");
 const completion_machines = @import("completion/machines.zig");
+const completion_poll = @import("completion/poll.zig");
 const completion_resolver = @import("completion/resolver.zig");
 const completion_state = @import("completion/state.zig");
-const completion_options = @import("completion_options.zig");
-const dial_resolver = @import("dial_resolver.zig");
+const completion_options = @import("completion/options.zig");
+const dial_resolver = @import("completion/target.zig");
 const route = @import("route.zig");
 
 const crypto = foundation.crypto;
@@ -120,6 +122,60 @@ pub fn CompletionBackend(comptime Platform: type) type {
         };
         const DialRace = completion_dial_race.Machine(Self, Types, DialRaceAccess);
         pub const white_box = completion_dial_race.WhiteBox(Self, Types, DialRace);
+        const PollAccess = struct {
+            pub fn armPlatformRecv(backend: *Self, c: *RelayConn) !void {
+                try backend.armPlatformRecv(c);
+            }
+
+            pub fn retryPendingDialCloses(backend: *Self) void {
+                DialRace.retryPendingCloses(backend);
+            }
+
+            pub fn retryPendingSecureSends(backend: *Self) void {
+                Tls.retryPendingSends(backend);
+            }
+
+            pub fn retryPendingCloses(backend: *Self) void {
+                Lifecycle.retryPendingCloses(backend);
+            }
+
+            pub fn resolverCompleted(backend: *Self, job: *completion_resolver.Job) void {
+                DialRace.resolverCompleted(backend, job);
+            }
+
+            pub fn isDialInternal(user_data: u64) bool {
+                return DialIdentity.owns(user_data);
+            }
+
+            pub fn isInternal(user_data: u64) bool {
+                return Types.isInternal(user_data);
+            }
+
+            pub fn dispatchDial(backend: *Self, comp: completion.Completion) void {
+                DialRace.dispatch(backend, comp);
+            }
+
+            pub fn dispatchInternal(backend: *Self, comp: completion.Completion) void {
+                Dispatch.dispatch(backend, comp) catch |err| {
+                    const id = internalId(comp.user_data);
+                    if (backend.conns.get(id)) |c| {
+                        const phase = Dispatch.failurePhase(c, comp);
+                        if (Tls.has(backend, c)) Tls.platformFailed(backend, c, phase, .{
+                            .user_data = comp.user_data,
+                            .result = -1,
+                            .failure = err,
+                        }, err);
+                        Lifecycle.failWith(backend, c, phase, err);
+                    }
+                };
+            }
+        };
+        const Poll = completion_poll.Machine(
+            Self,
+            PollAccess,
+            operation_retry_ms,
+            resolver_wake_ud,
+        );
 
         /// Heap-resident adapter state added by one live keyed-relay leg,
         /// excluding temporary buffer capacity and hash-table bucket overhead.
@@ -279,7 +335,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .rng = std.Random.DefaultCsprng.init(if (relay_options) |options|
                     options.entropy_seed
                 else
-                    [_]u8{0} ** std.Random.DefaultCsprng.secret_seed_length),
+                    @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0))),
             };
         }
 
@@ -332,6 +388,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 return self.platform.applyKeepalive(c.os_fd, keepalive);
             }
             return self.platform.applyKeepalive(fd, keepalive);
+        }
+
+        pub fn wireFraming(self: *Self, fd: Fd) model.transport.WireFraming {
+            if (idFromFd(fd) != null) return .byte_stream;
+            return self.platform.wireFraming(fd);
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
@@ -445,78 +506,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
-            if (self.resolver) |resolver| {
-                while (resolver.takeCompleted()) |job|
-                    DialRace.resolverCompleted(self, job);
-                if (resolver.hasLiveJobs() and !self.resolver_wake_armed)
-                    resolver.maintainWake(self, resolver_wake_ud);
-            }
-            DialRace.retryPendingCloses(self);
-            Tls.retryPendingSends(self);
-            Lifecycle.retryPendingCloses(self);
-            // Pool starvation is an owed platform arm, but polling does not
-            // create capacity. Retry only after a wrapped buffer is recycled;
-            // this preserves fairness without a submission busy-spin.
-            if (self.recv_recycle_progress) {
-                self.recv_recycle_progress = false;
-                try self.retryPlatformRecvStarvation();
-            }
-            const has_ready = self.ready.len() > 0;
-            var tmp: [256]completion.Completion = undefined;
-            // One consumed platform completion can fail a pending connect, recv,
-            // and send together. Reserve the complete projection before asking
-            // the platform to surrender any terminal record; after that point
-            // every user completion is infallible even under allocator pressure.
-            self.ready.ensureUnusedCapacity(self.allocator, tmp.len * 3) catch {
-                // Already-earned completions remain deliverable under allocator
-                // pressure. The wrapped platform stays untouched and is polled
-                // on the next turn after the caller drains some queue state.
-                if (has_ready) return self.ready.drain(out);
-                return error.OutOfMemory;
-            };
-            const resolver_unarmed = if (self.resolver) |resolver|
-                resolver.hasLiveJobs() and !self.resolver_wake_armed
-            else
-                false;
-            const effective_timeout = if (has_ready)
-                0
-            else if (self.close_retries.count == 0 and self.tls_send_retries.count == 0 and
-                self.dial_close_retry_count == 0 and !resolver_unarmed)
-                timeout_ms
-            else if (timeout_ms < 0)
-                operation_retry_ms
-            else
-                @min(timeout_ms, operation_retry_ms);
-            const n = try self.platform.poll(&tmp, effective_timeout);
-            for (tmp[0..n]) |comp| {
-                if (comp.user_data == resolver_wake_ud) {
-                    self.resolver_wake_armed = false;
-                    if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
-                    const resolver = self.resolver orelse unreachable;
-                    try resolver.drainWake();
-                    while (resolver.takeCompleted()) |job|
-                        DialRace.resolverCompleted(self, job);
-                    if (resolver.hasLiveJobs()) resolver.maintainWake(self, resolver_wake_ud);
-                } else if (isDialInternal(comp.user_data)) {
-                    DialRace.dispatch(self, comp);
-                } else if (isInternal(comp.user_data)) {
-                    Dispatch.dispatch(self, comp) catch |err| {
-                        const id = internalId(comp.user_data);
-                        if (self.conns.get(id)) |c| {
-                            const phase = Dispatch.failurePhase(c, comp);
-                            if (Tls.has(self, c)) Tls.platformFailed(self, c, phase, .{
-                                .user_data = comp.user_data,
-                                .result = -1,
-                                .failure = err,
-                            }, err);
-                            Lifecycle.failWith(self, c, phase, err);
-                        }
-                    };
-                } else {
-                    self.ready.appendAssumeCapacity(comp);
-                }
-            }
-            return self.ready.drain(out);
+            return Poll.poll(self, out, timeout_ms);
         }
 
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {
@@ -601,18 +591,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (c.pending.recv or c.state == .closing) return;
             try self.platform.submitRecv(internalUd(.recv, c.id), c.os_fd);
             c.pending.arm(.recv);
-        }
-
-        fn retryPlatformRecvStarvation(self: *Self) !void {
-            while (self.recv_retries.head != 0) {
-                const c = self.conns.get(self.recv_retries.head) orelse unreachable;
-                if (c.state == .closing or c.external_recv_ud == null) {
-                    self.recv_retries.removeQueued(&self.conns, c);
-                    continue;
-                }
-                try self.armPlatformRecv(c);
-                self.recv_retries.removeQueued(&self.conns, c);
-            }
         }
 
         fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Fd {

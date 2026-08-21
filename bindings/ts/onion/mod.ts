@@ -74,12 +74,20 @@ import {
 } from "@pancake/runtime/transport";
 import type { Codec, DriverProvider, Locator, ProviderTarget, Ptr } from "@pancake/runtime/transport";
 import { onionS } from "./ffi.ts";
-import { TRANSPORT_ONION } from "@pancake/abi";
+import {
+	ONION_AUTH_COOKIE,
+	ONION_AUTH_NONE,
+	ONION_AUTH_PASSWORD,
+	ONION_SERVICE_ID_LEN,
+	ONION_SERVICE_KEY_CAP,
+	RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+	TRANSPORT_ONION,
+} from "@pancake/abi";
 
 const OK = 0;
 
 /** A version 3 onion service id is always exactly this many characters. */
-export const SERVICE_ID_LENGTH = 56;
+export const SERVICE_ID_LENGTH = ONION_SERVICE_ID_LEN;
 
 /** Build the hint-free locator standardized for an onion service. */
 export function locator(serviceId: string): Locator {
@@ -93,9 +101,9 @@ export function locator(serviceId: string): Locator {
 
 // The three forms a real `torrc` produces, matching PANCAKE_ONION_AUTH_* in
 // `include/pancake_net_transport_onion.h`.
-const AUTH_NONE = 0;
-const AUTH_COOKIE = 1;
-const AUTH_PASSWORD = 2;
+const AUTH_NONE = ONION_AUTH_NONE;
+const AUTH_COOKIE = ONION_AUTH_COOKIE;
+const AUTH_PASSWORD = ONION_AUTH_PASSWORD;
 
 /** How the control endpoint expects to be authenticated.
  *
@@ -419,7 +427,7 @@ export class Listener {
 	 *
 	 * The partner's claimed location is unverified here: Tor tells a hidden
 	 * service nothing about who dialed it. */
-	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Promise<Connection> {
+	accept(codec: Codec = "syrup", maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP): Promise<Connection> {
 		requireOffThreadFfi("onion", "accept");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		return this.#operations.run(() =>
@@ -510,7 +518,7 @@ export class Netlayer {
 		return this.#native.use(async (raw) => {
 			const id = new Uint8Array(SERVICE_ID_LENGTH);
 			const idLen = new Uint8Array(8);
-			const key = new Uint8Array(256);
+			const key = new Uint8Array(ONION_SERVICE_KEY_CAP);
 			const keyLen = new Uint8Array(8);
 			const out = new Uint8Array(8);
 			await checkDiagnosedCall(
@@ -550,7 +558,7 @@ export class Netlayer {
 	connect(
 		serviceId: string,
 		codec: Codec = "syrup",
-		maxFrameBytes = 4096,
+		maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
 	): Promise<Connection> {
 		requireOffThreadFfi("onion", "connect");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);

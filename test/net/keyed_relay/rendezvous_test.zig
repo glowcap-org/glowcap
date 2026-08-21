@@ -51,7 +51,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://LOCALHOST:{d}/register", .{port});
 
-    const identity = crypto.SecretKey.fromSeed([_]u8{0x6e} ** crypto.SEED_BYTES);
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6e)));
 
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,
@@ -65,6 +65,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     defer _ = dialer.deinit();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &server, allocator });
+    defer _ = relay_future.cancel(io) catch {};
 
     // `listen` schedules registration without performing network I/O itself.
     // The relay fixture accepts that leg first and pings it before accepting
@@ -77,6 +78,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     defer netlayer_test.close(listener);
 
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
+    defer _ = serve_future.cancel(io) catch {};
 
     // `listenBlocking` consumes the pending construction result only after
     // registration, so the cold dial cannot race the relay's registration
@@ -155,7 +157,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
         .{target_port},
     );
 
-    const identity = crypto.SecretKey.fromSeed([_]u8{0x7a} ** crypto.SEED_BYTES);
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x7a)));
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,
         io,
@@ -168,6 +170,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
     defer _ = dialer.deinit();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &target_server, allocator });
+    defer _ = relay_future.cancel(io) catch {};
 
     const listener = try netlayer_test.listenBlocking(registered.netlayer(), allocator, .{
         .designator = "",
@@ -175,6 +178,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
     });
     defer netlayer_test.close(listener);
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
+    defer _ = serve_future.cancel(io) catch {};
 
     const advertised = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, advertised);
@@ -219,7 +223,7 @@ test "keyed-relay refuses malformed, typed, duplicate, and oversized relay hints
     var resident = try keyed_relay.Resident.init(allocator, threaded.io(), "ws://127.0.0.1:1/relay");
     defer _ = resident.deinit();
 
-    const identity = crypto.SecretKey.fromSeed([_]u8{0x7b} ** crypto.SEED_BYTES);
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x7b)));
     const designator = identity.publicKey().toDesignator();
 
     // A listener cannot truthfully advertise the dial URL when registration

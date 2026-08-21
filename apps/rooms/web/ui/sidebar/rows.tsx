@@ -1,23 +1,27 @@
 // Rows in the rooms rail: a room you are in, a directory with nothing open,
 // an invitation waiting, and the mark that ends a row.
 
-import {
-	type DirId,
-	dirMark,
-	type DirView,
-	type Invitation,
-	membersHere,
-	type RoomConv,
-	type SessionPhase,
-} from "../types.ts";
-import { directoryName, roomCalled } from "../text.ts";
+import { type DirId, type DirView, type Invitation, membersHere, type RoomConv, type SessionPhase } from "../types.ts";
+import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
-import { PHASE_SAID } from "../text.ts";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 
 export function Empty({ text }: { text: string }) {
 	return <li className="empty">{text}</li>;
+}
+
+/** What a list says when the filter is holding every one of its rows back.
+ *
+ * Two different things a reader has to tell apart: a list with nothing in it,
+ * and a list whose rows are all hidden. Both lists say it the same way, so the
+ * words live here beside the row that carries them rather than once per
+ * list. */
+export const nothingMatches = "Nothing here matches the filter.";
+
+/** And what a list says when the filter is holding only some of them back. */
+export function heldBack(hidden: number): string {
+	return hidden === 1 ? "1 more, hidden by the filter" : hidden + " more, hidden by the filter";
 }
 
 /** The mark that ends a row, in the slot the row's badge otherwise fills. Both
@@ -57,33 +61,41 @@ export function RowClose(
  * The badge is unread, for the same reason: a head-count is somebody else's
  * activity, and nothing on this list should move or change because of it. */
 export function RoomRow(
-	{ conv, unread, here, directory, mark, phase, onPick, onLeave, onAbout }: {
+	{ conv, unread, here, where, home, phase, onPick, onLeave, onAbout }: {
 		conv: RoomConv;
 		unread: number;
 		here: boolean;
-		/** What to call the directory this room is in, or null while this tab holds
-		 * only one and saying so would be noise. It is drawn on the row, not only
-		 * spoken: the colour beside it is the glance, and this is what carries the
-		 * same fact for a reader who cannot use colour. */
-		directory: string | null;
-		/** Which mark that directory wears, or undefined when none wears one. Set
-		 * together with `directory`, never alone, so a colour is never the only thing
-		 * telling two rooms apart. */
-		mark: string | undefined;
+		/** Which directory this room is in, as words and as the color beside
+		 * them, or nothing at all while this tab holds one directory and saying
+		 * so would be noise. The words are drawn on the row as well as spoken in
+		 * its label, and the color is only the glance, so `DirWhere` is what
+		 * keeps a color from ever being the whole of what a reader is given. */
+		where: DirWhere;
+		/** The directory this page came from, so the caption can name the one this
+		 * room is on even where the drawn line has nothing worth naming. */
+		home: DirId | null;
 		phase: SessionPhase;
 		onPick: (conv: RoomConv) => void;
 		onLeave: (key: string) => void;
 		onAbout: (dir: DirId) => void;
 	},
 ) {
+	const directory = where.name;
+	// How the directory serving this room is doing, and empty while it is
+	// connected. A room you cannot reach is a fact about this row, so it is said
+	// here rather than once for a page that may be holding rooms on a directory
+	// with nothing wrong with it.
+	const standing = dirStanding(phase);
 	// The row opens the room and carries a second control beside it to leave.
 	// Both are real buttons: an interactive control nested inside another is a
 	// structure no assistive software can read out.
 	//
 	// Leaving lives in the badge's slot, so the row gives up no width to hold it
 	// and no name is cut short for a mark that is not showing.
-	const where = directory === null ? "" : " in " + directory;
-	const unwell = phase === "connected" ? "" : ", directory " + phase;
+	const inDir = directory === null ? "" : " in " + directory;
+	// The written phrase, never the raw token: a row that read out
+	// ", directory reconnecting" was saying a word nothing else on the page says.
+	const unwell = phase === "connected" ? "" : ", directory " + phaseWord(phase);
 	// The sigil belongs in the spoken name too. The row draws it, the header
 	// draws it, and a reader who hears "annex" where everyone else reads "#annex"
 	// is being told about a different thing. A private room has no hash-name, so
@@ -100,12 +112,12 @@ export function RoomRow(
 	// pointer — but that was the ordering, not the number, and the ordering is
 	// gone.
 	const people = membersHere(conv.members);
-	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + where +
+	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : "") + unwell;
 	return (
 		<li
 			className={[here ? "here" : "", conv.held ? "held" : ""].filter(Boolean).join(" ")}
-			data-dir={mark}
+			data-dir={where.mark}
 		>
 			<button
 				type="button"
@@ -124,24 +136,33 @@ export function RoomRow(
 					? <span className="rcount">{people}</span>
 					: null}
 			</button>
-			{directory !== null && (
-				// A sibling of the row's own button, never inside it: a control within a
-				// control is a shape no assistive software can announce, and this one
-				// goes somewhere different from the row it sits under.
+			{(directory !== null || standing !== "") && (
+				// A sibling of the row's own button, never inside it: a control within
+				// a control is a shape no assistive software can announce, and this one
+				// goes somewhere different from the row it sits under. It is where a
+				// reader asks what this directory is, which belongs on the row because
+				// the directory is a fact about the room rather than about a box the
+				// room was put in.
+				//
+				// How that directory is doing goes on the same line for the same
+				// reason, and is what brings the line out while this tab holds one
+				// directory: naming the only directory there is would be noise, and a
+				// room a reader cannot reach never is.
 				<Button
 					variant="caption"
 					className="rwhere"
-					title={directory}
-					aria-label={"About " + directory}
+					title={directory ?? undefined}
+					aria-label={dirCaptionSaid(directoryName(conv.dir, home), phase)}
 					onClick={() => onAbout(conv.dir)}
 				>
 					<Icon name="directory" size={12} />
-					<span className="rwhere-said">in {directory}</span>
+					{directory !== null && <span className="rwhere-said">in {directory}</span>}
+					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
 			<RowClose
 				title="Leave"
-				said={"Leave " + named + where +
+				said={"Leave " + named + inDir +
 					(conv.held ? ". You can only return if somebody hands it to you again" : "")}
 				oneWay={conv.held}
 				onClose={() => onLeave(conv.key)}
@@ -150,32 +171,32 @@ export function RoomRow(
 	);
 }
 
-/** A directory this tab is on with nothing open on it.
- *
- * The same row a room gets, because it is the same kind of thing: somewhere you
- * are. Its mark is the directory glyph rather than a room's sigil, the line
- * under it says why it is here, and the way out gives the whole directory back
- * instead of one room. Pressing it opens the join card already aimed here, which
- * is the one thing anybody wants from a server they are on and in no room on. */
 /** A room somebody handed this tab, waiting to be taken up or let go.
  *
  * Above the rooms, and only while there are any: it is the one row in the rail
  * that is asking rather than telling, and a reader who has none should see no
- * trace of the idea. */
+ * trace of the idea.
+ *
+ * Which directory the offer arrived on matters here as much as it does on a
+ * room: the same person may be reachable on two of them and mean two people,
+ * and taking the offer up puts this reader in a room on one of them. So its
+ * label names the directory it arrived on and it wears that directory's
+ * color. */
 export function InviteRow(
-	{ invite, mark, onTake, onDrop }: {
+	{ invite, where, onTake, onDrop }: {
 		invite: Invitation;
-		mark: string | undefined;
+		where: DirWhere;
 		onTake: (id: string) => void;
 		onDrop: (id: string) => void;
 	},
 ) {
+	const onDir = where.name === null ? "" : " on " + where.name;
 	return (
-		<li className="inviterow" data-dir={mark}>
+		<li className="inviterow" data-dir={where.mark}>
 			<button
 				type="button"
 				className="room-open"
-				aria-label={`Take up ${invite.from}'s invitation to ${invite.label}`}
+				aria-label={`Take up ${invite.from}'s invitation to ${invite.label}${onDir}`}
 				onClick={() => onTake(invite.id)}
 			>
 				<span className="hash" aria-hidden="true">
@@ -186,27 +207,36 @@ export function InviteRow(
 			</button>
 			<RowClose
 				title={"Decline " + invite.label}
-				said={`Decline ${invite.from}'s invitation to ${invite.label}`}
+				said={`Decline ${invite.from}'s invitation to ${invite.label}${onDir}`}
 				onClose={() => onDrop(invite.id)}
 			/>
 		</li>
 	);
 }
 
+/** A directory this tab is on with nothing open on it.
+ *
+ * The same row a room gets, because it is the same kind of thing: somewhere you
+ * are. Its mark is the directory glyph rather than a room's sigil, and the line
+ * under it says why it is here rather than naming the directory again, because
+ * the name is the row's own words above it. The way out gives the whole
+ * directory back instead of one room, and pressing the row opens the join card
+ * already aimed here, which is the one thing anybody wants from a server they
+ * are on and in no room on. */
 export function EmptyDirRow(
-	{ dir, home, marked, onJoinOn, onLeave, onAbout }: {
+	{ dir, home, mark, onJoinOn, onLeave, onAbout }: {
 		dir: DirView;
 		home: DirId | null;
-		marked: boolean;
+		mark: string | undefined;
 		onJoinOn: (dir: DirId) => void;
 		onLeave: (dir: DirId) => void;
 		onAbout: (dir: DirId) => void;
 	},
 ) {
 	const name = directoryName(dir.id, home);
-	const said = dir.session === "connected" ? "no rooms yet" : PHASE_SAID[dir.session];
+	const standing = dirStanding(dir.session);
 	return (
-		<li className="dirrow" data-dir={marked ? dirMark(dir.id, home, dir.slot) : undefined}>
+		<li className="dirrow" data-dir={mark}>
 			<button
 				type="button"
 				className="room-open"
@@ -221,10 +251,12 @@ export function EmptyDirRow(
 			<Button
 				variant="caption"
 				className="rwhere"
-				aria-label={"About " + name}
+				aria-label={dirCaptionSaid(name, dir.session)}
 				onClick={() => onAbout(dir.id)}
 			>
-				<span className="rwhere-said">{said}</span>
+				{standing === ""
+					? <span className="rwhere-said">no rooms yet</span>
+					: <span className="rwhere-how">{standing}</span>}
 			</Button>
 			<RowClose title="Leave" said={"Leave " + name} onClose={() => onLeave(dir.id)} />
 		</li>

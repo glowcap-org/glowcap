@@ -469,10 +469,6 @@ fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerr
     return out;
 }
 
-pub fn hostArgumentToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, arg: model.Argument) !shared.PancakeArgument {
-    return inst.core.projectValue(session, arena, arg, arena, valueToC);
-}
-
 pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: []const model.Argument) ![]shared.PancakeArgument {
     return inst.core.projectValues(session, arena, args, arena, valuesToC);
 }

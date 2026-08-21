@@ -2,20 +2,11 @@
     .name = .pancake_site,
     .version = "0.1.0",
     .fingerprint = 0x5b882ff097f3ffa8,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
     .dependencies = .{
-        // Zine's Zig-0.16 support ends at this untagged `main` commit (parent of
-        // `2e9b9ac`, which raises `minimum_zig_version` to 0.17). The last tagged
-        // release, v0.11.2, predates the 0.16 std rename and won't compile here.
-        // Pin as a GitHub source tarball, not `git+…#<sha>`: Zig's build-time git
-        // fetch of an untagged commit returns an incomplete tree on a cold cache
-        // (no manifest → no `zine` module), while the tarball is a plain HTTP
-        // download of the whole tree that resolves the same in `zig fetch`,
-        // `zig build`, and cold CI. Do not "simplify" this back to a git ref.
-        // Bump only when pancake's Zig pin moves past 0.16.
         .zine = .{
-            .url = "https://github.com/kristoff-it/zine/archive/496e42d3528766c627911d2ee3f4d8baa4f218d0.tar.gz",
-            .hash = "zine-0.11.2-ou6nIEJpLQFaaMwYj44JnQpYofqlv-SugGH61t0cdaEi",
+            .url = "https://github.com/kristoff-it/zine/archive/481d43d730e75edc28c2ab17756aa0f786decb0a.tar.gz",
+            .hash = "zine-0.13.1-ou6nIFuOFwC3TF6NYPYxA82162ekxUO-r0hkudYL75rP",
         },
     },
     .paths = .{

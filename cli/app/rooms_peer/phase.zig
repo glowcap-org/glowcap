@@ -34,6 +34,9 @@ pub const Phase = union(enum) {
     pub const Joining = struct {
         session: *HostSession,
         directory: ?model.Reference = null,
+        /// Retained while the subscribe vow is pending. The peer is not
+        /// `.joined` until that vow fulfills.
+        room: ?model.Reference = null,
         age: u32 = 0,
     };
 
@@ -185,6 +188,35 @@ pub fn requestAbandon(phase: *Phase) bool {
     switch (phase.*) {
         .joining => |j| {
             phase.* = .{ .abandoning = j.session };
+            return true;
+        },
+        else => return false,
+    }
+}
+
+/// Whether `session` owns the join currently in flight. Subscribe listeners
+/// retain the session that minted their vow and use this guard before touching
+/// state, so a settlement from an abandoned attempt cannot complete a later
+/// join.
+pub fn isJoiningSession(phase: *const Phase, session: *HostSession) bool {
+    return phase.* == .joining and phase.joining.session == session;
+}
+
+/// A room `subscribe` fulfilled: promote the fully prepared join to `.joined`
+/// and start directory-registration pacing. A callback with incomplete or
+/// stale state changes nothing, so its caller can route a live `.joining`
+/// through `requestAbandon` instead of manufacturing a second recovery path.
+pub fn noteSubscribed(phase: *Phase, registration_wait: u32) bool {
+    switch (phase.*) {
+        .joining => |j| {
+            const directory = j.directory orelse return false;
+            const room = j.room orelse return false;
+            phase.* = .{ .joined = .{
+                .session = j.session,
+                .directory = directory,
+                .room = room,
+                .reg = .{ .pending = registration_wait },
+            } };
             return true;
         },
         else => return false,

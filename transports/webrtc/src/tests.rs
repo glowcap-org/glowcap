@@ -7,14 +7,31 @@ use crate::signaling::*;
 use std::io::{Read, Write};
 use std::time::Duration;
 
+mod ice_config;
+
 fn full_inbound() -> Arc<(Mutex<Inbound>, Condvar)> {
 	Arc::new((
 		Mutex::new(Inbound {
-			buf: std::iter::repeat(0u8).take(INBOUND_BUFFER_BOUND).collect(),
+			packets: VecDeque::new(),
+			queued_bytes: INBOUND_BUFFER_BOUND,
 			closed: false,
+			failed: false,
 		}),
 		Condvar::new(),
 	))
+}
+
+fn empty_inbound() -> Inbound {
+	Inbound {
+		packets: VecDeque::new(),
+		queued_bytes: 0,
+		closed: false,
+		failed: false,
+	}
+}
+
+fn assert_no_signal_text(ptr: *const u8, len: usize) {
+	assert!(unsafe { signal_text(ptr, len) }.is_none());
 }
 
 fn test_shared(
@@ -41,17 +58,18 @@ fn test_shared(
 		}),
 		id,
 		close_started: AtomicBool::new(false),
+		pc: Mutex::new(None),
 		dc: Mutex::new(None),
 		inbound,
 		drained,
 		outbound: Arc::new(Mutex::new(Outbound {
-			buf: BytesMut::new(),
+			packets: VecDeque::new(),
 			queued_bytes: 0,
 			closed: false,
 		})),
 		outbound_ready: Arc::new(Notify::new()),
 		open,
-		local_candidates: Arc::new(Mutex::new(VecDeque::new())),
+		local_candidates: Arc::new(Mutex::new(LocalCandidates::new())),
 	})
 }
 
@@ -72,8 +90,8 @@ async fn a_full_buffer_makes_the_next_message_wait_for_the_reader() {
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(!waiting.is_finished());
 
-	// A read frees space, exactly as `conn_read` does.
-	inbound.0.lock().unwrap().buf.drain(..1024);
+	// A receive frees space, exactly as `conn_try_receive_packet` does.
+	inbound.0.lock().unwrap().queued_bytes -= 1024;
 	drained.notify_one();
 	assert!(waiting.await.unwrap());
 }
@@ -82,8 +100,10 @@ async fn a_full_buffer_makes_the_next_message_wait_for_the_reader() {
 async fn a_message_waits_until_the_whole_message_fits_under_the_inbound_bound() {
 	let inbound = Arc::new((
 		Mutex::new(Inbound {
-			buf: std::iter::repeat(0u8).take(INBOUND_BUFFER_BOUND - 8).collect(),
+			packets: VecDeque::new(),
+			queued_bytes: INBOUND_BUFFER_BOUND - 8,
 			closed: false,
+			failed: false,
 		}),
 		Condvar::new(),
 	));
@@ -98,20 +118,14 @@ async fn a_message_waits_until_the_whole_message_fits_under_the_inbound_bound() 
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(!waiting.is_finished());
 
-	inbound.0.lock().unwrap().buf.drain(..8);
+	inbound.0.lock().unwrap().queued_bytes -= 8;
 	drained.notify_one();
 	assert!(waiting.await.unwrap());
 }
 
 #[tokio::test]
 async fn an_oversized_message_cannot_enter_inbound_staging() {
-	let inbound = Arc::new((
-		Mutex::new(Inbound {
-			buf: VecDeque::new(),
-			closed: false,
-		}),
-		Condvar::new(),
-	));
+	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
 	let drained = Notify::new();
 
 	assert!(!await_inbound_room(&inbound, &drained, INBOUND_BUFFER_BOUND + 1).await);
@@ -135,6 +149,7 @@ async fn closing_releases_a_message_that_was_waiting_for_room() {
 	let open = Arc::new(Mutex::new(OpenGate {
 		open: false,
 		closed: false,
+		failed: false,
 	}));
 	let readiness = Readiness::new().unwrap();
 	let shared = test_shared(7, inbound.clone(), open, drained, readiness);
@@ -144,13 +159,7 @@ async fn closing_releases_a_message_that_was_waiting_for_room() {
 
 #[tokio::test]
 async fn a_buffer_with_room_does_not_wait() {
-	let inbound = Arc::new((
-		Mutex::new(Inbound {
-			buf: VecDeque::new(),
-			closed: false,
-		}),
-		Condvar::new(),
-	));
+	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
 	let drained = Notify::new();
 	assert!(await_inbound_room(&inbound, &drained, 1).await);
 }
@@ -175,16 +184,11 @@ fn signaling_and_driver_readiness_are_independent_subscriptions() {
 	let signaling = Readiness::new().unwrap();
 	let shared = test_shared(
 		7,
-		Arc::new((
-			Mutex::new(Inbound {
-				buf: VecDeque::new(),
-				closed: false,
-			}),
-			Condvar::new(),
-		)),
+		Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
 		Arc::new(Mutex::new(OpenGate {
 			open: false,
 			closed: false,
+			failed: false,
 		})),
 		Arc::new(Notify::new()),
 		signaling.clone(),
@@ -227,17 +231,24 @@ fn the_exported_readiness_half_cannot_be_written() {
 }
 
 #[test]
-fn inbound_drain_releases_burst_capacity() {
+fn inbound_packet_read_preserves_boundaries() {
 	let mut state = Inbound {
-		buf: VecDeque::with_capacity(INBOUND_BUFFER_BOUND),
+		packets: VecDeque::new(),
+		queued_bytes: 3,
 		closed: false,
+		failed: false,
 	};
-	state.buf.extend(std::iter::repeat(7u8).take(STEADY_BUFFER_BYTES * 2));
-	assert!(state.buf.capacity() > STEADY_BUFFER_BYTES);
-	let mut dest = vec![0u8; state.buf.len()];
-	assert_eq!(take_inbound(&mut state, &mut dest), dest.len());
-	assert!(state.buf.is_empty());
-	assert!(state.buf.capacity() <= STEADY_BUFFER_BYTES);
+	state.packets.push_back(BytesMut::from(&b"abc"[..]));
+	let mut short = [0u8; 2];
+	assert_eq!(take_inbound_packet(&mut state, &mut short), BUFFER_TOO_SMALL as isize);
+	assert_eq!(state.queued_bytes, 3);
+	assert_eq!(state.packets.len(), 1);
+
+	let mut dest = [0u8; 3];
+	assert_eq!(take_inbound_packet(&mut state, &mut dest), 3);
+	assert_eq!(&dest, b"abc");
+	assert_eq!(state.queued_bytes, 0);
+	assert!(state.packets.is_empty());
 }
 
 #[test]
@@ -250,24 +261,74 @@ fn loopback_binding_is_additive() {
 }
 
 #[test]
-fn outbound_bound_admits_a_prefix_and_retry_makes_progress() {
+fn outbound_admits_whole_packets_only() {
 	let mut state = Outbound {
-		buf: BytesMut::new(),
+		packets: VecDeque::new(),
 		queued_bytes: 0,
 		closed: false,
 	};
-	let bytes = vec![9u8; OUTBOUND_BUFFER_BOUND + 17];
-	assert_eq!(enqueue_outbound(&mut state, &bytes), OUTBOUND_BUFFER_BOUND as isize);
-	assert_eq!(
-		enqueue_outbound(&mut state, &bytes[OUTBOUND_BUFFER_BOUND..]),
-		WOULD_BLOCK as isize
-	);
+	let too_large = vec![9u8; MAX_PACKET_BYTES + 1];
+	assert_eq!(enqueue_outbound(&mut state, &too_large), BUFFER_TOO_SMALL as isize);
 
-	let sent = state.buf.split_to(STEADY_BUFFER_BYTES);
-	drop(sent);
-	state.queued_bytes -= STEADY_BUFFER_BYTES;
-	assert_eq!(enqueue_outbound(&mut state, &bytes[OUTBOUND_BUFFER_BOUND..]), 17);
+	let packet = vec![7u8; MAX_PACKET_BYTES];
+	while state.queued_bytes + packet.len() <= OUTBOUND_BUFFER_BOUND {
+		assert_eq!(enqueue_outbound(&mut state, &packet), packet.len() as isize);
+	}
+	assert_eq!(enqueue_outbound(&mut state, &packet), WOULD_BLOCK as isize);
+
+	let sent = state.packets.pop_front().unwrap();
+	state.queued_bytes -= sent.len();
+	assert_eq!(enqueue_outbound(&mut state, &packet), packet.len() as isize);
 	assert!(state.queued_bytes <= OUTBOUND_BUFFER_BOUND);
+}
+
+#[test]
+fn local_candidate_queue_bounds_retained_candidate_text() {
+	let mut queue = LocalCandidates::new();
+	let candidate = "x".repeat(MAX_ICE_CANDIDATE_BYTES);
+	while queue.queued_bytes + candidate.len() <= LOCAL_CANDIDATE_QUEUE_BYTES {
+		assert!(queue.admit(candidate.clone()));
+	}
+	assert!(!queue.admit("x".to_string()));
+
+	let mut count_bound = LocalCandidates::new();
+	for _ in 0..MAX_PENDING_LOCAL_CANDIDATES {
+		assert!(count_bound.admit("x".to_string()));
+	}
+	assert!(!count_bound.admit("x".to_string()));
+	let mut empty = LocalCandidates::new();
+	assert!(!empty.admit(String::new()));
+	let mut oversized = LocalCandidates::new();
+	assert!(!oversized.admit("x".repeat(MAX_ICE_CANDIDATE_BYTES + 1)));
+}
+
+#[test]
+fn next_local_candidate_retries_without_releasing_the_front() {
+	let mut queue = LocalCandidates::new();
+	assert!(queue.admit("abcdef".to_string()));
+	unsafe {
+		let mut short = [0u8; 3];
+		let mut required: usize = 0;
+		assert_eq!(
+			write_local_candidate(&mut queue, short.as_mut_ptr(), short.len(), &mut required),
+			BUFFER_TOO_SMALL
+		);
+		assert_eq!(required, 6);
+		assert_eq!(queue.items.len(), 1);
+		assert_eq!(queue.queued_bytes, 6);
+
+		let mut out = [0u8; 6];
+		assert_eq!(
+			write_local_candidate(&mut queue, out.as_mut_ptr(), out.len(), &mut required),
+			OK
+		);
+		assert_eq!(&out, b"abcdef");
+		assert_eq!(queue.queued_bytes, 0);
+		assert_eq!(
+			write_local_candidate(&mut queue, out.as_mut_ptr(), out.len(), &mut required),
+			WOULD_BLOCK
+		);
+	}
 }
 
 #[tokio::test]
@@ -282,16 +343,11 @@ async fn runtime_owner_can_drop_inside_an_async_context() {
 
 #[test]
 fn terminal_event_is_published_exactly_once_even_after_a_drain() {
-	let inbound = Arc::new((
-		Mutex::new(Inbound {
-			buf: VecDeque::new(),
-			closed: false,
-		}),
-		Condvar::new(),
-	));
+	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
 	let open = Arc::new(Mutex::new(OpenGate {
 		open: false,
 		closed: false,
+		failed: false,
 	}));
 	let drained = Arc::new(Notify::new());
 	let readiness = Readiness::new().unwrap();
@@ -310,60 +366,162 @@ fn terminal_event_is_published_exactly_once_even_after_a_drain() {
 	assert!(shared.outbound.lock().unwrap().closed);
 }
 
-/// The ICE servers a caller names reach the endpoint, and a caller that
-/// names none still gets one.
-///
-/// A live STUN server cannot be reached from a hermetic test, so what this
-/// holds is the seam rather than the traversal: the URLs are parsed, split,
-/// and carried onto the endpoint every peer is built from. Without it the
-/// setting would be a claim nothing exercises.
 #[test]
-fn ice_servers_reach_the_endpoint() {
-	let urls = b"stun:stun.example:3478, stun:other.example:3478";
-	let cfg = PancakeWebrtcEndpointConfig {
-		ice_servers: urls.as_ptr(),
-		ice_servers_len: urls.len(),
-		include_loopback_candidates: 0,
-		worker_threads: 0,
-	};
-	let ep = pancake_webrtc_sidecar_endpoint_new(&cfg);
-	assert!(!ep.is_null());
-	// The comma-separated list splits, and surrounding space is not part of
-	// a URL.
-	assert_eq!(
-		unsafe { &*ep }.inner.ice_servers,
-		vec![
-			"stun:stun.example:3478".to_string(),
-			"stun:other.example:3478".to_string()
-		]
+fn failed_terminal_state_is_not_reported_as_clean_eof() {
+	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
+	let open = Arc::new(Mutex::new(OpenGate {
+		open: true,
+		closed: false,
+		failed: false,
+	}));
+	let shared = test_shared(
+		7,
+		inbound.clone(),
+		open,
+		Arc::new(Notify::new()),
+		Readiness::new().unwrap(),
 	);
-	unsafe { pancake_webrtc_sidecar_endpoint_free(ep) };
 
-	let empty = PancakeWebrtcEndpointConfig {
-		ice_servers: std::ptr::null(),
-		ice_servers_len: 0,
-		include_loopback_candidates: 0,
-		worker_threads: 0,
-	};
-	let host_only = pancake_webrtc_sidecar_endpoint_new(&empty);
-	assert!(!host_only.is_null());
-	assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
-	unsafe { pancake_webrtc_sidecar_endpoint_free(host_only) };
+	publish_peer_failed(&shared);
+	let state = inbound.0.lock().unwrap();
+	assert!(state.closed);
+	assert!(state.failed);
+	assert!(state.packets.is_empty());
+	drop(state);
+
+	let mut state = empty_inbound();
+	state.closed = true;
+	assert!(!state.failed);
+	assert_eq!(terminal_read_result(&state), 0);
+
+	let mut failed = empty_inbound();
+	failed.closed = true;
+	failed.failed = true;
+	assert_eq!(terminal_read_result(&failed), ERR as isize);
 }
 
-/// A null config is refused rather than silently taken as "no ICE servers",
-/// so a caller that forgot to pass one finds out here instead of in a
-/// deployment where nothing can traverse NAT.
 #[test]
-fn a_null_config_is_refused() {
-	assert!(pancake_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
+fn first_terminal_cause_wins_open_and_read_results() {
+	let clean_first = test_shared(
+		7,
+		Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
+		Arc::new(Mutex::new(OpenGate {
+			open: true,
+			closed: false,
+			failed: false,
+		})),
+		Arc::new(Notify::new()),
+		Readiness::new().unwrap(),
+	);
+	publish_peer_closed(&clean_first);
+	publish_peer_failed(&clean_first);
+	{
+		let gate = clean_first.open.lock().unwrap();
+		assert!(gate.closed);
+		assert!(!gate.failed);
+	}
+	assert_eq!(terminal_read_result(&clean_first.inbound.0.lock().unwrap()), 0);
+
+	let failed_first = test_shared(
+		8,
+		Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
+		Arc::new(Mutex::new(OpenGate {
+			open: true,
+			closed: false,
+			failed: false,
+		})),
+		Arc::new(Notify::new()),
+		Readiness::new().unwrap(),
+	);
+	publish_peer_failed(&failed_first);
+	publish_peer_closed(&failed_first);
+	{
+		let gate = failed_first.open.lock().unwrap();
+		assert!(gate.closed);
+		assert!(gate.failed);
+	}
+	assert_eq!(
+		terminal_read_result(&failed_first.inbound.0.lock().unwrap()),
+		ERR as isize
+	);
+}
+
+#[test]
+fn open_check_distinguishes_clean_close_from_failed_setup() {
+	assert_eq!(
+		open_result(&OpenGate {
+			open: false,
+			closed: false,
+			failed: false,
+		}),
+		WOULD_BLOCK
+	);
+	assert_eq!(
+		open_result(&OpenGate {
+			open: true,
+			closed: false,
+			failed: false,
+		}),
+		OK
+	);
+	assert_eq!(
+		open_result(&OpenGate {
+			open: false,
+			closed: true,
+			failed: false,
+		}),
+		CLOSED
+	);
+	assert_eq!(
+		open_result(&OpenGate {
+			open: false,
+			closed: true,
+			failed: true,
+		}),
+		ERR
+	);
+}
+
+#[test]
+fn sidecar_signal_text_bounds_before_borrowing() {
+	let valid = b"v=0";
+	assert_eq!(unsafe { signal_text(valid.as_ptr(), valid.len()) }, Some("v=0"));
+	assert_no_signal_text(std::ptr::null(), valid.len());
+
+	let invalid_utf8 = [0xff];
+	assert_no_signal_text(invalid_utf8.as_ptr(), invalid_utf8.len());
+
+	let oversized = vec![b'x'; MAX_SIGNAL_BYTES + 1];
+	assert_no_signal_text(oversized.as_ptr(), oversized.len());
+}
+
+#[test]
+fn sidecar_candidate_text_bounds_before_borrowing() {
+	let valid = b"{\"candidate\":\"candidate\"}";
+	assert_eq!(
+		unsafe { candidate_text(valid.as_ptr(), valid.len()) },
+		Some("{\"candidate\":\"candidate\"}")
+	);
+	assert!(unsafe { candidate_text(std::ptr::null(), valid.len()) }.is_none());
+
+	let invalid_utf8 = [0xff];
+	assert!(unsafe { candidate_text(invalid_utf8.as_ptr(), invalid_utf8.len()) }.is_none());
+
+	let oversized = vec![b'x'; MAX_ICE_CANDIDATE_BYTES + 1];
+	assert!(unsafe { candidate_text(oversized.as_ptr(), oversized.len()) }.is_none());
+}
+
+#[test]
+fn generated_signal_text_has_the_same_hard_cap() {
+	assert!(signal_output_fits(&"x".repeat(MAX_SIGNAL_BYTES)));
+	assert!(!signal_output_fits(&"x".repeat(MAX_SIGNAL_BYTES + 1)));
 }
 
 #[test]
 fn peer_release_joins_its_close_at_endpoint_release() {
 	let config = PancakeWebrtcEndpointConfig {
 		ice_servers: std::ptr::null(),
-		ice_servers_len: 0,
+		ice_server_count: 0,
 		include_loopback_candidates: 1,
 		worker_threads: 1,
 	};

@@ -131,7 +131,7 @@ pub fn readClientFrame(leg: *Leg, payload_buf: []u8) !ClientFrame {
     try r.readSliceAll(payload);
     for (payload, 0..) |*b, i| b.* ^= mask[i % 4];
     return .{
-        .opcode = @enumFromInt(@as(u4, @truncate(b0 & 0x0f))),
+        .opcode = @fromBackingInt(@intCast(@as(u4, @truncate(b0 & 0x0f)))),
         .payload = payload,
     };
 }
@@ -140,7 +140,7 @@ pub fn readClientFrame(leg: *Leg, payload_buf: []u8) !ClientFrame {
 pub fn writeServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const u8) !void {
     const w = &leg.writer.interface;
     var header: [10]u8 = undefined;
-    header[0] = 0x80 | @as(u8, @intFromEnum(opcode));
+    header[0] = 0x80 | @as(u8, @backingInt(opcode));
     var at: usize = 2;
     if (payload.len < 126) {
         header[1] = @intCast(payload.len);

@@ -142,7 +142,7 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x71} ** crypto.SEED_BYTES);
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x71)));
     const designator = secret.publicKey().toDesignator();
     var resident = net.tcp.keyed.Resident{ .io = io };
 
@@ -166,8 +166,8 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
     defer threaded.deinit();
     const io = threaded.io();
 
-    const honest = crypto.SecretKey.fromSeed([_]u8{0x72} ** crypto.SEED_BYTES);
-    const squatter = crypto.SecretKey.fromSeed([_]u8{0x73} ** crypto.SEED_BYTES);
+    const honest = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x72)));
+    const squatter = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x73)));
     const dialed_designator = honest.publicKey().toDesignator();
 
     // The squatter answers the socket the hint names, holding a different key.

@@ -11,9 +11,10 @@
 //! inbound message and decides whether it settles our fetch, or is just unrelated
 //! traffic the caller should buffer as unrelated.
 //!
-//! The matcher accepts both forms the spec allows: an `op:resolve` keyed on the
-//! answer (next), and an `op:deliver` to the resolver export carrying
-//! `[fulfill|break, <Reference|Error>]` (the V1.0 / Goblins style).
+//! The matcher accepts the semantic resolve-shaped message used by in-process
+//! helpers and tests, plus the wire resolver-callback deliver that V1.0 peers
+//! send. Next-profile wire settlement reaches the same resolver-export path via
+//! `op:listen`; codecs reject wire `op:resolve` there.
 
 const std = @import("std");
 
@@ -55,15 +56,15 @@ pub const FetchMatch = union(enum) {
 /// Allocate the resolver export + outbound answer and build the wire-canonical
 /// `op:deliver target=<bootstrap> args=[fetch <swissnum>]`. On V1.0 the message
 /// carries `resolve_me_desc = Near(object(resolver))` (the resolver-callback
-/// notification form spec-strict partners prefer); earlier profiles omit it (the
-/// field has no pre-V1.0 wire encoding).
+/// notification form Goblins V1.0 peers use); next omits it and follows the
+/// answered operation with a listener.
 ///
 /// Atomic on failure: the heap allocations run first (unwound by errdefer), the
 /// fallible session-state steps next (`allocateExport` unwound by errdefer, then
-/// the bootstrap-import retain), and the infallible `allocateOutboundAnswer`
-/// last, so an `error` leaves the session's export table, import table, and
-/// answer counter exactly as they were. A failed prepare never burns an export
-/// slot or an answer position.
+/// the bootstrap-import retain unwound by errdefer), and
+/// `allocateOutboundAnswer` last, so an `error` leaves the session's export
+/// table, import table, and answer counter exactly as they were. A failed
+/// prepare never burns an export slot or an answer position.
 pub fn prepareFetchSwissnum(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
@@ -91,7 +92,8 @@ pub fn prepareFetchSwissnum(
     // import 0. Track it here, where the fetch shape lives, so no caller
     // carries a pre-fetch registration ritual of its own.
     try session.registerImport(model.ImportPosition.from(session_mod.BOOTSTRAP_POSITION));
-    const answer_position = session.allocateOutboundAnswer();
+    errdefer session.releaseImportRetain(model.ImportPosition.from(session_mod.BOOTSTRAP_POSITION));
+    const answer_position = try session.allocateOutboundAnswer();
 
     // Project the mention from the authoritative slot rather than hand-typing
     // the kind: the row was minted as a local object, so it renders as

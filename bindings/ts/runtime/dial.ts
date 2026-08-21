@@ -81,13 +81,24 @@ export async function runDialTicket(
 	let session: Session | null = null;
 	try {
 		if (host.released || signal?.aborted) return;
-		let capacity = 4;
 		let locator: Locator;
-		for (;;) {
-			const hints = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE * capacity);
-			const view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
-			const count = new Uint8Array(L.ptrSize);
-			const rc = hostS.pancake_host_pending_dial(
+		let view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
+		let count = new Uint8Array(L.ptrSize);
+		let hints: Uint8Array | null = null;
+		let rc = hostS.pancake_host_pending_dial(
+			host.raw,
+			ticket,
+			null,
+			0n,
+			ab(view),
+			ab(count),
+		);
+		if (rc === BUFFER_TOO_SMALL) {
+			const capacity = Number(L.getUsize(new DataView(count.buffer), 0));
+			hints = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE * capacity);
+			view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
+			count = new Uint8Array(L.ptrSize);
+			rc = hostS.pancake_host_pending_dial(
 				host.raw,
 				ticket,
 				ab(hints),
@@ -95,18 +106,13 @@ export async function runDialTicket(
 				ab(view),
 				ab(count),
 			);
-			if (rc === BUFFER_TOO_SMALL) {
-				capacity = Number(L.getUsize(new DataView(count.buffer), 0));
-				continue;
-			}
-			checkHost(rc);
-			const owned = OwnedLocator.cloneView(view);
-			try {
-				locator = owned.value();
-			} finally {
-				owned.release();
-			}
-			break;
+		}
+		checkHost(rc);
+		const owned = OwnedLocator.cloneView(view);
+		try {
+			locator = owned.value();
+		} finally {
+			owned.release();
 		}
 		session = await dialExporter(locator!, host, signal);
 		if (host.released || signal?.aborted) {

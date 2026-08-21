@@ -23,10 +23,11 @@ import {
 	formatPeerUri,
 	type Host,
 	Ref,
-	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_NOISE_RELAY,
 	TRANSPORT_WEBRTC,
 } from "@pancake/runtime";
 import { serveWebrtcSignaling } from "../../../lib/signaling.ts";
+import type { IceServer } from "../../../lib/ice.ts";
 import { readAttachments } from "../../../lib/attachment.ts";
 import { type InboxOfferer, type InboxPublisher, inboxPublisher } from "../../../lib/dm_inbox.ts";
 import { DM, HAND_ROOM, OFFER_ROOM, TYPING } from "../../../lib/protocol.ts";
@@ -66,10 +67,12 @@ import { resendFile, resendRoomLine } from "./send.ts";
 // identity by default, so the DataChannel carries the DM directly and the
 // room directory carries only the signaling (ADR-0089), or the relay
 // rendezvous identity when Settings (or `?dm=relay`) chooses the relay.
-const DM_TRANSPORT: typeof TRANSPORT_KEYED_RELAY | typeof TRANSPORT_WEBRTC = prefs.dmTransport() === "relay"
-	? TRANSPORT_KEYED_RELAY
-	: TRANSPORT_WEBRTC;
-let inboxOwner: { host: Host; publisher: InboxPublisher } | null = null;
+const DM_TRANSPORT = prefs.dmTransport();
+let inboxOwner: {
+	host: Host;
+	publisher: InboxPublisher;
+	iceServers: () => Promise<IceServer[]>;
+} | null = null;
 // Each directory's peer-to-alias mapping, homed with the Host its giftables live
 // on rather than with any one connection. The publisher in `inboxOwner` owns the
 // one process-wide alias ledger; these rows only preserve directory identity
@@ -232,7 +235,7 @@ function requireInboxPublisher(): InboxPublisher {
 // Create the inbox host once and start serving cold-dials against it. Idempotent
 // across reconnects so our identity, held registrations, and open cold-dial
 // lines survive a room-server respawn.
-export function ensureInbox(runtime: WebRuntime): Host {
+export function ensureInbox(runtime: WebRuntime, iceServers: () => Promise<IceServer[]>): Host {
 	if (inboxOwner !== null) return inboxOwner.host;
 	const host = runtime.host;
 	// This Host owns the locator advertised in handoff gives. The directory
@@ -245,12 +248,12 @@ export function ensureInbox(runtime: WebRuntime): Host {
 			hintWireForm: "map",
 		});
 	}
-	inboxOwner = { host, publisher: inboxPublisher(host) };
+	inboxOwner = { host, publisher: inboxPublisher(host), iceServers };
 	saidRendezvousTrouble = false;
 	// Being reachable ourselves takes only the advertised transport's half: a
 	// rendezvous registration holds sockets at the relay, a webrtc member
 	// answers offers on the directory session instead (`advertisePresence`).
-	if (DM_TRANSPORT === TRANSPORT_KEYED_RELAY) {
+	if (DM_TRANSPORT === TRANSPORT_NOISE_RELAY) {
 		rendezvous = serveRendezvous(host, DM_TRANSPORT, {
 			registerUrl: relayRegisterUrl,
 			relayUrl: pageSocketBase("/relay"),
@@ -296,10 +299,11 @@ export function selfLocator(): string | null {
 // new directory has no memory of the old introduction.
 export function advertisePresence(session: Live): void {
 	const nick = store.dirNick(session.id);
-	if (inboxOwner === null || !nick) return;
+	const owner = inboxOwner;
+	if (owner === null || !nick) return;
 	if (session.advertised === nick) return;
 	session.advertised = nick;
-	const host = inboxOwner.host;
+	const host = owner.host;
 	const locator = selfLocator();
 	if (locator === null) return;
 	session.dir.register(nick, locator, (peer) => offerInboxFor(session, peer))
@@ -318,6 +322,7 @@ export function advertisePresence(session: Live): void {
 				void serveWebrtcSignaling({
 					host,
 					dir: () => (isCurrent(session) ? session.dir : null),
+					iceServers: owner.iceServers,
 					onError: (err) => console.error("rooms: webrtc signaling error:", reason(err)),
 				}).then((signaling) => {
 					if (!isCurrent(session)) {

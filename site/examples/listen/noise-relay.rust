@@ -1,0 +1,17 @@
+// PLANNED: Rust has no managed relay listen helper yet.
+// Config::with_register_url already exists. This shows the planned
+// first-call, the same shape as tcp::noise::listen.
+//
+// use pancake::relay;
+//
+// let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+// let server = relay::noise::listen(
+//     "wss://relay.example/relay",
+//     "wss://relay.example/register",
+//     relay::ListenOptions {
+//         identity: relay::ListenerIdentity::Seed(seed),
+//         ..relay::ListenOptions::default()
+//     },
+// )
+// .await?;
+// From here, the CapTP workflow is transport-independent.

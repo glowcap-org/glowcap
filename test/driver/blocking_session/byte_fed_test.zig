@@ -112,8 +112,8 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
     // real handshake does; the whole exchange then runs byte-fed, no socket.
     const loc_s: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
     const loc_c: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
-    try p_server.sendKeyedStartSession(loc_s, crypto.SecretKey.fromSeed([_]u8{0x51} ** crypto.SEED_BYTES));
-    try p_client.sendKeyedStartSession(loc_c, crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES));
+    try p_server.sendKeyedStartSession(loc_s, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x51))));
+    try p_client.sendKeyedStartSession(loc_c, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x52))));
 
     var server = driver.Served.over(allocator, &p_server);
     var server_vat = actors.Vat.init(allocator);

@@ -70,7 +70,7 @@ pub fn writeFrameHeader(
         .close, .ping, .pong => if (len > max_control_payload) return error.ControlPayloadTooLarge,
         .continuation, .binary => {},
     }
-    buf[0] = 0x80 | @as(u8, @intFromEnum(opcode)); // FIN, no RSV
+    buf[0] = 0x80 | @as(u8, @backingInt(opcode)); // FIN, no RSV
     var at: usize = 2;
     if (len < 126) {
         buf[1] = 0x80 | @as(u8, @intCast(len));
@@ -164,7 +164,7 @@ pub fn parseHeaderBytes(buffered: []const u8) ParseError!?ParsedHeader {
     const b1 = buffered[1];
     if (b0 & 0x70 != 0 or b1 & 0x80 != 0)
         return ParseError.ProtocolViolation;
-    const opcode: Opcode = @enumFromInt(@as(u4, @truncate(b0 & 0x0f)));
+    const opcode: Opcode = @fromBackingInt(@intCast(@as(u4, @truncate(b0 & 0x0f))));
     const fin = b0 & 0x80 != 0;
     const len7 = b1 & 0x7f;
     const len: u64 = switch (len7) {

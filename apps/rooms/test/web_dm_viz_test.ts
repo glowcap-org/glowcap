@@ -15,7 +15,12 @@
 //   - both tabs report the same session id for the DM, and the same tag on each
 //     of its messages, which is what lets a viewer draw the conversation once
 //     from the two ends watching it;
-//   - the room's own session and the tabs' sessions arrive on one feed.
+//   - the room's own session and the tabs' sessions arrive on one feed;
+//   - what a tab publishes is telemetry and not contents: its message records
+//     carry the verb, the byte count, and the tag that folds the two ends
+//     together, and none of them carries the bytes. A DM's other end never
+//     agreed to appear on a shared timeline, so this tab does not put their
+//     words there.
 //
 // The DM itself is `web_dm_tabs_test.ts`'s scenario, run here for its
 // telemetry; that test owns the claim that the message arrives.
@@ -26,6 +31,7 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
+import { reapOwned, spawnOwned } from "./support/children.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -107,7 +113,7 @@ const vizPort = freePort();
 // The room server serves the live timeline endpoint; serve.ts passes its own
 // environment to the child and answers `/viz` with the port, which is how each
 // tab finds it without being told.
-const web = new Deno.Command("deno", {
+const web = spawnOwned("deno", {
 	args: [
 		"run",
 		"--allow-ffi",
@@ -124,7 +130,7 @@ const web = new Deno.Command("deno", {
 	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
-}).spawn();
+});
 // The viz sturdyref rides the server's stderr; the scraper tees the stream
 // through so the run stays observable.
 const vizRef = scrapeVizSturdyref(web.stderr);
@@ -140,7 +146,7 @@ try {
 	}
 
 	const seen = await watch(vizPort, await vizRef);
-	const seed = vizMemorySeed(vizPort, await vizRef);
+	const seed = vizMemorySeed(httpPort, await vizRef);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const alice = await joinAs(browser, httpPort, "web-alice", seed);
@@ -191,6 +197,23 @@ try {
 				),
 		);
 	}
+	// Telemetry, not contents. The trace tap can forward each frame's bytes,
+	// and these records are exactly the ones that would carry a direct
+	// message's text. What survives the cap is what a timeline needs: the
+	// verb, the true byte count, and the tag both ends derive from the same
+	// frame, which is what draws one conversation out of two sightings.
+	for (const record of dmTraffic) {
+		if (record.bytes_b64 !== undefined || record.summary !== undefined) {
+			fail("a tab published a direct message's own bytes to the shared timeline");
+		}
+		if (typeof record.digest !== "string" || record.digest === "") {
+			fail(`a message record arrived with no tag to fold the two ends on: ${JSON.stringify(record)}`);
+		}
+		if (typeof record.len !== "number" || record.len <= 0) {
+			fail(`a message record arrived with no byte count: ${JSON.stringify(record)}`);
+		}
+	}
+
 	const dmSessionIds = [...new Set(dmTraffic.map((r) => r.session as string))];
 
 	// Both tabs hold this session and both trace it, and both views arrive:
@@ -257,11 +280,6 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
-	try {
-		web.kill();
-	} catch {
-		// already gone
-	}
-	await web.status;
+	await reapOwned();
 }
 Deno.exit(0);

@@ -20,8 +20,8 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
-const host_action = @import("host_action.zig");
-const host_pump = @import("host_pump.zig");
+const host_action = @import("host/action.zig");
+const host_pump = @import("host/pump.zig");
 const vocab = @import("vocab.zig");
 const vows_mod = @import("vows.zig");
 
@@ -63,7 +63,7 @@ pub const PendingEnliven = struct {
 /// to `vowOn`'s listener or the action queue like any other settlement.
 const EnlivenListener = struct {
     host: *Host,
-    peer_id: engine.PeerId,
+    peer_handle: engine.PeerHandle,
     answer: model.AnswerPosition,
     vow_id: u64,
 
@@ -74,7 +74,7 @@ const EnlivenListener = struct {
         defer host.allocator.destroy(bridge);
         // A session already released (this fire is its teardown break)
         // has no session to bookkeep; the vow still settles.
-        if (host.sessions.get(bridge.peer_id)) |session| {
+        if (host.sessions.get(bridge.peer_handle)) |session| {
             const peer = session.served.port.peer;
             if (peer.session_state.pendingEnlivenSwissnum(bridge.answer)) |swissnum| {
                 if (if (resolution == .fulfilled) asFarRef(resolution.fulfilled) else null) |far| {
@@ -119,7 +119,7 @@ fn commitEnlivenVow(
     const row = reservation.vow.row;
     reservation.bridge.* = .{
         .host = self,
-        .peer_id = session.peer_id,
+        .peer_handle = session.peer_handle,
         .answer = answer,
         .vow_id = row.id,
     };
@@ -204,6 +204,7 @@ pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u
 pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     try self.refuseReentry();
     try self.admitApplicationOperation();
+    try vows_mod.ensureFreshVowId(self);
     if (self.dialedSessionFor(sturdyref.peer.transport, sturdyref.peer.designator)) |session| {
         return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
     }
@@ -213,8 +214,8 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     const locator = try model.uri.writePeer(self.allocator, sturdyref.peer);
     defer self.allocator.free(locator);
     switch (try self.node.stageDial(locator)) {
-        .open => |peer_id| {
-            const session = self.sessions.get(peer_id) orelse return HostError.SessionCondemned;
+        .open => |peer_handle| {
+            const session = self.sessions.get(peer_handle) orelse return HostError.SessionCondemned;
             return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
         },
         .pending => |ticket| {
@@ -267,13 +268,13 @@ pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
 pub fn failParkedEnliven(
     self: *Host,
     parked: PendingEnliven,
-    session_peer: ?engine.PeerId,
+    session_peer: ?engine.PeerHandle,
     failure: host_action.VowFailure,
     reason: []const u8,
 ) void {
     const retained = host_action.retainFailureMessage(self.allocator, reason);
     self.actions.pushReserved(.{ .failed = .{
-        .peer_id = session_peer,
+        .peer_handle = session_peer,
         .vow_id = parked.vow_id,
         .failure = failure,
         .message = retained.bytes,
@@ -299,7 +300,7 @@ pub fn continueParkedEnliven(self: *Host, session: *HostSession, parked: Pending
             .cached => |reference| {
                 cancelEnlivenVow(self, reservation);
                 reservation_live = false;
-                self.actions.pushReserved(.{ .settled = .{ .peer_id = session.peer_id, .vow_id = parked.vow_id, .value = .{ .reference = reference } } });
+                self.actions.pushReserved(.{ .settled = .{ .peer_handle = session.peer_handle, .vow_id = parked.vow_id, .value = .{ .reference = reference } } });
                 return;
             },
             .in_flight => break :blk actors.Error.AlreadyListening,
@@ -310,12 +311,12 @@ pub fn continueParkedEnliven(self: *Host, session: *HostSession, parked: Pending
                 };
                 _ = commitEnlivenVow(self, session, prepared.answer_position, reservation);
                 reservation_live = false;
-                host_pump.markDirty(self, session.peer_id);
+                host_pump.markDirty(self, session.peer_handle);
                 return;
             },
         }
     };
-    failParkedEnliven(self, parked, session.peer_id, .broken, @errorName(err));
+    failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
 }
 
 /// Continue every enliven parked on `ticket`: run each against the opened
@@ -374,6 +375,7 @@ pub fn enlivenWithPolicy(
     try self.checkOutboundAdmission(session);
     // The peer check above fixes the namespace before this session-local
     // swiss cache is consulted or any bootstrap fetch can be emitted.
+    try vows_mod.ensureFreshVowId(self);
     const reservation = try reserveEnlivenVowAt(self, session, self.next_vow);
     var reservation_live = true;
     errdefer if (reservation_live) cancelEnlivenVow(self, reservation);
@@ -386,7 +388,7 @@ pub fn enlivenWithPolicy(
             const id = self.next_vow;
             cancelEnlivenVow(self, reservation);
             reservation_live = false;
-            self.actions.pushReserved(.{ .settled = .{ .peer_id = session.peer_id, .vow_id = id, .value = .{ .reference = reference } } });
+            self.actions.pushReserved(.{ .settled = .{ .peer_handle = session.peer_handle, .vow_id = id, .value = .{ .reference = reference } } });
             self.next_vow += 1;
             host_pump.finishCommittedWork(self, session);
             return .{ .vow_id = id, .provenance = provenance };

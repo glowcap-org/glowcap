@@ -30,8 +30,8 @@ const tcp = net.tcp;
 
 const opts: driver.SessionOptions = .{
     .frame_cap = 8192,
-    .handshake = .{ .ms = 10_000 },
-    .settle = .{ .ms = 10_000 },
+    .handshake = driver.default_handshake_budget,
+    .settle = driver.default_settle_budget,
 };
 
 /// The widget: the service the client ends up talking to directly. It never
@@ -81,7 +81,7 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
         if (client_side == null and try server.waitAcceptable(20)) {
             client_side = try server.accept();
         }
-        _ = directory_side.stepReadable(20) catch break;
+        _ = try directory_side.stepReadable(20);
     }
 }
 
@@ -124,7 +124,7 @@ fn serveDirectory(
     _ = try client_view.publish("directory", Directory, .{ .widget = widget });
 
     while (!done.load(.acquire)) {
-        _ = client_view.stepReadable(20) catch break;
+        _ = try client_view.stepReadable(20);
     }
 }
 
@@ -153,17 +153,22 @@ pub fn main(init: std.process.Init) !void {
         .ready => |listener| listener,
         .failed => |failure| return failure.cause,
     };
-    defer std.debug.assert(directory_listener.close() == null);
+    var directory_listener_closed = false;
+    defer if (!directory_listener_closed) {
+        _ = directory_listener.close();
+    };
     const directory_locator = try directory_listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, directory_locator);
 
     var widget_future = try io.concurrent(serveWidget, .{ widget_host, &done });
     var directory_future = try io.concurrent(serveDirectory, .{ allocator, io, &netlayers, widget_designator, directory_listener, &done });
-    defer {
+    var hosts_joined = false;
+    defer if (!hosts_joined) {
         done.store(true, .release);
+        // Unwind join only. The success path uses try await before the print.
         directory_future.await(io) catch {};
         widget_future.await(io) catch {};
-    }
+    };
 
     // ── The client. This is the whole program. ───────────────────────────────
     var dir_loc_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -194,6 +199,15 @@ pub fn main(init: std.process.Init) !void {
     const spun = try session.call(widget, "spin", &.{}, arena);
     if (spun != .fulfilled or spun.fulfilled != .string) return error.WidgetRefused;
     if (!std.mem.eql(u8, spun.fulfilled.string, "widget spun")) return error.UnexpectedReply;
+
+    done.store(true, .release);
+    try directory_future.await(io);
+    try widget_future.await(io);
+    hosts_joined = true;
+    const listener_close = directory_listener.close();
+    directory_listener_closed = true;
+    if (listener_close) |failure| return failure.cause;
+    if (widget_host.close()) |failure| return failure.cause;
 
     std.debug.print("02: introduced to a capability on another peer, redeemed inside the call\n", .{});
 }

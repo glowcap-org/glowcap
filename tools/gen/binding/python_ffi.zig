@@ -171,9 +171,9 @@ fn renderArchive(
         if (row.python_omit == null) {
             const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
             try rows.print(gpa, "        \"{s}\": ([", .{row.name});
-            inline for (info.params, 0..) |p, i| {
+            inline for (info.param_types, 0..) |param_type, i| {
                 if (i != 0) try rows.appendSlice(gpa, ", ");
-                try rows.appendSlice(gpa, comptime pyParamType(p.type.?, specials));
+                try rows.appendSlice(gpa, comptime pyParamType(param_type.?, specials));
             }
             try rows.print(gpa, "], {s}),\n", .{comptime pyReturnType(info.return_type.?)});
         }

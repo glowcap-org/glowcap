@@ -95,6 +95,9 @@ typedef struct PancakeIrohConn PancakeIrohConn;
 #define PANCAKE_IROH_REACH_DISCOVERY 1u
 #define PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY 2u
 #define PANCAKE_IROH_REACH_LOCAL_DISCOVERY 3u
+#define PANCAKE_IROH_NODE_ID_BYTES 64u
+#define PANCAKE_IROH_MAX_DIRECT_ADDRESS_BYTES 65536u
+#define PANCAKE_IROH_READ_CHUNK_BYTES 65536u
 
 /* The posture a Host redeems a hint-less handoff give under until the
    embedder sets one: DISCOVERY, the maximal-reach choice. The netlayer
@@ -188,16 +191,16 @@ void pancake_iroh_netlayer_close(PancakeIrohNetlayer *netlayer);
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Write this endpoint's id — its Ed25519 public key, the dialable designator —
-   into out as lowercase hex, and the byte count into out_len. cap must be at
-   least the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No
-   terminator is written. */
+/* Write this endpoint's id as lowercase hex into out, and the byte count into
+   out_len. cap must be at least PANCAKE_IROH_NODE_ID_BYTES or the call is
+   PANCAKE_ERR_BUFFER_TOO_SMALL. No terminator is written. */
 int32_t pancake_iroh_netlayer_node_id(PancakeIrohNetlayer *netlayer, uint8_t *out, size_t cap, size_t *out_len);
 /* Write this endpoint's comma-separated direct socket addresses into out (the
    hint string a partner passes to pancake_iroh_netlayer_start_connect) and the
-   byte count into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an
-   endpoint with no direct addresses writes zero bytes and returns PANCAKE_OK. No
-   terminator is written. */
+   byte count into out_len. A null output is allowed only with cap == 0 to query
+   the size. A short buffer writes the required byte count and returns
+   PANCAKE_ERR_BUFFER_TOO_SMALL. A list larger than
+   PANCAKE_IROH_MAX_DIRECT_ADDRESS_BYTES is invalid. No terminator is written. */
 int32_t pancake_iroh_netlayer_direct_addrs(PancakeIrohNetlayer *netlayer, uint8_t *out, size_t cap, size_t *out_len);
 /* Close the connection and free the handle; do not use conn afterward. A later
    readiness record may still carry its stable id; the host drops it after removing
@@ -209,16 +212,10 @@ void pancake_iroh_conn_release(PancakeIrohConn *conn);
    NULL handle. */
 size_t pancake_iroh_conn_id(PancakeIrohConn *conn);
 /* Write the far end's QUIC-verified endpoint id into out as lowercase hex, and the
-   byte count into out_len. The TLS handshake authenticated the key at the other end
-   of this connection, on an accepted connection exactly as on a dialed one, so the
-   host that owns the connection may say so about it. The spelling is the designator
-   pancake_iroh_netlayer_node_id prints: compare it against the location a partner's
-   CapTP hello claims, and treat an equal pair — and only an equal pair — as a proved
-   durable name. cap must be at least the id length (64) or the call is
-   PANCAKE_ERR_BUFFER_TOO_SMALL. No terminator is written. A connection whose remote
-   cannot be read (the handle is gone, or the sidecar faulted) is PANCAKE_ERR_IO (see
-   pancake_iroh_last_error) with out_len untouched; the call never returns PANCAKE_OK
-   with a zero length, so a missing proof cannot be mistaken for a designator. */
+   byte count into out_len. Compare it with the partner's CapTP location before
+   calling the durable name proved. cap must be at least PANCAKE_IROH_NODE_ID_BYTES
+   or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No terminator is written. A missing
+   proof is PANCAKE_ERR_IO with out_len untouched, never success with a zero length. */
 int32_t pancake_iroh_conn_remote_node_id(PancakeIrohConn *conn, uint8_t *out, size_t cap, size_t *out_len);
 /* The netlayer's single read-only OS readiness fd — the borrowed read end of the
    sidecar's wakeup channel, readable whenever fresh readiness records are pending.
@@ -257,8 +254,9 @@ int32_t pancake_iroh_netlayer_cancel_connect(PancakeIrohNetlayer *netlayer, size
 /* Non-blocking read of raw inbound bytes into buf: PANCAKE_OK with the byte count
    in out_read, PANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet,
    PANCAKE_ERR_CLOSED on a clean end of stream, or PANCAKE_ERR_IO on a fault
-   (out_read untouched on any non-OK return). Feed these bytes to a PancakeHost
-   session, the same shape the TCP path uses. */
+   (out_read untouched on any non-OK return). PANCAKE_IROH_READ_CHUNK_BYTES is the
+   transport-owned read-buffer cap mirrored by the bindings. Feed these bytes to a
+   PancakeHost session, the same shape the TCP path uses. */
 int32_t pancake_iroh_conn_try_read(PancakeIrohConn *conn, uint8_t *buf, size_t len, size_t *out_read);
 /* Non-blocking write of len raw bytes from buf: PANCAKE_OK with the count written
    (possibly a prefix) in out_written, PANCAKE_ERR_WOULD_BLOCK when the outbound

@@ -64,3 +64,22 @@ pub const OmittedFamily = struct {
     prefix: []const u8,
     reason: []const u8,
 };
+
+/// Recurring omission reasons shared by archive inventories. A row still owns
+/// whether a binding omits that symbol; these constants keep repeated boundary
+/// facts in one wording.
+pub const omit_reason = struct {
+    pub const rust_last_error = "unused: the Rust binding reads the slot after a failing call and never resets it";
+    pub const ts_last_error = "unused: the TS binding reads the slot after a failing call and never resets it";
+    pub const python_last_error = "unused: the Python binding reads the slot after a failing call and never resets it";
+    pub const racket_last_error = "unused: the Racket binding reads the slot after a failing call and never resets it";
+
+    pub const rust_transport_allocator = "unused: the Rust binding keeps its transports on the library allocator";
+    pub const ts_transport_allocator = "unused: the TS binding keeps its transports on the library allocator";
+    pub const python_transport_allocator = "unused: the Python binding keeps its transports on the library allocator";
+    pub const racket_transport_allocator = "unused: the Racket binding keeps its transports on the library allocator";
+
+    pub const ts_transport_runtime_allocator = "unused: the TypeScript binding keeps transport runtimes on the library allocator";
+    pub const python_transport_runtime_allocator = "unused: the Python binding keeps transport runtimes on the library allocator";
+    pub const racket_transport_runtime_allocator = "unused: the Racket binding keeps transport runtimes on the library allocator";
+};

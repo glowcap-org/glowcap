@@ -86,8 +86,8 @@ test "a Cap'n Proto set with duplicate elements is refused on the session inboun
     // truncated low 16 bits, so match the whole word.
     var flipped: usize = 0;
     for (words) |*w| {
-        if (w.* == @intFromEnum(ArgKind.list)) {
-            w.* = @intFromEnum(ArgKind.set);
+        if (w.* == @backingInt(ArgKind.list)) {
+            w.* = @backingInt(ArgKind.set);
             flipped += 1;
         }
     }
@@ -180,7 +180,7 @@ test "a sent duplicate set element or struct key is refused pre-commit, not at e
     try s.registerImport(.from(7));
 
     // The encoders refuse both duplicates too (ADR-0003), but an encode-time
-    // refusal fires in `step`, after `retainSentExports` committed wire-delta
+    // refusal fires in `step`, after send-side export accounting committed wire-delta
     // retains for a frame that never ships. `validateSend` refuses first, so
     // nothing commits: no outbound answer row is minted for the refused sends.
     var dup_elements = [_]model.Argument{ .{ .integer = 4 }, .{ .string = "mid" }, .{ .integer = 4 } };

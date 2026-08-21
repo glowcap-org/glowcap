@@ -37,6 +37,11 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+/** Session is open: waiting for the first record, or already spoken. */
+function liveFeedSessionOpen(page: Page) {
+  return page.getByTitle(/^The live feed is connected/);
+}
+
 async function readVizAnnouncement(
   stdout: ReadableStream<Uint8Array>,
 ): Promise<VizAnnouncement> {
@@ -205,7 +210,7 @@ async function startRecording(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Stop recording" }).waitFor({
     state: "visible",
   });
-  await page.getByTitle("The live feed is connected").waitFor({
+  await liveFeedSessionOpen(page).waitFor({
     state: "visible",
   });
 }
@@ -330,7 +335,7 @@ try {
   await page.goto(pageUrl, { waitUntil: "networkidle" });
   const canvas = page.locator("canvas#ocv-pixi");
   await canvas.waitFor({ state: "visible" });
-  await page.getByTitle("The live feed is connected").waitFor({
+  await liveFeedSessionOpen(page).waitFor({
     state: "visible",
   });
   const emptyCanvas = await canvas.screenshot();

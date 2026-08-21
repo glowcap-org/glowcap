@@ -2,9 +2,8 @@
 //!
 //! The fuzz entry points live in `test/<layer>/fuzz_test.zig`, one file per
 //! layer, and also run under the ordinary suite, where they replay a fixed
-//! corpus. Fuzzing needs them as
-//! their own build artifact, because it uses a patched test runner
-//! (`tools/fuzz/test_runner.zig`) that the rest of the suite should not.
+//! corpus. Fuzzing needs them as their own build artifact so the driver can
+//! run one target at a time.
 //!
 //! The root is here at `test/` rather than in `test/codec/` for a concrete
 //! reason: a test root sets the package boundary, and the seeds are embedded

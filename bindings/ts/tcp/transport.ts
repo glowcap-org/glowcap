@@ -48,7 +48,7 @@ import {
 } from "@pancake/runtime/transport";
 import type { Codec, ProviderTarget, Ptr } from "@pancake/runtime/transport";
 import { tcpS } from "./ffi.ts";
-import { TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@pancake/abi";
+import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@pancake/abi";
 
 const OK = 0;
 
@@ -251,7 +251,7 @@ export class Listener {
 	}
 	accept(
 		codec: Codec = "syrup",
-		maxFrameBytes = 4096,
+		maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
 		options?: StreamOptions,
 	): Promise<Connection> {
 		requireOffThreadFfi("tcp", "accept");
@@ -314,7 +314,7 @@ export class Netlayer {
 		host: string,
 		port: number,
 		codec: Codec = "syrup",
-		maxFrameBytes = 4096,
+		maxFrameBytes = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
 		options?: StreamOptions,
 	): Promise<Connection> {
 		requireOffThreadFfi("tcp", "connect");

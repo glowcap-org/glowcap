@@ -15,13 +15,13 @@
 import { init } from "@pancake/web";
 import * as relay from "@pancake/relay";
 import * as webrtc from "@pancake/webrtc";
+import { iceServers } from "./ice.ts";
 import { Directory } from "../../../lib/room_client.ts";
 import { dial } from "../../../lib/locator.ts";
 import { directorySignalingAuthority } from "../../../lib/signaling.ts";
 import { CAPTP_VERSION, CODEC } from "../../../lib/protocol.ts";
 import * as store from "../store.ts";
 import { type DirId, dirId } from "../types.ts";
-import { directoryName } from "../text.ts";
 import { markSend, reason } from "./common.ts";
 import { convSession, directoryLocators, dirs, isCurrent, type Live } from "./live.ts";
 import {
@@ -64,11 +64,12 @@ const UNREACHABLE = "could not reach the room directory; retrying…";
 /** Open the directory this page came from. The one directory a tab starts with;
  * every other one is added deliberately. */
 export function connect(): void {
-	// The log lets its oldest lines go past the far end, and what they were
-	// holding is held here: a picture's object URL, the capability its bytes come
-	// from, and the reference that governed one of our own. The store knows when
-	// a line stops being drawn and nothing about what it carried; this side knows
-	// the opposite.
+	// Lines leave this tab three ways: the log passing its far end, a reader
+	// emptying a conversation, and a conversation being forgotten. What they
+	// were holding is held here: a picture's object URL, the capability its
+	// bytes come from, and the reference that governed one of our own. The
+	// store knows when a line stops being drawn and nothing about what it
+	// carried; this side knows the opposite, so all three arrive here.
 	store.onLinesDropped((key, gone) => {
 		const session = convSession(key);
 		if (session !== null) releaseLines(session, key, gone);
@@ -152,7 +153,9 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 				captpVersion: CAPTP_VERSION,
 				connectors: [
 					relay.connector(),
-					webrtc.connector(directorySignalingAuthority(() => soleLive()?.dir ?? null)),
+					webrtc.connector(directorySignalingAuthority(() => soleLive()?.dir ?? null), {
+						iceServers,
+					}),
 				],
 			})
 		);
@@ -160,7 +163,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		// it before the dial: the directory session must be present in the same
 		// host's live-session directory when a later cold-dial withdraws from that
 		// session's gift table.
-		ensureInbox(runtime);
+		ensureInbox(runtime, iceServers);
 		const target = locator ?? await homeLocator();
 		if (signal?.aborted) return "";
 		const id = directoryId(target);
@@ -277,7 +280,6 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		// memory — a dead secret must not linger or retry forever.
 		if (id === store.get().homeDir) void redeemRememberedOps(id);
 
-		store.setBanner(null);
 		// Whether this directory has answered before is a durable fact the store
 		// already owns; a copy on the session was constant-false (its constructor
 		// runs only when no prior session exists), so this line was unreachable
@@ -437,23 +439,14 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
  * is incomplete. */
 function endSession(which: Live): void {
 	if (!releaseSession(which)) return;
+	// The whole of telling the reader. Every row on this directory reads its
+	// phase, so writing it here says the news on the rooms it is about and says
+	// it about them only. The rooms on every other directory this tab holds are
+	// still live and their own rows go on saying nothing.
 	store.setDirSession(which.id, "reconnecting");
-	// An empty status hands the row to the phase word; what has to go is
-	// whatever act the dead session was narrating.
+	// An empty status hands the row to the phase word. What has to go is whatever
+	// act the dead session was narrating.
 	store.setDirStatus(which.id, "");
-	if (store.joinedRooms(which.id).length > 0) {
-		// Named while this tab holds more than one. "Reconnecting…" is the whole
-		// message when there is only one thing it could be about, and a riddle the
-		// moment there are two: the rooms on the other directory are still live,
-		// and a reader watching one of those go quiet has no way to tell whether
-		// this is about them.
-		const held = store.get().dirs.size;
-		const name = directoryName(which.id, store.get().homeDir);
-		store.setBanner({
-			kind: "working",
-			text: held > 1 ? "Reconnecting to " + name + "…" : "Reconnecting…",
-		});
-	}
 	if (which.home) noteHomeDirectoryLocator(null);
 	if (abandoned.has(which.id)) return;
 	scheduleReconnect(which.home ? null : which.locator, Math.min(which.backoff * 2, BACKOFF_CEILING_MS), which.id);

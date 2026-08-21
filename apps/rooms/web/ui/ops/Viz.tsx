@@ -14,6 +14,7 @@ import { advertisedViz, current } from "../prefs.ts";
 import { Button } from "../Button.tsx";
 import { identifierField } from "../field.ts";
 import type { VizPublishState } from "../types.ts";
+import { OpsHead } from "./Head.tsx";
 
 export function VizPane({ state }: { state: VizPublishState | null }) {
 	const peer = usePeer();
@@ -37,11 +38,12 @@ export function VizPane({ state }: { state: VizPublishState | null }) {
 
 	return (
 		<div className="ops-pane">
-			<div className="ops-head">
-				<p className="lead">
-					This tab publishes its own sessions, direct messages included, to the live timeline.
-				</p>
-			</div>
+			<OpsHead>
+				This tab publishes every session it opens, direct messages included, to the live timeline. What leaves
+				here is who it talked to and when, never the words. Room messages still show their contents on the
+				timeline, published by the room server from its own side. A direct message has no server in the middle,
+				so its words go nowhere.
+			</OpsHead>
 			<div className="group well">
 				<table className="ops-table">
 					<tbody>

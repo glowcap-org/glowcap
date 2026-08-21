@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 
-use crate::host::{check_host, park_session_release, try_spawn_local, HostShared};
+use crate::host::{check_host, try_spawn_local, HostShared};
 use crate::sys::host as ffi;
 use crate::trampoline::{
 	ctx_free, current_turn_for, inside_turn, reclaim_refused_cell, trampoline, turn_spawn, ActorCell, InternalBehavior,
@@ -18,7 +18,7 @@ use crate::trampoline::{
 };
 use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
-pub(crate) const READ_CHUNK: usize = 16 * 1024;
+pub(crate) const READ_CHUNK: usize = sys::BINDING_STREAM_READ_CHUNK_BYTES;
 
 /// Map a transport `std::io::Error` to a pancake [`Error`], carrying the
 /// original message through the detail channel so a consumer can tell
@@ -285,12 +285,12 @@ impl SessionShared {
 		}
 		if inside_turn() {
 			if !self.release_pending.replace(true) {
-				park_session_release(Rc::clone(self));
+				crate::finalizer::park_session(Rc::clone(self));
 			}
 			return;
 		}
 		if self.finish_native_release().is_err() && !self.release_pending.replace(true) {
-			park_session_release(Rc::clone(self));
+			crate::finalizer::park_session(Rc::clone(self));
 			self.host.schedule_kick_or_record();
 		}
 		// The release queued FAIL completions (and sibling withdraws may have

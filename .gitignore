@@ -1,5 +1,6 @@
 .zig-cache/
 zig-out/
+.DS_Store
 # Zig extracts fetched packages into a `zig-pkg/` dir under the build root that
 # declares them; the site sub-build (site/build.zig) is the only build here with
 # dependencies, so this materializes at site/zig-pkg/. Generated, never committed.
@@ -77,8 +78,12 @@ pancake-c-abi-cache/
 
 # per-worktree grid pane configuration for enter-grid.sh; only
 # panes.example.sh is tracked
-.devcontainer/panes.sh
-.devcontainer/panes-*.sh
+.devcontainer/pane/panes.sh
+.devcontainer/pane/panes-*.sh
+
+# zsh completion cache the container shell writes beside its .zshrc, named
+# for the container and zsh version; generated per machine, never committed
+.devcontainer/pane/container/.zcompdump*
 
 # captured stderr from a redirected demo/test run; scratch, never committed
 *.err

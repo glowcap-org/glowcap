@@ -57,24 +57,36 @@
   (values (iroh-netlayer handle) seed*))
 
 (define (iroh-netlayer-node-id netlayer)
-  (define buffer (make-bytes 64))
+  (define buffer (make-bytes IROH-NODE-ID-BYTES))
   (define-values (rc len)
-    ((iroh-fn 'netlayer-node-id) (iroh-netlayer-handle netlayer) buffer 64))
+    ((iroh-fn 'netlayer-node-id) (iroh-netlayer-handle netlayer) buffer IROH-NODE-ID-BYTES))
   (check/iroh rc)
   (bytes->string/utf-8 (subbytes buffer 0 len)))
 
 (define (iroh-netlayer-direct-addresses netlayer)
-  (let loop ([capacity 256])
-    (define buffer (make-bytes capacity))
-    (define-values (rc len)
-      ((iroh-fn 'netlayer-direct-addrs)
-       (iroh-netlayer-handle netlayer) buffer capacity))
-    (cond
-      [(and (= rc ERR-BUFFER-TOO-SMALL) (< capacity (* 64 1024)))
-       (loop (* capacity 4))]
-      [else
-       (check/iroh rc)
-       (bytes->string/utf-8 (subbytes buffer 0 len))])))
+  (define-values (probe-rc probe-len)
+    ((iroh-fn 'netlayer-direct-addrs)
+     (iroh-netlayer-handle netlayer) #f 0))
+  (define (read-direct-addresses capacity)
+    (let loop ([capacity capacity])
+      (define buffer (make-bytes capacity))
+      (define-values (rc len)
+        ((iroh-fn 'netlayer-direct-addrs)
+         (iroh-netlayer-handle netlayer) buffer capacity))
+      (cond
+        [(and (= rc ERR-BUFFER-TOO-SMALL) (> len capacity))
+         (loop len)]
+        [else
+         (check/iroh rc)
+         (bytes->string/utf-8 (subbytes buffer 0 len))])))
+  (cond
+    [(= probe-rc ERR-BUFFER-TOO-SMALL)
+     (read-direct-addresses probe-len)]
+    [else
+     (check/iroh probe-rc)
+     (if (zero? probe-len)
+         ""
+         (read-direct-addresses probe-len))]))
 
 ;; Start parses its borrowed strings before return; finish owns the resulting
 ;; connection handle. Cancellation is an exact returned barrier, never a

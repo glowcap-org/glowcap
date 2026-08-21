@@ -110,7 +110,7 @@ pub fn captpVerbTableIsPartial(skill: []const u8, names: []const []const u8) boo
     var line_start: usize = 0;
     var in_inventory = false;
     var hit: usize = 0;
-    var seen: [64]bool = .{false} ** 64;
+    var seen: [64]bool = @splat(false);
     while (line_start < skill.len) {
         const nl = std.mem.indexOfScalarPos(u8, skill, line_start, '\n') orelse skill.len;
         const line = skill[line_start..nl];
@@ -151,7 +151,7 @@ pub fn captpVerbTableIsPartial(skill: []const u8, names: []const []const u8) boo
             if (hit >= 3 and hit < names.len) return true;
             in_inventory = false;
             hit = 0;
-            seen = .{false} ** 64;
+            seen = @splat(false);
         }
         line_start = if (nl < skill.len) nl + 1 else skill.len;
     }

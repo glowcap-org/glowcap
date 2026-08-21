@@ -7,32 +7,22 @@
 // transport, the Visualizer pane the viz endpoint — because both are decided
 // when the peer opens, not mid-session.
 
+import { LS } from "./storage.ts";
+import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+
 export type DmMode = "webrtc" | "relay";
+export type DmTransport = typeof TRANSPORT_WEBRTC | typeof TRANSPORT_NOISE_RELAY;
+
+/** The wire profile selected by one user-facing DM mode. Relay mode remains
+ * rendezvous-reachable, but the room relay carries only Noise ciphertext. */
+export function dmTransportFor(mode: DmMode): DmTransport {
+	return mode === "relay" ? TRANSPORT_NOISE_RELAY : TRANSPORT_WEBRTC;
+}
 
 const KEY = {
 	dm: "rooms.dm",
 	viz: "rooms.viz",
 } as const;
-
-const LS = {
-	get(k: string): string | null {
-		try {
-			return localStorage.getItem(k);
-		} catch {
-			return null;
-		}
-	},
-	set(k: string, v: string): void {
-		try {
-			localStorage.setItem(k, v);
-		} catch { /* storage disabled (private mode); ignore */ }
-	},
-	remove(k: string): void {
-		try {
-			localStorage.removeItem(k);
-		} catch { /* private mode */ }
-	},
-};
 
 /** Resolve DM transport from a search string and a stored preference. */
 export function dmFrom(search: URLSearchParams, stored: string | null): DmMode {
@@ -49,8 +39,12 @@ export function vizFrom(search: URLSearchParams, stored: string | null): string 
 	return stored;
 }
 
-export function dmTransport(): DmMode {
+export function dmMode(): DmMode {
 	return dmFrom(new URLSearchParams(location.search), LS.get(KEY.dm));
+}
+
+export function dmTransport(): DmTransport {
+	return dmTransportFor(dmMode());
 }
 
 export function vizOverride(): string | null {
@@ -58,7 +52,7 @@ export function vizOverride(): string | null {
 }
 
 export function current(): { dm: DmMode; viz: string } {
-	return { dm: dmTransport(), viz: vizOverride() ?? "" };
+	return { dm: dmMode(), viz: vizOverride() ?? "" };
 }
 
 /** The page-origin viz socket URL: `/viz` upgrades and carries the socket to

@@ -1,34 +1,16 @@
-//! pancake's build: the module DAG, the archives, the gate, and every step.
+//! pancake's build manifest: module DAG, archive set, and check steps.
 //!
-//! Read it in three parts. The tables at the top are the declarations that
-//! other things are checked against — `layer_table` is the one-way module
-//! import graph `arch-check` verifies against the tree, and `archive_table`
-//! names the composable C ABI archives (ADR-0059). The file-level helpers
-//! below them own the shapes that repeat: one per binding family, per relay
-//! runtime, per transport ABI module, per archive install, per Rust sidecar
-//! link. `build()` then registers the steps, grouped by the section markers.
-//!
-//! `check` is the hermetic gate, and a step joins it in one of three ways:
-//! the step variable is wired onto `check_step`, an inline declaration sits
-//! over a run step that `check_step` also wires, or a table row names it
-//! (`.check_step_name`, the generated-header families). Whichever it is, the
-//! cli rule's step table must say "part of check" and `source-check`
-//! (`checkGatedStepsRideCheck`) holds the two together — so a step cannot
-//! quietly fall off the gate, which is the failure this file's length would
-//! otherwise hide.
-//!
-//! That length is known: `build()` is long because it is a manifest, and the
-//! repeated shapes are already factored into the helpers above it. Splitting
-//! the sibling families (demos, webrtc, conformance, relay) into
-//! `tools/build/*.zig` would shorten it further; what makes that a
-//! readability change rather than a correctness one is the gate check above,
-//! which holds membership no matter where a step is declared.
+//! `layer_table` is the import graph `arch-check` verifies. `archive_table`
+//! names the composable C ABI archives. Helpers below those tables own the
+//! repeated build shapes; `build()` registers the steps by section. `source-check`
+//! keeps the documented step inventory in sync with `check`, so membership is a
+//! checked fact rather than a comment convention.
 
 const std = @import("std");
+const execution = @import("tools/build/execution.zig");
 const builtin = @import("builtin");
 const arch_check = @import("tools/check/arch_check.zig");
 const source_check = @import("tools/check/source_check.zig");
-const toolchain_check = @import("tools/check/toolchain_check.zig");
 const build_common = @import("tools/build/common.zig");
 const cli_build = @import("tools/build/cli.zig");
 const iroh_build = @import("tools/build/iroh.zig");
@@ -59,38 +41,6 @@ const addRootedSystemCommand = build_common.addRootedSystemCommand;
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
-/// What `zig build check` requires on PATH besides Zig, and why each member
-/// earns a place in the gate everyone runs rather than a sibling step.
-///
-/// `check` is hermetic on the axis that divides it from `check-external`: no
-/// network, no submodules, no live peer, no authority outside pancake. It is not
-/// Zig-only, and several members acquired host-tool requirements without one
-/// declared contract — see
-/// `tools/check/toolchain_check.zig`, which holds this table against the graph.
-/// A new row raises the floor for every contributor, so it is a decision, and
-/// the [cli rule](.agents/rules/cli.md) names the set for a reader who has not
-/// opened this file.
-pub const check_runtimes = [_]toolchain_check.Runtime{
-    .{
-        .program = "bash",
-        .scripts = &.{
-            ".devcontainer/check-env-sync.sh",
-            "tools/check/ocapnviz-test.sh",
-            "tools/c-abi/c-abi-extract-matrix.sh",
-            "tools/check/worktree-integration-test.sh",
-        },
-        .why = "the devcontainer and worktree-integration contract tests plus two harnesses whose subjects are not Zig. The host contract tests use standard Git and POSIX tools; the C-ABI extract matrix requires `tar`; " ++
-            "its Python and Deno validators, and the visualizer's Deno suite, run when those optional " ++
-            "runtimes are present and report an explicit skip otherwise. Script-internal programs " ++
-            "are invisible to this graph check, which sees only the interpreter name.",
-    },
-    .{
-        .program = "deno",
-        .why = "the checked documentation examples are executable TypeScript product surfaces; " ++
-            "type-checking them in the main gate prevents the site from publishing binding API drift",
-    },
-};
-
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0040; ADR-0048 for the sibling-codec modules below the codec layer).
 /// Every build graph is generated from this table, and `tools/check/arch_check.zig`
@@ -104,9 +54,10 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "model", .prefix = "ocapn/model/", .imports = &.{}, .core = true },
     .{ .name = "framing", .prefix = "ocapn/codec/framing.zig", .imports = &.{"model"}, .core = true },
     .{ .name = "codec_order", .prefix = "ocapn/codec/order.zig", .imports = &.{}, .core = true },
-    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing", "codec_order" }, .core = true },
-    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing", "codec_order" }, .core = true },
-    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "syrup", "capnp" }, .core = true },
+    .{ .name = "codec_limits", .prefix = "ocapn/codec/limits.zig", .imports = &.{"model"}, .core = true },
+    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
+    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
+    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits", "syrup", "capnp" }, .core = true },
     .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{"model"}, .core = true },
     .{ .name = "engine", .prefix = "ocapn/engine/", .imports = &.{ "foundation", "model", "codec", "session" }, .core = true },
     .{ .name = "persistent", .prefix = "persistent/", .imports = &.{}, .core = true },
@@ -158,10 +109,15 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "pancake_net_transport_relay", .layer = "c_abi_net_transport_relay", .header = "pancake_net_transport_relay.h" },
     .{ .artifact = "pancake_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "pancake_net_transport_inproc.h" },
     .{ .artifact = "pancake_net_transport_onion", .layer = "c_abi_net_transport_onion", .header = "pancake_net_transport_onion.h" },
-    .{ .artifact = "pancake_host", .layer = "c_abi_host" },
+    .{ .artifact = "pancake_host", .layer = "c_abi_host", .header = "pancake_host.h" },
     .{ .artifact = "pancake_driver", .layer = "c_abi_driver", .header = "pancake_driver.h" },
     .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .default_install = false },
     .{ .artifact = "pancake_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "pancake_net_transport_webrtc.h", .default_install = false },
+};
+
+const shared_header_table = [_][]const u8{
+    "pancake_locator.h",
+    "pancake_transport_provider.h",
 };
 
 comptime {
@@ -341,7 +297,7 @@ pub fn build(b: *std.Build) void {
     // own layer module, importing `driver` (whose `HostRuntime` it steps) and the
     // Host implementation namespace without rooting the Host export family.
     // Owns a `std.Io.Threaded`, so it links libc like the transport archives.
-    const driver_abi_mod = transportAbiModule(b, target, optimize, "src/c_abi/driver/mod.zig", &.{
+    const driver_abi_imports = [_]AbiImport{
         .{ .name = "foundation", .module = host_mods[layerIndex("foundation")] },
         .{ .name = "model", .module = host_mods[layerIndex("model")] },
         .{ .name = "engine", .module = host_mods[layerIndex("engine")] },
@@ -350,8 +306,11 @@ pub fn build(b: *std.Build) void {
         .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
         .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         .{ .name = "c_abi_host", .module = host_abi_mod },
-    });
+    };
+    const driver_abi_mod = transportAbiModule(b, target, optimize, "src/c_abi/driver/mod.zig", &driver_abi_imports);
+    const driver_archive_mod = transportAbiModule(b, target, optimize, "src/c_abi/driver/archive.zig", &driver_abi_imports);
     driver_abi_mod.linkSystemLibrary("c", .{});
+    driver_archive_mod.linkSystemLibrary("c", .{});
 
     // The static lib of each archive, kept so the C examples can link the
     // composed set the consumer would. `libpancake_ocapn` roots on the `c_abi`
@@ -367,7 +326,7 @@ pub fn build(b: *std.Build) void {
     const onion_archive = installArchive(b, "pancake_net_transport_onion", onion_abi_mod, abi_version);
     const host_archive = installArchive(b, "pancake_host", host_archive_mod, abi_version);
     const host_static = host_archive.static;
-    const driver_archive = installArchive(b, "pancake_driver", driver_abi_mod, abi_version);
+    const driver_archive = installArchive(b, "pancake_driver", driver_archive_mod, abi_version);
 
     // Install each archive's public header.
     inline for (archive_table) |arch| {
@@ -378,11 +337,10 @@ pub fn build(b: *std.Build) void {
             }
         }
     }
-    const install_provider_header = b.addInstallHeaderFile(
-        b.path("include/pancake_transport_provider.h"),
-        "pancake_transport_provider.h",
-    );
-    b.getInstallStep().dependOn(&install_provider_header.step);
+    inline for (shared_header_table) |hdr| {
+        const install_hdr = b.addInstallHeaderFile(b.path(b.fmt("include/{s}", .{hdr})), hdr);
+        b.getInstallStep().dependOn(&install_hdr.step);
+    }
 
     // ── The gate and its members ─────────────────────────────────────────────
     // The hermetic gate registers from tools/build/gates.zig: `check`, the
@@ -408,6 +366,13 @@ pub fn build(b: *std.Build) void {
     // The generated headers and binding mirrors register from
     // tools/build/gen.zig; the resident-dependent rows join below once the
     // iroh and WebRTC residents exist.
+    const gen_support = gen_build.createSupport(b, target, optimize, host_mods);
+    const gen_reflected_archives = gen_build.ReflectedArchives{
+        .tcp = tcp_abi_mod,
+        .inproc = inproc_abi_mod,
+        .relay = relay_check_abi_mod,
+        .onion = onion_abi_mod,
+    };
     const gen_ctx = gen_build.Context{
         .b = b,
         .target = target,
@@ -416,7 +381,8 @@ pub fn build(b: *std.Build) void {
         .host_mods = host_mods,
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,
-        .relay_check_abi_mod = relay_check_abi_mod,
+        .reflected_archives = gen_reflected_archives,
+        .support = gen_support,
     };
     gen_build.register(gen_ctx);
 
@@ -433,6 +399,14 @@ pub fn build(b: *std.Build) void {
         .check_step = check_step,
         .pin_port = pin_port,
     });
+    mbedtls_build.addSiteRelayExamples(
+        b,
+        target,
+        optimize,
+        lib_mod,
+        native_relay.check_relay,
+        site_reg.zig_examples_check,
+    );
 
     // The examples register from tools/build/examples.zig; all of them ride
     // `check`.
@@ -503,7 +477,7 @@ pub fn build(b: *std.Build) void {
     // own error names a remedy this project does not use. The script says which
     // version to install and where the version is written; every browser step
     // borrows that one answer rather than restating it in a header comment.
-    const browser_preflight = b.addSystemCommand(&.{ "bash", "tools/check/playwright-preflight.sh" });
+    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{ "bash", "tools/check/playwright-preflight.sh" });
     browser_preflight.setCwd(b.path("."));
     browser_preflight.has_side_effects = true;
 
@@ -628,6 +602,10 @@ pub fn build(b: *std.Build) void {
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, wasm_driver_install_step, &browser_preflight.step);
+
+    // Finalize graph-level runtime policing after every registrar has had a
+    // chance to add members to `check`.
+    gates_build.registerToolchainCheck(b, check_step);
 
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal

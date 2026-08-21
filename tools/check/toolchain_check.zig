@@ -12,7 +12,7 @@
 //! silently three times, so the rule's claim died without anyone deciding to
 //! kill it, and a contributor with only Zig found the gate would not run at all.
 //!
-//! So the set is declared in `check_runtimes` in build.zig and held here: a
+//! So the set is declared in `check_runtimes` in tools/build/gates.zig and held here: a
 //! member of `check` that invokes a program outside it fails this step, and an
 //! interpreter may only run the scripts its row names. Requiring a fourth
 //! runtime becomes a one-line, reviewed edit to that table.
@@ -44,29 +44,18 @@ pub const Runtime = struct {
 
 /// Create the `toolchain-check` step over the graph rooted at `root`.
 ///
-/// `root` is `check` itself, so the walk sees exactly what `check` would run,
-/// including members added after this call. Reaching itself is harmless: a
-/// custom step runs no program.
+/// `root` is `check` itself. Zig 0.17 removed make-time custom build steps, so
+/// callers create this after wiring the full gate; the walk then sees exactly
+/// what `check` would run. Reaching itself is harmless: a top-level step runs
+/// no program.
 pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) *Step {
-    const wrapper = b.allocator.create(ToolchainCheck) catch @panic("OOM");
-    wrapper.* = .{
-        .step = Step.init(.{
-            .id = .custom,
-            .name = "toolchain-check",
-            .owner = b,
-            .makeFn = make,
-        }),
-        .root = root,
-        .runtimes = runtimes,
-    };
-    return &wrapper.step;
-}
+    const report = checkGraph(b.allocator, root, runtimes, b.graph.zig_exe, b.root.toString(b.allocator) catch @panic("OOM")) catch @panic("OOM");
+    if (report) |text| return &b.addFail(text).step;
 
-const ToolchainCheck = struct {
-    step: Step,
-    root: *Step,
-    runtimes: []const Runtime,
-};
+    const ok = b.addWriteFiles();
+    _ = ok.add("toolchain-check.ok", "");
+    return &ok.step;
+}
 
 /// The program a step invokes, or null when it runs a Zig-built artifact, the
 /// Zig compiler itself, or no program at all.
@@ -98,20 +87,36 @@ fn scriptOf(step: *Step) ?[]const u8 {
     };
 }
 
+/// A script named the way `check_runtimes` names it: relative to the repository.
+///
+/// A call site is free to write the path absolutely, and one has to — the
+/// deadline wrapper runs from whichever directory its step works in, so only an
+/// absolute path finds it. That is a spelling, not a different script, and the
+/// declaration is about which script may run. Comparing spellings instead made
+/// a correct call site look undeclared.
+fn repoRelative(root: []const u8, script: []const u8) []const u8 {
+    if (!std.fs.path.isAbsolute(script)) return script;
+    if (!std.mem.startsWith(u8, script, root)) return script;
+    const rest = script[root.len..];
+    return if (rest.len > 0 and rest[0] == std.fs.path.sep) rest[1..] else rest;
+}
+
 fn violation(
     gpa: std.mem.Allocator,
     runtimes: []const Runtime,
     step: *Step,
     program: []const u8,
+    root_path: []const u8,
 ) !?[]const u8 {
     for (runtimes) |runtime| {
         if (!std.mem.eql(u8, runtime.program, program)) continue;
         if (runtime.scripts.len == 0) return null;
-        const script = scriptOf(step) orelse return try std.fmt.allocPrint(
+        const written = scriptOf(step) orelse return try std.fmt.allocPrint(
             gpa,
             "step '{s}' runs '{s}' with no named script, and '{s}' is declared for named scripts only",
             .{ step.name, program, program },
         );
+        const script = repoRelative(root_path, written);
         for (runtime.scripts) |declared| {
             if (std.mem.eql(u8, declared, script)) return null;
         }
@@ -128,11 +133,13 @@ fn violation(
     );
 }
 
-fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
-    const gpa = options.gpa;
-    const check: *ToolchainCheck = @fieldParentPtr("step", step);
-    const zig_exe = step.owner.graph.zig_exe;
-
+fn checkGraph(
+    gpa: std.mem.Allocator,
+    root: *Step,
+    runtimes: []const Runtime,
+    zig_exe: []const u8,
+    root_path: []const u8,
+) !?[]const u8 {
     var seen: std.AutoHashMapUnmanaged(*Step, void) = .empty;
     defer seen.deinit(gpa);
     var pending: std.ArrayList(*Step) = .empty;
@@ -143,20 +150,19 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         offenders.deinit(gpa);
     }
 
-    try pending.append(gpa, check.root);
+    try pending.append(gpa, root);
     while (pending.pop()) |current| {
         if ((try seen.getOrPut(gpa, current)).found_existing) continue;
         if (programOf(current, zig_exe)) |program| {
-            if (try violation(gpa, check.runtimes, current, program)) |line|
+            if (try violation(gpa, runtimes, current, program, root_path)) |line|
                 try offenders.append(gpa, line);
         }
         for (current.dependencies.items) |dependency| try pending.append(gpa, dependency);
     }
 
-    if (offenders.items.len == 0) return;
+    if (offenders.items.len == 0) return null;
 
     var report: std.ArrayList(u8) = .empty;
-    defer report.deinit(gpa);
     try report.appendSlice(gpa, "`zig build check` may only invoke the runtimes it declares, but:\n");
     for (offenders.items) |line| {
         try report.appendSlice(gpa, "  - ");
@@ -167,11 +173,11 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         gpa,
         \\
         \\Either give the step its own `zig build` step and sequence it from
-        \\`ci/gates.sh`, or add a row to `check_runtimes` in build.zig saying
+        \\`ci/gates.sh`, or add a row to `check_runtimes` in tools/build/gates.zig saying
         \\which member needs the program and why it belongs in the gate everyone
         \\runs. A new row raises what a contributor must install, so the cli rule
         \\names the set too.
         ,
     );
-    return step.fail("{s}", .{report.items});
+    return try report.toOwnedSlice(gpa);
 }

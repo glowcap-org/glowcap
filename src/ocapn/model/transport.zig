@@ -22,19 +22,30 @@ pub const AddressSource = enum { none, designator, direct_addresses_hint };
 /// authority an adapter needs without selecting a concrete implementation.
 pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous };
 
+/// How a transport presents CapTP frames to the host once the channel exists.
+/// Byte streams need ADR-0110's outer Syrup byte-string envelope; transports
+/// that preserve message boundaries carry one bare codec frame per message.
+pub const WireFraming = enum { byte_stream, message };
+
 pub const Metadata = struct {
     symbol: []const u8,
     designator_scheme: DesignatorScheme,
     address_source: AddressSource = .none,
     dial_shape: DialShape = .unsupported,
     sealed_channel: bool = false,
+    wire_framing: WireFraming = .byte_stream,
+    /// Maximum single transport packet payload. Zero means the transport adds
+    /// no packet cap below the session's frame cap.
+    max_packet_bytes: usize = 0,
 
     pub fn eql(left: Metadata, right: Metadata) bool {
         return std.mem.eql(u8, left.symbol, right.symbol) and
             left.designator_scheme == right.designator_scheme and
             left.address_source == right.address_source and
             left.dial_shape == right.dial_shape and
-            left.sealed_channel == right.sealed_channel;
+            left.sealed_channel == right.sealed_channel and
+            left.wire_framing == right.wire_framing and
+            left.max_packet_bytes == right.max_packet_bytes;
     }
 };
 
@@ -60,7 +71,7 @@ pub const Known = enum {
             .inproc => .{ .symbol = "inproc", .designator_scheme = .address },
             .iroh => .{ .symbol = "iroh", .designator_scheme = .key, .dial_shape = .peer_id },
             .keyed_relay => .{ .symbol = "keyed-relay", .designator_scheme = .key, .dial_shape = .rendezvous },
-            .webrtc => .{ .symbol = "webrtc", .designator_scheme = .key, .dial_shape = .signaling },
+            .webrtc => .{ .symbol = "webrtc", .designator_scheme = .key, .dial_shape = .signaling, .wire_framing = .message, .max_packet_bytes = 16 * 1024 },
             .noise_tcp => .{ .symbol = "noise-tcp", .designator_scheme = .key, .address_source = .direct_addresses_hint, .dial_shape = .host_port, .sealed_channel = true },
             .noise_relay => .{ .symbol = "noise-relay", .designator_scheme = .key, .dial_shape = .rendezvous, .sealed_channel = true },
         };
@@ -105,12 +116,16 @@ pub fn metadataFromClaim(
     symbol: []const u8,
     designator_scheme: DesignatorScheme,
     sealed_channel: bool,
+    wire_framing: WireFraming,
+    max_packet_bytes: usize,
 ) (SymbolError || error{TransportSemanticsConflict})!Metadata {
     try validateSymbol(symbol);
     if (parseKnown(symbol)) |known| {
         const metadata = known.metadata();
         if (metadata.designator_scheme != designator_scheme or
-            metadata.sealed_channel != sealed_channel)
+            metadata.sealed_channel != sealed_channel or
+            metadata.wire_framing != wire_framing or
+            metadata.max_packet_bytes != max_packet_bytes)
             return error.TransportSemanticsConflict;
         return metadata;
     }
@@ -118,6 +133,8 @@ pub fn metadataFromClaim(
         .symbol = symbol,
         .designator_scheme = designator_scheme,
         .sealed_channel = sealed_channel,
+        .wire_framing = wire_framing,
+        .max_packet_bytes = max_packet_bytes,
     };
 }
 

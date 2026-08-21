@@ -27,6 +27,10 @@ pub const AdmissionPlatform = struct {
         return error.OperationUnsupported;
     }
 
+    pub fn wireFraming(_: *AdmissionPlatform, _: Fd) pancake.ocapn.model.transport.WireFraming {
+        return .byte_stream;
+    }
+
     fail_dial: bool = false,
     fail_recv: bool = false,
     fail_send: bool = false,
@@ -232,7 +236,7 @@ pub fn admissionBackend(allocator: std.mem.Allocator) !AdmissionBackend {
         64,
         .{
             .url = "ws://127.0.0.1:1/relay",
-            .entropy_seed = [_]u8{0x91} ** std.Random.DefaultCsprng.secret_seed_length,
+            .entropy_seed = @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0x91)),
             .send_staging_bytes = frame_cap,
         },
     );
@@ -264,7 +268,7 @@ pub fn deinitAdmissionBackend(backend: *AdmissionBackend) void {
 }
 
 pub fn startUpgradeRelay(backend: *AdmissionBackend) !AdmissionBackend.Fd {
-    const designator = [_]u8{'a'} ** 64;
+    const designator = @as([64]u8, @splat('a'));
     const fd = try backend.startDial(7, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));

@@ -19,16 +19,17 @@ use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{oneshot, Notify};
-use tokio::task::JoinHandle;
 
-use crate::abi_constants::{DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS};
+use crate::abi_constants::{
+	BINDING_READINESS_DRAIN_CAP, DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS, IROH_NODE_ID_BYTES,
+};
 use crate::sys::iroh as ffi;
 use crate::{sys, Error, HintValue, HintWireForm, Host, Locator, Result, Session};
 
@@ -72,10 +73,7 @@ use ffi::{
 	PANCAKE_IROH_EV_CONNECT, PANCAKE_IROH_EV_READABLE, PANCAKE_IROH_EV_WRITABLE,
 };
 
-// How many readiness records one `drain_ready` call pulls. When the fd signals,
-// the loop drains in a batch and re-drains until a short count, so a queue deeper
-// than the cap is never stranded.
-const DRAIN_READY_CAP: usize = 64;
+const DRAIN_READY_CAP: usize = BINDING_READINESS_DRAIN_CAP;
 
 crate::error_slot::error_slot!(
 	// Like the core `check`, but for `pancake_iroh_*` calls: snapshot the iroh
@@ -87,190 +85,11 @@ crate::error_slot::error_slot!(
 	ffi::pancake_iroh_last_error
 );
 
-const RELEASE_OPEN: u8 = 0;
-const RELEASE_RESERVED: u8 = 1;
-const RELEASE_RUNNING: u8 = 2;
-const RELEASE_DONE: u8 = 3;
+mod sync;
+use sync::lock_iroh;
 
-type ReleaseFn = unsafe fn(usize) -> i32;
-
-fn call_release(release: ReleaseFn, raw: usize) -> Result<()> {
-	match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { release(raw) })) {
-		Ok(code) => check_iroh(code),
-		Err(_) => Err(Error::with_detail(
-			sys::ERR_INTERNAL,
-			"iroh netlayer release panicked".to_string(),
-		)),
-	}
-}
-
-/// No iroh mutex protects an application invariant: critical sections only
-/// move owned task handles, readiness flags, wakers, and channel endpoints.
-/// If a panic poisons one, the contained values remain valid. Recover the
-/// guard, clear the sticky poison bit, and publish the containment event rather
-/// than turning every later library call into another process panic.
-fn lock_iroh<'a, T>(mutex: &'a Mutex<T>, source: &'static str) -> std::sync::MutexGuard<'a, T> {
-	recover_iroh_lock(mutex, mutex.lock(), source)
-}
-
-fn recover_iroh_lock<'a, T>(
-	mutex: &'a Mutex<T>,
-	result: std::sync::LockResult<std::sync::MutexGuard<'a, T>>,
-	source: &'static str,
-) -> std::sync::MutexGuard<'a, T> {
-	match result {
-		Ok(guard) => guard,
-		Err(poisoned) => {
-			let guard = poisoned.into_inner();
-			mutex.clear_poison();
-			crate::record_runtime_failure(
-				crate::FailureLayer::Transport,
-				source,
-				Error::with_detail(sys::ERR_INTERNAL, "iroh synchronization state was poisoned".to_string()),
-			);
-			guard
-		}
-	}
-}
-
-// A release task is retained until its blocking call has completed. The
-// reserved/running split lets a last-resort Drop fallback claim a queued task
-// after Tokio starts shutting down: the task then observes the running claim
-// and skips the native call, so release remains exactly once.
-struct NetlayerRelease {
-	phase: AtomicU8,
-	task: Mutex<Option<JoinHandle<()>>>,
-	notify: Notify,
-	close_lock: tokio::sync::Mutex<()>,
-	failure: Mutex<Option<Error>>,
-}
-
-impl NetlayerRelease {
-	fn new() -> NetlayerRelease {
-		NetlayerRelease {
-			phase: AtomicU8::new(RELEASE_OPEN),
-			task: Mutex::new(None),
-			notify: Notify::new(),
-			close_lock: tokio::sync::Mutex::new(()),
-			failure: Mutex::new(None),
-		}
-	}
-
-	fn start(self: &Arc<NetlayerRelease>, raw: usize, release: ReleaseFn) {
-		// Store the JoinHandle before a waiter can take it, even if the blocking
-		// task runs to completion immediately.
-		let mut task_slot = lock_iroh(&self.task, "iroh-release-task-lock-poison");
-		if self
-			.phase
-			.compare_exchange(RELEASE_OPEN, RELEASE_RESERVED, Ordering::AcqRel, Ordering::Acquire)
-			.is_err()
-		{
-			return;
-		}
-		let state = Arc::clone(self);
-		let task = tokio::task::spawn_blocking(move || {
-			if state
-				.phase
-				.compare_exchange(RELEASE_RESERVED, RELEASE_RUNNING, Ordering::AcqRel, Ordering::Acquire)
-				.is_ok()
-			{
-				if let Err(error) = call_release(release, raw) {
-					*lock_iroh(&state.failure, "iroh-release-failure-lock-poison") = Some(error);
-				}
-				state.phase.store(RELEASE_DONE, Ordering::Release);
-				state.notify.notify_waiters();
-			}
-		});
-		*task_slot = Some(task);
-	}
-
-	async fn wait(&self) -> Result<()> {
-		// Join first when this owner retained the task. A panic or runtime
-		// cancellation must surface as an error instead of leaving every waiter
-		// asleep forever waiting for a DONE store the task never performed.
-		let task = lock_iroh(&self.task, "iroh-release-task-lock-poison").take();
-		if let Some(task) = task {
-			task.await.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
-		}
-		loop {
-			if self.phase.load(Ordering::Acquire) == RELEASE_DONE {
-				return match lock_iroh(&self.failure, "iroh-release-failure-lock-poison").clone() {
-					Some(error) => Err(error),
-					None => Ok(()),
-				};
-			}
-			let notified = self.notify.notified();
-			if self.phase.load(Ordering::Acquire) == RELEASE_DONE {
-				return Ok(());
-			}
-			notified.await;
-		}
-	}
-
-	fn fallback(&self, raw: usize, release: ReleaseFn) {
-		loop {
-			let phase = self.phase.load(Ordering::Acquire);
-			if phase == RELEASE_DONE || phase == RELEASE_RUNNING {
-				return;
-			}
-			if self
-				.phase
-				.compare_exchange(phase, RELEASE_RUNNING, Ordering::AcqRel, Ordering::Acquire)
-				.is_ok()
-			{
-				if let Err(error) = call_release(release, raw) {
-					*lock_iroh(&self.failure, "iroh-release-failure-lock-poison") = Some(error.clone());
-					crate::record_runtime_failure(crate::FailureLayer::Transport, "iroh-netlayer-finalize", error);
-				}
-				self.phase.store(RELEASE_DONE, Ordering::Release);
-				self.notify.notify_waiters();
-				return;
-			}
-		}
-	}
-}
-
-unsafe fn release_native(raw: usize) -> i32 {
-	ffi::pancake_iroh_netlayer_release(
-		raw as *mut PancakeIrohNetlayer,
-		core::ptr::null_mut(),
-		0,
-		core::ptr::null_mut(),
-	)
-}
-
-// The raw netlayer handle is shared (behind an `Arc`) between the public
-// `Netlayer`/`Server` and the readiness loop's dispatcher task. Explicit
-// owners join that task before consuming the handle and awaiting release. Drop
-// is only a last-resort fallback for cancellation/runtime shutdown; it releases
-// synchronously after claiming the same state, never racing a queued release.
-struct NetlayerRaw {
-	raw: *mut PancakeIrohNetlayer,
-	release: Arc<NetlayerRelease>,
-}
-
-// SAFETY: sharing `&NetlayerRaw` across threads only exposes reads of the raw
-// pointer *value*, which is trivially safe. Concurrent *FFI use* of the endpoint
-// behind it — the dispatcher's `drain_ready` on the reactor thread versus the
-// public handle's accessors/`close` on a caller thread — is defined because the
-// sidecar endpoint behind `pancake_iroh_netlayer_*` is internally synchronized:
-// iroh's `Endpoint` is `Send + Sync` and the readiness queue is mutex-guarded.
-// The `Arc` only keeps the handle alive and moves its release across threads.
-unsafe impl Send for NetlayerRaw {}
-unsafe impl Sync for NetlayerRaw {}
-
-impl Drop for NetlayerRaw {
-	fn drop(&mut self) {
-		if tokio::runtime::Handle::try_current().is_ok() {
-			// Drop cannot await, but it must not park a Tokio worker on the
-			// sidecar's runtime join. Retain one blocking task when Tokio can own
-			// it; outside a runtime, synchronous release is the final fallback.
-			self.release.start(self.raw as usize, release_native);
-		} else {
-			self.release.fallback(self.raw as usize, release_native);
-		}
-	}
-}
+mod release;
+use release::NetlayerRaw;
 
 /// One iroh endpoint's configuration, field-for-field with the header's
 /// `PancakeIrohConfig`, which documents what each setting means. `None` for a
@@ -300,11 +119,13 @@ pub struct ListenOptions {
 mod config;
 
 /// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
-/// sibling of the TCP `Netlayer`. Dial with
-/// [`Netlayer::connect_owned`] or host with [`Server`]. Call
-/// [`Netlayer::release`] after every connection minted from it is released;
-/// Drop is only the last-resort fallback.
-#[derive(Clone)]
+/// sibling of the TCP `Netlayer`.
+///
+/// This wrapper is move-only. `connect_owned` and `release` consume the public
+/// owner because both cross the native endpoint's release boundary. Internal
+/// `Arc` clones keep the endpoint alive while a readiness task, stream, or
+/// provider lease still needs it, but application code cannot mint a second
+/// release owner.
 pub struct Netlayer {
 	raw: Arc<NetlayerRaw>,
 	reachability: Reachability,
@@ -398,10 +219,7 @@ impl Netlayer {
 			)
 		})?;
 		Ok(Netlayer {
-			raw: Arc::new(NetlayerRaw {
-				raw,
-				release: Arc::new(NetlayerRelease::new()),
-			}),
+			raw: Arc::new(NetlayerRaw::new(raw)),
 			reachability: config.reachability,
 		})
 	}
@@ -409,7 +227,7 @@ impl Netlayer {
 	/// This endpoint's id, its Ed25519 public key as lowercase hex, the dialable
 	/// designator and the URI host.
 	pub fn node_id(&self) -> Result<String> {
-		let mut buf = [0u8; 64];
+		let mut buf = [0u8; IROH_NODE_ID_BYTES];
 		let mut len: usize = 0;
 		check_iroh(unsafe { ffi::pancake_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len) })?;
 		Ok(String::from_utf8_lossy(&buf[..len]).into_owned())
@@ -434,11 +252,8 @@ impl Netlayer {
 	/// Close the endpoint without releasing the handle: later dials fail and the
 	/// readiness loop winds down. Idempotent, the shutdown lever a dropped dialer
 	/// or server pulls.
-	pub async fn close(&self) -> Result<()> {
-		let raw = Arc::clone(&self.raw);
-		tokio::task::spawn_blocking(move || unsafe { ffi::pancake_iroh_netlayer_close(raw.raw) })
-			.await
-			.map_err(|_| Error::from_code(sys::ERR_INTERNAL))
+	pub fn close(&self) {
+		self.raw.close();
 	}
 
 	/// Close and release this endpoint, joining the one native release task.
@@ -452,17 +267,7 @@ impl Netlayer {
 	}
 
 	async fn release_shared(&self) -> Result<()> {
-		let _close_guard = self.raw.release.close_lock.lock().await;
-		if self.raw.release.phase.load(Ordering::Acquire) == RELEASE_DONE {
-			return self.raw.release.wait().await;
-		}
-		let close_result = self.close().await;
-		self.raw.release.start(self.raw.raw as usize, release_native);
-		let release_result = self.raw.release.wait().await;
-		match close_result {
-			Ok(()) => release_result,
-			Err(primary) => Err(crate::retain_cleanup_failure(primary, release_result)),
-		}
+		self.raw.release().await
 	}
 
 	/// Dial a partner by endpoint id and direct-address hints over the
@@ -506,15 +311,20 @@ impl Netlayer {
 }
 
 fn direct_addresses(raw: *mut PancakeIrohNetlayer) -> Result<String> {
-	// The endpoint with no direct addresses writes zero bytes; a buffer too
-	// small is ERR_BUFFER_TOO_SMALL, so grow until it fits.
-	let mut cap = 256usize;
+	let mut cap: usize = 0;
+	let code = unsafe { ffi::pancake_iroh_netlayer_direct_addrs(raw, std::ptr::null_mut(), 0, &mut cap) };
+	if code != sys::ERR_BUFFER_TOO_SMALL {
+		check_iroh(code)?;
+		if cap == 0 {
+			return Ok(String::new());
+		}
+	}
 	loop {
 		let mut buf = vec![0u8; cap];
 		let mut len: usize = 0;
 		let code = unsafe { ffi::pancake_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len) };
-		if code == sys::ERR_BUFFER_TOO_SMALL && cap < 64 * 1024 {
-			cap *= 4;
+		if code == sys::ERR_BUFFER_TOO_SMALL && len > cap {
+			cap = len;
 			continue;
 		}
 		check_iroh(code)?;

@@ -13,9 +13,10 @@
 //! blocking verbs keep working without a set, because only the park-outside
 //! contract needs one.
 //!
-//! Membership is readable-interest only and level-shaped. `add` is
-//! idempotent and `remove` tolerates an fd that already left, because the
-//! close path and the release path sweep the same wire.
+//! Membership is level-shaped. Ordinary wires use readable interest; a
+//! transport close transaction may temporarily switch its descriptor to
+//! writable interest. `remove` tolerates an fd that already left because the
+//! close and release paths sweep the same wire.
 //!
 //! Platform-gated like `wake_channel.zig`: Linux by raw syscall, Darwin
 //! through libc externs. Allowlisted for the platform-namespace ban in
@@ -62,12 +63,14 @@ const DarwinTimespec = extern struct {
 };
 
 const darwin_evfilt_read: i16 = -1;
+const darwin_evfilt_write: i16 = -2;
 const darwin_ev_add: u16 = 0x0001;
 const darwin_ev_delete: u16 = 0x0002;
 
 pub const InitError = error{ReadinessUnavailable};
 pub const UpdateError = error{ReadinessUpdateFailed};
 pub const DrainError = error{ReadinessDrainFailed};
+pub const Interest = enum { read, write };
 
 pub const ReadySet = struct {
     /// The pollable set descriptor an embedder parks on.
@@ -110,26 +113,53 @@ pub const ReadySet = struct {
     /// Register readable interest in `fd`. Idempotent: a member already in
     /// the set is left as it was.
     pub fn add(self: *ReadySet, fd: i32) UpdateError!void {
+        try self.setInterest(fd, .read);
+    }
+
+    /// Add or update one member's level-triggered interest.
+    pub fn setInterest(self: *ReadySet, fd: i32, interest: Interest) UpdateError!void {
         if (is_linux) {
-            var ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = fd } };
-            const rc = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_ADD, fd, &ev);
-            switch (linux.errno(rc)) {
-                .SUCCESS, .EXIST => {},
-                else => return error.ReadinessUpdateFailed,
-            }
-        } else if (is_darwin) {
-            var change = DarwinKevent{
-                .ident = @intCast(fd),
-                .filter = darwin_evfilt_read,
-                .flags = darwin_ev_add,
-                .fflags = 0,
-                .data = 0,
-                .udata = 0,
+            var ev = linux.epoll_event{
+                .events = if (interest == .read) linux.EPOLL.IN else linux.EPOLL.OUT,
+                .data = .{ .fd = fd },
             };
-            if (kevent(self.fd, @ptrCast(&change), 1, null, 0, null) < 0) {
-                return error.ReadinessUpdateFailed;
-            }
+            var rc = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_MOD, fd, &ev);
+            if (linux.errno(rc) == .NOENT)
+                rc = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_ADD, fd, &ev);
+            if (linux.errno(rc) != .SUCCESS) return error.ReadinessUpdateFailed;
+        } else if (is_darwin) {
+            const wanted = if (interest == .read) darwin_evfilt_read else darwin_evfilt_write;
+            const unwanted = if (interest == .read) darwin_evfilt_write else darwin_evfilt_read;
+            self.updateDarwin(fd, unwanted, darwin_ev_delete) catch |err| switch (err) {
+                error.NotFound => {},
+                error.UpdateFailed => return error.ReadinessUpdateFailed,
+            };
+            self.updateDarwin(fd, wanted, darwin_ev_add) catch return error.ReadinessUpdateFailed;
         } else return error.ReadinessUpdateFailed;
+    }
+
+    const DarwinUpdateError = error{ NotFound, UpdateFailed };
+
+    fn updateDarwin(self: *ReadySet, fd: i32, filter: i16, flags: u16) DarwinUpdateError!void {
+        var change = DarwinKevent{
+            .ident = @intCast(fd),
+            .filter = filter,
+            .flags = flags,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+        };
+        const rc = kevent(self.fd, @ptrCast(&change), 1, null, 0, null);
+        if (rc >= 0) return;
+        if (std.c.errno(rc) == .NOENT) return error.NotFound;
+        return error.UpdateFailed;
+    }
+
+    fn removeDarwin(self: *ReadySet, fd: i32, filter: i16) UpdateError!void {
+        self.updateDarwin(fd, filter, darwin_ev_delete) catch |err| switch (err) {
+            error.NotFound => {},
+            error.UpdateFailed => return error.ReadinessUpdateFailed,
+        };
     }
 
     /// Drop `fd` from the set. Tolerant of an fd that already left, because
@@ -143,17 +173,8 @@ pub const ReadySet = struct {
                 else => return error.ReadinessUpdateFailed,
             }
         } else if (is_darwin) {
-            var change = DarwinKevent{
-                .ident = @intCast(fd),
-                .filter = darwin_evfilt_read,
-                .flags = darwin_ev_delete,
-                .fflags = 0,
-                .data = 0,
-                .udata = 0,
-            };
-            const rc = kevent(self.fd, @ptrCast(&change), 1, null, 0, null);
-            if (rc < 0 and std.c.errno(rc) != .NOENT)
-                return error.ReadinessUpdateFailed;
+            try self.removeDarwin(fd, darwin_evfilt_read);
+            try self.removeDarwin(fd, darwin_evfilt_write);
         } else return error.ReadinessUpdateFailed;
     }
 

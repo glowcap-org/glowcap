@@ -4,6 +4,28 @@ const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
 
+const completion_loop_paths = &.{
+    "src/net/completion/loop.zig",
+    "src/net/completion/loop/affinity.zig",
+    "src/net/completion/loop/configuration.zig",
+    "src/net/completion/loop/driver.zig",
+    "src/net/completion/loop/state.zig",
+    "src/net/completion/loop/wake.zig",
+    "src/net/completion/loop/connections/admission.zig",
+    "src/net/completion/loop/connections/deadlines.zig",
+    "src/net/completion/loop/connections/flow.zig",
+    "src/net/completion/loop/connections/lifecycle.zig",
+};
+
+const iroh_paths = &.{
+    "src/net/transport/iroh.zig",
+    "src/net/transport/iroh/backend.zig",
+    "src/net/transport/iroh/locators.zig",
+    "src/net/transport/iroh/resident.zig",
+    "src/net/transport/iroh/resolver.zig",
+    "src/net/transport/iroh/sidecar.zig",
+};
+
 /// One CapTP I/O spine (the forbid half of `checkCaptpIoSpine`; its
 /// require-groups and walks stay bespoke in `source_check.zig`): no
 /// reintroduced `BlockingHost`, `net.Loop` alias, dual `dialTcp`/`dialIroh`
@@ -57,56 +79,56 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "protocol profiles do not wear an implementation's name; use `pairedV1_0Syrup` / `Offer.v1_0Syrup`",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"pub fn dialTcp"},
         .check = "captp-io-spine",
         .why = "Bridge-facing dial is `dialLocator`; Backend owns `startDial`",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"pub fn dialIroh"},
         .check = "captp-io-spine",
         .why = "Bridge-facing dial is `dialLocator`; Backend owns `startDial`",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"pub const ConnectTarget = union"},
         .check = "captp-io-spine",
         .why = "no shared ConnectTarget union; each Backend declares its own associated type",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"@hasDecl(Backend, \""},
         .check = "captp-io-spine",
         .why = "total Backend contract via `validateBackend`; no soft dial/shutdown optionality at call sites",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"openDialFd"},
         .check = "captp-io-spine",
         .why = "socket-shaped Loop dial choreography is gone; Backend.startDial owns dial start",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"abandonDialFd"},
         .check = "captp-io-spine",
         .why = "Backend.startDial owns cleanup on failed start; no Loop abandonDialFd",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"submitIrohConnect"},
         .check = "captp-io-spine",
         .why = "optional `@hasDecl(submitIrohConnect)` is gone; Backends implement `startDial`",
     },
     .{
-        .where = .{ .file = "src/net/completion/loop.zig" },
+        .where = .{ .files = completion_loop_paths },
         .kind = .forbid,
         .needles = &.{"pub fn dial(self"},
         .check = "captp-io-spine",
@@ -120,7 +142,7 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "TCP address grammar lives only in `tcp.DialResolver.resolve`",
     },
     .{
-        .where = .{ .file = "src/net/transport/iroh.zig" },
+        .where = .{ .files = iroh_paths },
         .kind = .forbid,
         .needles = &.{"submitIrohConnect"},
         .check = "captp-io-spine",
@@ -148,7 +170,7 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "`TcpLoop` is `Loop(platform, tcp.DialResolver)`; no forwarding `tcp_backend` wrapper",
     },
     .{
-        .where = .{ .file = "src/net/transport/iroh.zig" },
+        .where = .{ .files = iroh_paths },
         .kind = .forbid,
         .needles = &.{"@import(\"../stream_shim.zig\")"},
         .check = "captp-io-spine",
@@ -169,14 +191,14 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "tcp netlayer reaches socket ops through net.socket, never completion/ internals",
     },
     .{
-        .where = .{ .file = "src/net/transport/tcp_key_addressed.zig" },
+        .where = .{ .file = "src/net/transport/tcp/key_addressed.zig" },
         .kind = .forbid,
         .needles = &.{"@import(\"../completion/"},
         .check = "captp-io-spine",
         .why = "keyed-tcp netlayer reaches socket ops through net.socket, never completion/ internals",
     },
     .{
-        .where = .{ .file = "src/net/transport/iroh.zig" },
+        .where = .{ .files = iroh_paths },
         .kind = .forbid,
         .needles = &.{"@import(\"../completion/"},
         .check = "captp-io-spine",
@@ -260,7 +282,7 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "no Bridge dial-dispatch on transport strings; DialResolver.resolve owns that",
     },
     .{
-        .where = .{ .file = "src/net/transport/iroh.zig" },
+        .where = .{ .files = iroh_paths },
         .kind = .forbid,
         .needles = &.{"Backend.Locator"},
         .check = "captp-io-spine",

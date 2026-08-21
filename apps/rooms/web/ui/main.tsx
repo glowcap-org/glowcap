@@ -32,6 +32,7 @@ const peer: Peer = {
 	pickRoom: net.pickRoom,
 	leaveRoom: net.leaveRoom,
 	reachFor: net.reachFor,
+	showJoinCard: store.showJoinCard,
 	openPrivateRoom: (dir, label) => {
 		void net.openPrivateRoom(dir, label).then((why) => {
 			if (why !== "") store.toast("failure", why);
@@ -50,7 +51,6 @@ const peer: Peer = {
 	leaveDirectory: net.leaveDirectory,
 	openConv: store.switchTo,
 	closeDm: net.closeDm,
-	banner: store.setBanner,
 	toast: store.toast,
 	showRoster: store.showRoster,
 	endConv: net.endConversation,
@@ -70,19 +70,14 @@ const peer: Peer = {
 	closeOperations: store.closeOperations,
 	openOpsTake: store.openOpsTake,
 	closeOpsTake: store.closeOpsTake,
-	// The drop clears that capability's rows, and possession is derived from
-	// the rows, so the toggle falls off in the same store change.
-	dropOpsCap: (cap) => {
-		if (cap === "diagnostics") net.dropDiagnosticCap();
-		else if (cap === "viz") net.dropVizCap();
-		else net.dropListenersCap();
-	},
+	// Each capability's take, drop, and refresh live in one table below the
+	// page, so these three are the whole of what the page asks. The drop
+	// clears that capability's rows, and possession is derived from the rows,
+	// so the toggle falls off in the same store change.
+	takeOpsCap: net.takeOpsCap,
+	dropOpsCap: net.dropOpsCap,
+	refreshOpsCap: net.refreshOpsCap,
 	setOpsTab: store.setOpsTab,
-	takeDiagnosticCap: net.takeDiagnosticCap,
-	refreshDiagnostics: net.refreshDiagnostics,
-	takeListenersCap: net.takeListenersCap,
-	refreshListeners: net.refreshListeners,
-	takeVizCap: net.takeVizCap,
 	listenerUp: net.requestListenerUp,
 	listenerDown: net.requestListenerDown,
 	startDm: net.startDm,

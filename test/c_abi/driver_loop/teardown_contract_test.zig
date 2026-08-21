@@ -132,4 +132,46 @@ test "pending and active listener teardown return exact provider chains" {
         try std.testing.expectEqual(@as(u32, 2), failure.secondary_count);
         try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
     }
+
+    {
+        const owned = try harness.newEmptyLoop(0x80);
+        defer owned.deinit();
+        var resident = typed.TypedResident{
+            .wake = try pancake.net.wake_channel.WakeChannel.open(),
+            .opaque_hint = &.{},
+            .stop_listen_pending = true,
+            .stop_listen_failure = true,
+        };
+        defer resident.wake.deinit();
+        var table = resident.table();
+        const profile = harness.providerProfile("typed-test");
+        var provider = typed.typedProvider(&resident, &table, &profile);
+        try expectOk(harness.addProvider(owned.raw, &provider));
+        const listener = try harness.listenReady(owned.raw, "typed-test", "listener-peer");
+        var failure = cdrv.PancakeDriverFailure.init();
+        try std.testing.expectEqual(
+            c.PANCAKE_ERR_WOULD_BLOCK,
+            cdrv.pancake_driver_listener_close(owned.raw, listener, &failure),
+        );
+
+        var event: cdrv.PancakeDriverEvent = undefined;
+        try std.testing.expectEqual(
+            c.PANCAKE_ERR_WOULD_BLOCK,
+            cdrv.pancake_driver_next_event(owned.raw, &event),
+        );
+        try expectStep(cdrv.pancake_driver_step(owned.raw, 1_000));
+        try expectOk(cdrv.pancake_driver_next_event(owned.raw, &event));
+        try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+        try std.testing.expectEqual(listener, event.listener_id);
+        try std.testing.expectEqualStrings(
+            "StopListenFailed",
+            event.primary_name.?[0..event.primary_name_len],
+        );
+        try std.testing.expectEqualStrings(
+            "StopListenCleanupFailed",
+            event.secondary_name.?[0..event.secondary_name_len],
+        );
+        try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
+        try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
+    }
 }

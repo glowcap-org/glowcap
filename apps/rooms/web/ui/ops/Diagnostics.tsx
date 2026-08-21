@@ -18,7 +18,7 @@ export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] | nul
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => peer.refreshDiagnostics()}>
+			<OpsHead refresh={() => peer.refreshOpsCap("diagnostics")}>
 				What this directory currently holds, as the inspect capability sees it.
 			</OpsHead>
 			<div className="group well">

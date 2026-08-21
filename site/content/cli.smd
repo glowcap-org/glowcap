@@ -1,8 +1,7 @@
 ---
 .title = "CapTP CLI",
 .description = "Call a capability from your shell, host a short-lived peer, open a REPL, or wire CapTP into an agent over MCP.",
-.date = @date("2026-07-16T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-07-16T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
@@ -19,7 +18,18 @@ export PATH="$PWD/zig-out/bin:$PATH"
 pancake help
 ```
 
-## Round-trip
+# Encrypted conversation
+
+Native rooms traffic rides [iroh]($link.page('transports/iroh')):
+
+```sh
+pancake app rooms-peer
+```
+
+# Lab round-trip
+
+`ocapn listen` binds loopback `tcp`, the testing transport: a cleartext
+`host:port` with no identity proof.
 
 The CLI's demo greeter accepts the verb `greet` and one argument, then returns
 `Hello, <arg>`.
@@ -47,7 +57,7 @@ pancake --json ocapn call "$LOC" greeter greet world
 # {"ok":true,"value":"Hello, world"}
 ```
 
-## REPL, MCP, and completion
+# REPL, MCP, and completion
 
 The binary also serves agents over MCP and completes your shell. `pancake repl`
 opens an interactive CapTP lab on a live session: the exports, imports, and

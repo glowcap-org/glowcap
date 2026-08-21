@@ -6,7 +6,7 @@
 import { MAX_SCROLLBACK } from "../../../lib/limits.ts";
 import { silencedByIgnore } from "../types.ts";
 import type { AttachmentView, DirId, Item, SendState, SysAudience, Unread } from "../types.ts";
-import { set, state } from "./core.ts";
+import { letLinesGo, set, state } from "./core.ts";
 import { getConv, patch, put } from "./convs.ts";
 
 let nextItemId = 0;
@@ -97,11 +97,6 @@ export function sysItem(text: string, audience: SysAudience = "here"): Item {
  * they carried can let it go. The store owns the log and knows nothing about
  * capabilities or object URLs; the network layer owns those and knows nothing
  * about when a line stops being drawn. This is the one seam between them. */
-let lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
-export function onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): void {
-	lettingGo = hook;
-}
-
 export function deliver(key: string, item: Item): void {
 	const conv = getConv(key);
 	if (!conv) return;
@@ -125,7 +120,7 @@ export function deliver(key: string, item: Item): void {
 		}
 	}
 	put(patch(conv, { history, unread }));
-	if (gone.length > 0) lettingGo?.(key, gone);
+	letLinesGo(key, gone);
 }
 
 /** One more unread line. A run that is already going keeps the line it started
@@ -195,7 +190,7 @@ export function clearHistory(key: string): void {
 	// references governing our own lines — to the release seam. Bypassing it
 	// here kept all of that alive until the directory session ended, for a
 	// reader who had just asked for the room to be emptied.
-	lettingGo?.(key, gone);
+	letLinesGo(key, gone);
 }
 /** Find the line a room names, and change it.
  *

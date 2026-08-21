@@ -1,7 +1,10 @@
 //! One CLI verb's borrowed-or-owned session view.
 
-const driver = @import("pancake").driver;
+const pancake = @import("pancake");
 const exit_codes = @import("../exit_codes.zig");
+
+const driver = pancake.driver;
+const FailureChain = pancake.foundation.FailureChain;
 
 const close_grace_ms: u32 = 5_000;
 
@@ -32,32 +35,56 @@ pub const SessionRef = union(enum) {
             .borrow => return outcome,
             .owned => |owned| owned,
         };
-        defer session.deinit();
 
         const code = outcome catch |primary| {
-            session.close(.cancel) catch |cleanup| {
-                ctx.logErr(
-                    "session cleanup after {s}: {s}",
-                    .{ @errorName(primary), @errorName(cleanup) },
-                );
-            };
-            return primary;
+            return finishOwned(ctx, session, .cancel, primary, null);
         };
         if (code != exit_codes.ok) {
-            session.close(.cancel) catch |cleanup| {
-                ctx.logErr("session cleanup consequence: {s}", .{@errorName(cleanup)});
-            };
-            return code;
+            return finishOwned(ctx, session, .cancel, null, code);
         }
-
-        session.close(.{ .finish = .{ .ms = close_grace_ms } }) catch |close_failure| {
-            ctx.logErr("session close: {s}", .{@errorName(close_failure)});
-            return switch (close_failure) {
-                error.CloseTimedOut => exit_codes.timeout,
-                error.OutOfMemory => exit_codes.internal,
-                else => exit_codes.dial,
-            };
-        };
-        return code;
+        return finishOwned(ctx, session, .{ .finish = .{ .ms = close_grace_ms } }, null, code);
     }
 };
+
+fn finishOwned(
+    ctx: anytype,
+    session: *driver.Session,
+    pending: driver.PendingWork,
+    primary: ?anyerror,
+    code: ?u8,
+) !u8 {
+    var failure: ?FailureChain = if (primary) |cause| FailureChain.init(cause) else null;
+    session.close(pending) catch |cleanup| {
+        if (failure) |*chain| {
+            chain.note(cleanup);
+        } else {
+            failure = .init(cleanup);
+        }
+    };
+    session.deinit();
+    if (ctx.takeCallerless()) |cleanup| {
+        if (failure) |*chain| {
+            chain.noteChain(cleanup);
+        } else {
+            failure = cleanup;
+        }
+    }
+    if (primary) |cause| {
+        if (failure.?.secondary_count > 0) {
+            ctx.logErr(
+                "session cleanup after {s}: {s} (and {d} later failure(s))",
+                .{ @errorName(cause), failure.?.secondaryName() orelse "none", failure.?.secondary_count },
+            );
+        }
+        return cause;
+    }
+    if (code.? != exit_codes.ok) {
+        if (failure) |chain| ctx.logCloseFailure("session cleanup consequence", chain);
+        return code.?;
+    }
+    if (failure) |chain| {
+        ctx.logCloseFailure("session close", chain);
+        return ctx.mapCloseErr(chain.cause);
+    }
+    return code.?;
+}

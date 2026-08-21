@@ -291,7 +291,13 @@
 	justify-content: center;
 	text-align: center;
 	font-size: 11px;
-	line-height: 1.25;
+	/* Taller than the rest of the family, because this is the family's smallest
+	   text and it truncates. An element that clips sideways for an ellipsis
+	   clips top and bottom too, and at eleven pixels a line box of 1.25 is a
+	   pixel shorter than this font's own metrics, so the line took a sliver off
+	   every ascender. Nothing looks broken when it does, which is why the
+	   browser proof measures it rather than the stylesheet arguing it. */
+	line-height: 1.5;
 	padding-inline: 12px;
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-chip);
@@ -353,6 +359,15 @@
 .button[aria-pressed="true"] {
 	color: var(--teal-ink);
 	font-weight: 700;
+}
+/* And when it is not. Stated as its own arm rather than left to the variant's
+   resting ink, because a word offered this way has two states a reader has to
+   tell apart at a glance, and teal at 600 against teal at 700 is the same word
+   twice. Quieted rather than struck through: it is still a choice they can
+   make, and it comes back with a press. */
+.button[aria-pressed="false"] {
+	color: var(--ink-soft);
+	font-weight: 600;
 }
 .button[data-variant="link"]:focus-visible,
 .button[data-variant="caption"]:focus-visible {
@@ -550,13 +565,10 @@ button:focus-visible,
 	.boot {
 		transition-duration: 150ms !important;
 	}
-	.banner,
-	.banner.show,
 	.toasts {
-		/* Keep the half of the transform that centres the pill and give up only
+		/* Keep the half of the transform that centers the stack and give up only
 		   the half that moves it. Dropping the transform outright would send it to
-		   the left edge of the column. The toast host is the same shape, pinned
-		   to the top of the viewport rather than the conversation. */
+		   the left edge of the viewport it is pinned to. */
 		transform: translateX(-50%) !important;
 		transition-duration: 150ms !important;
 	}

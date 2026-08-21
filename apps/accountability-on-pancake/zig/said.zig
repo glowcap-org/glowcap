@@ -169,14 +169,14 @@ pub fn nextKeyDigest(next_verkey: [32]u8) [SAID_LEN]u8 {
 }
 
 test "a D-coded verkey round-trips" {
-    const key = try Key.fromSeed(.{0x01} ** SEED_BYTES);
+    const key = try Key.fromSeed(@as([SEED_BYTES]u8, @splat(0x01)));
     var coded: [SAID_LEN]u8 = undefined;
     encodeSaid('D', key.verkey(), &coded);
     try std.testing.expectEqual(key.verkey(), try decodeVerkey(&coded));
 }
 
 test "a signature round-trips through base64url" {
-    const key = try Key.fromSeed(.{0x02} ** SEED_BYTES);
+    const key = try Key.fromSeed(@as([SEED_BYTES]u8, @splat(0x02)));
     const sig = key.sign("preimage");
     var encoded: [SIG_LEN]u8 = undefined;
     _ = b64.Encoder.encode(&encoded, &sig);

@@ -74,13 +74,13 @@ pub fn main() !void {
         } } },
         .{ "op_start_session.bin", .{ .start_session = .{
             .captp_version = .next,
-            .session_pubkey = .{ .bytes = &([_]u8{0x11} ** 32) },
+            .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0x11))) },
             .acceptable_location = .{
                 .transport = "tcp",
                 .designator = "127.0.0.1:9",
                 .hints = model.Hints.emptyFalse(),
             },
-            .acceptable_location_sig = .{ .bytes = &([_]u8{0x22} ** 64) },
+            .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0x22))) },
         } } },
         .{ "op_handoff_give.bin", .{ .handoff = .{ .give = handoff_fixtures.give() } } },
         .{ "op_handoff_receive.bin", .{ .handoff = .{ .receive = handoff_fixtures.receive() } } },

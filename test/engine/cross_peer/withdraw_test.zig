@@ -190,19 +190,19 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
 
 const Projection = struct {
     position: model.ExportPosition,
-    seen_scope: ?engine.PeerId = null,
+    seen_scope: ?engine.PeerHandle = null,
     seen_target: ?u64 = null,
     fail: bool = false,
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerId, _: []const u8) !?model.ExportPosition {
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
         return null;
     }
 
-    fn capture(_: ?*anyopaque, _: engine.PeerId, _: model.ExportPosition) ?u64 {
+    fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
         return null;
     }
 
-    fn project(ctx: ?*anyopaque, scope: engine.PeerId, target: u64) !engine.bootstrap.ProjectedLocalTarget {
+    fn project(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
         const self: *Projection = @ptrCast(@alignCast(ctx.?));
         self.seen_scope = scope;
         self.seen_target = target;
@@ -212,7 +212,7 @@ const Projection = struct {
 
     fn releaseTarget(_: ?*anyopaque, _: u64) void {}
 
-    fn rollback(_: ?*anyopaque, _: engine.PeerId, _: u64, _: engine.bootstrap.ProjectedLocalTarget) void {}
+    fn rollback(_: ?*anyopaque, _: engine.PeerHandle, _: u64, _: engine.bootstrap.gifts.ProjectedLocalTarget) void {}
 };
 
 // The exporter half of a three-party handoff across two sessions: the gift row
@@ -257,7 +257,7 @@ test "a withdraw projects the exact deposited local target on the receiving Port
     _ = try exporter.session_state.allocateExport();
     const projected_here = try exporter.session_state.allocateExport();
     var projection = Projection{ .position = projected_here };
-    const local_projection: engine.bootstrap.LocalObjectProjection = .{
+    const local_projection: engine.bootstrap.gifts.LocalObjectProjection = .{
         .ctx = &projection,
         .resolve_name = Projection.resolveName,
         .capture = Projection.capture,
@@ -277,7 +277,7 @@ test "a withdraw projects the exact deposited local target on the receiving Port
 
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
-    const receiving_scope: engine.PeerId = .from(91);
+    const receiving_scope: engine.PeerHandle = .from(91);
 
     // Projection failure is recoverable: it breaks this withdrawal attempt but
     // consumes neither the gift nor its replay count, so the same signed
@@ -354,17 +354,17 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         position: model.ExportPosition,
         rollbacks: usize = 0,
 
-        fn resolveName(_: ?*anyopaque, _: engine.PeerId, _: []const u8) !?model.ExportPosition {
+        fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
             return null;
         }
-        fn capture(_: ?*anyopaque, _: engine.PeerId, _: model.ExportPosition) ?u64 {
+        fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
             return null;
         }
-        fn project(ctx: ?*anyopaque, _: engine.PeerId, _: u64) !engine.bootstrap.ProjectedLocalTarget {
+        fn project(ctx: ?*anyopaque, _: engine.PeerHandle, _: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             return .{ .export_position = self.position, .created = true };
         }
-        fn rollback(ctx: ?*anyopaque, _: engine.PeerId, _: u64, projected: engine.bootstrap.ProjectedLocalTarget) void {
+        fn rollback(ctx: ?*anyopaque, _: engine.PeerHandle, _: u64, projected: engine.bootstrap.gifts.ProjectedLocalTarget) void {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             if (projected.created) self.rollbacks += 1;
         }
@@ -381,7 +381,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         peer.session_state.installInboundAnswer(.from(7)) catch continue;
         const projected = peer.session_state.allocateExport() catch continue;
         var projection = TrackingProjection{ .position = projected };
-        const seam: engine.bootstrap.LocalObjectProjection = .{
+        const seam: engine.bootstrap.gifts.LocalObjectProjection = .{
             .ctx = &projection,
             .resolve_name = TrackingProjection.resolveName,
             .capture = TrackingProjection.capture,

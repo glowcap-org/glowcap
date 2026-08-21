@@ -65,9 +65,8 @@
 ;; collector never reclaims executable memory the core still holds.
 (define native-cb (box #f))
 ;; Payload bytes forwarded per message (whole frame under the cap, head +
-;; true length above it). The TypeScript veneer exposes this as an
-;; `enableTrace` option; make it configurable here when a consumer asks.
-(define PAYLOAD-CAP 4096)
+;; true length above it).
+(define PAYLOAD-CAP BINDING-TRACE-PAYLOAD-CAP-BYTES)
 
 (define (with-registry thunk)
   (call-with-semaphore registry-gate thunk))

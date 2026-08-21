@@ -64,7 +64,7 @@ fn pokeListener(io: std.Io, port: u16) void {
 }
 
 const route_hint_name = "route-token";
-const route_hint_bytes = [_]u8{0xa5} ** 64;
+const route_hint_bytes = @as([64]u8, @splat(0xa5));
 
 const GifterState = struct {
     host: *Host,

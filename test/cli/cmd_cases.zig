@@ -119,7 +119,7 @@ test "a diagnostic longer than the line buffer truncates visibly, never vanishes
     defer threaded.deinit();
 
     cli.log.test_capture.reset();
-    const long = "x" ** 600;
+    const long = @as([600]u8, @splat('x'));
     cli.log.err(threaded.io(), "{s}", .{long});
     const diags = cli.log.test_capture.captured();
     try std.testing.expect(std.mem.startsWith(u8, diags, "pancake: error: xxx"));

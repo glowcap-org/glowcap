@@ -19,7 +19,11 @@ function rulePlace(unread: Unread): number | null {
 
 // The panel at the top of a conversation. A log that starts mid-air reads as if
 // something failed to load, and the top of the log is the one place with room to
-// say what this room actually is. Each kind says the true thing about itself: a
+// say what this room actually is. It opens by saying where the reader's view
+// begins, because a room outlives any one arrival and none of what was said
+// before an arrival is sent to it: calling this the beginning of the room told
+// somebody who joined a day-old conversation that they were looking at all of
+// it. Each kind then says the true thing about itself: a
 // public room is open to anyone holding its name, a private one to nobody who
 // was not handed it, and a direct message is the part worth understanding: a
 // line the room introduced and then stepped out of.
@@ -33,13 +37,14 @@ function introBody(conv: Conv): string {
 		// is where a reader finds out which kind they are in. Saying the open
 		// sentence over a private room would be the worst wrong answer here.
 		if (conv.held) {
-			return "This is the beginning of the room, and it is private. It is in no list and " +
-				"nobody can enter it by name. Everybody here was handed it by somebody who " +
-				"was already in. Hand it on with /invite, and whoever holds it can do the same.";
+			return "Nothing said before you joined is sent to you, so your view starts here. " +
+				"The room is private: it is in no list, and nobody can enter it by name. " +
+				"Everybody here was handed it by somebody who was already in. Hand it on " +
+				"with /invite, and whoever holds it can do the same.";
 		}
-		return "This is the beginning of the room. Anyone who knows its name can join, " +
-			"and nobody had to make an account: the name you picked is a display name, " +
-			"not an identity anyone checked.";
+		return "Nothing said before you joined is sent to you, so your view starts here. " +
+			"Anyone who knows the room's name can join, and nobody had to make an account: " +
+			"the name you picked is a display name, not an identity anyone checked.";
 	}
 	if (conv.line === "closed") {
 		return "This conversation is closed. " + conv.id +

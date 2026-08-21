@@ -35,6 +35,16 @@ from ._host_action_gen import (
 _OK = _abi.OK
 
 
+def _answer_gift_id(draw, provide, failed) -> None:
+    """Complete entropy failure separately from native ticket refusal."""
+    try:
+        gift_id = draw()
+    except Exception:  # noqa: BLE001 — the core owns the failed effect
+        failed()
+        return
+    provide(gift_id)
+
+
 def _park_actions(host) -> tuple[list[HostAction], bool]:
     """Run ``pancake_host_pump_drain`` with park-only arms; return decoded
     actions in queue order. Views are copied inside ``decode`` before the
@@ -112,8 +122,7 @@ async def _run_action(host, action: HostAction) -> None:
                 session._finish_close(a.result)
 
         async def need_gift_id(self, a: NeedGiftId) -> None:
-            try:
-                gift_id = secrets.token_bytes(32)
+            def provide(gift_id: bytes) -> None:
                 buf, ptr = _byte_buf(gift_id)
                 _check_host(
                     _host.pancake_host_provide_gift_id(
@@ -123,8 +132,14 @@ async def _run_action(host, action: HostAction) -> None:
                         32,
                     )
                 )
-            except Exception:  # noqa: BLE001 — report the terminal host effect
-                _check_host(_host.pancake_host_gift_id_failed(host.raw, a.ticket))
+
+            _answer_gift_id(
+                lambda: secrets.token_bytes(32),
+                provide,
+                lambda: _check_host(
+                    _host.pancake_host_gift_id_failed(host.raw, a.ticket)
+                ),
+            )
 
         async def settle(self, a: Settle) -> None:
             host.settle_vow(a.ticket, True, a.value)

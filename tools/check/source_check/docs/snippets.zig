@@ -1,13 +1,15 @@
 //! Runnable prose: the README quick-start against its abridged copies, the
-//! mermaid blocks that must parse, and example fence indentation.
+//! mermaid blocks that must parse, example fence indentation, and relay
+//! first-calls staying on `wss://`.
 
 const std = @import("std");
 const util = @import("../util.zig");
 
 const appendViolation = util.appendViolation;
 
-/// The README quotes the compiled quick-start example verbatim. The start page
-/// has its own generated multi-transport tabs, held by gen-site-examples-check.
+/// The README quotes the compiled noise-tcp quick-start verbatim. The front page
+/// abridges the iroh first-call example. Start building's tabs are held by
+/// gen-site-examples-check.
 pub fn checkQuickStartSnippet(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -36,15 +38,83 @@ pub fn checkQuickStartSnippet(
     }
     try expected.append(gpa, "");
 
+    if (!try extractIndentedBody(gpa, violations, example_path, example, "fn client(", &expected)) return;
+
+    try compareQuickStartDoc(io, gpa, root, violations, "README.md", expected.items, false);
+
+    const iroh_path = "site/examples/dial/iroh.zig";
+    const iroh_src = root.readFileAlloc(io, iroh_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ iroh_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(iroh_src);
+    var iroh_expected: std.ArrayList([]const u8) = .empty;
+    defer iroh_expected.deinit(gpa);
+    if (!try extractIndentedBody(gpa, violations, iroh_path, iroh_src, "pub fn example(", &iroh_expected)) return;
+    try compareAbridgedQuickStart(io, gpa, root, violations, "site/content/index.smd", iroh_expected.items);
+}
+
+/// Relay first-calls speak `wss://` with platform trust. A loopback `ws://`
+/// URL in this matrix is the testing path occupying a production slot.
+pub fn checkRelaySnippetsUseWss(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "site/examples", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/examples: failed to open for relay WSS check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (std.mem.indexOf(u8, entry.path, "relay") == null) continue;
+        const path = try std.fmt.allocPrint(gpa, "site/examples/{s}", .{entry.path});
+        defer gpa.free(path);
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for relay WSS check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, "wss://") == null) {
+            try appendViolation(gpa, violations, "{s}: relay first-call must speak `wss://` (platform trust, not a loopback `ws://` testing URL)", .{path});
+        }
+        if (containsCleartextWsUrl(contents)) {
+            try appendViolation(gpa, violations, "{s}: relay first-call must not use cleartext `ws://`; the lead is `wss://`", .{path});
+        }
+    }
+}
+
+fn containsCleartextWsUrl(contents: []const u8) bool {
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, contents, i, "ws://")) |pos| {
+        if (pos == 0 or contents[pos - 1] != 's') return true;
+        i = pos + 5;
+    }
+    return false;
+}
+
+fn extractIndentedBody(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    source: []const u8,
+    signature_prefix: []const u8,
+    expected: *std.ArrayList([]const u8),
+) !bool {
     var in_body = false;
-    var found_client = false;
-    var lines = std.mem.splitScalar(u8, example, '\n');
+    var found = false;
+    var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, " \t\r");
         if (!in_body) {
-            if (std.mem.startsWith(u8, line, "fn client(")) {
+            if (std.mem.startsWith(u8, line, signature_prefix)) {
                 in_body = true;
-                found_client = true;
+                found = true;
             }
             continue;
         }
@@ -57,26 +127,23 @@ pub fn checkQuickStartSnippet(
             continue;
         }
         if (!std.mem.startsWith(u8, line, "    ")) {
-            try appendViolation(gpa, violations, "{s}: `fn client` body line not indented one level: `{s}`", .{ example_path, line });
-            return;
+            try appendViolation(gpa, violations, "{s}: `{s}` body line not indented one level: `{s}`", .{ path, signature_prefix, line });
+            return false;
         }
         try expected.append(gpa, line[4..]);
     }
-    if (!found_client or in_body) {
-        try appendViolation(gpa, violations, "{s}: could not extract the `fn client` body for the quick-start check", .{example_path});
-        return;
+    if (!found or in_body) {
+        try appendViolation(gpa, violations, "{s}: could not extract `{s}` body for the first-call check", .{ path, signature_prefix });
+        return false;
     }
-
-    try compareQuickStartDoc(io, gpa, root, violations, "README.md", expected.items, false);
-    try compareAbridgedQuickStart(io, gpa, root, violations, "site/content/index.smd", expected.items);
+    return true;
 }
 
-/// The front page abridges the same quick start: it drops lines the teaser does
-/// not need, so it cannot be held identical the way the two full copies are.
-/// Hold it to the weaker claim it actually makes instead. Every line it keeps
-/// must be a line the example carries, in the example's own order. Dropping a
-/// line stays legal and rewording one does not, which is the drift a shortened
-/// copy invites, because there is no verbatim twin to catch it.
+/// The front page abridges the iroh first-call example: it drops lines the
+/// teaser does not need, so it cannot be held identical the way the README and
+/// its compiled client are. Every line it keeps must be a line the example
+/// carries, in the example's own order. Dropping a line stays legal and
+/// rewording one does not.
 fn compareAbridgedQuickStart(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -110,7 +177,7 @@ fn compareAbridgedQuickStart(
         try fence.append(gpa, line);
     }
     if (!found) {
-        try appendViolation(gpa, violations, "{s}: no ```zig fence to hold against examples/zig/readme_quick_start.zig", .{path});
+        try appendViolation(gpa, violations, "{s}: no ```zig fence to hold against site/examples/dial/iroh.zig", .{path});
         return;
     }
 
@@ -126,14 +193,14 @@ fn compareAbridgedQuickStart(
             }
         }
         if (!matched) {
-            try appendViolation(gpa, violations, "{s}: abridged quick-start line `{s}` is not one examples/zig/readme_quick_start.zig carries from here on; the front page may drop lines but never reword them", .{ path, got });
+            try appendViolation(gpa, violations, "{s}: abridged first-call line `{s}` is not one site/examples/dial/iroh.zig carries from here on; the front page may drop lines but never reword them", .{ path, got });
             return;
         }
     }
 }
 
-/// Find the doc's tcp quick-start fence (the one ```zig block carrying the
-/// tcp marker comment) and hold it identical to the expected lines.
+/// Find the doc's quick-start fence (the one ```zig block carrying the
+/// sealed-path marker comment) and hold it identical to the expected lines.
 fn compareQuickStartDoc(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -143,7 +210,7 @@ fn compareQuickStartDoc(
     expected: []const []const u8,
     blockquoted: bool,
 ) !void {
-    const marker = "// Plain TCP uses a cleartext `host:port` locator.";
+    const marker = "// Noise_XK seals the CapTP stream and proves the dialed key.";
     const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for the quick-start check with {s}", .{ path, @errorName(err) });
         return;
@@ -187,16 +254,16 @@ fn compareQuickStartDoc(
         try fence.append(gpa, line);
     }
     if (!found) {
-        try appendViolation(gpa, violations, "{s}: no ```zig fence carries the tcp quick-start marker `{s}`", .{ path, marker });
+        try appendViolation(gpa, violations, "{s}: no ```zig fence carries the quick-start marker `{s}`", .{ path, marker });
         return;
     }
     if (fence.items.len != expected.len) {
-        try appendViolation(gpa, violations, "{s}: tcp quick-start snippet is {d} lines but examples/zig/readme_quick_start.zig carries {d}; the two must match line for line", .{ path, fence.items.len, expected.len });
+        try appendViolation(gpa, violations, "{s}: quick-start snippet is {d} lines but examples/zig/readme_quick_start.zig carries {d}; the two must match line for line", .{ path, fence.items.len, expected.len });
         return;
     }
     for (fence.items, expected, 0..) |got, want, i| {
         if (!std.mem.eql(u8, got, want)) {
-            try appendViolation(gpa, violations, "{s}: tcp quick-start drifts from examples/zig/readme_quick_start.zig at snippet line {d}: `{s}` vs `{s}`", .{ path, i + 1, got, want });
+            try appendViolation(gpa, violations, "{s}: quick-start drifts from examples/zig/readme_quick_start.zig at snippet line {d}: `{s}` vs `{s}`", .{ path, i + 1, got, want });
             return;
         }
     }
@@ -407,4 +474,10 @@ test "mermaidBlockKind recognizes supported diagram heads" {
     try std.testing.expectEqual(MermaidKind.sequence, (try mermaidBlockKind("\nsequenceDiagram\n    A->>B: hello\n")).?);
     try std.testing.expectEqual(MermaidKind.state, (try mermaidBlockKind("stateDiagram-v2\n    [*] --> Open\n")).?);
     try std.testing.expect(try mermaidBlockKind("notMermaid\n    A\n") == null);
+}
+
+test "containsCleartextWsUrl treats wss as sealed and ws as cleartext" {
+    try std.testing.expect(!containsCleartextWsUrl("const relayUrl = \"wss://relay.example/relay\";"));
+    try std.testing.expect(containsCleartextWsUrl("const relayUrl = \"ws://192.0.2.10/relay\";"));
+    try std.testing.expect(containsCleartextWsUrl("ws://127.0.0.1:8000/relay"));
 }

@@ -180,16 +180,8 @@ pub const Queue = struct {
                 }
             }
 
-            _ = session.stepReadable(0) catch |err| {
-                // A transport fault propagates raw (only a clean `.closed` pump
-                // breaks far vows in `step`), so the vat still holds this
-                // Active's listener; a listener has no `off` — break it off
-                // before the Active it points into dies.
-                session.breakFarVows("connection failed");
-                try finishErr(store, active.block_idx, err);
-                self.clearActive();
-                continue;
-            };
+            try self.advanceSession(session, store, 0);
+            if (self.active == null) continue;
 
             if (!active.flag.done) return flash;
 
@@ -312,6 +304,38 @@ pub const Queue = struct {
         self.active = null;
     }
 
+    /// One `stepReadable` for both the TUI wake path and `pump`. A clean
+    /// `.closed` is success from the stepper; an unfinished wait still dies
+    /// with that close instead of sitting until `WaitTimedOut`. Idle sampling
+    /// does not write the transcript.
+    pub fn advanceSession(
+        self: *Queue,
+        session: *driver.Session,
+        store: *blocks.Store,
+        timeout_ms: i32,
+    ) !void {
+        const progress = session.stepReadable(timeout_ms) catch |err| {
+            try self.noteDeadPartner(session, store, err);
+            return;
+        };
+        if (progress) |p| {
+            if (p == .closed) try self.noteDeadPartner(session, store, error.ConnectionLost);
+        }
+    }
+
+    fn noteDeadPartner(
+        self: *Queue,
+        session: *driver.Session,
+        store: *blocks.Store,
+        err: anyerror,
+    ) !void {
+        const a = self.active orelse return;
+        session.breakFarVows("connection failed");
+        if (a.flag.done) return;
+        try finishErr(store, a.block_idx, err);
+        self.clearActive();
+    }
+
     fn startNext(self: *Queue, ctx: *Ctx, store: *blocks.Store, progress: *teach.Progress) !void {
         while (self.active == null and self.pending.items.len > 0) {
             const q = self.pending.orderedRemove(0);
@@ -392,9 +416,9 @@ pub const Queue = struct {
                 if (tokens.len < 2) return error.Usage;
                 const vow = try session.beginFetch(tokens[1]);
                 try vow.on(.{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
-                _ = session.stepReadable(0) catch {};
                 self.active = active;
-                return .waiting;
+                try self.advanceSession(session, store, 0);
+                return if (self.active == null) .finished else .waiting;
             },
             .call, .tell => {
                 if (tokens.len < 3) return error.Usage;
@@ -419,9 +443,9 @@ pub const Queue = struct {
                     }
                     const vow = try session.send(target, active.tokens[2], args);
                     try vow.on(.{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
-                    _ = session.stepReadable(0) catch {};
                     self.active = active;
-                    return .waiting;
+                    try self.advanceSession(session, store, 0);
+                    return if (self.active == null) .finished else .waiting;
                 }
 
                 // A name target rides the driver's cooperative compose: one
@@ -438,9 +462,9 @@ pub const Queue = struct {
                     try session.beginSendNamed(&active.pending, target_tok, active.tokens[2], args, listener);
                 }
                 active.composed = true;
-                _ = session.stepReadable(0) catch {};
                 self.active = active;
-                return .waiting;
+                try self.advanceSession(session, store, 0);
+                return if (self.active == null) .finished else .waiting;
             },
         }
     }

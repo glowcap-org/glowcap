@@ -11,6 +11,7 @@ const shared = @import("c_abi_shared");
 
 pub const Symbol = shared.symbols.Symbol;
 pub const OmittedFamily = shared.symbols.OmittedFamily;
+const omit = shared.symbols.omit_reason;
 
 pub const omitted_families = [_]OmittedFamily{};
 
@@ -50,8 +51,8 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_webrtc_peer_next_local_candidate", .out_params = &.{ 1, 3 }, .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_peer_id", .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_peer_is_open", .ts_omit = ts_omit },
-    .{ .name = "pancake_webrtc_peer_try_read", .out_params = &.{ 1, 3 }, .ts_omit = ts_omit },
-    .{ .name = "pancake_webrtc_peer_try_write", .out_params = &.{3}, .ts_omit = ts_omit },
+    .{ .name = "pancake_webrtc_peer_try_receive_packet", .out_params = &.{ 1, 3 }, .ts_omit = ts_omit },
+    .{ .name = "pancake_webrtc_peer_try_send_packet", .out_params = &.{3}, .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_peer_close", .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_peer_release", .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_transport_provider", .out_params = &.{1}, .ts_omit = ts_omit },
@@ -59,7 +60,7 @@ pub const symbols = [_]Symbol{
     .{
         .name = "pancake_webrtc_clear_last_error",
         .ts_omit = ts_omit,
-        .python_omit = "unused: the Python binding reads the slot after a failing call and never resets it",
-        .racket_omit = "unused: the Racket binding reads the slot after a failing call and never resets it",
+        .python_omit = omit.python_last_error,
+        .racket_omit = omit.racket_last_error,
     },
 };

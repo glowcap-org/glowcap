@@ -8,11 +8,12 @@
          racket/random
          racket/string
          "constants.rkt"
+         "abi-value.rkt"
          "errors.rkt"
          "locator.rkt"
          "socket-address.rkt"
          "tcp-config.rkt"
-         "host.rkt")
+         "host/state.rkt")
 
 (lazy-require
  ["loop.rkt"
@@ -95,12 +96,12 @@
              (open-driver-loop #:host shared-host #:seed durable
                                #:codec (or codec
                                            (and shared-host (host-codec shared-host))
-                                           'syrup)
+                                           DEFAULT-CODEC-SYMBOL)
                                #:captp-version captp-version #:features features)
              (open-driver-loop #:host shared-host
                                #:codec (or codec
                                            (and shared-host (host-codec shared-host))
-                                           'syrup)
+                                           DEFAULT-CODEC-SYMBOL)
                                #:captp-version captp-version #:features features))
          #t)))
   (define listener #f)
@@ -141,8 +142,8 @@
     (make-loop-server lp listener time-travel? (not shared-host))))
 
 (define (listen bind-host [port 0] #:codec [codec #f]
-                #:captp-version [captp-version 'v1_0]
-                #:features [features 'full]
+                #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
+                #:features [features DEFAULT-FEATURES-SYMBOL]
                 #:advertised-host [advertised-host #f]
                 #:time-travel? [time-travel? #f]
                 #:host [shared-host #f]
@@ -153,8 +154,8 @@
                       shared-host config options))
 
 (define (listen-keyed-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
-                          #:captp-version [captp-version 'v1_0]
-                          #:features [features 'full]
+                          #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
+                          #:features [features DEFAULT-FEATURES-SYMBOL]
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]
@@ -165,8 +166,8 @@
                       shared-host config options))
 
 (define (listen-noise-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
-                          #:captp-version [captp-version 'v1_0]
-                          #:features [features 'full]
+                          #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
+                          #:features [features DEFAULT-FEATURES-SYMBOL]
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]

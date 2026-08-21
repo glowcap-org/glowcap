@@ -5,8 +5,8 @@
 //! answer; a resolve fires the far vow's one-shot listener, projecting a
 //! handoff give typed. `settleFar` is the byte-fed host's counterpart to the
 //! same settle, `forwardTurn` drives `Turn.forward`, and export binding
-//! (`bindExport`/`refForExport`) plus disconnect breaks (`breakFarVows`) live
-//! beside them. The `Vat` re-binds the public verbs; the turn module runs the
+//! (`Port.bindExport`/`refForExport`) plus disconnect breaks (`breakFarVows`) live
+//! beside them. `Port` re-binds the session public verbs; the turn module runs the
 //! same frame spine for local calls.
 
 const std = @import("std");
@@ -31,7 +31,7 @@ const releaseBox = boxed.releaseBox;
 /// Heap context a forwarded turn's vow listener carries: the vat to resolve
 /// against and the deferred inbound answer. Freed by the listener once it fires
 /// (on settle, or on a disconnect break via `breakFarVows`).
-pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: model.AnswerName };
+pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: engine.AnswerTarget };
 
 /// Every fallible resource needed to hand a served turn's answer to a vow.
 /// A no-answer deliver needs no listener; an answered deliver reserves both
@@ -164,7 +164,7 @@ pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) anyerror!void {
 pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, event: *engine.Event) !bool {
     const body = event.view() catch return false;
     return switch (body) {
-        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, try event.deliverAnswerName()),
+        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, event.deliverAnswerTarget()),
         .resolve => |resolve| blk: {
             var handled = try serveResolve(self, port, resolve);
             for (event.resolveAliases()) |answer| {
@@ -186,7 +186,7 @@ fn serveDeliver(
     port: *Port,
     ingress: vat_mod.IngressId,
     deliver: model.view.Deliver,
-    answer: ?model.AnswerName,
+    answer: ?engine.AnswerTarget,
 ) !bool {
     const export_position = deliver.target.exportPosition() orelse return false;
     // V1.0: a resolver-only deliver carries no wire answer but names a resolver
@@ -202,7 +202,7 @@ fn serveDeliver(
         if (export_position.int() == engine.BOOTSTRAP_POSITION) return false;
         // The engine admitted the deliver, so the position IS a
         // granted export at peer level — but no actor is bound
-        // (no `bindExport`). An answered call must
+        // (no `Port.bindExport`). An answered call must
         // not strand the partner's vow, so break it, exactly
         // as the mapped-but-vanished case below does. A no-answer
         // `tell` stays a silent no-op the caller may handle.
@@ -432,7 +432,7 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
 
 /// Bind an already-spawned local actor to export `position` so a partner's
 /// deliveries to that position run the actor (dispatched by `serve`). Requires
-/// a bound peer. This is the numeric-position primitive; the by-name publish
+/// a session `Port`. This is the numeric-position primitive; the by-name publish
 /// verb one layer up (`Served.publish`, `BlockingSession.publish`) rides on
 /// it. Binding *reserves* the position, it does not grant it: the partner
 /// can address the actor only once its reference first marshals onto the
@@ -467,7 +467,7 @@ pub fn bindExport(port: *Port, vat: *Vat, actor: Ref, position: u64) !void {
 }
 
 /// The local `Ref` bound to wire export `position`, or null when no actor is
-/// exported there, the inverse of `bindExport`'s position-to-actor map. A
+/// exported there, the inverse of `Port.bindExport`'s position-to-actor map. A
 /// surface that receives a near reference (which names an object by its wire
 /// export position, not its vat-local actor id) resolves it through here so a
 /// position is never mistaken for an actor id; `Vat.serve` resolves an inbound
@@ -477,20 +477,21 @@ pub fn refForExport(port: *const Port, position: u64) ?Ref {
     return .{ .local = local_id };
 }
 
-pub fn resolveFulfill(port: *Port, answer: ?model.AnswerName, reply: model.Argument) !void {
+pub fn resolveFulfill(port: *Port, answer: ?engine.AnswerTarget, reply: model.Argument) !void {
     const ans = answer orelse return;
-    try port.peer.sendAnswerResolutionCopying(ans, .{ .fulfill = reply });
+    try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .fulfill = reply });
 }
 
-pub fn resolveBreak(port: *Port, answer: ?model.AnswerName, message: []const u8) !void {
+pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const u8) !void {
     const ans = answer orelse return;
-    try port.peer.sendAnswerResolutionCopying(ans, .{ .@"break" = .{ .message = message } });
+    try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .@"break" = .{ .message = message } });
 }
 
 /// Split an inbound deliver's args into a method verb and its arguments: a
 /// leading symbol is the verb, the rest are its arguments. This is the inverse of
-/// what `Vat.send` does on the way out (it prepends the verb as a leading
-/// symbol), so a pancake actor talking to a pancake actor round-trips exactly.
+/// what the local eventual-send payload does on the way out (it prepends the
+/// verb as a leading symbol), so a pancake actor talking to a pancake actor
+/// round-trips exactly.
 ///
 /// It is a convention of this actor layer, not an OCapN rule: OCapN delivers a
 /// positional argument list with no distinguished method slot. So a deliver from

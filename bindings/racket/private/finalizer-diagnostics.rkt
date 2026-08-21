@@ -16,8 +16,8 @@
             operation primary-name primary-message secondary-name secondary-message)
   #:transparent)
 
-(define capacity 64)
-(define payload-cap 512)
+(define capacity DEFAULT-FAILURE-CAPACITY)
+(define payload-cap DEFAULT-FAILURE-PAYLOAD-CAP)
 (define u64-max #xffffffffffffffff)
 (define gate (make-semaphore 1))
 (define failures (make-vector capacity #f))

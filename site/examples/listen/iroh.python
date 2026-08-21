@@ -1,7 +1,7 @@
 from pancake import Argument
 from pancake.iroh import IrohConfig, Reachability, listen
 
-# Bind a key, not a place. Partners can dial this node id from anywhere.
+# This listener is named by its node id. Partners can dial it from anywhere.
 async with await listen(IrohConfig(Reachability.DISCOVERY)) as server:
     # From here, the CapTP workflow is transport-independent.
     print(server.uri)  # hand this locator to partners

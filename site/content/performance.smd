@@ -1,15 +1,13 @@
 ---
 .title = "Performance",
 .description = "What pancake costs, as dated measurements you can repeat: wire-path allocation and footprint budgets the build pins, plus benchmark charts.",
-.date = @date("2026-06-12T00:00:00"),
-.author = "Jim Isaacs",
+.date = .date("2026-06-12T00:00:00"),
 .layout = "performance.shtml",
 .draft = false,
 ---
 
 The build pins the costs it can measure deterministically: allocations, copies,
-and core state size. The charts are a dated run from one machine, not a
-leaderboard or a promise about your hardware.
+and core state size. The charts are a dated run from one machine.
 
 Pick the question you have:
 
@@ -20,7 +18,7 @@ Pick the question you have:
 | How many allocations does dispatch make? | <a href="#frame-ownership-and-dispatch">Frame ownership and dispatch</a> |
 | What does encrypted iroh add on loopback? | <a href="#encrypted-transport-round-trip">Encrypted transport round-trip</a> |
 | How do pancake and Goblins compare under one Racket app? | <a href="#the-same-app-on-pancake-and-goblins">The same app on pancake and Goblins</a> |
-| What does each client-language stack cost? | <a href="#per-language-consumer-cost-not-a-substrate-comparison">Per-language consumer cost</a> |
+| What does each client-language stack cost? | <a href="#cost-through-each-language-binding">Cost through each language binding</a> |
 | How does snapshot cost scale? | <a href="#time-travel-snapshot-and-restore">Snapshot and restore</a> |
 
 `zig build check` fails if the allocation and size budgets drift.
@@ -36,7 +34,7 @@ The [1.0 ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md)
 All charts use ReleaseFast. Core footprint excludes socket memory. Any
 half-million-session figure is an extrapolation, not a live-socket result.
 
-## Codec throughput
+# Codec throughput
 
 `bench-codec` encodes and decodes the same small method call with
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto. Compare nanoseconds
@@ -72,7 +70,7 @@ payloads. [Codecs]($link.page('codecs')) covers the choice.
 <p class="bench-note">Sans-io inbound dispatch, engine only with no sockets: 6,883,804 turns/s. Sparse export-table insert: 61.3 ns.</p>
 ```
 
-## Per-connection footprint
+# Per-connection footprint
 
 `bench-peer-scaling` counts inline and heap memory in four states: idle,
 warmed, sixteen calls in flight, and hosted with a vat. The half-million column
@@ -109,7 +107,7 @@ is arithmetic over core memory, not a live network test.
 </table>
 ```
 
-## Frame ownership and dispatch
+# Frame ownership and dispatch
 
 Steady delivery makes one owned-frame allocation. The same check exercises the
 borrowed `FrameView` projection and records model struct sizes.
@@ -125,7 +123,7 @@ borrowed `FrameView` projection and records model struct sizes.
 </table>
 ```
 
-## Encrypted transport round-trip
+# Encrypted transport round-trip
 
 `bench-iroh` times one full OCapN `greet` round-trip on loopback over
 [iroh]($link.page('transports/iroh'))'s keyed QUIC and over cleartext TCP as a
@@ -192,7 +190,7 @@ propagation delay and packet loss, so none of these values is field latency.
 </table>
 ```
 
-## The same app on pancake and Goblins
+# The same app on pancake and Goblins
 
 One Racket application runs unchanged on pancake's Racket binding and
 [Spritely Goblins](https://spritely.institute/goblins/), timed head to head
@@ -284,12 +282,11 @@ explains what is held constant.
 </table>
 ```
 
-## Per-language consumer cost, not a substrate comparison
+# Cost through each language binding
 
 One native Zig host stays fixed while the client changes. Each row includes a
-runtime, binding, application, and garbage collector; it is not a language
-race. Goblins is an outside CapTP peer, not another pancake binding. Method
-details are in the
+runtime, binding, application, and garbage collector. Goblins is an outside
+CapTP peer. Method details are in the
 [bench README](https://github.com/jimisaacs/pancake/blob/main/bench/langs/README.md).
 
 ```=html
@@ -379,10 +376,10 @@ details are in the
 <tr><td>racket</td><td>racket-cs</td><td>0.25</td><td>6,731</td><td>1.4683</td><td>13.0</td><td>144.5</td></tr>
 <tr><td>goblins-ref</td><td>racket-cs/goblins</td><td>0.95</td><td>1,295</td><td>3.9346</td><td>7.8</td><td>248.2</td></tr>
 </table>
-<p class="bench-note">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost, not a language race; the Goblins row is the reference CapTP implementation dialing in, not a pancake binding.</p>
+<p class="bench-note">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost. The Goblins row is the reference CapTP implementation dialing in.</p>
 ```
 
-## Time-travel: snapshot and restore
+# Time-travel: snapshot and restore
 
 This sweep varies actor count and bytes per actor. pancake and Goblins run on
 different runtimes, so compare how cost scales with actor count rather than

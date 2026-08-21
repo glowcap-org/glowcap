@@ -4,11 +4,11 @@
 //! A resolve we send is *recorded* (its inbound answer's status flips to
 //! settled, `applySentResolve`) the instant `Peer.send` queues it, but the frame is
 //! *emitted*, and its calls, projections, and listeners drained, only on a
-//! later `step` (`settleSentResolve`). Because `stepInner` drains every inbound
-//! frame before emitting any outbound one, that window is as wide as a whole
-//! inbound batch: an `op:listen`, projection op, or pipelined `op:deliver` that
-//! lands against the answer while its resolve sits unemitted runs against a
-//! "settled" answer.
+//! later `step` (`settleSentResolve`). Because repeated `Peer.step` calls drain
+//! every queued inbound frame before emitting any outbound one, that window is
+//! as wide as a whole inbound batch: an `op:listen`, projection op, or
+//! pipelined `op:deliver` that lands against the answer while its resolve sits
+//! unemitted runs against a "settled" answer.
 //!
 //! The engine once stored the resolution only at emit time, so in that window
 //! an answer read settled with *no* resolution on hand. Three consumers each
@@ -123,7 +123,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     const pipelined = p1.takeOutbound().?;
 
     // p2 records its resolve of answer 42 (queued, unemitted) and only THEN
-    // takes the pipelined call inbound. `stepInner` drains inbound before
+    // takes the pipelined call inbound. `Peer.step` drains inbound before
     // outbound, so the call dispatches while 42's resolve still sits on
     // `pending_send`. Before the invariant the call found 42 settled with no
     // stored resolution and was dispatched against a synthetic "pipelined

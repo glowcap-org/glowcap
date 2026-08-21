@@ -3,9 +3,9 @@
 //! owning host face. It mirrors the codec-neutral `model.Argument` data arms,
 //! with one difference that is the point: a capability is the opaque
 //! Host-scoped `Capability`, never a wire position or an actor id. The
-//! translation walks live on `driver_core.Host` (`lowerValue` / `liftValue`),
-//! where the session context both directions need is in scope — the same
-//! boundary the C ABI's argument projection crosses.
+//! translation bodies live in `host/capabilities/lower.zig` and `lift.zig`;
+//! `driver_core.Host` exposes their direct aliases where the session context
+//! both directions need is in scope — the same boundary the C ABI crosses.
 
 const std = @import("std");
 

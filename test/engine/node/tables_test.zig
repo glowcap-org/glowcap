@@ -13,6 +13,19 @@ const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesA
 
 const Node = engine.Node;
 
+test "Node action extraction preserves the inline Node footprint" {
+    try std.testing.expectEqual(@as(usize, 928), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
+}
+
+test "Node action facade preserves its supported function shapes" {
+    try std.testing.expect(@TypeOf(Node.hasAction) == fn (*const Node) bool);
+    try std.testing.expect(@TypeOf(Node.peekAction) == fn (*const Node) ?Node.Action);
+    try std.testing.expect(@TypeOf(Node.consumePeekedAction) == fn (*Node) error{NoPendingAction}!void);
+    try std.testing.expect(@TypeOf(Node.nextAction) == fn (*Node) ?Node.Action);
+    try std.testing.expect(@TypeOf(Node.FailureReason.bytes) == fn (Node.FailureReason) []const u8);
+}
+
 const harness = @import("harness.zig");
 const pendingWithdrawAnswer = harness.pendingWithdrawAnswer;
 const peerUri = harness.peerUri;
@@ -23,17 +36,55 @@ const mintRedeemedRoute = harness.mintRedeemedRoute;
 const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "consume without a peeked Node action is a typed refusal" {
-    var node = Node.init(std.testing.allocator, [_]u8{0x51} ** crypto.SEED_BYTES);
+    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(0x51)));
     defer node.deinit();
 
     try std.testing.expectError(error.NoPendingAction, node.consumePeekedAction());
+}
+
+test "Node action drain retires each owned failure payload exactly once" {
+    var live = LiveBytesAllocator{ .backing = std.testing.allocator };
+    const allocator = live.allocator();
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x52)));
+    try node.actions.queue.reserve(allocator, 1);
+    const baseline = live.liveBytes();
+    const dest: Node.FailureDestination = .{ .deferred = .{
+        .recipient_peer = engine.PeerHandle.from(1),
+        .id = 2,
+    } };
+
+    node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = dest,
+        .reason = .{ .owned = try allocator.dupe(u8, "consume") },
+    } });
+    try std.testing.expect(node.peekAction() != null);
+    try node.consumePeekedAction();
+    try std.testing.expectEqual(baseline, live.liveBytes());
+
+    try node.actions.queue.reserve(allocator, 1);
+    node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = dest,
+        .reason = .{ .owned = try allocator.dupe(u8, "borrow") },
+    } });
+    try std.testing.expect(node.nextAction() != null);
+    try std.testing.expect(live.liveBytes() > baseline);
+    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expectEqual(baseline, live.liveBytes());
+
+    try node.actions.queue.reserve(allocator, 1);
+    node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = dest,
+        .reason = .{ .owned = try allocator.dupe(u8, "teardown") },
+    } });
+    node.deinit();
+    try std.testing.expectEqual(@as(usize, 0), live.liveBytes());
 }
 
 const ReleaseProjection = struct {
     releases: usize = 0,
     last_target: ?u64 = null,
 
-    fn seam(self: *@This()) engine.bootstrap.LocalObjectProjection {
+    fn seam(self: *@This()) engine.bootstrap.gifts.LocalObjectProjection {
         return .{
             .ctx = self,
             .resolve_name = resolveName,
@@ -44,19 +95,19 @@ const ReleaseProjection = struct {
         };
     }
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerId, _: []const u8) !?model.ExportPosition {
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
         return null;
     }
 
-    fn capture(_: ?*anyopaque, _: engine.PeerId, _: model.ExportPosition) ?u64 {
+    fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
         return null;
     }
 
-    fn project(_: ?*anyopaque, _: engine.PeerId, _: u64) !engine.bootstrap.ProjectedLocalTarget {
+    fn project(_: ?*anyopaque, _: engine.PeerHandle, _: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
         return error.NotProjectable;
     }
 
-    fn rollback(_: ?*anyopaque, _: engine.PeerId, _: u64, _: engine.bootstrap.ProjectedLocalTarget) void {}
+    fn rollback(_: ?*anyopaque, _: engine.PeerHandle, _: u64, _: engine.bootstrap.gifts.ProjectedLocalTarget) void {}
 
     fn releaseTarget(ctx: ?*anyopaque, target: u64) void {
         const self: *@This() = @ptrCast(@alignCast(ctx.?));
@@ -126,7 +177,7 @@ test "a reservation survives the drain that happens before it is spent" {
 
 test "registerPeerOver adopts a peer the embedder owns without freeing it" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(8)));
 
     // A peer the test owns and pins, standing in for the completion loop's
     // inline per-connection peer at its stable slot address.
@@ -157,7 +208,7 @@ test "detaching borrowed peers releases Node-projected gift roots exactly once" 
 
     {
         var projection: ReleaseProjection = .{};
-        var node = Node.init(allocator, [_]u8{0x19} ** crypto.SEED_BYTES);
+        var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x19)));
         defer node.deinit();
         node.setLocalObjectProjection(projection.seam());
         var adopted = engine.Peer.initNegotiating(allocator);
@@ -180,7 +231,7 @@ test "detaching borrowed peers releases Node-projected gift roots exactly once" 
 
     {
         var projection: ReleaseProjection = .{};
-        var node = Node.init(allocator, [_]u8{0x1a} ** crypto.SEED_BYTES);
+        var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1a)));
         node.setLocalObjectProjection(projection.seam());
         var adopted = engine.Peer.initNegotiating(allocator);
         defer adopted.deinit();
@@ -204,7 +255,7 @@ test "detaching borrowed peers releases Node-projected gift roots exactly once" 
 test "failed adopted registration severs the borrowed Node services link" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
     const allocator = failing.allocator();
-    var node = Node.init(allocator, [_]u8{0x18} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x18)));
     defer node.deinit();
     var adopted = engine.Peer.initNegotiating(allocator);
     defer adopted.deinit();
@@ -213,9 +264,34 @@ test "failed adopted registration severs the borrowed Node services link" {
     try std.testing.expect(adopted.node_services == null);
 }
 
+test "peer handle exhaustion rejects owned and borrowed registration before acquiring resources" {
+    var live = LiveBytesAllocator{ .backing = std.testing.allocator };
+    const allocator = live.allocator();
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1b)));
+    defer node.deinit();
+    node.next_peer_handle = std.math.maxInt(u64);
+
+    const owned_baseline = live.liveBytes();
+    try std.testing.expectError(error.CapabilitySpaceExhausted, node.registerPeer(.{}));
+    try std.testing.expectEqual(owned_baseline, live.liveBytes());
+    try std.testing.expectEqual(@as(usize, 0), node.peers.count());
+    try std.testing.expectEqual(@as(usize, 0), node.export_base_return_reservations);
+
+    var adopted = engine.Peer.initNegotiating(allocator);
+    defer adopted.deinit();
+    const original_export_base = adopted.session_state.export_base;
+    const borrowed_baseline = live.liveBytes();
+    try std.testing.expectError(error.CapabilitySpaceExhausted, node.registerPeerOver(&adopted));
+    try std.testing.expectEqual(borrowed_baseline, live.liveBytes());
+    try std.testing.expect(adopted.node_services == null);
+    try std.testing.expectEqual(original_export_base, adopted.session_state.export_base);
+    try std.testing.expectEqual(@as(usize, 0), node.peers.count());
+    try std.testing.expectEqual(@as(usize, 0), node.export_base_return_reservations);
+}
+
 test "advertised locators are node-owned snapshots keyed by transport" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{0x31} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x31)));
     defer node.deinit();
 
     var transport = [_]u8{ 'i', 'r', 'o', 'h' };
@@ -246,13 +322,21 @@ test "advertised locators are node-owned snapshots keyed by transport" {
     try std.testing.expect(node.advertisedLocator("xroh") == null);
     try std.testing.expectEqualStrings("node-a", node.acceptableLocator().?.designator);
 
+    // A borrowed snapshot is legal input to replacement. The transaction must
+    // select the new owned key before releasing the allocation this view names.
+    try node.setAdvertisedLocator(first);
+    const republished = node.advertisedLocator("iroh").?;
+    try std.testing.expectEqualStrings("iroh", republished.transport);
+    try std.testing.expectEqualStrings("node-a", republished.designator);
+    try std.testing.expectEqualStrings("node-a", node.acceptableLocator().?.designator);
+
     // Publishing another transport cannot invalidate this borrowed value.
     try node.setAdvertisedLocator(.{
         .transport = "webrtc",
         .designator = "peer-b",
         .hints = model.Hints.emptyFalse(),
     });
-    try std.testing.expectEqualStrings("node-a", first.designator);
+    try std.testing.expectEqualStrings("node-a", republished.designator);
     try std.testing.expectEqualStrings("peer-b", node.acceptableLocator().?.designator);
 
     // An automatically prepared dial route is retained without replacing the
@@ -295,7 +379,7 @@ test "advertised locator replacement is transactional across allocator failures"
     while (fail_offset < 16) : (fail_offset += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var node = Node.init(allocator, [_]u8{0x32} ** crypto.SEED_BYTES);
+        var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x32)));
         defer node.deinit();
 
         try node.setAdvertisedLocator(.{
@@ -334,7 +418,7 @@ test "advertised locator replacement is transactional across allocator failures"
 test "handoff scheduler releases its backing at total quiescence" {
     var live = LiveBytesAllocator{ .backing = std.testing.allocator };
     const allocator = live.allocator();
-    var node = Node.init(allocator, [_]u8{0x19} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x19)));
     defer node.deinit();
 
     const gifter_a = try node.registerPeer(.{});
@@ -356,7 +440,7 @@ test "handoff scheduler releases its backing at total quiescence" {
 
 test "handoff changes wake only receivers dependent on the changed gifter" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{9} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(9)));
     defer node.deinit();
 
     const gifter_a = try node.registerPeer(.{});
@@ -429,7 +513,7 @@ test "every registration gets its own export range, owned and adopted alike" {
     // so it is what hands out the ranges — there is no register verb that
     // enrols a session without numbering it, and no posture that can carry or
     // overwrite a range.
-    var node = engine.Node.init(allocator, [_]u8{0x71} ** 32);
+    var node = engine.Node.init(allocator, @as([32]u8, @splat(0x71)));
     defer node.deinit();
 
     const a = try node.registerPeer(.{});
@@ -466,7 +550,7 @@ test "every registration gets its own export range, owned and adopted alike" {
 
 test "registerPeer yields stable, non-reused ids and node-owned peers" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(7)));
     defer node.deinit();
 
     const a = try node.registerPeer(.{});

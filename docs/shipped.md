@@ -1,7 +1,9 @@
 # What ships today
 
 pancake is unreleased, but the library, bindings, transports, and tools below
-are implemented and checked in this repository. Read
+are implemented and checked in this repository. Outside interoperability is
+signed CapTP 1.0 over Syrup. Recurring [Spritely Goblins](https://spritely.institute/goblins/)
+evidence uses the cleartext `tcp` testing adapter. Read
 [known limitations](boundaries.md) before deploying it and
 [stability](stability.md) for the evidence behind each support claim.
 
@@ -21,7 +23,7 @@ surfaces.
 
 Binding fronts compose `libpancake_host` and `libpancake_driver`. The
 driver provides one generic dial/listen/event ABI over an adopted Host. The TCP
-provider package owns `tcp`, `keyed-tcp`, and `noise-tcp`; separately built
+provider package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`; separately built
 transports register through the common ABI. The iroh provider owns both dial
 and listener operations, and the onion archive supplies the standardized Tor
 transport without teaching the driver its symbol. Zig and all four bindings
@@ -137,146 +139,33 @@ channels use the byte-fed Host instead.
   total consequence count; every binding projects that record without parsing
   thread-local diagnostic text.
 - **Close.** Every owning front closes under an explicit pending-work policy
-  ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)): cancel
-  stops admitted work at once, finish seals admission and drives already
-  admitted work within a bounded grace, and expiry escalates to cancel. Each
-  owner holds one close barrier. The policy ships on the Zig core Host, the C
-  ABI (`pancake_host_close`, `pancake_host_close_progress`, and
-  `pancake_host_lifecycle_state`), the driver loop, and all four language
-  bindings. Rust Host background failures retain their exact primary, first
-  consequence, and saturated consequence count. Racket's Host close barrier
-  retains the same shape from Host-owned exporter serve, failed-dial cleanup,
-  or native driver-loop work, so a second background failure cannot disappear
-  with its thread or replace the primary dial refusal. Racket's raw iroh
-  endpoint likewise retains its readiness-loop failure across repeated endpoint
-  close. Its WebSocket
-  adapter joins reader and close workers, preserves receive errors rather than
-  rewriting them as EOF, and returns their exact first failure from close. The
-  Racket reference relay joins both pump legs and its watchdog, then exposes an
-  ordered aggregate containing the exact primary and every close failure.
-  Racket tracing remains non-load-bearing while observer exceptions enter the
-  same typed `PancakeContext` queue claimed through `host-take-failures!`.
-  Racket deferred drain effects and failed-establishment cleanup retain their
-  exact failures at Host close, and only the behavior invocation inside a
-  native trampoline translates an application exception into a broken answer.
-  Onion and relay-used iroh finalizers contain native release exceptions on the
-  collector thread and retain normalized events in the one bounded,
-  process-surviving runtime failure queue; explicit release continues to raise.
-  The Racket binding checks every generated C ABI return code as its exact
-  `exn:fail:pancake` code and reads the owning archive's diagnostic once.
-  Its native-loop close projection snapshots a local typed abort before
-  releasing the session, so a queue-cap refusal remains `QueueCapExceeded`
-  through serve and repeated close.
-  Python Sessions expose their ordered `terminal_failures`; close raises the
-  exact first object while retaining later native-result, transport, and serve
-  failures on the Session. Repeated close joins the already-published barrier
-  instead of re-running teardown. Retained exception objects are capped at 64,
-  while `terminal_failure_count` preserves the saturated total occurrence
-  count; two distinct failures are never collapsed merely because they came
-  from the same operation.
-  Python Hosts retain ordered failures from admitted asynchronous behavior
-  settlements, scheduled action drains, and loop shutdown. They cancel and
-  join settlements still pending after native shutdown. Close returns the
-  exact first failure, while `terminal_failures` exposes later failures under
-  the same bounded occurrence contract.
-  Callerless callback failures prefer their live Context queue. If that
-  recorder fails or the Context is already gone, the bounded process queue
-  preserves both the original and recorder failure.
-  Python driver loops attempt explicit native release once and retain ordered
-  background and release failures for Host shutdown diagnostics.
-  Python iroh readiness faults settle every active and future waiter with the
-  exact callback failure instead of rewriting the fault as a clean peer close.
-  Failed Python relay and iroh connector establishment joins transport
-  rollback, keeps the establishment error primary, and retains cleanup failure
-  on the Host.
-  The TypeScript managed WebSocket and Deno TCP channels publish one bounded,
-  idempotent close barrier; the relay joins both legs and both barriers while
-  retaining later close refusals. The Python reference relay likewise joins its
-  WebSocket and channel close barriers and preserves the exact first I/O failure
-  plus ordered close consequences. Racket and Rust relay pumps already enforce
-  the same result-bearing pair teardown.
-  TCP connector rollback follows the same joined barrier. Rejected TCP, Onion,
-  relay, and iroh provider installation retains cleanup failure on the Host
-  without replacing the exact installation error.
-  Cancellation of Python iroh construction remains cancellation after joining
-  its worker and cleanup; a construction or release failure with no surviving
-  owner enters the bounded, process-scoped `take_runtime_failures()` seam.
-  Rust errors retain a bounded ordered secondary prefix and the total observed
-  consequence count. Failed Runtime construction
-  raises the exact setup error while attaching a created Host's close failure.
-  A failed Rust Host dial retains session rollback failure beside the exact
-  dial error on the Host close barrier instead of discarding cleanup outcome.
-  Rust implicit Host, driver-loop, and relay-runtime destruction is non-panicking
-  and publishes the shared failure schema through the bounded runtime queue with
-  observable saturation. Actor-cell and trace-sink panics use their surviving
-  Context, preserving panic text while remaining outside protocol control flow.
-  Onion setup rollback retains listener cleanup failure beside its exact setup
-  cause. Consuming netlayer close retains listener then parent-release failure.
-  Implicit Onion netlayer and generic loop-listener close publish failure through
-  that journal.
-  Rust driver-loop listener cancellation now terminalizes failed native cleanup.
-  Background failure retains later driver release failure as secondary. A runtime
-  listener-state mismatch returns a typed internal error instead of panicking the
-  process.
-  Rust iroh task and readiness mutex poison is recovered under the transport's
-  container-only critical-section invariant. The binding publishes a typed
-  runtime failure and clears the poison so later calls do not repeat a process
-  panic.
-  The Rust reference relay observes target and WebSocket read, write, shutdown,
-  and close failures. It retains cleanup after the primary failure and joins each
-  pair-atomic task cancellation. It recovers diagnostic mutex poison. Its
-  process-owner boundary returns accept and stdout failures.
-  Rust iroh endpoint and stream close retain native release failure after an
-  earlier close or loop failure. Iroh and TCP listener setup rollback retain
-  listener cleanup failure beside the exact setup cause. Both use one shared
-  cleanup-composition primitive.
-  Native WebRTC peer close is admitted once into an endpoint-owned task
-  barrier. Crate close refusal, timeout, cancellation, or panic survives the
-  peer handle and returns from final endpoint/provider release instead of
-  disappearing with a detached task. Its synchronous control calls remain
-  usable from a consumer already inside Tokio; the sidecar yields a
-  multithreaded ambient worker or borrows a scoped helper for a current-thread
-  runtime instead of invoking nested `block_on`.
-  The native iroh sidecar uses the same surviving-owner rule for detached QUIC
-  writers: write, finish, cancellation, and panic failure remains on the
-  endpoint release barrier. Its runtime owner is safe to release from inside a
-  consumer's Tokio runtime, and its blocking compatibility calls use the same
-  ambient-runtime seam rather than panicking on nested `block_on`.
-  Rust custom allocator panics remain contained at the C callback boundary.
-  Allocation still degrades to the native out-of-memory path, while allocation
-  and free panic text is retained in the bounded runtime failure queue.
-  Rust callerless failures prefer their Context queue. A refused diagnostic
-  record preserves the normalized original and the recorder refusal in the
-  bounded runtime queue without changing the operation outcome.
-  Rust Host dial cancellation joins its owned task. Expected abort is inert;
-  task panic or join failure is primary, and later native cancellation failure
-  remains attached as cleanup.
-  TypeScript retains a bounded ordered secondary prefix and explicit total
-  consequence count without replacing the exact primary object, including for
-  frozen application errors. Detached reported
-  dial serving publishes its serve and later transport-close failures to the
-  Host owner instead of converting them into an unobserved rejection.
-  TypeScript callerless failures prefer the live Context queue. A missing or
-  refused recorder preserves both the original and recorder failure in one
-  bounded process queue, atomically claimed through `takeRuntimeFailures()`.
-  Python Runtime retains failed-open and cleanup errors in order while raising
-  the exact setup failure, and records explicit close failure on the same
-  surviving owner.
-  Explicit Python native-handle close raises release failure. Finalizer-only
-  native release is nonfatal and normalizes into the shared schema through the
-  bounded `take_runtime_failures()` queue; displaced records remain explicit on
-  the first surviving event. Stable primary and first-secondary result codes,
-  the first secondary detail, and the total consequence count survive that
-  projection. Trace-sink exceptions remain outside protocol
-  control flow and report through the owning Host's Context (`take_failures()`).
-  Racket finalizers use the same process-scoped schema and atomic bounded claim;
-  there is no separate nondestructive read/clear journal. Callerless failures
-  prefer the Host Context and fall back with the recorder refusal to that
-  process queue if Context recording fails. Its process projection preserves
-  stable pancake primary and first-secondary result codes and the total
-  consequence count.
-  A local fire-and-forget behavior failure cannot become a reply, but its Host
-  retains the exact exception instead of silently discarding it.
+  ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)). Cancel stops
+  admitted work at once. Finish seals admission and drives already admitted work
+  within a bounded grace. Expiry escalates to cancel. Each owner holds one close
+  barrier. The policy ships on the Zig Host, the C ABI (`pancake_host_close`,
+  `pancake_host_close_progress`, and `pancake_host_lifecycle_state`), the driver
+  loop, and all four language bindings.
+  Failures stay ordered on the owner that can still receive them: the exact
+  primary, a bounded secondary prefix, and the total consequence count. A second
+  close joins that barrier instead of running teardown again. Implicit
+  destruction is non-panicking. A fire-and-forget local behavior failure cannot
+  become a reply; its Host retains the exception. Callerless and finalizer
+  failures prefer the live Context journal; if that recorder is gone they enter
+  the process-scoped queue. Explicit release still raises. Provider
+  installation and connector establishment keep the setup error primary and
+  retain cleanup failure beside it. Native iroh and WebRTC close failure
+  survives the peer or endpoint handle and returns from the owner's release.
+  Those sidecars stay usable from a consumer already inside Tokio: they do not
+  nest `block_on`.
+  Python close raises the first object and keeps the rest on
+  `terminal_failures` (at most 64 retained objects, with `terminal_failure_count`
+  for the saturated total). Process-scoped leftovers use
+  `take_runtime_failures()`. TypeScript uses `takeRuntimeFailures()` and keeps
+  the exact primary object, including frozen application errors. Racket uses
+  `host-take-failures!` and `take_failures()` with no separate read/clear
+  journal, and a queue-cap refusal stays `QueueCapExceeded` through repeated
+  close. Rust uses the bounded runtime queue. Relay pumps join both legs and
+  return the first I/O failure plus ordered close consequences.
 
 The passable-value model and typed C/binding waist cover the pinned OCapN
 scalar and aggregate forms, including arbitrary-precision Integer, Struct, and
@@ -290,7 +179,7 @@ Python, and Racket surfaces. OCapN Null is not implemented; see
 | Codec | Use |
 | --- | --- |
 | Syrup | The interoperable OCapN wire format. Its fixtures are cross-checked against upstream Syrup encoders. |
-| Cap'n Proto | A pancake-to-pancake format with checked golden frames. It is not a Goblins format. |
+| Cap'n Proto | pancake-to-pancake, with checked golden frames. Goblins speaks Syrup. |
 
 The authenticated OCapN 1.0 profile uses Syrup. Two pancake peers can prefer
 Cap'n Proto or `"pancake-next"`. Each side puts that offer in the hello's
@@ -313,15 +202,15 @@ without changing the protocol core.
 
 | Transport | Use |
 | --- | --- |
-| `tcp` | Plain TCP and the broadest interop path. It is cleartext. |
-| `keyed-tcp` | TCP with a key designator as the dial target. The channel is cleartext and unauthenticated; the key does not prove possession. |
-| `noise-tcp` | The keyed-tcp grammar with ADR-0107's sealed channel on the wire: a Noise_XK handshake between the two peers encrypts the channel end to end, and completing it proves the dialed key. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. |
-| `keyed-relay` | Cleartext WebSocket to a relay; the key designator is a dial target with no listening address. Trusted network and relay only. |
-| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider and every native binding compose it. The managed browser connector uses the same byte-fed Host sealing and can register or dial this profile. |
-| `inproc` | An in-process connection for tests and deterministic local scenarios. |
 | `iroh` | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc` | An encrypted DataChannel reached through signaling. It carries a normal keyed OCapN session once the channel is open. |
+| `noise-tcp` | The keyed-tcp grammar with ADR-0107's sealed channel on the wire: a Noise_XK handshake between the two peers encrypts the channel end to end, and completing it proves the dialed key. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. |
+| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider and every native binding compose it. The managed browser connector uses the same byte-fed Host sealing and can register or dial this profile. |
 | `onion` | The standardized OCapN Tor netlayer. A version 3 service id addresses an encrypted, location-hiding circuit; Tor proves the service to the dialer but reveals no caller identity to the listener. |
+| `keyed-tcp` | TCP with a key designator as the dial target. The channel is cleartext and unauthenticated; the key does not prove possession. |
+| `keyed-relay` | Cleartext WebSocket to a relay; the key designator is a dial target with no listening address. Trusted network and relay only. |
+| `tcp` | Cleartext testing path and this repository's Goblins TCP adapter. A host:port designator. |
+| `inproc` | An in-process connection for tests and deterministic local scenarios. |
 
 `onion` is the draft's transport and the one Goblins ships. Live Goblins also
 meets pancake over `tcp` and `iroh` through adapters in
@@ -336,7 +225,9 @@ that same loop once signaling has opened a DataChannel. A relay
 locator can carry its `rendezvous-relay` route, with deployment configuration
 retained only as the fallback for a bare locator. A bare `webrtc` locator
 needs configured signaling authority (`zig build webrtc-loop`,
-`zig build webrtc-bridge-redeem`). Browsers without native sockets use the
+`zig build webrtc-bridge-redeem`). The native WebRTC companion accepts generic
+ICE server records, including credentialed TURN; provider-specific credential
+issuance stays with the embedding. Browsers without native sockets use the
 byte-transparent relay in Deno, Python, Rust, and Racket. The relay forwards
 bytes without parsing CapTP or holding a capability.
 
@@ -374,9 +265,15 @@ listening socket can still receive replies and participate in a handoff.
 - The rooms, tasks, and tools examples run one server with clients written in
   several bindings.
 - The rooms application exercises browser peers, room and direct-message file
-  transfer, WebRTC, and relay rendezvous. Direct files are sender-hosted blob
-  capabilities on the existing peer session, so the transport stays below the
-  message contract.
+  transfer, WebRTC, and Noise-sealed relay rendezvous. Its web server owns the ICE policy
+  both browser halves receive: public STUN by default, explicit none or a
+  deployment-selected STUN configuration when named, plus short-lived TURN
+  credentials when an HTTPS issuer is configured server-side. Each connection
+  refreshes those credentials; the long-lived issuer token never reaches the
+  page. The separately selected relay DM mode is server-reachable without TURN;
+  its Noise channel keeps the room relay outside the plaintext boundary. Direct
+  files are sender-hosted blob capabilities on the existing peer
+  session, so the transport stays below the message contract.
 - Starting the rooms web UI with `--diagnostics` (or `-Ddiagnostics` on the
   zig step) publishes an inspect object under an unguessable swiss number on
   that Host. Fetching the swiss number is the capability; the directory itself

@@ -91,6 +91,12 @@
 .kitchen-stack .join-field {
 	width: 100%;
 }
+/* As narrow as the rail this control is really drawn in, so the sink shows what
+   a set of answers too wide for one line does. A control that is right on a
+   wide row and wrong on a wrapped one is not right. */
+.kitchen-narrow {
+	max-width: 232px;
+}
 .kitchen-viewer {
 	display: flex;
 	align-items: center;
@@ -116,24 +122,6 @@
 	padding: 14px 10px;
 	border: 1px dashed var(--rule);
 	border-radius: var(--radius-card);
-}
-/* In the catalog a banner sits in the sample, not over the stream. The live
-   pill is still `position: absolute` and centred with a transform; both of
-   those would pile every sample on one spot here. */
-.kitchen .banner,
-.kitchen .banner.show {
-	position: relative;
-	top: auto;
-	left: auto;
-	transform: none;
-	opacity: 1;
-	pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-	.kitchen .banner,
-	.kitchen .banner.show {
-		transform: none !important;
-	}
 }
 .kitchen-log {
 	width: 100%;

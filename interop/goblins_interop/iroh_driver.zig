@@ -292,8 +292,8 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const node_id = endpoint.nodeId(&id_buf);
-    var addrs_buf: [512]u8 = undefined;
-    const direct_addrs = try endpoint.directAddrs(&addrs_buf);
+    const direct_addrs = try endpoint.directAddrsOwned(allocator);
+    defer allocator.free(direct_addrs);
     std.debug.print(
         "goblins-iroh: pancake is reachable at ocapn://{s}.iroh with direct addresses {s}\n",
         .{ node_id, direct_addrs },

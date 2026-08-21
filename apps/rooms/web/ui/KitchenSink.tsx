@@ -20,6 +20,7 @@ import { usePeer } from "./peer.ts";
 import { Said } from "./Said.tsx";
 import { Switch } from "./Switch.tsx";
 import { Checkbox } from "./Checkbox.tsx";
+import { Segmented } from "./Segmented.tsx";
 import { ToastCard } from "./Toast.tsx";
 import type { SessionPhase } from "./types.ts";
 
@@ -78,6 +79,16 @@ export function KitchenSink() {
 	const peer = usePeer();
 	const [on, setOn] = useState(true);
 	const [kept, setKept] = useState(true);
+	// The answers in force, which is the caller's job wherever a set of them is
+	// drawn. Some start turned off, so the sink shows both faces of a cell at
+	// once rather than a row that is all one thing.
+	const [inView, setInView] = useState(new Set(["public", "here", "unread"]));
+	const include = (value: string) =>
+		setInView((was) => {
+			const next = new Set(was);
+			if (!next.delete(value)) next.add(value);
+			return next;
+		});
 	return (
 		<div id="kitchenSink" className="kitchen">
 			<p className="lead">The parts this window is made of.</p>
@@ -185,6 +196,77 @@ export function KitchenSink() {
 					</label>
 				</Row>
 			</Sample>
+			<Sample
+				label="Segmented"
+				note="A closed set of answers, any number of which can be in force. Finished and ready to use, though nothing in the page draws one yet. It is as wide as its answers and never wider, it stays on one line, every boundary in it is a single line that lights from whichever side of it was chosen, and the squeezed example is as narrow as the rail so its answers cut rather than break. A cell is a button and answers Tab and Space, which is what a set where any number can be on should do: arrow walking belongs to the tab bar next door, where the answers take turns."
+			>
+				<div className="kitchen-stack">
+					<p className="group-label" id="kitchenSegmentedAccess">Who can get in</p>
+					<Segmented
+						aria-labelledby="kitchenSegmentedAccess"
+						choices={[{ value: "public", label: "Public" }, { value: "private", label: "Private" }]}
+						chosen={inView}
+						onToggle={include}
+					/>
+					<p className="group-label" id="kitchenSegmentedWhere">
+						Squeezed to the rail's width, with names long enough to cut
+					</p>
+					<div className="kitchen-narrow">
+						<Segmented
+							id="kitchenSegmentedWrap"
+							aria-labelledby="kitchenSegmentedWhere"
+							choices={[
+								{ value: "here", label: "this directory" },
+								{ value: "unread", label: "127.0.0.1:6000" },
+								{ value: "quiet", label: "ocapn://a-very-long-address" },
+								{ value: "away", label: "somewhere else" },
+							]}
+							chosen={inView}
+							onToggle={include}
+						/>
+					</div>
+					{
+						/* The control has no idea an icon is an icon. A cell draws
+						   whatever it is handed, and this page's icons are drawn
+						   aria-hidden, so a cell built this way still announces as
+						   its words. */
+					}
+					<p className="group-label" id="kitchenSegmentedMarked">With an icon in each answer</p>
+					<Segmented
+						aria-labelledby="kitchenSegmentedMarked"
+						choices={[
+							{
+								value: "public",
+								label: (
+									<>
+										<Icon name="group" size={11} />
+										Public
+									</>
+								),
+							},
+							{
+								value: "private",
+								label: (
+									<>
+										<Icon name="lock" size={11} />
+										Private
+									</>
+								),
+							},
+						]}
+						chosen={inView}
+						onToggle={include}
+					/>
+					<p className="group-label" id="kitchenSegmentedOff">With nothing on offer</p>
+					<Segmented
+						aria-labelledby="kitchenSegmentedOff"
+						choices={[{ value: "public", label: "Public" }, { value: "private", label: "Private" }]}
+						chosen={inView}
+						onToggle={include}
+						disabled
+					/>
+				</div>
+			</Sample>
 			<Sample label="Copy">
 				<Row>
 					<CopyButton text="ocapn://example" label="Copy the sample locator" />
@@ -237,18 +319,23 @@ export function KitchenSink() {
 				</div>
 			</Sample>
 			<Sample
-				label="Session banner"
-				note="Status of this conversation's session. It stays until the session says otherwise."
+				label="A room's directory"
+				note="The caption every row carries: which directory the room is on, and how that directory is doing when it is not simply connected. It stays until that directory says otherwise, and pressing it opens what is known about that directory."
 			>
 				<div className="kitchen-stage">
-					<div className="banner notice show">The room is quiet for a moment</div>
-					<div className="banner working show">Reconnecting…</div>
-					<div className="banner error show" role="alert">
-						<span className="banner-mark" aria-hidden="true">
-							<Icon name="fail" size={16} />
-						</span>
-						Could not reach this directory
-					</div>
+					<Button variant="caption" className="rwhere">
+						<Icon name="directory" size={12} />
+						<span className="rwhere-said">in this directory</span>
+					</Button>
+					<Button variant="caption" className="rwhere">
+						<Icon name="directory" size={12} />
+						<span className="rwhere-said">in 127.0.0.1:6000</span>
+						<span className="rwhere-how">{PHASE_SAID.reconnecting}</span>
+					</Button>
+					<Button variant="caption" className="rwhere">
+						<Icon name="directory" size={12} />
+						<span className="rwhere-how">{PHASE_SAID.disconnected}</span>
+					</Button>
 				</div>
 			</Sample>
 			<Sample

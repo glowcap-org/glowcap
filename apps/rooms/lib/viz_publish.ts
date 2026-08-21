@@ -117,7 +117,15 @@ export function publishViz(
 	const onError = opts.onError ?? (() => {});
 	const opens = new Map<string, TraceEvent>();
 	const metas = new Map<string, TraceEvent>();
+	// The records waiting on a socket that is not up yet, as a queue with a
+	// moving head. Past the ceiling every further record drops the oldest, and
+	// `Array.shift` would walk the whole buffer to do it — the most work at
+	// exactly the moment there is least of it to spare. The head moves
+	// instead, and the spent front is reclaimed in one pass once it is half
+	// the buffer, so a long outage costs one amortized copy per record rather
+	// than one full walk each.
 	const pending: string[] = [];
+	let head = 0;
 	let socket: WebSocket | null = null;
 	let stopped = false;
 	let retry: ReturnType<typeof setTimeout> | undefined;
@@ -133,11 +141,28 @@ export function publishViz(
 		}
 	};
 
+	/** Give back the front of the queue once the spent half outweighs the
+	 * live one. */
+	const reclaim = (): void => {
+		if (head === 0 || head * 2 < pending.length) return;
+		pending.splice(0, head);
+		head = 0;
+	};
+
+	const forget = (): void => {
+		pending.length = 0;
+		head = 0;
+	};
+
 	const flush = (): void => {
-		while (pending.length > 0) {
-			if (!write(pending[0])) return;
-			pending.shift();
+		while (head < pending.length) {
+			if (!write(pending[head])) {
+				reclaim();
+				return;
+			}
+			head++;
 		}
+		forget();
 	};
 
 	const connect = (): void => {
@@ -173,7 +198,7 @@ export function publishViz(
 			if (stopped) return;
 			if (event.code === VIZ_REFUSED_CLOSE_CODE) {
 				stopped = true;
-				pending.length = 0;
+				forget();
 				opts.onRefused?.(event.reason || "the endpoint refused this capability");
 				return;
 			}
@@ -193,15 +218,16 @@ export function publishViz(
 				metas.delete(ev.session);
 			}
 			const line = JSON.stringify(ev);
-			if (pending.length === 0 && write(line)) return;
+			if (head === pending.length && write(line)) return;
 			pending.push(line);
-			while (pending.length > MAX_PENDING) pending.shift();
+			if (pending.length - head > MAX_PENDING) head++;
+			reclaim();
 			flush();
 		},
 		stop: () => {
 			stopped = true;
 			if (retry !== undefined) clearTimeout(retry);
-			pending.length = 0;
+			forget();
 			opens.clear();
 			metas.clear();
 			if (socket !== null) {

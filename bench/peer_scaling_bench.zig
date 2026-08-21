@@ -228,7 +228,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     // the spill header, the link pair the free, starved, and parked lists share,
     // and the in-flight and app-context words — held inline in `conns[]` and
     // knowingly *not* in this figure. That overhead is held separately by
-    // `conn_slot_overhead_bytes` in `net/completion/loop.zig`, so the two guards
+    // `conn_slot_overhead_bytes` in `net/completion/loop/state.zig`, so the two guards
     // partition the slot: this bench tracks `Peer` + `Served`, that constant
     // tracks the wrapper. `source-check` holds the number the same in all three
     // places that state it.
@@ -372,9 +372,9 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
 
         var session_root: [32]u8 = undefined;
         try step_io.randomSecure(&session_root);
-        var host = try driver.core.Host.init(allocator, [_]u8{0x42} ** 32, session_root, .{
+        var host = try driver.core.Host.init(allocator, @as([32]u8, @splat(0x42)), session_root, .{
             .limits = .{ .max_frame_bytes = live_frame_cap },
-            .local_turn_budget = actors.Vat.max_batch_local_turns,
+            .local_turn_budget = driver.core.default_loop_local_turn_budget,
         });
         defer host.deinit();
         var loop: net.TcpLoop = undefined;

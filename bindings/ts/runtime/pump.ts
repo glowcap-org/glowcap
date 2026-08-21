@@ -1,9 +1,8 @@
-// The byte-fed embedder pump choreography the Session drives: read raw bytes
-// off the transport, hand them to the core's stream delimiter
-// (`pancake_host_session_feed_bytes`, which owns framing), drain the host's
-// action queue, and write what `take_outbound` drains. CapTP verbs, hosting,
-// and vows stay on `Session`; this module owns the conn byte path
-// (handshake, serve loop, feed, flush, feed-refusal, EOF / `transport_closed`).
+// The embedder pump choreography the Session drives: read transport packets,
+// hand them to the core's transport-packet seam, drain the host's action queue,
+// and write what `take_packet` drains. CapTP verbs, hosting, and vows stay
+// on `Session`; this module owns only handshake, serve, feed-refusal, flush,
+// EOF, and `transport_closed` choreography.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -55,9 +54,10 @@ export interface PumpHandle {
  * The signed `op:start-session` was encoded by the open; its FLUSH is on the
  * action queue, so the first kick puts it on the wire. The core stops
  * consuming at the frame that opens the session, so a fast partner's
- * application frames coalesced behind start-session stay buffered until
- * `serve()` — otherwise a pipelined fetch would answer before the object it
- * names exists. Abandonment on failure stays on Session's establish wrapper. */
+ * application frames coalesced behind start-session stay buffered until the
+ * Host-owned resume step — otherwise a pipelined fetch would answer before
+ * the object it names exists. Abandonment on failure stays on Session's
+ * establish wrapper. */
 export async function runHandshake(h: PumpHandle): Promise<void> {
 	await h.kickActions();
 	while (!h.sessionOpen) {
@@ -72,17 +72,15 @@ export async function runHandshake(h: PumpHandle): Promise<void> {
 	}
 }
 
-/** Run the inbound loop: read raw bytes, hand them to the core's stream
- * delimiter (behaviors run and vow completions queue inside the feed), and
- * drain the action queue. Resolves when the connection closes cleanly;
- * rejects on a transport or protocol error. */
+/** Run the inbound loop: read transport packets, hand them to the Host
+ * transport-packet seam (behaviors run and vow completions queue inside the
+ * feed), and drain the action queue. Resolves when the connection closes
+ * cleanly; rejects on a transport or protocol error. */
 export async function serveLoop(h: PumpHandle): Promise<void> {
 	let failed = false;
 	let failure: unknown;
 	try {
-		// Frames that rode behind the handshake's tail wait in the session's
-		// own tail; an empty feed dispatches them before parking on the wire.
-		await feed(h, new Uint8Array(0));
+		await resumeFeed(h);
 		while (true) {
 			if (h.released) break;
 			const chunk = await h.read();
@@ -138,14 +136,9 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 	if (h.wireFailure !== null) throw h.wireFailure.error;
 }
 
-/** Feed freshly read bytes to the core's stream delimiter: the session's
- * codec splits each complete frame off the front — both codecs, both frame
- * shapes, the frame cap enforced during the scan — and dispatches it
- * (behavior trampolines fire and completions queue inside), then the actions
- * the dispatch queued drain. The library owns the unconsumed tail — a
- * partial frame straddling two reads stays buffered in the session — so one
- * borrowed call moves the whole chunk; an empty chunk resumes frames the
- * session held behind its handshake open. */
+/** Feed freshly read transport packets to the core. The Host session decides
+ * from transport metadata whether a packet is a byte-stream chunk or one bare
+ * frame; the binding never branches on concrete transport names. */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 	while (true) {
 		if (h.released) return;
@@ -159,7 +152,7 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		const prevDeliver = enterDeliver(h.deliverHost);
 		let rc: number;
 		try {
-			rc = hostS.pancake_host_session_feed_bytes(
+			rc = hostS.pancake_host_session_feed_packet(
 				h.ptr,
 				ab(chunk),
 				BigInt(chunk.length),
@@ -173,6 +166,30 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		h.drainParkedReleases();
 		// The feed dispatched frames and may have advanced close-relevant state
 		// even when it queued no action; wake any parked close driver.
+		h.signalCloseActivity();
+		if (rc === OK) break;
+		if (rc === WOULD_BLOCK) {
+			await h.kickActions();
+			continue;
+		}
+		await raiseFeedRefusal(h, rc);
+	}
+	await h.kickActions();
+}
+
+/** Resume input the Host retained during a prior feed. Byte-stream sessions
+ * may dispatch a held tail; message-framed sessions have no hidden tail. */
+async function resumeFeed(h: PumpHandle): Promise<void> {
+	while (true) {
+		if (h.released) return;
+		const prevDeliver = enterDeliver(h.deliverHost);
+		let rc: number;
+		try {
+			rc = hostS.pancake_host_session_resume_feed(h.ptr);
+		} finally {
+			exitDeliver(prevDeliver);
+		}
+		h.drainParkedReleases();
 		h.signalCloseActivity();
 		if (rc === OK) break;
 		if (rc === WOULD_BLOCK) {
@@ -239,9 +256,9 @@ export async function raiseFeedRefusal(
 	throw err;
 }
 
-/** Drain every encoded outbound frame on this CapTP session and write it to
- * the byte-stream transport as a canonical Syrup byte string. Writes are
- * serialized, so each prefix/body pair stays in submission order. */
+/** Drain every transport-ready packet on this CapTP session and write its
+ * prefix/body pair in order. Byte-stream sessions receive an outer-frame
+ * prefix; message-framed sessions receive an empty prefix. */
 export async function flushOutbound(h: PumpHandle): Promise<void> {
 	const prior = h.writing;
 	let release!: () => void;
@@ -254,7 +271,7 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 				const mf = new Uint8Array(L.MANAGED_FRAME_SIZE);
 				const prefix = new Uint8Array(HOST_OUTBOUND_PREFIX_CAP);
 				const prefixLen = new Uint8Array(8);
-				const rc = hostS.pancake_host_session_take_outbound(
+				const rc = hostS.pancake_host_session_take_packet(
 					h.ptr,
 					ab(mf),
 					ab(prefix),
@@ -269,7 +286,8 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 					L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
 				);
 				releaseManagedFrame(mf);
-				await h.write(prefix.subarray(0, Number(outUsize(prefixLen))));
+				const prefixBytes = prefix.subarray(0, Number(outUsize(prefixLen)));
+				if (prefixBytes.length > 0) await h.write(prefixBytes);
 				await h.write(frame);
 			}
 		} catch (err) {

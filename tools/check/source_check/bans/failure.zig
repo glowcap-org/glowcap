@@ -4,6 +4,82 @@ const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
 
+/// Runtime-local fallback journals use the same bounded diagnostic schema as a
+/// Context journal. The C ABI owns those default caps; generated mirrors carry
+/// them into every binding.
+pub const runtime_failure_journal_rows: []const Ban = &.{
+    .{
+        .where = .{ .file = "src/c_abi/ocapn/mod.zig" },
+        .kind = .require,
+        .needles = &.{
+            "PANCAKE_DEFAULT_FAILURE_CAPACITY = abi.default_failure_capacity",
+            "PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP = abi.default_failure_payload_cap",
+        },
+        .check = "runtime-failure-journal",
+        .why = "the C ABI projects the shared callerless-failure journal caps from c_abi_shared instead of restating the values",
+    },
+    .{
+        .where = .{ .file = "tools/gen/binding/constants.zig" },
+        .kind = .require,
+        .needles = &.{
+            "con(\"DEFAULT_FAILURE_CAPACITY\", c.PANCAKE_DEFAULT_FAILURE_CAPACITY",
+            "con(\"DEFAULT_FAILURE_PAYLOAD_CAP\", c.PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP",
+        },
+        .check = "runtime-failure-journal",
+        .why = "generated binding constants mirror the C ABI's callerless-failure journal caps",
+    },
+    .{
+        .where = .{ .file = "tools/gen/binding/ts_abi.zig" },
+        .kind = .require,
+        .needles = &.{
+            "k(\"DEFAULT_FAILURE_CAPACITY\", \"PANCAKE_DEFAULT_FAILURE_CAPACITY\")",
+            "k(\"DEFAULT_FAILURE_PAYLOAD_CAP\", \"PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP\")",
+        },
+        .check = "runtime-failure-journal",
+        .why = "the TypeScript ABI generator mirrors the C ABI's callerless-failure journal caps",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/context.ts" },
+        .kind = .require,
+        .needles = &.{
+            "remaining = DEFAULT_FAILURE_PAYLOAD_CAP",
+            "runtimeFailures.length === DEFAULT_FAILURE_CAPACITY",
+        },
+        .check = "runtime-failure-journal",
+        .why = "TypeScript's runtime fallback journal consumes the generated C ABI diagnostic caps instead of carrying local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_failure.py" },
+        .kind = .require,
+        .needles = &.{
+            "remaining = DEFAULT_FAILURE_PAYLOAD_CAP",
+            "__init__(self, capacity: int = DEFAULT_FAILURE_CAPACITY)",
+        },
+        .check = "runtime-failure-journal",
+        .why = "Python's runtime fallback journal consumes the generated C ABI diagnostic caps instead of carrying local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/runtime_failure.rs" },
+        .kind = .require,
+        .needles = &.{
+            "DEFAULT_FAILURE_CAPACITY as RUNTIME_FAILURE_CAP",
+            "DEFAULT_FAILURE_PAYLOAD_CAP as FAILURE_PAYLOAD_CAP",
+        },
+        .check = "runtime-failure-journal",
+        .why = "Rust's runtime fallback journal consumes the generated C ABI diagnostic caps instead of carrying local literals",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/private/finalizer-diagnostics.rkt" },
+        .kind = .require,
+        .needles = &.{
+            "(define capacity DEFAULT-FAILURE-CAPACITY)",
+            "(define payload-cap DEFAULT-FAILURE-PAYLOAD-CAP)",
+        },
+        .check = "runtime-failure-journal",
+        .why = "Racket's runtime fallback journal consumes the generated C ABI diagnostic caps instead of carrying local literals",
+    },
+};
+
 pub const nonfatal_release_paths: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/racket/private/errors.rkt" },
@@ -27,25 +103,35 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "a Racket Host finalizer has no return recipient and projects release failure through the process-surviving diagnostic seam",
     },
     .{
-        .where = .{ .file = "bindings/racket/private/loop.rkt" },
+        .where = .{ .file = "bindings/racket/private/loop/lifecycle.rkt" },
         .kind = .require,
         .needles = &.{"(when (release-consumed? code)"},
         .check = "nonfatal-release-paths",
         .why = "Racket retires driver-loop state for every consumed native teardown outcome",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/host.rs" },
+        .where = .{ .file = "bindings/rust/src/host/lifecycle.rs" },
         .kind = .require,
-        .needles = &.{
-            "crate::lifecycle::release_consumed(rc)",
-            "self.retire_native_host(raw);",
-            "push_front(PendingRelease::HostRaw { host, context })",
-        },
+        .needles = &.{"crate::lifecycle::release_consumed(rc)"},
         .check = "nonfatal-release-paths",
-        .why = "Rust retries only pre-commit Host release refusal and retires every consumed teardown outcome before exposing its failure",
+        .why = "Rust classifies final Host release outcomes at the terminal lifecycle boundary",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/driver_loop.rs" },
+        .where = .{ .file = "bindings/rust/src/host/lifecycle.rs" },
+        .kind = .require,
+        .needles = &.{"self.retire_native_host(raw);"},
+        .check = "nonfatal-release-paths",
+        .why = "Rust retires Host wrapper state for every consumed native teardown outcome",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/finalizer.rs" },
+        .kind = .require,
+        .needles = &.{"push_back(PendingRelease::Host {"},
+        .check = "nonfatal-release-paths",
+        .why = "Rust retries only pre-commit Host release refusal at the next finalizer-safe boundary",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/driver_loop/native.rs" },
         .kind = .require,
         .needles = &.{"if crate::lifecycle::release_consumed(code) {"},
         .check = "nonfatal-release-paths",
@@ -59,31 +145,63 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Rust Host and driver final release share one ownership-boundary classification",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host.py" },
+        .where = .{ .file = "bindings/python/pancake/_host/finalizer.py" },
         .kind = .require,
         .needles = &.{
             "if not _release_consumed(rc):",
             "def _release_unpublished_host(raw, context) -> Optional[BaseException]:",
-            "cleanup = _release_unpublished_host(out, context)",
             "_report_finalizer_release_failure(state, failure)",
             "if not state.raw:",
-            "def _track_session_retirement_failure(self, error: BaseException) -> None:",
         },
         .check = "nonfatal-release-paths",
-        .why = "Python retries only pre-commit Host release refusal, retires consumed teardown outcomes, and retains session cleanup at the Host close barrier",
+        .why = "Python retries only pre-commit Host final release refusal and retires consumed teardown outcomes",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop.py" },
+        .where = .{ .file = "bindings/python/pancake/_host/__init__.py" },
+        .kind = .require,
+        .needles = &.{"cleanup = _release_unpublished_host(out, context)"},
+        .check = "nonfatal-release-paths",
+        .why = "Python retains construction rollback until Host publication commits",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_host/lifecycle.py" },
+        .kind = .require,
+        .needles = &.{"def _track_session_retirement_failure(self, error: BaseException) -> None:"},
+        .check = "nonfatal-release-paths",
+        .why = "Python retains session cleanup at the Host close barrier",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_loop/__init__.py" },
         .kind = .require,
         .needles = &.{
             "cleanup = _release_unpublished_host(host, context)",
-            "if _release_consumed(release_code):",
-            "def _retire_native_release(self) -> None:",
+            "self._release_owner.release(",
+        },
+        .check = "nonfatal-release-paths",
+        .why = "Python transfers loop construction and terminal release to one lease owner",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_loop/lifecycle.py" },
+        .kind = .require,
+        .needles = &.{
+            "self._release_owner.release(",
+            "def _retire_native_release(self, release_error: Optional[BaseException]) -> None:",
             "def _retire_wrapper(self) -> None:",
             "for error in wrapper.terminal_failures:",
         },
         .check = "nonfatal-release-paths",
-        .why = "Python retires consumed driver release handles and claims physical session cleanup at the loop close barrier",
+        .why = "Python's loop claims physical session cleanup only after native release consumption",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_driver/release.py" },
+        .kind = .require,
+        .needles = &.{
+            "consumed = _release_consumed(outcome.code)",
+            "_defer_live_driver_release(",
+            "completion(outcome.error)",
+        },
+        .check = "nonfatal-release-paths",
+        .why = "Python retains refused live driver authority and completes its Host wrapper exactly once after a consuming retry",
     },
     .{
         .where = .{ .file = "bindings/python/pancake/_lifecycle.py" },
@@ -93,20 +211,34 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Python Host and driver final release share one ownership-boundary classification",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/host.ts" },
+        .where = .{ .file = "bindings/ts/runtime/host/finalizer.ts" },
         .kind = .require,
         .needles = &.{
             "const consumed = releaseConsumed(rc);",
             "if (consumed) retireHostFinalizerState(state);",
-            "readonly #sessionRetirements = new Set<Promise<void>>();",
-            "this.#sessionRetirements.add(session.nativeOwnerDidRelease());",
+        },
+        .check = "nonfatal-release-paths",
+        .why = "TypeScript distinguishes pre-commit Host release refusal from consumed teardown failure",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/host/state.ts" },
+        .kind = .require,
+        .needles = &.{"_sessionRetirements = new Set<Promise<void>>()"},
+        .check = "nonfatal-release-paths",
+        .why = "the Host state owns every physical session-retirement barrier",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/host/lifecycle.ts" },
+        .kind = .require,
+        .needles = &.{
+            "this._sessionRetirements.add(session.nativeOwnerDidRelease());",
             "await sessionRetirements;",
         },
         .check = "nonfatal-release-paths",
-        .why = "TypeScript distinguishes pre-commit Host release refusal from consumed teardown failure and joins physical session retirement at Host close",
+        .why = "TypeScript joins physical session retirement at Host close",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/driver_loop.ts" },
+        .where = .{ .file = "bindings/ts/runtime/driver_loop/finalizer.ts" },
         .kind = .require,
         .needles = &.{
             "const consumed = releaseConsumed(rc);",
@@ -131,14 +263,14 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "the generated decoder owns ABI discriminant validation and returns failure; callers do not preflight a panic-capable decoder",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/lib.rs" },
+        .where = .{ .file = "bindings/rust/src/value.rs" },
         .kind = .forbid,
         .needles = &.{"debug_assert!(false, \"unknown PancakeArgument kind"},
         .check = "nonfatal-release-paths",
         .why = "unknown Rust argument discriminants must never panic in debug builds",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/lib.rs" },
+        .where = .{ .file = "bindings/rust/src/value.rs" },
         .kind = .require,
         .needles = &.{
             "pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Result<Argument>",
@@ -153,6 +285,13 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .needles = &.{ ".completion => unreachable", "std.debug.assert(inst.event_reservations == 0)", ".pending => unreachable" },
         .check = "nonfatal-release-paths",
         .why = "driver release consumes the handle and must return internal ownership anomalies instead of terminating its process owner",
+    },
+    .{
+        .where = .{ .tree = .{ .dir = "src/c_abi/driver/loop", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ ".completion => unreachable", "std.debug.assert(inst.event_reservations == 0)", ".pending => unreachable" },
+        .check = "nonfatal-release-paths",
+        .why = "every loop operation owner projects internal ownership anomalies instead of terminating its process owner",
     },
     .{
         .where = .{ .file = "src/driver/host_runtime.zig" },
@@ -262,16 +401,22 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "an internally owned dial session closes when its serve task fails",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/driver_loop.ts" },
+        .where = .{ .file = "bindings/ts/runtime/driver_loop/state.ts" },
         .kind = .require,
         .needles = &.{
-            "#terminalFailure: PancakeError | null",
-            "#failBackground(error: unknown): void",
-            "row.failed(error);",
-            "this.#wrapper.failPendingVows(failure);",
+            "_terminalFailure: PancakeError | null",
+            "_failBackground(error: unknown): void",
+            "this._wrapper.failPendingVows(failure);",
         },
         .check = "binding-failure-surface",
         .why = "every TypeScript background drive failure is one terminal outcome completed into all binding waiters",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/driver_loop/parker.ts" },
+        .kind = .require,
+        .needles = &.{"row.failed(error);"},
+        .check = "binding-failure-surface",
+        .why = "the shared parker reports every per-loop and parker-wide failure to each loop's terminal authority",
     },
     .{
         .where = .{ .file = "bindings/ts/runtime/trampoline.ts" },
@@ -281,7 +426,7 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "TypeScript obtains callback session authority from the core turn",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/driver_loop.ts" },
+        .where = .{ .tree = .{ .dir = "bindings/ts/runtime/driver_loop", .suffixes = &.{".ts"} } },
         .kind = .forbid,
         .needles = &.{
             "void runParker().finally",
@@ -293,14 +438,14 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "background failures reach the loop's terminal authority and callback session identity comes from the core turn, never a guessed carrier",
     },
     .{
-        .where = .{ .file = "src/driver/core/host_pump.zig" },
+        .where = .{ .file = "src/driver/core/host/pump/schedule.zig" },
         .kind = .require,
         .needles = &.{"pub fn scheduleFeedResume(self:"},
         .check = "binding-failure-surface",
         .why = "the core owns the wake that resumes complete stream frames retained behind local pressure",
     },
     .{
-        .where = .{ .file = "src/driver/core/host.zig" },
+        .where = .{ .file = "src/driver/core/host/session.zig" },
         .kind = .require,
         .needles = &.{"try resumeFeedTail(self.host, self)"},
         .check = "binding-failure-surface",
@@ -317,7 +462,10 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "stateless GC emission and fallback decoding propagate failure instead of stranding capability counts until teardown",
     },
     .{
-        .where = .{ .file = "src/c_abi/ocapn/uri.zig" },
+        .where = .{ .files = &.{
+            "src/c_abi/ocapn/uri.zig",
+            "src/c_abi/ocapn/uri/record.zig",
+        } },
         .kind = .forbid,
         .needles = &.{
             "error.OutOfMemory => PANCAKE_ERR_INTERNAL",
@@ -339,7 +487,14 @@ pub const binding_failure_surface: []const Ban = &.{
     .{
         .where = .{ .files = &.{
             "src/driver/core/host.zig",
-            "src/driver/core/host_pump.zig",
+            "src/driver/core/host/configuration.zig",
+            "src/driver/core/host/errors.zig",
+            "src/driver/core/host/hosting.zig",
+            "src/driver/core/host/observation.zig",
+            "src/driver/core/host/pump.zig",
+            "src/driver/core/host/session.zig",
+            "src/driver/core/host/session/ingress.zig",
+            "src/driver/core/host/trace.zig",
         } },
         .kind = .forbid,
         .needles = &.{
@@ -352,21 +507,21 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "core protocol and cleanup failures must propagate or enter the session's retained terminal diagnosis",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/host.ts" },
+        .where = .{ .file = "bindings/ts/runtime/host/drive.ts" },
         .kind = .require,
         .needles = &.{"failPendingVows(error: PancakeError): void"},
         .check = "binding-failure-surface",
         .why = "loop failure completes Host vows before wrapper teardown clears their table",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/host.ts" },
+        .where = .{ .file = "bindings/ts/runtime/host/drive.ts" },
         .kind = .require,
         .needles = &.{"if (firstFailure !== null) throw firstFailure.error;"},
         .check = "binding-failure-surface",
         .why = "the TypeScript byte-fed action drain reports its first failed effect after finishing the already-popped batch",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop.py" },
+        .where = .{ .file = "bindings/python/pancake/_loop/__init__.py" },
         .kind = .require,
         .needles = &.{
             "self._terminal_failure:",
@@ -378,14 +533,14 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "Python readiness callbacks and scheduled steps complete all waiters through one terminal loop failure",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host.py" },
+        .where = .{ .file = "bindings/python/pancake/_host/progress.py" },
         .kind = .require,
         .needles = &.{"raise first_failure"},
         .check = "binding-failure-surface",
         .why = "the Python byte-fed action drain reports its first failed effect after finishing the already-popped batch",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop.py" },
+        .where = .{ .tree = .{ .dir = "bindings/python/pancake/_loop", .suffixes = &.{".py"} } },
         .kind = .forbid,
         .needles = &.{
             "self._aio.call_soon(self.step_now)",
@@ -394,7 +549,7 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "Python loop background work must retain or classify its failure instead of relying on the event-loop exception handler",
     },
     .{
-        .where = .{ .file = "bindings/racket/private/loop.rkt" },
+        .where = .{ .file = "bindings/racket/private/loop/core.rkt" },
         .kind = .require,
         .needles = &.{
             "(define (loop-background-failed! lp error)",
@@ -417,7 +572,19 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "host scheduling and close-deadline failures must remain observable",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/host.rs" },
+        .where = .{ .tree = .{ .dir = "bindings/rust/src/host", .suffixes = &.{".rs"} } },
+        .kind = .forbid,
+        .needles = &.{
+            "pub(crate) fn close_wait(&self) -> Option<Duration>",
+            "pub(crate) fn schedule_kick(self: &Rc<HostShared>) {",
+            "let _ = try_spawn_local",
+            "let _ = crate::action::run(self, action).await",
+        },
+        .check = "binding-failure-surface",
+        .why = "host-package scheduling and close-deadline failures must remain observable",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/host/progress.rs" },
         .kind = .require,
         .needles = &.{"pub(crate) async fn kick_actions(self: &Rc<HostShared>) -> Result<()>"},
         .check = "binding-failure-surface",
@@ -435,14 +602,25 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "driver scheduling, stepping, and deadline failures are terminal outcomes, never idle progress",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/driver_loop.rs" },
+        .where = .{ .tree = .{ .dir = "bindings/rust/src/driver_loop", .suffixes = &.{".rs"} } },
+        .kind = .forbid,
+        .needles = &.{
+            "fn step_wait(&self) -> Option<std::time::Duration>",
+            "Ok(None) | Err(_) => break",
+            "let _ = try_spawn_local",
+        },
+        .check = "binding-failure-surface",
+        .why = "driver-loop package deadline, scheduling, and release failures remain typed outcomes after extraction",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/driver_loop/tests.rs" },
         .kind = .require,
         .needles = &.{"background failure releases the driver loop"},
         .check = "binding-layer-vocabulary",
         .why = "the failure test names the concrete driver-loop owner",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/host.rs" },
+        .where = .{ .file = "bindings/rust/src/host/vows.rs" },
         .kind = .require,
         .needles = &.{"project C ABI FAIL events"},
         .check = "binding-layer-vocabulary",

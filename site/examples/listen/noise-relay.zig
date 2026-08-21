@@ -1,21 +1,26 @@
 const std = @import("std");
 const pancake = @import("pancake");
+const native_relay = @import("native_relay");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const seed = [_]u8{7} ** 32; // load durable secret bytes in a real service
+    // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+    const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
-    var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
-        allocator,
+    var relay: native_relay.Provider = undefined;
+    switch (relay.init(
         io,
-        "ws://192.0.2.10:8080/relay",
-        "ws://192.0.2.10:8080/register",
-        secret.publicKey(),
-        .noise,
-    );
-    defer relay_resident.deinit();
+        allocator,
+        "wss://relay.example/relay",
+        "wss://relay.example/register",
+        .system,
+    )) {
+        .ready => {},
+        .failed => return error.RelayUnavailable,
+    }
+    defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
     var server = try pancake.driver.listen(
         allocator,
-        relay_resident.netlayer(),
+        relay.resident(.noise).netlayer(),
         .{ .designator = "" },
         .{ .keyed = secret },
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

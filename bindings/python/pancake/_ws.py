@@ -27,7 +27,7 @@ from ._errors import PancakeError
 # A WebSocket message is a transport chunk and may coalesce several CapTP
 # frames. Keep this independent from DEFAULT_FRAME_CAP; `websockets` enforces
 # it before retaining a hostile message for the binding.
-_WS_MESSAGE_HIGH_WATER = 1 << 20
+_WS_MESSAGE_HIGH_WATER = _abi.BINDING_WEBSOCKET_MESSAGE_CAP_BYTES
 
 
 async def connect_websocket(url: str) -> "_WebSocketTransport":

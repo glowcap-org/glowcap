@@ -39,7 +39,7 @@ typedef struct PancakeDriverLoop PancakeDriverLoop;
 #define PANCAKE_DRIVER_EVENT_OPEN_FAILED 1
 /* PancakeDriverEvent.kind: listener accepted session. */
 #define PANCAKE_DRIVER_EVENT_ACCEPTED 2
-/* PancakeDriverEvent.kind: session wire closed; failure fields carry a fault, or PANCAKE_OK for clean EOF. */
+/* PancakeDriverEvent.kind: the session's physical carrier close barrier completed; failure fields carry a fault, or PANCAKE_OK for a clean close. */
 #define PANCAKE_DRIVER_EVENT_SESSION_CLOSED 3
 /* PancakeDriverEvent.kind: action carries a settled or failed vow. */
 #define PANCAKE_DRIVER_EVENT_COMPLETION 4
@@ -201,8 +201,11 @@ int32_t pancake_driver_listener_advertise(PancakeDriverLoop *loop, uint64_t list
 /* Select this listener locator as the Host's acceptable location. */
 int32_t pancake_driver_listener_select(PancakeDriverLoop *loop, uint64_t listener);
 /* Stop one listener and remove its advertised locator without releasing the
-   loop or accepted session handles. out_failure must identify the current
-   version/layout and receives the exact stop/cancellation and cleanup chain. */
+   loop or accepted session handles. PANCAKE_ERR_WOULD_BLOCK means stop is committed
+   but still pending: keep stepping, then retry after successful retirement or
+   consume LISTENER_FAILED for the exact asynchronous chain. out_failure must
+   identify the current version/layout and receives a synchronous stop/cancellation
+   chain. */
 int32_t pancake_driver_listener_close(PancakeDriverLoop *loop, uint64_t listener, PancakeDriverFailure *out_failure);
 /* Return the loop-owned descriptor on which the embedder parks. */
 int32_t pancake_driver_readiness_fd(PancakeDriverLoop *loop, int32_t *out_fd);
