@@ -1,5 +1,6 @@
-//! Markdown link integrity across the owned docs, and the dangling
-//! reference-style links a renderer would silently swallow.
+//! Markdown link integrity across the owned docs, the dangling
+//! reference-style links a renderer would silently swallow, and the
+//! repository's own GitHub blob links resolving to real tree paths.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -111,6 +112,127 @@ fn checkMarkdownLinksInFile(
             };
         }
     }
+}
+
+/// A `github.com/jimisaacs/pancake/blob/main/<path>` link is a claim the path
+/// exists in this tree, and it is the one external-link class a network-free
+/// check can hold: a rename that leaves the link behind 404s every page that
+/// carries it, and no compiler or renderer notices. Walk the owned prose
+/// surfaces (root contracts, docs, site content, apps, bindings, bench,
+/// examples) and resolve each blob or tree link against the repository.
+pub fn checkRepoBlobLinks(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const files = [_][]const u8{
+        "AGENTS.md",
+        "README.md",
+        "CONTRIBUTING.md",
+        "PROVENANCE.md",
+        "SECURITY.md",
+    };
+    for (files) |path| {
+        try checkRepoBlobLinksInFile(io, gpa, root, violations, path);
+    }
+    const trees = [_][]const u8{ "docs", "site/content", "apps", "bindings", "bench", "examples" };
+    for (trees) |dir_path| {
+        try checkRepoBlobLinksUnder(io, gpa, root, violations, dir_path);
+    }
+}
+
+fn checkRepoBlobLinksUnder(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    dir_path: []const u8,
+) !void {
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for blob link check with {s}", .{ dir_path, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        const is_prose = std.mem.endsWith(u8, entry.path, ".md") or
+            std.mem.endsWith(u8, entry.path, ".smd");
+        if (!is_prose) continue;
+        // Vendored trees and dependency caches are not ours to fix.
+        if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
+        if (std.mem.indexOf(u8, entry.path, "upstream/") != null) continue;
+
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+        defer gpa.free(path);
+        try checkRepoBlobLinksInFile(io, gpa, root, violations, path);
+    }
+}
+
+const blob_link_prefix = "github.com/jimisaacs/pancake/";
+
+fn checkRepoBlobLinksInFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for blob link check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, contents, i, blob_link_prefix)) |at| {
+        const after = contents[at + blob_link_prefix.len ..];
+        i = at + blob_link_prefix.len;
+        const ref: []const u8 = for ([_][]const u8{ "blob/main/", "tree/main/" }) |candidate| {
+            if (std.mem.startsWith(u8, after, candidate)) break candidate;
+        } else continue;
+        const target = blobLinkTarget(after[ref.len..]) orelse continue;
+        root.access(io, target, .{}) catch |err| {
+            try appendViolation(gpa, violations, "{s}:{d}: GitHub link names missing tree path `{s}` ({s})", .{
+                path,
+                lineNumberAt(contents, at),
+                target,
+                @errorName(err),
+            });
+        };
+    }
+}
+
+/// The linked tree path: everything to the first URL delimiter, with a
+/// fragment, query, and sentence punctuation trimmed. Null when nothing
+/// remains, as in a bare link to the repository root.
+fn blobLinkTarget(rest: []const u8) ?[]const u8 {
+    var end: usize = 0;
+    while (end < rest.len) : (end += 1) {
+        const c = rest[end];
+        if (c == ')' or c == '"' or c == '\'' or c == '`' or c == '#' or c == '?' or
+            c == '<' or c == ']' or c == ' ' or c == '\t' or c == '\n' or c == '\r') break;
+    }
+    var target = rest[0..end];
+    while (target.len > 0) {
+        const last = target[target.len - 1];
+        if (last == '.' or last == ',' or last == ';' or last == ':' or last == '/') {
+            target = target[0 .. target.len - 1];
+        } else break;
+    }
+    if (target.len == 0) return null;
+    return target;
+}
+
+fn lineNumberAt(contents: []const u8, at: usize) usize {
+    var n: usize = 1;
+    for (contents[0..@min(at, contents.len)]) |c| {
+        if (c == '\n') n += 1;
+    }
+    return n;
 }
 
 /// The Markdown surfaces and Zig comment lines this repository owns must not

@@ -8,6 +8,7 @@
 #![allow(dead_code)]
 
 use super::layouts_gen::*;
+#[cfg(feature = "async")]
 pub use super::layouts_gen::{PANCAKE_TCP_OPERATION_OPTIONS_SIZE, PANCAKE_TCP_OPERATION_OPTIONS_STREAM_OFF};
 
 #[repr(C)]

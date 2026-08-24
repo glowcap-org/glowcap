@@ -117,18 +117,20 @@ pub const AnswerTarget = session.AnswerTarget;
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
 pub const encodePeerLocatorRecord = codec.signed.encodeLocatorRecord;
+pub const encodePeerLocatorViewRecord = hello.encodePeerLocatorViewRecord;
 
 /// Parse a verbatim `<ocapn-peer …>` Syrup record into an owned `PeerLocator`.
 /// The matching decode of `encodePeerLocatorRecord`; the C ABI's
 /// `set_exporter_location` boundary uses this so a URI (or any non-record)
 /// fails loud instead of being spliced into a signed give.
 pub const readLocatorOwned = codec.signed.readLocatorOwned;
+pub const readLocatorView = codec.signed.readLocatorView;
 
-/// Decode a borrowed body view from an encoded frame — the same projection
-/// `Event.view` performs on an inbound frame, surfaced so the host tier can
-/// inspect an outbound frame it drained (the live trace's outbound seat)
-/// without reaching past the engine into the codec.
-pub const decodeBodyView = codec.dispatch.decodeBody;
+/// Decode a borrowed body view from an encoded frame under the session's
+/// negotiated CapTP version — the same wire projection `Event.wireView`
+/// performs on an inbound frame. Surfaced so the host tier can inspect an
+/// outbound frame it drained without reaching past the engine into the codec.
+pub const decodeBodyView = codec.dispatch.decodeBodyForProfile;
 /// Resolve the registered wire shape for a negotiated codec without exposing
 /// codec internals to higher layers that already depend on the engine.
 pub const frameShape = codec.dispatch.frameShape;
@@ -199,6 +201,11 @@ pub const Peer = struct {
     /// Bytes charged to staged outbound rows. Each row stores its charge so
     /// dequeueing is O(1) and cannot accidentally re-walk a message tree.
     pending_send_bytes: usize = 0,
+    /// Queue seats reserved by transactions that have not published their
+    /// carrier yet. Every later reservation includes these seats when growing
+    /// the backing store, so an infallible commit remains valid across a
+    /// callback or other intervening producer.
+    pending_send_reservations: usize = 0,
     outbound: Queue(foundation.Frame, frameByteLen),
     /// One shared ceiling for staged messages plus encoded frames. A standalone
     /// Peer is deliberately unlimited; Hosts install their explicit high-water
@@ -300,6 +307,8 @@ pub const Peer = struct {
     pub const PendingBatch = peer_outbound.PendingBatch;
     pub const pendingOutboundCharge = peer_outbound.pendingOutboundCharge;
     pub const reservePending = peer_outbound.reservePending;
+    pub const reserveAnswerRelease = peer_outbound.reserveAnswerRelease;
+    pub const publishAnswerRelease = peer_outbound.publishAnswerRelease;
     pub const reserveInlinePassableStaging = peer_outbound.reserveInlinePassableStaging;
     pub const cancelInlinePassableStaging = peer_outbound.cancelInlinePassableStaging;
     pub const transferInlinePassableStaging = peer_outbound.transferInlinePassableStaging;
@@ -311,9 +320,9 @@ pub const Peer = struct {
     pub const takePending = peer_outbound.takePending;
     pub const popPendingBack = peer_outbound.popPendingBack;
     pub const checkOutboundWaterline = peer_outbound.checkOutboundWaterline;
-    pub const checkOutboundTransferWaterline = peer_outbound.checkOutboundTransferWaterline;
     pub const ensureOutboundCapacity = peer_outbound.ensureOutboundCapacity;
     pub const queuedOutboundBytes = peer_outbound.queuedOutboundBytes;
+    pub const outboundSaturated = peer_outbound.outboundSaturated;
     pub const encodedOutboundBytes = peer_outbound.encodedOutboundBytes;
     pub const hasOutbound = peer_outbound.hasOutbound;
 
@@ -350,6 +359,7 @@ pub const Peer = struct {
     pub const applyRelayedHandoffGive = peer_handoffs.applyRelayedHandoffGive;
 
     pub const sessionIsOpen = peer_session.isOpen;
+    pub const sessionIsClosed = peer_session.isClosed;
     pub const retireClosedSessionAuthority = peer_session.retireClosedAuthority;
     pub const closeSession = peer_session.close;
     pub const limits = peer_session.limits;
@@ -388,6 +398,7 @@ pub const Peer = struct {
 
     pub const pushEncoded = peer_send.pushEncoded;
     pub const pushEncodedFromPending = peer_send.pushEncodedFromPending;
+    pub const pushEncodedPairFromPending = peer_send.pushEncodedPairFromPending;
     pub const commitAbortOutbound = peer_send.commitAbortOutbound;
     pub const takeOutbound = peer_send.takeOutbound;
 

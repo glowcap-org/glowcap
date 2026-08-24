@@ -29,8 +29,8 @@ import type { TimelineEvent } from "./timeline.ts";
 /** Bundle membership for one session: which slot of its peer-pair
  * group it occupies, out of how many. Index 0..size-1, stable. */
 export type SessionBundleEntry = {
-  index: number;
-  size: number;
+	index: number;
+	size: number;
 };
 
 /**
@@ -41,22 +41,22 @@ export type SessionBundleEntry = {
  * stage update; the Stage projects from it rather than rebuilding.
  */
 export type FrameGeometry = {
-  claimsToward: ReadonlyMap<string, string>;
-  sessionBundles: ReadonlyMap<string, SessionBundleEntry>;
-  /** Doc-stable simultaneity slots — memoized across playback and
-   *  mid-drag; rebuilt on seek and when the document is marked dirty. */
-  timeBundles: ReadonlyMap<string, SessionBundleEntry>;
-  /** Per-session drawn curves for this stage pass, after layout has
-   *  placed nodes. Flight and edge drawing share one curve per session
-   *  so a dense wire is not re-derived once per in-flight message. */
-  sessionCurves: ReadonlyMap<string, SessionCurve>;
+	claimsToward: ReadonlyMap<string, string>;
+	sessionBundles: ReadonlyMap<string, SessionBundleEntry>;
+	/** Doc-stable simultaneity slots — memoized across playback and
+	 *  mid-drag; rebuilt on seek and when the document is marked dirty. */
+	timeBundles: ReadonlyMap<string, SessionBundleEntry>;
+	/** Per-session drawn curves for this stage pass, after layout has
+	 *  placed nodes. Flight and edge drawing share one curve per session
+	 *  so a dense wire is not re-derived once per in-flight message. */
+	sessionCurves: ReadonlyMap<string, SessionCurve>;
 };
 
 export const EMPTY_FRAME_GEOMETRY: FrameGeometry = {
-  claimsToward: new Map(),
-  sessionBundles: new Map(),
-  timeBundles: new Map(),
-  sessionCurves: new Map(),
+	claimsToward: new Map(),
+	sessionBundles: new Map(),
+	timeBundles: new Map(),
+	sessionCurves: new Map(),
 };
 
 /** Perpendicular spacing between adjacent bundle slots, in world
@@ -89,13 +89,13 @@ export const SESSION_BUNDLE_SPACING = 30;
  * jumping to another one.
  */
 export function claimTargets(
-  world: GameWorld,
-  claimed: ReadonlyMap<string, string>,
+	world: GameWorld,
+	claimed: ReadonlyMap<string, string>,
 ): Map<string, string> {
-  const present = new Set<string>();
-  for (const e of world.with("peer")) present.add(e.peer.id);
-  for (const e of world.with("endpoint")) present.add(e.endpoint.id);
-  return claimsOnStage(claimed, present);
+	const present = new Set<string>();
+	for (const e of world.with("peer")) present.add(e.peer.id);
+	for (const e of world.with("endpoint")) present.add(e.endpoint.id);
+	return claimsOnStage(claimed, present);
 }
 
 /** Compute bundle indices for every session in the world. Sessions
@@ -108,16 +108,16 @@ export function claimTargets(
  * the caller needs the same map to draw each edge, and two maps built two ways
  * are two answers waiting to disagree. */
 export function computeSessionBundles(
-  world: GameWorld,
-  towards: ReadonlyMap<string, string>,
+	world: GameWorld,
+	towards: ReadonlyMap<string, string>,
 ): Map<string, SessionBundleEntry> {
-  return bundleIndices(
-    [...world.with("session", "endpoints")].map((e) => ({
-      id: e.session.id,
-      a: towards.get(e.endpoints.a) ?? e.endpoints.a,
-      b: towards.get(e.endpoints.b) ?? e.endpoints.b,
-    })),
-  );
+	return bundleIndices(
+		[...world.with("session", "endpoints")].map((e) => ({
+			id: e.session.id,
+			a: towards.get(e.endpoints.a) ?? e.endpoints.a,
+			b: towards.get(e.endpoints.b) ?? e.endpoints.b,
+		})),
+	);
 }
 
 /**
@@ -130,37 +130,37 @@ export function computeSessionBundles(
  * was not drawn in.
  */
 export function bundleIndices(
-  links: Iterable<{ id: string; a: string; b: string }>,
+	links: Iterable<{ id: string; a: string; b: string }>,
 ): Map<string, SessionBundleEntry> {
-  const groups = new Map<string, string[]>();
-  for (const link of links) {
-    const key = pairKey(link.a, link.b);
-    let list = groups.get(key);
-    if (!list) {
-      list = [];
-      groups.set(key, list);
-    }
-    list.push(link.id);
-  }
-  const out = new Map<string, SessionBundleEntry>();
-  for (const list of groups.values()) {
-    list.sort();
-    for (let i = 0; i < list.length; i++) {
-      out.set(list[i]!, { index: i, size: list.length });
-    }
-  }
-  return out;
+	const groups = new Map<string, string[]>();
+	for (const link of links) {
+		const key = pairKey(link.a, link.b);
+		let list = groups.get(key);
+		if (!list) {
+			list = [];
+			groups.set(key, list);
+		}
+		list.push(link.id);
+	}
+	const out = new Map<string, SessionBundleEntry>();
+	for (const list of groups.values()) {
+		list.sort();
+		for (let i = 0; i < list.length; i++) {
+			out.set(list[i]!, { index: i, size: list.length });
+		}
+	}
+	return out;
 }
 
 /** Endpoints + Bezier control point for one session. `null` when
  * either peer is missing (e.g. mid-construction). */
 export type SessionCurve = {
-  ax: number;
-  ay: number;
-  bx: number;
-  by: number;
-  cx: number;
-  cy: number;
+	ax: number;
+	ay: number;
+	bx: number;
+	by: number;
+	cx: number;
+	cy: number;
 };
 
 /**
@@ -184,42 +184,42 @@ export type SessionCurve = {
  * for the pair to ride.
  */
 export function drawnSessionCurve(
-  world: GameWorld,
-  endpointA: string,
-  endpointB: string,
-  bundle: SessionBundleEntry,
-  towards: ReadonlyMap<string, string>,
-  lean: number,
+	world: GameWorld,
+	endpointA: string,
+	endpointB: string,
+	bundle: SessionBundleEntry,
+	towards: ReadonlyMap<string, string>,
+	lean: number,
 ): SessionCurve | null {
-  const aTo = towards.get(endpointA);
-  const bTo = towards.get(endpointB);
-  if ((aTo === undefined) === (bTo === undefined)) {
-    return sessionCurve(world, endpointA, endpointB, bundle);
-  }
-  // Build from the end that is a peer, so `t` runs from it toward the claim
-  // exactly as the placement's did.
-  const fromId = aTo === undefined ? endpointA : endpointB;
-  const towardId = (aTo ?? bTo)!;
-  const from = findNode(world, fromId)?.position;
-  const toward = findNode(world, towardId)?.position;
-  const claimAt = findNode(world, aTo === undefined ? endpointB : endpointA)
-    ?.position;
-  if (!from || !toward || !claimAt) return null;
-  const trimmed = curvePrefix(
-    curveBetween(fromId, from, towardId, toward, bundle),
-    lean,
-  );
-  // Only while the claim is actually ON that lane. An author who drags one
-  // pins it, and the layout hands a pinned claim its pin instead of the lean
-  // — so the trimmed arc would stop where the claim used to be and the line
-  // would no longer reach it. Asked of the position rather than of a mode,
-  // because "is the node on this curve" is the thing that has to be true, and
-  // a flag saying so is a second copy of it that can be wrong.
-  const offLane = Math.hypot(trimmed.bx - claimAt.x, trimmed.by - claimAt.y);
-  if (offLane > ON_LANE_EPSILON) {
-    return sessionCurve(world, endpointA, endpointB, bundle);
-  }
-  return trimmed;
+	const aTo = towards.get(endpointA);
+	const bTo = towards.get(endpointB);
+	if ((aTo === undefined) === (bTo === undefined)) {
+		return sessionCurve(world, endpointA, endpointB, bundle);
+	}
+	// Build from the end that is a peer, so `t` runs from it toward the claim
+	// exactly as the placement's did.
+	const fromId = aTo === undefined ? endpointA : endpointB;
+	const towardId = (aTo ?? bTo)!;
+	const from = findNode(world, fromId)?.position;
+	const toward = findNode(world, towardId)?.position;
+	const claimAt = findNode(world, aTo === undefined ? endpointB : endpointA)
+		?.position;
+	if (!from || !toward || !claimAt) return null;
+	const trimmed = curvePrefix(
+		curveBetween(fromId, from, towardId, toward, bundle),
+		lean,
+	);
+	// Only while the claim is actually ON that lane. An author who drags one
+	// pins it, and the layout hands a pinned claim its pin instead of the lean
+	// — so the trimmed arc would stop where the claim used to be and the line
+	// would no longer reach it. Asked of the position rather than of a mode,
+	// because "is the node on this curve" is the thing that has to be true, and
+	// a flag saying so is a second copy of it that can be wrong.
+	const offLane = Math.hypot(trimmed.bx - claimAt.x, trimmed.by - claimAt.y);
+	if (offLane > ON_LANE_EPSILON) {
+		return sessionCurve(world, endpointA, endpointB, bundle);
+	}
+	return trimmed;
 }
 
 /** How far a claim may sit from the lane and still be drawn as riding it.
@@ -233,18 +233,18 @@ const ON_LANE_EPSILON = 1e-6;
  * by `2 × offset` (Bezier apex sits at half the control-point
  * distance from the chord midpoint). */
 export function sessionCurve(
-  world: GameWorld,
-  endpointA: string,
-  endpointB: string,
-  bundle: SessionBundleEntry,
+	world: GameWorld,
+	endpointA: string,
+	endpointB: string,
+	bundle: SessionBundleEntry,
 ): SessionCurve | null {
-  // `findNode`, not `findPeer`: one end may be a claim nobody attributed,
-  // and a lookup that only knew peers returned nothing and dropped the whole
-  // edge — the session and every message on it went undrawn.
-  const a = findNode(world, endpointA)?.position;
-  const b = findNode(world, endpointB)?.position;
-  if (!a || !b) return null;
-  return curveBetween(endpointA, a, endpointB, b, bundle);
+	// `findNode`, not `findPeer`: one end may be a claim nobody attributed,
+	// and a lookup that only knew peers returned nothing and dropped the whole
+	// edge — the session and every message on it went undrawn.
+	const a = findNode(world, endpointA)?.position;
+	const b = findNode(world, endpointB)?.position;
+	if (!a || !b) return null;
+	return curveBetween(endpointA, a, endpointB, b, bundle);
 }
 
 /**
@@ -257,63 +257,63 @@ export function sessionCurve(
  * rather than re-derived.
  */
 export function curveBetween(
-  endpointA: string,
-  a: { x: number; y: number },
-  endpointB: string,
-  b: { x: number; y: number },
-  bundle: SessionBundleEntry,
+	endpointA: string,
+	a: { x: number; y: number },
+	endpointB: string,
+	b: { x: number; y: number },
+	bundle: SessionBundleEntry,
 ): SessionCurve {
-  // Canonicalize: swap into id order so the perpendicular
-  // direction is independent of how the session-opened event
-  // happened to list its endpoints.
-  let ax = a.x, ay = a.y, bx = b.x, by = b.y;
-  if (endpointB < endpointA) {
-    ax = b.x;
-    ay = b.y;
-    bx = a.x;
-    by = a.y;
-  }
-  const offset = bundleOffset(bundle.index, bundle.size);
-  // Singleton bundles render as a straight line — control point
-  // sits on the chord midpoint, the quadratic Bezier degenerates.
-  if (offset === 0) {
-    return {
-      ax: a.x,
-      ay: a.y,
-      bx: b.x,
-      by: b.y,
-      cx: (a.x + b.x) / 2,
-      cy: (a.y + b.y) / 2,
-    };
-  }
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len = Math.hypot(dx, dy);
-  if (len === 0) {
-    return {
-      ax: a.x,
-      ay: a.y,
-      bx: b.x,
-      by: b.y,
-      cx: (a.x + b.x) / 2,
-      cy: (a.y + b.y) / 2,
-    };
-  }
-  const px = -dy / len;
-  const py = dx / len;
-  const mx = (ax + bx) / 2;
-  const my = (ay + by) / 2;
-  // 2 × offset because B(0.5) = 0.5 M + 0.5 C — to get an apex
-  // displaced by `offset` from the midpoint, the control point
-  // must be displaced by `2 × offset`.
-  return {
-    ax: a.x,
-    ay: a.y,
-    bx: b.x,
-    by: b.y,
-    cx: mx + px * offset * 2,
-    cy: my + py * offset * 2,
-  };
+	// Canonicalize: swap into id order so the perpendicular
+	// direction is independent of how the session-opened event
+	// happened to list its endpoints.
+	let ax = a.x, ay = a.y, bx = b.x, by = b.y;
+	if (endpointB < endpointA) {
+		ax = b.x;
+		ay = b.y;
+		bx = a.x;
+		by = a.y;
+	}
+	const offset = bundleOffset(bundle.index, bundle.size);
+	// Singleton bundles render as a straight line — control point
+	// sits on the chord midpoint, the quadratic Bezier degenerates.
+	if (offset === 0) {
+		return {
+			ax: a.x,
+			ay: a.y,
+			bx: b.x,
+			by: b.y,
+			cx: (a.x + b.x) / 2,
+			cy: (a.y + b.y) / 2,
+		};
+	}
+	const dx = bx - ax;
+	const dy = by - ay;
+	const len = Math.hypot(dx, dy);
+	if (len === 0) {
+		return {
+			ax: a.x,
+			ay: a.y,
+			bx: b.x,
+			by: b.y,
+			cx: (a.x + b.x) / 2,
+			cy: (a.y + b.y) / 2,
+		};
+	}
+	const px = -dy / len;
+	const py = dx / len;
+	const mx = (ax + bx) / 2;
+	const my = (ay + by) / 2;
+	// 2 × offset because B(0.5) = 0.5 M + 0.5 C — to get an apex
+	// displaced by `offset` from the midpoint, the control point
+	// must be displaced by `2 × offset`.
+	return {
+		ax: a.x,
+		ay: a.y,
+		bx: b.x,
+		by: b.y,
+		cx: mx + px * offset * 2,
+		cy: my + py * offset * 2,
+	};
 }
 
 /** Signed perpendicular displacement of bundle slot `index` out of
@@ -321,16 +321,16 @@ export function curveBetween(
  * (-s, 0, +s); a 4-session bundle into (-1.5 s, -0.5 s, +0.5 s,
  * +1.5 s). A singleton is always 0. */
 export function bundleOffset(index: number, size: number): number {
-  if (size <= 1) return 0;
-  return (index - (size - 1) / 2) * SESSION_BUNDLE_SPACING;
+	if (size <= 1) return 0;
+	return (index - (size - 1) / 2) * SESSION_BUNDLE_SPACING;
 }
 
 function lerp(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  t: number,
+	a: { x: number; y: number },
+	b: { x: number; y: number },
+	t: number,
 ): { x: number; y: number } {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+	return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 /**
@@ -349,55 +349,55 @@ function lerp(
  * between the two claims instead.
  */
 function curvePrefix(curve: SessionCurve, t: number): SessionCurve {
-  // The first split point of de Casteljau is the prefix's control point; the
-  // second is where the prefix ends, which is the curve sampled at `t`.
-  const ctrl = lerp(
-    { x: curve.ax, y: curve.ay },
-    { x: curve.cx, y: curve.cy },
-    t,
-  );
-  const end = bezierAt(curve, t);
-  return {
-    ax: curve.ax,
-    ay: curve.ay,
-    cx: ctrl.x,
-    cy: ctrl.y,
-    bx: end.x,
-    by: end.y,
-  };
+	// The first split point of de Casteljau is the prefix's control point; the
+	// second is where the prefix ends, which is the curve sampled at `t`.
+	const ctrl = lerp(
+		{ x: curve.ax, y: curve.ay },
+		{ x: curve.cx, y: curve.cy },
+		t,
+	);
+	const end = bezierAt(curve, t);
+	return {
+		ax: curve.ax,
+		ay: curve.ay,
+		cx: ctrl.x,
+		cy: ctrl.y,
+		bx: end.x,
+		by: end.y,
+	};
 }
 
 /** Sample a quadratic Bezier at parameter `t ∈ [0, 1]`. */
 export function bezierAt(
-  curve: SessionCurve,
-  t: number,
+	curve: SessionCurve,
+	t: number,
 ): { x: number; y: number } {
-  const u = 1 - t;
-  const u2 = u * u;
-  const t2 = t * t;
-  return {
-    x: u2 * curve.ax + 2 * u * t * curve.cx + t2 * curve.bx,
-    y: u2 * curve.ay + 2 * u * t * curve.cy + t2 * curve.by,
-  };
+	const u = 1 - t;
+	const u2 = u * u;
+	const t2 = t * t;
+	return {
+		x: u2 * curve.ax + 2 * u * t * curve.cx + t2 * curve.bx,
+		y: u2 * curve.ay + 2 * u * t * curve.cy + t2 * curve.by,
+	};
 }
 
 /** Unit tangent at parameter `t`. For a degenerate (control =
  * midpoint, zero-length) curve, returns `{ dx: 0, dy: 0 }`. */
 export function bezierTangent(
-  curve: SessionCurve,
-  t: number,
+	curve: SessionCurve,
+	t: number,
 ): { dx: number; dy: number } {
-  const dx = 2 * (1 - t) * (curve.cx - curve.ax) +
-    2 * t * (curve.bx - curve.cx);
-  const dy = 2 * (1 - t) * (curve.cy - curve.ay) +
-    2 * t * (curve.by - curve.cy);
-  const len = Math.hypot(dx, dy);
-  if (len === 0) return { dx: 0, dy: 0 };
-  return { dx: dx / len, dy: dy / len };
+	const dx = 2 * (1 - t) * (curve.cx - curve.ax) +
+		2 * t * (curve.bx - curve.cx);
+	const dy = 2 * (1 - t) * (curve.cy - curve.ay) +
+		2 * t * (curve.by - curve.cy);
+	const len = Math.hypot(dx, dy);
+	if (len === 0) return { dx: 0, dy: 0 };
+	return { dx: dx / len, dy: dy / len };
 }
 
 function pairKey(a: string, b: string): string {
-  return a < b ? `${a}|${b}` : `${b}|${a}`;
+	return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
 // ───────────────────── Message time-arc bundles ─────────────────────
@@ -447,8 +447,8 @@ export const MAX_TEMPORAL_ARC = 0.25;
  * bundle spreads as far as a 10-message bundle — the bigger one
  * just has more slots between the extremes. */
 export function temporalArcAmount(index: number, size: number): number {
-  if (size <= 1) return 0;
-  return ((index / (size - 1)) - 0.5) * 2 * MAX_TEMPORAL_ARC;
+	if (size <= 1) return 0;
+	return ((index / (size - 1)) - 0.5) * 2 * MAX_TEMPORAL_ARC;
 }
 
 /** Compute simultaneity bundle indices for every `message-sent`
@@ -461,26 +461,26 @@ export function temporalArcAmount(index: number, size: number): number {
  * clean — opposite-direction simultaneous messages stay singletons
  * and just cross at midpoint, which is the right read anyway. */
 export function computeMessageTimeBundles(
-  events: readonly TimelineEvent[],
+	events: readonly TimelineEvent[],
 ): Map<string, SessionBundleEntry> {
-  const groups = new Map<string, string[]>();
-  for (const ev of events) {
-    if (ev.kind !== "message-sent") continue;
-    const key = `${ev.sessionId}|${ev.t}|${ev.arrivalT}|${ev.from}→${ev.to}`;
-    let list = groups.get(key);
-    if (!list) {
-      list = [];
-      groups.set(key, list);
-    }
-    list.push(ev.messageId);
-  }
-  const out = new Map<string, SessionBundleEntry>();
-  for (const list of groups.values()) {
-    // Stable index = id sort within the simultaneity group.
-    list.sort();
-    for (let i = 0; i < list.length; i++) {
-      out.set(list[i]!, { index: i, size: list.length });
-    }
-  }
-  return out;
+	const groups = new Map<string, string[]>();
+	for (const ev of events) {
+		if (ev.kind !== "message-sent") continue;
+		const key = `${ev.sessionId}|${ev.t}|${ev.arrivalT}|${ev.from}→${ev.to}`;
+		let list = groups.get(key);
+		if (!list) {
+			list = [];
+			groups.set(key, list);
+		}
+		list.push(ev.messageId);
+	}
+	const out = new Map<string, SessionBundleEntry>();
+	for (const list of groups.values()) {
+		// Stable index = id sort within the simultaneity group.
+		list.sort();
+		for (let i = 0; i < list.length; i++) {
+			out.set(list[i]!, { index: i, size: list.length });
+		}
+	}
+	return out;
 }

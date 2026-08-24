@@ -17,6 +17,7 @@ trim_trailing_whitespace = true
 indent_style = tab
 indent_size = 4
 tab_width = 4
+max_line_length = 120
 
 # Zig and its object notation: `zig fmt` always emits four spaces and is not
 # configurable.

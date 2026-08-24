@@ -22,7 +22,7 @@
 //!
 //! Every `Message` arm decodes, along with everything the arms share:
 //! `Reference`, every `Argument` arm, `Resolution`, `BreakReason`,
-//! `PeerLocator`, `Handoff`, `Tagged`, and `PipelineOp`.
+//! `PeerLocator`, `Handoff`, and `Tagged`.
 //!
 //! [ADR-0026]: ../../../docs/decisions/adr/ADR-0026-hand-rolled-capnp-codec.md
 
@@ -246,11 +246,11 @@ fn chargeArgument(reader: Reader, loc: StructLoc, depth: usize) Error!void {
             try chargeArgsField(reader, tagged_loc, 1, depth + 1);
         },
         .@"struct" => try chargeStructField(reader, loc, 0, depth + 1),
-        .reference => {
-            const ref_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
-            const disc = try enumFromWire(RefTag, try reader.dataWord(ref_loc, 0));
-            if (disc == .promise) try chargePathField(reader, ref_loc, 0, depth + 1);
-        },
+        .reference => try chargeReference(
+            reader,
+            (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame,
+            depth,
+        ),
         // Leaves and the fixed-depth handoff/error arms are fully read (and so
         // charged) by `neutralArgument`; none carries a composite-list vector.
         .bytes, .symbol, .@"error", .handoff, .string, .integer, .boolean, .void, .float64, .keyword, .big_integer => {},
@@ -267,13 +267,10 @@ fn chargeHintList(reader: Reader, hints: CompositeList) Error!void {
     }
 }
 
-/// Charge and recurse a reference: read+validate the node, then walk a promise
-/// reference's pipeline path (the only reference arm with a composite vector).
+/// Charge and validate one reference node.
 fn chargeReference(reader: Reader, loc: StructLoc, depth: usize) Error!void {
     if (depth > max_charge_depth) return Error.MalformedFrame;
     _ = try values.neutralReferenceView(reader, loc, &chargeHintList);
-    const disc = try enumFromWire(RefTag, try reader.dataWord(loc, 0));
-    if (disc == .promise) try chargePathField(reader, loc, 0, depth + 1);
 }
 
 /// Charge each element of a composite `Args` list at pointer `i`. The caller
@@ -286,21 +283,6 @@ fn chargeArgsField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!v
     while (idx < clist.element_count) : (idx += 1) {
         try reader.spend(1);
         try chargeArgument(reader, clist.elem(idx), depth);
-    }
-}
-
-/// Charge each element of a composite `PipelinePath` list at pointer `i`.
-fn chargePathField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!void {
-    if (depth > max_charge_depth) return Error.MalformedFrame;
-    const clist = (try compositeList(reader, loc, i)) orelse return;
-    var idx: usize = 0;
-    while (idx < clist.element_count) : (idx += 1) {
-        try reader.spend(1);
-        const op = try values.neutralPipelineOp(reader, clist.elem(idx));
-        switch (op) {
-            .field => {},
-            .call => try chargeArgsField(reader, clist.elem(idx), 0, depth + 1),
-        }
     }
 }
 

@@ -144,7 +144,18 @@ pub fn checkBindingReflectedFfiWired(
                     break;
                 }
             }
-            if (!already) try per_binding[bi].append(gpa, .{ .name = try gpa.dupe(u8, sym) });
+            if (!already) {
+                // TypeScript's generated lazy loader is both declaration and
+                // load policy: the fingerprint name appears once in the table
+                // and once in the pre-call compatibility configuration. Other
+                // generated symbols still need a hand-written consumer.
+                const checked_in_loader = std.mem.endsWith(u8, sym, "_archive_fingerprint") and
+                    std.mem.count(u8, gen, sym) > 1;
+                try per_binding[bi].append(gpa, .{
+                    .name = try gpa.dupe(u8, sym),
+                    .seen = checked_in_loader,
+                });
+            }
         }
     }
 

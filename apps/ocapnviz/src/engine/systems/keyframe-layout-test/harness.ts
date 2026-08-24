@@ -10,25 +10,25 @@ import { World } from "miniplex";
 import type { Components, GameWorld, Vec2 } from "../../world.ts";
 
 export function layoutTest(name: string, fn: () => void): void {
-  Deno.test({
-    name,
-    sanitizeOps: false,
-    sanitizeResources: false,
-    fn,
-  });
+	Deno.test({
+		name,
+		sanitizeOps: false,
+		sanitizeResources: false,
+		fn,
+	});
 }
 
 export function freshWorld(peerIds: string[]): GameWorld {
-  const w = new World<Components>();
-  for (const id of peerIds) {
-    w.add({
-      peer: { id, label: id, profile: "pancake" },
-      position: { x: 0, y: 0 },
-    });
-  }
-  return w;
+	const w = new World<Components>();
+	for (const id of peerIds) {
+		w.add({
+			peer: { id, label: id, profile: "pancake" },
+			position: { x: 0, y: 0 },
+		});
+	}
+	return w;
 }
 
 export function dist(a: Vec2, b: Vec2): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+	return Math.hypot(a.x - b.x, a.y - b.y);
 }

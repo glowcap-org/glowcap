@@ -29,7 +29,11 @@ the vision itself when a tradeoff between them is unclear.
   destructor, or detached task with no result channel must pre-reserve, defer
   to a fallible owner, or latch its exact failure for the next observable
   boundary. Never dequeue work before success or erase a cause because its
-  immediate caller is gone.
+  immediate caller is gone. A discarded error in first-party Zig (`catch` with
+  an empty body or a bare return/continue/break) carries an inline
+  `// best-effort:` or `// tolerant:` justification naming its bounded loss;
+  `zig build source-check` holds this across `src/`, `cli/`, `apps/`,
+  `examples/`, and `tools/`.
 - **Failure has a boundary, not a blast radius.** Every runtime operation either
   succeeds with committed effects or reports its exact failure after leaving
   the state it owns in a documented condition and settling its owned waiters.

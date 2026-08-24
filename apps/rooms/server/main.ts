@@ -12,8 +12,8 @@
 // The directory is the server's one published bootstrap object; rooms are the
 // references it hands back. A room exists only while someone is in it — when its
 // last member leaves, the room is removed and its name frees up. The directory
-// also answers `list` (the live rooms, as `[name, count]` pairs) and `watch`
-// (hand it an inbox; it pushes a `notify(event, name, count)` delta on every
+// also answers `list` (the live rooms, as six-field publication records) and `watch`
+// (hand it an inbox; it pushes a `notify(event, ...record)` delta on every
 // open/close/count change), so a client can discover and follow rooms, not just
 // open and enter them.
 //
@@ -63,6 +63,10 @@ import {
 	refuseHeldPort,
 } from "./listeners.ts";
 import { directoryBehavior, inspectBehavior } from "./directory_behavior.ts";
+import { peeringBehavior } from "./peering.ts";
+import { noteTrouble } from "./journal.ts";
+import { initHistory } from "./history.ts";
+import { ircGatewayBehavior } from "./irc_gateway.ts";
 export { directoryBehavior } from "./directory_behavior.ts";
 
 // One stray async failure (a register fetch, a notify) must not take CapTP
@@ -70,7 +74,7 @@ export { directoryBehavior } from "./directory_behavior.ts";
 // has this backstop, and the CapTP child needs the same.
 globalThis.addEventListener("unhandledrejection", (event) => {
 	event.preventDefault();
-	console.error("rooms: unhandled rejection (continuing):", event.reason);
+	noteTrouble("an unhandled rejection (continuing)", event.reason);
 });
 
 function diagnosticsEnabled(): boolean {
@@ -83,6 +87,10 @@ function adminListenersEnabled(): boolean {
 
 function vizEnabled(): boolean {
 	return flagOrEnv(Deno.args, BOOT_CAPS.viz.flag, BOOT_CAPS.viz.env);
+}
+
+function peeringEnabled(): boolean {
+	return flagOrEnv(Deno.args, BOOT_CAPS.peering.flag, BOOT_CAPS.peering.env);
 }
 
 function hexSwiss(bytes: Uint8Array): string {
@@ -135,21 +143,32 @@ async function maybePublishInspect(host: Host): Promise<BootCapability | null> {
 	return { token: BOOT_CAPS.diagnostics.token, swiss };
 }
 
-/** Publish the listener-admin object under an unguessable swiss, and hand back
- * the registry the boot listener joins once it is up.
+async function maybePublishPeering(host: Host): Promise<BootCapability | null> {
+	if (!peeringEnabled()) return null;
+	const swiss = await persistentSwiss(BOOT_CAPS.peering.file);
+	host.publishGiftable(swiss, peeringBehavior());
+	return { token: BOOT_CAPS.peering.token, swiss };
+}
+
+/** Publish the IRC gateway under an unguessable swiss: holding it is the
+ * authority to bridge channels into this directory and part them again. */
+async function maybePublishIrcGateway(host: Host): Promise<BootCapability | null> {
+	if (!flagOrEnv(Deno.args, BOOT_CAPS.irc.flag, BOOT_CAPS.irc.env)) return null;
+	const swiss = await persistentSwiss(BOOT_CAPS.irc.file);
+	host.publishGiftable(swiss, ircGatewayBehavior());
+	return { token: BOOT_CAPS.irc.token, swiss };
+}
+
+/** Publish the listener-admin object under an unguessable swiss.
  *
- * Without the flag nothing happens here at all — no registry, no publication,
- * no allocation — the same zero-cost-when-absent posture as inspect. Published
- * before the boot listener opens, so a reused swiss from a supervised respawn
- * never has a window in which it answers `unknown swissnum`. */
-async function maybePublishListeners(
-	host: Host,
-): Promise<{ registry: ListenerRegistry; cap: BootCapability } | null> {
+ * Without the flag no authority is published. Published before the boot
+ * listener opens, so a reused swiss from a supervised respawn never has a
+ * window in which it answers `unknown swissnum`. */
+async function maybePublishListeners(host: Host, registry: ListenerRegistry): Promise<BootCapability | null> {
 	if (!adminListenersEnabled()) return null;
 	const swiss = await persistentSwiss(BOOT_CAPS.adminListeners.file);
-	const registry = new ListenerRegistry(host);
 	host.publishGiftable(swiss, listenersBehavior(registry));
-	return { registry, cap: { token: BOOT_CAPS.adminListeners.token, swiss } };
+	return { token: BOOT_CAPS.adminListeners.token, swiss };
 }
 
 /** The boot block a person reads, on stderr so the machine-parsed stdout
@@ -245,6 +264,7 @@ export async function serveDirectory(
 	host: Host,
 	server: AsyncIterable<Session>,
 	links?: RoomLinks,
+	advertisedLocation?: (session: Session) => string,
 ): Promise<void> {
 	// Published on the Host before the first session is taken, and not onto each
 	// one as it arrives. A loop-backed listener dispatches an accepted session's
@@ -253,7 +273,7 @@ export async function serveDirectory(
 	// accept, and losing it was answered `unknown swissnum`. A Host-wide object
 	// exists before any connection does, so there is no window to lose.
 	useRoomLinks(links ?? null);
-	host.publishGiftable(DIRECTORY, directoryBehavior(links));
+	host.publishGiftable(DIRECTORY, directoryBehavior(links, advertisedLocation));
 	await serveAccepted(server);
 }
 
@@ -271,6 +291,13 @@ async function start(): Promise<void> {
 	const viz = await maybeStartViz();
 	const transport = transportArg();
 	const state = await RoomServerState.open(optionalEnv("PANCAKE_ROOMS_STATE"));
+	// Retention is a stated policy: nothing records until the operator says
+	// `--history`, and then listed rooms keep their last lines in the state
+	// directory (or in memory for the life of the process without one).
+	initHistory(
+		optionalEnv("PANCAKE_ROOMS_STATE") ?? null,
+		flagOrEnv(Deno.args, "--history", "PANCAKE_ROOMS_HISTORY"),
+	);
 	const host = roomsHost(state.identitySeed);
 	const links = await RoomLinks.restore(
 		state,
@@ -284,12 +311,16 @@ async function start(): Promise<void> {
 	// Collected in the table's own print order (`BOOT_CAPS` is alphabetical),
 	// so an operator scanning the block finds a line by name.
 	const caps: BootCapability[] = [];
-	const published = await maybePublishListeners(host);
-	if (published !== null) caps.push(published.cap);
+	const registry = new ListenerRegistry(host);
+	const listeners = await maybePublishListeners(host, registry);
+	if (listeners !== null) caps.push(listeners);
 	const inspect = await maybePublishInspect(host);
 	if (inspect !== null) caps.push(inspect);
+	const ircGateway = await maybePublishIrcGateway(host);
+	if (ircGateway !== null) caps.push(ircGateway);
+	const peering = await maybePublishPeering(host);
+	if (peering !== null) caps.push(peering);
 	if (viz !== null) caps.push(viz);
-	const registry = published?.registry ?? null;
 
 	// Every arm below ends here: the boot listener joins the admin registry
 	// (when one was minted) before the announce line invites anyone to dial it,
@@ -302,10 +333,10 @@ async function start(): Promise<void> {
 		bootServer: Parameters<ListenerRegistry["adoptBoot"]>[1],
 		token: string,
 	): Promise<void> => {
-		registry?.adoptBoot(bootTransport, bootServer, announceToLocator(token));
+		registry.adoptBoot(bootTransport, bootServer, announceToLocator(token));
 		console.log(`ROOMS-SERVER-LISTENING ${token}`);
 		printBootBlock(bootTransport, announceToLocator(token), caps);
-		await serveDirectory(host, bootServer, links);
+		await serveDirectory(host, bootServer, links, (session) => registry.advertisedLocation(session));
 	};
 
 	// The harness and the web bridge parse the announce line: a bare port is a

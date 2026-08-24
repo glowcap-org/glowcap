@@ -91,15 +91,18 @@
 	   five under near-white. Both themes then say "raised" with the same
 	   strength — a card, a bubble, a composer pops identically — where a
 	   near-white ground had left light's raised surfaces flat. */
-	--ink: light-dark(#3a3027, #f3e6d0);
-	--ink-soft: light-dark(#6b5d4d, #b9a684);
-	--paper: light-dark(#f8e7c9, #211911);
-	--paper-raised: light-dark(#fff9ee, #2c2217);
-	--accent: light-dark(#c76f18, #e8912d);
-	--accent-deep: light-dark(#a4560c, #c76f18);
-	--teal: light-dark(#257f88, #4bb3bd);
-	--teal-deep: light-dark(#1b5f66, #2c97a1);
-	--rule: light-dark(#e7d4b7, #3c3022);
+	--ink: #3a3027;
+	--ink-soft: #6b5d4d;
+	--paper: #f8e7c9;
+	--paper-raised: #fff9ee;
+	--accent: #c76f18;
+	/* The light value holds 4.5:1 for normal-size text on the darkest surface
+	   accent-ink text sits on (the site's --code-bg, under a code span inside
+	   a link); #a4560c measured 4.37:1 there. */
+	--accent-deep: #9d5209;
+	--teal: #257f88;
+	--teal-deep: #1b5f66;
+	--rule: #e7d4b7;
 
 	/* ── Type ─────────────────────────────────────────────────────────────
 	   Named once so the pairing is a single decision. */
@@ -149,17 +152,22 @@
 	   darkness, not ink: in the dark theme the ink is cream, and a cream scrim
 	   reads as fog. Frost is chrome reading content that scrolls under it.
 	   They are not one blur. */
-	--accent-ink: light-dark(var(--accent-deep), var(--accent));
-	--teal-ink: light-dark(var(--teal-deep), var(--teal));
+	--accent-ink: var(--accent-deep);
+	/* Accent text sitting on an accent tint (an 18% wash of --accent) needs
+	   one step more separation than --accent-ink gives: in light the tint
+	   darkens the ground under a dark ink, and in dark it lightens the ground
+	   under a bright one. Both arms here hold 4.5:1 on that wash. */
+	--accent-ink-tinted: var(--accent-fill-deep);
+	--teal-ink: var(--teal-deep);
 	/* Filled amber and the ink that sits on it. Rooms' own messages and Send,
 	   and the site's primary door, share this pairing so a commitment control
 	   is the same drawing on both surfaces. --accent-fill is the start of the
 	   gradient (the stronger accent for this theme); --accent-fill-deep is the
 	   shade it falls into; --on-accent is cream on paper and roast on syrup,
 	   because bright amber wants dark ink. */
-	--accent-fill: light-dark(var(--accent-deep), var(--accent));
-	--accent-fill-deep: light-dark(#8a4708, var(--accent-deep));
-	--on-accent: light-dark(#fff8ef, #241a10);
+	--accent-fill: var(--accent-deep);
+	--accent-fill-deep: #8a4708;
+	--on-accent: #fff8ef;
 	/* The ground the page stands on: warm paper with a little of the accent
 	   poured in at the top. Rooms' body and boot screen, and the documentation
 	   site, share it, so opening either does not announce a different room. */
@@ -200,17 +208,48 @@
    surface's toggle, and the media query catches everyone who never touches it.
    The attribute wins in both directions, so a reader can choose light on a dark
    desktop. Both surfaces share this logic because both stamp the same
-   attribute. */
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
+   attribute.
+
+   The flips ride the same `@supports` guard as the palette pairs at the end
+   of this file: a browser without `light-dark()` cannot follow the theme, so
+   it must not flip `color-scheme` either, or native controls go dark on a
+   page whose palette stayed light. */
+@supports (color: light-dark(#000, #fff)) {
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme="light"]) {
+			color-scheme: dark;
+		}
+	}
+
+	:root[data-theme="dark"] {
 		color-scheme: dark;
 	}
 }
 
-:root[data-theme="dark"] {
-	color-scheme: dark;
-}
-
 :root[data-theme="light"] {
 	color-scheme: light;
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the site keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	:root {
+		--ink: light-dark(#3a3027, #f3e6d0);
+		--ink-soft: light-dark(#6b5d4d, #b9a684);
+		--paper: light-dark(#f8e7c9, #211911);
+		--paper-raised: light-dark(#fff9ee, #2c2217);
+		--accent: light-dark(#c76f18, #e8912d);
+		--accent-deep: light-dark(#9d5209, #c76f18);
+		--teal: light-dark(#257f88, #4bb3bd);
+		--teal-deep: light-dark(#1b5f66, #2c97a1);
+		--rule: light-dark(#e7d4b7, #3c3022);
+		--accent-ink: light-dark(var(--accent-deep), var(--accent));
+		--accent-ink-tinted: light-dark(var(--accent-fill-deep), var(--accent));
+		--teal-ink: light-dark(var(--teal-deep), var(--teal));
+		--accent-fill: light-dark(var(--accent-deep), var(--accent));
+		--accent-fill-deep: light-dark(#8a4708, var(--accent-deep));
+		--on-accent: light-dark(#fff8ef, #241a10);
+	}
 }

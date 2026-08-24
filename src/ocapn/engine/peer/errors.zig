@@ -8,8 +8,6 @@ pub const Error = error{
     /// One resolution's drain produced more local deliveries than
     /// `SessionLimits.max_local_deliveries` admits.
     LocalDeliveryCapExceeded,
-    /// A `field` pipeline step reached a wire profile with no encoding for it.
-    UnsupportedPipelineOp,
     /// The partner's `op:start-session` location signature failed verification.
     InvalidStartSessionSignature,
     /// The partner selected a durable identity different from the one this

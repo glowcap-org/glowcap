@@ -64,7 +64,7 @@ pub fn checkBindingHostActionDrains(
         variant_prefix: []const u8 = "",
     }{
         // Kind inventory may live in the generated dispatch file; executor I/O
-        // stays in action.* (ticket-only dial, flush, …). Union of paths must
+        // stays in action.* (route-exact dial, flush, …). Union of paths must
         // cover every PANCAKE_HOST_ACTION_*.
         .{
             .paths = &.{
@@ -333,7 +333,8 @@ pub fn checkBindingHostActionSpine(
     try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode.zig", &.{
         "@import(\"codec_order\")",
     });
-    // Stale ticket-only DIAL contract prose must not return in the C header
+    // Stale locator-bearing or ticket-only DIAL prose must not return in the C
+    // header
     // sources. The generated include/pancake_host.h needs no row of its
     // own: `gen-header-host-check` holds it byte-identical to these two.
     for ([_][]const u8{
@@ -342,12 +343,13 @@ pub fn checkBindingHostActionSpine(
         "dial the exporter at locator",
         "at locator, then report",
         "fields stay zeroed for layout stability",
+        "A DIAL action carries only ticket",
     }) |needle| {
         if (try fileContains(io, gpa, root, "tools/gen/header/host.zig", needle)) {
-            try appendViolation(gpa, violations, "tools/gen/header/host.zig: stale DIAL prose `{s}` — ticket-only; pendingDial owns the URI", .{needle});
+            try appendViolation(gpa, violations, "tools/gen/header/host.zig: stale DIAL prose `{s}` — HostAction carries ticket + route_index; pendingDial owns the locator", .{needle});
         }
         if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", needle)) {
-            try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: stale DIAL prose `{s}` — ticket-only; drop dead locator fields", .{needle});
+            try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: stale DIAL prose `{s}` — HostAction carries ticket + route_index; drop dead locator fields", .{needle});
         }
     }
     // Dead dial-view fields stay deleted on PancakeHostAction; the complete
@@ -356,6 +358,7 @@ pub fn checkBindingHostActionSpine(
         \\pub const PancakeHostAction = extern struct {
         \\    kind: u32,
         \\    ticket: u64,
+        \\    route_index: usize,
         \\    session: ?*PancakeHostSession,
         \\    value: shared.PancakeArgument,
         \\    message: ?[*]const u8,
@@ -369,7 +372,8 @@ pub fn checkBindingHostActionSpine(
         "pub const PendingDialView = redeem_dials.PendingDialView;",
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
-        "pub const PendingDialView = model.PeerLocator;",
+        "pub const PendingDialView = struct",
+        "demanded_partner_key: ?crypto.PeerKey",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
         "hint_storage: ?[*]c.PancakeLocatorHintView",
@@ -377,7 +381,11 @@ pub fn checkBindingHostActionSpine(
         "out_hint_count: ?*usize",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/plan.zig", &.{
-        "shared.locator_adapter.project(view, hints)",
+        "shared.locator_adapter.project(view.locator, hints)",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/symbols.zig", &.{
+        ".{ .name = \"pancake_host_pending_dial\", .out_params = &.{ 3, 5, 6 } }",
+        ".{ .name = \"pancake_host_dialed\", .out_params = &.{4} }",
     });
     for ([_][]const u8{
         "src/c_abi/host/mod.zig",

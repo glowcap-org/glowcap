@@ -16,79 +16,81 @@ import { type ConfirmRequest, requestConfirm } from "./confirm.ts";
 import { c } from "./tokens.ts";
 
 const RECORD_CONFIRM: ConfirmRequest = {
-  title: "Discard the loaded document?",
-  detail: "Stopping this recording replaces what is loaded, so anything " +
-    "unsaved in it goes.",
-  confirmLabel: "Record",
+	title: "Discard the loaded document?",
+	detail: "Stopping this recording replaces what is loaded, so anything " +
+		"unsaved in it goes.",
+	confirmLabel: "Record",
 };
 
 export function LiveControls({
-  recording,
-  bufferHasContent,
-  onStart,
-  onStop,
-  onDiscard,
+	recording,
+	bufferHasContent,
+	onStart,
+	onStop,
+	onDiscard,
 }: {
-  recording: boolean;
-  /** Drives the discard-warning gate on Record. True iff the
-   * buffer has any events (fixture loaded, file opened, prior
-   * recording present). */
-  bufferHasContent: boolean;
-  onStart: () => void;
-  /** Claim the recording and land in Play. */
-  onStop: () => void;
-  /** Throw the recording away, staying in Live. */
-  onDiscard: () => void;
+	recording: boolean;
+	/** Drives the discard-warning gate on Record. True iff the
+	 * buffer has any events (fixture loaded, file opened, prior
+	 * recording present). */
+	bufferHasContent: boolean;
+	onStart: () => void;
+	/** Claim the recording and land in Play. */
+	onStop: () => void;
+	/** Throw the recording away, staying in Live. */
+	onDiscard: () => void;
 }) {
-  if (recording) {
-    return (
-      <>
-        <button
-          type="button"
-          className="ocv-btn is-active"
-          onClick={onStop}
-          title="Stop and review the recording in Play"
-          aria-label="Stop recording"
-        >
-          <span style={dotStyle} />
-          <span>Stop</span>
-        </button>
-        <button
-          type="button"
-          className="ocv-btn is-ghost"
-          onClick={onDiscard}
-          title="Discard the recording"
-          aria-label="Discard recording"
-        >
-          Discard
-        </button>
-      </>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="ocv-btn"
-      onClick={async () => {
-        if (bufferHasContent && !await requestConfirm(RECORD_CONFIRM)) return;
-        onStart();
-      }}
-      title="Start recording from now"
-      aria-label="Start recording"
-    >
-      <span style={dotStyle} />
-      <span>Record</span>
-    </button>
-  );
+	if (recording) {
+		return (
+			<>
+				<button
+					type="button"
+					className="ocv-btn is-active"
+					onClick={onStop}
+					title="Stop and review the recording in Play"
+					aria-label="Stop recording"
+				>
+					<span style={dotStyle} />
+					<span>Stop</span>
+				</button>
+				<button
+					type="button"
+					className="ocv-btn is-ghost"
+					onClick={onDiscard}
+					title="Discard the recording"
+					aria-label="Discard recording"
+				>
+					Discard
+				</button>
+			</>
+		);
+	}
+	return (
+		<button
+			type="button"
+			className="ocv-btn"
+			onClick={async () => {
+				if (
+					bufferHasContent && !await requestConfirm(RECORD_CONFIRM)
+				) return;
+				onStart();
+			}}
+			title="Start recording from now"
+			aria-label="Start recording"
+		>
+			<span style={dotStyle} />
+			<span>Record</span>
+		</button>
+	);
 }
 
 const dotStyle: React.CSSProperties = {
-  width: 8,
-  height: 8,
-  borderRadius: "50%",
-  background: c.danger,
-  display: "inline-block",
-  // No margin: `.ocv-btn` already gaps its own children, and a margin
-  // on top of that gap put the dot twice as far from its label as
-  // every other button's glyph.
+	width: 8,
+	height: 8,
+	borderRadius: "50%",
+	background: c.danger,
+	display: "inline-block",
+	// No margin: `.ocv-btn` already gaps its own children, and a margin
+	// on top of that gap put the dot twice as far from its label as
+	// every other button's glyph.
 };

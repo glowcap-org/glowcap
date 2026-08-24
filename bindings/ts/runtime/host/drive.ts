@@ -18,12 +18,27 @@ import { PancakeError, retainSecondaryFailure } from "../errors.ts";
 import { drainFinalizerRetries } from "../finalizer_retry.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
 import { traceDrainHost } from "../trace.ts";
-import { insideTurn } from "../trampoline.ts";
+import { enterDeliver, exitDeliver, insideTurn } from "../trampoline.ts";
 import { type Argument, Ref } from "../value.ts";
 import { HostApplication } from "./application.ts";
 import { MAX_UNOBSERVED_OUTCOMES } from "./state.ts";
 
-// One encoder/decoder pair for the whole module: both are stateless here.
+async function yieldToRuntime(): Promise<void> {
+	const scheduler = (globalThis as {
+		scheduler?: { yield?: () => Promise<void> };
+	}).scheduler;
+	if (scheduler?.yield != null) return scheduler.yield();
+
+	await new Promise<void>((resolve) => {
+		const channel = new MessageChannel();
+		channel.port1.onmessage = () => {
+			channel.port1.close();
+			channel.port2.close();
+			resolve();
+		};
+		channel.port2.postMessage(undefined);
+	});
+}
 
 export abstract class HostDrive extends HostApplication {
 	// ── The vow table ──────────────────────────────────────────────────────────
@@ -106,6 +121,11 @@ export abstract class HostDrive extends HostApplication {
 		}
 	}
 
+	/** Drop completion state after the last public promise wrapper dies. */
+	abandonVow(vow: bigint): void {
+		this._vows.delete(vow);
+	}
+
 	// ── The action drain (the one loop rule) ──────────────────────────────────
 
 	/** Park a C release the host refused inside a behavior callback; the next
@@ -119,6 +139,14 @@ export abstract class HostDrive extends HostApplication {
 	 * value. Binding-internal; Session decides whether its opt-in applies. */
 	trackGcArgument(value: Argument): Argument {
 		return this._gc.trackArgument(value);
+	}
+
+	trackVow(handle: object, vow: bigint): void {
+		this._gc.trackVow(handle, vow);
+	}
+
+	parkVowRelease(vow: bigint): void {
+		this._gc.parkVow(vow);
 	}
 
 	drainGc(): void {
@@ -178,11 +206,15 @@ export abstract class HostDrive extends HostApplication {
 		if (this._driverLoop != null) {
 			// The native loop is the one drain on an adopted Host (ADR-0112):
 			// the kick becomes a scheduled loop step, which runs the parked
-			// releases and the GC drain at its own head — legal even from
-			// inside a turn, because the step defers past the enclosing feed.
-			if (!insideTurn()) this.drainParkedReleases();
-			this._driverLoop.scheduleStep();
-			return Promise.resolve();
+			// releases and the GC drain at its own head. Inside a turn it must
+			// defer past the enclosing feed; outside one, join that deferred step
+			// so verbs whose contract includes a flush do not return early.
+			if (insideTurn()) {
+				this._driverLoop.scheduleStep();
+				return Promise.resolve();
+			}
+			this.drainParkedReleases();
+			return this._driverLoop.settleStep();
 		}
 		if (insideTurn()) return Promise.resolve();
 		// Parked releases run first — before the raw-handle check, because a
@@ -225,7 +257,17 @@ export abstract class HostDrive extends HostApplication {
 		traceDrainHost(this._raw);
 		while (true) {
 			if (this._raw === NULL) return;
-			const { actions, yielded } = parkActions(this);
+			// The native drain resumes queued Host work before it pops the first
+			// external action. That work may deliver to a hosted behavior, so the
+			// synchronous drain call is a Host-carried delivery just like a loop step.
+			const prior = enterDeliver(this);
+			let parked: ReturnType<typeof parkActions>;
+			try {
+				parked = parkActions(this);
+			} finally {
+				exitDeliver(prior);
+			}
+			const { actions, yielded } = parked;
 			if (actions.length === 0 && !yielded) return;
 			let firstFailure: { error: unknown } | null = null;
 			for (const action of actions) {
@@ -251,14 +293,7 @@ export abstract class HostDrive extends HostApplication {
 			if (firstFailure !== null) throw firstFailure.error;
 			if (yielded) {
 				if (this._raw === NULL) return;
-				// Prefer the scheduler API where it exists; the timer fallback is
-				// portable across browsers, Deno, and Node and yields to I/O rather
-				// than chaining an unbounded microtask run.
-				const scheduler = (globalThis as {
-					scheduler?: { yield?: () => Promise<void> };
-				}).scheduler;
-				if (scheduler?.yield != null) await scheduler.yield();
-				else await new Promise<void>((resolve) => setTimeout(resolve, 0));
+				await yieldToRuntime();
 			}
 		}
 	}

@@ -84,7 +84,10 @@ fn collectDeclaredFns(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the doc-symbol check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
 
         var rest: []const u8 = contents;
@@ -120,7 +123,10 @@ pub fn checkZigDocSymbolClaims(
     try collectDeclaredFns(io, gpa, root, &declared, violations);
     if (declared.count() == 0) return;
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch return;
+    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src: cannot be opened for the doc-symbol check ({s})", .{@errorName(err)});
+        return;
+    };
     defer dir.close(io);
 
     var walker = try dir.walk(gpa);
@@ -129,7 +135,10 @@ pub fn checkZigDocSymbolClaims(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the doc-symbol check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
 
         var line_no: usize = 0;

@@ -14,27 +14,27 @@ import { internalError } from "./engine/errors.ts";
 // before `safeTick` is in place). Install before `createRoot` so the
 // listeners exist by the time the first effect runs.
 globalThis.addEventListener("error", (ev) => {
-  pushError({
-    error: internalError(ev.error ?? ev.message),
-    source: "window",
-  });
+	pushError({
+		error: internalError(ev.error ?? ev.message),
+		source: "window",
+	});
 });
 globalThis.addEventListener("unhandledrejection", (ev) => {
-  pushError({
-    error: internalError(ev.reason),
-    source: "unhandled-rejection",
-  });
+	pushError({
+		error: internalError(ev.reason),
+		source: "unhandled-rejection",
+	});
 });
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
-  throw new Error("ocapnviz: missing #root element in index.html");
+	throw new Error("ocapnviz: missing #root element in index.html");
 }
 
 ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
-  </React.StrictMode>,
+	<React.StrictMode>
+		<AppErrorBoundary>
+			<App />
+		</AppErrorBoundary>
+	</React.StrictMode>,
 );

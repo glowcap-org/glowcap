@@ -9,21 +9,21 @@ import type { TimelineEvent } from "../../engine/timeline.ts";
 import type { EntityRef } from "../../interactions/types.ts";
 
 export function eventEntityRef(ev: TimelineEvent): EntityRef {
-  switch (ev.kind) {
-    case "peer-joined":
-    case "peer-updated":
-    // The viewer lost sight of it; the row it ends is still the peer's.
-    case "peer-unobserved":
-    case "peer-left":
-      return { kind: "peer", id: ev.peerId };
-    case "session-opened":
-    case "session-closed":
-    case "session-state-changed":
-    case "session-endpoint-attributed":
-    case "session-unobserved":
-      return { kind: "session", id: ev.sessionId };
-    case "message-sent":
-    case "message-delivered":
-      return { kind: "message", id: ev.messageId };
-  }
+	switch (ev.kind) {
+		case "peer-joined":
+		case "peer-updated":
+		// The viewer lost sight of it; the row it ends is still the peer's.
+		case "peer-unobserved":
+		case "peer-left":
+			return { kind: "peer", id: ev.peerId };
+		case "session-opened":
+		case "session-closed":
+		case "session-state-changed":
+		case "session-endpoint-attributed":
+		case "session-unobserved":
+			return { kind: "session", id: ev.sessionId };
+		case "message-sent":
+		case "message-delivered":
+			return { kind: "message", id: ev.messageId };
+	}
 }

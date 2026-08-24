@@ -7,6 +7,10 @@ const std = @import("std");
 
 const transport = @import("transport.zig");
 
+/// Bounds attacker-controlled dictionary validation on every locator-bearing
+/// message. Current transport and session profiles use fewer than ten entries.
+pub const max_count: usize = 32;
+
 pub const HintValue = union(enum) {
     string: []const u8,
     bytes: []const u8,
@@ -18,6 +22,17 @@ pub const HintEntry = struct {
     name: []const u8,
     value: HintValue,
 };
+
+pub const ValidationError = error{
+    EmptyHintName,
+    DuplicateHintName,
+    InvalidFalseHints,
+    TooManyHints,
+};
+
+pub fn validateName(name: []const u8) error{EmptyHintName}!void {
+    if (name.len == 0) return error.EmptyHintName;
+}
 
 /// One authority for the duplicate-name rule: hint names within one hint set
 /// are unique. Answers the first repeated name, or null when all are distinct;
@@ -75,3 +90,12 @@ pub const Hints = struct {
         return emptyFalse();
     }
 };
+
+pub fn validate(value: Hints) ValidationError!void {
+    if (value.entries.len > max_count) return error.TooManyHints;
+    if (value.wire_form == .boolean_false and value.entries.len != 0)
+        return error.InvalidFalseHints;
+    for (value.entries) |entry| try validateName(entry.name);
+    if (firstDuplicateName(value.entries) != null)
+        return error.DuplicateHintName;
+}

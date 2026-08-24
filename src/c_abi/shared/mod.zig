@@ -48,6 +48,32 @@ pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE = failure_diagnostics.trun
 pub const symbols = @import("symbols.zig");
 pub const archive_contract = @import("archive_contract.zig");
 
+/// Canonical reflected layouts shared by the core, host, driver, and transport
+/// archives. This inventory drives both archive identity and every generated
+/// language-binding layout expectation.
+pub const contract_layouts = [_]archive_contract.Layout{
+    archive_contract.layout("PANCAKE_REFERENCE", PancakeReference),
+    archive_contract.layout("PANCAKE_ARGUMENT", PancakeArgument),
+    archive_contract.layout("PANCAKE_FRAME", PancakeFrame),
+    archive_contract.layout("PANCAKE_MANAGED_FRAME", PancakeManagedFrame),
+    archive_contract.layout("PANCAKE_LAST_ABORT", PancakeLastAbort),
+    archive_contract.layout("PANCAKE_ALLOCATOR", PancakeAllocator),
+    archive_contract.layout("PANCAKE_FAILURE_REPORT", PancakeFailureReport),
+    archive_contract.layout("PANCAKE_FAILURE_EVENT", PancakeFailureEvent),
+    archive_contract.layout("PANCAKE_CLOSE_OPTIONS", PancakeCloseOptions),
+    archive_contract.layout("PANCAKE_LOCATOR_HINT_VIEW", PancakeLocatorHintView),
+    archive_contract.layout("PANCAKE_LOCATOR_VIEW", PancakeLocatorView),
+    archive_contract.cOnlyLayout("PANCAKE_TRANSPORT_PROFILE", PancakeTransportProfile),
+    archive_contract.layout("PANCAKE_TRANSPORT_OPERATION_OPTIONS", PancakeTransportOperationOptions),
+    archive_contract.cOnlyLayout("PANCAKE_PROVIDER_FAILURE", PancakeProviderFailure),
+    archive_contract.cOnlyLayout("PANCAKE_LISTEN_RESULT", PancakeListenResult),
+    archive_contract.cOnlyLayout("PANCAKE_STREAM_TRANSPORT", PancakeStreamTransport),
+    archive_contract.cOnlyLayout("PANCAKE_TRANSPORT_PROVIDER_ENTRY", PancakeTransportProviderEntry),
+    archive_contract.layout("PANCAKE_TRANSPORT_PROVIDER", PancakeTransportProvider),
+    archive_contract.cOnlyLayout("PANCAKE_MULTIPLEXED_READY_EVENT", PancakeMultiplexedReadyEvent),
+    archive_contract.cOnlyLayout("PANCAKE_MULTIPLEXED_TRANSPORT", PancakeMultiplexedTransport),
+};
+
 /// The multiplexed-transport table layout (ADR-0112): how a sidecar transport
 /// archive plugs its multiplexed transport into the driver archive.
 /// Layout only, no exports, like everything in this leaf.
@@ -171,6 +197,7 @@ pub const PANCAKE_FEATURE_HANDOFF = profile.PANCAKE_FEATURE_HANDOFF;
 pub const PANCAKE_FEATURE_WIRE_DELTA = profile.PANCAKE_FEATURE_WIRE_DELTA;
 pub const PANCAKE_FEATURE_STURDYREF = profile.PANCAKE_FEATURE_STURDYREF;
 pub const PANCAKE_FEATURE_UNTAG = profile.PANCAKE_FEATURE_UNTAG;
+pub const PANCAKE_FEATURE_MULTI_LOCATION = profile.PANCAKE_FEATURE_MULTI_LOCATION;
 pub const PANCAKE_FEATURE_MINIMUM = profile.PANCAKE_FEATURE_MINIMUM;
 pub const PANCAKE_FEATURE_FULL = profile.PANCAKE_FEATURE_FULL;
 pub const PANCAKE_FEATURE_BASELINE = profile.PANCAKE_FEATURE_BASELINE;
@@ -192,10 +219,7 @@ pub const frameShapeFromC = frame.shapeFromC;
 pub const PancakeFrame = frame.PancakeFrame;
 pub const ReleaseFn = frame.ReleaseFn;
 pub const PancakeManagedFrame = frame.PancakeManagedFrame;
-pub const ManagedFrameReservation = frame.ManagedFrameReservation;
-pub const reserveManagedFrame = frame.reserveManaged;
-pub const tryManagedFrame = frame.tryManaged;
-pub const wrapManagedInto = frame.wrapManagedInto;
+pub const managedFrame = frame.managed;
 
 pub const context = @import("context.zig");
 pub const PancakeAllocFn = context.PancakeAllocFn;

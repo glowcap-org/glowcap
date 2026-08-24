@@ -19,16 +19,18 @@
 // signature sit on one line, so the table reads down like the C header it
 // mirrors. Every `internal/ffi` loader opens with the same header.
 
-import { libPath } from "./load.ts";
-import { lazySymbols } from "./runtime.ts";
+import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { OCAPN_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 export const ocapnS = lazySymbols(() => libPath("pancake_ocapn"), {
+	pancake_ocapn_archive_fingerprint: { parameters: [], result: U64 },
 	// `outBuffers` marks the buffer params the callee writes, so the wasm
 	// adapter copies back only true outputs (dlopen ignores it).
 	pancake_abi_version: { parameters: [B, B, B], result: V, outBuffers: [0, 1, 2] },
@@ -73,4 +75,8 @@ export const ocapnS = lazySymbols(() => libPath("pancake_ocapn"), {
 	pancake_locator_hint_wire_form: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_locator_release: { parameters: [P], result: V },
 	pancake_context_new: { parameters: [B], result: I, outBuffers: [0] },
+}, {
+	symbol: "pancake_ocapn_archive_fingerprint",
+	expected: OCAPN_ARCHIVE_FINGERPRINT,
+	archive: "pancake_ocapn",
 });

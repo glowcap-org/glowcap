@@ -257,3 +257,15 @@
 	margin: 0 0 10px;
 	color: var(--ink-soft);
 }
+
+/* The reason the screen is still up, when it has been up long enough to owe
+   one: a single quiet line under the note, carrying whatever the newest
+   attempt said. It appears only when the entry module puts it there. */
+.boot-why {
+	margin: 6px 0 0;
+	max-width: 30rem;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+	text-wrap: pretty;
+}

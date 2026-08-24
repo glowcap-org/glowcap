@@ -8,9 +8,21 @@ from typing import Any, Callable, Coroutine
 from .._action import _park_actions, _run_action
 from .._errors import _check_host
 from .._ffi_host import _host
-from .._trampoline import _inside_turn
+from .._trampoline import _enter_host_deliver, _exit_deliver, _inside_turn
 from .finalizer import _drain_deferred_finalizer_states, _parked_releases
 from .state import HostMixinBase
+
+
+async def _next_loop_turn() -> None:
+    loop = asyncio.get_running_loop()
+    resumed = loop.create_future()
+
+    def resume() -> None:
+        if not resumed.done():
+            resumed.set_result(None)
+
+    loop.call_soon(resume)
+    await resumed
 
 
 class _ProgressMixin(HostMixinBase):
@@ -30,6 +42,10 @@ class _ProgressMixin(HostMixinBase):
 
     def settle_vow(self, vow: int, ok: bool, payload) -> None:
         self._vows.settle(vow, ok, payload)
+
+    def abandon_vow(self, vow: int) -> None:
+        """Retire completion state for a public vow no Python handle owns."""
+        self._vows.abandon(vow)
 
     def get_session(self, ptr: int):
         """Look up a live session by session address. Binding-internal: the
@@ -113,18 +129,22 @@ class _ProgressMixin(HostMixinBase):
             self._action_drains.difference_update(pending)
 
     def start_dial_task(
-        self, ticket: int, run: "Callable[[], Coroutine[Any, Any, None]]"
+        self,
+        ticket: int,
+        route_index: int,
+        run: "Callable[[], Coroutine[Any, Any, None]]",
     ) -> None:
         """Retain a popped DIAL independently of the drain that discovered it."""
         if not self._raw:
             return
         self._assert_owner()
         task = asyncio.get_running_loop().create_task(run())
-        self._dial_tasks[ticket] = task
+        key = (ticket, route_index)
+        self._dial_tasks[key] = task
 
         def done(finished: "asyncio.Task") -> None:
-            if self._dial_tasks.get(ticket) is finished:
-                self._dial_tasks.pop(ticket, None)
+            if self._dial_tasks.get(key) is finished:
+                self._dial_tasks.pop(key, None)
             # Retrieve terminal exceptions so Host-owned cancellation does not
             # become an unhandled task warning.
             if not finished.cancelled():
@@ -134,14 +154,16 @@ class _ProgressMixin(HostMixinBase):
 
         task.add_done_callback(done)
 
-    async def cancel_dial_task(self, ticket: int) -> None:
+    async def cancel_dial_task(self, ticket: int, route_index: int) -> None:
         """Interrupt and join one core-selected DIAL, then acknowledge retirement."""
-        task = self._dial_tasks.get(ticket)
+        task = self._dial_tasks.get((ticket, route_index))
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         if self._raw:
-            _check_host(_host.pancake_host_dial_cancelled(self._raw, ticket))
+            _check_host(_host.pancake_host_dial_cancelled(
+                self._raw, ticket, route_index
+            ))
             # Retiring a pending dial is close-relevant pending work.
             self.signal_close_activity()
 
@@ -181,7 +203,13 @@ class _ProgressMixin(HostMixinBase):
             while True:
                 if not self._raw:
                     return
-                parked, yielded = _park_actions(self)
+                # The native drain resumes queued Host work before its first
+                # external action and may synchronously invoke a behavior.
+                prior = _enter_host_deliver(self)
+                try:
+                    parked, yielded = _park_actions(self)
+                finally:
+                    _exit_deliver(prior)
                 if not parked and not yielded:
                     return
                 first_failure: Exception | None = None
@@ -203,7 +231,7 @@ class _ProgressMixin(HostMixinBase):
                 if first_failure is not None:
                     raise first_failure
                 if yielded:
-                    await asyncio.sleep(0)
+                    await _next_loop_turn()
         finally:
             if admitted_task is not None:
                 self._action_drains.discard(admitted_task)

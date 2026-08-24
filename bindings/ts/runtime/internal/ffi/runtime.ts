@@ -8,11 +8,11 @@
 // actor and connection layers — speaks these interfaces and never names a
 // runtime.
 //
-// The adapter is pulled in with a dynamic `import()` keyed on the detected
-// runtime, so a runtime-specific module (`bun:ffi`) is only ever resolved on
-// the runtime that has it. Selection happens at module load through top-level
-// await; every dependent module that imports `ffi` / `net` waits for it, so
-// the symbol tables and sockets are ready by the time application code runs.
+// Deno's adapter is selected synchronously. Bun's adapter is pulled in with a
+// dynamic `import()` only when `ensureRuntimeReady` is awaited, so `bun:ffi`
+// stays off every other runtime's static graph. A browser injects its wasm
+// adapter before importing this module. No module-level top-level await is
+// used: symbol tables open lazily on their first real call.
 //
 // Pointers cross this seam as `bigint` addresses (`0n` is null). Deno's opaque
 // `PointerValue` and Bun's numeric pointers are converted to and from `bigint`
@@ -296,13 +296,15 @@ export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFin
 			`${contract.archive}: missing archive fingerprint; rebuild the native libraries from this checkout`,
 		);
 	}
-	const actual = BigInt(read());
-	if (actual !== contract.expected) {
+	// The wasm boundary hands i64 back signed; normalize both sides to the
+	// unsigned word the generator emits, so a high-bit fingerprint compares
+	// and prints identically on every adapter.
+	const actual = BigInt.asUintN(64, BigInt(read()));
+	const expected = BigInt.asUintN(64, contract.expected);
+	if (actual !== expected) {
 		throw new Error(
 			`${contract.archive}: callable surface does not match this binding ` +
-				`(expected ${contract.expected.toString(16)}, got ${
-					actual.toString(16)
-				}); rebuild the native libraries`,
+				`(expected ${expected.toString(16)}, got ${actual.toString(16)}); rebuild the native libraries`,
 		);
 	}
 }

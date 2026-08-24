@@ -48,7 +48,7 @@ wrappers and small Racket programs around that API.
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for pancake-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a pancake-minted give (`*-goblins-gift`).             |
 | `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter pancake exports, so a Goblins pair deposits into and withdraws from pancake's gift registry (`goblins-exporter`). |
-| `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to pancake as a delivered argument and settles it when the driver writes a line to his stdin (`goblins-relayed-give`). |
+| `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to pancake as a delivered argument, then either settles from stdin for `goblins-relayed-give` or settles a nested-capability value after pancake's ordered `listenTo` in `goblins-listen-recipient`. |
 | `racket/relayed-give-recipient.rkt` | Goblins Carol (recipient), who waits on a promise pancake introduced her to and reads the give out of the listener fire (`goblins-relayed-give`). |
 | `racket/rooms-client.rkt`         | The rooms wire protocol in Goblins terms — dial, reach the directory, enter or open a room, spawn the inbox the room calls back — shared by the three rooms members below. |
 | `racket/rooms-dm.rkt`             | The direct-message half of that protocol: claim a name, mint one inbox per peer and offer it to the room, receive a message off-room and answer over the connection it arrived on. |
@@ -84,7 +84,7 @@ TCP testing and iroh adapters used by the other conformance vats.
 
 | Path | Transport symbol | Who dials whom |
 | ---- | ---------------- | -------------- |
-| Live Goblins interop (`zig build goblins-interop`, handoff, gift, relayed give, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
+| Live Goblins interop (`zig build goblins-interop`, handoff, gift, both foreign-promise directions, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
 | Live Goblins over QUIC (`zig build goblins-iroh`) | `iroh` (`iroh-netlayer.rkt`, pancake `net.transport.iroh`) | Real Goblins ↔ pancake CapTP over encrypted QUIC, both directions |
 | Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, pancake `net.onion`) | Real Goblins ↔ pancake CapTP over onion circuits, both directions |
 | Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ pancake or seven-caps peer |

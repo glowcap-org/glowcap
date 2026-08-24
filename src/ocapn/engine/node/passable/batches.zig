@@ -50,6 +50,7 @@ const Batch = struct {
     payload: passable.Payload,
     payload_owned: bool = true,
     destination: Destination,
+    failure_target: ?passable.FailureTarget,
     staging_reservation: ?engine.Peer.InlinePassableStagingReservation,
     gifts: []passable.Gift,
     promises: []passable.PromiseProjection,
@@ -101,9 +102,10 @@ pub fn stageOutbound(
     recipient_peer: PeerHandle,
     semantic: *passable.Outbound,
 ) engine.node_services.OutboundStagingError!bool {
+    const failure_target = semantic.failureTarget();
     var payload: passable.Payload = .{ .outbound = semantic.* };
     var destination: Destination = .outbound;
-    const staged = stage(self, recipient_peer, &payload, &destination) catch |err| {
+    const staged = stage(self, recipient_peer, &payload, &destination, failure_target) catch |err| {
         semantic.* = payload.outbound;
         return err;
     };
@@ -119,6 +121,7 @@ pub fn stage(
     recipient_peer: PeerHandle,
     payload: *passable.Payload,
     destination: *Destination,
+    failure_target: ?passable.FailureTarget,
 ) engine.node_services.OutboundStagingError!bool {
     const recipient = self.peer(recipient_peer) orelse return error.RouteNotLowerable;
     // This shared model walk both measures the retained message and rejects
@@ -212,6 +215,7 @@ pub fn stage(
         .allocator = recipient.allocator,
         .payload = payload.*,
         .destination = destination.*,
+        .failure_target = failure_target,
         .staging_reservation = staging_reservation,
         .gifts = gifts,
         .promises = promises,
@@ -368,9 +372,18 @@ pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
     var batch = takeForTerminal(self, batch_id) orelse return;
     switch (batch.destination) {
         .outbound => if (self.peer(batch.recipient_peer) != null) {
-            actions.pushReserved(self, .{ .fail_session = .{
-                .peer_handle = batch.recipient_peer,
-                .reason = @errorName(err),
+            if (batch.failure_target) |target| actions.pushReserved(self, .{ .fail = .{
+                .dest = switch (target) {
+                    .outbound_answer => |answer| .{ .answer = .{
+                        .recipient_peer = batch.recipient_peer,
+                        .answer = answer,
+                    } },
+                    .inbound_answer => |answer| .{ .served_answer = .{
+                        .recipient_peer = batch.recipient_peer,
+                        .answer = answer,
+                    } },
+                },
+                .reason = .{ .static = @errorName(err) },
             } });
         },
         .relayed => |*recipient| proxy_settlement.breakRecipient(self, recipient),
@@ -535,12 +548,13 @@ pub fn provideGiftId(
     const exporter_location = gift_recipe.get(self, gift.home);
     const give = gift_recipe.mint(
         self,
+        recipient,
+        recipient_peer,
         gift.home,
         gift_id,
         recipient_key,
         exporter_key,
         if (exporter_location.len != 0) exporter_location else claimed,
-        recipient.session_state.partnerKnownPancake(),
     ) catch |err| return fail(self, staged.batch, err);
     defer self.allocator.free(give);
     gift.handoff = engine.handoff_gifter.decodeHandoffGive(batch.allocator, give) catch |err|

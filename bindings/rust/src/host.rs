@@ -51,7 +51,7 @@ mod vows;
 use lifecycle::CloseBarrierState;
 use vows::VowTable;
 
-pub use public::{Host, HostOptions, ListenerIdentity, Resolver};
+pub use public::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
 
 /// Every connection's maximum admissible frame; mirrors
 /// `PANCAKE_DEFAULT_FRAME_CAP`.
@@ -153,13 +153,16 @@ pub(crate) struct HostShared {
 	// Detached DIAL actions may await sockets, discovery, or relay setup after
 	// the action drain returns. The Host owns their cancellation until terminal
 	// reporting; no task may resume against a released native Host.
-	dial_tasks: RefCell<HashMap<u64, JoinHandle<()>>>,
+	dial_tasks: RefCell<HashMap<(u64, usize), JoinHandle<()>>>,
 	close_task_started: Cell<bool>,
 	// The binding-side table the drain's SETTLE/FAIL arms settle.
 	vows: VowTable,
 	// Finalizer-reclaimed Host reference ids. A reference may be homed on a
 	// sibling session and outlive the session that delivered it.
 	pub(crate) gc_pending: RefCell<VecDeque<u64>>,
+	// Finalizer-reclaimed public Host-vow ids. Separate from capability ids:
+	// both are opaque u64 values in distinct native namespaces.
+	pub(crate) vow_gc_pending: RefCell<VecDeque<u64>>,
 	// The first failure from a detached Host-progress task. Such a task has no
 	// caller result; the next verb head takes this exact typed cause instead.
 	background_failure: RefCell<Option<Error>>,
@@ -205,6 +208,11 @@ impl HostShared {
 		local_turn_budget: u32,
 		context: Option<&Context>,
 	) -> Result<Rc<HostShared>> {
+		crate::require_archive_fingerprint(
+			"host",
+			unsafe { ffi::pancake_host_archive_fingerprint() },
+			crate::sys::HOST_ARCHIVE_FINGERPRINT,
+		)?;
 		// The durable identity followed by a session-key root drawn here, at
 		// this binding's entropy boundary, because the library draws none
 		// (ADR-0097). The root is fresh per process, so every CapTP session
@@ -273,6 +281,7 @@ impl HostShared {
 			close_task_started: Cell::new(false),
 			vows: VowTable::new(),
 			gc_pending: RefCell::new(VecDeque::new()),
+			vow_gc_pending: RefCell::new(VecDeque::new()),
 			background_failure: RefCell::new(None),
 			hosted: RefCell::new(HashMap::new()),
 			giftables: RefCell::new(HashMap::new()),
@@ -321,6 +330,7 @@ impl HostShared {
 			close_task_started: Cell::new(false),
 			vows: VowTable::new(),
 			gc_pending: RefCell::new(VecDeque::new()),
+			vow_gc_pending: RefCell::new(VecDeque::new()),
 			background_failure: RefCell::new(None),
 			hosted: RefCell::new(HashMap::new()),
 			giftables: RefCell::new(HashMap::new()),
@@ -470,18 +480,20 @@ impl HostShared {
 		})
 	}
 
-	/// Selective session-limit knobs (ADR-0082). Pass `0` to leave a field
+	/// Selective session-limit knobs (ADR-0124). Pass `0` to leave a field
 	/// unchanged. Affects peers minted after this call.
-	pub(crate) fn set_session_limits(
-		&self,
-		max_frame_bytes: usize,
-		queue_cap: usize,
-		outbound_high_water_bytes: usize,
-	) -> Result<()> {
+	pub(crate) fn set_session_limits(&self, options: SessionLimitOptions) -> Result<()> {
 		self.guard_handle()?;
-		check_host(unsafe {
-			ffi::pancake_host_set_session_limits(self.raw.get(), max_frame_bytes, queue_cap, outbound_high_water_bytes)
-		})
+		let raw = ffi::PancakeSessionLimitOptions {
+			abi_version: sys::SESSION_LIMIT_OPTIONS_ABI_VERSION,
+			struct_size: core::mem::size_of::<ffi::PancakeSessionLimitOptions>(),
+			max_frame_bytes: options.max_frame_bytes,
+			queue_cap: options.queue_cap,
+			outbound_high_water_bytes: options.outbound_high_water_bytes,
+			max_retained_sent_answer_bytes: usize::try_from(options.max_retained_sent_answer_bytes)
+				.expect("u32 always fits usize on supported targets"),
+		};
+		check_host(unsafe { ffi::pancake_host_set_session_limits(self.raw.get(), &raw) })
 	}
 
 	// ── Session registry ────────────────────────────────────────────────────

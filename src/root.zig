@@ -23,9 +23,9 @@
 //!   over byte streams and adds no protocol behavior of its own.
 //! - `driver` sits above both `actors` and `net`: `driver.connect` and
 //!   `driver.listen` each hand back an owning `Session`, so a Zig app gets
-//!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
-//!   (plus `call`, the blocking send-and-await) instead of a hand-written pump
-//!   loop. A `Session` is a view onto a `driver.HostRuntime`, which owns the
+//!   `connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`,
+//!   `serve`, and `close` (plus `call`, the blocking send-and-await) instead
+//!   of a hand-written pump loop. A `Session` is a view onto a `driver.HostRuntime`, which owns the
 //!   transport I/O around one core `Host`; you construct the `HostRuntime`
 //!   explicitly only when several sessions must share one Host identity, and
 //!   that sharing is what lets an introduction from one partner settle as a

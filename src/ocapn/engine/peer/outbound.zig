@@ -8,6 +8,8 @@
 
 const std = @import("std");
 
+const model = @import("model");
+
 const semantic = @import("../outbound.zig");
 const engine = @import("../mod.zig");
 const budget = @import("outbound/budget.zig");
@@ -45,6 +47,7 @@ pub const PendingBatch = struct {
             self.peer.pending_send_bytes,
             item_charge,
         ) catch return error.OutboundBackpressure;
+        self.peer.pending_send_reservations += 1;
         self.charge = batch_charge;
         return .{ .charge = item_charge };
     }
@@ -60,6 +63,21 @@ pub fn pendingOutboundCharge(item: semantic.Outbound) !usize {
 /// commits. The result must be published or canceled on the same unwind path.
 pub fn reservePending(self: *Peer, item: semantic.Outbound) !PendingReservation {
     return budget.reservePending(self, item, PendingReservation);
+}
+
+/// Reserve the POD carrier that will relinquish one application answer after
+/// an in-process observer fires. The answer value is supplied only at commit;
+/// its fixed charge and queue seat are the resources this preparation owns.
+pub fn reserveAnswerRelease(self: *Peer) !PendingReservation {
+    return reservePending(self, .{ .answer_release = .from(0) });
+}
+
+pub fn publishAnswerRelease(
+    self: *Peer,
+    reservation: PendingReservation,
+    answer: model.AnswerPosition,
+) void {
+    pushPendingAssume(self, reservation, .{ .answer_release = answer });
 }
 
 /// Admit a complete carrier while Node projects its foreign Passable tree.
@@ -94,7 +112,10 @@ pub fn beginPendingBatch(self: *Peer, max_items: usize) !PendingBatch {
 }
 
 pub fn ensurePendingCapacity(self: *Peer, count: usize) !void {
-    try self.pending_send.ensureUnusedCapacity(self.allocator, count);
+    try self.pending_send.ensureUnusedCapacity(
+        self.allocator,
+        self.pending_send_reservations + count,
+    );
 }
 
 /// Publish a reserved row infallibly after protocol authority commits.
@@ -103,12 +124,18 @@ pub fn pushPendingAssume(
     reservation: PendingReservation,
     item: semantic.Outbound,
 ) void {
+    std.debug.assert(self.pending_send_reservations != 0);
+    self.pending_send_reservations -= 1;
     self.pending_send.pushAssumeCapacity(.{ .item = item, .charge = reservation.charge });
 }
 
 pub fn cancelPendingReservation(self: *Peer, reservation: PendingReservation) void {
+    std.debug.assert(self.pending_send_reservations != 0);
+    self.pending_send_reservations -= 1;
     std.debug.assert(self.pending_send_bytes >= reservation.charge);
     self.pending_send_bytes -= reservation.charge;
+    if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
+        self.pending_send.trimDrained(self.allocator);
 }
 
 /// Move the owned-resolution portion into Session storage without changing
@@ -123,7 +150,10 @@ pub fn transferPendingChargeToAnswerStore(
 
 /// Dequeue one semantic carrier and retire its pending accounting charge.
 pub fn takePending(self: *Peer) PendingOutbound {
-    const pending = self.pending_send.consumeFront(self.allocator);
+    const pending = if (self.pending_send_reservations == 0)
+        self.pending_send.consumeFront(self.allocator)
+    else
+        self.pending_send.consumeFrontReserved(self.allocator);
     std.debug.assert(self.pending_send_bytes >= pending.charge);
     self.pending_send_bytes -= pending.charge;
     return pending;
@@ -142,20 +172,24 @@ pub fn checkOutboundWaterline(self: *const Peer) !void {
     return budget.checkWaterline(self);
 }
 
-/// Check encoded admission while excluding the staged representation it will
-/// replace in the infallible transfer commit.
-pub fn checkOutboundTransferWaterline(self: *const Peer, staged_charge: usize) !void {
-    return budget.checkTransferWaterline(self, staged_charge);
-}
-
 pub fn ensureOutboundCapacity(self: *Peer, count: usize) !void {
     try self.outbound.ensureUnusedCapacity(self.allocator, count);
 }
 
-/// Constant-time aggregate of pending carriers, stored sent resolutions, and
-/// encoded frames. Host and adapters use this without re-walking payloads.
+/// Constant-time aggregate of pending carriers and encoded frames. Durable
+/// sent resolutions answer to the session's table bounds, not this flow
+/// waterline. Host and adapters use this without re-walking payloads.
 pub fn queuedOutboundBytes(self: *const Peer) usize {
     return budget.queuedBytes(self);
+}
+
+/// Whether retained outbound work has reached this peer's waterline. This is
+/// the signal an adapter parks new inbound on: every applied frame can only
+/// add replies behind the saturation, and the byte-fed Host's feed admission
+/// already refuses at the same line. Draining encoded frames is what clears
+/// it.
+pub fn outboundSaturated(self: *const Peer) bool {
+    return budget.queuedBytes(self) >= self.outbound_budget;
 }
 
 /// Encoded frames waiting for a transport drain, excluding semantic carriers

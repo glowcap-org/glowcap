@@ -153,7 +153,7 @@ try {
 	const sturdyref = await vizRef;
 	let sawWebrtc = false;
 	let sawRelay = false;
-	viewer = await connectVizViewer(vizPort, sturdyref, (record) => {
+	viewer = await connectVizViewer(sturdyref, (record) => {
 		if (record.kind !== "ocapn.session-opened") return;
 		if (record.transport === "webrtc") sawWebrtc = true;
 		if (record.transport === "keyed-relay") sawRelay = true;

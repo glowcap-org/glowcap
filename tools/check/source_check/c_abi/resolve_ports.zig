@@ -8,6 +8,7 @@ const appendViolation = util.appendViolation;
 const parseJsonFile = util.parseJsonFile;
 const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
+const containsIgnoringWhitespace = util.containsIgnoringWhitespace;
 
 /// Every port of the resolve cascade — the four binding loaders, the racket
 /// per-archive loaders, and the operator script — held to the same download,
@@ -238,8 +239,33 @@ pub fn checkCAbiResolvePorts(
                 try appendViolation(gpa, violations, "{s}: must define _hard_fail for hygiene/checksum/HTTPS", .{path});
             }
         } else if (std.mem.eql(u8, path, "bindings/ts/runtime/internal/ffi/load.ts")) {
-            if (std.mem.indexOf(u8, contents, "function hardFail") == null) {
-                try appendViolation(gpa, violations, "{s}: must define hardFail for hygiene/checksum/HTTPS", .{path});
+            const security_path = "bindings/ts/runtime/internal/ffi/release_security.ts";
+            const security = root.readFileAlloc(io, security_path, gpa, .limited(64 << 10)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read release-security policy with {s}", .{ security_path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(security);
+            const policy_calls = [_][]const u8{
+                "failArchiveSecurity(",
+                "requireSecureReleaseUrl(base, envTruthy(\"PANCAKE_ALLOW_INSECURE\"));",
+                "curlTransportArgs(url, envTruthy(\"PANCAKE_ALLOW_INSECURE\"))",
+            };
+            var policy_complete = std.mem.indexOf(u8, contents, "release_security.ts") != null;
+            for (policy_calls) |call_shape| {
+                policy_complete = policy_complete and
+                    containsIgnoringWhitespace(contents, call_shape);
+            }
+            const policy_definitions = [_][]const u8{
+                "function failArchiveSecurity(",
+                "function requireSecureReleaseUrl(",
+                "function curlTransportArgs(",
+            };
+            for (policy_definitions) |definition| {
+                policy_complete = policy_complete and
+                    containsIgnoringWhitespace(security, definition);
+            }
+            if (!policy_complete) {
+                try appendViolation(gpa, violations, "{s}: must call every shared fail-closed release-security policy function", .{path});
             }
         } else if (std.mem.eql(u8, path, "bindings/rust/build.rs")) {
             if (std.mem.indexOf(u8, contents, "fn hard_fail") == null) {

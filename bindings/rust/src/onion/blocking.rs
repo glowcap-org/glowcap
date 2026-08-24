@@ -39,7 +39,7 @@ impl<'ctx> Netlayer<'ctx> {
 
 	#[cfg(feature = "async")]
 	pub(super) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
-		let mut package: crate::sys::driver::PancakeTransportProvider = unsafe { core::mem::zeroed() };
+		let mut package: crate::sys::PancakeTransportProvider = unsafe { core::mem::zeroed() };
 		check_onion(unsafe { ffi::pancake_onion_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,

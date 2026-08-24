@@ -175,8 +175,11 @@ fixed projection, and thin binding tests prove that record decodes unchanged.
 Together the matrix covers dial and registration, partial I/O, backpressure,
 cancellation at every acquisition phase, clean and truncated close, exact
 primary and cleanup failures, configuration equivalence, and allocation
-injection before and after admission. This split follows one-authority DRY:
-duplicating the semantic oracle in every binding would create drift, while
+injection before and after admission. The direct-C provider scenario sends ping
+and binary data in one carrier write, then proves the pong control wake,
+buffered-data READABLE republication, payload drain without another POLLIN
+edge, and close response. This split follows one-authority DRY: duplicating the
+semantic oracle in every binding would create drift, while
 sharing an interpreter-shaped harness would erase the lifetimes being tested.
 
 Evidence for this decision is complete only when native execution runs on Linux

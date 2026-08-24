@@ -34,11 +34,14 @@ const Step = Build.Step;
 pub const Runtime = struct {
     /// `argv[0]` exactly as build.zig writes it.
     program: []const u8,
-    /// For an interpreter, the scripts it may run under `check`. Empty means the
-    /// program's arguments are unconstrained.
+    /// For an interpreter, the scripts it may run under `check`. Arguments are
+    /// unconstrained only when both this and `modules` are empty.
     scripts: []const []const u8 = &.{},
+    /// Modules accepted after `-m`. Kept separate from scripts so declaring
+    /// one standard-library compiler does not admit every Python module.
+    modules: []const []const u8 = &.{},
     /// The member that needs it, the reason it is not a sibling, and any runtime
-    /// the script reaches that this gate cannot see.
+    /// a script or module reaches that this gate cannot see.
     why: []const u8,
 };
 
@@ -87,6 +90,20 @@ fn scriptOf(step: *Step) ?[]const u8 {
     };
 }
 
+fn moduleOf(step: *Step) ?[]const u8 {
+    const run = step.cast(Step.Run) orelse return null;
+    if (run.argv.items.len < 3) return null;
+    const marker = switch (run.argv.items[1]) {
+        .bytes => |bytes| bytes,
+        else => return null,
+    };
+    if (!std.mem.eql(u8, marker, "-m")) return null;
+    return switch (run.argv.items[2]) {
+        .bytes => |bytes| bytes,
+        else => null,
+    };
+}
+
 /// A script named the way `check_runtimes` names it: relative to the repository.
 ///
 /// A call site is free to write the path absolutely, and one has to — the
@@ -110,7 +127,17 @@ fn violation(
 ) !?[]const u8 {
     for (runtimes) |runtime| {
         if (!std.mem.eql(u8, runtime.program, program)) continue;
-        if (runtime.scripts.len == 0) return null;
+        if (moduleOf(step)) |module| {
+            for (runtime.modules) |declared| {
+                if (std.mem.eql(u8, declared, module)) return null;
+            }
+            return try std.fmt.allocPrint(
+                gpa,
+                "step '{s}' runs '{s} -m {s}', which is not among the modules declared for '{s}'",
+                .{ step.name, program, module, program },
+            );
+        }
+        if (runtime.scripts.len == 0 and runtime.modules.len == 0) return null;
         const written = scriptOf(step) orelse return try std.fmt.allocPrint(
             gpa,
             "step '{s}' runs '{s}' with no named script, and '{s}' is declared for named scripts only",

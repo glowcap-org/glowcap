@@ -60,7 +60,7 @@ need to map a directory, list files first then call per-file.
 | codec       | `src/ocapn/codec/syrup/mod.zig` | `encodeMessage`, `decodeBody`, `decodePrefix`, `decodeOwned`                                                                           |
 | session     | `src/ocapn/session/mod.zig`     | `Session` (validate/apply, all tables)                                                                                                 |
 | engine      | `src/ocapn/engine/mod.zig`      | `Peer`, `StepOutcome`, `Event`, `EventKind`                                                                                            |
-| engine      | `src/ocapn/engine/pipeline.zig` | `decomposeOutboundDeliver`, `borrowedListenerFire`, `classifyListenerDrain`                                                          |
+| engine      | `src/ocapn/engine/pipeline.zig` | `borrowedListenerFire`, `classifyListenerDrain`, `drainAnswerConsequencesTarget`                                                      |
 | c_abi       | `src/c_abi/ocapn/mod.zig`       | all `pancake_*` exported C functions                                                                                                   |
 | oracle      | `src/oracle/mod.zig`            | scenario trace runners                                                                                                                 |
 

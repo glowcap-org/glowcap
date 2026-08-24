@@ -18,43 +18,43 @@
 
 import { useEffect, useRef } from "react";
 import {
-  type GestureEndReason,
-  gestureRouter,
-  installRootGuard,
-  type SurfaceLease,
-  type SurfaceTag,
-  watchGestureEnd,
+	type GestureEndReason,
+	gestureRouter,
+	installRootGuard,
+	type SurfaceLease,
+	type SurfaceTag,
+	watchGestureEnd,
 } from "./gesture-router.ts";
 
 export function useGestureSurface(
-  tag: SurfaceTag,
-  /** Called when a gesture this surface holds ends somewhere its
-   *  own handlers cannot observe. The surface ends its drag here;
-   *  the watch releases the lease straight after, so an
-   *  implementation that also releases is harmless. Boxed in a
-   *  ref, so it need not be stable across renders.
-   *
-   *  The `GestureEndReason` says whether the reader let go or the gesture was
-   *  taken away. A surface that applies each value as it passes through has
-   *  nothing to revert and ends the same way for both, so most callers here
-   *  ignore it; a surface holding something back until the release has to ask. */
-  onEnd?: (reason: GestureEndReason) => void,
+	tag: SurfaceTag,
+	/** Called when a gesture this surface holds ends somewhere its
+	 *  own handlers cannot observe. The surface ends its drag here;
+	 *  the watch releases the lease straight after, so an
+	 *  implementation that also releases is harmless. Boxed in a
+	 *  ref, so it need not be stable across renders.
+	 *
+	 *  The `GestureEndReason` says whether the reader let go or the gesture was
+	 *  taken away. A surface that applies each value as it passes through has
+	 *  nothing to revert and ends the same way for both, so most callers here
+	 *  ignore it; a surface holding something back until the release has to ask. */
+	onEnd?: (reason: GestureEndReason) => void,
 ): SurfaceLease {
-  const leaseRef = useRef<SurfaceLease | null>(null);
-  if (leaseRef.current === null) leaseRef.current = gestureRouter.lease(tag);
-  const lease = leaseRef.current;
+	const leaseRef = useRef<SurfaceLease | null>(null);
+	if (leaseRef.current === null) leaseRef.current = gestureRouter.lease(tag);
+	const lease = leaseRef.current;
 
-  const onEndRef = useRef(onEnd);
-  onEndRef.current = onEnd;
+	const onEndRef = useRef(onEnd);
+	onEndRef.current = onEnd;
 
-  useEffect(() => {
-    installRootGuard();
-    // The returned disposer releases the lease, so a surface that
-    // leaves the tree mid-gesture cannot strand the lock.
-    // `gesture-surface.test.ts` pins that, and pins it against the
-    // freeze it prevents.
-    return watchGestureEnd(lease, (reason) => onEndRef.current?.(reason));
-  }, [lease]);
+	useEffect(() => {
+		installRootGuard();
+		// The returned disposer releases the lease, so a surface that
+		// leaves the tree mid-gesture cannot strand the lock.
+		// `gesture-surface.test.ts` pins that, and pins it against the
+		// freeze it prevents.
+		return watchGestureEnd(lease, (reason) => onEndRef.current?.(reason));
+	}, [lease]);
 
-  return lease;
+	return lease;
 }

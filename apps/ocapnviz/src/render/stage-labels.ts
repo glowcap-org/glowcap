@@ -26,12 +26,12 @@ import { elideIdentifier } from "../ui/elide.ts";
 
 /** A label's type size and the pill drawn behind it. */
 export type LabelPill = {
-  /** Size the renderer sets the text at. */
-  fontPx: number;
-  /** Empty space either side of the text, inside the pill. */
-  padX: number;
-  /** Empty space above and below the text, inside the pill. */
-  padY: number;
+	/** Size the renderer sets the text at. */
+	fontPx: number;
+	/** Empty space either side of the text, inside the pill. */
+	padX: number;
+	/** Empty space above and below the text, inside the pill. */
+	padY: number;
 };
 
 /** The padding a small chip carries. One value because the edge chip and the
@@ -86,22 +86,22 @@ const LINE_BOX_RATIO = 1.25;
 
 /** The line box one line of `fontPx` text occupies. */
 export function lineBoxPx(fontPx: number): number {
-  return Math.round(fontPx * LINE_BOX_RATIO);
+	return Math.round(fontPx * LINE_BOX_RATIO);
 }
 
 /** How large a pill holding `chars` characters comes out, in world units at
  *  100% zoom. `mono` picks the family the text is set in, which is the only
  *  thing that changes how wide a character is. */
 export function pillSize(
-  chars: number,
-  pill: LabelPill,
-  mono: boolean,
+	chars: number,
+	pill: LabelPill,
+	mono: boolean,
 ): { width: number; height: number } {
-  const advance = (mono ? MONO_ADVANCE : SANS_ADVANCE) * pill.fontPx;
-  return {
-    width: chars * advance + pill.padX * 2,
-    height: lineBoxPx(pill.fontPx) + pill.padY * 2,
-  };
+	const advance = (mono ? MONO_ADVANCE : SANS_ADVANCE) * pill.fontPx;
+	return {
+		width: chars * advance + pill.padX * 2,
+		height: lineBoxPx(pill.fontPx) + pill.padY * 2,
+	};
 }
 
 /**
@@ -119,7 +119,7 @@ export function pillSize(
  * value stays one selection away.
  */
 export function endpointLabelText(designator: string | undefined): string {
-  return designator === undefined ? UNNAMED_END_LABEL : elideIdentifier(designator);
+	return designator === undefined ? UNNAMED_END_LABEL : elideIdentifier(designator);
 }
 
 /**
@@ -154,5 +154,5 @@ export function endpointLabelText(designator: string | undefined): string {
  * running sentence.
  */
 export function peerLabelText(label: string): string {
-  return elideIdentifier(label);
+	return elideIdentifier(label);
 }

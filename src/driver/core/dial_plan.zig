@@ -13,7 +13,8 @@
 //!
 //! Open shapes are `host_port` (tcp / keyed-tcp / noise-tcp), `peer_id` (iroh),
 //! `signaling` (webrtc, which names no dialable address), and `rendezvous`
-//! (keyed-relay, whose byte path is a relay's rendezvous bridge). The one
+//! (keyed-relay / noise-relay, whose byte path is a relay rendezvous bridge).
+//! Route-bundle transports are expanded before this single-path planner. The one
 //! `model.transport` metadata definition maps product symbols to these shapes;
 //! a plan tag names host integration, not which provider implements it.
 //!
@@ -30,9 +31,7 @@ const vocab = @import("vocab.zig");
 const crypto = foundation.crypto;
 
 pub const Error = error{
-    /// The locator names a transport this planner does not dial (only `tcp`,
-    /// `keyed-tcp`, `noise-tcp`, `iroh`, `webrtc`, and `keyed-relay` are
-    /// admitted here).
+    /// The locator names a transport this single-path planner does not dial.
     UnknownTransport,
     /// A `tcp` designator, or the first entry of a keyed-transport
     /// direct-addresses hint, is not the `host:port` grammar.
@@ -156,7 +155,7 @@ pub fn planDialProfile(
                 return Error.DesignatorNotPeerKey;
             return if (metadata.dial_shape == .signaling) .signaling else .rendezvous;
         },
-        .unsupported => return Error.UnknownTransport,
+        .route_bundle, .unsupported => return Error.UnknownTransport,
     }
 }
 

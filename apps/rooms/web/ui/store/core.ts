@@ -21,11 +21,15 @@ import {
 	type DirId,
 	type DirView,
 	type Invitation,
+	type IrcGatewayState,
 	type Item,
 	type ListenerRow,
+	OPS_CAPS,
 	type OpsCap,
+	type PeeringState,
 	type SettingsTab,
 	type ToastNotice,
+	type TroubleRow,
 	type VizPublishState,
 } from "../types.ts";
 // What this page remembers between visits, and under what names. One table
@@ -44,16 +48,11 @@ export const KEY = {
 	ignored: "rooms.ignored",
 	settingsTab: "rooms.settings-tab",
 	opsTab: "rooms.ops-tab",
+	keepHistory: "rooms.keep-history",
 } as const;
 
-/** The persisted ignore list, whatever shape this browser last wrote.
- *
- * JSON, because the list holds whatever names foreign directories grant and a
- * delimiter is a character a name may contain: stored as comma-joined, a name
- * with a comma in it re-split on the next visit into fragments — silently
- * un-ignoring the member and ignoring two innocents, the exact vanishing this
- * list's own fix just paid for. The comma fallback reads what older visits
- * wrote, so nobody's list is lost to the encoding change. */
+/** The persisted ignore list. JSON preserves every character a directory may
+ * grant in a name; malformed or unrelated storage carries no authority. */
 export function readPersistedIgnored(): Set<string> {
 	return readIgnored(LS.get(KEY.ignored));
 }
@@ -66,9 +65,9 @@ export function readIgnored(raw: string | null): Set<string> {
 			return new Set(parsed.filter((name): name is string => typeof name === "string"));
 		}
 	} catch {
-		// Not JSON: an older visit's comma-joined list.
+		return new Set();
 	}
-	return new Set(raw.split(",").filter(Boolean));
+	return new Set();
 }
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
@@ -210,8 +209,16 @@ export interface State {
 	settingsTab: SettingsTab;
 	/** The glossary modal, which Settings closes beneath. */
 	helpOpen: boolean;
-	/** The Operations modal, which Settings closes beneath the same way. */
-	opsOpen: boolean;
+	/** The bridged channels the IRC gateway last listed, or null while this
+	 * tab holds no gateway capability. Same split as its siblings: net.ts
+	 * holds the reference, this is only what to draw. */
+	irc: IrcGatewayState | null;
+	/** Whether this device keeps direct-message history; `ui/history.ts` owns
+	 * the bytes and the same key. */
+	keepHistory: boolean;
+	/** The page's bounded trouble journal, newest first; `store/trouble.ts`
+	 * owns the ring. */
+	trouble: readonly TroubleRow[];
 	/** Which operations pane is selected while more than one is held. */
 	opsTab: OpsCap;
 	/** Which capability's take modal is up, opened by flipping its Advanced
@@ -219,6 +226,10 @@ export interface State {
 	 * possession is derived from the row fields below, never stored beside
 	 * them. */
 	opsTake: OpsCap | null;
+	/** Where `opsTake` was opened from, which is where its close returns:
+	 * the Settings toggle reopens Settings, an Operations-page gate stays on
+	 * the page. */
+	opsTakeFrom: "settings" | "ops";
 	/** What the inspect capability last said, or null while this tab holds none.
 	 * Holding the live reference is net.ts's job; this is only what to draw. */
 	diagnostics: readonly DiagnosticRow[] | null;
@@ -226,12 +237,20 @@ export interface State {
 	 * this tab holds none. Same split as `diagnostics`: net.ts holds the
 	 * reference, this is only what to draw. */
 	listeners: readonly ListenerRow[] | null;
+	/** The durable rooms this tab has published here while it holds the peering
+	 * capability, or null while it holds none. Same split again: net.ts holds
+	 * the authority and each publication's lease, this is only what to draw. */
+	peering: PeeringState | null;
 	/** Where this tab publishes its own trace while it holds the viz
 	 * capability, or null while it holds none. Same split again: net.ts owns
 	 * the publisher and the swiss, this is only what to draw. */
 	viz: VizPublishState | null;
 	/** The directory whose card is open, or null. */
 	aboutDir: DirId | null;
+	/** The rest of a long refusal, while its card is up. */
+	errorDetail: { title: string; text: string } | null;
+	/** Whether the card about the conversation on screen is up. */
+	aboutConv: boolean;
 	/** The posted file being viewed full-screen, named by the line that carries
 	 * it rather than copied out of it. The viewer draws from the line, so
 	 * bytes that arrive while it is open reach it without a second copy of the
@@ -274,20 +293,29 @@ export const initial: State = {
 	rosterOpen: true,
 	rosterSheet: false,
 	settingsOpen: false,
-	// The panel selections survive a reload: a reader working the Advanced
-	// toggles or one operations pane lands back where they were.
-	settingsTab: (LS.get(KEY.settingsTab) === "settings" ? "settings" : "overview") as State["settingsTab"],
+	// The panel selections survive a reload: a reader working the
+	// Capabilities toggles or one operations pane lands back where they were.
+	settingsTab:
+		(["capabilities", "settings"].includes(LS.get(KEY.settingsTab) ?? "")
+			? LS.get(KEY.settingsTab)
+			: "overview") as State["settingsTab"],
 	helpOpen: false,
-	opsOpen: false,
 	opsTab:
-		(["listeners", "diagnostics", "viz"].includes(LS.get(KEY.opsTab) ?? "")
+		((OPS_CAPS as readonly string[]).includes(LS.get(KEY.opsTab) ?? "")
 			? LS.get(KEY.opsTab)
 			: "listeners") as State["opsTab"],
+	keepHistory: (LS.get(KEY.keepHistory) ?? "on") !== "off",
+	irc: null,
+	trouble: [],
 	opsTake: null,
+	opsTakeFrom: "settings",
 	diagnostics: null,
 	listeners: null,
+	peering: null,
 	viz: null,
 	aboutDir: null,
+	errorDetail: null,
+	aboutConv: false,
 	viewing: null,
 };
 

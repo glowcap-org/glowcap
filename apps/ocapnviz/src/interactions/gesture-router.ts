@@ -49,8 +49,8 @@ export type SurfaceTag = string;
  *  another instance of its own kind, which the tag alone cannot
  *  tell apart. */
 export type ActiveGesture = {
-  readonly tag: SurfaceTag;
-  readonly pointerId: number;
+	readonly tag: SurfaceTag;
+	readonly pointerId: number;
 };
 
 // `data-pointer-surface=<tag>` marks an element as owning a
@@ -67,88 +67,88 @@ const GRANT: unique symbol = Symbol("gesture-router.grant");
 const REVOKE: unique symbol = Symbol("gesture-router.revoke");
 
 export class GestureRouter {
-  #active: ActiveGesture | null = null;
-  #listeners = new Set<(active: ActiveGesture | null) => void>();
-  #registered = new Set<HTMLElement>();
+	#active: ActiveGesture | null = null;
+	#listeners = new Set<(active: ActiveGesture | null) => void>();
+	#registered = new Set<HTMLElement>();
 
-  /** Mark `element` as owning surface `tag`. Returns an
-   *  unregister fn — call on unmount. Multiple calls with
-   *  different tags on the same element overwrite. */
-  register(element: HTMLElement, tag: SurfaceTag): () => void {
-    element.dataset[SURFACE_DATASET_KEY] = tag;
-    this.#registered.add(element);
-    return () => {
-      this.#registered.delete(element);
-      // Only clear if we still own the attribute (another caller
-      // may have re-tagged the same element).
-      if (element.dataset[SURFACE_DATASET_KEY] === tag) {
-        delete element.dataset[SURFACE_DATASET_KEY];
-      }
-    };
-  }
+	/** Mark `element` as owning surface `tag`. Returns an
+	 *  unregister fn — call on unmount. Multiple calls with
+	 *  different tags on the same element overwrite. */
+	register(element: HTMLElement, tag: SurfaceTag): () => void {
+		element.dataset[SURFACE_DATASET_KEY] = tag;
+		this.#registered.add(element);
+		return () => {
+			this.#registered.delete(element);
+			// Only clear if we still own the attribute (another caller
+			// may have re-tagged the same element).
+			if (element.dataset[SURFACE_DATASET_KEY] === tag) {
+				delete element.dataset[SURFACE_DATASET_KEY];
+			}
+		};
+	}
 
-  /** Walk `event.composedPath()` for the deepest registered
-   *  surface ancestor. Returns its tag, or `null` if no
-   *  registered surface owns the target. */
-  surfaceFor(event: Event): SurfaceTag | null {
-    for (const node of event.composedPath()) {
-      if (!(node instanceof HTMLElement)) continue;
-      const tag = node.dataset[SURFACE_DATASET_KEY];
-      if (tag) return tag;
-    }
-    return null;
-  }
+	/** Walk `event.composedPath()` for the deepest registered
+	 *  surface ancestor. Returns its tag, or `null` if no
+	 *  registered surface owns the target. */
+	surfaceFor(event: Event): SurfaceTag | null {
+		for (const node of event.composedPath()) {
+			if (!(node instanceof HTMLElement)) continue;
+			const tag = node.dataset[SURFACE_DATASET_KEY];
+			if (tag) return tag;
+		}
+		return null;
+	}
 
-  /** Take a lease for surface `tag`. This is the only route to
-   *  the gesture lock — see `SurfaceLease`. One lease per surface
-   *  instance, held for that instance's lifetime. */
-  lease(tag: SurfaceTag): SurfaceLease {
-    return new SurfaceLease(this, tag);
-  }
+	/** Take a lease for surface `tag`. This is the only route to
+	 *  the gesture lock — see `SurfaceLease`. One lease per surface
+	 *  instance, held for that instance's lifetime. */
+	lease(tag: SurfaceTag): SurfaceLease {
+		return new SurfaceLease(this, tag);
+	}
 
-  current(): ActiveGesture | null {
-    return this.#active;
-  }
+	current(): ActiveGesture | null {
+		return this.#active;
+	}
 
-  subscribe(fn: (active: ActiveGesture | null) => void): () => void {
-    this.#listeners.add(fn);
-    return () => {
-      this.#listeners.delete(fn);
-    };
-  }
+	subscribe(fn: (active: ActiveGesture | null) => void): () => void {
+		this.#listeners.add(fn);
+		return () => {
+			this.#listeners.delete(fn);
+		};
+	}
 
-  /** Test seam — drop every registration and the active lock. */
-  reset(): void {
-    for (const el of this.#registered) {
-      if (el.dataset[SURFACE_DATASET_KEY] !== undefined) {
-        delete el.dataset[SURFACE_DATASET_KEY];
-      }
-    }
-    this.#registered.clear();
-    this.#active = null;
-    this.#listeners.clear();
-  }
+	/** Test seam — drop every registration and the active lock. */
+	reset(): void {
+		for (const el of this.#registered) {
+			if (el.dataset[SURFACE_DATASET_KEY] !== undefined) {
+				delete el.dataset[SURFACE_DATASET_KEY];
+			}
+		}
+		this.#registered.clear();
+		this.#active = null;
+		this.#listeners.clear();
+	}
 
-  /** Grant the lock when it is free. Refused while ANY claim is
-   *  live, including one held by another instance of the same
-   *  tag: two surfaces of one kind are still two surfaces. */
-  [GRANT](tag: SurfaceTag, pointerId: number): ActiveGesture | null {
-    if (this.#active !== null) return null;
-    this.#active = { tag, pointerId };
-    this.#notify();
-    return this.#active;
-  }
+	/** Grant the lock when it is free. Refused while ANY claim is
+	 *  live, including one held by another instance of the same
+	 *  tag: two surfaces of one kind are still two surfaces. */
+	[GRANT](tag: SurfaceTag, pointerId: number): ActiveGesture | null {
+		if (this.#active !== null) return null;
+		this.#active = { tag, pointerId };
+		this.#notify();
+		return this.#active;
+	}
 
-  /** Drop the lock iff `claim` is the object currently granted. */
-  [REVOKE](claim: ActiveGesture): void {
-    if (this.#active !== claim) return;
-    this.#active = null;
-    this.#notify();
-  }
+	/** Drop the lock iff `claim` is the object currently granted. */
+	[REVOKE](claim: ActiveGesture): void {
+		if (this.#active !== claim) return;
+		this.#active = null;
+		this.#notify();
+	}
 
-  #notify(): void {
-    for (const fn of this.#listeners) fn(this.#active);
-  }
+	#notify(): void {
+		for (const fn of this.#listeners) fn(this.#active);
+	}
 }
 
 /**
@@ -162,51 +162,51 @@ export class GestureRouter {
  * can end anyone else's. Take one through `GestureRouter.lease`.
  */
 export class SurfaceLease {
-  readonly tag: SurfaceTag;
-  #router: GestureRouter;
-  #claim: ActiveGesture | null = null;
-  #unregister: (() => void) | null = null;
+	readonly tag: SurfaceTag;
+	#router: GestureRouter;
+	#claim: ActiveGesture | null = null;
+	#unregister: (() => void) | null = null;
 
-  constructor(router: GestureRouter, tag: SurfaceTag) {
-    this.#router = router;
-    this.tag = tag;
-  }
+	constructor(router: GestureRouter, tag: SurfaceTag) {
+		this.#router = router;
+		this.tag = tag;
+	}
 
-  /** Take the gesture lock and mark `element` as this surface for
-   *  the root guard. `false` when a claim is already live — on
-   *  another surface, or on another instance of this one — and
-   *  then `element` is left untagged, which is what the guard
-   *  should see: this surface is not the one driving. */
-  claim(element: HTMLElement, pointerId: number): boolean {
-    const granted = this.#router[GRANT](this.tag, pointerId);
-    if (granted === null) return false;
-    this.#unregister?.();
-    this.#unregister = this.#router.register(element, this.tag);
-    this.#claim = granted;
-    return true;
-  }
+	/** Take the gesture lock and mark `element` as this surface for
+	 *  the root guard. `false` when a claim is already live — on
+	 *  another surface, or on another instance of this one — and
+	 *  then `element` is left untagged, which is what the guard
+	 *  should see: this surface is not the one driving. */
+	claim(element: HTMLElement, pointerId: number): boolean {
+		const granted = this.#router[GRANT](this.tag, pointerId);
+		if (granted === null) return false;
+		this.#unregister?.();
+		this.#unregister = this.#router.register(element, this.tag);
+		this.#claim = granted;
+		return true;
+	}
 
-  /** The pointer this surface's live claim was granted to, or
-   *  `null` when it holds none. The single answer to "is a drag
-   *  in progress on this surface" — a handler that keeps its own
-   *  second copy of that fact will disagree with this one. */
-  pointer(): number | null {
-    return this.#claim?.pointerId ?? null;
-  }
+	/** The pointer this surface's live claim was granted to, or
+	 *  `null` when it holds none. The single answer to "is a drag
+	 *  in progress on this surface" — a handler that keeps its own
+	 *  second copy of that fact will disagree with this one. */
+	pointer(): number | null {
+		return this.#claim?.pointerId ?? null;
+	}
 
-  /** Give the lock and the element tag back. Idempotent. With
-   *  `pointerId`, ignored unless the live claim was granted to
-   *  that pointer, so a second finger's release cannot end the
-   *  first finger's gesture. */
-  release(pointerId?: number): void {
-    const claim = this.#claim;
-    if (claim === null) return;
-    if (pointerId !== undefined && claim.pointerId !== pointerId) return;
-    this.#claim = null;
-    this.#unregister?.();
-    this.#unregister = null;
-    this.#router[REVOKE](claim);
-  }
+	/** Give the lock and the element tag back. Idempotent. With
+	 *  `pointerId`, ignored unless the live claim was granted to
+	 *  that pointer, so a second finger's release cannot end the
+	 *  first finger's gesture. */
+	release(pointerId?: number): void {
+		const claim = this.#claim;
+		if (claim === null) return;
+		if (pointerId !== undefined && claim.pointerId !== pointerId) return;
+		this.#claim = null;
+		this.#unregister?.();
+		this.#unregister = null;
+		this.#router[REVOKE](claim);
+	}
 }
 
 /** Single process-wide router. Surfaces and the root guard share
@@ -224,30 +224,32 @@ const guardedDocs = new WeakSet<Document>();
  *  tag from the active claimant, or unregistered). Idempotent per
  *  document; subsequent calls return the original uninstaller. */
 export function installRootGuard(
-  doc: Document = globalThis.document,
-  router: GestureRouter = gestureRouter,
+	doc: Document = globalThis.document,
+	router: GestureRouter = gestureRouter,
 ): () => void {
-  if (guardedDocs.has(doc)) return () => {};
-  guardedDocs.add(doc);
+	if (guardedDocs.has(doc)) return () => {};
+	guardedDocs.add(doc);
 
-  const onPointerDown = (ev: PointerEvent) => {
-    const active = router.current();
-    if (active === null) return;
-    const tag = router.surfaceFor(ev);
-    if (tag !== null && tag === active.tag) return;
-    // Foreign surface (or untagged target) during an active
-    // gesture. Stop propagation so no downstream handler reacts;
-    // never preventDefault (would kill native focus/scroll/text
-    // selection on benign clicks elsewhere on the page).
-    ev.stopPropagation();
-    ev.stopImmediatePropagation();
-  };
+	const onPointerDown = (ev: PointerEvent) => {
+		const active = router.current();
+		if (active === null) return;
+		const tag = router.surfaceFor(ev);
+		if (tag !== null && tag === active.tag) return;
+		// Foreign surface (or untagged target) during an active
+		// gesture. Stop propagation so no downstream handler reacts;
+		// never preventDefault (would kill native focus/scroll/text
+		// selection on benign clicks elsewhere on the page).
+		ev.stopPropagation();
+		ev.stopImmediatePropagation();
+	};
 
-  doc.addEventListener("pointerdown", onPointerDown, { capture: true });
-  return () => {
-    doc.removeEventListener("pointerdown", onPointerDown, { capture: true });
-    guardedDocs.delete(doc);
-  };
+	doc.addEventListener("pointerdown", onPointerDown, { capture: true });
+	return () => {
+		doc.removeEventListener("pointerdown", onPointerDown, {
+			capture: true,
+		});
+		guardedDocs.delete(doc);
+	};
 }
 
 // ─────────────────────── Modal hold ────────────────────────────────────
@@ -265,7 +267,7 @@ const MODAL_POINTER = -1;
 /** What holding the pointer for a modal needs of a window: the blur every
  *  gesture watch already treats as its interruption. */
 export type ModalHoldSource = {
-  dispatchEvent(event: Event): unknown;
+	dispatchEvent(event: Event): unknown;
 };
 
 /**
@@ -293,18 +295,18 @@ export type ModalHoldSource = {
  * it and the take cannot be dropped without the release going with it.
  */
 export function holdPointerForModal(
-  element: HTMLElement,
-  router: GestureRouter = gestureRouter,
-  source: ModalHoldSource = globalThis,
+	element: HTMLElement,
+	router: GestureRouter = gestureRouter,
+	source: ModalHoldSource = globalThis,
 ): () => void {
-  source.dispatchEvent(new Event("blur"));
-  const lease = router.lease(MODAL_SURFACE_TAG);
-  const claimed = lease.claim(element, MODAL_POINTER);
-  const unregister = claimed ? null : router.register(element, MODAL_SURFACE_TAG);
-  return () => {
-    unregister?.();
-    lease.release();
-  };
+	source.dispatchEvent(new Event("blur"));
+	const lease = router.lease(MODAL_SURFACE_TAG);
+	const claimed = lease.claim(element, MODAL_POINTER);
+	const unregister = claimed ? null : router.register(element, MODAL_SURFACE_TAG);
+	return () => {
+		unregister?.();
+		lease.release();
+	};
 }
 
 // ─────────────────────── Gesture-end watch ─────────────────────────────
@@ -343,16 +345,16 @@ export type GestureEndReason = "finished" | "cancelled";
 /** What `watchGestureEnd` needs of a window. Narrow so a test can
  *  hand it a stand-in. */
 export type GestureEndSource = {
-  addEventListener(
-    type: string,
-    listener: (ev: Event) => void,
-    options?: { capture?: boolean },
-  ): void;
-  removeEventListener(
-    type: string,
-    listener: (ev: Event) => void,
-    options?: { capture?: boolean },
-  ): void;
+	addEventListener(
+		type: string,
+		listener: (ev: Event) => void,
+		options?: { capture?: boolean },
+	): void;
+	removeEventListener(
+		type: string,
+		listener: (ev: Event) => void,
+		options?: { capture?: boolean },
+	): void;
 };
 
 /**
@@ -393,63 +395,63 @@ export type GestureEndSource = {
  * became a drag decides what it was instead.
  */
 export function watchGestureEnd(
-  lease: SurfaceLease,
-  onEnd: (reason: GestureEndReason) => void,
-  source: GestureEndSource = globalThis as unknown as GestureEndSource,
+	lease: SurfaceLease,
+	onEnd: (reason: GestureEndReason) => void,
+	source: GestureEndSource = globalThis as unknown as GestureEndSource,
 ): () => void {
-  const end = (reason: GestureEndReason) => {
-    onEnd(reason);
-    lease.release();
-  };
-  const pointerOf = (ev: Event) => (ev as unknown as { pointerId?: number }).pointerId;
-  const buttonsOf = (ev: Event) => (ev as unknown as { buttons?: number }).buttons ?? 0;
+	const end = (reason: GestureEndReason) => {
+		onEnd(reason);
+		lease.release();
+	};
+	const pointerOf = (ev: Event) => (ev as unknown as { pointerId?: number }).pointerId;
+	const buttonsOf = (ev: Event) => (ev as unknown as { buttons?: number }).buttons ?? 0;
 
-  // Only the pointer this surface actually holds ends its gesture;
-  // another pointer's stream is not ours to read.
-  const endedBy = (reason: GestureEndReason) => (ev: Event) => {
-    if (lease.pointer() !== pointerOf(ev)) return;
-    end(reason);
-  };
-  // A capture loss is filed with the releases: on an ordinary release it
-  // arrives right behind the pointer-up, and when it arrives alone the pointer
-  // is gone for good, which is the reader having let go somewhere this window
-  // could not see either.
-  const onUp = endedBy("finished");
-  const onLostCapture = endedBy("finished");
-  const onCancel = endedBy("cancelled");
-  const onMove = (ev: Event) => {
-    if (lease.pointer() !== pointerOf(ev)) return;
-    if ((buttonsOf(ev) & 1) !== 0) return;
-    // The button is up, so the release already happened; this move is only how
-    // we found out.
-    end("finished");
-  };
-  // Focus went elsewhere mid-drag, so the reader is no longer driving this
-  // gesture and never ended it.
-  const onBlur = () => {
-    if (lease.pointer() === null) return;
-    end("cancelled");
-  };
+	// Only the pointer this surface actually holds ends its gesture;
+	// another pointer's stream is not ours to read.
+	const endedBy = (reason: GestureEndReason) => (ev: Event) => {
+		if (lease.pointer() !== pointerOf(ev)) return;
+		end(reason);
+	};
+	// A capture loss is filed with the releases: on an ordinary release it
+	// arrives right behind the pointer-up, and when it arrives alone the pointer
+	// is gone for good, which is the reader having let go somewhere this window
+	// could not see either.
+	const onUp = endedBy("finished");
+	const onLostCapture = endedBy("finished");
+	const onCancel = endedBy("cancelled");
+	const onMove = (ev: Event) => {
+		if (lease.pointer() !== pointerOf(ev)) return;
+		if ((buttonsOf(ev) & 1) !== 0) return;
+		// The button is up, so the release already happened; this move is only how
+		// we found out.
+		end("finished");
+	};
+	// Focus went elsewhere mid-drag, so the reader is no longer driving this
+	// gesture and never ended it.
+	const onBlur = () => {
+		if (lease.pointer() === null) return;
+		end("cancelled");
+	};
 
-  source.addEventListener("pointerup", onUp);
-  source.addEventListener("pointercancel", onCancel);
-  source.addEventListener("lostpointercapture", onLostCapture);
-  source.addEventListener("pointermove", onMove, { capture: true });
-  source.addEventListener("blur", onBlur);
-  return () => {
-    source.removeEventListener("pointerup", onUp);
-    source.removeEventListener("pointercancel", onCancel);
-    source.removeEventListener("lostpointercapture", onLostCapture);
-    source.removeEventListener("pointermove", onMove, { capture: true });
-    source.removeEventListener("blur", onBlur);
-    // A held claim means a gesture is still in flight, so the surface
-    // hears the same cancellation a blur would have given it — the
-    // surface is going away under the pointer, which is as far from a
-    // reader finishing a gesture as this watch ever gets. With none
-    // held there is nothing to interrupt and `release` is
-    // already a no-op, which is what keeps a surface that holds
-    // nothing from ending someone else's gesture.
-    onBlur();
-    lease.release();
-  };
+	source.addEventListener("pointerup", onUp);
+	source.addEventListener("pointercancel", onCancel);
+	source.addEventListener("lostpointercapture", onLostCapture);
+	source.addEventListener("pointermove", onMove, { capture: true });
+	source.addEventListener("blur", onBlur);
+	return () => {
+		source.removeEventListener("pointerup", onUp);
+		source.removeEventListener("pointercancel", onCancel);
+		source.removeEventListener("lostpointercapture", onLostCapture);
+		source.removeEventListener("pointermove", onMove, { capture: true });
+		source.removeEventListener("blur", onBlur);
+		// A held claim means a gesture is still in flight, so the surface
+		// hears the same cancellation a blur would have given it — the
+		// surface is going away under the pointer, which is as far from a
+		// reader finishing a gesture as this watch ever gets. With none
+		// held there is nothing to interrupt and `release` is
+		// already a no-op, which is what keeps a surface that holds
+		// nothing from ending someone else's gesture.
+		onBlur();
+		lease.release();
+	};
 }

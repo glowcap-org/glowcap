@@ -21,14 +21,14 @@ green log is not a failure verdict.
 
 `check` needs no network, no submodules, and no live peer, and is the step to run
 while iterating; its cost is that a green `check` proves only that pancake agrees
-with pancake. It is not Zig-only: Python enforces deterministic process
-deadlines, Cargo links the CLI tests' iroh sidecar, two Bash harnesses make
-`tar` part of the hard floor, and Deno type-checks the TypeScript examples the
-documentation publishes. **Run `check` in the devcontainer**, where the
-complete declared toolchain is pinned.
-`check_runtimes` in `tools/build/gates.zig` names every program visible in the build graph
-and the scripts allowed to hide host-tool calls, so raising the hard floor is a
-reviewed edit rather than a silent one.
+with pancake. It is not Zig-only: Python enforces deterministic deadlines and
+compile-checks its benchmark client, Cargo checks the Rust client and links the
+CLI tests' iroh sidecar, `raco` compiles the Racket clients, Bash harnesses make
+`tar` part of the hard floor, and Deno type-checks TypeScript surfaces. **Run
+`check` in the devcontainer**, where the complete declared toolchain is pinned.
+`check_runtimes` in `tools/build/gates.zig` names every program visible in the
+build graph and the interpreter scripts or modules allowed to hide host-tool
+calls, so raising the hard floor is a reviewed edit rather than a silent one.
 
 `check-external` is the other half, every check whose authority is outside
 pancake, and `ci/gates.sh` runs the same set on every push to the mirror. Run it
@@ -91,8 +91,8 @@ zig build pancake            # run the CapTP CLI; pass `-- <command> …`
 The committed `.devcontainer/` is the canonical ready-to-build environment, and
 [`.devcontainer/pins.sh`](../../.devcontainer/pins.sh) owns every version and
 path ([`checksums.sh`](../../.devcontainer/checksums.sh) holds the per-arch
-checksums, and [`test/env-sync.sh`](../../.devcontainer/test/env-sync.sh) keeps
-`Dockerfile` and `devcontainer.json` aligned with it). Dependency updates run
+checksums, and [`test/env-sync.sh`](../../.devcontainer/test/env-sync.sh) holds
+every file that restates a pin or a path to it). Dependency updates run
 through [`bin/update-pins.sh`](../../.devcontainer/bin/update-pins.sh) (`check`, then
 `bump <dep>` / `bump --safe`), which fetches versions and checksums from each
 tool's release channel and validates the staged edit; do not hand-edit a pin

@@ -9,7 +9,6 @@ from contextvars import ContextVar
 import select
 import socket
 import threading
-import time
 
 import pancake
 
@@ -38,6 +37,16 @@ from smoke.runtime import tcp_connect
 
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
+
+def _wait_for_native_call(owner, label: str) -> None:
+    """Wait until a blocking wrapper has transferred one lease to native code."""
+    native = owner._native
+    with native._condition:
+        entered = native._condition.wait_for(lambda: native._active != 0, timeout=1)
+    if not entered:
+        raise AssertionError(f"{label} did not acquire its native lease")
+
 
 async def _send_redeeming_surfaces_the_direct_exporter() -> None:
     """A three-party handoff with pancake as all three parties, over loopback:
@@ -482,9 +491,7 @@ def _onion_against_a_fake_daemon() -> None:
     accepter = threading.Thread(target=blocked_accept, daemon=True)
     accepter.start()
     assert entered.wait(1), "the accept thread did not start"
-    # It has no incoming circuit, so remaining alive is evidence that it reached
-    # the blocking accept rather than failing before the native call.
-    time.sleep(0.05)
+    _wait_for_native_call(listener, "onion accept")
     assert accepter.is_alive(), "the empty listener did not block accept"
     nl.release()
     accepter.join(timeout=2)
@@ -528,4 +535,3 @@ def _onion_against_a_fake_daemon() -> None:
             raise AssertionError("a malformed designator should be refused")
         except PancakeError:
             pass
-

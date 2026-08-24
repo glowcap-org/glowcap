@@ -44,6 +44,10 @@ pub const Connection = struct {
         return self.stream.hasPendingWrite();
     }
 
+    pub fn hasBufferedReadWork(self: *const Connection) bool {
+        return self.stream.hasBufferedReadWork();
+    }
+
     pub fn readinessFd(self: *const Connection) i32 {
         return self.stream.readinessFd();
     }

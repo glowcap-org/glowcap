@@ -3,9 +3,9 @@
 //!
 //! `pancake_host_set_trace` reports each fact through a callback, which is
 //! what a native embedder wants — synchronous, allocation-free, and exact.
-//! A browser cannot take that seam: the wasm module declares exactly one
-//! import, `env.pancake_behavior_trampoline` (`zig build wasm-import-check`
-//! holds the set at one), so a second callback shape has nowhere to land.
+//! A browser cannot take that seam: the wasm module admits exactly the fixed
+//! behavior and hosted-retirement callback imports (`zig build
+//! wasm-import-check` holds that set), so a trace callback has nowhere to land.
 //! What such an embedder already does have is the action queue: the host
 //! surfaces its effects as rows the embedder drains on its own schedule
 //! (`pancake_host_next_action`). This is the same shape for the same reason.

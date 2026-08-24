@@ -70,6 +70,10 @@ export interface WebSocketRelayOptions extends WebSocketChannelOptions {
 	 * rendezvous must install handlers before the far-side dial resolves, so this
 	 * is the adapter's memory bound for early or stalled inbound bytes. */
 	inboundHighWaterBytes?: number;
+	/** Cancel this relay session through its joined WebSocket close barrier.
+	 * Process embedders use this to stop active pumps before releasing their
+	 * listener; the far channel still closes through pair-atomic teardown. */
+	signal?: AbortSignal;
 }
 
 /** Maximum WebSocket message admitted by the relay adapter. WebSocket
@@ -102,7 +106,7 @@ function wsByteIo(socket: WebSocket, options?: WebSocketRelayOptions): WsByteIo 
 		);
 	}
 	const channel: WebSocketByteChannel = byteWebSocketChannel(socket, {
-		...options,
+		closeTimeoutMs: options?.closeTimeoutMs,
 		inboundHighWaterBytes,
 	});
 	return {
@@ -136,20 +140,27 @@ export async function webSocketRelay(
 	options?: WebSocketRelayOptions,
 ): Promise<void> {
 	const { source, sink, close, cancel } = wsByteIo(socket, options);
+	const stop = () => void close(1001, "relay stopped");
+	if (options?.signal?.aborted) stop();
+	else options?.signal?.addEventListener("abort", stop, { once: true });
 
-	let channel: RelayChannel;
 	try {
-		channel = await getChannel();
-	} catch (err) {
-		throw new RelayDialFailed(
-			dialFailReason,
-			await retainCleanupFailures(err, [
-				cancel,
-				() => close(1011, dialFailReason),
-			]),
-		);
+		let channel: RelayChannel;
+		try {
+			channel = await getChannel();
+		} catch (err) {
+			throw new RelayDialFailed(
+				dialFailReason,
+				await retainCleanupFailures(err, [
+					cancel,
+					() => close(1011, dialFailReason),
+				]),
+			);
+		}
+		await relayBytes(source, sink, channel, config, () => close());
+	} finally {
+		options?.signal?.removeEventListener("abort", stop);
 	}
-	await relayBytes(source, sink, channel, config, () => close());
 }
 
 /**

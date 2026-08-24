@@ -56,7 +56,7 @@ const bindings = [_]Binding{
         .name = "python",
         .ext = ".py",
         .lib = &.{"bindings/python/pancake"},
-        .ffi_tier = &.{ "_ffi_host.py", "_sigs_gen.py" },
+        .ffi_tier = &.{"_sigs_gen.py"},
         .proof = &.{ "bindings/python/zig_smoke.py", "bindings/python/smoke", "bindings/python/relay.py" },
     },
     .{
@@ -70,7 +70,7 @@ const bindings = [_]Binding{
             "bindings/racket/pancake-iroh.rkt",
             "bindings/racket/pancake-inproc.rkt",
         },
-        .ffi_tier = &.{ "ffi-host-gen.rkt", "ffi-host.rkt", "ffi-shared.rkt" },
+        .ffi_tier = &.{ "ffi-host-gen.rkt", "ffi-shared.rkt" },
         .proof = &.{ "bindings/racket/zig-smoke.rkt", "bindings/racket/test/zig-smoke", "bindings/racket/relay.rkt" },
     },
 };
@@ -139,7 +139,10 @@ pub fn check(
 
     for (allowlist) |row| {
         var key_buf: [256]u8 = undefined;
-        const key = std.fmt.bufPrint(&key_buf, "{s}/{s}", .{ row.binding, row.symbol }) catch continue;
+        const key = std.fmt.bufPrint(&key_buf, "{s}/{s}", .{ row.binding, row.symbol }) catch {
+            try appendViolation(gpa, violations, "runtime-proof allowlist row {s}/{s} overflows the key buffer; grow it", .{ row.binding, row.symbol });
+            continue;
+        };
         if (used.contains(key)) continue;
         try appendViolation(gpa, violations, "{s}: `allowlist` row `{s}` matched nothing this run — its binding name or symbol is stale; fix or delete it in tools/check/source_check/binding_runtime_proof.zig", .{ row.binding, row.symbol });
     }

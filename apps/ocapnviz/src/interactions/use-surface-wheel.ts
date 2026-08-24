@@ -13,36 +13,36 @@ import type { SurfaceId } from "./types.ts";
 import { type WheelEffect, type WheelPolicy, wheelToEffect } from "./wheel-helpers.ts";
 
 export {
-  WHEEL_FAST_FACTOR,
-  WHEEL_ZOOM_RATE,
-  type WheelEffect,
-  type WheelPolicy,
-  wheelToEffect,
+	WHEEL_FAST_FACTOR,
+	WHEEL_ZOOM_RATE,
+	type WheelEffect,
+	type WheelPolicy,
+	wheelToEffect,
 } from "./wheel-helpers.ts";
 
 export type SurfaceWheelHandlers = {
-  onEffect: (effect: WheelEffect) => void;
+	onEffect: (effect: WheelEffect) => void;
 };
 
 export function useSurfaceWheel(
-  host: HTMLElement | null,
-  surface: SurfaceId,
-  policy: WheelPolicy,
-  handlers: SurfaceWheelHandlers,
+	host: HTMLElement | null,
+	surface: SurfaceId,
+	policy: WheelPolicy,
+	handlers: SurfaceWheelHandlers,
 ): void {
-  const handlersRef = useRef(handlers);
-  handlersRef.current = handlers;
+	const handlersRef = useRef(handlers);
+	handlersRef.current = handlers;
 
-  useEffect(() => {
-    if (!host) return;
-    const onWheel = (ev: WheelEvent) => {
-      // preventDefault keeps the page from scrolling; requires
-      // `{ passive: false }`.
-      ev.preventDefault();
-      const effect = wheelToEffect(ev, surface, policy);
-      handlersRef.current.onEffect(effect);
-    };
-    host.addEventListener("wheel", onWheel, { passive: false });
-    return () => host.removeEventListener("wheel", onWheel);
-  }, [host, surface, policy]);
+	useEffect(() => {
+		if (!host) return;
+		const onWheel = (ev: WheelEvent) => {
+			// preventDefault keeps the page from scrolling; requires
+			// `{ passive: false }`.
+			ev.preventDefault();
+			const effect = wheelToEffect(ev, surface, policy);
+			handlersRef.current.onEffect(effect);
+		};
+		host.addEventListener("wheel", onWheel, { passive: false });
+		return () => host.removeEventListener("wheel", onWheel);
+	}, [host, surface, policy]);
 }

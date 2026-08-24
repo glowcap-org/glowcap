@@ -24,47 +24,47 @@ import { pushError } from "../ui/error/error-bus.ts";
 const DEDUPE_MS = 1000;
 
 interface DedupeState {
-  lastMessage: string;
-  lastAt: number;
+	lastMessage: string;
+	lastAt: number;
 }
 
 function tryEmit(state: DedupeState, caught: unknown): void {
-  const message = caught instanceof Error ? caught.message : String(caught);
-  const now = Date.now();
-  if (state.lastMessage === message && now - state.lastAt < DEDUPE_MS) {
-    state.lastAt = now;
-    return;
-  }
-  state.lastMessage = message;
-  state.lastAt = now;
-  pushError({ error: internalError(caught), source: "window" });
+	const message = caught instanceof Error ? caught.message : String(caught);
+	const now = Date.now();
+	if (state.lastMessage === message && now - state.lastAt < DEDUPE_MS) {
+		state.lastAt = now;
+		return;
+	}
+	state.lastMessage = message;
+	state.lastAt = now;
+	pushError({ error: internalError(caught), source: "window" });
 }
 
 /** Wrap a Pixi ticker callback so per-frame throws emit to the bus
  * (deduped) instead of escaping into Pixi's rAF loop. */
 export function safeTick<Args extends unknown[]>(
-  fn: (...args: Args) => void,
+	fn: (...args: Args) => void,
 ): (...args: Args) => void {
-  const state: DedupeState = { lastMessage: "", lastAt: 0 };
-  return (...args: Args) => {
-    try {
-      fn(...args);
-    } catch (caught) {
-      tryEmit(state, caught);
-    }
-  };
+	const state: DedupeState = { lastMessage: "", lastAt: 0 };
+	return (...args: Args) => {
+		try {
+			fn(...args);
+		} catch (caught) {
+			tryEmit(state, caught);
+		}
+	};
 }
 
 /** Wrap a DOM event listener callback. Same dedupe shape as `safeTick`. */
 export function safeListener<E extends Event>(
-  fn: (event: E) => void,
+	fn: (event: E) => void,
 ): (event: E) => void {
-  const state: DedupeState = { lastMessage: "", lastAt: 0 };
-  return (event: E) => {
-    try {
-      fn(event);
-    } catch (caught) {
-      tryEmit(state, caught);
-    }
-  };
+	const state: DedupeState = { lastMessage: "", lastAt: 0 };
+	return (event: E) => {
+		try {
+			fn(event);
+		} catch (caught) {
+			tryEmit(state, caught);
+		}
+	};
 }

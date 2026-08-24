@@ -32,6 +32,7 @@ const LabDivert = struct {
         var it = std.mem.splitScalar(u8, msg, '\n');
         while (it.next()) |line| {
             if (line.len == 0) continue;
+            // best-effort: a diverted log line the store cannot take is dropped.
             exec.appendDivertLine(self.store, line) catch {};
         }
     }
@@ -65,6 +66,7 @@ pub fn run(ctx: *Ctx) !u8 {
     if (!no_mouse) {
         try vx.setMouseMode(tty.writer(), true);
     }
+    // best-effort: terminal-mode restore at teardown; the terminal may be gone.
     defer if (!no_mouse) vx.setMouseMode(tty.writer(), false) catch {};
     try vx.queryTerminal(tty.writer(), .fromSeconds(1));
     {
@@ -120,12 +122,20 @@ pub fn run(ctx: *Ctx) !u8 {
     var burst: [64]Event = undefined;
 
     var captp_q = await_queue.Queue.init(ctx.gpa);
-    defer captp_q.deinit();
+    var closed = false;
+    defer {
+        // The active flag is a live vow listener. Close the session while the
+        // queue still owns that flag, then reclaim the queue on every exit.
+        if (!closed) {
+            if (ctx.closeOwned(.cancel)) |failure| ctx.logCloseFailure("repl close", failure);
+        }
+        captp_q.deinit();
+    }
 
     while (true) {
         // Idle: non-blocking step so rail counts stay live between key events.
         if (!captp_q.busy()) {
-            if (ctx.session) |s| try captp_q.advanceSession(s, &store, 0);
+            if (ctx.activeSession()) |s| try captp_q.advanceSession(s, &store, 0);
         }
 
         // CapTP busy: socket wake (`stepReadable(frame_ms)`). Flash-only: no sleep —
@@ -135,9 +145,10 @@ pub fn run(ctx: *Ctx) !u8 {
             if (try loop.tryEvent()) |ev| {
                 burst[0] = ev;
                 burst_n = 1;
-            } else if (ctx.session) |s| {
+            } else if (ctx.activeSession()) |s| {
                 try captp_q.advanceSession(s, &store, await_queue.frame_ms);
             } else {
+                // tolerant: an interrupted frame sleep only redraws sooner.
                 std.Io.sleep(ctx.io, std.Io.Duration.fromMilliseconds(await_queue.frame_ms), .real) catch {};
             }
         } else if (flash_frames > 0) {
@@ -269,7 +280,9 @@ pub fn run(ctx: *Ctx) !u8 {
         );
     }
 
-    if (ctx.closeOwned(.cancel)) |failure| {
+    const close_failure = ctx.closeOwned(.cancel);
+    closed = true;
+    if (close_failure) |failure| {
         ctx.logCloseFailure("repl close", failure);
         return ctx.mapCloseErr(failure.cause);
     }

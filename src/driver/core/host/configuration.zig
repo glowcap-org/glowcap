@@ -105,7 +105,7 @@ pub const Options = struct {
     }
 };
 
-/// Override selective session limits before minting peers (ADR-0082). `null`
+/// Override selective session limits before minting peers (ADR-0124). `null`
 /// leaves that field unchanged. Already-open sessions keep the limits they
 /// were minted with.
 pub fn setSessionLimits(
@@ -113,9 +113,13 @@ pub fn setSessionLimits(
     max_frame_bytes: ?usize,
     queue_cap: ?usize,
     outbound_high_water_bytes: ?usize,
+    max_retained_sent_answer_bytes: ?u32,
 ) error{ ReenteredHost, WrongThread, HostClosing }!void {
     try admission.admitConfigurationMutation(self);
     if (max_frame_bytes) |value| self.opts.limits.max_frame_bytes = value;
     if (queue_cap) |value| self.opts.limits.queue_cap = value;
     if (outbound_high_water_bytes) |value| self.opts.outbound_high_water_bytes = value;
+    if (max_retained_sent_answer_bytes) |value| {
+        self.opts.limits.max_retained_sent_answer_bytes = value;
+    }
 }

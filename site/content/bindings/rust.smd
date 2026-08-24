@@ -168,6 +168,22 @@ restart; iroh binds a node id instead of a socket address.
 > )
 > .await?;
 > ```
+> **noise-relay**
+> ```rust
+> use pancake::{relay, Argument};
+>
+> // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+> let server = relay::noise::listen(
+>     "wss://relay.example/relay",
+>     "wss://relay.example/register",
+>     relay::ListenOptions {
+>         identity: relay::ListenerIdentity::Seed(seed),
+>         ..relay::ListenOptions::default()
+>     },
+> )
+> .await?;
+> ```
 > **onion**
 > ```rust
 > use pancake::onion::{self, Auth, Config};

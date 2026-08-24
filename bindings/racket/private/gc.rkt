@@ -1,8 +1,8 @@
 #lang racket/base
 ;; Internal: distributed GC (ADR-0063), opt-in and off by default. Owns
 ;; `session-with-gc!` / recursive value tracking / `drain-gc!`, the weak per-Host
-;; state table, the finalizer park, and `pancake_host_ref_release`. Session
-;; keeps CapTP verbs that call these.
+;; state table, the finalizer park, and the Host release verbs for references
+;; and vows. Session keeps CapTP verbs that call these.
 
 (require ffi/unsafe
          racket/async-channel
@@ -22,10 +22,13 @@
          session-gc-enabled?
          session-release!
          track-ref!
+         track-vow!
+         park-vow-release!
          track-argument!
          track-arguments!
          drain-gc!
-         drain-host-gc!)
+         drain-host-gc!
+         host-gc-pending?)
 
 ;; A Host with an opted-in connection carries a gc-state in this weak table.
 ;; A projected ref may be homed on a sibling session and outlive the session
@@ -36,35 +39,49 @@
 ;; Finalizer disarm tickets are binding state, not part of capability equality.
 (define ref-gc-tokens (make-weak-hasheq))
 
-;; The Host-wide GC state: an async-channel onto which a projected
-;; capability's finalizer (run on Racket's finalizer thread) parks its id.
-;; Any sibling connection's verbs drain it on a pumping thread, where the host FFI
-;; is safe to touch, and release one delta per parked token through
-;; `pancake_host_ref_release` — never from the finalizer thread.
-(struct gc-state (channel pending scheduled failure))
+;; The Host-wide GC state: finalizers park ids on `channel`; a Host-owner
+;; thread transfers them to `pending` and performs native release. `gate`
+;; makes enqueue and terminal retirement one transition, so no token can land
+;; after its native owner has been consumed.
+(struct gc-state (channel pending scheduled retired? gate))
 
-(define (retain-gc-failure! gs failure)
-  (when (null? (unbox (gc-state-failure gs)))
-    (set-box! (gc-state-failure gs) (list failure))))
+(define (make-gc-state)
+  (gc-state (make-async-channel) (box '()) (box #f) (box #f) (make-semaphore 1)))
 
-;; Coalesce a collection storm to one worker per Host. The finalizer only
-;; enqueues and schedules; the worker owns Host FFI and closes the enqueue-vs-
-;; exit race before retiring itself.
-(define (schedule-host-gc! weak-host gs)
-  (when (box-cas! (gc-state-scheduled gs) #f #t)
-    (thread
+(define (host-gc-state m)
+  (hash-ref! gc-states m make-gc-state))
+
+;; Finalizers only enqueue and wake the Host owner. The progress bump happens
+;; after releasing `gate`, so Host retirement can never deadlock against a
+;; finalizer waiting for the Host lock.
+(define (queue-release! weak-host gs release)
+  (define accepted?
+    (call-with-semaphore
+     (gc-state-gate gs)
      (lambda ()
-       (let loop ()
-         (define m (weak-box-value weak-host))
-         (when m
-           (with-handlers ([(lambda (_) #t)
-                            (lambda (failure) (retain-gc-failure! gs failure))])
-             (drain-host-gc! m)))
-         (set-box! (gc-state-scheduled gs) #f)
-         (let ([pending (async-channel-try-get (gc-state-channel gs))])
-           (when pending
-             (async-channel-put (gc-state-channel gs) pending)
-             (when (box-cas! (gc-state-scheduled gs) #f #t) (loop)))))))))
+       (cond
+         [(unbox (gc-state-retired? gs)) #f]
+         [else
+          (async-channel-put (gc-state-channel gs) release)
+          (set-box! (gc-state-scheduled gs) #t)
+          #t]))))
+  (when accepted?
+    (define m (weak-box-value weak-host))
+    (when m (host-bump-progress! m)))
+  accepted?)
+
+(define (retire-host-gc! m)
+  (define gs (hash-ref gc-states m #f))
+  (when gs
+    (call-with-semaphore
+     (gc-state-gate gs)
+     (lambda ()
+       (set-box! (gc-state-retired? gs) #t)
+       (set-box! (gc-state-pending gs) '())
+       (set-box! (gc-state-scheduled gs) #f)
+       (let drain ()
+         (when (async-channel-try-get (gc-state-channel gs)) (drain)))))
+    (hash-remove! gc-states m)))
 
 ;; Opt this session into distributed GC (ADR-0063), off by default. Once on,
 ;; every capability occurrence projected through fetch, a fulfilled far
@@ -76,9 +93,7 @@
 ;; Returns the session for chaining.
 (define (session-with-gc! c)
   (hash-set! gc-enabled-connections c #t)
-  (hash-ref! gc-states (session-host c)
-             (lambda ()
-               (gc-state (make-async-channel) (box '()) (box #f) (box '()))))
+  (host-gc-state (session-host c))
   c)
 
 ;; Snapshot this session's opt-in when an application-facing vow is minted.
@@ -95,7 +110,6 @@
   (define gs (hash-ref gc-states (session-host c) #f))
   (when (and (hash-ref gc-enabled-connections c #f) gs (ref? capability))
     (define id (ref-id capability))
-    (define ch (gc-state-channel gs))
     (define prior (hash-ref ref-gc-tokens capability #f))
     (when prior (set-box! prior #f))
     (define armed (box #t))
@@ -104,12 +118,26 @@
     (register-finalizer capability
                         (lambda (_)
                           (when (unbox armed)
-                            (async-channel-put ch id)
-                            ;; Never call Host FFI on the finalizer thread.
-                            ;; One coalesced worker drains the Host-owned queue;
-                            ;; the weak box lets an already-dead Host stay dead.
-                            (schedule-host-gc! weak-host gs)))))
+                            (queue-release! weak-host gs (cons 'ref id))))))
   capability)
+
+;; Every public far-vow handle owns one native Host vow independently of the
+;; opt-in capability GC policy. Its finalizer parks only the id; the Host loop
+;; performs the release and publishes op:gc-answer.
+(define (queue-vow-release! weak-host gs id armed)
+  (when (and armed (unbox armed))
+    (set-box! armed #f)
+    (queue-release! weak-host gs (cons 'vow id))))
+
+(define (park-vow-release! m id armed)
+  (queue-vow-release! (make-weak-box m) (host-gc-state m) id armed))
+
+(define (track-vow! m vow id armed)
+  (define weak-host (make-weak-box m))
+  (define gs (host-gc-state m))
+  (register-finalizer vow
+                      (lambda (_)
+                        (queue-vow-release! weak-host gs id armed))))
 
 ;; Attach one finalizer unit to every capability occurrence in a value the
 ;; native Host has just projected. Container identity stays unchanged; equal
@@ -162,34 +190,48 @@
       (set-box! pending (cdr remaining))
       (loop))))
 
-;; Drain the parked GC releases on the calling (pumping) thread: one release
+;; Whether a Host owner must make another GC drain pass. The driver loop checks
+;; this after snapshotting Host progress, so an enqueue immediately before the
+;; wait cannot be lost.
+(define (host-gc-pending? m)
+  (define gs (hash-ref gc-states m #f))
+  (and gs
+       (call-with-semaphore
+        (gc-state-gate gs)
+        (lambda ()
+          (and (not (unbox (gc-state-retired? gs)))
+               (or (unbox (gc-state-scheduled gs))
+                   (pair? (unbox (gc-state-pending gs)))))))
+       #t))
+
+;; Move every async-channel token into the Host-owned FIFO. Clearing
+;; `scheduled` between drains and then rechecking the channel closes the one
+;; race where a finalizer enqueues while the old generation is still marked.
+(define (collect-queued! gs)
+  (call-with-semaphore
+   (gc-state-gate gs)
+   (lambda ()
+     (unless (unbox (gc-state-retired? gs))
+       (define ch (gc-state-channel gs))
+       (define newly-collected
+         (let loop ([acc '()])
+           (define release (async-channel-try-get ch))
+           (if release (loop (cons release acc)) (reverse acc))))
+       (unless (null? newly-collected)
+         (define pending (gc-state-pending gs))
+         (set-box! pending (append (unbox pending) newly-collected)))
+       (set-box! (gc-state-scheduled gs) #f)))))
+
+;; Drain the parked GC releases on the calling Host-owner thread: one release
 ;; delta per reclaimed token, then flush. Called at every session verb head, so
-;; a sibling can drain a release after the arrival session has closed. A worker
-;; failure has no caller, so the next verb receives its retained exact cause.
+;; a sibling can drain a release after the arrival session has closed.
 (define (drain-host-gc! m)
   (define gs (hash-ref gc-states m #f))
-  ;; The finalizer sets `scheduled` after enqueueing, and the worker keeps it
-  ;; set through its drain. A caller may safely skip the narrow enqueue-before-
-  ;; CAS window because that same finalizer is about to schedule the owner.
-  ;; Avoid taking the Host lock on every ordinary verb when GC is idle.
-  (when (and gs
-             (or (unbox (gc-state-scheduled gs))
-                 (pair? (unbox (gc-state-pending gs)))
-                 (pair? (unbox (gc-state-failure gs)))))
+  (when (and gs (host-gc-pending? m))
     (with-host-drain m
       (lambda ()
-        (define retained (unbox (gc-state-failure gs)))
-        (unless (null? retained)
-          (set-box! (gc-state-failure gs) '())
-          (raise (car retained)))
-        (define ch (gc-state-channel gs))
-        (define newly-collected
-          (let loop ([acc '()])
-            (define id (sync/timeout 0 ch))
-            (if id (loop (cons id acc)) (reverse acc))))
         (define pending (gc-state-pending gs))
-        (unless (null? newly-collected)
-          (set-box! pending (append (unbox pending) newly-collected)))
+        (collect-queued! gs)
         (cond
           [(unbox (host-released? m))
            ;; Host teardown already retired every retain; settle the surviving
@@ -200,18 +242,27 @@
           [else
            (release-pending!
             pending
-            (lambda (id)
-              (check/host
-               (pancake_host_ref_release (host-ptr m) (make-PancakeReference id) 1))))
+            (lambda (release)
+              (case (car release)
+                [(ref)
+                 (check/host
+                  (pancake_host_ref_release
+                   (host-ptr m) (make-PancakeReference (cdr release)) 1))]
+                [(vow)
+                 (hash-remove! (host-vows m) (cdr release))
+                 (check/host (pancake_host_vow_release (host-ptr m) (cdr release)))]
+                [else (error 'drain-host-gc! "unknown release kind: ~a" (car release))])))
            (drain-host-actions! m)]))
       #:allow-released? #t)))
 
 (define (drain-gc! c)
   (drain-host-gc! (session-host c)))
 
+(set-box! host-gc-retire-hook retire-host-gc!)
+
 (module+ test
   (require rackunit)
-  (define pending (box '(11 12 13)))
+  (define pending (box '((ref . 11) (ref . 12) (ref . 13))))
   (define refusal (exn:fail "release refused" (current-continuation-marks)))
   (define attempted '())
   (check-exn
@@ -219,8 +270,14 @@
    (lambda ()
      (release-pending!
       pending
-      (lambda (id)
-        (set! attempted (cons id attempted))
-        (when (= id 12) (raise refusal))))))
-  (check-equal? (reverse attempted) '(11 12))
-  (check-equal? (unbox pending) '(12 13)))
+      (lambda (release)
+        (set! attempted (cons release attempted))
+        (when (= (cdr release) 12) (raise refusal))))))
+  (check-equal? (reverse attempted) '((ref . 11) (ref . 12)))
+  (check-equal? (unbox pending) '((ref . 12) (ref . 13)))
+
+  (define retired (make-gc-state))
+  (set-box! (gc-state-retired? retired) #t)
+  (check-false
+   (queue-release! (make-weak-box #f) retired (cons 'ref 21)))
+  (check-false (async-channel-try-get (gc-state-channel retired))))

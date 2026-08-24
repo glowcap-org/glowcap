@@ -2,7 +2,15 @@
 // The data layer reads `mentionsYou` from here, which is why the pieces that
 // build elements live next door in `RichText.tsx` instead.
 
-import { type DirId, dirMarkIn, dirsAreNamed, type DirView, type SessionPhase } from "./types.ts";
+import {
+	type Conv,
+	type DirId,
+	dirMarkIn,
+	dirsAreNamed,
+	type DirView,
+	type PeeringSource,
+	type SessionPhase,
+} from "./types.ts";
 import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "../../lib/limits.ts";
 
 /** How a directory's connection reads in words. The dot beside it carries the
@@ -199,12 +207,65 @@ export function roomCalled(id: string, held: boolean): string {
 	return held ? id : "#" + id;
 }
 
+/** Why the conversation card copies the directory's locator rather than one of
+ * its own.
+ *
+ * A public room is a name on that directory, so the locator is the directory's
+ * and that is not a bug. A private room is a live reference this session holds
+ * — nothing to copy until `/link` mints a sturdyref. A direct line was
+ * introduced on the directory and has no room address at all. */
+export function conversationReach(
+	conv: { type: "room"; held: boolean; id: string; link?: string } | { type: "dm" },
+): string {
+	if (conv.type === "dm") {
+		return "This line was introduced on the directory named above. A direct conversation has no room address; the path is how the messages travel.";
+	}
+	if (conv.link !== undefined) {
+		return "This is the room's own locator, a sturdyref. /join it to be here. It is not the directory named above.";
+	}
+	if (conv.held) {
+		return "You are in this room by a live reference, which lasts as long as this session. The locator is that session's directory, not an address for the room. /link mints a sturdyref if you need one that outlives a reconnect.";
+	}
+	return "A public room is a name on a directory, so this is that directory's locator, not a separate address for " +
+		roomCalled(conv.id, false) +
+		". Anyone who can reach the directory can join by that name.";
+}
+
+/** The rooms this tab could publish into the home directory: joined rooms on
+ * some other, connected directory, in the order the conversations hold them.
+ * The peering pane's choices, derived here so they carry the same directory
+ * words the rail uses. */
+export function peeringSourcesOf(
+	convs: ReadonlyMap<string, Conv>,
+	home: DirId | null,
+	dirs: ReadonlyMap<DirId, DirView>,
+): PeeringSource[] {
+	const sources: PeeringSource[] = [];
+	for (const conv of convs.values()) {
+		if (conv.type !== "room" || conv.dir === home) continue;
+		if (dirs.get(conv.dir)?.session !== "connected") continue;
+		sources.push({ key: conv.key, room: conv.id, directory: directoryName(conv.dir, home) });
+	}
+	return sources;
+}
+
 export function hueOf(name: string): string {
+	if (ircName(name) !== null) return "var(--irc)";
 	let h = 0;
 	for (let i = 0; i < name.length; i++) {
 		h = (h * 31 + name.charCodeAt(i)) >>> 0;
 	}
 	return `var(--avatar-${(h % AVATAR_SLOTS) + 1})`;
+}
+
+/** The bare nick behind a bridged IRC identity, or null for everyone else.
+ *
+ * `irc/` is the bridge's reserved attribution prefix (the bridge refuses it
+ * as a rooms name), so the test is exact. One authority for the question:
+ * the roster, the message author line, and the avatar tint all ask here, so
+ * a bridged person is marked the same way everywhere they appear. */
+export function ircName(name: string): string | null {
+	return name.startsWith("irc/") && name.length > 4 ? name.slice(4) : null;
 }
 
 export function initials(name: string): string {

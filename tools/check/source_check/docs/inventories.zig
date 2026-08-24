@@ -84,6 +84,7 @@ pub fn checkStabilityGateList(
 ) !void {
     const doc_path = "docs/stability.md";
     const ci_path = "ci/gates.sh";
+    const workflow_path = ".github/workflows/check.yml";
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -97,6 +98,15 @@ pub fn checkStabilityGateList(
         try appendViolation(gpa, violations, "{s}: missing, so the stability gate list cannot be checked", .{ci_path});
         return;
     };
+    const workflow = root.readFileAlloc(io, workflow_path, arena, .limited(1 << 20)) catch {
+        try appendViolation(gpa, violations, "{s}: missing, so recurring platform evidence cannot be checked", .{workflow_path});
+        return;
+    };
+    if (std.mem.indexOf(u8, workflow, "concurrency:") == null or
+        std.mem.indexOf(u8, workflow, "cancel-in-progress: true") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: recurring full gates must cancel superseded runs", .{workflow_path});
+    }
 
     const begin = "<!-- ci-gate-list:begin -->";
     const end = "<!-- ci-gate-list:end -->";
@@ -127,6 +137,21 @@ pub fn checkStabilityGateList(
         if (!containsStep(running.items, step)) {
             try appendViolation(gpa, violations, "{s}: lists `{s}`, which {s} no longer runs; the evidence claim is stale", .{ doc_path, step, ci_path });
         }
+    }
+
+    const macos_markers = [_][]const u8{
+        "\n  macos-runtime:",
+        "runs-on: macos-",
+        "ZIG_INSTALL_DIR=\"$RUNNER_TEMP/zig\" bash .devcontainer/image/zig.sh",
+        "run: zig build test",
+    };
+    for (macos_markers) |marker| {
+        if (std.mem.indexOf(u8, workflow, marker) == null) {
+            try appendViolation(gpa, violations, "{s}: macOS runtime evidence requires `{s}`", .{ workflow_path, marker });
+        }
+    }
+    if (std.mem.indexOf(u8, doc, "| macOS | Recurring `zig build test`") == null) {
+        try appendViolation(gpa, violations, "{s}: the macOS evidence row must name the recurring `zig build test` job pinned by {s}", .{ doc_path, workflow_path });
     }
 }
 
@@ -368,6 +393,19 @@ pub fn checkStabilityEvidenceParity(
     }
     if (std.mem.indexOf(u8, site, "docs/stability.md") == null) {
         try appendViolation(gpa, violations, "{s}: must link {s}, the page that owns the evidence matrix", .{ site_path, doc_path });
+    }
+
+    const rust_path = "bindings/rust/README.md";
+    const rust = root.readFileAlloc(io, rust_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read binding evidence scope with {s}", .{ rust_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(rust);
+    if (std.mem.indexOf(u8, rust, "The Rust binding dogfood uses a fake daemon and makes no") == null or
+        std.mem.indexOf(u8, rust, "Repository-level on-demand checks cross Tor") == null or
+        std.mem.indexOf(u8, rust, "nothing has yet crossed the Tor network") != null)
+    {
+        try appendViolation(gpa, violations, "{s}: distinguish its fake-daemon dogfood from the repository's live Tor evidence in {s}", .{ rust_path, doc_path });
     }
 }
 

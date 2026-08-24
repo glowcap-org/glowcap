@@ -28,7 +28,7 @@ const CapabilityLoweringReceipt = union(enum) {
         actor_id: u64,
         position: u64,
     },
-    foreign: engine.Node.ForeignEnrollmentRollback,
+    foreign: engine.Node.ForeignEnrollmentReceipt,
     deferred_projection: struct {
         session: *HostSession,
         promise_id: capability.PromiseId,
@@ -318,7 +318,7 @@ fn rollbackCapabilityLowerings(self: *Host, receipts: []const CapabilityLowering
                 .{ .local = local.actor_id },
                 local.position,
             ),
-            .foreign => |foreign| self.node.rollbackForeignEnrollment(foreign),
+            .foreign => |foreign| self.node.abandonForeignEnrollment(foreign),
             .deferred_projection => |projection| capability_promise.rollbackProjection(
                 self,
                 projection.promise_id,
@@ -353,14 +353,14 @@ fn lowerCapabilityTracked(self: *Host, session: *HostSession, ref: capability.Re
         .remote => |remote| blk: {
             const home = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
             try self.checkSession(home);
-            if (!home.served.port.peer.session_state.hasImport(remote.far.import_position)) return error.UnknownCapability;
+            if (!home.served.port.peer.session_state.holdsImport(remote.far.import_position)) return error.UnknownCapability;
             if (home.served.port.peer.session_state.hostCapabilityFor(remote.far.import_position) != ref.raw())
                 return error.UnknownCapability;
             if (remote.peer_handle != session.peer_handle) {
                 const enrollment = try self.node.prepareForeignEnrollment(remote.peer_handle, .{ .far = remote.far });
                 break :blk .{
                     .reference = enrollment.reference,
-                    .receipt = if (enrollment.rollback) |rollback| .{ .foreign = rollback } else null,
+                    .receipt = if (enrollment.abandon) |abandon| .{ .foreign = abandon } else null,
                 };
             }
             break :blk .{ .reference = .{ .far = remote.far }, .receipt = null };

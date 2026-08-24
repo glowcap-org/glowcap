@@ -346,7 +346,7 @@
 }
 
 .tag-adapter {
-  color: var(--accent-ink);
+  color: var(--accent-ink-tinted);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 

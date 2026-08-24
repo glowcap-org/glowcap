@@ -57,9 +57,33 @@ const commitPreparedImportRelease = shortening.commitPreparedImportRelease;
 /// typed error (and should flush `takeOutbound` to send the abort frame).
 pub fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
     return dispatchOwnedFrameInner(self, frame_in) catch |err| {
-        emitAbortForError(self, err);
+        failOwnedDispatch(self, err);
         return err;
     };
+}
+
+/// Dispatch a frame the transport boundary already decoded. Packet and stream
+/// ingress use this to preserve one consumed-frame failure contract without
+/// decoding the same bytes again.
+pub fn dispatchDecodedOwnedFrame(
+    self: *Peer,
+    frame: foundation.Frame,
+    decoded: model.view.Body,
+    wire_profile: model.CaptpVersion,
+) !void {
+    return applyDecodedOwnedFrame(self, frame, decoded, wire_profile) catch |err| {
+        failOwnedDispatch(self, err);
+        return err;
+    };
+}
+
+fn failOwnedDispatch(self: *Peer, err: anyerror) void {
+    emitAbortForError(self, err);
+    // The owned frame is consumed on every outcome. If the error carries no
+    // protocol abort (notably allocation failure), there is still no frame
+    // left to retry and post-admission effects may already be committed.
+    // Continuing this session would pretend the frame never existed.
+    if (!self.sessionIsClosed()) self.closeSession();
 }
 
 /// Emit the outbound `op:abort` an inbound failure projects to
@@ -129,7 +153,7 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
 /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
 /// must stay valid until apply completes; afterwards the retained event owns
 /// only `frame_in` and the borrow is dropped.
-pub fn applyDecodedOwnedFrame(
+fn applyDecodedOwnedFrame(
     self: *Peer,
     frame_in: foundation.Frame,
     decoded_body: model.view.Body,
@@ -147,6 +171,17 @@ pub fn applyDecodedOwnedFrame(
     // kind it must refuse. `recordRecv*` re-checks the gate; the check is pure.
     try self.session_state.admits(decoded_body);
 
+    var canonical_partner_location: ?[]u8 = null;
+    defer if (canonical_partner_location) |bytes| self.allocator.free(bytes);
+    var recorded_body = decoded_body;
+    if (recorded_body == .start_session and recorded_body.start_session.acceptable_location_raw == null) {
+        canonical_partner_location = try engine.encodePeerLocatorViewRecord(
+            self.allocator,
+            recorded_body.start_session.acceptable_location,
+        );
+        recorded_body.start_session.acceptable_location_raw = canonical_partner_location.?;
+    }
+
     // A verifying peer authenticates the partner's `op:start-session` before
     // learning its key: real Ed25519 over the captured location bytes. The
     // session core runs no crypto, so this engine-boundary check gates the
@@ -162,14 +197,14 @@ pub fn applyDecodedOwnedFrame(
     // hello had already decided.
     if (decoded_body == .start_session and self.session_state.awaitsPartnerHello()) {
         if (self.verify_partner_handshake) {
-            try engine.verifyPartnerStartSession(self.allocator, decoded_body.start_session);
+            try engine.verifyPartnerStartSession(self.allocator, recorded_body.start_session);
         }
         // What this side demands of the partner's durable claim (ADR-0105),
         // at this same pre-open chokepoint: one byte-fed `feed` can carry the
         // start-session and later frames in a single chunk, and a post-open
         // check would let those frames apply under the wrong identity before
         // anyone looked.
-        try checkPartnerDurableClaim(self, decoded_body.start_session);
+        try checkPartnerDurableClaim(self, recorded_body.start_session);
     }
 
     // An inbound `op:listen` against one of our pending inbound answers
@@ -200,8 +235,11 @@ pub fn applyDecodedOwnedFrame(
     var retired_resolver_callback: ?model.ExportPosition = null;
     var node_resolver_callback: ?model.ExportPosition = null;
     var bootstrap_request: ?bootstrap.Request = null;
+    var classified_deliver: ?deliver_route.Classification = null;
+    defer if (classified_deliver) |*classified| classified.abandon(self);
     if (decoded_body == .deliver) {
-        switch (try deliver_route.classify(self, decoded_body.deliver, &introduced)) {
+        classified_deliver = try deliver_route.classify(self, decoded_body.deliver, &introduced);
+        switch (classified_deliver.?.route) {
             // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
             // a *borrowed* view over the deliver's args, applied through the
             // session's resolver-callback seam below — no owned
@@ -240,11 +278,9 @@ pub fn applyDecodedOwnedFrame(
             .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
             .node_resolver_callback => |resolver| node_resolver_callback = resolver,
             // Queued or redirected against the answer it pipelined on
-            // (ADR-0007); nothing surfaces for this frame.
-            .pipelined => {
-                frame.deinit();
-                return;
-            },
+            // (ADR-0007). Commit waits below for the same shortening and
+            // maintenance preparation every other accepted deliver receives.
+            .pipelined => {},
             // Answered automatically once authority records the deliver
             // (ADR-0006 responder half); the action applies below.
             .bootstrap => |action| bootstrap_request = action,
@@ -256,6 +292,14 @@ pub fn applyDecodedOwnedFrame(
             },
         }
     }
+
+    // Callback routes validate through specialized semantic views after
+    // classification and still need the shared import preflight. Ordinary
+    // routes already reserved the full answer/import apply before retaining
+    // their destination; do not replay that O(reference-count) capacity pass.
+    if (classified_deliver != null and
+        classified_deliver.?.needsIntroducedImportPreparation())
+        try self.session_state.prepareIntroducedImports(&introduced);
 
     const shortening_source = if (shortening_callback) |callback| switch (self.session_state.sourceForShorteningResolver(callback.resolver).?) {
         .pending => |source| source,
@@ -310,7 +354,6 @@ pub fn applyDecodedOwnedFrame(
             &pending_batch,
             shortening_source.?,
             shortening_callback.?.shortened_to.import_position,
-            prepared_shortening.?.nominations.items.len + @intFromBool(prepared_late_release != null),
         )
     else
         null;
@@ -325,6 +368,20 @@ pub fn applyDecodedOwnedFrame(
             self.cancelPendingReservation(prepared.reservation);
             model.freeMessage(self.allocator, prepared.message);
         }
+    }
+
+    if (classified_deliver != null and classified_deliver.?.route == .pipelined) {
+        try self.session_state.applyValidatedInboundDeliverView(
+            decoded_body.deliver,
+            &introduced,
+        );
+        if (classified_deliver.?.resolver) |prepared|
+            prepared.commit(&self.session_state);
+        commitPreparedShortening(self, &prepared_shortening.?);
+        prepared_shortening = null;
+        try classified_deliver.?.route.pipelined.commit(self);
+        frame.deinit();
+        return;
     }
 
     if (shortening_callback) |callback| {
@@ -370,10 +427,7 @@ pub fn applyDecodedOwnedFrame(
     // fall back to walking its frame, but allocator refusal is still a real
     // admission failure: accepting the frame while quietly dropping derived
     // state makes memory pressure alter the observable bookkeeping path.
-    var prepared_far_imports: ?[]model.ImportPosition = if (introduced.mentions.items.len == 0)
-        null
-    else
-        try self.allocator.dupe(model.ImportPosition, introduced.mentions.items);
+    var prepared_far_imports = try introduced.dupeArgumentMentions(self.allocator);
     defer if (prepared_far_imports) |positions| self.allocator.free(positions);
 
     try self.events.push(self.allocator, .{
@@ -404,6 +458,8 @@ pub fn applyDecodedOwnedFrame(
         self.events.backPtr().?.resolve_aliases = self.session_state.takePromiseSettlingFollowers(resolve.answer);
     } else if (tag == .deliver) {
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        if (classified_deliver.?.resolver) |prepared|
+            prepared.commit(&self.session_state);
         if (node_resolver_callback) |resolver|
             self.session_state.completeNodeSettlingResolverCallback(resolver);
         self.events.backPtr().?.deliver_answer_target = if (try self.events.backPtr().?.deliverAnswerName()) |answer|
@@ -411,7 +467,7 @@ pub fn applyDecodedOwnedFrame(
         else
             null;
     } else {
-        try self.session_state.recordRecvView(decoded_body);
+        try self.session_state.recordRecvView(recorded_body);
     }
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
     if (decoded_body == .start_session) self.settleNegotiatedProfile();
@@ -468,7 +524,7 @@ pub fn applyDecodedOwnedFrame(
             },
             .withdraw_gift => |req| {
                 const scope = if (self.node_services) |services| services.peer_handle else null;
-                if (self.pendingWithdrawCount() >= self.session_state.limits.max_pending_withdraws) {
+                if (self.pendingWithdrawCount() >= @as(usize, self.session_state.limits.max_pending_withdraws)) {
                     const gifter = bootstrap.liveGifterSession(self.gifterSessionResolver(), req.receive.signed_give);
                     if (gifter == null or !gifter.?.gifts.giftLive(req.receive.signed_give.gift_id)) {
                         return session.Error.PendingWithdrawCapExceeded;
@@ -480,7 +536,7 @@ pub fn applyDecodedOwnedFrame(
                     // a different session); park the withdraw, `step`
                     // settles it once the deposit lands.
                     .awaiting_deposit => |admission| {
-                        if (self.pendingWithdrawCount() >= self.session_state.limits.max_pending_withdraws) {
+                        if (self.pendingWithdrawCount() >= @as(usize, self.session_state.limits.max_pending_withdraws)) {
                             var receive = admission.receive;
                             receive.deinit(self.allocator);
                             return session.Error.PendingWithdrawCapExceeded;

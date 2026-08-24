@@ -14,54 +14,54 @@ import { elideIdentifier, IDENTIFIER_ELIDE_ABOVE, IDENTIFIER_END_CHARS } from ".
 
 /** A 64-character hex key, the shape an iroh node id arrives in. */
 function key(seed: string): string {
-  return seed.repeat(64).slice(0, 64);
+	return seed.repeat(64).slice(0, 64);
 }
 
 Deno.test("a short identifier is shown whole", () => {
-  assertEquals(elideIdentifier("alice"), "alice");
-  const atTheLimit = "x".repeat(IDENTIFIER_ELIDE_ABOVE);
-  assertEquals(elideIdentifier(atTheLimit), atTheLimit);
+	assertEquals(elideIdentifier("alice"), "alice");
+	const atTheLimit = "x".repeat(IDENTIFIER_ELIDE_ABOVE);
+	assertEquals(elideIdentifier(atTheLimit), atTheLimit);
 });
 
 Deno.test("a long identifier keeps both of its ends", () => {
-  const value = key("ab12cd34");
-  const shown = elideIdentifier(value);
-  assert(
-    shown.startsWith(value.slice(0, IDENTIFIER_END_CHARS)),
-    `${shown} dropped the head`,
-  );
-  assert(
-    shown.endsWith(value.slice(value.length - IDENTIFIER_END_CHARS)),
-    `${shown} dropped the tail`,
-  );
-  assert(shown.includes("…"), `${shown} does not say it was cut`);
+	const value = key("ab12cd34");
+	const shown = elideIdentifier(value);
+	assert(
+		shown.startsWith(value.slice(0, IDENTIFIER_END_CHARS)),
+		`${shown} dropped the head`,
+	);
+	assert(
+		shown.endsWith(value.slice(value.length - IDENTIFIER_END_CHARS)),
+		`${shown} dropped the tail`,
+	);
+	assert(shown.includes("…"), `${shown} does not say it was cut`);
 });
 
 Deno.test("two keys sharing a head still read apart", () => {
-  const head = "deadbeefdeadbeef";
-  const a = `${head}${"1".repeat(48)}`;
-  const b = `${head}${"2".repeat(48)}`;
-  assert(
-    elideIdentifier(a) !== elideIdentifier(b),
-    "a shared prefix collapsed two distinct keys into one label",
-  );
+	const head = "deadbeefdeadbeef";
+	const a = `${head}${"1".repeat(48)}`;
+	const b = `${head}${"2".repeat(48)}`;
+	assert(
+		elideIdentifier(a) !== elideIdentifier(b),
+		"a shared prefix collapsed two distinct keys into one label",
+	);
 });
 
 Deno.test("two keys sharing a tail still read apart", () => {
-  const tail = "cafebabecafebabe";
-  const a = `${"1".repeat(48)}${tail}`;
-  const b = `${"2".repeat(48)}${tail}`;
-  assert(
-    elideIdentifier(a) !== elideIdentifier(b),
-    "a shared suffix collapsed two distinct keys into one label",
-  );
+	const tail = "cafebabecafebabe";
+	const a = `${"1".repeat(48)}${tail}`;
+	const b = `${"2".repeat(48)}${tail}`;
+	assert(
+		elideIdentifier(a) !== elideIdentifier(b),
+		"a shared suffix collapsed two distinct keys into one label",
+	);
 });
 
 Deno.test("eliding buys room, and the amount is fixed", () => {
-  const shown = elideIdentifier(key("0f"));
-  assertEquals(shown.length, IDENTIFIER_END_CHARS * 2 + 1);
-  assert(
-    shown.length < IDENTIFIER_ELIDE_ABOVE,
-    "an elided key is no shorter than one shown whole",
-  );
+	const shown = elideIdentifier(key("0f"));
+	assertEquals(shown.length, IDENTIFIER_END_CHARS * 2 + 1);
+	assert(
+		shown.length < IDENTIFIER_ELIDE_ABOVE,
+		"an elided key is no shorter than one shown whole",
+	);
 });

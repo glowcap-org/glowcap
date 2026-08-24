@@ -94,6 +94,11 @@ pub const Port = struct {
         return self.sendFarTo(vat, .{ .promise = .{ .answer_position = answer } }, msg);
     }
 
+    /// Fire-and-forget eventual-send through this Port's answer namespace.
+    pub fn tellToAnswer(self: *Port, vat: *Vat, answer: model.AnswerPosition, msg: Message) Error!void {
+        return farDeliverTo(vat, self, .{ .promise = .{ .answer_position = answer } }, msg, null);
+    }
+
     pub fn tell(self: *Port, vat: *Vat, target: Ref, msg: Message) Error!void {
         return self.tellFromIngress(vat, self.ingress, target, msg);
     }
@@ -118,6 +123,17 @@ pub const Port = struct {
                 gop.value_ptr.* = listener;
             },
         }
+    }
+
+    /// Remove and return one pending vow listener without settling the vow.
+    /// This is the lifetime inverse of `on`: callers that own the listener
+    /// context can retire it while the underlying local turn or wire answer
+    /// continues independently.
+    pub fn takeListener(self: *Port, vat: *Vat, vow: Vow) ?Listener {
+        return switch (vow) {
+            .local => vat.takeListener(vow),
+            .far => |answer| if (self.far_listeners.fetchRemove(answer)) |entry| entry.value else null,
+        };
     }
 
     /// Reserve the exact listener table a not-yet-committed send will use.

@@ -50,17 +50,26 @@ const HTTP_PORT = Number(positional[0] ?? "8000");
 // across server restarts and CLI clients always know where to connect.
 const ROOM_PORT = positional[1] ?? "9099";
 // `--diagnostics` (or `PANCAKE_ROOMS_DIAGNOSTICS=1`) mints an unguessable
-// inspect capability on the room server and prints it here; `--admin-listeners`
-// (or `PANCAKE_ROOMS_ADMIN_LISTENERS=1`) mints the listener-admin capability
-// the same way. Neither is a page flag: the Operations modal takes each by
+// inspect capability on the room server and prints it here. The other entries
+// in `BOOT_CAPS` follow the same operator-capability shape. None is a page flag:
+// the Operations page takes each by
 // fetching its swiss number on the live directory session, the same way it
 // fetches `directory`.
 const DIAGNOSTICS = flagOrEnv(flags, BOOT_CAPS.diagnostics.flag, BOOT_CAPS.diagnostics.env);
 const ADMIN_LISTENERS = flagOrEnv(flags, BOOT_CAPS.adminListeners.flag, BOOT_CAPS.adminListeners.env);
+const PEERING = flagOrEnv(flags, BOOT_CAPS.peering.flag, BOOT_CAPS.peering.env);
 // `--viz` (or `PANCAKE_ROOMS_VIZ=1`) has the room server serve the live
 // timeline endpoint and mint the viz capability, the same enabling shape as
 // the two above.
+// `--irc` (or `PANCAKE_ROOMS_IRC=1`) mints the IRC gateway capability:
+// holding it bridges IRC channels into this directory as ordinary rooms.
+const IRC = flagOrEnv(flags, BOOT_CAPS.irc.flag, BOOT_CAPS.irc.env);
 const VIZ = flagOrEnv(flags, BOOT_CAPS.viz.flag, BOOT_CAPS.viz.env);
+// `--history` (or `PANCAKE_ROOMS_HISTORY=1`) has the room server keep listed
+// rooms' last lines in its state directory and answer them to members. A
+// policy flag, not a capability: there is no swiss to take, only a stated
+// retention the room's own divider names.
+const HISTORY = flagOrEnv(flags, "--history", "PANCAKE_ROOMS_HISTORY");
 // `--transport=<tcp|iroh|onion>` (or `PANCAKE_ROOMS_TRANSPORT`) picks the room's wire.
 // Over iroh and onion the server announces an ocapn:// URI; over onion ROOM_PORT
 // becomes the local endpoint Tor forwards the service to, which is also where
@@ -256,7 +265,10 @@ function spawnRoomServer(): Deno.ChildProcess {
 		: [`${ROOT}../server/main.ts`, ROOM_PORT];
 	if (DIAGNOSTICS) serverArgs.push(BOOT_CAPS.diagnostics.flag);
 	if (ADMIN_LISTENERS) serverArgs.push(BOOT_CAPS.adminListeners.flag);
+	if (PEERING) serverArgs.push(BOOT_CAPS.peering.flag);
+	if (IRC) serverArgs.push(BOOT_CAPS.irc.flag);
 	if (VIZ) serverArgs.push(BOOT_CAPS.viz.flag);
+	if (HISTORY) serverArgs.push("--history");
 	return new Deno.Command("deno", {
 		args: [...DENO_FLAGS, ...serverArgs],
 		env: {
@@ -266,6 +278,7 @@ function spawnRoomServer(): Deno.ChildProcess {
 			PANCAKE_ROOMS_SUPERVISED: "1",
 			...(DIAGNOSTICS ? { PANCAKE_ROOMS_DIAGNOSTICS: "1" } : {}),
 			...(ADMIN_LISTENERS ? { PANCAKE_ROOMS_ADMIN_LISTENERS: "1" } : {}),
+			...(PEERING ? { PANCAKE_ROOMS_PEERING: "1" } : {}),
 			...(VIZ ? { PANCAKE_ROOMS_VIZ: "1" } : {}),
 			// The LAN flags ride to the server as the env vars it honors; env
 			// vars an operator set directly are inherited untouched.
@@ -478,6 +491,8 @@ async function superviseServer(): Promise<void> {
 const OPERATIONS_CAPS = [
 	{ enabled: () => ADMIN_LISTENERS, ...BOOT_CAPS.adminListeners },
 	{ enabled: () => DIAGNOSTICS, ...BOOT_CAPS.diagnostics },
+	{ enabled: () => IRC, ...BOOT_CAPS.irc },
+	{ enabled: () => PEERING, ...BOOT_CAPS.peering },
 	// Enabling the timeline endpoint is what mints its capability: the swiss
 	// below admits every viz socket, producers and viewers alike.
 	{ enabled: () => VIZ, ...BOOT_CAPS.viz },
@@ -548,7 +563,7 @@ async function printServingBlock(): Promise<void> {
 	}
 	if (held.length > 0) {
 		console.log("");
-		console.log("  operator capabilities, paste each when flipping its toggle on in Settings under Advanced:");
+		console.log("  operator capabilities, paste each when flipping its toggle on in Settings under Capabilities:");
 		for (const row of capabilityRows(held)) console.log(row);
 	}
 	console.log("");

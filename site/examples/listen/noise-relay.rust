@@ -1,17 +1,30 @@
-// PLANNED: Rust has no managed relay listen helper yet.
-// Config::with_register_url already exists. This shows the planned
-// first-call, the same shape as tcp::noise::listen.
-//
-// use pancake::relay;
-//
-// let seed = [7u8; 32]; // replace with durable secret bytes across restarts
-// let server = relay::noise::listen(
-//     "wss://relay.example/relay",
-//     "wss://relay.example/register",
-//     relay::ListenOptions {
-//         identity: relay::ListenerIdentity::Seed(seed),
-//         ..relay::ListenOptions::default()
-//     },
-// )
-// .await?;
+use pancake::{relay, Argument};
+
+// Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+let server = relay::noise::listen(
+    "wss://relay.example/relay",
+    "wss://relay.example/register",
+    relay::ListenOptions {
+        identity: relay::ListenerIdentity::Seed(seed),
+        ..relay::ListenOptions::default()
+    },
+)
+.await?;
 // From here, the CapTP workflow is transport-independent.
+println!("{}", server.uri()?); // hand this locator to partners
+server.host().publish_giftable("greeter", || Box::new(greeter))?;
+loop {
+    let session = server.accept().await?;
+    session.serve().await?;
+}
+
+fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
+    if verb != "greet" {
+        return Err("no such method".into());
+    }
+    let Some(Argument::String(name)) = args.first() else {
+        return Err("bad invocation".into());
+    };
+    Ok(Argument::String(format!("Hello, {name}").into()))
+}

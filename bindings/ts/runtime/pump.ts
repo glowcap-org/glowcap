@@ -10,7 +10,7 @@ import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts
 import { enterDeliver, exitDeliver, type TurnHostOwner } from "./trampoline.ts";
 import { type AbortDetail, abortDomainLabel, checkHost, hostError, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, HOST_OUTBOUND_PREFIX_CAP, OK, WOULD_BLOCK } from "@pancake/abi";
+import { CLOSED, OK, TIMEOUT, WOULD_BLOCK } from "@pancake/abi";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -38,6 +38,12 @@ export interface PumpHandle {
 	/** Retain an outbound failure before retiring the damaged stream. */
 	recordOutboundFailure(error: unknown): void;
 	writing: Promise<void>;
+	/** Session-owned metadata reused under `writing`'s serialized drain. */
+	readonly outboundScratch: {
+		readonly managedFrame: Uint8Array;
+		readonly prefix: Uint8Array;
+		readonly prefixLen: Uint8Array;
+	};
 	read(): Promise<Uint8Array | null>;
 	write(data: Uint8Array): Promise<void>;
 	drainParkedReleases(): void;
@@ -58,7 +64,7 @@ export interface PumpHandle {
  * Host-owned resume step — otherwise a pipelined fetch would answer before
  * the object it names exists. Abandonment on failure stays on Session's
  * establish wrapper. */
-export async function runHandshake(h: PumpHandle): Promise<void> {
+async function driveHandshake(h: PumpHandle): Promise<void> {
 	await h.kickActions();
 	while (!h.sessionOpen) {
 		const chunk = await h.read();
@@ -70,6 +76,26 @@ export async function runHandshake(h: PumpHandle): Promise<void> {
 		}
 		await feed(h, chunk);
 	}
+}
+
+/** Drive the handshake under its caller-selected anti-hang budget. */
+export function runHandshake(h: PumpHandle, timeoutMs: number | null): Promise<void> {
+	const handshake = driveHandshake(h);
+	if (!timeoutMs) return handshake;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const bound = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() =>
+				reject(
+					new PancakeError(
+						TIMEOUT,
+						`the partner did not finish the OCapN handshake within ${timeoutMs}ms`,
+					),
+				),
+			timeoutMs,
+		);
+	});
+	return Promise.race([handshake, bound]).finally(() => clearTimeout(timer));
 }
 
 /** Run the inbound loop: read transport packets, hand them to the Host
@@ -266,11 +292,9 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 	try {
 		await prior;
 		try {
+			const { managedFrame: mf, prefix, prefixLen } = h.outboundScratch;
 			while (true) {
 				if (h.released) return;
-				const mf = new Uint8Array(L.MANAGED_FRAME_SIZE);
-				const prefix = new Uint8Array(HOST_OUTBOUND_PREFIX_CAP);
-				const prefixLen = new Uint8Array(8);
 				const rc = hostS.pancake_host_session_take_packet(
 					h.ptr,
 					ab(mf),
@@ -280,12 +304,16 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 				);
 				if (rc === WOULD_BLOCK) return;
 				checkHost(rc);
-				const dv = new DataView(mf.buffer);
-				const frame = readBytes(
-					L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
-					L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
-				);
-				releaseManagedFrame(mf);
+				let frame: Uint8Array;
+				try {
+					const dv = new DataView(mf.buffer);
+					frame = readBytes(
+						L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
+						L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
+					);
+				} finally {
+					releaseManagedFrame(mf);
+				}
 				const prefixBytes = prefix.subarray(0, Number(outUsize(prefixLen)));
 				if (prefixBytes.length > 0) await h.write(prefixBytes);
 				await h.write(frame);

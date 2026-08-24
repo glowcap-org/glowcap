@@ -7,8 +7,9 @@
 // side by side is the point — each is a different question, and answering one
 // with another is how a room ends up opened against the wrong server.
 
+import { INVALID_ARGUMENT } from "@pancake/abi";
 import type { WebRuntime } from "@pancake/web";
-import { formatPeerUri, type Locator, parseSturdyRef } from "@pancake/runtime";
+import { formatPeerUri, type Locator, PancakeError, parseSturdyRef } from "@pancake/runtime";
 import { roomsAddress, roomsLocator } from "../../../lib/locator.ts";
 import { CAPTP_VERSION } from "../../../lib/protocol.ts";
 import * as store from "../store.ts";
@@ -38,22 +39,31 @@ export function soleLive(): Live | null {
 let homeDirectoryLocator: string | null = null;
 
 /** Name a directory by authority, excluding mutable routing hints, or null when
- * the text is not a locator at all. The shared locator parser remains the grammar
- * authority; this application decides that one directory is one
- * transport/designator pair across address changes.
+ * the shared grammar specifically refuses the text as an invalid argument.
+ * Callers use null to reject an ordinary join-field mistake in the card; it is
+ * not permission to continue with that text. Runtime, archive, and Wasm failures
+ * propagate unchanged, because reporting those as malformed input hides the
+ * broken component and sends the reader back to an address that was valid.
  *
- * Null rather than a throw, because every caller here is holding something a
- * person typed, and "that is not an address" is an answer to give them rather
- * than an exception to raise. It used to throw, and the throw reached the page:
- * a locator that merely pointed nowhere was refused politely, while one that was
- * not a locator took the whole interface down to the error screen — the two
- * halves of the same mistake, one of them tested. */
+ * The shared locator parser remains the grammar authority; this application
+ * decides only that one directory is one transport/designator pair across
+ * address changes. */
 export function directoryId(locator: string): DirId | null {
+	// Empty text is the join field's resting state, not an address to parse:
+	// asking the grammar about it made every fresh render a refusal.
+	if (locator.trim() === "") return null;
 	try {
 		return directoryAuthority(roomsLocator(locator));
-	} catch {
-		return null;
+	} catch (err) {
+		return invalidArgumentOrThrow(err);
 	}
+}
+
+/** Turn the parser's one ordinary input refusal into the UI's null result.
+ * Everything else still means the parser failed, not that its input was bad. */
+function invalidArgumentOrThrow(error: unknown): null {
+	if (error instanceof PancakeError && error.code === INVALID_ARGUMENT) return null;
+	throw error;
 }
 
 /** The authority half of a parsed locator, which is what one directory is. */
@@ -62,7 +72,9 @@ function directoryAuthority(locator: Locator): DirId {
 }
 
 /** The directory a room link belongs to: which one it is, and the address to
- * reach it at. Null when the text is not a room link at all.
+ * reach it at. Null only when the shared grammar rejects the text as an
+ * invalid argument. Runtime, archive, and Wasm failures remain failures; a
+ * valid link must never be reported as malformed because its parser is broken.
  *
  * A link is a sturdyref, so it carries its own peer. That is what makes it
  * reachable from a tab that has never heard of the server hosting the room.
@@ -73,8 +85,8 @@ export function linkDirectory(link: string): { id: DirId; address: string } | nu
 	try {
 		const { locator } = parseSturdyRef(link.trim(), CAPTP_VERSION);
 		return { id: directoryAuthority(locator), address: roomsAddress(locator) };
-	} catch {
-		return null;
+	} catch (err) {
+		return invalidArgumentOrThrow(err);
 	}
 }
 

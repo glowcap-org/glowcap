@@ -32,8 +32,8 @@ import { elideIdentifier } from "./elide.ts";
  *  than one a person did, which is what tells a caller to shorten it in
  *  the middle (see `./identifier.tsx`) instead of clipping its end. */
 export type EndName = {
-  readonly text: string;
-  readonly opaque: boolean;
+	readonly text: string;
+	readonly opaque: boolean;
 };
 
 /** What stands between the two ends in a session's one-line name.
@@ -64,18 +64,18 @@ export const SESSION_PAIR_SEPARATOR = " · ";
  * shortens a claim.
  */
 export function sessionEndName(
-  doc: TimelineDocument,
-  sessionId: string,
-  side: SessionSide,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	side: SessionSide,
+	t: number,
 ): EndName {
-  const place = sessionEndpointPlaceAt(doc, sessionId, side, t);
-  if (place.peer !== undefined) {
-    const label = peerLabelAt(doc, place.peer, t);
-    return { text: label, opaque: label === place.peer };
-  }
-  const claim = doc.entities?.sessions?.[sessionId]?.[side].designator;
-  return claim === undefined ? { text: UNNAMED_END_LABEL, opaque: false } : { text: claim, opaque: true };
+	const place = sessionEndpointPlaceAt(doc, sessionId, side, t);
+	if (place.peer !== undefined) {
+		const label = peerLabelAt(doc, place.peer, t);
+		return { text: label, opaque: label === place.peer };
+	}
+	const claim = doc.entities?.sessions?.[sessionId]?.[side].designator;
+	return claim === undefined ? { text: UNNAMED_END_LABEL, opaque: false } : { text: claim, opaque: true };
 }
 
 /**
@@ -91,10 +91,10 @@ export function sessionEndName(
  * `sessionEndName` and let `Identifier` do the shortening.
  */
 export function sessionPairName(
-  doc: TimelineDocument,
-  sessionId: string,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	t: number,
 ): string {
-  const read = (side: SessionSide) => elideIdentifier(sessionEndName(doc, sessionId, side, t).text);
-  return `${read("a")}${SESSION_PAIR_SEPARATOR}${read("b")}`;
+	const read = (side: SessionSide) => elideIdentifier(sessionEndName(doc, sessionId, side, t).text);
+	return `${read("a")}${SESSION_PAIR_SEPARATOR}${read("b")}`;
 }

@@ -24,13 +24,15 @@ import {
 	type JoinAnswers,
 	joinLead,
 	joinLocatorPlaceholder,
+	looksLikeRoomLink,
 	thisDirectoryLocator,
+	typedRoomLink,
 } from "./joining.ts";
 import { DirectoryPicks, typeAnotherAddress } from "./DirectoryPicks.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { useMenu } from "./Menu.tsx";
 import { Said } from "./Said.tsx";
-import { type DirId, type DirView } from "./types.ts";
+import { type DirId, type DirView, liveRoomNames } from "./types.ts";
 import { WorkingAction } from "./WorkingAction.tsx";
 
 type JoinError = { field: "room" | "nick" | "form"; text: string } | null;
@@ -62,17 +64,34 @@ export function JoinCard(
 		halt.current?.abort();
 		const run = new AbortController();
 		halt.current = run;
-		const room = String(form.get("room") ?? "").trim() || JOIN_DEFAULT_ROOM;
+		const typedRoom = String(form.get("room") ?? "").trim();
 		// Empty, the bare home authority, and home's hinted route are one
 		// destination: this page's own directory, reached over the session
-		// already open rather than by a fresh dial.
+		// already open rather than by a fresh dial. A room link is none of
+		// those: collapsing it to home would drop the swissnum.
 		const typed = thisDirectoryLocator(String(form.get("locator") ?? ""), homeDir);
-		const locator = typed !== "" && homeDir !== null && peer.directoryId(typed.trim()) === homeDir ? "" : typed;
+		const atHome = typed !== "" && homeDir !== null && peer.directoryId(typed.trim()) === homeDir &&
+			!looksLikeRoomLink(typed);
+		const locator = atHome ? "" : typed;
+		const linked = typedRoomLink(locator, typedRoom);
+		// A remembered room name is from a previous join, not a name for this
+		// link. Only a name the reader typed under this paste is a label.
+		const namedTheLink = linked !== null &&
+			(answers.room.from === "edited" || answers.room.from === "named");
+		const room = linked !== null ? (namedTheLink ? linked.label : "") : typedRoom || JOIN_DEFAULT_ROOM;
 		const nick = String(form.get("nick") ?? "").trim() || JOIN_DEFAULT_NICK;
 		if (nick.length > MAX_NICK) return { field: "nick", text: tooLong("name", MAX_NICK) };
 		if (room.length > MAX_ROOM) return { field: "room", text: tooLong("room name", MAX_ROOM) };
 		try {
-			const text = await peer.join({ room, locator, hidden: secret }, nick, run.signal);
+			const text = await peer.join(
+				{
+					room,
+					locator: linked !== null ? linked.link : locator,
+					hidden: linked !== null ? false : secret,
+				},
+				nick,
+				run.signal,
+			);
 			if (run.signal.aborted) return null;
 			if (text !== "") return { field: "form", text };
 			// The lock is an intention about the room just made, and it is now
@@ -89,6 +108,7 @@ export function JoinCard(
 	// room panel is aimed by the same field, and asks the same question of the
 	// same answer.
 	const field = useRef<HTMLInputElement>(null);
+	const asLink = typedRoomLink(locator, room) !== null;
 	const aimed = destination(locator, peer.directoryId(locator.trim()), dirs, homeDir, "this page's directory");
 	const who = nick.trim() || JOIN_DEFAULT_NICK;
 	// The same names the rail's room panel offers, because this field and that
@@ -99,10 +119,10 @@ export function JoinCard(
 	// Rooms on the directory this card is aimed at, which moves with the locator
 	// above: a name advertised somewhere else would open a different room.
 	const aimedAt = peer.directoryId(locator.trim()) ?? homeDir;
-	const roomOffers = [...(aimedAt == null ? [] : dirs.get(aimedAt)?.liveRooms.keys() ?? [])];
+	const roomOffers = asLink || aimedAt == null ? [] : liveRoomNames(dirs.get(aimedAt)?.liveRooms ?? new Map());
 	const suggest = useSuggest({
 		id: "room",
-		label: "Room",
+		label: asLink ? "Call it" : "Room",
 		offers: roomOffers,
 		value: room,
 		sigil: "#",
@@ -119,7 +139,11 @@ export function JoinCard(
 				<p className="lead">{joinLead(answers, aimed.name)}</p>
 				<div className="join-fields" inert={joining || undefined}>
 					<label htmlFor="locator">
-						Directory locator <span className="optional">Optional</span>
+						{asLink ? "Room link" : (
+							<>
+								Directory locator <span className="optional">Optional</span>
+							</>
+						)}
 					</label>
 					<JoinLocator
 						locator={locator}
@@ -128,7 +152,7 @@ export function JoinCard(
 						onPick={(next) => peer.editJoin({ locator: next })}
 						onType={(next) => peer.editJoin({ locator: next })}
 					/>
-					<label htmlFor="room">{secret ? "Private room" : "Room"}</label>
+					<label htmlFor="room">{asLink ? "Call it" : secret ? "Private room" : "Room"}</label>
 					{
 						/* The list hangs off this box rather than off the field, so it
 					    lines up with the field's outer edge and not with the inside
@@ -136,33 +160,41 @@ export function JoinCard(
 					}
 					<div className="join-field-wrap">
 						<JoinField invalid={error?.field === "room"}>
-							<JoinPrefix
-								id="joinPrivate"
-								label={secret
-									? "Making a private room: only people you hand it to can reach it"
-									: "Make this room private, so only people you hand it to can reach it"}
-								aria-pressed={secret}
-								onMouseDown={(event) => event.preventDefault()}
-								onClick={() => peer.editJoin({ secret: !secret })}
-							>
-								{secret
-									? <Icon name="lock" size={18} />
-									: <span className="join-hash" aria-hidden="true">#</span>}
-							</JoinPrefix>
+							{asLink ? undefined : (
+								<JoinPrefix
+									id="joinPrivate"
+									label={secret
+										? "Making a private room: only people you hand it to can reach it"
+										: "Make this room private, so only people you hand it to can reach it"}
+									aria-pressed={secret}
+									onMouseDown={(event) => event.preventDefault()}
+									onClick={() => peer.editJoin({ secret: !secret })}
+								>
+									{secret
+										? <Icon name="lock" size={18} />
+										: <span className="join-hash" aria-hidden="true">#</span>}
+								</JoinPrefix>
+							)}
 							<input
 								ref={field}
 								id="room"
 								name="room"
-								placeholder={JOIN_DEFAULT_ROOM}
+								placeholder={asLink ? "a room" : JOIN_DEFAULT_ROOM}
 								enterKeyHint="next"
 								aria-describedby={error?.field === "room" ? "joinError" : undefined}
 								aria-invalid={error?.field === "room"}
-								maxLength={MAX_ROOM}
+								maxLength={looksLikeRoomLink(room) ? undefined : MAX_ROOM}
 								value={room}
 								{...suggest.aria}
 								onChange={(e) => {
 									peer.editJoin({ room: e.target.value });
 									suggest.typed();
+								}}
+								onPaste={(e) => {
+									const text = e.clipboardData.getData("text").trim();
+									if (!looksLikeRoomLink(text)) return;
+									e.preventDefault();
+									peer.editJoin({ locator: text });
 								}}
 								onKeyDown={(e) => {
 									// The list first: while a row is picked, the arrows,

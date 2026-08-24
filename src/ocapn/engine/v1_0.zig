@@ -5,8 +5,8 @@
 //! `prepareOutboundDeliver` augments an answered `op:deliver` with a
 //! synthesized resolver export advertised as `resolve_me_desc`, committing the
 //! answer-to-export link in the session. On the way back,
-//! `registerPartnerResolver` installs the partner's own advertised resolver as
-//! our import, so our eventual resolution has somewhere to go; recognizing a
+//! `preparePartnerResolver` prepares the partner's advertised resolver as our
+//! import, so our eventual resolution has somewhere to go; recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
 //! the inbound classifier (ADR-0095). Our side of that settlement is
 //! `encodeResolveAsCallback`, which
@@ -23,14 +23,14 @@ const Peer = engine.Peer;
 
 /// A V1.0 wire message whose synthesized resolver mention has been installed
 /// in authoritative session state but has not reached the outbound queue yet.
-/// The encode owner must call `rollback` on every failure before publication;
+/// The encode owner must call `abandon` on every failure before publication;
 /// once the frame is queued, the partner owns the mention and the preparation
 /// is committed by doing nothing.
 pub const PreparedMessage = struct {
     message: model.Message,
     resolver_export: ?model.ExportPosition = null,
 
-    pub fn rollback(self: PreparedMessage, peer: *Peer) void {
+    pub fn abandon(self: PreparedMessage, peer: *Peer) void {
         if (self.resolver_export) |resolver_export|
             peer.session_state.abandonMentionedResolverExport(resolver_export);
     }
@@ -48,6 +48,12 @@ pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMess
     if (deliver.answer == null or deliver.resolve_me_desc != null) {
         return .{ .message = .{ .deliver = deliver } };
     }
+    // Explicit public-handle release can queue `op:gc-answers` behind a request
+    // before this deferred encode runs. Its send-side accounting has already
+    // retired the answer, so no resolver remains locally observable and minting
+    // one here would recreate authority after release.
+    if (peer.session_state.outboundAnswer(deliver.answer.?) == null)
+        return .{ .message = .{ .deliver = deliver } };
     // Synthesize the resolver object V1.0 requires and commit the
     // answer→export link (plus the wire-delta retain its on-wire mention
     // needs) through the session's single accounting seam, so the partner's
@@ -81,8 +87,10 @@ pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMess
 /// answered deliver earns, carried on a separate `op:listen` frame. The
 /// `op:listen` must reach the wire *after* the projection that opened the
 /// answer; the caller orders the two pushes. V1.0 sessions only — the caller
-/// gates on `Session.needsV1_0Translation`.
-pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosition) !PreparedMessage {
+/// gates on `Session.needsV1_0Translation`. Returns null when explicit release
+/// retired the projected answer before deferred encoding reached this step.
+pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosition) !?PreparedMessage {
+    if (peer.session_state.outboundAnswer(projected_answer) == null) return null;
     // Mint the resolver export and commit its answer link and wire-delta retain
     // through the session's single accounting seam (see
     // `prepareOutboundDeliver`), then carry the mention on `op:listen`.
@@ -102,7 +110,8 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
 
 /// Encode a semantic `Resolve` as its V1.0 resolver-callback `op:deliver`
 /// (ADR-0010), addressed to the partner's resolver import recorded when their
-/// augmented deliver arrived, and push the frame onto `peer.outbound`. The
+/// augmented deliver arrived. The callback and the `op:gc-exports` that releases
+/// its one-shot resolver import publish as one adjacent pair. The
 /// resolution becomes `['fulfill, payload]` or `['break, reason-symbol]` args;
 /// both borrow `resolve` for the encode call. The break reason rides as a bare
 /// Symbol — the same payload shape the listener fire uses — because Goblins'
@@ -114,16 +123,14 @@ pub fn encodeResolveAsCallback(
     peer: *Peer,
     resolve: model.Resolve,
     resolver_import: model.ImportPosition,
-    pending_charge: usize,
 ) !void {
-    return encodeResolutionAsCallback(peer, resolve.resolution, resolver_import, pending_charge);
+    return encodeResolutionAsCallback(peer, resolve.resolution, resolver_import);
 }
 
 pub fn encodeResolutionAsCallback(
     peer: *Peer,
     resolution: model.Resolution,
     resolver_import: model.ImportPosition,
-    pending_charge: usize,
 ) !void {
     var args: [2]model.Argument = switch (resolution) {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
@@ -140,51 +147,47 @@ pub fn encodeResolutionAsCallback(
             .resolve_me_desc = null,
         },
     };
-    try peer.pushEncodedFromPending(pending_charge, wire);
+    if (!peer.session_state.importRequiresWireRelease(resolver_import))
+        return peer.pushEncodedFromPending(wire);
+    const positions = [_]u64{resolver_import.int()};
+    const deltas = [_]u64{1};
+    const release: model.Message = .{ .gc_export = .{
+        .positions = &positions,
+        .deltas = &deltas,
+    } };
+    try peer.pushEncodedPairFromPending(
+        wire,
+        release,
+        .record_at_commit,
+    );
 }
 
-/// Register the resolver the partner advertised on an inbound V1.0 deliver,
-/// *installing session authority*: a `resolve_me_desc` registers the resolver
-/// import, allocating and installing a virtual inbound answer when the deliver
-/// carries no wire answer-position (the V1.0 resolver-only call pattern).
-///
-/// Returns that virtual answer when one was allocated, so the surfaced deliver
-/// can carry it and the application's reply routes back through the resolver
-/// callback. Null when the deliver already carried a wire answer (the frame has
-/// it) or advertised no resolver at all.
+/// Prepare the resolver the partner advertised on an inbound V1.0 deliver.
+/// Capacity, caps, and answer/import collisions are decided here without
+/// installing authority; the inbound owner commits the returned value only
+/// after the frame's queue or event destination is secured.
 ///
 /// The other half of the V1.0 round trip — recognizing a deliver *to* one of
 /// our resolver exports — is version-neutral and lives in the inbound
 /// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
-pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model.VirtualAnswer {
-    var installed_virtual: ?model.AnswerName = null;
-    errdefer if (installed_virtual) |answer|
-        peer.session_state.abandonUnsharedInboundAnswerNamed(answer);
-
+pub fn preparePartnerResolver(
+    peer: *Peer,
+    deliver: model.view.Deliver,
+) !?session_mod.PreparedInboundResolver {
     if (deliver.resolve_me_desc) |rmd| {
         if (rmd.position()) |import_position| {
-            // V1.0 resolver: the partner introduces their resolver export as
-            // our import. Use the deliver's answer if present; otherwise
-            // allocate a fresh virtual answer (the V1.0 fetch-with-resolver
-            // pattern the OCapN suite uses: no answer-position on the wire,
-            // only a resolve-me-desc).
+            const virtual: ?model.VirtualAnswer = if (deliver.answer == null) blk: {
+                break :blk try peer.session_state.nextVirtualInboundAnswer();
+            } else null;
             const answer = if (deliver.answer) |wire|
                 model.AnswerName.fromWire(wire)
-            else blk: {
-                const virtual = model.AnswerName.fromVirtual(try peer.session_state.allocateInboundAnswer());
-                // Install before the resolver row below: a swallowed failure
-                // here would leave `v1_0_inbound_resolver_link` referencing a
-                // virtual answer absent from `inbound_answers`, breaking the
-                // authoritative-state invariant on OOM.
-                try peer.session_state.installInboundAnswerNamed(virtual);
-                installed_virtual = virtual;
-                break :blk virtual;
-            };
-            try peer.session_state.installInboundResolver(answer, model.ImportPosition.from(import_position));
-            // A resolver-only deliver (no wire answer) surfaces with the virtual
-            // answer so the application's reply has a target; a deliver that
-            // already carried a wire answer surfaces unchanged.
-            if (deliver.answer == null) return answer.virtual;
+            else
+                model.AnswerName.fromVirtual(virtual.?);
+            return try peer.session_state.prepareInboundResolver(
+                answer,
+                model.ImportPosition.from(import_position),
+                virtual,
+            );
         }
     }
     return null;

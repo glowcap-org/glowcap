@@ -33,85 +33,85 @@
 import { Container, Text, type TextStyleOptions } from "pixi.js";
 
 export interface TextStyleSpec {
-  fontFamily: string;
-  fontSize: number;
-  fill: number | string;
-  /** "left" anchors at (x, y); "right" subtracts the rendered width. */
-  align: "left" | "right";
-  /** "alphabetic" matches Canvas 2D's text-baseline default. */
-  baseline: "top" | "middle" | "alphabetic";
-  alpha?: number;
+	fontFamily: string;
+	fontSize: number;
+	fill: number | string;
+	/** "left" anchors at (x, y); "right" subtracts the rendered width. */
+	align: "left" | "right";
+	/** "alphabetic" matches Canvas 2D's text-baseline default. */
+	baseline: "top" | "middle" | "alphabetic";
+	alpha?: number;
 }
 
 export class TextPool {
-  #parent: Container;
-  #items: Text[] = [];
-  #cursor = 0;
+	#parent: Container;
+	#items: Text[] = [];
+	#cursor = 0;
 
-  constructor(parent: Container) {
-    this.#parent = parent;
-  }
+	constructor(parent: Container) {
+		this.#parent = parent;
+	}
 
-  beginFrame(): void {
-    this.#cursor = 0;
-  }
+	beginFrame(): void {
+		this.#cursor = 0;
+	}
 
-  /** Reserve the next pool slot at (x, y) with the given text +
-   * style. Slots are indexed by call order, so a call site reuses
-   * the same `Text` instance for exactly as long as the number of
-   * acquires before it stays the same — see the header for which
-   * of this pool's callers hold that and which do not. */
-  acquire(label: string, style: TextStyleSpec, x: number, y: number): void {
-    const index = this.#cursor++;
-    let text = this.#items[index];
-    if (!text) {
-      text = new Text({ text: label, style: toPixiStyle(style) });
-      this.#items[index] = text;
-      this.#parent.addChild(text);
-    } else {
-      // Mutate in place — Pixi only re-rasterizes when style
-      // actually differs. Stable-style labels (gutter, ruler) hit
-      // the cheap path of only writing `.text`.
-      if (text.text !== label) text.text = label;
-      const cur = text.style;
-      if (
-        cur.fontFamily !== style.fontFamily ||
-        cur.fontSize !== style.fontSize ||
-        cur.fill !== style.fill
-      ) {
-        text.style = toPixiStyle(style);
-      }
-    }
-    text.visible = true;
-    text.alpha = style.alpha ?? 1;
-    // Canvas 2D's "alphabetic" baseline ≈ anchor.y 0.85 in Pixi.
-    text.anchor.set(
-      style.align === "right" ? 1 : 0,
-      style.baseline === "middle" ? 0.5 : style.baseline === "alphabetic" ? 0.85 : 0,
-    );
-    text.position.set(x, y);
-  }
+	/** Reserve the next pool slot at (x, y) with the given text +
+	 * style. Slots are indexed by call order, so a call site reuses
+	 * the same `Text` instance for exactly as long as the number of
+	 * acquires before it stays the same — see the header for which
+	 * of this pool's callers hold that and which do not. */
+	acquire(label: string, style: TextStyleSpec, x: number, y: number): void {
+		const index = this.#cursor++;
+		let text = this.#items[index];
+		if (!text) {
+			text = new Text({ text: label, style: toPixiStyle(style) });
+			this.#items[index] = text;
+			this.#parent.addChild(text);
+		} else {
+			// Mutate in place — Pixi only re-rasterizes when style
+			// actually differs. Stable-style labels (gutter, ruler) hit
+			// the cheap path of only writing `.text`.
+			if (text.text !== label) text.text = label;
+			const cur = text.style;
+			if (
+				cur.fontFamily !== style.fontFamily ||
+				cur.fontSize !== style.fontSize ||
+				cur.fill !== style.fill
+			) {
+				text.style = toPixiStyle(style);
+			}
+		}
+		text.visible = true;
+		text.alpha = style.alpha ?? 1;
+		// Canvas 2D's "alphabetic" baseline ≈ anchor.y 0.85 in Pixi.
+		text.anchor.set(
+			style.align === "right" ? 1 : 0,
+			style.baseline === "middle" ? 0.5 : style.baseline === "alphabetic" ? 0.85 : 0,
+		);
+		text.position.set(x, y);
+	}
 
-  /** Hide any slots not `acquire`'d this frame. */
-  endFrame(): void {
-    for (let i = this.#cursor; i < this.#items.length; i += 1) {
-      const text = this.#items[i];
-      if (text && text.visible) text.visible = false;
-    }
-  }
+	/** Hide any slots not `acquire`'d this frame. */
+	endFrame(): void {
+		for (let i = this.#cursor; i < this.#items.length; i += 1) {
+			const text = this.#items[i];
+			if (text && text.visible) text.visible = false;
+		}
+	}
 
-  destroy(): void {
-    for (const text of this.#items) {
-      text.destroy();
-    }
-    this.#items.length = 0;
-  }
+	destroy(): void {
+		for (const text of this.#items) {
+			text.destroy();
+		}
+		this.#items.length = 0;
+	}
 }
 
 function toPixiStyle(s: TextStyleSpec): TextStyleOptions {
-  return {
-    fontFamily: s.fontFamily,
-    fontSize: s.fontSize,
-    fill: s.fill,
-  };
+	return {
+		fontFamily: s.fontFamily,
+		fontSize: s.fontSize,
+		fill: s.fill,
+	};
 }

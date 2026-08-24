@@ -1,5 +1,5 @@
-// The diagnostics pane of the Operations modal, drawn only while this tab
-// holds the inspect capability (the Advanced toggle is how it is taken).
+// The diagnostics pane of the Operations page, drawn only while this tab
+// holds the inspect capability (the Capabilities toggle is how it is taken).
 //
 // One well holding what the directory currently holds, as inspect sees it:
 // kind, name, and the directory's own note about each. The kinds read as a
@@ -7,10 +7,12 @@
 // nothing says so instead of drawing an empty grid.
 
 import { usePeer } from "../peer.ts";
-import type { DiagnosticRow } from "../types.ts";
+import type { DiagnosticRow, TroubleRow } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 
-export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] | null }) {
+export function DiagnosticsPane(
+	{ rows, trouble }: { rows: readonly DiagnosticRow[] | null; trouble: readonly TroubleRow[] },
+) {
 	const peer = usePeer();
 
 	// The modal draws one pane per held capability; see the listeners pane.
@@ -52,6 +54,29 @@ export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] | nul
 								))}
 							</tbody>
 						</table>
+					)}
+			</div>
+			{
+				/* The page's own trouble journal, beside the directory's holdings:
+				   failures with no reader-facing surface of their own land here
+				   instead of dying in the console, newest first, repeats folded
+				   into a count. Drawn even when empty, so an operator checking on
+				   the page learns "nothing" instead of nothing. */
+			}
+			<p className="well-title overline">This page</p>
+			<div className="group well" id="pageTrouble">
+				{trouble.length === 0
+					? <p className="ops-empty">Nothing has gone wrong on this page.</p>
+					: (
+						<ul className="ops-trouble">
+							{trouble.map((row, at) => (
+								<li key={row.source + row.reason + String(at)}>
+									<span className="ops-kind">{row.source}</span>
+									<span className="ops-note">{row.reason}</span>
+									{row.count > 1 && <span className="ops-trouble-count">×{row.count}</span>}
+								</li>
+							))}
+						</ul>
 					)}
 			</div>
 		</div>

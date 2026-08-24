@@ -16,18 +16,16 @@ test "managed frame release is null safe and idempotent" {
             frame.bytes = null;
             frame.len = 0;
             frame.shape = c.PANCAKE_FRAME_SHAPE_BYTE;
-            frame.private_data = null;
+            frame.private_words = @splat(0);
         }
     };
 
     var bytes = [_]u8{ 9, 8, 7 };
-    var managed = c.PancakeManagedFrame{
-        .bytes = bytes[0..].ptr,
-        .len = bytes.len,
-        .shape = c.PANCAKE_FRAME_SHAPE_BYTE,
-        .release = Callback.release,
-        .private_data = null,
-    };
+    var managed = std.mem.zeroes(c.PancakeManagedFrame);
+    managed.bytes = bytes[0..].ptr;
+    managed.len = bytes.len;
+    managed.shape = c.PANCAKE_FRAME_SHAPE_BYTE;
+    managed.release = Callback.release;
 
     c.pancake_managed_frame_release(&managed);
     c.pancake_managed_frame_release(&managed);

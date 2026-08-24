@@ -17,7 +17,7 @@ const cr = @import("c_abi_net_transport_relay");
 
 fn checkInventory(comptime M: type) void {
     comptime {
-        @setEvalBranchQuota(40_000);
+        @setEvalBranchQuota(50_000);
         for (@typeInfo(M).@"struct".decl_names) |decl_name| {
             if (!std.mem.startsWith(u8, decl_name, "pancake_")) continue;
             if (@typeInfo(@TypeOf(@field(M, decl_name))) != .@"fn") continue;
@@ -290,8 +290,8 @@ const host_ffi_preamble =
     \\// from this binding: the JS side owns its behavior entries in the trampoline
     \\// registry, so there is nothing for the library to free.
     \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
+    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+    \\import { HOST_ARCHIVE_FINGERPRINT } from "@pancake/abi";
     \\
     \\
 ;
@@ -318,14 +318,14 @@ const ocapn_ffi_preamble =
     \\// signature sit on one line, so the table reads down like the C header it
     \\// mirrors. Every `internal/ffi` loader opens with the same header.
     \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
+    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+    \\import { OCAPN_ARCHIVE_FINGERPRINT } from "@pancake/abi";
     \\
     \\
 ;
 
 pub fn generateHostFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cd, host_ffi_preamble, "pancake_host", "hostS", null);
+    return renderDlopenFile(gpa, cd, host_ffi_preamble, "pancake_host", "hostS", .{ .stem = "host", .constant = "HOST_ARCHIVE_FINGERPRINT" });
 }
 
 const loop_ffi_preamble =
@@ -343,18 +343,18 @@ const loop_ffi_preamble =
     \\// `pancake_driver_wake` is the one cross-thread call, and borrowed views
     \\// in a popped event die at the next `pancake_driver_next_event`.
     \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
+    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+    \\import { DRIVER_ARCHIVE_FINGERPRINT } from "@pancake/abi";
     \\
     \\
 ;
 
 pub fn generateLoopFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "pancake_driver", "loopS", null);
+    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "pancake_driver", "loopS", .{ .stem = "driver", .constant = "DRIVER_ARCHIVE_FINGERPRINT" });
 }
 
 pub fn generateOcapnFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, c, ocapn_ffi_preamble, "pancake_ocapn", "ocapnS", null);
+    return renderDlopenFile(gpa, c, ocapn_ffi_preamble, "pancake_ocapn", "ocapnS", .{ .stem = "ocapn", .constant = "OCAPN_ARCHIVE_FINGERPRINT" });
 }
 
 const tcp_ffi_preamble =

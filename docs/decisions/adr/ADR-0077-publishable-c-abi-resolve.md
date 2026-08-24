@@ -101,9 +101,12 @@ package-local metadata.
   posix paths that fail `x86_64-windows-gnu` cross-builds, and there is no
   IOCP completion backend. Until those land, `release_pack_names.oses`
   excludes windows and consumers use `PANCAKE_LIB_DIR` or in-tree `zig-out`.
-- Per-target hash pins inside packages, Sigstore/attestations, Forgejo mirror
-  workflows, and language-registry publish remain ops follow-ups after the
-  first real `releases_published: true` cut.
+- A tagged archive release is accepted only after `check.yml` succeeds for the
+  exact release commit. The release workflow gives every final tarball and the
+  combined `SHA256SUMS` a GitHub artifact attestation before publishing them;
+  consumers can verify that build provenance independently of the checksum
+  file. Per-target hash pins inside packages, Forgejo mirror workflows, and
+  language-registry publication remain separate operational surfaces.
 - `releases_published` in `c-abi-resolve.json` is the prerelease valve for
   hosted C archives: when false, loaders and `tools/c-abi/fetch-c-abi.sh` skip the
   release download unless `PANCAKE_DOWNLOAD=1`, and the release workflow skips
@@ -118,5 +121,6 @@ package-local metadata.
   surface only; see the flip checklist in `bindings/PACKAGING.md`.
 - Vendoring platform wheels/cdylibs inside each package remains a future
   packaging optimization; this ADR is the find/download contract either way.
-  Pinning per-target hashes _inside_ the package (stronger than same-host
-  SHA256SUMS) is a follow-up once `v*` releases publish regularly.
+  Pinning per-target hashes _inside_ the package (stronger than the attested,
+  same-host `SHA256SUMS`) becomes useful once package-registry releases have a
+  separately reviewed update path for those pins.

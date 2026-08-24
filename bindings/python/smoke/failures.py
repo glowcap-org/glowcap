@@ -14,7 +14,6 @@ import pancake._driver.finalizer as _driver_finalizer
 import pancake._host as _host_module
 from pancake._action import _answer_gift_id
 from pancake._archive_contract import require_archive_fingerprint
-from pancake._gc import HostGc
 from pancake._errors import _retain_cleanup_failure
 from pancake._failure import _RuntimeFailureQueue
 from pancake._ffi_driver import _DriverFailure
@@ -26,7 +25,6 @@ from pancake._constants import (
 )
 
 from pancake import (
-    Context,
     FailureLayer,
     Host,
     PancakeError,
@@ -39,7 +37,6 @@ from pancake._constants import (
     ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
     ERR_IO,
-    ERR_NULL_POINTER,
 )
 
 
@@ -97,12 +94,31 @@ def _stale_archive_is_refused_before_use() -> None:
         pancake_test_archive_fingerprint = _ReadFingerprint(0x5678)
 
     try:
-        require_archive_fingerprint(_Archive(), "test", 0x1234)
+        require_archive_fingerprint(
+            lambda: _Archive.pancake_test_archive_fingerprint,
+            "test",
+            0x1234,
+        )
     except RuntimeError as error:
         assert "callable surface does not match" in str(error), error
         assert "rebuild the native libraries" in str(error), error
     else:
         raise AssertionError("stale native archive was admitted")
+
+    class _MissingArchive:
+        pass
+
+    try:
+        require_archive_fingerprint(
+            lambda: _MissingArchive.pancake_test_archive_fingerprint,
+            "test",
+            0x1234,
+        )
+    except RuntimeError as error:
+        assert "missing archive fingerprint" in str(error), error
+        assert "from this checkout" in str(error), error
+    else:
+        raise AssertionError("archive without a fingerprint was admitted")
 
 
 def _driver_failure_preserves_carrier_detail() -> None:
@@ -130,36 +146,6 @@ def _driver_failure_preserves_carrier_detail() -> None:
     assert carrier.verification_flags == 0x21
     assert carrier.peer_alert == 42
     assert carrier.engine_code == -0x2700
-
-
-def _gc_release_refusal_stays_owned() -> None:
-    """A scheduled GC refusal remains queued and reaches the next verb head."""
-
-    class RefusingHost:
-        released = False
-        host_raw = None
-
-        def kick(self) -> None:
-            raise AssertionError("a refused release must not kick")
-
-        def schedule_drain(self, _run) -> None:
-            pass
-
-    host_gc = HostGc()
-    host_gc.bind(RefusingHost())
-    host_gc.pending.append(17)
-    host_gc._drain_scheduled()
-    background_failure = host_gc._background_failure
-    assert isinstance(background_failure, PancakeError), background_failure
-    assert background_failure.code == ERR_NULL_POINTER, background_failure
-    assert host_gc.pending == [17], host_gc.pending
-    try:
-        host_gc.drain_gc()
-    except PancakeError as surfaced:
-        assert surfaced is background_failure
-    else:
-        raise AssertionError("scheduled GC refusal did not reach the next drain")
-    assert host_gc.pending == [17], host_gc.pending
 
 
 async def _websocket_close_failure_is_observable() -> None:
@@ -198,7 +184,6 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     failed = asyncio.create_task(fail_settlement())
     host._own_behavior_task(failed)
     await asyncio.gather(failed, return_exceptions=True)
-    await asyncio.sleep(0)
     consequence = RuntimeError("second settlement failure from the same operation")
     host._record_terminal_failure(consequence)
     try:
@@ -231,7 +216,6 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     drain = asyncio.create_task(fail_drain())
     host._own_action_drain(drain)
     await asyncio.gather(drain, return_exceptions=True)
-    await asyncio.sleep(0)
     assert host.terminal_failures == (
         failure,
         consequence,
@@ -373,7 +357,9 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     unicode_queue = _RuntimeFailureQueue(1)
     unicode_queue.record(FailureLayer.BINDING, "☃" * 600, RuntimeError("unretained"))
     unicode_truncated = unicode_queue.claim()[0]
-    assert len(unicode_truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, unicode_truncated
+    assert len(unicode_truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, (
+        unicode_truncated
+    )
     assert "�" not in unicode_truncated.operation, unicode_truncated
 
     typed_queue = _RuntimeFailureQueue(1)
@@ -549,43 +535,3 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     assert fallback[1].operation == "trace.sink.diagnostic", fallback
     assert fallback[1].layer is FailureLayer.BINDING, fallback
     assert fallback[1].primary_message == str(recorder), fallback
-
-
-def _allocator_callback_exceptions_are_contained() -> None:
-    pancake.take_runtime_failures()
-    alloc_error = RuntimeError("allocator refused")
-
-    def fail_alloc(_size: int, _alignment: int) -> int:
-        raise alloc_error
-
-    try:
-        Context.with_allocator(fail_alloc, lambda *_args: None)
-    except PancakeError:
-        pass
-    else:
-        raise AssertionError("null allocator result must refuse Context construction")
-    failures = pancake.take_runtime_failures()
-    assert len(failures) == 1, failures
-    assert failures[0].operation == "context.allocator.alloc", failures
-    assert failures[0].primary_message == str(alloc_error), failures
-
-    live = {}
-    free_error = RuntimeError("allocator free refused")
-
-    def allocate(size: int, alignment: int) -> int:
-        backing = (ctypes.c_uint8 * (size + alignment))()
-        base = ctypes.addressof(backing)
-        address = (base + alignment - 1) & ~(alignment - 1) if alignment > 1 else base
-        live[address] = backing
-        return address
-
-    def fail_free(_address: int, _size: int, _alignment: int) -> None:
-        raise free_error
-
-    context = Context.with_allocator(allocate, fail_free)
-    context.close()
-    failures = pancake.take_runtime_failures()
-    assert failures, "free callback exception disappeared"
-    assert failures[0].operation == "context.allocator.free", failures
-    assert failures[0].primary_message == str(free_error), failures
-    assert live, "failed free fabricated successful ownership release"

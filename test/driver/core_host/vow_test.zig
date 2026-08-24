@@ -1,4 +1,5 @@
-//! Vows and unobserved completions: rows retire on settle, failed dials
+//! Vows and unobserved completions: listener rows retire on settle while
+//! public handles retire on release, failed dials
 //! break the redeeming vow with the reason, unlistened settles ride the
 //! action queue owned, a burst never strands on the reserved queue, and
 //! fetch failures stay pre-commit.
@@ -46,6 +47,8 @@ const retireClosedSession = harness.retireClosedSession;
 const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
+const vow_widget_pair = @import("vow/widget_pair.zig");
+const openWidgetPair = vow_widget_pair.open;
 
 test "core host fresh vow id exhaustion refuses before publishing a vow row" {
     const allocator = std.testing.allocator;
@@ -62,7 +65,7 @@ test "core host fresh vow id exhaustion refuses before publishing a vow row" {
     try std.testing.expectEqual(std.math.maxInt(u64), host.next_vow);
 }
 
-test "core host: vow rows retire on settle; the map stays empty and release frees the rest" {
+test "core host: listener vows retire on settle and public vows remain sendable until release" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x4a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
@@ -72,23 +75,61 @@ test "core host: vow rows retire on settle; the map stays empty and release free
     defer dials.deinit(allocator);
 
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
-    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+    // Stateless serving still owns unclaimed actor answers. Host vows claim
+    // their own release, so this policy cannot retire a public pipeline target
+    // or duplicate an observed vow's release.
+    pair.a.served.serve_options.gc_stateless = true;
+    const widget_local = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+    _ = try pair.b.served.publish(&pair.b.host.vat, "vendor", Vendor, .{ .widget = widget_local.nearRef() });
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     const widget_ref = try fetched.require();
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
 
-    // Settlement retires each row, listener or not: the map never grows with
-    // completed calls.
+    // In-process listeners consume their rows at settle. Public handles stay
+    // addressable until release, exactly like their answer positions.
+    var public_vows: [2]u64 = undefined;
+    var public_count: usize = 0;
     for (0..4) |i| {
         const vow = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
         var reply = CapturedString{};
-        if (i % 2 == 0) try client.vowOn(vow, .{ .ctx = &reply, .func = CapturedString.record });
+        if (i % 2 == 0) {
+            try client.vowOn(vow, .{ .ctx = &reply, .func = CapturedString.record });
+        } else {
+            public_vows[public_count] = vow;
+            public_count += 1;
+        }
         try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
         if (i % 2 == 0) try std.testing.expectEqualStrings("poked over fed bytes", reply.buf[0..reply.len]);
     }
+    try std.testing.expectEqual(@as(usize, 2), client.vows.count());
+    for (public_vows) |vow| try client.vowRelease(vow);
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+
+    // Settlement does not release the answer position. Force a complete
+    // round trip before addressing the vendor's settled answer, then prove
+    // only explicit release makes that pipeline target unavailable.
+    var fetched_vendor = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "vendor"), .{ .ctx = &fetched_vendor, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const make_vow = try client.send(pair.a, try fetched_vendor.require(), .{ .verb = "make", .args = &.{} });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqual(@as(usize, 1), client.vows.count());
+    try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
+
+    const late_send = try client.vowSend(make_vow, .{ .verb = "poke", .args = &.{} });
+    var late_reply = CapturedString{};
+    try client.vowOn(late_send, .{ .ctx = &late_reply, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqualStrings("poked over fed bytes", late_reply.buf[0..late_reply.len]);
+
+    try client.vowRelease(make_vow);
+    try std.testing.expectError(
+        driver.core.HostError.NoSuchVow,
+        client.vowSend(make_vow, .{ .verb = "poke", .args = &.{} }),
+    );
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
     // One listener per vow, and a settled id is simply gone.
     const observed = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
@@ -108,6 +149,200 @@ test "core host: vow rows retire on settle; the map stays empty and release free
     try client.releaseSession(pair.a);
     try std.testing.expect(broken.broken);
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+}
+
+test "core host: observed remote vows release answer ownership in both profiles" {
+    try expectObservedRemoteRelease(.v1_0, 0x52, "127.0.0.1:7003");
+    try expectObservedRemoteRelease(.next, 0x54, "127.0.0.1:7004");
+}
+
+test "core host: promise-pipelined tell mints no answer or public vow" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x58)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x59)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7005", &dials);
+    var hits: usize = 0;
+    const counter = try pair.b.served.publish(&pair.b.host.vat, "counter", FairCounter, .{ .hits = &hits });
+    _ = try pair.b.served.publish(&pair.b.host.vat, "vendor", Vendor, .{ .widget = counter.nearRef() });
+    var vendor = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "vendor"), .{ .ctx = &vendor, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    const made = try client.send(pair.a, try vendor.require(), .{ .verb = "make" });
+    const answers_before_tell = pair.a.served.port.peer.session_state.outbound_answers.len();
+    try client.vowTellValues(made, "hit", &.{}, allocator);
+    try std.testing.expectEqual(answers_before_tell, pair.a.served.port.peer.session_state.outbound_answers.len());
+    try std.testing.expectEqual(@as(usize, 1), client.vows.count());
+
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqual(@as(usize, 1), hits);
+    try std.testing.expectEqual(@as(usize, 1), client.vows.count());
+    try client.vowRelease(made);
+}
+
+fn expectObservedRemoteRelease(
+    profile: model.CaptpVersion,
+    seed: u8,
+    designator: []const u8,
+) !void {
+    const allocator = std.testing.allocator;
+    var options = Host.Options.withFrameCap(frame_cap);
+    options.captp_version = profile;
+    options.features = model.FeatureSet.full().forCaptpVersion(profile);
+    var client = test_host.init(allocator, @as([32]u8, @splat(seed)), options);
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(seed + 1)), options);
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, designator, &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+    const client_state = &pair.a.served.port.peer.session_state;
+    const server_state = &pair.b.served.port.peer.session_state;
+    const client_answers = client_state.outbound_answers.len();
+    const client_resolvers = client_state.outbound_resolver_link.len();
+    const client_exports = client_state.exports.len();
+    const server_answers = server_state.inbound_answers.len();
+
+    const vow = try client.fetch(pair.a, "widget");
+    var fetched = CapturedRef{};
+    try client.vowOn(vow, .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    _ = try fetched.require();
+    try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+    try std.testing.expectEqual(client_answers, client_state.outbound_answers.len());
+    try std.testing.expectEqual(client_resolvers, client_state.outbound_resolver_link.len());
+    try std.testing.expectEqual(client_exports, client_state.exports.len());
+    try std.testing.expectEqual(server_answers, server_state.inbound_answers.len());
+}
+
+test "core host: releasing a pending or condemned vow retires its listener exactly once" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x4c)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x4d)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const opened = try openWidgetPair(allocator, &client, &server, &dials);
+    const state = &opened.pair.a.served.port.peer.session_state;
+    const baseline_answers = state.outbound_answers.len();
+    const baseline_resolvers = state.outbound_resolver_link.len();
+    const baseline_exports = state.exports.len();
+    const pending = try client.send(opened.pair.a, opened.widget, .{ .verb = "poke", .args = &.{} });
+    try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
+    try std.testing.expectEqual(@as(usize, 1), client.pendingVowCount());
+    try client.vowRelease(pending);
+    try client.vowRelease(pending);
+    try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+    try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
+    try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
+    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(baseline_exports, state.exports.len());
+
+    const condemned = try client.send(opened.pair.a, opened.widget, .{ .verb = "poke", .args = &.{} });
+    try client.beginSessionClose(opened.pair.a, .cancel, 0);
+    try client.vowRelease(condemned);
+    try client.vowRelease(condemned);
+    try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+    try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
+}
+
+test "core host: releasing an in-flight enliven clears dedup state for immediate retry" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x4e)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x4f)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7002", &dials);
+    const sturdyref = tcpSturdyref("127.0.0.1:7002", "retryable");
+    const baseline_operations = pair.a.pendingOperations();
+    const baseline_answers = pair.a.served.port.peer.session_state.outbound_answers.len();
+
+    const first = try client.enliven(pair.a, sturdyref);
+    try std.testing.expectEqual(baseline_operations + 1, pair.a.pendingOperations());
+    try client.vowRelease(first);
+    try std.testing.expectEqual(baseline_operations, pair.a.pendingOperations());
+    try std.testing.expectEqual(baseline_answers, pair.a.served.port.peer.session_state.outbound_answers.len());
+
+    // The first release removed the session's in-flight swissnum marker. A
+    // retry therefore mints a fresh wire question instead of observing a
+    // stranded `AlreadyListening` state.
+    const retry = try client.enliven(pair.a, sturdyref);
+    try std.testing.expect(retry != first);
+    try client.vowRelease(retry);
+    try std.testing.expectEqual(baseline_operations, pair.a.pendingOperations());
+    try std.testing.expectEqual(baseline_answers, pair.a.served.port.peer.session_state.outbound_answers.len());
+    try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+}
+
+test "core host: local listen release retires answer and resolver ownership" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x50)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x51)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const opened = try openWidgetPair(allocator, &client, &server, &dials);
+    const state = &opened.pair.a.served.port.peer.session_state;
+    const baseline_answers = state.outbound_answers.len();
+    const baseline_resolvers = state.outbound_resolver_link.len();
+    const baseline_exports = state.exports.len();
+
+    const pending = try client.queueListenTo(opened.pair.a, opened.widget);
+    const pending_answer = client.vows.get(pending).?.vow.far;
+    const pending_resolver = state.outbound_resolver_link.getByValue(.{
+        .application_answer = pending_answer,
+    }).?;
+    try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
+    try std.testing.expectEqual(baseline_resolvers + 1, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(@as(u64, 1), state.exports.wireHeld(pending_resolver));
+    try client.vowRelease(pending);
+    try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
+    try std.testing.expectEqual(.pending, state.retiredResolverState(pending_resolver).?);
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
+    try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(pending_resolver));
+    try std.testing.expect(state.retiredResolverState(pending_resolver) == null);
+    try std.testing.expect(!state.exports.contains(pending_resolver));
+    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(baseline_exports, state.exports.len());
+
+    const settled = try client.queueListenTo(opened.pair.a, opened.widget);
+    const settled_answer = client.vows.get(settled).?.vow.far;
+    const settled_resolver = state.outbound_resolver_link.getByValue(.{
+        .application_answer = settled_answer,
+    }).?;
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
+    try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
+    try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(settled_resolver));
+    try client.vowRelease(settled);
+    try std.testing.expect(!state.exports.contains(settled_resolver));
+    try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
+    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(baseline_exports, state.exports.len());
+
+    const observed = try client.queueListenTo(opened.pair.a, opened.widget);
+    var observed_value = CapturedRef{};
+    try client.vowOn(observed, .{ .ctx = &observed_value, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
+    _ = try observed_value.require();
+    try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+    try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
+    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(baseline_exports, state.exports.len());
 }
 
 test "core host: a failed dial breaks the redeeming vow with the reason" {
@@ -144,25 +379,9 @@ test "core host: a failed dial breaks the redeeming vow with the reason" {
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
 
     // The exporter is unreachable: the dial's failure breaks the vow.
-    try recipient.dialFailed(dials.items[0].ticket, "exporter unreachable");
+    try recipient.dialFailed(dials.items[0].ticket, 0, "exporter unreachable");
     try std.testing.expect(redeemed.broken);
     try std.testing.expect(redeemed.ref == null);
-}
-
-/// Open a pair, publish the widget, and fetch it with an in-process listener —
-/// the shared preamble of the queue-drain scenarios below.
-fn openWidgetPair(
-    allocator: std.mem.Allocator,
-    client: *Host,
-    server: *Host,
-    dials: *std.ArrayList(ParkedDial),
-) !struct { pair: Pair, widget: model.Reference } {
-    const pair = try openPair(allocator, client, server, "127.0.0.1:7001", dials);
-    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
-    var fetched = CapturedRef{};
-    try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &.{ client, server }, &.{pair}, dials);
-    return .{ .pair = pair, .widget = try fetched.require() };
 }
 
 test "core host: an unlistened settle rides the action queue owned, valid until the next nextAction frees it" {
@@ -182,7 +401,7 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
 
     // Drain by hand: the popped completion's deep-cloned value stays valid
     // across this whole iteration — the next `nextAction` call frees it —
-    // and the row is already retired.
+    // while the public target row remains retained until release.
     var settle_count: usize = 0;
     while (try client.nextAction()) |action| {
         switch (action) {
@@ -197,6 +416,9 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
         }
     }
     try std.testing.expectEqual(@as(usize, 1), settle_count);
+    try std.testing.expectEqual(@as(usize, 1), client.vows.count());
+    try std.testing.expectError(actors.Error.AlreadySettled, client.vowOn(vow, .{ .ctx = null, .func = CapturedString.record }));
+    try client.vowRelease(vow);
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
     try std.testing.expectError(driver.core.HostError.NoSuchVow, client.vowOn(vow, .{ .ctx = null, .func = CapturedString.record }));
 
@@ -348,121 +570,7 @@ test "core host: a burst of unlistened settles never strands — every completio
         }
     }
     for (seen) |hit| try std.testing.expect(hit);
+    try std.testing.expectEqual(@as(usize, burst), client.vows.count());
+    for (vows) |vow| try client.vowRelease(vow);
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
-}
-
-test "core host: a settle under OOM never strands a vow and never trips the reserved completion queue" {
-    // Sweep a failing allocator across every allocation index of the settle
-    // window: the setup (handshake, publish, fetch, the burst of sends) runs
-    // unarmed, then the reply frames are fed with the allocator armed to
-    // fail at `offset` and every allocation after it. For every offset the
-    // invariant is the same: no `appendAssumeCapacity` panic (the completion
-    // queue is reserved at mint) and every minted vow stays accounted — its
-    // completion drained, or its row still live because the feed failed
-    // before the resolve applied. A silently vanished vow is a strand.
-    var offset: usize = 0;
-    while (true) : (offset += 1) {
-        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-        const allocator = failing.allocator();
-        var saw_oom = false;
-        {
-            var client = test_host.init(allocator, @as([32]u8, @splat(0x9a)), Host.Options.withFrameCap(frame_cap));
-            defer client.deinit();
-            var server = test_host.init(allocator, @as([32]u8, @splat(0x9b)), Host.Options.withFrameCap(frame_cap));
-            defer server.deinit();
-            var dials: std.ArrayList(ParkedDial) = .empty;
-            defer dials.deinit(std.testing.allocator);
-            const opened = try openWidgetPair(std.testing.allocator, &client, &server, &dials);
-
-            const burst = 4;
-            var vows: [burst]u64 = undefined;
-            for (&vows) |*slot| {
-                slot.* = try client.send(opened.pair.a, opened.widget, .{ .verb = "poke", .args = &.{} });
-            }
-
-            // Arm: the next `offset` allocations succeed, everything after
-            // fails — the replies are fed (and the settles fire) inside this
-            // window.
-            failing.fail_index = failing.alloc_index + offset;
-            var failed_run = false;
-            _ = shuttleAll(&.{opened.pair}) catch {
-                failed_run = true;
-            };
-            if (!failed_run) _ = shuttleAll(&.{opened.pair}) catch {
-                failed_run = true;
-            };
-            // A run may only fail because the sweep induced it.
-            if (failed_run) try std.testing.expect(failing.has_induced_failure);
-            saw_oom = failing.has_induced_failure;
-
-            // Disarm and account for every vow: a drained completion or a
-            // still-live row, never neither.
-            failing.fail_index = std.math.maxInt(usize);
-            var seen: [burst]bool = @splat(false);
-            while (try client.nextAction()) |action| {
-                switch (action) {
-                    .settled => |s| for (vows, 0..) |id, i| {
-                        if (id == s.vow_id) seen[i] = true;
-                    },
-                    .failed => |f| for (vows, 0..) |id, i| {
-                        if (id == f.vow_id) seen[i] = true;
-                    },
-                    else => {},
-                }
-            }
-            for (vows, seen) |id, hit| {
-                if (!hit) try std.testing.expect(client.vows.contains(id));
-            }
-        }
-        if (!saw_oom) break;
-        // The window is a bounded handful of allocations; a sweep that never
-        // completes means something regressed into an allocation storm.
-        try std.testing.expect(offset < 512);
-    }
-}
-
-test "core host: fetch allocation failures are pre-commit and a committed vow id is never lost" {
-    var offset: usize = 0;
-    var saw_precommit_oom = false;
-    while (true) : (offset += 1) {
-        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-        const allocator = failing.allocator();
-        var client = test_host.init(allocator, @as([32]u8, @splat(0xa8)), Host.Options.withFrameCap(frame_cap));
-        defer client.deinit();
-        var server = test_host.init(std.testing.allocator, @as([32]u8, @splat(0xa9)), Host.Options.withFrameCap(frame_cap));
-        defer server.deinit();
-        var dials: std.ArrayList(ParkedDial) = .empty;
-        defer dials.deinit(std.testing.allocator);
-        const pair = try openPair(std.testing.allocator, &client, &server, "127.0.0.1:7106", &dials);
-
-        try std.testing.expectEqual(@as(usize, 0), pair.a.served.queuedOutboundBytes());
-        const held_bootstrap_before = pair.a.served.port.peer.session_state.holdsImport(.from(engine.BOOTSTRAP_POSITION));
-        failing.fail_index = failing.alloc_index + offset;
-
-        const result = client.fetch(pair.a, "allocation-transaction");
-        if (result) |vow_id| {
-            // An allocation may have failed while the post-commit encode pump
-            // ran. The operation still succeeds with its live id; callers must
-            // never be invited to replay a committed fetch.
-            try std.testing.expect(client.vows.contains(vow_id));
-            failing.fail_index = std.math.maxInt(usize);
-            break;
-        } else |err| {
-            try std.testing.expectEqual(error.OutOfMemory, err);
-            try std.testing.expect(failing.has_induced_failure);
-            saw_precommit_oom = true;
-            // Every returned OOM precedes the fetch: no carrier, Host vow, or
-            // bootstrap-import retain crossed the transaction boundary.
-            try std.testing.expectEqual(@as(usize, 0), pair.a.served.queuedOutboundBytes());
-            try std.testing.expectEqual(@as(usize, 0), client.vows.count());
-            try std.testing.expectEqual(
-                held_bootstrap_before,
-                pair.a.served.port.peer.session_state.holdsImport(.from(engine.BOOTSTRAP_POSITION)),
-            );
-        }
-
-        failing.fail_index = std.math.maxInt(usize);
-        try std.testing.expect(offset < 64);
-    }
-    try std.testing.expect(saw_precommit_oom);
 }

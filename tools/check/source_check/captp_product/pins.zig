@@ -176,7 +176,10 @@ pub fn checkDurablePinWriters(
         var it = dir.iterate();
         while (try it.next(io)) |entry| {
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".zig")) continue;
-            const contents = root.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch continue;
+            const contents = root.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ entry.name, @errorName(err) });
+                continue;
+            };
             defer gpa.free(contents);
             for (verbs) |verb| {
                 if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
@@ -207,7 +210,10 @@ pub fn checkDurablePinWriters(
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
             if (std.mem.eql(u8, path, this_check)) continue;
-            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ path, @errorName(err) });
+                continue;
+            };
             defer gpa.free(contents);
 
             for (verbs) |verb| {

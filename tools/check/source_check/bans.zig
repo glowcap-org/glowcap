@@ -271,12 +271,14 @@ const prose = @import("bans/prose.zig");
 const layers = @import("bans/layers.zig");
 const engine_peer_handle = @import("bans/engine_peer_handle.zig");
 const binding_policy = @import("bans/binding_policy.zig");
+const binding_racket_policy = @import("bans/binding_racket_policy.zig");
 const binding_relay_policy = @import("bans/binding_relay_policy.zig");
 const onion = @import("bans/onion.zig");
 const local_forward = @import("bans/local_forward.zig");
 const authority = @import("bans/authority.zig");
 const surfaces = @import("bans/surfaces.zig");
 const failure = @import("bans/failure.zig");
+const route_bundle = @import("bans/route_bundle.zig");
 
 pub const all: []const Ban =
     captp_io.captp_io_spine_table ++
@@ -294,11 +296,13 @@ pub const all: []const Ban =
     layers.discovery_dial_budget_rows ++
     layers.local_turn_budget_rows ++
     local_forward.hop_cap_rows ++
+    binding_racket_policy.vow_adoption_rows ++
+    binding_policy.runtime_progress_rows ++
     binding_policy.unobserved_outcome_cap_rows ++
     failure.runtime_failure_journal_rows ++
     binding_policy.readiness_drain_cap_rows ++
     binding_policy.pending_dial_hint_probe_rows ++
-    binding_policy.racket_relay_binary_rows ++
+    binding_racket_policy.relay_binary_rows ++
     binding_policy.stream_read_chunk_rows ++
     binding_policy.iroh_read_chunk_rows ++
     binding_policy.trace_payload_cap_rows ++
@@ -307,6 +311,7 @@ pub const all: []const Ban =
     binding_policy.secondary_failure_cap_rows ++
     layers.iroh_node_id_bytes_rows ++
     layers.iroh_direct_address_rows ++
+    route_bundle.rows ++
     onion.service_key_cap_rows ++
     layers.uri_format_sizing_rows ++
     layers.relay_route_hint_cap_rows ++

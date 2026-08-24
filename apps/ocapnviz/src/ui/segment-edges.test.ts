@@ -27,7 +27,7 @@ import { assert, assertEquals } from "@std/assert";
 import { segmentCellClass } from "./tokens.ts";
 
 const CSS = await Deno.readTextFile(
-  new URL("../controls.css", import.meta.url),
+	new URL("../controls.css", import.meta.url),
 );
 
 /**
@@ -43,115 +43,115 @@ const CSS = await Deno.readTextFile(
  * way the stylesheet does.
  */
 function ruleBody(selector: string): string | null {
-  const want = selector.replace(/\s+/g, " ").trim();
-  for (const block of CSS.split("}")) {
-    const open = block.indexOf("{");
-    if (open === -1) continue;
-    const head = block.slice(0, open);
-    // A rule is usually preceded by its comment; the list is whatever follows the
-    // comment's end, or the whole head when there is no comment.
-    const commentEnd = head.lastIndexOf("*/");
-    const list = (commentEnd === -1 ? head : head.slice(commentEnd + 2))
-      .replace(/\s+/g, " ")
-      .trim();
-    if (list === want) return block.slice(open + 1);
-  }
-  return null;
+	const want = selector.replace(/\s+/g, " ").trim();
+	for (const block of CSS.split("}")) {
+		const open = block.indexOf("{");
+		if (open === -1) continue;
+		const head = block.slice(0, open);
+		// A rule is usually preceded by its comment; the list is whatever follows the
+		// comment's end, or the whole head when there is no comment.
+		const commentEnd = head.lastIndexOf("*/");
+		const list = (commentEnd === -1 ? head : head.slice(commentEnd + 2))
+			.replace(/\s+/g, " ")
+			.trim();
+		if (list === want) return block.slice(open + 1);
+	}
+	return null;
 }
 
 Deno.test("the chosen cell declares its own right edge", () => {
-  // The side the sharing rule left to a neighbour, and so the only side that
-  // could be taken away by one.
-  const body = ruleBody(".ocv-btn.is-segment.is-active");
-  assert(
-    body !== null,
-    "no rule styles a chosen segmented cell, so nothing here is being checked",
-  );
-  assert(
-    /border-right:\s*1px\s+solid\s+var\(--ocv-accent\)/.test(body),
-    `a chosen cell should draw its own accent right border; it declares: ${body.trim()}`,
-  );
+	// The side the sharing rule left to a neighbour, and so the only side that
+	// could be taken away by one.
+	const body = ruleBody(".ocv-btn.is-segment.is-active");
+	assert(
+		body !== null,
+		"no rule styles a chosen segmented cell, so nothing here is being checked",
+	);
+	assert(
+		/border-right:\s*1px\s+solid\s+var\(--ocv-accent\)/.test(body),
+		`a chosen cell should draw its own accent right border; it declares: ${body.trim()}`,
+	);
 });
 
 Deno.test("the cell after a chosen one contributes no edge", () => {
-  // The other half of the same line: ownership moved rather than doubled, so
-  // the row stays exactly as wide as it was.
-  const body = ruleBody(
-    ".ocv-btn.is-segment.is-active + .ocv-btn.is-segment",
-  );
-  assert(
-    body !== null,
-    "the sibling rule is missing, so the edge is drawn twice",
-  );
-  assert(
-    /border-left:\s*0/.test(body),
-    `the cell after a chosen one should drop its left border; it declares: ${body.trim()}`,
-  );
+	// The other half of the same line: ownership moved rather than doubled, so
+	// the row stays exactly as wide as it was.
+	const body = ruleBody(
+		".ocv-btn.is-segment.is-active + .ocv-btn.is-segment",
+	);
+	assert(
+		body !== null,
+		"the sibling rule is missing, so the edge is drawn twice",
+	);
+	assert(
+		/border-left:\s*0/.test(body),
+		`the cell after a chosen one should drop its left border; it declares: ${body.trim()}`,
+	);
 });
 
 Deno.test("a field in a row draws its own right edge", () => {
-  // The same ownership question at the other control family, and the answer has
-  // to be the other way round. `.ocv-input:focus` lights the borders a field
-  // OWNS, so a field that shared the button's way — dropping the right border and
-  // letting the next cell draw it — lit three edges accent and left the fourth
-  // grey. An accent box open on one side reads as a missing border.
-  const body = ruleBody(".ocv-input.is-segment");
-  assert(
-    body !== null,
-    "no rule styles a segmented field, so nothing here is being checked",
-  );
-  // The selector this asked for carries no `:focus`, which is the other half of
-  // the claim: the edge is the field's in every state. A rule that only fired
-  // while focused would hand the seam back and forth every time the reader looks
-  // from the picture to the number, and each handover steps the line a pixel
-  // sideways.
-  assert(
-    /border-right:\s*1px\s+solid\s+var\(--ocv-border\)/.test(body),
-    `a segmented field should draw its own right border; it declares: ${body.trim()}`,
-  );
+	// The same ownership question at the other control family, and the answer has
+	// to be the other way round. `.ocv-input:focus` lights the borders a field
+	// OWNS, so a field that shared the button's way — dropping the right border and
+	// letting the next cell draw it — lit three edges accent and left the fourth
+	// grey. An accent box open on one side reads as a missing border.
+	const body = ruleBody(".ocv-input.is-segment");
+	assert(
+		body !== null,
+		"no rule styles a segmented field, so nothing here is being checked",
+	);
+	// The selector this asked for carries no `:focus`, which is the other half of
+	// the claim: the edge is the field's in every state. A rule that only fired
+	// while focused would hand the seam back and forth every time the reader looks
+	// from the picture to the number, and each handover steps the line a pixel
+	// sideways.
+	assert(
+		/border-right:\s*1px\s+solid\s+var\(--ocv-border\)/.test(body),
+		`a segmented field should draw its own right border; it declares: ${body.trim()}`,
+	);
 });
 
 Deno.test("the cell after a segmented field contributes no edge", () => {
-  const body = ruleBody(
-    ".ocv-input.is-segment + .ocv-btn.is-segment,\n.ocv-input.is-segment + .ocv-input.is-segment",
-  );
-  assert(
-    body !== null,
-    "the sibling rule is missing, so the seam beside a field is drawn twice",
-  );
-  assert(
-    /border-left:\s*0/.test(body),
-    `the cell after a field should drop its left border; it declares: ${body.trim()}`,
-  );
+	const body = ruleBody(
+		".ocv-input.is-segment + .ocv-btn.is-segment,\n.ocv-input.is-segment + .ocv-input.is-segment",
+	);
+	assert(
+		body !== null,
+		"the sibling rule is missing, so the seam beside a field is drawn twice",
+	);
+	assert(
+		/border-left:\s*0/.test(body),
+		`the cell after a field should drop its left border; it declares: ${body.trim()}`,
+	);
 });
 
 Deno.test("no rule hands a neighbour the accent edge", () => {
-  // Stated as the class rather than as the one selector that did it: any rule
-  // that reaches a sibling with `+` and paints the accent on it is a cell
-  // drawing somebody else's mark, and inherits whatever state that sibling is
-  // in.
-  const offenders: string[] = [];
-  for (const block of CSS.split("}")) {
-    const open = block.indexOf("{");
-    if (open === -1) continue;
-    const selector = block.slice(0, open);
-    const body = block.slice(open + 1);
-    if (!selector.includes("+")) continue;
-    if (/border-[a-z]*-?color:\s*var\(--ocv-accent\)/.test(body)) {
-      offenders.push(selector.trim().replace(/\s+/g, " "));
-    }
-  }
-  assertEquals(
-    offenders,
-    [],
-    "these rules paint a chosen cell's accent onto a sibling, so the sibling's " +
-      "own state decides how the mark looks",
-  );
+	// Stated as the class rather than as the one selector that did it: any rule
+	// that reaches a sibling with `+` and paints the accent on it is a cell
+	// drawing somebody else's mark, and inherits whatever state that sibling is
+	// in.
+	const offenders: string[] = [];
+	for (const block of CSS.split("}")) {
+		const open = block.indexOf("{");
+		if (open === -1) continue;
+		const selector = block.slice(0, open);
+		const body = block.slice(open + 1);
+		if (!selector.includes("+")) continue;
+		if (/border-[a-z]*-?color:\s*var\(--ocv-accent\)/.test(body)) {
+			offenders.push(selector.trim().replace(/\s+/g, " "));
+		}
+	}
+	assertEquals(
+		offenders,
+		[],
+		"these rules paint a chosen cell's accent onto a sibling, so the sibling's " +
+			"own state decides how the mark looks",
+	);
 });
 
 Deno.test("every segmented control comes through one class list", () => {
-  // The reason one CSS fix covers all three controls. If a surface ever builds
-  // its own class list, the rule above stops being about it.
-  assertEquals(segmentCellClass(true), "ocv-btn is-segment is-active");
-  assertEquals(segmentCellClass(false), "ocv-btn is-segment");
+	// The reason one CSS fix covers all three controls. If a surface ever builds
+	// its own class list, the rule above stops being about it.
+	assertEquals(segmentCellClass(true), "ocv-btn is-segment is-active");
+	assertEquals(segmentCellClass(false), "ocv-btn is-segment");
 });

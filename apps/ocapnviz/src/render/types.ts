@@ -31,18 +31,18 @@ type InFlight = { messageInFlight: { from: string; to: string } };
  * Inspector cannot disagree with the mark on the node it names.
  */
 const ROLES = [
-  ["from", "sending"],
-  ["to", "receiving"],
+	["from", "sending"],
+	["to", "receiving"],
 ] as const;
 
 /** Add one direction to what a node was already doing. Two of them is
  *  `both`; the same one twice changes nothing. */
 function withRole(
-  was: PeerActivity | undefined,
-  add: "sending" | "receiving",
+	was: PeerActivity | undefined,
+	add: "sending" | "receiving",
 ): PeerActivity {
-  if (was === undefined || was === "idle") return add;
-  return was === add ? was : "both";
+	if (was === undefined || was === "idle") return add;
+	return was === add ? was : "both";
 }
 
 /**
@@ -56,35 +56,35 @@ function withRole(
  * the node it names.
  */
 export function foldActivityByNode(
-  messages: Iterable<InFlight>,
-  into: Map<string, PeerActivity>,
+	messages: Iterable<InFlight>,
+	into: Map<string, PeerActivity>,
 ): Map<string, PeerActivity> {
-  into.clear();
-  for (const m of messages) {
-    for (const [end, role] of ROLES) {
-      const id = m.messageInFlight[end];
-      into.set(id, withRole(into.get(id), role));
-    }
-  }
-  return into;
+	into.clear();
+	for (const m of messages) {
+		for (const [end, role] of ROLES) {
+			const id = m.messageInFlight[end];
+			into.set(id, withRole(into.get(id), role));
+		}
+	}
+	return into;
 }
 
 /** What one node is doing, for a caller that has one node rather than a
  *  frame's worth of them. The same fold, narrowed to the one node it was
  *  asked about, so it needs no map to hold the rest. */
 export function nodeActivityIn(
-  messages: Iterable<InFlight>,
-  nodeId: string,
+	messages: Iterable<InFlight>,
+	nodeId: string,
 ): PeerActivity {
-  let activity: PeerActivity = "idle";
-  for (const m of messages) {
-    for (const [end, role] of ROLES) {
-      if (m.messageInFlight[end] === nodeId) {
-        activity = withRole(activity, role);
-      }
-    }
-  }
-  return activity;
+	let activity: PeerActivity = "idle";
+	for (const m of messages) {
+		for (const [end, role] of ROLES) {
+			if (m.messageInFlight[end] === nodeId) {
+				activity = withRole(activity, role);
+			}
+		}
+	}
+	return activity;
 }
 
 /** How strongly a node, edge, or dot is ringed. "Anchor is a strict subset of
@@ -113,10 +113,10 @@ export type StageHover = StageSelection;
 /** Per-layer visibility toggled from the left-panel `Layers`
  * segmented control. Applied to each layer's `.visible`. */
 export type StageVisibility = {
-  peers: boolean;
-  connections: boolean;
-  messages: boolean;
-  labels: boolean;
+	peers: boolean;
+	connections: boolean;
+	messages: boolean;
+	labels: boolean;
 };
 
 // The selection-gesture grammar (`SelectMode`,

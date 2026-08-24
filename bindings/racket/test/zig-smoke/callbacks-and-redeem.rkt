@@ -3,6 +3,7 @@
 
 (require net/base64
          (only-in ffi/unsafe ctype-sizeof)
+         racket/async-channel
          racket/random
          racket/runtime-path
          "../../pancake.rkt"
@@ -91,7 +92,7 @@
 ;; the settle; enqueue and return.)
 (define lf-server (listen "127.0.0.1" 0))
 (define lf-ready (make-semaphore 0))
-(define lf-told (make-channel))
+(define lf-told (make-async-channel))
 (define lf-acceptor
   (thread
    (lambda ()
@@ -100,7 +101,7 @@
                    (lambda (bcom)
                      (methods
                       [(first) 1]
-                      [(notify) (channel-put lf-told 'told) 2])))
+                      [(notify) (async-channel-put lf-told 'told) 2])))
      (semaphore-post lf-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve hsession)))))
 (define lf-session (open-test-session (tcp-locator "127.0.0.1" (server-port lf-server))))
@@ -425,5 +426,4 @@
 (server-close! sr-e-server)
 
 (printf "racket zig-smoke OK: session-send-redeeming surfaces the direct session a redeemed reply lives on\n")
-
 

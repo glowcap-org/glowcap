@@ -13,6 +13,7 @@ const host_mod = @import("../host.zig");
 const served_mod = @import("../served.zig");
 const capability = @import("../capability.zig");
 const capability_promise = @import("../capability_promise.zig");
+const vow_settlement = @import("../vows/settlement.zig");
 const vows = @import("../vows.zig");
 const value_mod = @import("../value.zig");
 const lower = @import("capabilities/lower.zig");
@@ -246,7 +247,11 @@ fn commitRoutedSend(
         .local => .local,
         .far => .far,
     };
-    const reservation = try vows.reserveVow(self, routed.session, location, .plain);
+    const answer_release: vow_settlement.AnswerRelease = switch (location) {
+        .local => .none,
+        .far => .peer_visible,
+    };
+    const reservation = try vows.reserveVow(self, routed.session, location, .plain, answer_release);
     var reservation_live = true;
     errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
     const vow = if (staging) |context|

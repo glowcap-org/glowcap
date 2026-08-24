@@ -29,6 +29,13 @@ command -v raco >/dev/null
 mkdir -p "${PLTUSERHOME}"
 export PLTUSERHOME
 
+raco pkg install --auto --batch --no-setup \
+    --checksum "${COMPILER_LIB_CHECKSUM}" \
+    compiler-lib
+raco pkg install --auto --batch --no-setup \
+    --checksum "${COMPILER_CHECKSUM}" \
+    compiler
+
 echo "installing Spritely Goblins ${GOBLINS_VERSION} into ${PLTUSERHOME}" >&2
 raco pkg install --auto --batch --no-setup \
     --checksum "${UNIX_SOCKET_LIB_CHECKSUM}" \
@@ -64,13 +71,20 @@ if [[ ! -f "${crypto_ffi}" ]]; then
     exit 1
 fi
 
-echo "patching crypto-lib atomic primitive names" >&2
+# The patch is keyed to crypto-lib, not to a Racket release: the two hash
+# checks around it are what pin it, and the same ffi.rkt arrives byte for
+# byte on either Racket generation. It drops crypto-lib's
+# scramble/inject-syntax dependency, which the pinned package set does not
+# carry, and calls the atomic primitives directly instead.
+echo "patching crypto-lib to drop its inject-syntax dependency" >&2
 pancake_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_SOURCE_SHA256}"
 patch --directory "${user_pkgs_dir}" --strip=1 \
-    < "${dir}/image/patches/crypto-lib-racket-9.2.patch"
+    < "${dir}/image/patches/crypto-lib-drop-inject-syntax.patch"
 pancake_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_PATCHED_SHA256}"
 
-raco setup --no-docs --pkgs unix-socket-lib goblins crypto-lib crypto
+raco setup --no-docs --pkgs compiler compiler-lib unix-socket-lib goblins crypto-lib crypto
+raco help make >/dev/null
+raco help test >/dev/null
 racket --eval '(require racket/unix-socket)'
 racket --eval '(require crypto)'
 raco pkg show --long goblins | grep -q "${GOBLINS_CHECKSUM}"
@@ -78,5 +92,7 @@ raco pkg show --all --long unix-socket-lib | grep -q "${UNIX_SOCKET_LIB_CHECKSUM
 raco pkg show --all --long rfc6455 | grep -q "${RFC6455_CHECKSUM}"
 raco pkg show --all --long crypto-lib | grep -q "${CRYPTO_LIB_CHECKSUM}"
 raco pkg show --all --long crypto | grep -q "${CRYPTO_LIB_CHECKSUM}"
+raco pkg show --all --long compiler | grep -q "${COMPILER_CHECKSUM}"
+raco pkg show --all --long compiler-lib | grep -q "${COMPILER_LIB_CHECKSUM}"
 
 chmod -R a+rX "${PLTUSERHOME}"

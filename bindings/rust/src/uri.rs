@@ -453,7 +453,7 @@ fn format_uri(
 	}
 }
 
-#[cfg(feature = "tcp")]
+#[cfg(all(feature = "async", feature = "tcp"))]
 pub(crate) fn format_peer_locator(transport: &str, designator: &str, direct_addresses: &str) -> Result<String> {
 	let mut hints = BTreeMap::new();
 	if !direct_addresses.is_empty() {

@@ -470,17 +470,26 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
     // A give signed once, over its Syrup-canonical bytes, the gifter's actual
     // signing domain. `give_sig` must outlive every borrow of `give.signature`.
     const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x07));
-    var give_signed: []u8 = undefined;
-    var give_sig: crypto.Signature = undefined;
-    const give = try signedGive(
-        gift_id_a[0..],
-        recipient_key[0..],
-        &gifter_secret,
-        &give_signed,
-        &give_sig,
-        allocator,
-    );
+    const route_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .string = "ocapn://127.0.0.1%3A9001.tcp" },
+    }};
+    var give: model.HandoffGive = .{
+        .recipient_key = recipient_key[0..],
+        .exporter = .{
+            .transport = model.transport.tcp,
+            .designator = "127.0.0.1:9000",
+            .hints = .{ .entries = &route_hints },
+        },
+        .gifter_exporter_session = gifter_session[0..],
+        .gifter_side = gifter_side[0..],
+        .gift_id = gift_id_a[0..],
+        .signature = "",
+    };
+    const give_signed = try syrup.canonicalHandoffGiveSignedBytes(allocator, give);
     defer allocator.free(give_signed);
+    const give_sig = crypto.sign(&gifter_secret, give_signed);
+    give.signature = give_sig.asBytes();
     try crypto.verify(gifter_secret.publicKey(), give_signed, give_sig);
 
     const profile = model.CaptpVersion.v1_0;

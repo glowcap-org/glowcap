@@ -146,6 +146,19 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > seed = os.urandom(32)
 > async with await tcp.noise.listen("127.0.0.1", 9099, seed=seed) as server:
 > ```
+> **noise-relay**
+> ```python
+> import os
+> from pancake import Argument, relay
+>
+> # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> seed = os.urandom(32)  # load durable secret bytes in a real service
+> async with await relay.noise.listen(
+>     "wss://relay.example/relay",
+>     "wss://relay.example/register",
+>     seed=seed,
+> ) as server:
+> ```
 > **onion**
 > ```python
 > from pancake import Argument, onion

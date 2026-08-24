@@ -122,7 +122,7 @@ fn expectCapnpGiveRoundTrip(
         pair.p1.session_state.answerTargetNamed(.fromWire(.from(5))).?,
         give_bytes,
     );
-    try cross_peer.pumpOne(&pair.p1, &pair.p2);
+    try cross_peer.pumpAll(&pair.p1, &pair.p2);
 
     var event = pair.p2.pollEvent() orelse return error.ExpectedResolveEvent;
     defer event.deinit();

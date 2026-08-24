@@ -38,6 +38,7 @@ use crate::promise::{AsSendTarget, RemotePromise};
 
 mod close;
 mod identity;
+mod profile;
 
 pub(crate) use close::session_close_result;
 pub use identity::{DurableProvenance, PartnerIdentity};
@@ -514,8 +515,8 @@ impl Session {
 	/// rather than a deliver plus a reply. Returns once the deliver is queued on
 	/// the host; the scheduled drain flushes it, in order with the sends around
 	/// it.
-	pub fn tell(&self, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
-		self.shared.tell(target, verb, args)
+	pub fn tell<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> Result<()> {
+		crate::promise::tell_target(&self.shared, target.as_send_target(), verb, args)
 	}
 
 	/// Run the inbound event loop in the background (it already runs from

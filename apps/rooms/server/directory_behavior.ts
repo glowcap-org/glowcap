@@ -10,9 +10,11 @@ import {
 	designatorHostPort,
 	parseLocator,
 	Ref,
+	type Session,
 	TRANSPORT_WEBRTC,
 } from "@pancake/runtime";
 import { isUriLocator } from "../lib/locator.ts";
+import { troubleRows } from "./journal.ts";
 import {
 	INTRODUCTION_PENDING,
 	NICK_TAKEN,
@@ -35,11 +37,14 @@ import {
 	SIGNAL_EXCHANGE_TIMEOUT_MS,
 } from "../lib/limits.ts";
 import {
+	ADVERTISED_LOCATION,
 	DIRECTORY,
 	ENTER,
+	ENTER_PUBLICATION,
 	INTRODUCE,
 	LINK,
 	LIST,
+	LIST_PUBLICATIONS,
 	NOTIFY,
 	OFFER_INBOX,
 	OFFER_SIGNALING,
@@ -55,6 +60,7 @@ import {
 	SIGNAL_OFFER,
 	SNAPSHOT,
 	WATCH,
+	WATCH_PUBLICATIONS,
 } from "../lib/protocol.ts";
 import { RoomLinks } from "./state.ts";
 import { roomBehavior } from "./room.ts";
@@ -66,7 +72,7 @@ import {
 	registeredNickOf,
 	registerMember,
 } from "./introductions.ts";
-import { snapshot } from "./presence.ts";
+import { roomSnapshot } from "./discovery.ts";
 import { dropWatchers, watchers } from "./watchers.ts";
 import {
 	handBack,
@@ -75,6 +81,9 @@ import {
 	makeRoomState,
 	mintSignalExchangeId,
 	nickKey,
+	publicRoomById,
+	publicRoomNameTaken,
+	publicRooms,
 	registerRoom,
 	roomKey,
 	rooms,
@@ -85,7 +94,7 @@ import {
 /** The directory behavior for one connection. `open`/`enter` return a live
  * reference to a room — the per-connection room view spawned here — so the room
  * a client holds is bound to that client's connection. */
-export function directoryBehavior(links?: RoomLinks): Behavior {
+export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (session: Session) => string): Behavior {
 	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
 		// The directory belongs to the Host rather than to any one connection, so
 		// the caller is the session whose turn is running. Everything below keys
@@ -338,9 +347,10 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 		const name = typeof args[0] === "string" ? args[0] : "";
 		if (verb === LINK) {
 			if (links === undefined) throw new Error("this directory does not publish room links");
-			const state = rooms.get(roomKey(name));
-			if (state === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
-			return links.link(state.name);
+			const entry = publicRooms.get(roomKey(name));
+			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
+			if (entry.kind !== "local") throw new Error("a foreign room is linked by its source directory");
+			return links.link(entry.state.name);
 		}
 		if (verb === OPEN) {
 			if (name.length === 0) throw new Error("open needs a room name");
@@ -359,7 +369,7 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			// Two readers may each keep a private room called "notes", and neither
 			// learns that the other has one — which is also why this cannot answer
 			// "already exists" for a private name: that answer is itself the leak.
-			if (!wantsPrivate && rooms.has(roomKey(name))) {
+			if (!wantsPrivate && publicRoomNameTaken(name)) {
 				throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
 			}
 			const state = makeRoomState(name, session, { private: wantsPrivate });
@@ -367,12 +377,31 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			return session.spawn(roomBehavior(state));
 		}
 		if (verb === ENTER) {
-			const state = rooms.get(roomKey(name));
-			if (state === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
-			return session.spawn(roomBehavior(state));
+			const entry = publicRooms.get(roomKey(name));
+			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
+			return entry.kind === "local"
+				? session.spawn(roomBehavior(entry.state))
+				: entry.kind === "bridge"
+				? session.spawn(entry.bridge.roomBehavior(session))
+				: entry.room;
 		}
-		if (verb === LIST) return snapshot();
-		if (verb === WATCH) {
+		if (verb === ENTER_PUBLICATION) {
+			const id = typeof args[0] === "string" ? args[0] : "";
+			const entry = publicRoomById(id);
+			if (entry === null) throw new RoomError(NO_SUCH_ROOM, "that room publication is no longer current");
+			return entry.kind === "local"
+				? session.spawn(roomBehavior(entry.state))
+				: entry.kind === "bridge"
+				? session.spawn(entry.bridge.roomBehavior(session))
+				: entry.room;
+		}
+		if (verb === LIST) return roomSnapshot("baseline");
+		if (verb === LIST_PUBLICATIONS) return roomSnapshot("publication");
+		if (verb === ADVERTISED_LOCATION) {
+			if (advertisedLocation === undefined) throw new Error("this directory does not publish a location");
+			return advertisedLocation(session);
+		}
+		if (verb === WATCH || verb === WATCH_PUBLICATIONS) {
 			const observer = args[0];
 			if (!(observer instanceof Ref)) {
 				throw new Error("watch needs an inbox capability");
@@ -384,7 +413,11 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			// the same way a connection re-claiming its place in a room replaces its
 			// membership rather than being seated twice.
 			dropWatchers(session);
-			watchers.push({ observer, session });
+			watchers.push({
+				observer,
+				session,
+				records: verb === WATCH_PUBLICATIONS ? "publication" : "baseline",
+			});
 			// Replay the members already introducible for direct messages, so a
 			// fresh watcher (a browser tab, say) starts with the same DM-able set
 			// everyone else already knows. The room-list baseline is the return
@@ -392,7 +425,7 @@ export function directoryBehavior(links?: RoomLinks): Behavior {
 			for (const intro of introductions.values()) {
 				session.tell(observer, NOTIFY, ["registered", intro.nick, 1n]).catch(() => {});
 			}
-			return snapshot(); // a baseline; deltas follow on the inbox
+			return roomSnapshot(verb === WATCH_PUBLICATIONS ? "publication" : "baseline"); // deltas follow on the inbox
 		}
 		throw new Error(`directory has no method ${verb}`);
 	};
@@ -433,6 +466,15 @@ function diagnosticSnapshot(): Argument[] {
 		for (const { name, swiss } of links.named()) {
 			rows.push(["link", name, swiss]);
 		}
+	}
+	// The server's own trouble journal rides the same snapshot, so an operator
+	// holding inspect reads what went wrong beside what the directory holds.
+	for (const entry of troubleRows()) {
+		rows.push([
+			"trouble",
+			entry.source,
+			entry.count > 1 ? `${entry.reason} ×${entry.count}` : entry.reason,
+		]);
 	}
 	return rows;
 }

@@ -12,6 +12,7 @@ const omit = shared.symbols.omit_reason;
 pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_ocapn_archive_fingerprint" },
     .{
         .name = "pancake_abi_version",
         .out_params = &.{ 0, 1, 2 },

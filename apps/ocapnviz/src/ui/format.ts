@@ -34,36 +34,36 @@ const COORD_DECIMALS_MAX = 3;
 /** `value.toFixed(decimals)` with trailing zeros (and a bare
  *  trailing point) trimmed. */
 function trimmedFixed(value: number, decimals: number): string {
-  const fixed = value.toFixed(decimals);
-  if (!fixed.includes(".")) return fixed;
-  return fixed.replace(/0+$/, "").replace(/\.$/, "");
+	const fixed = value.toFixed(decimals);
+	if (!fixed.includes(".")) return fixed;
+	return fixed.replace(/0+$/, "").replace(/\.$/, "");
 }
 
 /** A stored time fact as a bare number in seconds, full fidelity,
  *  trailing zeros trimmed. The seed for typed edits. */
 export function formatTimeInput(ms: number): string {
-  return trimmedFixed(ms / MS_PER_SEC, TIME_DECIMALS_MAX);
+	return trimmedFixed(ms / MS_PER_SEC, TIME_DECIMALS_MAX);
 }
 
 /** A stored coordinate as a bare number in world units, full
  *  fidelity, trailing zeros trimmed. Display and typed-edit seed
  *  alike — the seed must round-trip, see the module header. */
 export function formatCoord(v: number): string {
-  return trimmedFixed(v, COORD_DECIMALS_MAX);
+	return trimmedFixed(v, COORD_DECIMALS_MAX);
 }
 
 /** A stored time fact as display text (`2.3s`, `43.26563s`). */
 export const formatTime = (ms: number): string => `${formatTimeInput(ms)}s`;
 
 export const parseTime = (text: string): number | null => {
-  // Accept "1.5", "1.5s", "1500ms"; reject anything that doesn't
-  // parse to a finite non-negative number.
-  const stripped = text.trim().replace(/s$/i, "");
-  const isMs = /ms$/i.test(stripped);
-  const numericText = stripped.replace(/ms$/i, "");
-  const n = Number.parseFloat(numericText);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return isMs ? n : n * MS_PER_SEC;
+	// Accept "1.5", "1.5s", "1500ms"; reject anything that doesn't
+	// parse to a finite non-negative number.
+	const stripped = text.trim().replace(/s$/i, "");
+	const isMs = /ms$/i.test(stripped);
+	const numericText = stripped.replace(/ms$/i, "");
+	const n = Number.parseFloat(numericText);
+	if (!Number.isFinite(n) || n < 0) return null;
+	return isMs ? n : n * MS_PER_SEC;
 };
 
 /** A moving readout (transport clock, playhead): centisecond
@@ -72,36 +72,36 @@ export const parseTime = (text: string): number | null => {
  *  30d / 365d approximation — the timeline measures elapsed
  *  simulation time, not wall-clock dates. */
 export function formatClockTime(ms: number): string {
-  const abs = Math.abs(ms);
-  const sign = ms < 0 ? "-" : "";
-  if (abs < 60_000) {
-    const s = ms / 1000;
-    const whole = Math.floor(s);
-    const cents = Math.floor((s - whole) * 100);
-    return `${whole}.${cents.toString().padStart(2, "0")}s`;
-  }
-  if (abs < 3_600_000) {
-    const totalSec = Math.round(abs / 1000);
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec - min * 60;
-    return sec === 0 ? `${sign}${min}min` : `${sign}${min}m${sec}s`;
-  }
-  if (abs < 86_400_000) {
-    const totalMin = Math.round(abs / 60_000);
-    const hr = Math.floor(totalMin / 60);
-    const min = totalMin - hr * 60;
-    return min === 0 ? `${sign}${hr}h` : `${sign}${hr}h${min}m`;
-  }
-  if (abs < 30 * 86_400_000) {
-    const d = abs / 86_400_000;
-    return `${sign}${Number.isInteger(d) ? d : d.toFixed(1)}d`;
-  }
-  if (abs < 365 * 86_400_000) {
-    const mo = abs / (30 * 86_400_000);
-    return `${sign}${Number.isInteger(mo) ? mo : mo.toFixed(1)}mo`;
-  }
-  const y = abs / (365 * 86_400_000);
-  return `${sign}${Number.isInteger(y) ? y : y.toFixed(1)}yr`;
+	const abs = Math.abs(ms);
+	const sign = ms < 0 ? "-" : "";
+	if (abs < 60_000) {
+		const s = ms / 1000;
+		const whole = Math.floor(s);
+		const cents = Math.floor((s - whole) * 100);
+		return `${whole}.${cents.toString().padStart(2, "0")}s`;
+	}
+	if (abs < 3_600_000) {
+		const totalSec = Math.round(abs / 1000);
+		const min = Math.floor(totalSec / 60);
+		const sec = totalSec - min * 60;
+		return sec === 0 ? `${sign}${min}min` : `${sign}${min}m${sec}s`;
+	}
+	if (abs < 86_400_000) {
+		const totalMin = Math.round(abs / 60_000);
+		const hr = Math.floor(totalMin / 60);
+		const min = totalMin - hr * 60;
+		return min === 0 ? `${sign}${hr}h` : `${sign}${hr}h${min}m`;
+	}
+	if (abs < 30 * 86_400_000) {
+		const d = abs / 86_400_000;
+		return `${sign}${Number.isInteger(d) ? d : d.toFixed(1)}d`;
+	}
+	if (abs < 365 * 86_400_000) {
+		const mo = abs / (30 * 86_400_000);
+		return `${sign}${Number.isInteger(mo) ? mo : mo.toFixed(1)}mo`;
+	}
+	const y = abs / (365 * 86_400_000);
+	return `${sign}${Number.isInteger(y) ? y : y.toFixed(1)}yr`;
 }
 
 /** Bytes per row in a hex dump. Sixteen is the convention every
@@ -129,11 +129,11 @@ export type HexGroupBytes = 8 | 16;
 /** The column the ASCII gutter starts at, so a short final row lines
  *  up with the rows above it. */
 function hexColumnWidth(groupBytes: HexGroupBytes): number {
-  const groups = HEX_ROW_BYTES / groupBytes;
-  const pairs = HEX_ROW_BYTES * 2;
-  const withinGroups = groups * (groupBytes - 1);
-  const betweenGroups = (groups - 1) * 2;
-  return pairs + withinGroups + betweenGroups;
+	const groups = HEX_ROW_BYTES / groupBytes;
+	const pairs = HEX_ROW_BYTES * 2;
+	const withinGroups = groups * (groupBytes - 1);
+	const betweenGroups = (groups - 1) * 2;
+	return pairs + withinGroups + betweenGroups;
 }
 
 /** Classic hex dump: 8-digit offset, 16 hex bytes, ASCII gutter.
@@ -141,30 +141,30 @@ function hexColumnWidth(groupBytes: HexGroupBytes): number {
  *  `groupBytes` sets the spacing inside a row. See `HexGroupBytes`
  *  for why a Cap'n Proto payload wants eight. */
 export function formatHexDump(
-  bytes: Uint8Array,
-  groupBytes: HexGroupBytes = HEX_ROW_BYTES,
+	bytes: Uint8Array,
+	groupBytes: HexGroupBytes = HEX_ROW_BYTES,
 ): string {
-  const lines: string[] = [];
-  const width = hexColumnWidth(groupBytes);
-  for (let off = 0; off < bytes.length; off += HEX_ROW_BYTES) {
-    const row = bytes.subarray(off, off + HEX_ROW_BYTES);
-    const groups: string[] = [];
-    for (let g = 0; g < row.length; g += groupBytes) {
-      groups.push(
-        [...row.subarray(g, g + groupBytes)]
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join(" "),
-      );
-    }
-    const hex = groups.join("  ");
-    // The gutter is not split: a text run inside a payload reads as
-    // one run, and a break at the word boundary would cut it up.
-    const ascii = [...row]
-      .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "·"))
-      .join("");
-    lines.push(
-      `${off.toString(16).padStart(8, "0")}  ${hex.padEnd(width)}  ${ascii}`,
-    );
-  }
-  return lines.join("\n");
+	const lines: string[] = [];
+	const width = hexColumnWidth(groupBytes);
+	for (let off = 0; off < bytes.length; off += HEX_ROW_BYTES) {
+		const row = bytes.subarray(off, off + HEX_ROW_BYTES);
+		const groups: string[] = [];
+		for (let g = 0; g < row.length; g += groupBytes) {
+			groups.push(
+				[...row.subarray(g, g + groupBytes)]
+					.map((b) => b.toString(16).padStart(2, "0"))
+					.join(" "),
+			);
+		}
+		const hex = groups.join("  ");
+		// The gutter is not split: a text run inside a payload reads as
+		// one run, and a break at the word boundary would cut it up.
+		const ascii = [...row]
+			.map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "·"))
+			.join("");
+		lines.push(
+			`${off.toString(16).padStart(8, "0")}  ${hex.padEnd(width)}  ${ascii}`,
+		);
+	}
+	return lines.join("\n");
 }

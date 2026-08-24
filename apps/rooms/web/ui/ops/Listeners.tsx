@@ -1,5 +1,5 @@
-// The listeners pane of the Operations modal, drawn only while this tab
-// holds the capability (the Advanced toggle is how it is taken).
+// The listeners pane of the Operations page, drawn only while this tab
+// holds the capability (the Capabilities toggle is how it is taken).
 //
 // The pane knows nothing about transports: the server's own list carries
 // each seat's name, description, reference page, live state, and the knobs

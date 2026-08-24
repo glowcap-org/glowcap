@@ -113,9 +113,23 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 		const tab = await context.newPage();
 		const pageErrors: string[] = [];
 		tab.on("pageerror", (error: Error) => pageErrors.push(error.message));
+		const failedRequests: string[] = [];
+		tab.on("requestfailed", (request) => {
+			if (failedRequests.length < 8) {
+				failedRequests.push(
+					`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "failed"}`,
+				);
+			}
+		});
 		const relayUrl = `wss://localhost:${relayPort}/relay`;
 		await tab.goto(`http://127.0.0.1:${pagePort}/?relay=${encodeURIComponent(relayUrl)}`);
-		await tab.waitForFunction(() => globalThis.pancakeNoiseReady !== undefined);
+		try {
+			await tab.waitForFunction(() => globalThis.pancakeNoiseReady !== undefined);
+		} catch (error) {
+			const cause = error instanceof Error ? error.message : String(error);
+			const diagnostics = [...pageErrors, ...failedRequests];
+			fail(`browser Noise peer did not become ready: ${cause}; diagnostics: ${diagnostics.join("; ") || "none"}`);
+		}
 		const locator = await tab.evaluate(() => globalThis.pancakeNoiseReady!.locator);
 		const client = await new Deno.Command("./zig-out/bin/pancake", {
 			args: ["ocapn", "call", locator, "noise-greeter", "greet", "PANCAKE_CAPTP_PLAINTEXT_CANARY"],
@@ -142,9 +156,6 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 		const diagnostics = await tab.evaluate(() => globalThis.pancakeNoiseReady!.finish());
 		if (diagnostics.length !== 0) fail(`browser Host diagnostics: ${diagnostics.join("; ")}`);
 		if (pageErrors.length !== 0) fail(`browser page errors: ${pageErrors.join("; ")}`);
-		// Let the relay observe the native caller's clean close before process
-		// teardown; otherwise killing it can turn that settled leg into test noise.
-		await new Promise((resolve) => setTimeout(resolve, 100));
 		relay.kill();
 		await relay.status;
 		relayStopped = true;

@@ -7,18 +7,11 @@ const pancake = @import("pancake");
 const c = @import("c_abi_shared");
 const relay_archive = @import("c_abi_net_transport_relay");
 const ws_relay = @import("../support/ws_relay.zig");
-const tls_root_pem = @embedFile("../net/fixtures/tls_root.pem");
 const tls_server_pem = @embedFile("../net/fixtures/tls_server.pem");
-
-fn copiedTrustConfig(relay_url: []const u8) relay_archive.PancakeRelayConfig {
-    return .{
-        .relay_url = relay_url.ptr,
-        .relay_url_len = relay_url.len,
-        .trust = relay_archive.PANCAKE_RELAY_TRUST_COPIED_PEM,
-        .trust_pem = tls_root_pem.ptr,
-        .trust_pem_len = tls_root_pem.len,
-    };
-}
+const harness = @import("relay_provider/harness.zig");
+const copiedTrustConfig = harness.copiedTrustConfig;
+const keyedTable = harness.keyedTable;
+const drain = harness.drain;
 
 fn serveTailThenClose(
     io: std.Io,
@@ -45,34 +38,6 @@ fn serveUpgradesUntilClose(io: std.Io, server: *std.Io.net.Server, count: usize)
         var payload: [64]u8 = undefined;
         while (true) _ = ws_relay.readClientFrame(&leg, &payload) catch break;
     }
-}
-
-fn keyedTable(provider: c.PancakeTransportProvider) *const c.PancakeMultiplexedTransport {
-    for (provider.entries.?[0..provider.entry_count]) |entry| {
-        const profile = entry.profile.?;
-        const name = profile.transport_name.?[0..profile.transport_name_len];
-        if (std.mem.eql(u8, name, "keyed-relay"))
-            return @ptrCast(@alignCast(entry.implementation.?));
-    }
-    unreachable;
-}
-
-fn drain(
-    table: *const c.PancakeMultiplexedTransport,
-    records: *[8]c.PancakeMultiplexedReadyEvent,
-) ![]c.PancakeMultiplexedReadyEvent {
-    var count: usize = 0;
-    var failure = c.transport_provider.emptyProviderFailure();
-    try std.testing.expectEqual(c.PANCAKE_OK, table.drain_ready.?(
-        table.ctx,
-        records,
-        records.len,
-        &count,
-        &failure,
-    ));
-    try std.testing.expectEqual(@as(i32, 0), failure.result);
-    try std.testing.expect(count <= records.len);
-    return records[0..count];
 }
 
 test "relay C configuration validates its version and trust before construction" {
@@ -115,7 +80,7 @@ test "relay C configuration validates its version and trust before construction"
 
 test "relay C runtime copies PEM trust and reports its immutable load result" {
     const allocator = std.testing.allocator;
-    const pem = try allocator.dupe(u8, tls_root_pem);
+    const pem = try allocator.dupe(u8, @embedFile("../net/fixtures/tls_root.pem"));
     defer allocator.free(pem);
     const url = "ws://127.0.0.1:1/relay";
     var config = copiedTrustConfig(url);

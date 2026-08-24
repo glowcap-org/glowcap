@@ -210,7 +210,7 @@
    (lambda ()
      (define h (connection-handle cn))
      (unless h (error 'connection-read-frame "connection is closed"))
-     (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
+     (define mf (make-PancakeManagedFrame #f 0 0 #f (make-vector 8 0)))
      (check/tcp (pancake_tcp_conn_read_frame h mf))
      (dynamic-wind
       void
@@ -225,7 +225,12 @@
      (define h (connection-handle cn))
      (unless h (error 'connection-write-frame! "connection is closed"))
      (define buf (pin-immobile frame))
-     (check/tcp (pancake_tcp_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))))
+     (define rc (pancake_tcp_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
+     ;; The frame cstruct is retained as the call's argument, but it carries
+     ;; only `buf`'s raw address; the sink keeps the pinned payload live for
+     ;; the whole blocking write.
+     (void/reference-sink buf)
+     (check/tcp rc))))
 
 (define (connection-release! cn)
   (when (connection-handle cn)

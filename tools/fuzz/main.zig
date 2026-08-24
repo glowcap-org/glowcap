@@ -96,8 +96,9 @@ pub fn main(init: std.process.Init) !void {
     for (targets, 1..) |target, n| {
         std.debug.print("[{d}/{d}] {s}\n", .{ n, targets.len, target.name });
 
-        // A crash file left behind by an earlier target would be read as this
-        // one's finding, so clear it before every run.
+        // tolerant: a crash file left behind by an earlier target would be
+        // read as this one's finding, so clear it before every run; usually
+        // there is nothing to delete.
         cwd.deleteFile(io, crash_artifact) catch {};
         const runs_before = totalRuns(io, cwd);
 
@@ -182,6 +183,8 @@ fn findTargets(io: std.Io, cwd: std.Io.Dir, gpa: std.mem.Allocator) ![]const Tar
     while (try entries.next(io)) |entry| {
         if (entry.kind != .directory) continue;
         const path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, target_file });
+        // tolerant: a test tree without this file hosts no fuzz targets;
+        // the fuzz-wiring check owns reporting an unreadable one.
         const source = cwd.readFileAlloc(io, path, gpa, .limited(1 << 22)) catch continue;
         try collectTargets(source, path, &found, gpa);
     }

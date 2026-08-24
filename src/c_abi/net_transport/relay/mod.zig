@@ -13,17 +13,6 @@ const failure_projection = @import("failure/projection.zig");
 const net = @import("net");
 const runtime = @import("runtime/mod.zig");
 
-pub const PANCAKE_RELAY_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprintParts(
-    &.{
-        @embedFile("mod.zig"),
-        @embedFile("contract.zig"),
-        @embedFile("failure/projection.zig"),
-        @embedFile("multiplexed/projection.zig"),
-        @embedFile("runtime/mod.zig"),
-    },
-    @embedFile("symbols.zig"),
-);
-
 pub const PancakeRelayRuntime = opaque {};
 const PancakeContext = c.PancakeContext;
 const Payload = runtime.Payload;
@@ -32,6 +21,15 @@ pub const symbols = @import("symbols.zig");
 
 pub const PancakeRelayConfig = contract.PancakeRelayConfig;
 pub const PancakeRelayTrustSummary = contract.PancakeRelayTrustSummary;
+pub const contract_layouts = [_]c.archive_contract.Layout{
+    c.archive_contract.layout("PANCAKE_RELAY_CONFIG", PancakeRelayConfig),
+    c.archive_contract.layout("PANCAKE_RELAY_TRUST_SUMMARY", PancakeRelayTrustSummary),
+};
+pub const PANCAKE_RELAY_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    "relay",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
+);
 pub const PANCAKE_RELAY_CONFIG_ABI_VERSION = contract.PANCAKE_RELAY_CONFIG_ABI_VERSION;
 pub const PANCAKE_RELAY_TRUST_SYSTEM = contract.PANCAKE_RELAY_TRUST_SYSTEM;
 pub const PANCAKE_RELAY_TRUST_COPIED_PEM = contract.PANCAKE_RELAY_TRUST_COPIED_PEM;

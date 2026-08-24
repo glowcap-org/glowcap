@@ -449,7 +449,7 @@ pub export fn pancake_locator_hint_wire_form(loc: ?*PancakeLocator, out_wire_for
 
 // ── Format: structure to string ───────────────────────────────────────────────
 
-const BuildError = error{ OutOfMemory, NullPointer };
+const BuildError = error{ OutOfMemory, NullPointer, TooManyHints };
 
 /// Borrow the i-th string from a parallel (pointers, lengths) pair. A zero
 /// length is the empty string; a non-zero length behind a NULL pointer is a
@@ -473,6 +473,7 @@ fn buildHints(
     count: usize,
 ) BuildError![]model.HintEntry {
     if (count == 0) return &.{};
+    if (count > model.max_locator_hint_count) return error.TooManyHints;
     const ks = keys orelse return error.NullPointer;
     const kls = key_lens orelse return error.NullPointer;
     const vs = vals orelse return error.NullPointer;
@@ -494,6 +495,7 @@ fn buildErrToCode(err: BuildError) i32 {
             break :blk PANCAKE_ERR_INTERNAL;
         },
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.TooManyHints => PANCAKE_ERR_INVALID_ARGUMENT,
     };
 }
 

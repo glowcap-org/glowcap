@@ -338,14 +338,26 @@ test "repeated lift reuses identity without inventing a wire retain" {
     try std.testing.expectEqual(model.Reference{ .far = model.FarRef.object(7) }, try host.lowerCapability(session, replacement));
 }
 
-test "bootstrap without an import row cannot become a retained Host capability" {
+test "bootstrap is a canonical Host capability without wire-retain accounting" {
     var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x4b)), .{});
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9451", &.{});
-    try std.testing.expectError(
-        error.ForeignArgument,
-        host.liftCapability(session, .{ .far = model.FarRef.object(0) }),
+    const first = try host.liftCapability(session, .{ .far = model.FarRef.object(0) });
+    const repeated = try host.liftCapability(session, .{ .far = model.FarRef.object(0) });
+
+    try std.testing.expectEqual(first, repeated);
+    try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(0)));
+    try std.testing.expectEqual(
+        model.Reference{ .far = model.FarRef.object(0) },
+        try host.lowerCapability(session, first),
     );
+    try host.releaseCapability(first, 1);
+    try std.testing.expectEqual(
+        model.Reference{ .far = model.FarRef.object(0) },
+        try host.lowerCapability(session, repeated),
+    );
+    try host.releaseCapability(repeated, 1);
+    try std.testing.expectError(error.UnknownCapability, host.lowerCapability(session, first));
 }
 
 test "reclaimed Host slot receives a new public id before reuse" {

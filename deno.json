@@ -17,6 +17,7 @@
     "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
     "react-dom": "npm:react-dom@19.2.8",
     "react-dom/client": "npm:react-dom@19.2.8/client",
+    "react-dom/server": "npm:react-dom@19.2.8/server",
     "react-router": "npm:react-router@7.18.2",
     "@types/react": "npm:@types/react@19.2.18",
     "@types/react-dom": "npm:@types/react-dom@19.2.4",
@@ -43,8 +44,6 @@
   // top-level exclude keeps every root-scope walk (check, lint, fmt) out.
   "exclude": ["apps/ocapnviz"],
   "fmt": {
-    "useTabs": true,
-    "indentWidth": 4,
     "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,

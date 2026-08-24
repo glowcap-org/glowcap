@@ -76,6 +76,7 @@ export async function dialExporter(
 export async function runDialTicket(
 	host: Host,
 	ticket: bigint,
+	routeIndex: bigint,
 	signal?: AbortSignal,
 ): Promise<void> {
 	let session: Session | null = null;
@@ -88,6 +89,7 @@ export async function runDialTicket(
 		let rc = hostS.pancake_host_pending_dial(
 			host.raw,
 			ticket,
+			routeIndex,
 			null,
 			0n,
 			ab(view),
@@ -101,6 +103,7 @@ export async function runDialTicket(
 			rc = hostS.pancake_host_pending_dial(
 				host.raw,
 				ticket,
+				routeIndex,
 				ab(hints),
 				BigInt(capacity),
 				ab(view),
@@ -116,10 +119,21 @@ export async function runDialTicket(
 		}
 		session = await dialExporter(locator!, host, signal);
 		if (host.released || signal?.aborted) {
-			session.closeTransport();
+			await session.closeTransport();
 			return;
 		}
-		checkHost(hostS.pancake_host_dialed(host.raw, ticket, session.raw));
+		const adopted = new Uint8Array(1);
+		checkHost(hostS.pancake_host_dialed(
+			host.raw,
+			ticket,
+			routeIndex,
+			session.raw,
+			ab(adopted),
+		));
+		if (adopted[0] === 0) {
+			await session.closeTransport();
+			return;
+		}
 		// A reported dial retires close-relevant pending work; wake any parked
 		// close driver.
 		host.signalCloseActivity();
@@ -134,12 +148,19 @@ export async function runDialTicket(
 		});
 		session = null;
 	} catch (error) {
-		session?.closeTransport();
+		if (session != null) {
+			try {
+				await session.closeTransport();
+			} catch (cleanup) {
+				host.recordBackgroundFailure(cleanup);
+			}
+		}
 		if (host.released || signal?.aborted) return;
 		const reason = utf8Encoder.encode(error instanceof Error ? error.message : String(error));
 		checkHost(hostS.pancake_host_dial_failed(
 			host.raw,
 			ticket,
+			routeIndex,
 			ab(reason),
 			BigInt(reason.length),
 		));

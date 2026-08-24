@@ -9,12 +9,12 @@
 export type LiveFeedStatus = "idle" | "connecting" | "waiting" | "connected";
 
 export function liveFeedStatus(input: {
-  sturdyref: string;
-  connected: boolean;
-  observed: boolean;
+	sturdyref: string;
+	connected: boolean;
+	observed: boolean;
 }): LiveFeedStatus {
-  if (input.sturdyref.trim() === "") return "idle";
-  if (!input.connected) return "connecting";
-  if (!input.observed) return "waiting";
-  return "connected";
+	if (input.sturdyref.trim() === "") return "idle";
+	if (!input.connected) return "connecting";
+	if (!input.observed) return "waiting";
+	return "connected";
 }

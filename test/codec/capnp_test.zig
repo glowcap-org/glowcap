@@ -313,11 +313,10 @@ test "reference arms round-trip through deliver target" {
     } }, .args = &.{} } });
 }
 
-test "deliver round-trips args, answer, and a promise target with pipeline path" {
+test "deliver round-trips args, answer, and a promise target" {
     const call_args = [_]model.Argument{.{ .string = "ping" }};
-    const path_ops = [_]model.PipelineOp{ .{ .field = "field" }, .{ .call = &call_args } };
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = &path_ops } } },
+        .target = .{ .promise = .{ .answer_position = .from(1) } },
         .args = &.{
             .{ .bytes = &.{ 1, 2, 3 } },
             .{ .symbol = "run" },

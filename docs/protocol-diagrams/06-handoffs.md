@@ -128,10 +128,13 @@ flowchart TD
 
 The count guard is one monotonic scalar on the live R-X session. The gift table
 belongs to the live G-X session. Closing either `Peer` destroys the authority it
-owns; no Host- or Vat-wide replay map survives. The current Host does reuse its
-session key, however, so a reconnect can recreate the same side and session
-names. Until ADR-0097 supplies fresh per-session keys, an old signed receive can
-resolve against that replacement session and consume a later same-id deposit.
+owns; no Host- or Vat-wide replay map survives. Every Host session derives a
+distinct signing seed from a process-fresh, domain-separated session root and a
+monotonic counter (ADR-0097), so a reconnect cannot recreate the old side or
+session names. An old signed receive therefore cannot name a replacement
+session. The V1 Node uses a separate lifetime cursor for receive-certificate
+issuance to accommodate the pinned Goblins counter behavior across reconnects;
+accepted replay authority remains local to the R-X session.
 
 ## HO-8: Withdraw before deposit
 

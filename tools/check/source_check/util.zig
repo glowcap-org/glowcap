@@ -98,6 +98,39 @@ pub fn fileContains(
     return std.mem.indexOf(u8, contents, needle) != null;
 }
 
+/// Match a source fragment while ignoring formatter-controlled ASCII
+/// whitespace. Use this for declaration/call shapes whose tokens are the
+/// contract and whose line wrapping is not.
+pub fn containsIgnoringWhitespace(contents: []const u8, fragment: []const u8) bool {
+    var start: usize = 0;
+    while (start < contents.len) : (start += 1) {
+        var source = start;
+        var expected: usize = 0;
+        while (expected < fragment.len) {
+            while (expected < fragment.len and std.ascii.isWhitespace(fragment[expected])) expected += 1;
+            while (source < contents.len and std.ascii.isWhitespace(contents[source])) source += 1;
+            if (expected == fragment.len) return true;
+            if (source == contents.len or contents[source] != fragment[expected]) break;
+            source += 1;
+            expected += 1;
+        }
+        while (expected < fragment.len and std.ascii.isWhitespace(fragment[expected])) expected += 1;
+        if (expected == fragment.len) return true;
+    }
+    return fragment.len == 0;
+}
+
+test "containsIgnoringWhitespace follows tokens across formatter wrapping" {
+    try std.testing.expect(containsIgnoringWhitespace(
+        "call(\n    first,\n    second,\n);",
+        "call(first, second,);",
+    ));
+    try std.testing.expect(!containsIgnoringWhitespace(
+        "call(first, replacement);",
+        "call(first, second);",
+    ));
+}
+
 /// Read one source file, or concatenate every regular file beneath a package
 /// directory when `path` ends in `/`. Directory subjects keep ownership bans
 /// honest after a module becomes a package: a new leaf cannot evade a rule

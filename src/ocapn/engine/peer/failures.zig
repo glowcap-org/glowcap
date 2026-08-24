@@ -48,6 +48,9 @@ pub fn recordSecondaryFailure(self: *Peer, err: anyerror) void {
 /// pressure leave the authority carrier available for retry. Classify at this
 /// phase boundary instead of guessing from the error name in the step caller.
 pub fn projectDeferredStepFailure(self: *Peer, err: anyerror) void {
+    // A closed deferred owner already performed the one terminal projection.
+    // Re-projecting here would append a second op:abort after the first.
+    if (self.sessionIsClosed()) return;
     switch (err) {
         error.OutOfMemory, error.OutboundBackpressure => {},
         else => inbound.emitAbortForError(self, err),

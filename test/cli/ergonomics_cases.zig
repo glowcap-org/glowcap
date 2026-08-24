@@ -112,7 +112,7 @@ test "mcp state posture defaults to .local/pancake-mcp-state" {
     try std.testing.expectEqualStrings("/explicit/mcp", override);
 }
 
-test "mintIdentityPath ignores legacy config location" {
+test "defaultIdentityPath uses the state directory" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -120,7 +120,7 @@ test "mintIdentityPath ignores legacy config location" {
     try environ.put("XDG_STATE_HOME", "/xdg/state");
 
     var buf: [256]u8 = undefined;
-    const path = try cli.xdg.mintIdentityPath(&buf, &environ, .product);
+    const path = try cli.xdg.defaultIdentityPath(&buf, &environ, .product);
     try std.testing.expectEqualStrings("/xdg/state/pancake/identity", path);
 }
 

@@ -229,7 +229,10 @@ pub fn checkGeneratedStateIgnores(
         if (std.mem.startsWith(u8, span, ".serena/")) {
             var needle_buf: [160]u8 = undefined;
             const stem = std.mem.trimEnd(u8, span[".serena/".len..], "/");
-            const needle = std.fmt.bufPrint(&needle_buf, "/{s}", .{stem}) catch continue;
+            const needle = std.fmt.bufPrint(&needle_buf, "/{s}", .{stem}) catch {
+                try appendViolation(gpa, violations, ".serena span `{s}` overflows the registry needle buffer; grow it", .{stem});
+                continue;
+            };
             if (std.mem.indexOf(u8, serena_ignore, needle) == null) {
                 try appendViolation(gpa, violations, "{s}: generated-state entry `{s}` has no matching rule in .serena/.gitignore", .{ rule_path, span });
             }
@@ -361,7 +364,13 @@ pub fn checkRepositoryUrl(
         if (std.mem.startsWith(u8, path, "conformance/")) continue;
         if (std.mem.endsWith(u8, path, "project_shape.zig")) continue;
 
-        const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            // tolerant: overlay rows may name a directory symlink; a
+            // directory has no body for this scan.
+            if (err == error.IsDir) continue;
+            try appendViolation(gpa, violations, "{s}: cannot be read for the constant-parity check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(body);
 
         var at: usize = 0;

@@ -38,7 +38,7 @@ await rendezvous.ready();
 globalThis.pancakeNoiseReady = {
 	locator: web.formatLocatorUri(rendezvous.locator),
 	async finish(): Promise<string[]> {
-		await rendezvous.stop();
+		await rendezvous.drain();
 		await web.close();
 		return web.host.takeFailures().map((failure) =>
 			`${failure.operation}: ${failure.primaryName}: ${failure.primaryMessage}`

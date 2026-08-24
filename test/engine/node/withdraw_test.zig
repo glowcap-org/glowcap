@@ -57,7 +57,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
     defer allocator.free(give_a);
     try node.acceptGive(recipient_a, 1, give_a, "ocapn://127.0.0.1%3A9061.tcp");
     const dial_a = node.nextAction().?;
-    try node.exporterDialed(dial_a.dial.pending, exporter_a);
+    _ = try node.exporterDialed(dial_a.dial.pending, 0, exporter_a);
     try std.testing.expectEqual(exporter_a, node.nextAction().?.flush);
     try std.testing.expectEqual(@as(u64, 0), try takeWithdrawCount(node.peer(exporter_a).?));
 
@@ -65,7 +65,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
     defer allocator.free(give_b);
     try node.acceptGive(recipient_b, 2, give_b, "ocapn://127.0.0.1%3A9062.tcp");
     const dial_b = node.nextAction().?;
-    try node.exporterDialed(dial_b.dial.pending, exporter_b);
+    _ = try node.exporterDialed(dial_b.dial.pending, 0, exporter_b);
     try std.testing.expectEqual(exporter_b, node.nextAction().?.flush);
     try std.testing.expectEqual(@as(u64, 1), try takeWithdrawCount(node.peer(exporter_b).?));
 
@@ -101,7 +101,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
     defer allocator.free(next_give_a);
     try node.acceptGive(next_recipient_a, 3, next_give_a, "ocapn://127.0.0.1%3A9063.tcp");
     const next_dial_a = node.nextAction().?;
-    try node.exporterDialed(next_dial_a.dial.pending, next_exporter_a);
+    _ = try node.exporterDialed(next_dial_a.dial.pending, 0, next_exporter_a);
     try std.testing.expectEqual(next_exporter_a, node.nextAction().?.flush);
     try std.testing.expectEqual(@as(u64, 0), try takeWithdrawCount(node.peer(next_exporter_a).?));
 
@@ -109,7 +109,7 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
     defer allocator.free(next_give_b);
     try node.acceptGive(next_recipient_b, 4, next_give_b, "ocapn://127.0.0.1%3A9064.tcp");
     const next_dial_b = node.nextAction().?;
-    try node.exporterDialed(next_dial_b.dial.pending, next_exporter_b);
+    _ = try node.exporterDialed(next_dial_b.dial.pending, 0, next_exporter_b);
     try std.testing.expectEqual(next_exporter_b, node.nextAction().?.flush);
     try std.testing.expectEqual(@as(u64, 0), try takeWithdrawCount(node.peer(next_exporter_b).?));
     try std.testing.expectEqual(@as(u64, 1), node.peer(next_exporter_a).?.giftRegistry().next_emitted_handoff_count);
@@ -131,7 +131,7 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     defer allocator.free(give);
     try node.acceptGive(recipient, 31, give, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
 
     // The withdraw went out on the exporter connection: one flush action, one
     // pending withdraw.
@@ -187,7 +187,7 @@ test "the final failed withdraw retires a redeem-only exporter" {
     try node.acceptGive(recipient, 41, give_a, locator);
     try node.acceptGive(recipient, 42, give_b, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // first flush
     _ = node.nextAction().?; // second flush
     var answers: [2]u64 = undefined;
@@ -231,7 +231,7 @@ test "a queued exporter retirement yields to a newer withdrawal" {
     defer allocator.free(first_give);
     try node.acceptGive(recipient, 45, first_give, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // flush
 
     const first_answer = pendingWithdrawAnswer(&node, exporter);
@@ -272,7 +272,7 @@ test "a failed withdraw does not retire a selected exporter session" {
     defer allocator.free(give);
     try node.acceptGive(recipient, 42, give, "ocapn://127.0.0.1%3A9053.tcp");
     const dial = node.nextAction().?;
-    try node.exporterSelected(dial.dial.pending, exporter);
+    _ = try node.exporterSelected(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // the flush
     const answer = pendingWithdrawAnswer(&node, exporter);
     try std.testing.expect(try node.claimResolve(exporter, answer, .not_capability));
@@ -281,7 +281,7 @@ test "a failed withdraw does not retire a selected exporter session" {
     try std.testing.expect(node.nextAction() == null);
 }
 
-test "application activity preserves a redeem-opened exporter session" {
+test "an application stage preserves a redeem-opened exporter session" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x45)));
     defer node.deinit();
@@ -293,16 +293,50 @@ test "application activity preserves a redeem-opened exporter session" {
 
     const give = try testGiveBytes(allocator);
     defer allocator.free(give);
-    try node.acceptGive(recipient, 44, give, "ocapn://127.0.0.1%3A9053.tcp");
+    const locator = "ocapn://127.0.0.1%3A9053.tcp";
+    try node.acceptGive(recipient, 44, give, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // flush
 
-    node.exporterApplicationOwned(exporter);
+    const staged = try node.stageDial(locator);
+    try std.testing.expectEqual(exporter, staged.open);
     const answer = pendingWithdrawAnswer(&node, exporter);
     try std.testing.expect(try node.claimResolve(exporter, answer, .not_capability));
     _ = node.nextAction().?; // failure
     try std.testing.expect(node.nextAction() == null);
+}
+
+test "preparing application activity does not preserve a redeem-opened exporter session" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x47)));
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, @as([crypto.SEED_BYTES]u8, @splat(0x48)));
+    defer counterpart.deinit();
+
+    const locator = model.PeerLocator{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9053",
+    };
+    const give = try testGiveBytes(allocator);
+    defer allocator.free(give);
+    try node.acceptGive(recipient, 45, give, "ocapn://127.0.0.1%3A9053.tcp");
+    const dial = node.nextAction().?;
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
+    _ = node.nextAction().?; // flush
+
+    var prepared = try node.prepareDialLocator(locator);
+    prepared.deinit(&node);
+
+    const answer = pendingWithdrawAnswer(&node, exporter);
+    try std.testing.expect(try node.claimResolve(exporter, answer, .not_capability));
+    _ = node.nextAction().?; // failure
+    const retire = node.nextAction().?;
+    try std.testing.expectEqual(exporter, retire.retire_exporter);
+    try std.testing.expect(node.claimExporterRetirement(exporter));
 }
 
 test "an application dial joining a pending redeem owns the exporter session" {
@@ -323,7 +357,7 @@ test "an application dial joining a pending redeem owns the exporter session" {
     const joined = try node.stageDial(locator);
     try std.testing.expectEqual(dial.dial.pending, joined.pending);
 
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // the flush
     const answer = pendingWithdrawAnswer(&node, exporter);
     try std.testing.expect(try node.claimResolve(exporter, answer, .{ .broken = "missing" }));

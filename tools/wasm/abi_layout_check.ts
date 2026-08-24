@@ -32,7 +32,7 @@ import { fnv1a32 } from "../../bindings/ts/runtime/internal/layout.ts";
 const SPECS = WASM_LAYOUT_STRUCTS.map((row) => ({
 	name: row.prefix,
 	fields: row.fields.length,
-	mirrorPrefix: row.prefix as string | null,
+	mirrorPrefix: row.nativeMirror ? row.prefix as string | null : null,
 }));
 
 // Count `<PREFIX>_*_OFF` exports in the generated host mirror: that is how many
@@ -60,11 +60,13 @@ function fail(msg: string): never {
 }
 
 const wasmBytes = await Deno.readFile(wasmPath);
-// The module declares one required import (env.pancake_behavior_trampoline, the
-// object-dispatch seam); supply a no-op stub so instantiation succeeds. This
-// check never triggers a behavior dispatch, so the stub is never called.
+// The module declares its behavior and hosted-free callback imports; supply
+// no-op stubs so instantiation succeeds. This check triggers neither callback.
 const { instance } = await WebAssembly.instantiate(wasmBytes, {
-	env: { pancake_behavior_trampoline: () => 0 },
+	env: {
+		pancake_behavior_trampoline: () => 0,
+		pancake_hosted_free_trampoline: () => {},
+	},
 });
 const ex = instance.exports as unknown as Exports;
 const mem = ex.memory;

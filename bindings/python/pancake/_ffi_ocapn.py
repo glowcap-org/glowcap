@@ -24,12 +24,13 @@ import ctypes
 # Archive path resolution (configure → abi-versioned cache → zig-out → find)
 # lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
 from ._lib_resolve import _lib_path
+from ._archive_contract import require_archive_fingerprint
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``); this module hands it the
 # ``Structure`` types it declares below.
 from ._sigs_gen import ocapn_sigs
-from ._constants_gen import FRAME_SHAPE_BYTE
+from ._constants_gen import FRAME_SHAPE_BYTE, OCAPN_ARCHIVE_FINGERPRINT
 
 # The layout gate for the hand-mirrored ctypes.Structure types below, held
 # against sizes and offsets reflected off the real Zig C ABI types
@@ -74,7 +75,7 @@ class _ManagedFrame(ctypes.Structure):
         ("len", ctypes.c_size_t),
         ("shape", ctypes.c_uint32),
         ("release", ctypes.c_void_p),
-        ("private_data", ctypes.c_void_p),
+        ("private_words", ctypes.c_size_t * 8),
     ]
 
 
@@ -243,6 +244,11 @@ def _borrowed_byte_frame(data: bytes) -> tuple[_Frame, ctypes.c_char_p]:
 
 def _load():
     ocapn = ctypes.CDLL(str(_lib_path("pancake_ocapn")))
+    require_archive_fingerprint(
+        lambda: ocapn.pancake_ocapn_archive_fingerprint,
+        "ocapn",
+        OCAPN_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(ocapn)
     _bind(
         facade,

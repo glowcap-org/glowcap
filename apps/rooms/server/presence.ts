@@ -12,39 +12,20 @@
 import { annotateSession, type Session } from "@pancake/runtime";
 import type { Argument } from "@pancake/runtime";
 import { NOTIFY } from "../lib/protocol.ts";
-import { findBySession, forgetRoom, handBack, rooms, type RoomState, signalExchanges } from "./registry.ts";
+import {
+	findBySession,
+	forgetForeignRoomsFrom,
+	forgetRoom,
+	handBack,
+	rooms,
+	type RoomState,
+	signalExchanges,
+} from "./registry.ts";
 import { dropRoomFiles, dropUploads } from "./files.ts";
 import { dropIntroductions, dropSignalExchange } from "./introductions.ts";
-import { dropWatchers, notifyWatchers } from "./watchers.ts";
-
-/** The live rooms — those with at least one member — as `[name, count]` pairs.
- * A just-`open`ed room with no members yet is invisible until its first
- * subscriber, so discovery only ever shows rooms with people in them. Counts go
- * over the wire as `bigint`, the integer type (a plain `number` is a float). */
-export function snapshot(): Argument[] {
-	const live: Argument[] = [];
-	for (const state of rooms.values()) {
-		// A private room is absent from the list, not shown as empty: a count
-		// nobody can act on would still say a room by that name exists here.
-		if (state.private) continue;
-		if (state.members.length > 0) {
-			live.push([state.name, BigInt(state.members.length)]);
-		}
-	}
-	return live;
-}
-
-/** Push one room-list delta about `state` to every watcher, unless the room is
- * private — in which case there is no list it belongs to and nothing to say.
- *
- * Every room-list delta goes through here rather than through `notifyWatchers`
- * directly, so a private room cannot be announced by a path that forgot to
- * ask. The member-presence deltas (`registered` / `unregistered`) are about a
- * nickname rather than a room and keep their own call. */
-export function notifyRoomList(state: RoomState, event: string, count: number): void {
-	if (state.private) return;
-	notifyWatchers(event, state.name, count);
-}
+import { notifyLocalRoom, notifyPublicRoom } from "./discovery.ts";
+import { dropWatchers } from "./watchers.ts";
+import { noteTrouble } from "./journal.ts";
 
 /** Push `from: text` to every subscriber of `state` by calling the inbox
  * capability it gave us. `tell` is the fire-and-forget eventual-send: a notify
@@ -68,7 +49,7 @@ export function broadcast(
 			// Membership retirement is owned by the session lifecycle hook below.
 			// A failed notify is therefore always diagnostic; it is never used as
 			// an opportunistic liveness probe or as authority to mutate presence.
-			console.error(`[room] notify to ${m.nick} failed: ${e}`);
+			noteTrouble(`a presence notify to ${m.nick} failed`, e);
 		});
 	}
 }
@@ -88,7 +69,7 @@ export function broadcastTyping(
 	for (const m of [...state.members]) {
 		if (m.session === exceptSession) continue;
 		m.session.tell(m.inbox, NOTIFY, ["room", "", "typing", nick, on]).catch((error) => {
-			console.error(`[room] typing notify to ${m.nick} failed: ${error}`);
+			noteTrouble(`a typing notify to ${m.nick} failed`, error);
 		});
 	}
 }
@@ -169,8 +150,8 @@ export function leaveRoom(
 	// A real departure changes the live room list: the room closed if it emptied,
 	// else its count dropped. A silent resubscribe leaves the count unchanged.
 	if (!silent && removed) {
-		if (state.members.length === 0) notifyRoomList(state, "closed", 0);
-		else notifyRoomList(state, "count", state.members.length);
+		if (state.members.length === 0) notifyLocalRoom(state, "closed", 0);
+		else notifyLocalRoom(state, "count", state.members.length);
 	}
 	return removed;
 }
@@ -224,9 +205,9 @@ function flushDisconnects(): void {
 			if (state.members.length === 0) {
 				dropRoomFiles(state);
 				forgetRoom(state);
-				notifyRoomList(state, "closed", 0);
+				notifyLocalRoom(state, "closed", 0);
 			} else {
-				notifyRoomList(state, "count", state.members.length);
+				notifyLocalRoom(state, "count", state.members.length);
 			}
 		} else if (state.members.length === 0 && departing.has(state.creator)) {
 			dropRoomFiles(state);
@@ -235,6 +216,7 @@ function flushDisconnects(): void {
 	}
 
 	for (const session of departing) {
+		for (const entry of forgetForeignRoomsFrom(session)) notifyPublicRoom(entry, "closed", null);
 		dropWatchers(session);
 		dropIntroductions(session);
 		// The exchanges this session originated die with it: its reply

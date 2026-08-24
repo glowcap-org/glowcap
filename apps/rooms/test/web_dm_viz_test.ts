@@ -68,9 +68,9 @@ async function waitForHttp(port: number): Promise<void> {
  * only the byte channel, and records arrive through an inbox capability after
  * enlivening the sturdyref the server announced. */
 type Record_ = Record<string, unknown>;
-async function watch(port: number, sturdyref: string): Promise<Record_[]> {
+async function watch(sturdyref: string): Promise<Record_[]> {
 	const seen: Record_[] = [];
-	await connectVizViewer(port, sturdyref, (record) => seen.push(record));
+	await connectVizViewer(sturdyref, (record) => seen.push(record));
 	return seen;
 }
 
@@ -145,7 +145,7 @@ try {
 		fail(`the page is told the endpoint is on ${servedPort}, not ${vizPort}`);
 	}
 
-	const seen = await watch(vizPort, await vizRef);
+	const seen = await watch(await vizRef);
 	const seed = vizMemorySeed(httpPort, await vizRef);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });

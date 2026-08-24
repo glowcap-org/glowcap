@@ -56,11 +56,21 @@ Linux and macOS are the current packaging targets. Windows needs
 ## Building release archives
 
 ```sh
-zig build release-pack
+zig build -Doptimize=ReleaseSafe release-pack
 ```
 
 This writes checksummed, target-specific archives under `zig-out/release/`.
-The tarballs contain regular files rather than library symlinks.
+`release-pack` refuses Debug mode so a bare invocation cannot accidentally
+publish development binaries; another explicit Release mode remains available
+to an embedding with a documented size or speed posture.
+Before it returns, the step safely extracts the tarball outside the checkout.
+It builds and runs one C consumer for every self-contained static archive, one
+consumer across the packaged shared libraries, loads the iroh companion through
+that shared path, and runs both product binaries there.
+The archive table in `build.zig` is the release manifest. Packaging copies only
+those libraries, their public headers, and the product binaries by name, so a
+dirty `zig-out` cannot contribute another target or an internal artifact. The
+tarballs contain regular files rather than library symlinks.
 
 The optional native relay archive is self-contained: its pinned, namespaced
 Mbed TLS client is linked privately into `libpancake_net_transport_relay` and
@@ -75,13 +85,20 @@ artifacts without publishing a GitHub release.
 Do not change `releases_published` until the corresponding release assets can
 be downloaded.
 
-1. Run `zig build release-pack` for every published target.
-2. Set `releases_published` to true in `c-abi-resolve.json`.
-3. Copy the updated contract to every path in its `package_copies` list.
-4. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`.
-5. Push the tag and confirm the release workflow publishes the tarballs and
-   `SHA256SUMS`.
-6. Test a cold-cache install against the live release URL.
+1. Run `zig build -Doptimize=ReleaseSafe release-pack` for every published
+   target.
+2. Push the release commit and require its exact SHA to complete `check.yml`
+   successfully, including both the full gates and macOS runtime jobs.
+3. Set `releases_published` to true in `c-abi-resolve.json`.
+4. Copy the updated contract to every path in its `package_copies` list.
+5. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`. The release
+   workflow independently queries the successful exact-SHA check before it
+   builds archives.
+6. Push the tag and confirm the release workflow publishes the tarballs and
+   `SHA256SUMS`, and records GitHub artifact attestations for both.
+7. Download each archive, verify `SHA256SUMS`, then verify its build provenance
+   with `gh attestation verify --repo OWNER/REPO <archive>`.
+8. Test a cold-cache install against the live release URL.
 
 Before that switch, `PANCAKE_DOWNLOAD=1` can rehearse the download path against
 staged assets.

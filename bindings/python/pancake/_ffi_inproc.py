@@ -29,7 +29,11 @@ from ._sigs_gen import inproc_sigs
 
 def _load():
     inproc = ctypes.CDLL(str(_lib_path("pancake_net_transport_inproc")))
-    require_archive_fingerprint(inproc, "inproc", INPROC_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: inproc.pancake_inproc_archive_fingerprint,
+        "inproc",
+        INPROC_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(inproc)
     _bind(facade, inproc, inproc_sigs(_Frame, _ManagedFrame))
     return facade

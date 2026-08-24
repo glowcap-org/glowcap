@@ -51,6 +51,12 @@ equality follows the opaque Host identity: Rust `==`, Python `==`, Racket
 occurrences instead, which remain distinct because every occurrence owns its
 own release unit.
 
+Each Host also accepts selective session-limit options in the language's named
+argument convention. Frame admission, pending-answer queue entries, transient
+outbound bytes, and durable sent-answer bytes are independent; omitted or zero
+fields keep the Host's current policy, and the change applies only to sessions
+minted afterwards.
+
 ## A call can introduce another peer
 
 Three-party handoff is part of the ordinary call path. If a result names a
@@ -63,7 +69,9 @@ operations or peer identity. The capability itself remains Host-scoped.
 
 Promises can be call targets before they settle. A chain of dependent sends can
 therefore cross the network in one round trip. Await the last promise when the
-intermediate results are not otherwise needed.
+intermediate results are not otherwise needed. A promise target is scoped to
+the Host that minted it: any sibling Session of that Host may use it, while a
+different Host refuses it before interpreting the Host-local vow number.
 
 ## Closing sessions and hosts
 
@@ -120,8 +128,9 @@ WebRTC's optional native C companion as raw FFI, including multiplexed readiness
 and try-I/O. Its endpoint config is provider-neutral ICE data: URLs plus
 optional TURN username/password credentials. TypeScript instead uses the
 browser's `RTCPeerConnection` and does not load that companion. Its browser
-package is the only application-level WebRTC adapter; the native bindings do
-not yet wrap the raw family into their shared `Host` API.
+package is the application-level WebRTC adapter shipped by the bindings. For
+native consumers, the raw companion is the supported embedding surface;
+application-level signaling and Host composition remain with the embedder.
 
 TypeScript's raw onion transport runs through Deno's off-thread FFI. Bun's FFI
 does not currently provide that execution contract, so onion operations refuse
@@ -144,7 +153,10 @@ boundary. A later consuming result retires that owner exactly once, while its
 release and wrapper-cleanup failures remain consequences of the original
 terminal failure.
 Managed browser and event-loop connectors use their runtime's WebSocket while
-the byte-fed Host still owns Noise and CapTP.
+the byte-fed Host still owns Noise and CapTP. TypeScript, Python, Rust, and
+Racket also expose managed keyed and Noise relay listeners over the native
+provider. The listeners register one durable Host identity, publish the
+relay-routed locator, and accept sessions through their ordinary server type.
 
 ## Building and checking
 

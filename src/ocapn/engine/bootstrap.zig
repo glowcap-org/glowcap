@@ -67,7 +67,10 @@ pub fn gifterKeyForSession(
 /// exports, so only a `.near` target can name it (`exportPosition`); a `.far`
 /// target whose partner-named import position happens to be 0 falls through to
 /// ordinary handling instead of being auto-served.
-pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const session_mod.Session) model.view.ProjectError!?Request {
+pub fn pendingBootstrapAction(
+    deliver: model.view.Deliver,
+    prepared_virtual_answer: ?model.VirtualAnswer,
+) model.view.ProjectError!?Request {
     const target_export = deliver.target.exportPosition() orelse return null;
     if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
 
@@ -89,11 +92,11 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
             else => return null,
         };
         if ((try it.next()) != null) return null;
-        const answer = answerForDeliver(deliver, session);
+        const answer = preparedAnswerForDeliver(deliver, prepared_virtual_answer);
         return .{ .deposit_gift = .{ .gift_id = gift_id, .gifted = gifted, .answer = answer } };
     }
 
-    const answer = answerForDeliver(deliver, session) orelse return null;
+    const answer = preparedAnswerForDeliver(deliver, prepared_virtual_answer) orelse return null;
 
     if (std.mem.eql(u8, method, "fetch")) {
         const swissnum = switch ((try it.next()) orelse return null) {
@@ -117,6 +120,17 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
         return .{ .withdraw_gift = .{ .receive = receive, .answer = answer } };
     }
 
+    return null;
+}
+
+/// The answer available during inbound classification, before a prepared V1.0
+/// resolver-only answer has committed its Session link.
+fn preparedAnswerForDeliver(
+    deliver: model.view.Deliver,
+    virtual_answer: ?model.VirtualAnswer,
+) ?model.AnswerName {
+    if (deliver.answer) |answer| return .fromWire(answer);
+    if (virtual_answer) |answer| return .fromVirtual(answer);
     return null;
 }
 

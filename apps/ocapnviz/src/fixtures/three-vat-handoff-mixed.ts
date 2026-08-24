@@ -131,406 +131,406 @@ const AGENT = "ocapnviz:fixtures/three-vat-handoff-mixed";
  *  `endpointStageId` for the end nothing has attributed yet. A second
  *  spelling of it silently detaches those messages from their session. */
 const SESSION = {
-  aliceCarol: "ca93a0430b191ecd589f6238b626ede6cbe5d5723a7c4dc2cddf2c6a81cd7710",
-  aliceBob: "92f686b09614fa7214a0dbb5c66940b5e18df528ee2818be520a992d8afe75c5",
-  bobCarol: "07f7c347da92f751c56d5bd074c0051547791937b99e58e4d8879de759a0a488",
+	aliceCarol: "ca93a0430b191ecd589f6238b626ede6cbe5d5723a7c4dc2cddf2c6a81cd7710",
+	aliceBob: "92f686b09614fa7214a0dbb5c66940b5e18df528ee2818be520a992d8afe75c5",
+	bobCarol: "07f7c347da92f751c56d5bd074c0051547791937b99e58e4d8879de759a0a488",
 } as const;
 
 export const threeVatHandoffMixed = TimelineDocument.parse({
-  id: "three-vat-handoff-mixed",
-  metadata: {
-    "dct:title": "00 · Hand off a capability across three vats",
-    "dct:description":
-      "Alice introduces Bob to Carol, and Bob then talks to Carol directly. Alice and Carol are pancake, so their session records Cap'n Proto over pancake-next; Bob is Goblins, so both sessions he is on record Syrup over OCapN 1.0. Each session carries its own codec and version, and the picture shows all three at once. Watch the Bob-to-Carol session especially: Carol takes Bob's dial before anything proves who dialed, so that end starts out claiming Bob's address with no peer attached, and only the signed handoff-receive lands the line on Bob.",
-    "dct:creator": "pancake project",
-    "dct:created": "2026-05-14T00:00:00Z",
-  },
-  provenance: {
-    "prov:wasAttributedTo": AGENT,
-  },
-  duration: 6000,
-  events: [
-    // ── t=0: peers join, sessions exist (negotiating) ───────────────
-    {
-      id: "alice-joins",
-      t: 0,
-      kind: "peer-joined",
-      peerId: "127.0.0.1:9001",
-      label: "Alice (gifter)",
-      profile: "pancake",
-      // The name each peer answers to on the wire, as against the
-      // name it is shown by. A claim is a wire name, so this is what
-      // a claim can match, and the one below is what Bob's claim on
-      // the Bob ↔ Carol session matches.
-      designator: "127.0.0.1:9001",
-    },
-    {
-      id: "bob-joins",
-      t: 0,
-      kind: "peer-joined",
-      peerId: "127.0.0.1:9002",
-      label: "Bob (receiver)",
-      profile: "goblins",
-      designator: "127.0.0.1:9002",
-    },
-    {
-      id: "carol-joins",
-      t: 0,
-      kind: "peer-joined",
-      peerId: "127.0.0.1:9003",
-      label: "Carol (exporter)",
-      profile: "pancake",
-      designator: "127.0.0.1:9003",
-    },
-    {
-      // Alice and Carol are both pancake → they speak pancake's
-      // native pancake-next wire shape. The other two sessions are
-      // forced to v1_0 (Goblins-canonical) because Bob is a
-      // Goblins-flavor peer. Per-session negotiation across both codec and
-      // CapTP-version axes in one picture.
-      id: "alice-carol-opens",
-      t: 0,
-      kind: "session-opened",
-      sessionId: SESSION.aliceCarol,
-      // Alice reports this session, so her own end is her own report.
-      // Carol's end is attached because Carol publishes her own trace
-      // of the same OCapN Session ID: plain `tcp` proves nothing about
-      // who answered, and two hosts agreeing is what is left.
-      a: {
-        peer: "127.0.0.1:9001",
-        designator: "127.0.0.1:9001",
-        attributedBy: "self-reported",
-      },
-      b: {
-        peer: "127.0.0.1:9003",
-        designator: "127.0.0.1:9003",
-        attributedBy: "viewer-correlated",
-      },
-      transport: "tcp",
-      codec: "capnp",
-      captpVersion: "next",
-      initialState: "negotiating",
-    },
-    {
-      id: "alice-bob-opens",
-      t: 0,
-      kind: "session-opened",
-      sessionId: SESSION.aliceBob,
-      // Bob is a Goblins vat and publishes no trace this viewer reads,
-      // so nothing correlates his end. Plain TCP does not authenticate
-      // the designator in his hello, so the end remains loose.
-      a: {
-        peer: "127.0.0.1:9001",
-        designator: "127.0.0.1:9001",
-        attributedBy: "self-reported",
-      },
-      b: {
-        designator: "127.0.0.1:9002",
-      },
-      transport: "tcp",
-      codec: "syrup",
-      captpVersion: "v1_0",
-      initialState: "negotiating",
-    },
+	id: "three-vat-handoff-mixed",
+	metadata: {
+		"dct:title": "00 · Hand off a capability across three vats",
+		"dct:description":
+			"Alice introduces Bob to Carol, and Bob then talks to Carol directly. Alice and Carol are pancake, so their session records Cap'n Proto over pancake-next; Bob is Goblins, so both sessions he is on record Syrup over OCapN 1.0. Each session carries its own codec and version, and the picture shows all three at once. Watch the Bob-to-Carol session especially: Carol takes Bob's dial before anything proves who dialed, so that end starts out claiming Bob's address with no peer attached, and only the signed handoff-receive lands the line on Bob.",
+		"dct:creator": "pancake project",
+		"dct:created": "2026-05-14T00:00:00Z",
+	},
+	provenance: {
+		"prov:wasAttributedTo": AGENT,
+	},
+	duration: 6000,
+	events: [
+		// ── t=0: peers join, sessions exist (negotiating) ───────────────
+		{
+			id: "alice-joins",
+			t: 0,
+			kind: "peer-joined",
+			peerId: "127.0.0.1:9001",
+			label: "Alice (gifter)",
+			profile: "pancake",
+			// The name each peer answers to on the wire, as against the
+			// name it is shown by. A claim is a wire name, so this is what
+			// a claim can match, and the one below is what Bob's claim on
+			// the Bob ↔ Carol session matches.
+			designator: "127.0.0.1:9001",
+		},
+		{
+			id: "bob-joins",
+			t: 0,
+			kind: "peer-joined",
+			peerId: "127.0.0.1:9002",
+			label: "Bob (receiver)",
+			profile: "goblins",
+			designator: "127.0.0.1:9002",
+		},
+		{
+			id: "carol-joins",
+			t: 0,
+			kind: "peer-joined",
+			peerId: "127.0.0.1:9003",
+			label: "Carol (exporter)",
+			profile: "pancake",
+			designator: "127.0.0.1:9003",
+		},
+		{
+			// Alice and Carol are both pancake → they speak pancake's
+			// native pancake-next wire shape. The other two sessions are
+			// forced to v1_0 (Goblins-canonical) because Bob is a
+			// Goblins-flavor peer. Per-session negotiation across both codec and
+			// CapTP-version axes in one picture.
+			id: "alice-carol-opens",
+			t: 0,
+			kind: "session-opened",
+			sessionId: SESSION.aliceCarol,
+			// Alice reports this session, so her own end is her own report.
+			// Carol's end is attached because Carol publishes her own trace
+			// of the same OCapN Session ID: plain `tcp` proves nothing about
+			// who answered, and two hosts agreeing is what is left.
+			a: {
+				peer: "127.0.0.1:9001",
+				designator: "127.0.0.1:9001",
+				attributedBy: "self-reported",
+			},
+			b: {
+				peer: "127.0.0.1:9003",
+				designator: "127.0.0.1:9003",
+				attributedBy: "viewer-correlated",
+			},
+			transport: "tcp",
+			codec: "capnp",
+			captpVersion: "next",
+			initialState: "negotiating",
+		},
+		{
+			id: "alice-bob-opens",
+			t: 0,
+			kind: "session-opened",
+			sessionId: SESSION.aliceBob,
+			// Bob is a Goblins vat and publishes no trace this viewer reads,
+			// so nothing correlates his end. Plain TCP does not authenticate
+			// the designator in his hello, so the end remains loose.
+			a: {
+				peer: "127.0.0.1:9001",
+				designator: "127.0.0.1:9001",
+				attributedBy: "self-reported",
+			},
+			b: {
+				designator: "127.0.0.1:9002",
+			},
+			transport: "tcp",
+			codec: "syrup",
+			captpVersion: "v1_0",
+			initialState: "negotiating",
+		},
 
-    // ── t=200-700: session handshakes (op:start-session both ways) ──
-    {
-      id: "ss-alice-carol-out",
-      t: 200,
-      kind: "message-sent",
-      messageId: "ss-alice-carol-out",
-      sessionId: SESSION.aliceCarol,
-      from: "127.0.0.1:9001",
-      to: "127.0.0.1:9003",
-      arrivalT: 400,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "ss-alice-bob-out",
-      t: 200,
-      kind: "message-sent",
-      messageId: "ss-alice-bob-out",
-      sessionId: SESSION.aliceBob,
-      from: "127.0.0.1:9001",
-      to: endpointStageId(SESSION.aliceBob, "b"),
-      arrivalT: 400,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "ss-alice-carol-out-deliv",
-      t: 400,
-      kind: "message-delivered",
-      messageId: "ss-alice-carol-out",
-    },
-    {
-      id: "ss-alice-bob-out-deliv",
-      t: 400,
-      kind: "message-delivered",
-      messageId: "ss-alice-bob-out",
-    },
-    {
-      id: "ss-carol-alice-back",
-      t: 500,
-      kind: "message-sent",
-      messageId: "ss-carol-alice-back",
-      sessionId: SESSION.aliceCarol,
-      from: "127.0.0.1:9003",
-      to: "127.0.0.1:9001",
-      arrivalT: 700,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "ss-bob-alice-back",
-      t: 500,
-      kind: "message-sent",
-      messageId: "ss-bob-alice-back",
-      sessionId: SESSION.aliceBob,
-      from: endpointStageId(SESSION.aliceBob, "b"),
-      to: "127.0.0.1:9001",
-      arrivalT: 700,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "ss-carol-alice-back-deliv",
-      t: 700,
-      kind: "message-delivered",
-      messageId: "ss-carol-alice-back",
-    },
-    {
-      id: "ss-bob-alice-back-deliv",
-      t: 700,
-      kind: "message-delivered",
-      messageId: "ss-bob-alice-back",
-    },
-    {
-      id: "alice-carol-open",
-      t: 700,
-      kind: "session-state-changed",
-      sessionId: SESSION.aliceCarol,
-      state: "open",
-    },
-    {
-      id: "alice-bob-open",
-      t: 700,
-      kind: "session-state-changed",
-      sessionId: SESSION.aliceBob,
-      state: "open",
-    },
+		// ── t=200-700: session handshakes (op:start-session both ways) ──
+		{
+			id: "ss-alice-carol-out",
+			t: 200,
+			kind: "message-sent",
+			messageId: "ss-alice-carol-out",
+			sessionId: SESSION.aliceCarol,
+			from: "127.0.0.1:9001",
+			to: "127.0.0.1:9003",
+			arrivalT: 400,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "ss-alice-bob-out",
+			t: 200,
+			kind: "message-sent",
+			messageId: "ss-alice-bob-out",
+			sessionId: SESSION.aliceBob,
+			from: "127.0.0.1:9001",
+			to: endpointStageId(SESSION.aliceBob, "b"),
+			arrivalT: 400,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "ss-alice-carol-out-deliv",
+			t: 400,
+			kind: "message-delivered",
+			messageId: "ss-alice-carol-out",
+		},
+		{
+			id: "ss-alice-bob-out-deliv",
+			t: 400,
+			kind: "message-delivered",
+			messageId: "ss-alice-bob-out",
+		},
+		{
+			id: "ss-carol-alice-back",
+			t: 500,
+			kind: "message-sent",
+			messageId: "ss-carol-alice-back",
+			sessionId: SESSION.aliceCarol,
+			from: "127.0.0.1:9003",
+			to: "127.0.0.1:9001",
+			arrivalT: 700,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "ss-bob-alice-back",
+			t: 500,
+			kind: "message-sent",
+			messageId: "ss-bob-alice-back",
+			sessionId: SESSION.aliceBob,
+			from: endpointStageId(SESSION.aliceBob, "b"),
+			to: "127.0.0.1:9001",
+			arrivalT: 700,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "ss-carol-alice-back-deliv",
+			t: 700,
+			kind: "message-delivered",
+			messageId: "ss-carol-alice-back",
+		},
+		{
+			id: "ss-bob-alice-back-deliv",
+			t: 700,
+			kind: "message-delivered",
+			messageId: "ss-bob-alice-back",
+		},
+		{
+			id: "alice-carol-open",
+			t: 700,
+			kind: "session-state-changed",
+			sessionId: SESSION.aliceCarol,
+			state: "open",
+		},
+		{
+			id: "alice-bob-open",
+			t: 700,
+			kind: "session-state-changed",
+			sessionId: SESSION.aliceBob,
+			state: "open",
+		},
 
-    // ── t=900: Alice deposits the gift with Carol ──────────────────
-    // The gifter's own leg, and the only Cap'n Proto frame in the
-    // scenario. It is fire-and-forget: `Peer.sendDepositGift` sends
-    // it with no answer, so nothing comes back and there is nothing
-    // for Alice to wait on before she hands Bob the give.
-    {
-      id: "deposit-gift-sent",
-      t: 900,
-      kind: "message-sent",
-      messageId: "deposit-gift",
-      sessionId: SESSION.aliceCarol,
-      from: "127.0.0.1:9001",
-      to: "127.0.0.1:9003",
-      arrivalT: 1100,
-      label: "op:deliver deposit-gift",
-      ...payloadOf(wireFrames.depositGift, AGENT),
-    },
-    {
-      id: "deposit-gift-delivered",
-      t: 1100,
-      kind: "message-delivered",
-      messageId: "deposit-gift",
-    },
+		// ── t=900: Alice deposits the gift with Carol ──────────────────
+		// The gifter's own leg, and the only Cap'n Proto frame in the
+		// scenario. It is fire-and-forget: `Peer.sendDepositGift` sends
+		// it with no answer, so nothing comes back and there is nothing
+		// for Alice to wait on before she hands Bob the give.
+		{
+			id: "deposit-gift-sent",
+			t: 900,
+			kind: "message-sent",
+			messageId: "deposit-gift",
+			sessionId: SESSION.aliceCarol,
+			from: "127.0.0.1:9001",
+			to: "127.0.0.1:9003",
+			arrivalT: 1100,
+			label: "op:deliver deposit-gift",
+			...payloadOf(wireFrames.depositGift, AGENT),
+		},
+		{
+			id: "deposit-gift-delivered",
+			t: 1100,
+			kind: "message-delivered",
+			messageId: "deposit-gift",
+		},
 
-    // ── t=1200: Alice sends the handoff-give to Bob ────────────────
-    {
-      id: "handoff-give-sent",
-      t: 1200,
-      kind: "message-sent",
-      messageId: "handoff-give",
-      sessionId: SESSION.aliceBob,
-      from: "127.0.0.1:9001",
-      to: endpointStageId(SESSION.aliceBob, "b"),
-      arrivalT: 1700,
-      label: "desc:handoff-give",
-      ...payloadOf(wireFrames.handoffGive, AGENT),
-    },
-    {
-      id: "handoff-give-delivered",
-      t: 1700,
-      kind: "message-delivered",
-      messageId: "handoff-give",
-    },
+		// ── t=1200: Alice sends the handoff-give to Bob ────────────────
+		{
+			id: "handoff-give-sent",
+			t: 1200,
+			kind: "message-sent",
+			messageId: "handoff-give",
+			sessionId: SESSION.aliceBob,
+			from: "127.0.0.1:9001",
+			to: endpointStageId(SESSION.aliceBob, "b"),
+			arrivalT: 1700,
+			label: "desc:handoff-give",
+			...payloadOf(wireFrames.handoffGive, AGENT),
+		},
+		{
+			id: "handoff-give-delivered",
+			t: 1700,
+			kind: "message-delivered",
+			messageId: "handoff-give",
+		},
 
-    // ── t=1900-2700: Bob acts on the gift ──────────────────────────
-    // - Bob resolves the handoff-give back to Alice (op:resolve).
-    // - Bob dials Carol → bob-carol session opens (negotiating).
-    // - Bob ↔ Carol handshake (op:start-session both ways).
-    {
-      id: "handoff-give-resolve",
-      t: 1900,
-      kind: "message-sent",
-      messageId: "handoff-give-resolve",
-      sessionId: SESSION.aliceBob,
-      from: endpointStageId(SESSION.aliceBob, "b"),
-      to: "127.0.0.1:9001",
-      arrivalT: 2300,
-      label: "op:resolve",
-      ...payloadOf(wireFrames.resolveFulfillFar, AGENT),
-    },
-    {
-      // Carol accepted this dial, so her end is hers to state and it
-      // is the `a` one. The `b` end carries the address Bob's hello
-      // claimed and no peer, because the `tcp` netlayer binds nothing
-      // about the far side of the socket to that address (ADR-0105).
-      // The give Bob is about to present is what will.
-      //
-      // The address is the one Bob joined under, so the stage aims this
-      // end at Bob rather than putting it off on its own, and the wire
-      // stops short of him. That is the whole point of writing the
-      // claim down instead of minting a peer for it: a claim on
-      // somebody can be drawn as a claim on somebody.
-      id: "bob-carol-negotiating",
-      t: 1900,
-      kind: "session-opened",
-      sessionId: SESSION.bobCarol,
-      a: {
-        peer: "127.0.0.1:9003",
-        designator: "127.0.0.1:9003",
-        attributedBy: "self-reported",
-      },
-      b: { designator: "127.0.0.1:9002" },
-      transport: "tcp",
-      codec: "syrup",
-      captpVersion: "v1_0",
-      initialState: "negotiating",
-    },
-    {
-      id: "ss-bob-carol-out",
-      t: 2100,
-      kind: "message-sent",
-      messageId: "ss-bob-carol-out",
-      sessionId: SESSION.bobCarol,
-      // From the end itself, not from Bob. Nothing has yet backed the claim
-      // this end arrived with, so the recording cannot say whose message
-      // this is — only which end of which wire it left. That is the same
-      // restraint the session's own `b` shows, said about the traffic.
-      from: endpointStageId(SESSION.bobCarol, "b"),
-      to: "127.0.0.1:9003",
-      arrivalT: 2300,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "handoff-give-resolve-deliv",
-      t: 2300,
-      kind: "message-delivered",
-      messageId: "handoff-give-resolve",
-    },
-    {
-      id: "ss-bob-carol-out-deliv",
-      t: 2300,
-      kind: "message-delivered",
-      messageId: "ss-bob-carol-out",
-    },
-    {
-      id: "ss-carol-bob-back",
-      t: 2400,
-      kind: "message-sent",
-      messageId: "ss-carol-bob-back",
-      sessionId: SESSION.bobCarol,
-      from: "127.0.0.1:9003",
-      to: endpointStageId(SESSION.bobCarol, "b"),
-      arrivalT: 2600,
-      label: "op:start-session",
-      ...payloadOf(wireFrames.startSession, AGENT),
-    },
-    {
-      id: "ss-carol-bob-back-deliv",
-      t: 2600,
-      kind: "message-delivered",
-      messageId: "ss-carol-bob-back",
-    },
-    {
-      id: "bob-carol-open",
-      t: 2600,
-      kind: "session-state-changed",
-      sessionId: SESSION.bobCarol,
-      state: "open",
-    },
+		// ── t=1900-2700: Bob acts on the gift ──────────────────────────
+		// - Bob resolves the handoff-give back to Alice (op:resolve).
+		// - Bob dials Carol → bob-carol session opens (negotiating).
+		// - Bob ↔ Carol handshake (op:start-session both ways).
+		{
+			id: "handoff-give-resolve",
+			t: 1900,
+			kind: "message-sent",
+			messageId: "handoff-give-resolve",
+			sessionId: SESSION.aliceBob,
+			from: endpointStageId(SESSION.aliceBob, "b"),
+			to: "127.0.0.1:9001",
+			arrivalT: 2300,
+			label: "op:resolve",
+			...payloadOf(wireFrames.resolveFulfillFar, AGENT),
+		},
+		{
+			// Carol accepted this dial, so her end is hers to state and it
+			// is the `a` one. The `b` end carries the address Bob's hello
+			// claimed and no peer, because the `tcp` netlayer binds nothing
+			// about the far side of the socket to that address (ADR-0105).
+			// The give Bob is about to present is what will.
+			//
+			// The address is the one Bob joined under, so the stage aims this
+			// end at Bob rather than putting it off on its own, and the wire
+			// stops short of him. That is the whole point of writing the
+			// claim down instead of minting a peer for it: a claim on
+			// somebody can be drawn as a claim on somebody.
+			id: "bob-carol-negotiating",
+			t: 1900,
+			kind: "session-opened",
+			sessionId: SESSION.bobCarol,
+			a: {
+				peer: "127.0.0.1:9003",
+				designator: "127.0.0.1:9003",
+				attributedBy: "self-reported",
+			},
+			b: { designator: "127.0.0.1:9002" },
+			transport: "tcp",
+			codec: "syrup",
+			captpVersion: "v1_0",
+			initialState: "negotiating",
+		},
+		{
+			id: "ss-bob-carol-out",
+			t: 2100,
+			kind: "message-sent",
+			messageId: "ss-bob-carol-out",
+			sessionId: SESSION.bobCarol,
+			// From the end itself, not from Bob. Nothing has yet backed the claim
+			// this end arrived with, so the recording cannot say whose message
+			// this is — only which end of which wire it left. That is the same
+			// restraint the session's own `b` shows, said about the traffic.
+			from: endpointStageId(SESSION.bobCarol, "b"),
+			to: "127.0.0.1:9003",
+			arrivalT: 2300,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "handoff-give-resolve-deliv",
+			t: 2300,
+			kind: "message-delivered",
+			messageId: "handoff-give-resolve",
+		},
+		{
+			id: "ss-bob-carol-out-deliv",
+			t: 2300,
+			kind: "message-delivered",
+			messageId: "ss-bob-carol-out",
+		},
+		{
+			id: "ss-carol-bob-back",
+			t: 2400,
+			kind: "message-sent",
+			messageId: "ss-carol-bob-back",
+			sessionId: SESSION.bobCarol,
+			from: "127.0.0.1:9003",
+			to: endpointStageId(SESSION.bobCarol, "b"),
+			arrivalT: 2600,
+			label: "op:start-session",
+			...payloadOf(wireFrames.startSession, AGENT),
+		},
+		{
+			id: "ss-carol-bob-back-deliv",
+			t: 2600,
+			kind: "message-delivered",
+			messageId: "ss-carol-bob-back",
+		},
+		{
+			id: "bob-carol-open",
+			t: 2600,
+			kind: "session-state-changed",
+			sessionId: SESSION.bobCarol,
+			state: "open",
+		},
 
-    // ── t=3000-3900: Bob sends the handoff-receive to Carol ────────
-    {
-      id: "handoff-receive-sent",
-      t: 3000,
-      kind: "message-sent",
-      messageId: "handoff-receive",
-      sessionId: SESSION.bobCarol,
-      // Still the end and not Bob, and this one most of all: this is the
-      // message that BACKS the claim. Naming Bob as its sender would help
-      // itself to the very fact it is about to establish, and the
-      // attribution that follows at t=3500 would be reporting something the
-      // recording had already assumed.
-      from: endpointStageId(SESSION.bobCarol, "b"),
-      to: "127.0.0.1:9003",
-      arrivalT: 3500,
-      label: "desc:handoff-receive",
-      ...payloadOf(wireFrames.handoffReceive, AGENT),
-    },
-    {
-      id: "handoff-receive-delivered",
-      t: 3500,
-      kind: "message-delivered",
-      messageId: "handoff-receive",
-    },
-    {
-      // Carol has just checked two signatures. Alice signed the give
-      // with her key on the Alice ↔ Carol session, and it names the
-      // key Bob held on his session with Alice; the receive that
-      // arrived here is signed with that same key. So the end stops
-      // being loose and is Bob's from now on, and what says so is the
-      // handoff itself.
-      //
-      // `verified-handoff` records that this is the party Alice designated, a
-      // different fact from the address in the hello. Nothing here
-      // proved that address, and pancake's own handoff path never
-      // touches the durable pin, so a peer redeeming a gift over plain
-      // `tcp` stays unauthenticated however the handoff goes.
-      //
-      // The chain closes on the session party Alice introduced because
-      // the give names that session key and the receive proves possession.
-      //
-      // Nothing was born and nothing died: the same session now reaches
-      // the peer its claim had been pointing at, so the line completes
-      // instead of jumping across the canvas, and no peer moves.
-      id: "bob-carol-b-is-bob",
-      t: 3500,
-      kind: "session-endpoint-attributed",
-      sessionId: SESSION.bobCarol,
-      side: "b",
-      peerId: "127.0.0.1:9002",
-      attributedBy: "verified-handoff",
-    },
-    {
-      id: "handoff-receive-resolve",
-      t: 3700,
-      kind: "message-sent",
-      messageId: "handoff-receive-resolve",
-      sessionId: SESSION.bobCarol,
-      from: "127.0.0.1:9003",
-      to: "127.0.0.1:9002",
-      arrivalT: 4100,
-      label: "op:resolve",
-      ...payloadOf(wireFrames.resolveFulfillFar, AGENT),
-    },
-    {
-      id: "handoff-receive-resolve-deliv",
-      t: 4100,
-      kind: "message-delivered",
-      messageId: "handoff-receive-resolve",
-    },
-  ],
+		// ── t=3000-3900: Bob sends the handoff-receive to Carol ────────
+		{
+			id: "handoff-receive-sent",
+			t: 3000,
+			kind: "message-sent",
+			messageId: "handoff-receive",
+			sessionId: SESSION.bobCarol,
+			// Still the end and not Bob, and this one most of all: this is the
+			// message that BACKS the claim. Naming Bob as its sender would help
+			// itself to the very fact it is about to establish, and the
+			// attribution that follows at t=3500 would be reporting something the
+			// recording had already assumed.
+			from: endpointStageId(SESSION.bobCarol, "b"),
+			to: "127.0.0.1:9003",
+			arrivalT: 3500,
+			label: "desc:handoff-receive",
+			...payloadOf(wireFrames.handoffReceive, AGENT),
+		},
+		{
+			id: "handoff-receive-delivered",
+			t: 3500,
+			kind: "message-delivered",
+			messageId: "handoff-receive",
+		},
+		{
+			// Carol has just checked two signatures. Alice signed the give
+			// with her key on the Alice ↔ Carol session, and it names the
+			// key Bob held on his session with Alice; the receive that
+			// arrived here is signed with that same key. So the end stops
+			// being loose and is Bob's from now on, and what says so is the
+			// handoff itself.
+			//
+			// `verified-handoff` records that this is the party Alice designated, a
+			// different fact from the address in the hello. Nothing here
+			// proved that address, and pancake's own handoff path never
+			// touches the durable pin, so a peer redeeming a gift over plain
+			// `tcp` stays unauthenticated however the handoff goes.
+			//
+			// The chain closes on the session party Alice introduced because
+			// the give names that session key and the receive proves possession.
+			//
+			// Nothing was born and nothing died: the same session now reaches
+			// the peer its claim had been pointing at, so the line completes
+			// instead of jumping across the canvas, and no peer moves.
+			id: "bob-carol-b-is-bob",
+			t: 3500,
+			kind: "session-endpoint-attributed",
+			sessionId: SESSION.bobCarol,
+			side: "b",
+			peerId: "127.0.0.1:9002",
+			attributedBy: "verified-handoff",
+		},
+		{
+			id: "handoff-receive-resolve",
+			t: 3700,
+			kind: "message-sent",
+			messageId: "handoff-receive-resolve",
+			sessionId: SESSION.bobCarol,
+			from: "127.0.0.1:9003",
+			to: "127.0.0.1:9002",
+			arrivalT: 4100,
+			label: "op:resolve",
+			...payloadOf(wireFrames.resolveFulfillFar, AGENT),
+		},
+		{
+			id: "handoff-receive-resolve-deliv",
+			t: 4100,
+			kind: "message-delivered",
+			messageId: "handoff-receive-resolve",
+		},
+	],
 });

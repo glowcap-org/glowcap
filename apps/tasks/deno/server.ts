@@ -17,72 +17,46 @@
 
 import { type Argument, Ref, Session } from "@pancake/runtime";
 import * as tcp from "@pancake/tcp";
-import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
+import { ADD, BOARD, DONE, LIST, WATCH } from "./protocol.ts";
+import { TaskBoardState } from "./board_state.ts";
+import { serveAcceptedSession } from "./lifecycle.ts";
+import { TaskWatcherTable } from "./watchers.ts";
 
-interface Task {
-	id: number;
-	text: string;
-	completed: boolean;
-}
-
-interface Watcher {
-	ref: Ref;
-	session: Session;
-}
-
-const tasks: Task[] = [];
-const watchers: Watcher[] = [];
-let nextId = 1;
-
-function snapshot(): Argument {
-	return tasks.map((t) => [BigInt(t.id), t.text, t.completed]);
-}
-
-function removeWatcher(session: Session): void {
-	const i = watchers.findIndex((w) => w.session === session);
-	if (i >= 0) watchers.splice(i, 1);
-}
+const board = new TaskBoardState();
+const watchers = new TaskWatcherTable((message, error) => console.error(`[tasks] ${message}:`, error));
 
 /** Push the full current task list to every watcher through the capability it
  * gave us. `tell` is the fire-and-forget eventual-send: an update wants no reply,
  * so it costs one deliver with no answer round-trip. A dead watcher is dropped. */
 function notifyAll(): void {
-	const snap = snapshot();
-	for (const w of [...watchers]) {
-		w.session.tell(w.ref, UPDATE, [snap]).catch(() => removeWatcher(w.session));
-	}
+	if (watchers.length === 0) return;
+	watchers.notify(board.snapshot());
 }
 
 function boardBehavior(session: Session) {
 	return (verb: string, args: Argument[]): Argument => {
 		if (verb === ADD) {
 			const text = typeof args[0] === "string" ? args[0] : "";
-			if (text.length === 0) throw new Error("add needs a non-empty text");
-			const id = nextId++;
-			tasks.push({ id, text, completed: false });
+			const id = board.add(text);
 			notifyAll();
 			return BigInt(id);
 		}
 		if (verb === DONE) {
 			const id = typeof args[0] === "bigint" ? Number(args[0]) : NaN;
 			if (Number.isNaN(id)) throw new Error("done needs an integer task id");
-			const task = tasks.find((t) => t.id === id);
-			if (!task || task.completed) {
-				throw new Error(`task ${id} not found or already done`);
-			}
-			task.completed = true;
+			board.done(id);
 			notifyAll();
 			return "ok";
 		}
 		if (verb === LIST) {
-			return snapshot();
+			return board.snapshot();
 		}
 		if (verb === WATCH) {
 			const ref = args[0];
 			if (!(ref instanceof Ref)) {
 				throw new Error("watch needs a watcher capability");
 			}
-			watchers.push({ ref, session });
+			watchers.register(session, ref);
 			return "watching";
 		}
 		throw new Error(`board has no method ${verb}`);
@@ -94,13 +68,10 @@ const server = await tcp.listen("127.0.0.1", port);
 console.log(`TASKS-SERVER-LISTENING ${server.port}`);
 
 for await (const session of server) {
-	session.publish(BOARD, boardBehavior(session)); // fetchable by name
-	// When the client's connection ends — cleanly or not — its watcher row
-	// leaves and the session itself is retired. Without the close, the native
-	// shell outlives its dead transport, one per departed client, and the
-	// board keeps a watcher nothing can ever notify.
-	session.serve().catch(() => {}).finally(() => {
-		removeWatcher(session);
-		session.close().catch(() => {});
-	});
+	serveAcceptedSession(
+		session,
+		() => session.publish(BOARD, boardBehavior(session)),
+		() => watchers.remove(session),
+		(what, error) => console.error(`[tasks] ${what} failed:`, error),
+	);
 }

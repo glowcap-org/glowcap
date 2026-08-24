@@ -67,13 +67,14 @@ const provider = @import("provider.zig");
 // a C consumer that includes both `pancake_ocapn.h` and `pancake_net_transport_iroh.h` does.
 const c = @import("c_abi_shared");
 
-pub const PANCAKE_IROH_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprintParts(
-    &.{
-        @embedFile("mod.zig"),
-        @embedFile("loop.zig"),
-        @embedFile("provider.zig"),
-    },
-    @embedFile("symbols.zig"),
+pub const contract_layouts = [_]c.archive_contract.Layout{
+    c.archive_contract.layout("PANCAKE_IROH_READY_EVENT", PancakeIrohReadyEvent),
+    c.archive_contract.layout("PANCAKE_IROH_CONFIG", PancakeIrohConfig),
+};
+pub const PANCAKE_IROH_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    "iroh",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
 );
 
 pub export fn pancake_iroh_archive_fingerprint() u64 {

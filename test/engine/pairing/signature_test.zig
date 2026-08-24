@@ -218,7 +218,6 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     defer pair.deinit();
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},

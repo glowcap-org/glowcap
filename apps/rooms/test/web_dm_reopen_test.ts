@@ -135,9 +135,9 @@ class Timeline {
 /** Watch the endpoint the way ocapnviz does: the WebSocket is only the byte
  * channel, and records arrive through an inbox capability after enlivening
  * the sturdyref the server announced. */
-async function watch(port: number, sturdyref: string): Promise<Timeline> {
+async function watch(sturdyref: string): Promise<Timeline> {
 	const timeline = new Timeline();
-	await connectVizViewer(port, sturdyref, (record) => timeline.apply(record));
+	await connectVizViewer(sturdyref, (record) => timeline.apply(record));
 	return timeline;
 }
 
@@ -252,7 +252,7 @@ const vizRef = scrapeVizSturdyref(web.stderr);
 let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
-	const timeline = await watch(vizPort, await vizRef);
+	const timeline = await watch(await vizRef);
 	const seed = vizMemorySeed(httpPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 

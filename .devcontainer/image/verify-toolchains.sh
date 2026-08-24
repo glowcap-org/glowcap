@@ -109,6 +109,15 @@ fi
 
 expect_pin_contains "racket" RACKET_VERSION racket --version
 expect_on_path raco
+expect_ok "raco make" raco help make
+expect_ok "raco test" raco help test
+
+if require_pin "compiler" COMPILER_CHECKSUM; then
+    expect_pin_contains "compiler" COMPILER_CHECKSUM raco pkg show --all --long compiler
+fi
+if require_pin "compiler-lib" COMPILER_LIB_CHECKSUM; then
+    expect_pin_contains "compiler-lib" COMPILER_LIB_CHECKSUM raco pkg show --all --long compiler-lib
+fi
 
 if require_pin "goblins" PLTUSERHOME; then
     export PLTUSERHOME

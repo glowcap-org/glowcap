@@ -83,7 +83,9 @@ test "driven listen/resolve fires the registered listener across paired peers" {
             "p2=event:listen\n" ++
             "p2=sent:resolve:answer=42\n" ++
             "p1=event:resolve\n" ++
-            "p1=event:deliver:listener=9:fulfill=ok\n\n",
+            "p1=event:gc_export\n" ++
+            "p1=event:deliver:listener=9:fulfill=ok\n" ++
+            "p1=event:gc_export\n\n",
         actual,
     );
 }
@@ -116,13 +118,19 @@ test "driven projections resolve the projected answers when each source settles"
             "p2=event:listen\n" ++
             "p2=sent:resolve:answer=11\n" ++
             "p1=event:resolve:answer=11:fulfill=struct\n" ++
+            "p1=event:gc_export\n" ++
             "p1=event:resolve:answer=12:fulfill=tabby\n" ++
+            "p1=event:gc_export\n" ++
             "p2=sent:resolve:answer=21\n" ++
             "p1=event:resolve:answer=21:fulfill=list\n" ++
+            "p1=event:gc_export\n" ++
             "p1=event:resolve:answer=22:fulfill=one\n" ++
+            "p1=event:gc_export\n" ++
             "p2=sent:resolve:answer=31\n" ++
             "p1=event:resolve:answer=31:fulfill=tagged\n" ++
-            "p1=event:resolve:answer=32:fulfill=5\n\n",
+            "p1=event:gc_export\n" ++
+            "p1=event:resolve:answer=32:fulfill=5\n" ++
+            "p1=event:gc_export\n\n",
         actual,
     );
 }
@@ -182,7 +190,9 @@ test "driven handoff parks the early withdraw, settles it on deposit, and the re
             "recipient=sent:deliver:answer=2:direct\n" ++
             "exporter=event:deliver\n" ++
             "exporter=sent:resolve:answer=2\n" ++
-            "recipient=event:resolve:answer=2:fulfill=72F\n\n",
+            "recipient=event:gc_export\n" ++
+            "recipient=event:resolve:answer=2:fulfill=72F\n" ++
+            "recipient=event:gc_export\n\n",
         actual,
     );
 }

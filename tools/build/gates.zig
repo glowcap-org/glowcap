@@ -22,13 +22,15 @@ const check_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "python3",
         .scripts = &.{"tools/run-with-timeout.py"},
-        .why = "deterministic subprocesses use the shared process-group deadline wrapper",
+        .modules = &.{"py_compile"},
+        .why = "deterministic subprocesses use the shared deadline wrapper and the Python benchmark client is compile-checked",
     },
     .{
         .program = "bash",
         .scripts = &.{
             ".devcontainer/test/env-sync.sh",
             ".devcontainer/test/host-invariants.sh",
+            "tools/check/ocapnviz-build-check.sh",
             "tools/check/ocapnviz-test.sh",
             "tools/c-abi/c-abi-extract-matrix.sh",
             "tools/check/worktree-integration-test.sh",
@@ -38,6 +40,14 @@ const check_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "deno",
         .why = "checked TypeScript examples and site surfaces catch binding API drift",
+    },
+    .{
+        .program = "cargo",
+        .why = "the Rust benchmark client is compile-checked against the current binding",
+    },
+    .{
+        .program = "raco",
+        .why = "the Racket benchmark clients are compiled against the current binding",
     },
 };
 
@@ -483,7 +493,7 @@ pub fn register(ctx: Context) Registered {
     // Product proof for the @pancake/web Wasm peer: keyed WebSocket call and
     // callback against a native host, then a native CLI cold-dial into that
     // browser-shaped Host over sealed noise-relay rendezvous. Needs the wasm
-    const web_peer_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const web_peer_test = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{
         "deno",                                  "run", "--config", "deno.json", "--allow-all",
         "bindings/ts/web/test/web_peer_test.ts",
     });
@@ -497,16 +507,15 @@ pub fn register(ctx: Context) Registered {
     // The cross-runtime relay matrix (`bindings-relay`, `bindings-relay-iroh`) is
     // wired below, after the iroh ABI companion it depends on is defined.
 
-    // The wasm32 Host declares exactly one import — the behavior-dispatch seam
-    // `env.pancake_behavior_trampoline` (ADR-0070). Parse the module statically
-    // and assert the import set is exactly that one, so an accidental extra
-    // import or a rename fails the build. A sibling step (needs deno), not folded
-    // into the Zig-hermetic `check`.
+    // The wasm32 Host imports exactly the behavior-dispatch and hosted-
+    // retirement seams (ADR-0070). Parse the module statically and assert that
+    // fixed set, so an accidental extra import or rename fails the build. A
+    // sibling step (needs deno), not folded into the Zig-hermetic `check`.
     const wasm_import_check = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
     wasm_import_check.setCwd(b.path("."));
     wasm_import_check.has_side_effects = true;
     wasm_import_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host's import set is exactly {env.pancake_behavior_trampoline}, the sole behavior-dispatch seam (needs deno; ADR-0070)");
+    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno; ADR-0070)");
     wasm_import_check_step.dependOn(&wasm_import_check.step);
 
     return .{

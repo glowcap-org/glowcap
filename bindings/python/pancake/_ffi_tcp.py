@@ -45,7 +45,11 @@ pin_struct(_TcpConfig, "PANCAKE_TCP_CONFIG")
 
 def _load():
     tcp = ctypes.CDLL(str(_lib_path("pancake_net_transport_tcp")))
-    require_archive_fingerprint(tcp, "tcp", TCP_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: tcp.pancake_tcp_archive_fingerprint,
+        "tcp",
+        TCP_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(tcp)
     _bind(
         facade,

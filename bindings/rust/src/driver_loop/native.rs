@@ -10,9 +10,8 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::driver_event::{decode as decode_event, LoopEvent};
-use crate::sys::driver::{
-	self as ffi, PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportProvider,
-};
+use crate::sys::driver::{self as ffi, PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions};
+use crate::sys::PancakeTransportProvider;
 use crate::sys::{self, host as ffi_host};
 use crate::uri::OwnedLocator;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
@@ -91,6 +90,11 @@ impl DriverLoop {
 	/// `options` owns the retained wire-buffer size and three positive wait bounds.
 	pub fn open(seed: &[u8; 64], options: DriverLoopOptions) -> Result<Self> {
 		let context = Rc::new(ContextInner::new()?);
+		crate::require_archive_fingerprint(
+			"host",
+			unsafe { ffi_host::pancake_host_archive_fingerprint() },
+			sys::HOST_ARCHIVE_FINGERPRINT,
+		)?;
 		let mut host: *mut ffi_host::PancakeHost = core::ptr::null_mut();
 		crate::host::check_host(unsafe {
 			ffi_host::pancake_host_new_in(
@@ -126,6 +130,11 @@ impl DriverLoop {
 	/// leaves Host ownership unchanged on failure and makes this loop the sole
 	/// transport/action-drain/release owner on success.
 	pub(crate) fn take_host(host: *mut ffi_host::PancakeHost, options: DriverLoopOptions) -> Result<Self> {
+		crate::require_archive_fingerprint(
+			"driver",
+			unsafe { ffi::pancake_driver_archive_fingerprint() },
+			sys::DRIVER_ARCHIVE_FINGERPRINT,
+		)?;
 		let mut raw: *mut PancakeDriverLoop = core::ptr::null_mut();
 		let options = options.to_c();
 		check(unsafe { ffi::pancake_driver_take_host(host, &options, &mut raw) })?;

@@ -74,23 +74,49 @@ defines is reported as exactly this — and the repair is to run
 `zig build rooms-deploy-prep` again in the devcontainer and restart the
 service.
 
+## Room history
+
+`PANCAKE_ROOMS_HISTORY: "1"` is on in `docker-compose.yml` (the same as
+starting with `--history`): each listed room keeps its last lines in the
+`rooms-state` volume, serving them to members who join later. Private rooms
+and direct messages never record server-side. Comment the line out to run
+without retention.
+
 ## Operations capabilities
 
-The deployed app can mint the same operator capabilities a local start can.
-Uncomment `PANCAKE_ROOMS_DIAGNOSTICS: "1"` in `docker-compose.yml` for the
-inspect capability, and `PANCAKE_ROOMS_ADMIN_LISTENERS: "1"` for listener
-administration; each is the same as starting with `--diagnostics` or
-`--admin-listeners`. Uncommenting `PANCAKE_ROOMS_VIZ: "1"` is the same as
-starting with `--viz`: it serves the live timeline endpoint (port 9300 unless
-`PANCAKE_ROOMS_VIZ_PORT` says otherwise) and mints the viz capability it
-requires of every socket, so
-reaching the port neither reads the timeline nor writes traces into it. The
-server prints each swiss number into the container
-logs (`docker compose logs rooms`), and the `rooms-state` volume keeps the
-names stable across restarts. Whoever can read those logs holds the
-capabilities, which is the whole of the access control: paste a swiss number
-when flipping its toggle on in the page's Settings → Advanced, or fetch a
-directory-session capability from any client.
+Every operator capability is on in `docker-compose.yml`: inspect
+(`PANCAKE_ROOMS_DIAGNOSTICS`), listener administration
+(`PANCAKE_ROOMS_ADMIN_LISTENERS`), directory peering
+(`PANCAKE_ROOMS_PEERING`), the live timeline (`PANCAKE_ROOMS_VIZ`, serving
+port 9300 unless `PANCAKE_ROOMS_VIZ_PORT` says otherwise), and the IRC
+gateway (`PANCAKE_ROOMS_IRC`). Each is the same as the matching `--flag` on a
+local start; comment a line out to withhold that authority from the
+deployment. The viz endpoint requires its capability of every socket, so
+reaching the port neither reads the timeline nor writes traces into it.
+
+`./up.sh` is the one-step restart: it runs
+`docker compose up -d --build --force-recreate`, waits for the server to
+mint, and prints the capability lines and the room's locator.
+
+Each capability's swiss number is minted once and persists in the
+`rooms-state` volume, so a restart republishes the same one. Three ways to
+read them, any time:
+
+```sh
+# The capability printer reads the state volume and prints the token lines:
+docker compose exec rooms deno run --allow-read --allow-env --no-lock \
+  /repo/apps/rooms/server/capabilities.ts
+
+# The startup logs carry the same lines:
+docker compose logs rooms | grep 'ROOMS-'
+
+# Or read a single one straight from the volume:
+docker compose exec rooms cat /state/diagnostics
+```
+
+Whoever can read the volume or the logs holds the capabilities, which is the
+whole of the access control: paste a swiss number when flipping its toggle on
+in the page's Settings → Capabilities.
 
 ## Put it behind a tunnel
 

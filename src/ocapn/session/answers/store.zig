@@ -75,6 +75,14 @@ pub const ListenerList = struct {
         try self.entries.append(allocator, listener);
     }
 
+    pub fn ensureUnusedCapacity(self: *ListenerList, allocator: std.mem.Allocator, count: usize) !void {
+        try self.entries.ensureUnusedCapacity(allocator, count);
+    }
+
+    pub fn appendAssumeCapacity(self: *ListenerList, listener: ListenerEntry) void {
+        self.entries.appendAssumeCapacity(listener);
+    }
+
     /// Hand the caller every listener, leaving the list empty. Returns an
     /// empty slice when there are none; the caller frees only the slice (the
     /// entries are POD).
@@ -142,11 +150,6 @@ pub const Projection = struct {
     /// resolve and tear the session down. A stamp that no longer matches
     /// means the question is gone, and the projection is dropped.
     answer_row_id: u64,
-    /// Re-anchor hops consumed so far. A projection follows a resolution that
-    /// is itself a promise onto that promise's answer; the engine caps the
-    /// hops at `SessionLimits.max_projection_chain` so a stored-resolution
-    /// cycle breaks the projected answer instead of walking forever.
-    hops: u32 = 0,
 };
 
 /// Release a projection's owned bytes (a `.field` arm's name or a `.untag`
@@ -180,7 +183,7 @@ pub const AnswerPayload = struct {
     projections: std.ArrayList(Projection) = .empty,
     /// The resolution, stored once the answer resolves so a late `op:listen`
     /// fires immediately. Owned; freed on removal.
-    resolution: ?model.Resolution = null,
+    resolution: ?StoredResolution = null,
     /// Exact owned-model charge paired with `resolution`. Session aggregates
     /// it so a succession of published answers cannot hide variable retained
     /// trees behind the fixed answer-row cap.
@@ -198,6 +201,14 @@ pub const AnswerPayload = struct {
 pub const AnswerTarget = struct {
     name: model.AnswerName,
     row_id: u64,
+};
+
+/// One owned resolution plus the exact answer incarnation named by a top-level
+/// promise fulfillment. The wire value carries only a reusable position; this
+/// sidecar keeps later local consequence walks from following a replacement row.
+pub const StoredResolution = struct {
+    value: model.Resolution,
+    promise_target: ?AnswerTarget,
 };
 
 /// An accepted notification whose pipelining row has been released. The
@@ -220,6 +231,10 @@ pub const AnswerCell = struct {
     row_id: u64,
     /// Wire-delta count per ADR-0008 `op:gc-answers`.
     count: u64 = 1,
+    /// The application layer claimed responsibility for releasing this outbound
+    /// answer, so a stateless serve policy must not release it at settlement.
+    /// Meaningless on inbound rows.
+    application_release_claimed: bool = false,
     payload: ?*AnswerPayload = null,
     /// Next-profile local settling fan-out. The target import owns the ordered
     /// answer list; this back-link makes `op:gc-answers` removal O(1) without a
@@ -344,6 +359,45 @@ pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*An
     return payload;
 }
 
+/// An exact pending-answer payload prepared for one wider transaction. A cold
+/// live row receives a fresh empty payload immediately; this token remains its
+/// sole publication owner until commit and removes it on abandon. Detached rows
+/// can only be prepared when their already-owned payload still exists.
+pub const PreparedPendingPayload = struct {
+    target: AnswerTarget,
+    payload: *AnswerPayload,
+    owns_fresh: bool,
+
+    pub fn abandon(self: *PreparedPendingPayload, owner: anytype) void {
+        if (!self.owns_fresh) return;
+        const entry = owner.inbound_answers.getPtr(self.target.name) orelse unreachable;
+        std.debug.assert(entry.row_id == self.target.row_id and entry.payload == self.payload);
+        std.debug.assert(self.payload.queue.items.len == 0);
+        std.debug.assert(self.payload.listeners.len() == 0);
+        std.debug.assert(self.payload.projections.items.len == 0);
+        std.debug.assert(self.payload.resolution == null);
+        entry.payload = null;
+        owner.releaseAnswerPayload(self.payload);
+        self.owns_fresh = false;
+    }
+
+    pub fn commit(self: *PreparedPendingPayload) void {
+        self.owns_fresh = false;
+    }
+};
+
+pub fn preparePendingPayloadTarget(self: anytype, target: AnswerTarget) !PreparedPendingPayload {
+    if (self.answerPayloadForTarget(target)) |payload| {
+        if (payload.resolution != null) return error.UnexpectedMessage;
+        return .{ .target = target, .payload = payload, .owns_fresh = false };
+    }
+    const entry = self.inbound_answers.getPtr(target.name) orelse return error.InvalidReference;
+    if (entry.row_id != target.row_id or entry.status() != .pending)
+        return error.InvalidReference;
+    const payload = try ensureAnswerPayload(self.allocator, entry);
+    return .{ .target = target, .payload = payload, .owns_fresh = true };
+}
+
 pub fn retainAnswerPayload(payload: *AnswerPayload) !void {
     payload.refs = std.math.add(u32, payload.refs, 1) catch
         return error.QueueCapExceeded;
@@ -363,39 +417,47 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     payload.listeners.deinit(allocator);
     for (payload.projections.items) |projection| deinitProjection(allocator, projection);
     payload.projections.deinit(allocator);
-    if (payload.resolution) |resolution| model.freeResolution(allocator, resolution);
+    if (payload.resolution) |resolution| model.freeResolution(allocator, resolution.value);
     allocator.destroy(payload);
     return resolution_charge;
 }
 
-/// Pipelined calls and projections belong to the reusable answer-position
-/// row, not to its independent notification obligation. GC drops these even
-/// when the payload box remains alive for a resolver/listener.
-pub fn clearAnswerPipelining(allocator: std.mem.Allocator, payload: *AnswerPayload) void {
-    for (payload.queue.items) |message| model.freeMessage(allocator, message);
-    payload.queue.deinit(allocator);
-    payload.queue = .empty;
-    for (payload.projections.items) |projection| deinitProjection(allocator, projection);
-    payload.projections.deinit(allocator);
-    payload.projections = .empty;
-}
+/// Allocation-free admission result for one stored resolution. It measures the
+/// owned tree once, computes replacement delta and the durable-byte ceiling,
+/// and resolves promise identity before any capacity reservation or authority
+/// mutation. Preparation below only materializes a missing lazy payload.
+pub const ResolutionStorePlan = struct {
+    entry: ?*AnswerCell,
+    payload: ?*AnswerPayload,
+    charge: usize,
+    next_retained: usize,
+    promise_target: ?AnswerTarget,
+};
 
-/// Every fallible resource and arithmetic result needed to publish one stored
-/// resolution. Preparing may attach an empty lazy payload to the live answer,
-/// but it changes neither status, retained-byte accounting, nor resolution
-/// ownership. Commit is allocation-free and infallible.
 pub const PreparedResolutionStore = struct {
     entry: ?*AnswerCell,
     payload: *AnswerPayload,
     charge: usize,
     next_retained: usize,
+    promise_target: ?AnswerTarget,
 };
 
-pub fn prepareResolutionStoreNamed(
+pub fn promiseTargetForResolution(self: anytype, resolution: model.Resolution) !?AnswerTarget {
+    if (resolution != .fulfill or resolution.fulfill != .reference or
+        resolution.fulfill.reference != .promise)
+        return null;
+    const name = model.AnswerName.fromWire(
+        resolution.fulfill.reference.promise.answer_position,
+    );
+    const row = self.inbound_answers.getPtr(name) orelse return error.InvalidReference;
+    return .{ .name = name, .row_id = row.row_id };
+}
+
+pub fn planResolutionStoreNamed(
     self: anytype,
     answer: model.AnswerName,
     resolution: model.Resolution,
-) !PreparedResolutionStore {
+) !ResolutionStorePlan {
     const entry = self.inbound_answers.getPtr(answer) orelse
         return error.InvalidReference;
     const charge = try model.measureResolutionOwnedBytes(resolution);
@@ -403,13 +465,26 @@ pub fn prepareResolutionStoreNamed(
     std.debug.assert(self.retained_sent_answer_bytes >= prior_charge);
     const without_prior = self.retained_sent_answer_bytes - prior_charge;
     const next_retained = std.math.add(usize, without_prior, charge) catch
-        return error.QueueCapExceeded;
-    const payload = try ensureAnswerPayload(self.allocator, entry);
+        return error.RetainedAnswerCapExceeded;
+    if (next_retained > @as(usize, self.limits.max_retained_sent_answer_bytes))
+        return error.RetainedAnswerCapExceeded;
     return .{
         .entry = entry,
-        .payload = payload,
+        .payload = entry.payload,
         .charge = charge,
         .next_retained = next_retained,
+        .promise_target = try promiseTargetForResolution(self, resolution),
+    };
+}
+
+pub fn prepareResolutionStore(self: anytype, plan: ResolutionStorePlan) !PreparedResolutionStore {
+    const payload = plan.payload orelse try ensureAnswerPayload(self.allocator, plan.entry.?);
+    return .{
+        .entry = plan.entry,
+        .payload = payload,
+        .charge = plan.charge,
+        .next_retained = plan.next_retained,
+        .promise_target = plan.promise_target,
     };
 }
 
@@ -419,9 +494,12 @@ pub fn commitPreparedResolutionStore(
     resolution: model.Resolution,
 ) void {
     if (prepared.payload.resolution) |prior|
-        model.freeResolution(self.allocator, prior);
+        model.freeResolution(self.allocator, prior.value);
     self.retained_sent_answer_bytes = prepared.next_retained;
-    prepared.payload.resolution = resolution;
+    prepared.payload.resolution = .{
+        .value = resolution,
+        .promise_target = prepared.promise_target,
+    };
     prepared.payload.resolution_charge = prepared.charge;
     if (prepared.entry) |entry| if (entry.status() == .pending) switch (resolution) {
         .fulfill => entry.fulfill() catch unreachable,
@@ -429,19 +507,22 @@ pub fn commitPreparedResolutionStore(
     };
 }
 
-pub fn prepareResolutionStoreTarget(
+pub fn planResolutionStoreTarget(
     self: anytype,
     target: AnswerTarget,
     payload: *AnswerPayload,
     resolution: model.Resolution,
-) !PreparedResolutionStore {
+) !ResolutionStorePlan {
     const found = self.answerPayloadForTarget(target) orelse return error.InvalidReference;
     if (found != payload or payload.resolution != null) return error.UnexpectedMessage;
     const charge = try model.measureResolutionOwnedBytes(resolution);
     std.debug.assert(self.retained_sent_answer_bytes >= payload.resolution_charge);
     const without_prior = self.retained_sent_answer_bytes - payload.resolution_charge;
     const next_retained = std.math.add(usize, without_prior, charge) catch
-        return error.QueueCapExceeded;
+        return error.RetainedAnswerCapExceeded;
+    if (next_retained > @as(usize, self.limits.max_retained_sent_answer_bytes))
+        return error.RetainedAnswerCapExceeded;
+    const promise_target = try promiseTargetForResolution(self, resolution);
     const live_entry = if (self.inbound_answers.getPtr(target.name)) |entry|
         if (entry.row_id == target.row_id) entry else null
     else
@@ -451,6 +532,7 @@ pub fn prepareResolutionStoreTarget(
         .payload = payload,
         .charge = charge,
         .next_retained = next_retained,
+        .promise_target = promise_target,
     };
 }
 
@@ -458,7 +540,11 @@ pub fn prepareResolutionStoreTarget(
 /// Session's retained-answer aggregate. Replacement computes its complete
 /// accounting result before releasing the prior value.
 pub fn storeResolutionNamed(self: anytype, answer: model.AnswerName, resolution: model.Resolution) !void {
-    const prepared = prepareResolutionStoreNamed(self, answer, resolution) catch |err| {
+    const plan = planResolutionStoreNamed(self, answer, resolution) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    const prepared = prepareResolutionStore(self, plan) catch |err| {
         model.freeResolution(self.allocator, resolution);
         return err;
     };
@@ -480,6 +566,11 @@ pub fn retainedSentAnswerBytes(self: anytype) usize {
 /// Borrow the stored resolution for `answer`, if it has resolved. The borrow
 /// remains valid until that answer is replaced or removed.
 pub fn peekResolutionNamed(self: anytype, answer: model.AnswerName) ?*const model.Resolution {
+    const stored = peekStoredResolutionNamed(self, answer) orelse return null;
+    return &stored.value;
+}
+
+pub fn peekStoredResolutionNamed(self: anytype, answer: model.AnswerName) ?*const StoredResolution {
     const entry = self.inbound_answers.getPtr(answer) orelse return null;
     const payload = entry.payload orelse {
         std.debug.assert(entry.status() == .pending);

@@ -119,6 +119,7 @@ pub const Runtime = struct {
     /// fail a resolver operation.
     pub fn maintainWake(self: *Runtime, backend: anytype, user_data: u64) void {
         if (backend.resolver_wake_armed) return;
+        // best-effort: left unarmed, the next maintainWake call re-arms.
         backend.platform.submitRecv(user_data, self.wakeFd()) catch return;
         backend.resolver_wake_armed = true;
     }

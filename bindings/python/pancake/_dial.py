@@ -365,8 +365,8 @@ async def dial_exporter(
     )
 
 
-async def run_dial_ticket(host: Host, ticket: int) -> None:
-    """Ticket-only DIAL arm: clone the complete locator, dial, and report."""
+async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
+    """Execute one concrete DIAL attempt and report its outcome."""
     from ._ffi_ocapn import _byte_buf
 
     session = None
@@ -379,6 +379,7 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
         rc = _host.pancake_host_pending_dial(
             host.raw,
             ticket,
+            route_index,
             None,
             0,
             ctypes.byref(view),
@@ -392,6 +393,7 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
             rc = _host.pancake_host_pending_dial(
                 host.raw,
                 ticket,
+                route_index,
                 hints,
                 capacity,
                 ctypes.byref(view),
@@ -404,7 +406,13 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
         if host.released:
             session.close_transport()
             return
-        _check_host(_host.pancake_host_dialed(host.raw, ticket, session.raw))
+        adopted = ctypes.c_uint8()
+        _check_host(_host.pancake_host_dialed(
+            host.raw, ticket, route_index, session.raw, ctypes.byref(adopted)
+        ))
+        if not adopted.value:
+            session.close_transport()
+            return
         # A reported dial retires close-relevant pending work; wake any parked
         # close driver.
         host.signal_close_activity()
@@ -421,7 +429,9 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
             return
         reason = (str(error) or type(error).__name__).encode()
         _buf, ptr = _byte_buf(reason)
-        _check_host(_host.pancake_host_dial_failed(host.raw, ticket, ptr, len(reason)))
+        _check_host(_host.pancake_host_dial_failed(
+            host.raw, ticket, route_index, ptr, len(reason)
+        ))
         host.signal_close_activity()
         if not isinstance(error, Exception):
             raise

@@ -4,22 +4,11 @@ const pancake = @import("pancake");
 const exit_codes = @import("../exit_codes.zig");
 const log = @import("log.zig");
 const path_io = @import("path_io.zig");
-const xdg = @import("xdg.zig");
 
 const crypto = pancake.foundation.crypto;
 const Io = std.Io;
 
 pub const seed_bytes = 32;
-
-/// Resolve the identity path for load/ensure (may return legacy config path).
-pub fn defaultIdentityPath(io: Io, buf: []u8, environ: *const std.process.Environ.Map, posture: xdg.StatePosture) ![]const u8 {
-    return xdg.defaultIdentityPath(io, buf, environ, posture);
-}
-
-/// Resolve the path `init` should mint (XDG state; never legacy config).
-pub fn mintIdentityPath(buf: []u8, environ: *const std.process.Environ.Map, posture: xdg.StatePosture) ![]const u8 {
-    return xdg.mintIdentityPath(buf, environ, posture);
-}
 
 pub fn mint(io: Io, path: []const u8) !crypto.SecretKey {
     var seed: [seed_bytes]u8 = undefined;

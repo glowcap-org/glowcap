@@ -13,6 +13,8 @@ extern "C" {
 #define PANCAKE_VERSION_MAJOR 0
 #define PANCAKE_VERSION_MINOR 1
 #define PANCAKE_VERSION_PATCH 0
+/* Read the exact reflected callable and layout identity of this core archive. */
+uint64_t pancake_ocapn_archive_fingerprint(void);
 /* Read the linked shared archive's ABI version. */
 void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out_patch);
 
@@ -61,9 +63,10 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_FEATURE_WIRE_DELTA 4
 #define PANCAKE_FEATURE_STURDYREF 8
 #define PANCAKE_FEATURE_UNTAG 16
+#define PANCAKE_FEATURE_MULTI_LOCATION 32
 #define PANCAKE_FEATURE_MINIMUM 0
 #define PANCAKE_FEATURE_BASELINE 15
-#define PANCAKE_FEATURE_FULL 31
+#define PANCAKE_FEATURE_FULL 63
 #define PANCAKE_FRAME_SHAPE_BYTE 0
 /* Default codec selector for byte-fed Host constructors. */
 #define PANCAKE_DEFAULT_CODEC 1
@@ -122,7 +125,8 @@ struct PancakeManagedFrame {
     uint32_t shape;
     /* internal release hook; call pancake_managed_frame_release */
     PancakeReleaseFn release;
-    void *private_data;
+    /* internal owned-frame storage; do not inspect */
+    size_t private_words[8];
 };
 /* Release an owned managed frame. NULL and repeated release are no-ops. */
 void pancake_managed_frame_release(PancakeManagedFrame *frame);

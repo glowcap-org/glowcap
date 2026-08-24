@@ -6,7 +6,10 @@
 
 @media (max-width: 52rem) {
   .shell {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr), not a bare 1fr: 1fr means minmax(auto, 1fr), and the
+       auto minimum lets a wide code listing stretch the column past the
+       viewport instead of scrolling inside its own pre. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
 

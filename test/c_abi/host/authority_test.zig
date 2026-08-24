@@ -407,12 +407,82 @@ test "libpancake_host: one PartnerIdentity reports session key, durable name, an
     ));
     defer _ = cd.pancake_host_session_release(dialed);
 
+    var captp_version: u32 = std.math.maxInt(u32);
+    var codec: u32 = std.math.maxInt(u32);
+    var features: u32 = std.math.maxInt(u32);
+
+    var transport_name: ?[*]const u8 = @ptrFromInt(1);
+    var transport_name_len: usize = std.math.maxInt(usize);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_transport_name(dialed, &transport_name, null),
+    );
+    try std.testing.expectEqual(@as(?[*]const u8, @ptrFromInt(1)), transport_name);
+    try std.testing.expectEqual(std.math.maxInt(usize), transport_name_len);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_transport_name(dialed, null, &transport_name_len),
+    );
+    try std.testing.expectEqual(std.math.maxInt(usize), transport_name_len);
+    try expectOk(cd.pancake_host_session_transport_name(dialed, &transport_name, &transport_name_len));
+    try std.testing.expectEqualStrings("keyed-tcp", transport_name.?[0..transport_name_len]);
+    const borrowed_transport_name = transport_name;
+
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_WOULD_BLOCK,
+        cd.pancake_host_session_profile(dialed, &captp_version, &codec, &features),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+
     var dials = Dials{};
     var watches = Watches{};
     const hosts = [_]?*cd.PancakeHost{ client, server };
     const pair = Pair{ .a = dialed, .b = accepted };
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(cd.pancake_host_session_is_open(dialed) != 0);
+    try expectOk(cd.pancake_host_session_profile(dialed, &captp_version, &codec, &features));
+    try std.testing.expectEqual(c.PANCAKE_CAPTP_V1_0, captp_version);
+    try std.testing.expectEqual(c.PANCAKE_CODEC_SYRUP, codec);
+    try std.testing.expectEqual(c.PANCAKE_FEATURE_FULL & ~c.PANCAKE_FEATURE_MULTI_LOCATION, features);
+
+    captp_version = std.math.maxInt(u32);
+    codec = std.math.maxInt(u32);
+    features = std.math.maxInt(u32);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_profile(dialed, null, &codec, &features),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_profile(dialed, &captp_version, null, &features),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_profile(dialed, &captp_version, &codec, null),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_profile(dialed, null, null, null),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+
+    try expectOk(cd.pancake_host_session_profile(dialed, &captp_version, &codec, &features));
+    try expectOk(cd.pancake_host_session_transport_name(dialed, &transport_name, &transport_name_len));
+    try std.testing.expectEqual(borrowed_transport_name, transport_name);
+    try std.testing.expectEqualStrings("keyed-tcp", transport_name.?[0..transport_name_len]);
 
     var identity: cd.PancakePartnerIdentity = undefined;
     try expectOk(cd.pancake_host_session_partner_identity(dialed, &identity));
@@ -428,6 +498,21 @@ test "libpancake_host: one PartnerIdentity reports session key, durable name, an
         cd.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
         identity.provenance,
     );
+
+    try expectOk(cd.pancake_host_session_transport_closed(dialed, "transport gone", 14));
+    captp_version = std.math.maxInt(u32);
+    codec = std.math.maxInt(u32);
+    features = std.math.maxInt(u32);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_CLOSED,
+        cd.pancake_host_session_profile(dialed, &captp_version, &codec, &features),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u32), captp_version);
+    try std.testing.expectEqual(std.math.maxInt(u32), codec);
+    try std.testing.expectEqual(std.math.maxInt(u32), features);
+    try expectOk(cd.pancake_host_session_transport_name(dialed, &transport_name, &transport_name_len));
+    try std.testing.expectEqual(borrowed_transport_name, transport_name);
+    try std.testing.expectEqualStrings("keyed-tcp", transport_name.?[0..transport_name_len]);
 }
 
 // ── Dial planner (pancake_host_plan_dial) ────────────────────────────────────

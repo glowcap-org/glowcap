@@ -126,7 +126,7 @@ pub const Queue = struct {
         complete_state: *complete.State,
     ) !Flash {
         if (self.active == null) return .none;
-        if (ctx.session) |session| session.breakFarVows("cancelled");
+        if (ctx.activeSession()) |session| session.breakFarVows("cancelled");
         return self.pump(ctx, store, progress, complete_state);
     }
 
@@ -148,6 +148,7 @@ pub const Queue = struct {
         self.spin_i = (self.spin_i + 1) % spinner_frames.len;
         var buf: [520]u8 = undefined;
         const text = std.fmt.bufPrint(&buf, "{s} {s}", .{ spinner_frames[self.spin_i], a.label }) catch a.label;
+        // best-effort: a missed spinner repaint; the next frame paints again.
         store.setLine(a.block_idx, .pending, text) catch {};
     }
 
@@ -167,7 +168,7 @@ pub const Queue = struct {
                 if (self.active == null) return flash;
                 continue;
             };
-            const session = ctx.session orelse {
+            const session = ctx.activeSession() orelse {
                 try store.setLine(active.block_idx, .error_line, "! No open session.");
                 self.clearActive();
                 continue;
@@ -243,6 +244,7 @@ pub const Queue = struct {
                 try store.appendLine(.gloss, gm);
             }
             progress.noteVerb("tell", ctx);
+            // best-effort: name completion just misses this name.
             if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
             self.clearActive();
             try self.startNext(ctx, store, progress);
@@ -250,7 +252,7 @@ pub const Queue = struct {
         }
 
         if (std.mem.eql(u8, active.verb, "fetch")) {
-            const import_pos = capIdFromFetch(ctx.session, settled) catch |err| {
+            const import_pos = capIdFromFetch(ctx.activeSession(), settled) catch |err| {
                 try finishErr(store, active.block_idx, err);
                 self.clearActive();
                 try self.startNext(ctx, store, progress);
@@ -273,7 +275,7 @@ pub const Queue = struct {
             // it into the opaque reply here, at render time.
             var lift_arena = std.heap.ArenaAllocator.init(self.gpa);
             defer lift_arena.deinit();
-            const reply: driver.Reply = if (ctx.session) |session|
+            const reply: driver.Reply = if (ctx.activeSession()) |session|
                 try session.liftSettled(settled, lift_arena.allocator())
             else
                 .{ .broken = "session closed" };
@@ -292,6 +294,7 @@ pub const Queue = struct {
             try store.appendLine(.gloss, gm);
         }
         progress.noteVerb(active.verb, ctx);
+        // best-effort: name completion just misses this name.
         if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
         const flash = flashForVerb(active.verb);
         self.clearActive();
@@ -341,7 +344,7 @@ pub const Queue = struct {
             const q = self.pending.orderedRemove(0);
             defer self.gpa.free(q.line);
 
-            const session = ctx.session orelse {
+            const session = ctx.activeSession() orelse {
                 try store.setLine(q.block_idx, .error_line, "! No open session.");
                 try store.appendLine(.tip, copy.tip_no_session);
                 continue;

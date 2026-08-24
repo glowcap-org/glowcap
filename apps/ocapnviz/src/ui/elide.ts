@@ -20,8 +20,8 @@ export const IDENTIFIER_ELIDE_ABOVE = IDENTIFIER_END_CHARS * 2 + 4;
 /** An opaque identifier as display text: whole when it is short, and
  *  otherwise its head and tail around an ellipsis. */
 export function elideIdentifier(value: string): string {
-  if (value.length <= IDENTIFIER_ELIDE_ABOVE) return value;
-  const head = value.slice(0, IDENTIFIER_END_CHARS);
-  const tail = value.slice(value.length - IDENTIFIER_END_CHARS);
-  return `${head}…${tail}`;
+	if (value.length <= IDENTIFIER_ELIDE_ABOVE) return value;
+	const head = value.slice(0, IDENTIFIER_END_CHARS);
+	const tail = value.slice(value.length - IDENTIFIER_END_CHARS);
+	return `${head}…${tail}`;
 }

@@ -242,6 +242,21 @@ test "core close wait selects and safely clamps the nearest deadline" {
     try std.testing.expectEqual(@as(i64, 0), host.closeWaitMs(std.math.maxInt(i64)));
 }
 
+test "core close wait advances when the nearest session deadline retires" {
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x36)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const first = try host.openDialedLocator(tcpLocator("127.0.0.1:7087"));
+    const second = try host.openDialedLocator(tcpLocator("127.0.0.1:7088"));
+    try host.beginSessionClose(first, .{ .finish = .{ .ms = 50 } }, 100);
+    try host.beginSessionClose(second, .{ .finish = .{ .ms = 100 } }, 100);
+    try std.testing.expectEqual(@as(i64, 50), host.closeWaitMs(100));
+
+    try driver.core.testing.condemn(&host, first, .normal_shutdown, "test retirement");
+    try std.testing.expectEqual(@as(i64, 100), host.closeWaitMs(100));
+}
+
 test "core host cancel invalidates a queued redeem dial before external delivery" {
     var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x22)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
@@ -254,6 +269,25 @@ test "core host cancel invalidates a queued redeem dial before external delivery
     try std.testing.expectEqual(vow_id, failed.failed.vow_id);
     try std.testing.expectEqual(driver.core.VowFailure.closed, failed.failed.failure);
     try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+test "core abnormal termination settles every parked enliven closed" {
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x23)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7089", "widget"));
+    driver.core.testing.startAbnormalTermination(&host);
+
+    var saw_failure = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .failed => |failed| if (failed.vow_id == vow_id) {
+            try std.testing.expectEqual(driver.core.VowFailure.closed, failed.failure);
+            saw_failure = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_failure);
     try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }
 

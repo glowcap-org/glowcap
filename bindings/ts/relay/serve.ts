@@ -59,9 +59,11 @@ const rendezvous = new Rendezvous();
 const max_registrations = 64;
 const max_registrations_per_identity = 4;
 const shutdown = new AbortController();
-const activeRelaySockets = new Set<WebSocket>();
+const relayShutdown = new AbortController();
+const activeRelayWork = new Set<Promise<void>>();
 const logRelayFailure = relayFailureLogger();
 let relayShuttingDown = false;
+let relayStop: Promise<void> | null = null;
 const plaintextCanaryText = Deno.env.get("PANCAKE_RELAY_PLAINTEXT_CANARY");
 if (plaintextCanaryText?.length === 0) {
 	throw new Error("PANCAKE_RELAY_PLAINTEXT_CANARY must not be empty");
@@ -108,14 +110,17 @@ function runRelay(
 		socket.close(1001, "relay shutting down");
 		return;
 	}
-	activeRelaySockets.add(socket);
-	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch((err) => {
+	const work = webSocketRelay(socket, getChannel, dialFailReason, relayConfig, {
+		signal: relayShutdown.signal,
+	}).catch((err) => {
 		// Process shutdown closes every admitted socket below. That deliberately
 		// interrupts the pump's pending read and has the signal handler as its
 		// recipient; it is not an unexpected serving failure.
 		if (relayShuttingDown) return;
 		logRelayFailure(err);
-	}).finally(() => activeRelaySockets.delete(socket));
+	});
+	activeRelayWork.add(work);
+	void work.finally(() => activeRelayWork.delete(work));
 }
 
 /** Dispatch one upgraded WebSocket to the channel its query names, then hand it
@@ -231,20 +236,20 @@ const handler = (req: Request): Response => {
 if (tls == null) Deno.serve(serveOptions, handler);
 else Deno.serve({ ...serveOptions, ...tls }, handler);
 
-function stop(): void {
-	if (relayShuttingDown) return;
+function stop(): Promise<void> {
+	if (relayStop != null) return relayStop;
 	relayShuttingDown = true;
-	if (plaintextCanary != null) {
-		console.log(`DENO-RELAY-AUDIT ${auditedBinaryMessages} ${plaintextCanaryMatches}`);
-	}
-	shutdown.abort();
-	rendezvous.close();
-	for (const socket of activeRelaySockets) {
-		try {
-			socket.close(1001, "relay shutting down");
-		} catch { /* already closed */ }
-	}
+	relayStop = (async () => {
+		const registrations = rendezvous.close();
+		relayShutdown.abort();
+		await Promise.allSettled([registrations, ...activeRelayWork]);
+		if (plaintextCanary != null) {
+			console.log(`DENO-RELAY-AUDIT ${auditedBinaryMessages} ${plaintextCanaryMatches}`);
+		}
+		shutdown.abort();
+	})();
+	return relayStop;
 }
 
-Deno.addSignalListener("SIGINT", stop);
-Deno.addSignalListener("SIGTERM", stop);
+Deno.addSignalListener("SIGINT", () => void stop());
+Deno.addSignalListener("SIGTERM", () => void stop());

@@ -7,21 +7,21 @@
 import type { SurfaceId } from "./types.ts";
 
 export type WheelEffect =
-  | {
-    kind: "zoom-step";
-    surface: SurfaceId;
-    /** Cursor position in host coords (offsetX/Y). Zoom anchors here. */
-    pivotX: number;
-    pivotY: number;
-    /** Multiplicative zoom factor. `>1` zooms in; `<1` zooms out. */
-    factor: number;
-  }
-  | {
-    kind: "pan-step";
-    surface: SurfaceId;
-    /** Pan delta in host coords. */
-    delta: { dx: number; dy: number };
-  };
+	| {
+		kind: "zoom-step";
+		surface: SurfaceId;
+		/** Cursor position in host coords (offsetX/Y). Zoom anchors here. */
+		pivotX: number;
+		pivotY: number;
+		/** Multiplicative zoom factor. `>1` zooms in; `<1` zooms out. */
+		factor: number;
+	}
+	| {
+		kind: "pan-step";
+		surface: SurfaceId;
+		/** Pan delta in host coords. */
+		delta: { dx: number; dy: number };
+	};
 
 /** Wheel sensitivity for zoom. Empirical: matches the pixi-viewport
  *  feel users have today. */
@@ -47,63 +47,63 @@ export const WHEEL_FAST_FACTOR = 4;
 export type WheelPolicy = "spatial" | "linear";
 
 export type WheelInput = {
-  deltaX: number;
-  deltaY: number;
-  shiftKey: boolean;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  offsetX: number;
-  offsetY: number;
+	deltaX: number;
+	deltaY: number;
+	shiftKey: boolean;
+	ctrlKey: boolean;
+	metaKey: boolean;
+	offsetX: number;
+	offsetY: number;
 };
 
 /** Map a `WheelEvent`-shaped input to a `WheelEffect`. Pure;
  *  policy decides the routing. */
 export function wheelToEffect(
-  ev: WheelInput,
-  surface: SurfaceId,
-  policy: WheelPolicy,
+	ev: WheelInput,
+	surface: SurfaceId,
+	policy: WheelPolicy,
 ): WheelEffect {
-  if (policy === "spatial") return spatialWheel(ev, surface);
-  return linearWheel(ev, surface);
+	if (policy === "spatial") return spatialWheel(ev, surface);
+	return linearWheel(ev, surface);
 }
 
 function spatialWheel(ev: WheelInput, surface: SurfaceId): WheelEffect {
-  // Spatial policy: zoom around cursor on vertical scroll, full
-  // stop. deltaX is intentionally ignored — trackpad two-finger
-  // gestures often carry small unintended horizontal components,
-  // and routing those to pan competes with the spacebar/Hand
-  // pan path that's already the documented gesture. Shift
-  // fast-zooms. To pan: hold Space (or use Hand tool when added).
-  return zoomEffect(ev, surface, ev.shiftKey);
+	// Spatial policy: zoom around cursor on vertical scroll, full
+	// stop. deltaX is intentionally ignored — trackpad two-finger
+	// gestures often carry small unintended horizontal components,
+	// and routing those to pan competes with the spacebar/Hand
+	// pan path that's already the documented gesture. Shift
+	// fast-zooms. To pan: hold Space (or use Hand tool when added).
+	return zoomEffect(ev, surface, ev.shiftKey);
 }
 
 function linearWheel(ev: WheelInput, surface: SurfaceId): WheelEffect {
-  // Horizontal pan path: trackpad swipe OR shift + vertical scroll.
-  const horizontalIntent = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ||
-    ev.shiftKey;
-  if (horizontalIntent) {
-    const dx = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
-    return { kind: "pan-step", surface, delta: { dx, dy: 0 } };
-  }
-  // Default vertical scroll on a linear track: zoom around cursor.
-  // Shift+vertical already routed above (it's the horizontal-pan
-  // path for keyboard-only users on linear surfaces).
-  return zoomEffect(ev, surface, ev.shiftKey);
+	// Horizontal pan path: trackpad swipe OR shift + vertical scroll.
+	const horizontalIntent = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ||
+		ev.shiftKey;
+	if (horizontalIntent) {
+		const dx = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+		return { kind: "pan-step", surface, delta: { dx, dy: 0 } };
+	}
+	// Default vertical scroll on a linear track: zoom around cursor.
+	// Shift+vertical already routed above (it's the horizontal-pan
+	// path for keyboard-only users on linear surfaces).
+	return zoomEffect(ev, surface, ev.shiftKey);
 }
 
 function zoomEffect(
-  ev: WheelInput,
-  surface: SurfaceId,
-  fast: boolean,
+	ev: WheelInput,
+	surface: SurfaceId,
+	fast: boolean,
 ): WheelEffect {
-  const fastness = fast ? WHEEL_FAST_FACTOR : 1;
-  const zoomDelta = -ev.deltaY * WHEEL_ZOOM_RATE * fastness;
-  const factor = Math.exp(zoomDelta);
-  return {
-    kind: "zoom-step",
-    surface,
-    pivotX: ev.offsetX,
-    pivotY: ev.offsetY,
-    factor,
-  };
+	const fastness = fast ? WHEEL_FAST_FACTOR : 1;
+	const zoomDelta = -ev.deltaY * WHEEL_ZOOM_RATE * fastness;
+	const factor = Math.exp(zoomDelta);
+	return {
+		kind: "zoom-step",
+		surface,
+		pivotX: ev.offsetX,
+		pivotY: ev.offsetY,
+		factor,
+	};
 }

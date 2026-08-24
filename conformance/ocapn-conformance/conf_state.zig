@@ -46,7 +46,9 @@ pub const AddrTable = struct {
             self.allocator.free(gop.value_ptr.*);
         } else {
             gop.key_ptr.* = self.allocator.dupe(u8, uuid) catch {
-                _ = self.entries.remove(uuid);
+                // By slot, not by key: the slot's key is still undefined, and a
+                // keyed remove would read it to compare.
+                self.entries.removeByPtr(gop.key_ptr);
                 return;
             };
         }

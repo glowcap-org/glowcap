@@ -8,7 +8,6 @@ const last_error = @import("last_error.zig");
 
 const PancakeFrame = frame.PancakeFrame;
 const PancakeManagedFrame = frame.PancakeManagedFrame;
-const wrapManagedInto = frame.wrapManagedInto;
 const PANCAKE_OK = result.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = result.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = result.PANCAKE_ERR_INVALID_ARGUMENT;
@@ -182,8 +181,8 @@ pub fn ConnFrameOps(comptime Payload: type) type {
             payload.directions.read.lockUncancelable(payload.stream.io);
             defer payload.directions.read.unlock(payload.stream.io);
             const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(payload, err, onConnectionLost);
-
-            return wrapManagedInto(payload.allocator, f, out_frame, "conn_read_frame");
+            out_frame.* = frame.managed(f);
+            return PANCAKE_OK;
         }
 
         pub fn writeFrame(

@@ -1,0 +1,130 @@
+---
+.title = "Multi-home peers",
+.description = "One program reachable over several transports, under one durable name. The id locator names a peer by key and carries its routes as hints, so the routes can change without the peer changing.",
+.date = .date("2026-08-24T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+An OCapN locator names one transport and one designator, so a program listening
+on two transports is two peers as far as the wire can say. A sturdyref written
+against one of them is welded to that path. pancake's multi-home prototype
+closes that gap: the `id` locator names a peer by a durable public key, and the
+paths that reach it ride underneath as hints. This page explains what ships,
+what it proves, and what a peer that never opted in sees. The machinery is
+complete and tested; what is not settled is the wire vocabulary, which stays a
+`pancake-next` prototype until upstream picks a shape. The standing section at
+the end says exactly what that means.
+
+# One peer, several routes
+
+The `id` locator puts the peer's durable public key in the designator, where
+every other keyed transport puts its own name. The transport symbol is `id`,
+and it is never a byte path of its own: it is a bundle of routes. Dialing it
+walks those routes in order, and what makes the answerer *the peer* is never
+the route: it is the channel proving the key the locator names.
+
+[Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. That proof is what makes whoever answered the peer. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
+
+Written out, the routes ride in two hints on one `ocapn://` URI. Each route is
+itself a locator, percent-encoded inside the hint and separated by `|`; the
+form below is decoded for reading:
+
+```
+ocapn://<durable key>.id?via=<route>|<route>&alt-locators=<route>
+```
+
+The `via` hint carries the routes that count. A route qualifies only when its
+channel can prove a durable key by itself: [iroh]($link.page('transports/iroh'))
+authenticates its node id in the QUIC handshake, the
+[Noise paths]($link.page('transports/noise')) prove the dialed key while
+sealing the stream, and [WebRTC]($link.page('transports/webrtc')) binds the
+peer through its signaling authority. A cleartext keyed symbol does not
+qualify, because its key is only a dial target.
+
+The `alt-locators` hint carries weak fallbacks, such as a plain socket or an
+[onion]($link.page('transports/onion')) address. A weak route can complete the
+one handoff its signed gift authorized, and nothing more: it never establishes
+the outer identity, never enters the identity's cache, and a sturdyref never
+dials it.
+
+Each list is bounded to eight routes, the two together to a few kilobytes,
+and every `via` route must name the same key as the designator, so a hostile
+locator cannot buy unbounded work or smuggle in a second identity.
+
+# What the other peer sees
+
+Route vocabulary is a negotiated feature named `multi_location`, offered under
+pancake's own `pancake-next` profile and stamped into both signed hellos before
+either side may use it. A first hello never carries it. The floor is per
+session: one process can speak route vocabulary with another pancake host while
+its session with a [Spritely Goblins](https://spritely.institute/) vat stays on
+the standard profile.
+
+[A negotiated partner receives the id bundle intact. A baseline partner gets one concrete route it can dial, with the private vocabulary stripped, and when no such route exists the give is refused before anything is sent.]($image.siteAsset('diagram-multihome-lowering.svg'))
+
+A handoff can cross those two worlds, because a signed give travels from an
+exporter session to a recipient session. The give keeps its route vocabulary
+only when both sessions negotiated it. A baseline recipient is handed one
+concrete route on a transport it demonstrably participates in, with the
+private vocabulary stripped; when no such route exists, the give is refused
+before anything is sent. The fallback is never to serialize experimental
+vocabulary and hope the other side ignores it, so the Goblins-facing wire is
+unchanged with the prototype present.
+
+# Sturdyrefs that survive a transport
+
+The payoff for durable references: a sturdyref written against an `id`
+locator names the peer's key, so the peer can move between transports, or
+bring a second listener up, without every stored reference going stale.
+
+Redeeming one is gated the same way. A Host that opted into `multi_location`
+first reuses any session whose channel already authenticated that key, on any
+transport. Otherwise it stages the concrete `via` routes and dials them in
+order; the first channel that proves the key carries the fetch. The
+[multi-home route diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
+draw each of these flows one at a time.
+
+# Rooms runs it
+
+Directory peering in the [rooms app]($link.page('examples')) is the live
+consumer. A server started with `--peering` publishes durable rooms to another
+directory through one identity route: its key-proving iroh and Noise listeners
+ride under `via`, while onion and plain-socket listeners stay behind as weak
+fallbacks. A reader joins the room over whichever path
+that reader can open, and the room link does not choose a transport for every
+future reader.
+
+# Standing
+
+Multi-homing is something the OCapN community has wanted for years and not yet
+specified; the meeting record reaches from multi-netlayer locators to a
+transport-agnostic vat id. pancake builds it now because it already holds the
+ingredients: keyed transports on several byte paths, and a sealed channel that
+proves a durable key over any of them.
+
+Everything above this section is built and held by the build's checks. That
+covers the bundle vocabulary, the ordered dial and its identity discipline,
+the per-session negotiation and lowering, `id` sturdyrefs, and the rooms
+peering suite that exercises them live. What stays open is smaller, and deliberate.
+Dialing walks routes one at a time, where the upstream record asks for
+parallel attempts that race. Ordered fallback keeps one dial in flight per
+peer identity, so which route proved the key is never a concurrent question.
+Racing arrives later as a scheduler change, not a locator change, and an iroh
+first route already races its own paths beneath that one step.
+
+The other open question is which shape goes upstream. Two are landed side by
+side so their costs can be measured, and
+[ADR-0119](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0119-multihome-comparison-protocol.md)
+is the record of that comparison. The `id` locator described above is the
+netlayer shape. The counter-proposal, a `pancake/locations` list of full
+locators, rides the same negotiated feature as comparison-only data. It adds
+no dial paths, it is never treated as proof that its entries reach the same
+peer, and a sturdyref built on it is refused. The measured comparison, not
+either shape, is the artifact headed upstream, and whichever shape upstream
+adopts is the one that survives here.
+
+The whole surface is negotiation-gated: nothing on this page changes what a
+baseline or Goblins peer receives.
+[What you can depend on]($link.page('stability')) is the wider evidence
+picture behind every claim like that one.

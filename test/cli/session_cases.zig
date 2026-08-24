@@ -96,6 +96,69 @@ test "dial retains session for REPL and MCP fronts only" {
     try std.testing.expect(!cli.ocapn.retainSessionAfterDial(&c));
 }
 
+test "refused one-shot remains the reachable pending owner" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+
+    var primary: pancake.driver.Session = undefined;
+    var sidecar: pancake.driver.Session = undefined;
+    c.holdSession(&primary);
+    c.retainPendingSession(&sidecar);
+
+    try std.testing.expectEqual(&sidecar, c.pending_session.?);
+    try std.testing.expectEqual(&primary, c.session.?);
+    try std.testing.expectError(error.CleanupPending, c.ensureDialAllowed());
+    try std.testing.expectEqual(cli.exit_codes.busy, cli.ocapn.mapDialErr(error.CleanupPending));
+    try std.testing.expectError(
+        error.CleanupPending,
+        cli.ocapn.dialUriWithOpts(&c, "ocapn://blocked", cli.ocapn.sessionOpts()),
+    );
+}
+
+test "pending sidecar admission resumes only after cleanup settles" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+
+    var primary: pancake.driver.Session = undefined;
+    var first: pancake.driver.Session = undefined;
+    var second: pancake.driver.Session = undefined;
+    c.holdSession(&primary);
+    c.retainPendingSession(&first);
+    try std.testing.expectError(error.CleanupPending, c.ensureDialAllowed());
+
+    // The close barrier's successful transition is the only operation that
+    // clears the fixed owner; a new sidecar is admitted only afterwards.
+    c.pending_session = null;
+    try c.ensureDialAllowed();
+    c.retainPendingSession(&second);
+    try std.testing.expectEqual(&second, c.pending_session.?);
+}
+
+test "a refused held-session close is not exposed as an active session" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+
+    var held: pancake.driver.Session = undefined;
+    c.holdSession(&held);
+    c.session_cleanup_pending = true;
+
+    try std.testing.expect(c.activeSession() == null);
+    try std.testing.expect(c.sessionCleanupPending());
+    try std.testing.expectError(error.CleanupPending, c.ensureDialAllowed());
+}
+
 test "signals stop latch is set by requestStop" {
     cli.signals.resetForTest();
     try std.testing.expect(!cli.signals.stopRequested());
@@ -395,6 +458,13 @@ test "info reports a background listener that died on its own" {
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
     try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, capture.items, "served its one partner") != null);
+
+    // Human output carries the same lifecycle truth as JSON output.
+    c.json = .human;
+    capture.clearRetainingCapacity();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "listening: false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "listener_stopped: served its one partner") != null);
 }
 
 test "close composition keeps the primary and notes cleanup as a consequence" {
@@ -412,7 +482,7 @@ test "close composition keeps the primary and notes cleanup as a consequence" {
     try std.testing.expectEqual(@as(u16, 0), empty.?.secondary_count);
 }
 
-test "close keeps injected listener failure as the command outcome" {
+test "close keeps accept-thread listener failure as the command outcome" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -430,13 +500,14 @@ test "close keeps injected listener failure as the command outcome" {
     try parsed.setString("bind", "127.0.0.1:0");
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
 
-    c.background_listener.?.server.runtime.noteTerminalFailure(error.ConnectionLost);
+    const listener = c.background_listener.?;
+    cli.ocapn_listen_background.Handle.testing.requestTerminalFailure(listener);
     capture.clearRetainingCapacity();
     var close_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer close_parsed.deinit();
     try std.testing.expectEqual(cli.exit_codes.dial, try cli.ocapn.cmdClose(&c, &close_parsed));
     try std.testing.expect(c.background_listener == null);
-    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ConnectionLost") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "SocketConfigurationFailed") != null);
 
     // Consuming: a second close has no listener left to retry.
     capture.clearRetainingCapacity();

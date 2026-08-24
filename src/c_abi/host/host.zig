@@ -302,27 +302,6 @@ pub export fn pancake_host_remove_advertised_locator(host: ?*PancakeHost, transp
     return PANCAKE_OK;
 }
 
-/// Selective session-limit knobs (ADR-0082): override admission, `queue_cap`,
-/// and/or outbound high-water on a host before minting sessions. Pass `0` for a
-/// field to leave it unchanged. Peers already open keep the limits they were
-/// minted with; later mints see the updated `Host.Options`.
-pub export fn pancake_host_set_session_limits(
-    host: ?*PancakeHost,
-    max_frame_bytes: usize,
-    queue_cap: usize,
-    outbound_high_water_bytes: usize,
-) i32 {
-    shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_session_limits")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    inst.core.setSessionLimits(
-        if (max_frame_bytes != 0) max_frame_bytes else null,
-        if (queue_cap != 0) queue_cap else null,
-        if (outbound_high_water_bytes != 0) outbound_high_water_bytes else null,
-    ) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
 // ── Dial / accept planning (driver_core.planDial / planAccept) ────────────────
 //
 // The transport dispatch, designator validation, host:port resolution, and
@@ -340,13 +319,14 @@ pub export fn pancake_host_set_session_limits(
 pub export fn pancake_host_pending_dial(
     host: ?*PancakeHost,
     ticket: u64,
+    route_index: usize,
     hint_storage: ?[*]c.PancakeLocatorHintView,
     hint_capacity: usize,
     out_locator: ?*c.PancakeLocatorView,
     out_hint_count: ?*usize,
 ) i32 {
     shared.lastErrorClear();
-    return host_plan.pendingDial(host, ticket, hint_storage, hint_capacity, out_locator, out_hint_count);
+    return host_plan.pendingDial(host, ticket, route_index, hint_storage, hint_capacity, out_locator, out_hint_count);
 }
 
 /// The live session homing remote `reference`, into `*out_session`, or NULL for
@@ -452,9 +432,30 @@ pub export fn pancake_host_enliven(
     return host_actions.enliven(host, sturdyref_uri, sturdyref_uri_len, out_vow);
 }
 
+/// Enliven using the CapTP profile that defined the sturdyref's swiss spelling.
+pub export fn pancake_host_enliven_for_version(
+    host: ?*PancakeHost,
+    captp_version: u32,
+    sturdyref_uri: ?[*]const u8,
+    sturdyref_uri_len: usize,
+    out_vow: ?*u64,
+) i32 {
+    shared.lastErrorClear();
+    return host_actions.enlivenForVersion(
+        host,
+        captp_version,
+        sturdyref_uri,
+        sturdyref_uri_len,
+        out_vow,
+    );
+}
+
 // ── The action queue ─────────────────────────────────────────────────────────
 
 /// Pop one borrowed Host action, or WOULD_BLOCK without consuming anything.
+/// Before the pop, queued Host work resumes and may synchronously invoke a
+/// `PancakeHostBehavior`; binding runtimes must install their Host delivery
+/// context around every drain call.
 pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*PancakeHostAction) i32 {
     shared.lastErrorClear();
     return host_actions.next(host, out_action);
@@ -469,28 +470,35 @@ pub fn retryBorrowedAction(host: ?*PancakeHost) bool {
 }
 
 /// Report a DIAL action's success: `session` is an `open_dialed_locator` against
-/// the pending dial for that ticket (`pancake_host_pending_dial`), driven to an
-/// open session. The node withdraws
-/// every give waiting on the ticket; the withdraws, their settles, and their
-/// flushes pump inside this call. A stale ticket is a no-op success.
-pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*PancakeHostSession) i32 {
+/// the pending dial for that ticket and route (`pancake_host_pending_dial`), driven to an
+/// open session. The node adopts it for every give waiting on the ticket;
+/// the bounded Host pump advances resulting work before return, with pressure
+/// retained for the next action drain. A stale or non-running attempt is a
+/// no-op success with `out_adopted` set to zero.
+pub export fn pancake_host_dialed(
+    host: ?*PancakeHost,
+    ticket: u64,
+    route_index: usize,
+    raw: ?*PancakeHostSession,
+    out_adopted: ?*u8,
+) i32 {
     shared.lastErrorClear();
-    return host_actions.dialed(host, ticket, raw);
+    return host_actions.dialed(host, ticket, route_index, raw, out_adopted);
 }
 
 /// Report a DIAL action's failure: every redeem waiting on the ticket breaks
-/// with `reason`, its FAIL completion queued inside this call. A stale ticket
-/// is a no-op success.
-pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, reason: ?[*]const u8, reason_len: usize) i32 {
+/// with `reason`, its FAIL completion queued inside this call. A stale or
+/// non-running attempt is a no-op success.
+pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, route_index: usize, reason: ?[*]const u8, reason_len: usize) i32 {
     shared.lastErrorClear();
-    return host_actions.dialFailed(host, ticket, reason, reason_len);
+    return host_actions.dialFailed(host, ticket, route_index, reason, reason_len);
 }
 
 /// A CANCEL_DIAL action's physical operation has stopped and its executor
 /// state can be released. Host close remains pending until this acknowledgement.
-pub export fn pancake_host_dial_cancelled(host: ?*PancakeHost, ticket: u64) i32 {
+pub export fn pancake_host_dial_cancelled(host: ?*PancakeHost, ticket: u64, route_index: usize) i32 {
     shared.lastErrorClear();
-    return host_actions.dialCancelled(host, ticket);
+    return host_actions.dialCancelled(host, ticket, route_index);
 }
 
 /// Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the node

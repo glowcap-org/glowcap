@@ -18,6 +18,7 @@ use super::ocapn::{
 };
 
 extern "C" {
+	pub fn pancake_ocapn_archive_fingerprint() -> u64;
 	pub fn pancake_abi_version(out_major: *mut u32, out_minor: *mut u32, out_patch: *mut u32);
 	pub fn pancake_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_context_new_with_allocator(

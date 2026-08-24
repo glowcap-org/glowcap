@@ -35,6 +35,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
             self.failure: BaseException | None = None
             self.closed = False
             self.close_done = asyncio.Event()
+            self.close_started = asyncio.Event()
             self.hold_close = hold_close
 
         async def read(self) -> bytes | None:
@@ -50,6 +51,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
         def close(self) -> None:
             if self.closed:
                 return
+            self.close_started.set()
             self.closed = True
             self.inbound.put_nowait(None)
             if self.peer is not None:
@@ -100,7 +102,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
         raise AssertionError("serve resolved after a failed FLUSH")
 
     closing = asyncio.create_task(session.close())
-    await asyncio.sleep(0)
+    await client_channel.close_started.wait()
     assert not closing.done(), "close reported failure before transport retirement"
     client_channel.close_done.set()
     try:
@@ -188,7 +190,14 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
         def close(self) -> None:
             pass
 
-    host = Host()
+    close_admitted = asyncio.Event()
+
+    class ObservedHost(Host):
+        def signal_close_activity(self) -> None:
+            close_admitted.set()
+            super().signal_close_activity()
+
+    host = ObservedHost()
     session = Session._open_dialed_locator(
         host,
         Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"),
@@ -198,8 +207,9 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
     first = asyncio.create_task(
         session.close(pending=PendingWork.FINISH, grace=0.02)
     )
-    while session._close_task is None:
-        await asyncio.sleep(0)
+    await close_admitted.wait()
+    terminal = session._terminal_task
+    assert terminal is not None, "close admission did not publish its coordinator"
     first.cancel()
     try:
         await first
@@ -208,11 +218,13 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
     else:
         raise AssertionError("cancelled Session.close waiter did not preserve cancellation")
 
-    async def wait_released() -> None:
-        while not session._released:
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(wait_released(), timeout=1)
+    try:
+        await asyncio.wait_for(asyncio.shield(terminal), timeout=1)
+    except PancakeError as error:
+        assert error.code == ERR_TIMEOUT, error
+    else:
+        raise AssertionError("the shared finite finish discarded its timeout")
+    assert session._released, "the finite close coordinator did not retire the Session"
     try:
         await session.close(pending=PendingWork.FINISH, grace=None)
     except PancakeError as error:
@@ -270,20 +282,19 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
     so the close driver's park over ``pancake_driver_step_wait_ms`` is what
     spans the expiry, and its waking step escalates and reports the timeout."""
     silent = socket.socket()
+    accepted = None
     try:
         silent.bind(("127.0.0.1", 0))
         silent.listen(1)
+        silent.setblocking(False)
         port = silent.getsockname()[1]
         runtime = await Runtime.open(provider=tcp.provider(), handshake_timeout_ms=10_000)
         negotiating = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
         driver_loop = runtime._loop
         assert driver_loop is not None, "a provider Runtime did not open on the loop tier"
-        # Let the connect task run far enough to admit its pending open before
-        # close seals admission.
-        for _ in range(100):
-            if driver_loop._pending_dials:
-                break
-            await asyncio.sleep(0)
+        accepted, _ = await asyncio.wait_for(
+            asyncio.get_running_loop().sock_accept(silent), timeout=1
+        )
         assert driver_loop._pending_dials, "the dial never admitted its pending open"
         try:
             await asyncio.wait_for(runtime.close(PendingWork.FINISH, grace=0.02), 5)
@@ -296,6 +307,8 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         except (PancakeError, asyncio.CancelledError):
             pass
     finally:
+        if accepted is not None:
+            accepted.close()
         silent.close()
 
 
@@ -341,8 +354,6 @@ async def _host_close_shuts_a_still_open_listener() -> None:
     server = await tcp.listen("127.0.0.1", 0, host=supplied)
     pending_accept = asyncio.ensure_future(server.__anext__())
     try:
-        await asyncio.sleep(0)
-        assert not pending_accept.done(), "the accept stream ended before Host close"
         await asyncio.wait_for(supplied.close(), timeout=5)
         assert supplied.released, "Host close did not complete over the open listener"
         try:

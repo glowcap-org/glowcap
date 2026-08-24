@@ -359,6 +359,46 @@ test "format reports the needed length when the buffer is too small" {
     try std.testing.expect(out_len > tiny.len);
 }
 
+test "format refuses an excessive hint count before touching hint arrays" {
+    const transport = "tcp";
+    const designator = "127.0.0.1:9000";
+    const swissnum = "swiss-42";
+    const excessive = pancake.ocapn.model.max_locator_hint_count + 1;
+    var out_len: usize = 0;
+
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_uri_format_peer(
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        null,
+        null,
+        null,
+        null,
+        excessive,
+        null,
+        0,
+        &out_len,
+    ));
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_uri_format_sturdyref(
+        c.PANCAKE_CAPTP_V1_0,
+        transport.ptr,
+        transport.len,
+        designator.ptr,
+        designator.len,
+        swissnum.ptr,
+        swissnum.len,
+        null,
+        null,
+        null,
+        null,
+        excessive,
+        null,
+        0,
+        &out_len,
+    ));
+}
+
 test "format probes report the needed URI length without an output buffer" {
     const transport = "tcp";
     const designator = "127.0.0.1:9000";
@@ -538,84 +578,4 @@ test "parse rejects null pointers" {
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_uri_parse_peer(uri.ptr, uri.len, null));
     // Releasing null is a no-op.
     c.pancake_locator_release(null);
-}
-
-test "host_port splits a tcp designator through the core grammar" {
-    const uri = "ocapn://127.0.0.1%3A9045.tcp";
-    var loc: ?*c.PancakeLocator = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
-    defer c.pancake_locator_release(loc);
-
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port));
-    try std.testing.expectEqualStrings("127.0.0.1", host_ptr.?[0..host_len]);
-    try std.testing.expectEqual(@as(u16, 9045), port);
-}
-
-test "host_port unwraps a bracketed IPv6 designator" {
-    const uri = "ocapn://%5B%3A%3A1%5D%3A9046.tcp";
-    var loc: ?*c.PancakeLocator = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
-    defer c.pancake_locator_release(loc);
-
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port));
-    try std.testing.expectEqualStrings("::1", host_ptr.?[0..host_len]);
-    try std.testing.expectEqual(@as(u16, 9046), port);
-}
-
-test "host_port refuses a designator without the grammar" {
-    const uri = "ocapn://abc123nodeid.iroh";
-    var loc: ?*c.PancakeLocator = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
-    defer c.pancake_locator_release(loc);
-
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port),
-    );
-}
-
-test "designator_host_port splits without a locator handle" {
-    const designator = "127.0.0.1:9045";
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
-    );
-    try std.testing.expectEqualStrings("127.0.0.1", host_ptr.?[0..host_len]);
-    try std.testing.expectEqual(@as(u16, 9045), port);
-}
-
-test "designator_host_port unwraps a bracketed IPv6 literal" {
-    const designator = "[::1]:9046";
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
-    );
-    try std.testing.expectEqualStrings("::1", host_ptr.?[0..host_len]);
-    try std.testing.expectEqual(@as(u16, 9046), port);
-}
-
-test "designator_host_port refuses a designator without the grammar" {
-    const designator = "abc123nodeid";
-    var host_ptr: ?[*]const u8 = null;
-    var host_len: usize = 0;
-    var port: u16 = 0;
-    try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
-    );
 }

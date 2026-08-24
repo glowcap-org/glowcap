@@ -1,6 +1,6 @@
 //! Pipelining fail-closed: local-delivery depth bounds and resets, a closed
-//! session refuses instead of queuing, a cycle cannot requeue, and exceeding
-//! the cap aborts with resource_exhausted.
+//! session refuses instead of queuing, a cycle breaks its dependents, and
+//! exceeding the cap aborts with resource_exhausted.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -123,7 +123,7 @@ test "a closed session refuses a pipelined deliver instead of queuing it (fail c
     try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(.from(42)).?.queued_calls);
 }
 
-test "a multi-hop pipeline cycle terminates: a batch cannot be requeued onto an already-resolved answer" {
+test "a multi-hop pipeline cycle breaks its dependent call without closing the session" {
     const allocator = std.testing.allocator;
     var p1 = engine.Peer.init(allocator);
     defer p1.deinit();
@@ -163,7 +163,7 @@ test "a multi-hop pipeline cycle terminates: a batch cannot be requeued onto an 
     // Resolving answer 1 settles it.
     try p2.sendCopying(.{ .resolve = .{
         .answer = .from(1),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(2), .path = .{ .ops = &.{} } } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(2) } } } },
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     {
@@ -172,17 +172,19 @@ test "a multi-hop pipeline cycle terminates: a batch cannot be requeued onto an 
     }
     try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(.from(2)).?.queued_calls);
 
-    // p2 now resolves answer 2 back to promise(1) — the cycle's back-edge. Answer 1
-    // is already resolved, so the batch cannot be requeued onto it: the drain fails
-    // closed with InvalidReference and frees the batch (no infinite bounce, no leak,
-    // no amplification). This is why a multi-hop cycle terminates without a
-    // chain-history guard — resolving an answer settles it, and a settled answer
-    // refuses a requeue.
+    // p2 now resolves answer 2 back to promise(1), closing the cycle. The one
+    // bounded exact-incarnation walk breaks answer 99 rather than bouncing the
+    // call or converting one bad promise graph into a session-wide abort.
     try p2.sendCopying(.{ .resolve = .{
         .answer = .from(2),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = &.{} } } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(1) } } } },
     } });
-    try std.testing.expectError(error.InvalidReference, p2.step());
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    const wire = try peer_fixture.drainOutbound(&p2, allocator);
+    defer allocator.free(wire);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "promise resolution cycle") != null);
+    try std.testing.expectEqual(session.AnswerStatus.broken, p2.session_state.inboundAnswer(.from(99)).?.status);
+    try std.testing.expectEqual(session.State.open, p2.session_state.state);
 }
 
 test "exceeding the local-delivery cap fails closed with a resource_exhausted abort" {
@@ -232,14 +234,171 @@ test "exceeding the local-delivery cap fails closed with a resource_exhausted ab
     try std.testing.expectError(error.LocalDeliveryCapExceeded, p2.step());
     try std.testing.expectEqual(session.State.closed, p2.session_state.state);
 
-    // The resolve frame was encoded before the drain refused; the abort follows.
+    // The resolver callback and its one-shot import release were committed
+    // before the local drain refused; the abort follows that adjacent pair.
     {
         var resolve_frame = p2.takeOutbound().?;
         resolve_frame.deinit();
+    }
+    {
+        var release_frame = p2.takeOutbound().?;
+        defer release_frame.deinit();
+        const release = try codec.syrup.decodeBody(release_frame.view());
+        try std.testing.expect(release == .gc_export);
     }
     var abort_frame = p2.takeOutbound().?;
     defer abort_frame.deinit();
     const decoded = try codec.syrup.decodeBody(abort_frame.view());
     try std.testing.expect(decoded == .abort);
     try std.testing.expectEqual(model.AbortKind.resource_exhausted, decoded.abort.kind);
+    try std.testing.expect(p2.takeOutbound() == null);
+}
+
+test "V1 settlement pressure after callback publication is terminal and never replays" {
+    var saw_post_publication_oom = false;
+
+    for (0..24) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
+        defer {
+            failing.fail_index = std.math.maxInt(usize);
+            peer.deinit();
+        }
+        try peer.session_state.registerExport(.from(7));
+        try peer.session_state.registerImport(.from(88));
+
+        // Answer 42 has a V1 resolver callback. The second call pipelines on
+        // it, so settling 42 must publish the callback before dispatching the
+        // retained call against import 88.
+        try peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:export7+>[]42+<19'desc:import-promise2000+>>",
+            .shape = .byte,
+        });
+        {
+            var event = peer.pollEvent().?;
+            event.deinit();
+        }
+        try peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:answer42+>[<18'desc:import-object77+>]43+<19'desc:import-promise99+>>",
+            .shape = .byte,
+        });
+        try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+            .reference = .{ .far = model.FarRef.object(88) },
+        } } } });
+
+        failing.fail_index = failing.alloc_index + offset;
+        const result = peer.step();
+        failing.fail_index = std.math.maxInt(usize);
+        if (result) |_| {
+            while (peer.takeOutbound()) |frame_in| {
+                var frame = frame_in;
+                frame.deinit();
+            }
+            continue;
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+        }
+
+        var published: usize = 0;
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+            published += 1;
+        }
+        if (published == 0) continue;
+
+        saw_post_publication_oom = true;
+        try std.testing.expectEqual(@as(usize, 2), published);
+        try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+        try std.testing.expectEqualStrings("OutOfMemory", peer.lastAbort().?.error_name);
+        try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+        try std.testing.expect(peer.takeOutbound() == null);
+        break;
+    }
+
+    try std.testing.expect(saw_post_publication_oom);
+}
+
+const SettledPipelineIngress = enum { packet, stream };
+
+fn receiveSettledPipeline(
+    peer: *engine.Peer,
+    ingress: SettledPipelineIngress,
+    wire: []const u8,
+) !void {
+    switch (ingress) {
+        .packet => try peer.recvPacket(wire),
+        .stream => _ = try peer.recvStreamPrefix(wire),
+    }
+}
+
+fn expectSettledPipelineIngressFailsTerminal(ingress: SettledPipelineIngress) !void {
+    var saw_preownership_oom = false;
+    var saw_postcommit_oom = false;
+    var saw_success = false;
+
+    for (0..64) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
+        defer {
+            failing.fail_index = std.math.maxInt(usize);
+            peer.deinit();
+        }
+        try peer.session_state.registerExport(.from(7));
+        try peer.session_state.registerExport(.from(9));
+
+        try peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:export7+>[]42+<19'desc:import-promise2000+>>",
+            .shape = .byte,
+        });
+        var source = peer.pollEvent().?;
+        source.deinit();
+        try peer.sendCopying(.{ .resolve = .{
+            .answer = .from(42),
+            .resolution = .{ .fulfill = .{ .reference = .{
+                .near = model.NearRef.object(9),
+            } } },
+        } });
+
+        const wire = "<10'op:deliver<11'desc:answer42+>[<18'desc:import-object77+>]43+<19'desc:import-promise99+>>";
+        failing.fail_index = failing.alloc_index + offset;
+        const attempt = receiveSettledPipeline(&peer, ingress, wire);
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |_| {
+            saw_success = true;
+            var delivered = peer.pollEvent() orelse return error.MissingLocalDelivery;
+            delivered.deinit();
+            if (saw_postcommit_oom) break;
+            continue;
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+        }
+
+        const authority_moved = peer.session_state.hasInboundAnswer(.from(43)) or
+            peer.session_state.hasImport(.from(77)) or
+            peer.session_state.hasImport(.from(99));
+        if (authority_moved) {
+            saw_postcommit_oom = true;
+            try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+            try std.testing.expect(peer.pollEvent() == null);
+        } else if (peer.session_state.state == .open) {
+            // The owned-frame allocation failed before this ingress consumed
+            // the caller's bytes. Retrying remains legal because no authority
+            // from the frame moved.
+            saw_preownership_oom = true;
+        }
+    }
+
+    try std.testing.expect(saw_preownership_oom);
+    try std.testing.expect(saw_postcommit_oom);
+    try std.testing.expect(saw_success);
+}
+
+test "packet ingress closes after settled-pipeline post-commit OOM" {
+    try expectSettledPipelineIngressFailsTerminal(.packet);
+}
+
+test "stream ingress closes after settled-pipeline post-commit OOM" {
+    try expectSettledPipelineIngressFailsTerminal(.stream);
 }

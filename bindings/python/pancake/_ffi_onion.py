@@ -20,6 +20,7 @@ from ._constants import ONION_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
 from ._lib_resolve import _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``).
@@ -28,7 +29,7 @@ from ._sigs_gen import onion_sigs
 
 class _OnionConfig(ctypes.Structure):
     """Mirrors ``PancakeOnionConfig``, whose Zig declaration in
-    ``src/c_abi/net_transport/onion/mod.zig`` documents every field.
+    ``src/c_abi/net_transport/onion/contract.zig`` documents every field.
 
     Zero-initialize and set what you use: ``ctypes`` zeroes a fresh instance, which
     is what makes a field added later read as absent rather than as stack contents.
@@ -51,9 +52,16 @@ class _OnionConfig(ctypes.Structure):
     ]
 
 
+pin_struct(_OnionConfig, "PANCAKE_ONION_CONFIG")
+
+
 def _load():
     onion = ctypes.CDLL(str(_lib_path("pancake_net_transport_onion")))
-    require_archive_fingerprint(onion, "onion", ONION_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: onion.pancake_onion_archive_fingerprint,
+        "onion",
+        ONION_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(onion)
     _bind(
         facade,

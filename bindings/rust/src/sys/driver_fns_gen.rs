@@ -15,14 +15,14 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::driver::{
-	PancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions,
-	PancakeTransportOperationOptions, PancakeTransportProvider,
+	PancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,
 };
 use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
 use super::ocapn::PancakeLocatorView;
-use crate::sys::PancakeReference;
+use crate::sys::{PancakeReference, PancakeTransportProvider};
 
 extern "C" {
+	pub fn pancake_driver_archive_fingerprint() -> u64;
 	pub fn pancake_driver_take_host(
 		host: *mut PancakeHost,
 		options: *const PancakeDriverOptions,

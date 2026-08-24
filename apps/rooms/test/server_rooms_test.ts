@@ -6,9 +6,20 @@
 
 import { ATTACHMENT_REFUSED, TOO_MANY_ROOMS } from "../lib/errors.ts";
 import { MAX_ATTACHMENT_BYTES, MAX_ROOMS_PER_CREATOR, MAX_SERVER_PENDING_BYTES } from "../lib/limits.ts";
-import { loopbackTcpDesignator } from "../lib/locator.ts";
-import { ATTACH, DIRECTORY, ENTER, LEAVE, OPEN, POST, SUBSCRIBE, WATCH } from "../lib/protocol.ts";
-import { Room } from "../lib/room_client.ts";
+import { loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
+import {
+	ATTACH,
+	DIRECTORY,
+	ENTER,
+	LEAVE,
+	LIST,
+	OPEN,
+	POST,
+	SUBSCRIBE,
+	WATCH,
+	WATCH_PUBLICATIONS,
+} from "../lib/protocol.ts";
+import { Directory, Room } from "../lib/room_client.ts";
 import {
 	assert,
 	assertMatch,
@@ -17,11 +28,13 @@ import {
 	enterOrOpen,
 	irohUsable,
 	listRooms,
+	recordDirectoryEvent,
 	refusalCode,
 	roomsTest,
 	subscribeOnce,
 	subscribeTwiceAndClose,
 	trySubscribe,
+	until,
 	waitForLine,
 	waitForMatch,
 	watchDirectory,
@@ -31,7 +44,77 @@ import {
 	withIrohServer,
 	withServer,
 } from "./support/rooms_server.ts";
-import { Ref } from "@pancake/runtime";
+import type { DirectoryRoomRecord, DirectoryWatchEvent } from "./support/subscribe.ts";
+import { Ref, type Session } from "@pancake/runtime";
+import { dropWatchers, MAX_WATCHERS, watchers } from "../server/watchers.ts";
+
+function fakeWatcherSession(): { session: Session; released: Ref[] } {
+	const released: Ref[] = [];
+	const session = {
+		release(ref: Ref): void {
+			released.push(ref);
+		},
+	} as unknown as Session;
+	return { session, released };
+}
+
+function roomsByName(records: DirectoryRoomRecord[]): Map<string, DirectoryRoomRecord> {
+	return new Map(records.map((record) => [record.name, record]));
+}
+
+async function waitForRoomEvent(
+	events: DirectoryWatchEvent[],
+	event: "opened" | "closed" | "count",
+	name: string,
+	count: number,
+): Promise<void> {
+	await until(
+		() =>
+			events.some((item) =>
+				item.event === event && "room" in item && item.room.name === name && item.room.count === count
+			),
+		`expected ${event} ${name} ${count}`,
+	);
+}
+
+Deno.test("directory watchers admit their exact bound and refuse the next", () => {
+	const entries = Array.from({ length: MAX_WATCHERS }, () => fakeWatcherSession());
+	try {
+		for (const { session } of entries) watchers.push({ session, observer: {} as Ref, records: "baseline" });
+		assert(watchers.length === MAX_WATCHERS, `expected ${MAX_WATCHERS} watchers`);
+
+		let refused = "";
+		try {
+			const { session } = fakeWatcherSession();
+			watchers.push({ session, observer: {} as Ref, records: "baseline" });
+		} catch (error) {
+			refused = error instanceof Error ? error.message : String(error);
+		}
+		assert(refused === `this directory already has ${MAX_WATCHERS} watchers`, "the watcher cap was not exact");
+		assert(watchers.length === MAX_WATCHERS, "a refused watcher changed the table");
+	} finally {
+		for (const { session } of entries) dropWatchers(session);
+	}
+});
+
+Deno.test("dropping one watcher is exact and immediately frees one admission", () => {
+	const entries = Array.from({ length: MAX_WATCHERS }, () => fakeWatcherSession());
+	const newcomer = fakeWatcherSession();
+	try {
+		for (const { session } of entries) watchers.push({ session, observer: {} as Ref, records: "baseline" });
+		const removed = entries[0];
+		dropWatchers(removed.session);
+		assert(watchers.length === MAX_WATCHERS - 1, "dropping a watcher did not remove exactly one entry");
+		assert(removed.released.length === 1, "dropping a watcher did not release its observer");
+		assert(entries[1].released.length === 0, "dropping a watcher released another session's observer");
+
+		watchers.push({ session: newcomer.session, observer: {} as Ref, records: "baseline" });
+		assert(watchers.length === MAX_WATCHERS, "a freed watcher slot was not reusable");
+	} finally {
+		for (const { session } of entries) dropWatchers(session);
+		dropWatchers(newcomer.session);
+	}
+});
 
 roomsTest("rooms directory opens a room and rejects opening it twice", async () => {
 	await withServer(async (port) => {
@@ -263,21 +346,24 @@ roomsTest("rooms directory lists the live rooms with member counts", async () =>
 		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
-			const rooms = new Map(await listRooms(session));
+			const rooms = roomsByName(await listRooms(session));
 			assert(
-				rooms.get("alpha") === 1,
-				`alpha should have 1 member, got ${rooms.get("alpha")}`,
+				rooms.get("alpha")?.count === 1,
+				`alpha should have 1 member, got ${rooms.get("alpha")?.count}`,
 			);
 			assert(
-				rooms.get("beta") === 2,
-				`beta should have 2 members, got ${rooms.get("beta")}`,
+				rooms.get("beta")?.count === 2,
+				`beta should have 2 members, got ${rooms.get("beta")?.count}`,
 			);
+			const alphaRecord = rooms.get("alpha");
+			assert(alphaRecord?.kind === "local", "alpha should be a local publication");
+			assert(alphaRecord.origin === "" && alphaRecord.proof === "local", "alpha should carry local provenance");
 
 			// A room opened but not yet subscribed has no members, so it stays out of
 			// the live list until someone is actually in it.
 			const directory = await session.fetch(DIRECTORY);
 			await session.send(directory, OPEN, ["ghost"]);
-			const afterOpen = new Map(await listRooms(session));
+			const afterOpen = roomsByName(await listRooms(session));
 			assert(
 				!afterOpen.has("ghost"),
 				"an empty just-opened room must not be listed",
@@ -293,20 +379,70 @@ roomsTest("rooms directory lists the live rooms with member counts", async () =>
 	});
 });
 
+roomsTest("rooms publication records are an explicit application extension", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const owner = await Directory.connect(locator, (address) => dial(address));
+		const floor = await Directory.connect(
+			locator,
+			(address) => dial(address, roomsHost(undefined, "v1-syrup")),
+		);
+		const baselineEvents: unknown[][] = [];
+		let room: Room | null = null;
+		try {
+			assert(floor.session.profile.captpVersion === "v1_0", "the compatibility session did not settle v1.0");
+			assert(floor.session.profile.codec === "syrup", "the compatibility session did not settle Syrup");
+
+			const directory = await floor.session.fetch(DIRECTORY);
+			const observer = floor.session.spawn((_verb, args) => {
+				if (args[0] === "opened") baselineEvents.push(args);
+				return null;
+			});
+			const baseline = await floor.session.send(directory, WATCH, [observer]) as unknown[];
+			assert(baseline.length === 0, "a fresh baseline watch did not start empty");
+
+			room = await Room.subscribe(owner.session, await owner.open("portable"), "owner");
+			await until(() => baselineEvents.length === 1, "the baseline watcher did not receive the room opening");
+			assert(
+				baselineEvents[0].length === 3,
+				`the baseline watcher received ${baselineEvents[0].length} fields instead of 3`,
+			);
+
+			const rawList = await floor.session.send(directory, LIST, []) as unknown[];
+			assert(
+				Array.isArray(rawList[0]) && rawList[0].length === 2,
+				`baseline list returned ${
+					Array.isArray(rawList[0]) ? rawList[0].length : "a non-array"
+				} fields instead of 2`,
+			);
+			const publications = await floor.list();
+			const publication = publications[0];
+			assert(publication?.kind === "local", "the explicit publication list omitted the local room");
+			const exact = await floor.enterPublication(publication.id);
+			floor.session.release(exact);
+			floor.session.release(directory);
+		} finally {
+			if (room !== null) await room.leave();
+			await floor.close();
+			await owner.close();
+		}
+	});
+});
+
 roomsTest("rooms directory pushes open/count/close deltas to a watcher", async () => {
 	await withServer(async (port) => {
 		const watcherConn = await dial(loopbackTcpDesignator(port));
 		const watch = await watchDirectory(watcherConn);
 
 		const m1 = await watchRoom(port, "wroom", "m1");
-		await waitForLine(watch.events, /^opened wroom 1$/);
+		await waitForRoomEvent(watch.events, "opened", "wroom", 1);
 		const m2 = await watchRoom(port, "wroom", "m2");
-		await waitForLine(watch.events, /^count wroom 2$/);
+		await waitForRoomEvent(watch.events, "count", "wroom", 2);
 
 		await m2.leave();
-		await waitForLine(watch.events, /^count wroom 1$/);
+		await waitForRoomEvent(watch.events, "count", "wroom", 1);
 		await m1.leave();
-		await waitForLine(watch.events, /^closed wroom 0$/);
+		await waitForRoomEvent(watch.events, "closed", "wroom", 0);
 
 		watcherConn.close();
 		await watcherConn.serve().catch(() => {});
@@ -327,10 +463,10 @@ roomsTest("a room leave drops just that membership, keeping the connection", asy
 			// Leaving "one" (its only member) closes it; "two" survives on the same
 			// still-open session.
 			await session.send(one, LEAVE, []);
-			const rooms = new Map(await listRooms(session));
+			const rooms = roomsByName(await listRooms(session));
 			assert(!rooms.has("one"), "left room should be gone");
 			assert(
-				rooms.get("two") === 1,
+				rooms.get("two")?.count === 1,
 				"the other room should remain on this session",
 			);
 
@@ -378,18 +514,20 @@ roomsTest("a connection watching the directory twice is watching it once", async
 		// times it may ask.
 		const directory = await watcherConn.fetch(DIRECTORY);
 		const second = watcherConn.spawn((_verb, args) => {
-			watch.events.push(`${args[0]} ${args[1]} ${Number(args[2])}`);
+			recordDirectoryEvent(watch.events, args);
 			return null;
 		});
-		await watcherConn.send(directory, WATCH, [second]);
+		await watcherConn.send(directory, WATCH_PUBLICATIONS, [second]);
 
 		const member = await watchRoom(port, "echoing", "one");
-		await waitForLine(watch.events, /^opened echoing 1$/);
+		await waitForRoomEvent(watch.events, "opened", "echoing", 1);
 		// A count delta after it, so the open above has been fully delivered by the
 		// time this is counted: a second copy would already be in the list.
 		const another = await watchRoom(port, "echoing", "two");
-		await waitForLine(watch.events, /^count echoing 2$/);
-		const opens = watch.events.filter((event) => event === "opened echoing 1").length;
+		await waitForRoomEvent(watch.events, "count", "echoing", 2);
+		const opens = watch.events.filter((item) =>
+			item.event === "opened" && "room" in item && item.room.name === "echoing" && item.room.count === 1
+		).length;
 		assert(opens === 1, `one connection watching twice was told the room opened ${opens} times`);
 
 		await member.leave();

@@ -31,6 +31,7 @@ const swatches = [
 	["paper-raised", "--paper-raised"],
 	["accent", "--accent"],
 	["teal", "--teal"],
+	["irc", "--irc"],
 	["danger", "--danger"],
 	["warn", "--warn"],
 	["rule", "--rule"],
@@ -345,6 +346,12 @@ export function KitchenSink() {
 				<div className="kitchen-toasts">
 					<ToastCard kind="success" text="A success notice" onDismiss={() => undefined} />
 					<ToastCard kind="failure" text="A failure notice" onDismiss={() => undefined} />
+					<ToastCard
+						kind="failure"
+						text={"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
+							"unreachableswissnum: the peer closed the session before the handshake finished."}
+						onDismiss={() => undefined}
+					/>
 					<ToastCard kind="warning" text="A warning notice" onDismiss={() => undefined} />
 				</div>
 				<Row>
@@ -361,7 +368,7 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="Beside the control"
-				note="The field, the bell, or the meter still owns the answer. Danger when it refused; warning when the standing condition is the reader's to fix."
+				note="The field, the bell, or the meter still owns the answer. Danger when it refused; warning when the standing condition is the reader's to fix. A long reason stays two lines here; Show opens the rest."
 			>
 				<div className="kitchen-stack">
 					<p className="kitchen-note">A field that would not take the value</p>
@@ -376,6 +383,22 @@ export function KitchenSink() {
 					/>
 					<Said id="kitchenInvalidWhy" kind="failure">
 						That name is too long for this room (32 characters).
+					</Said>
+				</div>
+				<div className="kitchen-stack">
+					<p className="kitchen-note">A reason too long to keep beside the field</p>
+					<label className="group-label" htmlFor="kitchenLong">Locator</label>
+					<input
+						id="kitchenLong"
+						className="field"
+						readOnly
+						value="ocapn://…"
+						aria-invalid="true"
+						aria-describedby="kitchenLongWhy"
+					/>
+					<Said id="kitchenLongWhy" kind="failure">
+						{"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
+							"unreachableswissnum: the peer closed the session before the handshake finished."}
 					</Said>
 				</div>
 				<div className="kitchen-stack">

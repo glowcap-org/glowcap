@@ -1,5 +1,5 @@
-// The visualizer pane of the Operations modal, drawn only while this tab
-// holds the viz capability (the Advanced toggle is how it is taken).
+// The visualizer pane of the Operations page, drawn only while this tab
+// holds the viz capability (the Capabilities toggle is how it is taken).
 //
 // Two wells, one per question. The first is now: where this tab publishes
 // and whether the socket is up this moment. The second is the endpoint

@@ -80,8 +80,8 @@ const ReentryProbe = struct {
             refusedReentered(host.openDialedLocator(tcpLocator("127.0.0.1:7009"))) and
             refusedReentered(publishAndOpenAccepted(host, "tcp", "127.0.0.1:7009", &.{})) and
             refusedReentered(host.releaseSession(session)) and
-            refusedReentered(host.exporterDialed(0, session)) and
-            refusedReentered(host.dialFailed(0, "no")) and
+            refusedReentered(host.exporterDialed(0, 0, session)) and
+            refusedReentered(host.dialFailed(0, 0, "no")) and
             refusedReentered(host.provideGiftId(0, "")) and
             refusedReentered(host.breakFarVows(session, "no")) and
             refusedReentered(host.fetch(session, "widget")) and

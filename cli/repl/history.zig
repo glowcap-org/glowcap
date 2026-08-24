@@ -47,6 +47,8 @@ pub const History = struct {
         if (self.entries.items.len == 0) return null;
         if (self.cursor == null) {
             self.draft.clearRetainingCapacity();
+            // best-effort: under allocation failure the unsent draft is not
+            // preserved across the history walk.
             self.draft.appendSlice(self.gpa, current) catch {};
             self.cursor = self.entries.items.len - 1;
             return self.entries.items[self.cursor.?];

@@ -56,10 +56,26 @@ async fn enliven_round_trips_then_caches() {
 			let reply2 = session.send(&again, "hello", &[]).await.unwrap();
 			assert_eq!(reply2, Argument::Symbol("alive".into()));
 
+			let session_host = session.host();
+			let host_cap = session_host
+				.enliven_for_version(&sturdyref, crate::CaptpVersion::V1_0)
+				.await
+				.unwrap();
+			let host_reply = session.send(&host_cap, "hello", &[]).await.unwrap();
+			assert_eq!(host_reply, Argument::Symbol("alive".into()));
+			let wrong_version = session_host
+				.enliven_for_version(&sturdyref, crate::CaptpVersion::Next)
+				.await
+				.unwrap_err();
+			assert_eq!(wrong_version.kind(), ErrorKind::Broken);
+
 			// Listen (CapTP `op:listen`): a held capability's resolution comes
 			// back through the vow — a listen on an already-settled capability
 			// answers at once.
-			let settled = session.listen(&cap).await.unwrap();
+			let observation = session.listen(&cap);
+			let refused = session.send(&observation, "hello", &[]).await.unwrap_err();
+			assert_eq!(refused.kind(), ErrorKind::InvalidArgument);
+			let settled = observation.await.unwrap();
 			assert!(matches!(settled, Argument::Reference(_)));
 
 			session.close(crate::PendingWork::Cancel).await.unwrap();
@@ -469,13 +485,28 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
-			let server = listen_with_host("127.0.0.1:0", Host::with_codec(Codec::Capnp).unwrap())
-				.await
-				.unwrap();
+			let next_capnp_host = || {
+				Host::with_options(crate::HostOptions {
+					codec: Codec::Capnp,
+					captp_version: crate::CaptpVersion::Next,
+					features: crate::FeatureSet::FULL,
+					..Default::default()
+				})
+				.unwrap()
+			};
+			let server = listen_with_host("127.0.0.1:0", next_capnp_host()).await.unwrap();
 			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
 			let host = tokio::task::spawn_local(async move {
 				let session = server.accept().await.unwrap();
+				assert_eq!(
+					session.profile().unwrap(),
+					crate::SessionProfile {
+						captp_version: crate::CaptpVersion::Next,
+						codec: Codec::Capnp,
+						features: crate::FeatureSet::FULL,
+					}
+				);
 				session
 					.publish("echo", |_verb, args| Ok(Argument::List(args.to_vec())))
 					.unwrap();
@@ -485,10 +516,18 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 
 			let session = connect_with_host(
 				&crate::tcp::locator(&addr.ip().to_string(), addr.port()),
-				Host::with_codec(Codec::Capnp).unwrap(),
+				next_capnp_host(),
 			)
 			.await
 			.unwrap();
+			assert_eq!(
+				session.profile().unwrap(),
+				crate::SessionProfile {
+					captp_version: crate::CaptpVersion::Next,
+					codec: Codec::Capnp,
+					features: crate::FeatureSet::FULL,
+				}
+			);
 			ready_rx.await.unwrap();
 			let echo = session.fetch("echo").await.unwrap();
 			// 2^80: past int64, so it must ride the ARG_BIG_INTEGER arm.

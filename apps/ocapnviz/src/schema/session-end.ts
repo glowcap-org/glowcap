@@ -64,10 +64,10 @@ export const SESSION_SIDES: readonly SessionSide[] = ["a", "b"];
  * peer.
  */
 export const EndpointAttribution = z.enum([
-  "authenticated-transport",
-  "verified-handoff",
-  "self-reported",
-  "viewer-correlated",
+	"authenticated-transport",
+	"verified-handoff",
+	"self-reported",
+	"viewer-correlated",
 ]);
 export type EndpointAttribution = z.infer<typeof EndpointAttribution>;
 
@@ -92,13 +92,13 @@ export type AttributionStanding = "checked" | "stated" | "inferred";
 
 /** The evidence behind each word. */
 export const ATTRIBUTION_STANDING: Record<
-  EndpointAttribution,
-  AttributionStanding
+	EndpointAttribution,
+	AttributionStanding
 > = {
-  "authenticated-transport": "checked",
-  "verified-handoff": "checked",
-  "self-reported": "stated",
-  "viewer-correlated": "inferred",
+	"authenticated-transport": "checked",
+	"verified-handoff": "checked",
+	"self-reported": "stated",
+	"viewer-correlated": "inferred",
 };
 
 /**
@@ -132,8 +132,8 @@ export const UNATTRIBUTED_WORD = "nothing proved this";
  * answer rather than a gap.
  */
 export const DurableProvenance = z.enum([
-  "authenticated-transport",
-  "unauthenticated",
+	"authenticated-transport",
+	"unauthenticated",
 ]);
 export type DurableProvenance = z.infer<typeof DurableProvenance>;
 
@@ -182,11 +182,11 @@ export type DurableProvenance = z.infer<typeof DurableProvenance>;
  * reaches a document by being authored.
  */
 export function attributionForProvenance(
-  verdict: string | undefined,
+	verdict: string | undefined,
 ): EndpointAttribution | undefined {
-  const parsed = DurableProvenance.safeParse(verdict);
-  if (!parsed.success) return undefined;
-  return parsed.data === "unauthenticated" ? undefined : parsed.data;
+	const parsed = DurableProvenance.safeParse(verdict);
+	if (!parsed.success) return undefined;
+	return parsed.data === "unauthenticated" ? undefined : parsed.data;
 }
 
 /**
@@ -217,23 +217,23 @@ export function attributionForProvenance(
  * refused to move. `sessionEndpoint` below is the way one is built.
  */
 const SessionEndpointShape = z.object({
-  peer: z.string().min(1).optional(),
-  designator: z.string().optional(),
-  attributedBy: EndpointAttribution.optional(),
+	peer: z.string().min(1).optional(),
+	designator: z.string().optional(),
+	attributedBy: EndpointAttribution.optional(),
 }).refine(
-  // Parsing is where an endpoint arrives already built — a loaded document, a
-  // pasted fragment — so this is the invariant's guard against input nobody
-  // here constructed. Code that builds one goes through `sessionEndpoint`,
-  // where `EndpointParts` carries the same rule in the type.
-  (e) => e.attributedBy === undefined || e.peer !== undefined,
-  { message: "an endpoint attributed by something must name the peer" },
+	// Parsing is where an endpoint arrives already built — a loaded document, a
+	// pasted fragment — so this is the invariant's guard against input nobody
+	// here constructed. Code that builds one goes through `sessionEndpoint`,
+	// where `EndpointParts` carries the same rule in the type.
+	(e) => e.attributedBy === undefined || e.peer !== undefined,
+	{ message: "an endpoint attributed by something must name the peer" },
 );
 
 export const SessionEndpoint = z.preprocess(
-  // The shorthand normalizes on the way in, so every reader downstream sees
-  // one shape rather than a union it has to narrow at each use.
-  (raw) => (typeof raw === "string" ? { peer: raw } : raw),
-  SessionEndpointShape,
+	// The shorthand normalizes on the way in, so every reader downstream sees
+	// one shape rather than a union it has to narrow at each use.
+	(raw) => (typeof raw === "string" ? { peer: raw } : raw),
+	SessionEndpointShape,
 ).brand<"SessionEndpoint">();
 export type SessionEndpoint = z.infer<typeof SessionEndpoint>;
 
@@ -250,33 +250,33 @@ export type SessionEndpoint = z.infer<typeof SessionEndpoint>;
  *  three current values), and a union a builder cannot spell is a union a
  *  builder goes around. */
 export type EndpointParts =
-  | {
-    peer: string;
-    designator?: string | undefined;
-    attributedBy?: EndpointAttribution | undefined;
-  }
-  | {
-    peer?: undefined;
-    designator?: string | undefined;
-    attributedBy?: undefined;
-  };
+	| {
+		peer: string;
+		designator?: string | undefined;
+		attributedBy?: EndpointAttribution | undefined;
+	}
+	| {
+		peer?: undefined;
+		designator?: string | undefined;
+		attributedBy?: undefined;
+	};
 
 /** Build one end of a session. The only way to make one outside a parse, so
  *  the invariant above is checked once, where the type is declared. */
 export function sessionEndpoint(parts: EndpointParts): SessionEndpoint {
-  return {
-    ...(parts.peer !== undefined && { peer: parts.peer }),
-    ...(parts.designator !== undefined && { designator: parts.designator }),
-    ...(parts.attributedBy !== undefined &&
-      { attributedBy: parts.attributedBy }),
-  } as SessionEndpoint;
+	return {
+		...(parts.peer !== undefined && { peer: parts.peer }),
+		...(parts.designator !== undefined && { designator: parts.designator }),
+		...(parts.attributedBy !== undefined &&
+			{ attributedBy: parts.attributedBy }),
+	} as SessionEndpoint;
 }
 
 /** An endpoint attached to `peer` with nothing recorded about what attributed
  *  it — how an authored scenario names an end, and the shorthand a document
  *  may spell as the bare id. */
 export function attachedEndpoint(peer: string): SessionEndpoint {
-  return sessionEndpoint({ peer });
+	return sessionEndpoint({ peer });
 }
 
 /** An end nothing has attributed, claiming `designator` when something named
@@ -288,9 +288,9 @@ export function attachedEndpoint(peer: string): SessionEndpoint {
  *  from, and spelling one of them as a bare `{}` at a call site would leave
  *  the reader to work out that the empty object IS the loose end. */
 export function unattributedEndpoint(
-  designator?: string | undefined,
+	designator?: string | undefined,
 ): SessionEndpoint {
-  return sessionEndpoint({ designator });
+	return sessionEndpoint({ designator });
 }
 
 /** The word for an end that claims nothing at all.
@@ -321,8 +321,8 @@ export const UNNAMED_END_LABEL = "unnamed end";
  * not part of it, because the claim was on the end from the moment the session
  * opened and attaching does not restate it. */
 export const EndpointAttachment = z.object({
-  peer: z.string().min(1),
-  attributedBy: EndpointAttribution.optional(),
+	peer: z.string().min(1),
+	attributedBy: EndpointAttribution.optional(),
 });
 export type EndpointAttachment = z.infer<typeof EndpointAttachment>;
 
@@ -338,10 +338,10 @@ export type EndpointAttachment = z.infer<typeof EndpointAttachment>;
  *  behaved (`authoring/session.updateSessionEndpoint` patches field by
  *  field), and a moment is the same end at a later time. */
 export function attachedTo(
-  attachment: EndpointAttachment,
-  peer: string,
+	attachment: EndpointAttachment,
+	peer: string,
 ): EndpointAttachment {
-  return { ...attachment, peer };
+	return { ...attachment, peer };
 }
 
 /** The same attachment backed by something else, or by nothing.
@@ -351,13 +351,13 @@ export function attachedTo(
  *  allows. Undefined removes the field rather than storing it empty, so a
  *  cleared attribution reads as an attachment nothing backed. */
 export function backedBy(
-  attachment: EndpointAttachment,
-  attribution: EndpointAttribution | undefined,
+	attachment: EndpointAttachment,
+	attribution: EndpointAttribution | undefined,
 ): EndpointAttachment {
-  return {
-    peer: attachment.peer,
-    ...(attribution !== undefined && { attributedBy: attribution }),
-  };
+	return {
+		peer: attachment.peer,
+		...(attribution !== undefined && { attributedBy: attribution }),
+	};
 }
 
 /** The attachment an endpoint carries, or undefined when it is loose.
@@ -367,14 +367,14 @@ export function backedBy(
  * moment (claim included) and `EndpointAttachment` is the part of it that can
  * change while the session runs. */
 export function endpointAttachment(
-  endpoint: SessionEndpoint,
+	endpoint: SessionEndpoint,
 ): EndpointAttachment | undefined {
-  if (endpoint.peer === undefined) return undefined;
-  return {
-    peer: endpoint.peer,
-    ...(endpoint.attributedBy !== undefined &&
-      { attributedBy: endpoint.attributedBy }),
-  };
+	if (endpoint.peer === undefined) return undefined;
+	return {
+		peer: endpoint.peer,
+		...(endpoint.attributedBy !== undefined &&
+			{ attributedBy: endpoint.attributedBy }),
+	};
 }
 
 /** The stage id of a session end that no peer is attached to.
@@ -401,10 +401,10 @@ export function endpointAttachment(
  * a producer hands it one, because a name the network chose is disambiguated
  * and never refused. `parseEndpointStageId` is the test both of them run. */
 export function endpointStageId(
-  sessionId: string,
-  side: SessionSide,
+	sessionId: string,
+	side: SessionSide,
 ): string {
-  return `${sessionId}::${side}`;
+	return `${sessionId}::${side}`;
 }
 
 /**
@@ -418,7 +418,7 @@ export function endpointStageId(
  * asked here.
  */
 export function nodeKindOf(id: string): "peer" | "endpoint" {
-  return parseEndpointStageId(id) === undefined ? "peer" : "endpoint";
+	return parseEndpointStageId(id) === undefined ? "peer" : "endpoint";
 }
 
 /** The session and side an endpoint stage id names, or undefined when the id
@@ -430,13 +430,13 @@ export function nodeKindOf(id: string): "peer" | "endpoint" {
  *  session id may itself contain the separator, so the split is from the
  *  right, and only the two side names close the match. */
 export function parseEndpointStageId(
-  id: string,
+	id: string,
 ): { sessionId: string; side: SessionSide } | undefined {
-  const at = id.lastIndexOf("::");
-  if (at <= 0) return undefined;
-  const side = id.slice(at + 2);
-  if (side !== "a" && side !== "b") return undefined;
-  return { sessionId: id.slice(0, at), side };
+	const at = id.lastIndexOf("::");
+	if (at <= 0) return undefined;
+	const side = id.slice(at + 2);
+	if (side !== "a" && side !== "b") return undefined;
+	return { sessionId: id.slice(0, at), side };
 }
 
 /** The node one end of a session sits at: the peer attached to it, or the
@@ -450,9 +450,9 @@ export function parseEndpointStageId(
  *  none — a force simulation with a position for one end and nothing for the
  *  other has no edge to solve. */
 export function endpointNodeId(
-  sessionId: string,
-  side: SessionSide,
-  endpoint: SessionEndpoint,
+	sessionId: string,
+	side: SessionSide,
+	endpoint: SessionEndpoint,
 ): string {
-  return endpoint.peer ?? endpointStageId(sessionId, side);
+	return endpoint.peer ?? endpointStageId(sessionId, side);
 }

@@ -7,14 +7,28 @@
 // probe it is.
 
 import * as tcp from "@pancake/tcp";
+import { INVALID_ARGUMENT } from "@pancake/abi";
 
-import { type Argument, FetchFailed, Host, PStruct, Ref, Runtime, Session, Tagged, tagged } from "../../runtime/mod.ts";
+import {
+	enableTrace,
+	FEATURE_FULL,
+	Host,
+	PancakeError,
+	PStruct,
+	Ref,
+	Runtime,
+	Session,
+	Tagged,
+	tagged,
+} from "../../runtime/mod.ts";
 
-import { _connectIroh } from "../../iroh/impl.ts";
-
-import { assert, ok, startRelay } from "./support.ts";
+import { assert, ok, startRelay, within } from "./support.ts";
+import { runForeignFetch } from "./foreign_fetch.ts";
 
 export async function run(managed: Runtime): Promise<void> {
+	// Distributed GC (ADR-0063), opt-in: fetch results, nested send replies, and
+	// nested delivered arguments each release their one projected capability
+	// occurrence. The relay observes both directions before teardown.
 	{
 		await using gcHost = new Host();
 		const server = await tcp.listen("127.0.0.1", 0, { host: gcHost });
@@ -24,6 +38,12 @@ export async function run(managed: Runtime): Promise<void> {
 		let toClientTail = new Uint8Array();
 		let toServerGc = 0;
 		let toClientGc = 0;
+		let resolveServerOne!: () => void;
+		let resolveServerTwo!: () => void;
+		let resolveClientOne!: () => void;
+		const serverOneSeen = new Promise<void>((resolve) => resolveServerOne = resolve);
+		const serverTwoSeen = new Promise<void>((resolve) => resolveServerTwo = resolve);
+		const clientOneSeen = new Promise<void>((resolve) => resolveClientOne = resolve);
 		const relay = await startRelay(targetPort, (c) => c, (chunk, toServer) => {
 			const prior = toServer ? toServerTail : toClientTail;
 			const combined = new Uint8Array(prior.length + chunk.length);
@@ -31,8 +51,14 @@ export async function run(managed: Runtime): Promise<void> {
 			combined.set(chunk, prior.length);
 			for (let i = 0; i + needle.length <= combined.length; i++) {
 				if (needle.every((byte, offset) => combined[i + offset] === byte)) {
-					if (toServer) toServerGc++;
-					else toClientGc++;
+					if (toServer) {
+						toServerGc++;
+						if (toServerGc >= 1) resolveServerOne();
+						if (toServerGc >= 2) resolveServerTwo();
+					} else {
+						toClientGc++;
+						if (toClientGc >= 1) resolveClientOne();
+					}
 				}
 			}
 			const tail = combined.slice(Math.max(0, combined.length - needle.length + 1));
@@ -44,18 +70,24 @@ export async function run(managed: Runtime): Promise<void> {
 			for await (const session of server) {
 				session.withGc();
 				const delegated = session.spawn(() => null);
+				let releaseInbound!: (ref: Ref) => void;
+				const inbound = new Promise<Ref>((resolve) => releaseInbound = resolve);
 				session.publish("factory", (verb, args) => {
 					if (verb === "reply") return new PStruct([["nested", [delegated]]]);
 					assert(verb === "accept", `unexpected GC test verb ${verb}`);
+					const payload = args[0];
 					assert(
-						args.length === 1 && args[0] instanceof PStruct &&
-							args[0].entries[0][0] === "nested" && Array.isArray(args[0].entries[0][1]) &&
-							args[0].entries[0][1][0] instanceof Ref,
+						args.length === 1 && payload instanceof PStruct &&
+							payload.entries[0][0] === "nested" && Array.isArray(payload.entries[0][1]) &&
+							payload.entries[0][1][0] instanceof Ref,
 						"the server received the nested capability argument",
 					);
+					releaseInbound(payload.entries[0][1][0]);
 					return null;
 				});
-				session.serve().catch(() => {});
+				const serving = session.serve().catch(() => {});
+				session.release(await inbound);
+				await serving;
 				break;
 			}
 		}
@@ -64,52 +96,37 @@ export async function run(managed: Runtime): Promise<void> {
 		async function client(): Promise<void> {
 			const session = (await managed.connect(tcp.locator("127.0.0.1", relay.port))).withGc();
 			session.serve().catch(() => {});
-			const force = (): void => {
-				const g = (globalThis as { gc?: () => void }).gc;
-				if (typeof g === "function") g();
-				const bun = (globalThis as { Bun?: { gc?: (sync: boolean) => void } }).Bun;
-				if (bun && typeof bun.gc === "function") bun.gc(true);
-			};
-			let factory: Ref | null = await session.fetch("factory");
-			let reply: Argument | null = await session.send(factory, "reply", []);
+			const factory = await session.fetch("factory");
+			const reply = await session.send(factory, "reply", []);
 			assert(
 				reply instanceof PStruct && reply.entries[0][0] === "nested" &&
 					Array.isArray(reply.entries[0][1]) && reply.entries[0][1][0] instanceof Ref,
 				"the send reply carries a nested capability",
 			);
-			reply = null;
-			for (let i = 0; i < 400 && toServerGc < 1; i++) {
-				force();
-				await new Promise((r) => setTimeout(r, 5));
-			}
+			session.release(reply.entries[0][1][0]);
+			await within(serverOneSeen, 2_000, "nested send reply release");
 			assert(toServerGc >= 1, "the nested send reply did not release");
 
 			const callback = session.spawn(() => null);
 			await session.send(factory, "accept", [new PStruct([["nested", [callback]]])]);
-			for (let i = 0; i < 400 && toClientGc < 1; i++) {
-				force();
-				await new Promise((r) => setTimeout(r, 5));
-			}
+			await within(clientOneSeen, 2_000, "nested delivered argument release");
 			assert(toClientGc >= 1, "the nested delivered argument did not release");
 
-			factory = null;
-			for (let i = 0; i < 400 && toServerGc < 2; i++) {
-				force();
-				await new Promise((r) => setTimeout(r, 5));
-			}
+			session.release(factory);
+			await within(serverTwoSeen, 2_000, "fetched capability release");
 			assert(toServerGc >= 2, "the fetched capability did not release");
 			await session.close();
 		}
 
 		await Promise.all([client(), hosted]);
 		relay.close();
-		ok("GC releases fetched, replied, and delivered capability occurrences");
+		ok("distributed release reaches fetched, replied, and delivered capability homes");
 	}
 
 	// Promise pipelining (ADR-0007), the questioner's half: `Session.send`
 	// returns a handle that is also a `send` target, so a create -> assign ->
-	// complete -> status chain is issued against the *unresolved* `create` answer
-	// and the four delivers travel as one batch. The board's `create` spawns a
+	// complete -> status chain may be issued against the `create` answer after a
+	// fast resolution. The board's `create` spawns a
 	// fresh task from inside the served turn (the turn-time spawn) and returns it;
 	// the partner's engine queues the pipelined calls on that pending answer and
 	// drains them onto the task once `create` resolves. A `status` of `done`
@@ -147,12 +164,12 @@ export async function run(managed: Runtime): Promise<void> {
 			session.serve().catch(() => {});
 			await published;
 			const root = await session.fetch("root");
-			// The four verbs leave together: none awaits `create`'s reply, and
-			// `assign` / `complete` / `status` target the `create` answer directly.
 			const task = session.send(root, "create", ["benchmark"]);
-			session.send(task, "assign", ["alice"]);
+			const assigned = session.tell(task, "assign", ["alice"]);
 			session.send(task, "complete", []);
-			const status = await session.send(task, "status", []);
+			const pendingStatus = session.send(task, "status", []);
+			await assigned;
+			const status = await pendingStatus;
 			assert(
 				status === "done",
 				`pipelined status should be done, got ${String(status)}`,
@@ -162,6 +179,66 @@ export async function run(managed: Runtime): Promise<void> {
 
 		await Promise.all([client(), hosted]);
 		ok("promise pipelining drives create->assign->complete->status as one batch");
+	}
+
+	// A RemotePromise is namespaced by its owning Host, not merely its native vow
+	// number. Two Hosts deliberately collide their ids; crossing the handles must
+	// be refused before FFI while the destination's own promise remains exact.
+	{
+		const server = await tcp.listen("127.0.0.1", 0);
+		const port = server.port;
+		let firstReady!: () => void;
+		let secondReady!: () => void;
+		const ready = [
+			new Promise<void>((resolve) => firstReady = resolve),
+			new Promise<void>((resolve) => secondReady = resolve),
+		];
+
+		async function host(): Promise<void> {
+			const serving: Promise<void>[] = [];
+			let accepted = 0;
+			for await (const session of server) {
+				session.publish("root", (verb, args) => {
+					assert(verb === "create", `unexpected method ${verb}`);
+					const label = String(args[0]);
+					return session.spawn((taskVerb) => {
+						if (taskVerb === "label") return label;
+						throw new Error(`unexpected method ${taskVerb}`);
+					});
+				});
+				serving.push(session.serve().catch(() => {}));
+				(accepted++ === 0 ? firstReady : secondReady)();
+				if (accepted === 2) break;
+			}
+			await Promise.all(serving);
+		}
+
+		const hosted = host();
+		await using firstRuntime = await Runtime.open({ providers: [tcp.provider()] });
+		await using secondRuntime = await Runtime.open({ providers: [tcp.provider()] });
+		const first = await firstRuntime.connect(tcp.locator("127.0.0.1", port));
+		first.serve().catch(() => {});
+		await ready[0];
+		const firstRoot = await first.fetch("root");
+		const firstTask = first.send(firstRoot, "create", ["first"]);
+		const second = await secondRuntime.connect(tcp.locator("127.0.0.1", port));
+		second.serve().catch(() => {});
+		await ready[1];
+		const secondRoot = await second.fetch("root");
+		const secondTask = second.send(secondRoot, "create", ["second"]);
+		assert(firstTask.vow === secondTask.vow, "the scenario needs colliding Host vow ids");
+		let refused: PancakeError | null = null;
+		try {
+			await second.send(firstTask, "label", []);
+		} catch (error) {
+			if (error instanceof PancakeError) refused = error;
+		}
+		assert(refused?.code === INVALID_ARGUMENT, "a promise from another Host is refused before FFI");
+		assert(await second.send(secondTask, "label", []) === "second", "the destination vow remains exact");
+		await first.close();
+		await second.close();
+		await hosted;
+		ok("promise targets retain their Host namespace across colliding vow ids");
 	}
 
 	// Host ownership, arriving-Port routing: the root is first projected through
@@ -238,20 +315,40 @@ export async function run(managed: Runtime): Promise<void> {
 	// *late* (after a sibling projection already pumped the loop) still settles
 	// from the recorded outcome.
 	{
-		const nextHost = () => new Host(undefined, { captpVersion: "next" });
+		const nextHost = () => new Host(undefined, { codec: "capnp", captpVersion: "next", features: "full" });
 		await using serverHost = nextHost();
 		await using clientHost = nextHost();
+		let makePending = false;
+		let releaseMake: (() => void) | undefined;
+		let pipelineSentResolve!: () => void;
+		const pipelineSent = new Promise<void>((resolve) => pipelineSentResolve = resolve);
+		const uninstallTrace = enableTrace((event) => {
+			if (
+				event.kind === "ocapn.message-decoded" && event.outbound &&
+				event.op === "pipeline-sentinel"
+			) pipelineSentResolve();
+		});
 		serverHost.publishGiftable("root", (verb, args) => {
+			if (verb === "release") {
+				assert(makePending && releaseMake !== undefined, "release arrived before make deferred");
+				releaseMake();
+				return "released";
+			}
 			if (verb !== "make") throw new Error(`no such method: ${verb}`);
 			const label = String(args[0] ?? "anon");
-			// A Tagged wrapping a single list value: untag unwraps to that row.
-			return tagged("task", [["assigned", label, 7n]]);
+			makePending = true;
+			return new Promise((resolve) => {
+				releaseMake = () => resolve(tagged("task", [["assigned", label, 7n]]));
+			});
 		});
 		const server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
 		const port = server.port;
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
+				assert(session.profile.captpVersion === "next", "accepted session reports pancake-next");
+				assert(session.profile.codec === "capnp", "accepted session reports Cap'n Proto");
+				assert(session.profile.features === FEATURE_FULL, "accepted session reports the full feature set");
 				session.serve().catch(() => {});
 				break;
 			}
@@ -264,15 +361,22 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function client(): Promise<void> {
 			const session = await clientRuntime.connect(tcp.locator("127.0.0.1", port));
+			assert(session.profile.captpVersion === "next", "dialed session reports pancake-next");
+			assert(session.profile.codec === "capnp", "dialed session reports Cap'n Proto");
+			assert(session.profile.features === FEATURE_FULL, "dialed session reports the full feature set");
 			session.serve().catch(() => {});
 			const root = await session.fetch("root");
 			// None of these await a prior reply: the projections ride the unresolved
 			// `make` answer and the whole chain leaves on one flush.
 			const made = session.send(root, "make", ["alice"]);
-			const label = await made.untag("task").index(1);
+			const label = made.untag("task").index(1);
+			await session.tell(label, "pipeline-sentinel", []);
+			await within(pipelineSent, 2_000, "pipelined projection transmission");
+			assert(await session.send(root, "release", []) === "released", "release settles make");
+			const projected = await label;
 			assert(
-				label === "alice",
-				`pipelined untag->index should reach the label, got ${String(label)}`,
+				projected === "alice",
+				`pipelined untag->index should reach the label, got ${String(projected)}`,
 			);
 			// The source answer settled while the projection pumped the loop;
 			// observing it now must still resolve (a late observation settles from
@@ -287,6 +391,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 		await client();
 		await hosted;
+		uninstallTrace();
 		ok(
 			"pipelined projections untag->index reach a field, and a late source await still settles",
 		);
@@ -300,6 +405,8 @@ export async function run(managed: Runtime): Promise<void> {
 	// lets a pipelining anchor go unawaited safely.
 	{
 		let unhandled = 0;
+		let markBoomSeen!: () => void;
+		const boomSeen = new Promise<void>((resolve) => markBoomSeen = resolve);
 		const onUnhandled = (e: PromiseRejectionEvent) => {
 			unhandled++;
 			e.preventDefault();
@@ -309,6 +416,7 @@ export async function run(managed: Runtime): Promise<void> {
 		await using anchorHost = new Host();
 		anchorHost.publishGiftable("root", (verb) => {
 			if (verb === "ping") return "pong";
+			markBoomSeen();
 			throw new Error(`boom: ${verb}`);
 		});
 		const server = await tcp.listen("127.0.0.1", 0, { host: anchorHost });
@@ -328,12 +436,14 @@ export async function run(managed: Runtime): Promise<void> {
 			const root = await session.fetch("root");
 			const anchor = session.send(root, "explode", []);
 			assert(anchor instanceof Promise, "a send handle must be a real Promise");
-			// `anchor` is never observed; awaiting `ping` flushes the queued batch,
-			// so `explode`'s deliver crosses the wire and the host breaks its answer.
+			// No later operation exists yet: creation itself must schedule progress.
+			await boomSeen;
+			// `anchor` is never observed; its break remains only a recorded outcome.
 			// The break's FAIL completion is recorded with no waiter, no rejection.
 			const pong = await session.send(root, "ping", []);
 			assert(pong === "pong", `expected pong, got ${String(pong)}`);
-			await new Promise((r) => setTimeout(r, 50)); // let the break land
+			// The same-session ping reply is ordered after the explode break, so
+			// observing it proves the runtime already drained the unobserved FAIL.
 			assert(
 				unhandled === 0,
 				`unawaited break must not surface, saw ${unhandled}`,
@@ -349,153 +459,5 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("an unawaited send is a real Promise whose far break never surfaces");
 	}
 
-	// A fetch that fulfills with a plain value (not a capability) rejects with the
-	// dedicated FetchFailed — the foreign-bootstrap shape a non-pancake partner
-	// can produce. A pancake host always answers a fetch with a capability, so the
-	// relay doctors the wire: the client's bootstrap-fetch deliver is retargeted
-	// from export 0 to the export of a published object that answers with a plain
-	// integer, and the client's fetch answer fulfills with 42. The client fetches
-	// "plain" legitimately first: that reply's marshal is what grants the export
-	// (ADR-0074), so the doctored deliver that follows is admitted rather than
-	// refused as a probe of an ungranted position.
-	{
-		const server = await tcp.listen("127.0.0.1", 0);
-		const targetPort = server.port;
-		let plainExport = -1n;
-		let exportReady!: () => void;
-		const exportKnown = new Promise<void>((r) => (exportReady = r));
-
-		// Replace the first `desc:export0+` with `desc:export<P>+`. The spliced
-		// integer is whatever position the host allocated, which is not the same
-		// width as the one it replaces, so the frame is rebuilt at its new length
-		// rather than overwritten in place — a Syrup record is delimiter-terminated,
-		// so a wider integer is still a whole frame. Armed only after the legitimate
-		// fetch of "plain" has granted the export, so only the second fetch is
-		// doctored.
-		let armed = false;
-		let retargeted = false;
-		let capturing = false;
-		let observedWire = "";
-		let pending = new Uint8Array();
-		const decoder = new TextDecoder();
-		const encoder = new TextEncoder();
-		function observe(chunk: Uint8Array, toServer: boolean): void {
-			if (toServer || !capturing || plainExport >= 0n) return;
-			observedWire += decoder.decode(chunk, { stream: true });
-			const match = /desc:import-object(\d+)\+/.exec(observedWire);
-			if (match !== null) plainExport = BigInt(match[1]);
-		}
-		function retarget(chunk: Uint8Array): Uint8Array {
-			if (!armed || plainExport < 0n) return chunk;
-			if (retargeted && pending.length === 0) return chunk;
-			const joined = new Uint8Array(pending.length + chunk.length);
-			joined.set(pending);
-			joined.set(chunk, pending.length);
-			pending = joined;
-
-			const frames: Uint8Array[] = [];
-			while (pending.length > 0) {
-				let colon = -1;
-				let bodyLength = 0;
-				for (let i = 0; i < pending.length; i++) {
-					const byte = pending[i];
-					if (byte === 58) {
-						colon = i;
-						break;
-					}
-					if (byte < 48 || byte > 57) {
-						const malformed = pending;
-						pending = new Uint8Array();
-						return malformed;
-					}
-					bodyLength = bodyLength * 10 + byte - 48;
-				}
-				if (colon < 0 || pending.length < colon + 1 + bodyLength) break;
-
-				const frameEnd = colon + 1 + bodyLength;
-				let body = pending.slice(colon + 1, frameEnd);
-				pending = pending.slice(frameEnd);
-				if (!retargeted) {
-					const needle = encoder.encode("desc:export0+");
-					outer: for (let i = 0; i + needle.length <= body.length; i++) {
-						for (let j = 0; j < needle.length; j++) {
-							if (body[i + j] !== needle[j]) continue outer;
-						}
-						const replacement = encoder.encode(`desc:export${plainExport}+`);
-						const spliced = new Uint8Array(
-							body.length - needle.length + replacement.length,
-						);
-						spliced.set(body.subarray(0, i));
-						spliced.set(replacement, i);
-						spliced.set(body.subarray(i + needle.length), i + replacement.length);
-						body = spliced;
-						retargeted = true;
-						break;
-					}
-				}
-				const prefix = encoder.encode(`${body.length}:`);
-				const frame = new Uint8Array(prefix.length + body.length);
-				frame.set(prefix);
-				frame.set(body, prefix.length);
-				frames.push(frame);
-			}
-
-			const size = frames.reduce((total, frame) => total + frame.length, 0);
-			const output = new Uint8Array(size);
-			let offset = 0;
-			for (const frame of frames) {
-				output.set(frame, offset);
-				offset += frame.length;
-			}
-			return output;
-		}
-		const relay = await startRelay(targetPort, retarget, observe);
-
-		async function host(): Promise<void> {
-			for await (const session of server) {
-				// The doctored fetch deliver lands here with verb "fetch"; answer with
-				// a plain integer, which is exactly what a fetch must not resolve to.
-				session.publish("plain", () => 42n);
-				exportReady();
-				session.serve().catch(() => {});
-				break;
-			}
-		}
-		const hosted = host();
-
-		async function client(): Promise<void> {
-			const session = await managed.connect(tcp.locator("127.0.0.1", relay.port));
-			session.serve().catch(() => {});
-			await exportKnown;
-			// The granting fetch: its resolve marshals the "plain" reference, which
-			// is what makes the position addressable for the doctored deliver.
-			capturing = true;
-			await session.fetch("plain");
-			for (let i = 0; i < 100 && plainExport < 0n; i++) await Promise.resolve();
-			assert(plainExport >= 0n, "the granting fetch exposed no import-object descriptor");
-			capturing = false;
-			armed = true;
-			let failed: FetchFailed | null = null;
-			try {
-				await session.fetch("not-a-capability");
-			} catch (err) {
-				if (err instanceof FetchFailed) failed = err;
-			}
-			assert(failed !== null, "a non-capability fetch rejects with FetchFailed");
-			assert(
-				failed!.capabilityName === "not-a-capability",
-				`FetchFailed names the capability, got ${failed!.capabilityName}`,
-			);
-			await session.close();
-		}
-
-		await Promise.all([client(), hosted]);
-		relay.close();
-		ok("a non-capability fetch rejects with the typed FetchFailed");
-	}
-
-	// A rude TCP probe — connect, say nothing, hang up — is that connection's
-	// failure, not the listener's. The Server's iterator must skip the failed
-	// handshake and keep accepting; without the skip, one port scan takes a
-	// long-lived server down.
+	await runForeignFetch(managed);
 }

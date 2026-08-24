@@ -17,7 +17,7 @@ pub const Route = struct {
     reference: model.Reference,
 };
 
-pub const ForeignEnrollmentRollback = struct {
+pub const ForeignEnrollmentReceipt = struct {
     activated_lowering: bool,
     home: PeerHandle,
     position: model.ImportPosition,
@@ -26,7 +26,7 @@ pub const ForeignEnrollmentRollback = struct {
 
 pub const ForeignEnrollment = struct {
     reference: model.Reference,
-    rollback: ?ForeignEnrollmentRollback,
+    abandon: ?ForeignEnrollmentReceipt,
 };
 
 /// Where a routed deliver lands.
@@ -123,9 +123,9 @@ pub fn exporterPeerFor(self: *Node, reference: model.Reference) ?PeerHandle {
 
 /// Prepare a fetched far import under a node-unique route id.
 ///
-/// Re-enrollment returns the import row's existing generation and allocates
-/// nothing. A fresh enrollment publishes the session memo before the map row;
-/// rollback can therefore restore both authorities without reusing the id.
+/// Re-enrollment returns the import authority's existing generation and
+/// allocates nothing. A fresh enrollment publishes the Session memo before the
+/// map row; abandonment can discard both preparations without reusing the id.
 /// The enrolled row also owns reference kind: a caller cannot relabel the same
 /// import by presenting another kind on a later fetch.
 pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Reference) !ForeignEnrollment {
@@ -145,10 +145,10 @@ pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Refer
             kind;
         return .{
             .reference = .{ .routed = .{ .id = existing, .kind = enrolled_kind } },
-            .rollback = null,
+            .abandon = null,
         };
     }
-    if (!home_peer.session_state.hasImport(far.import_position)) return error.UnknownImport;
+    if (!home_peer.session_state.holdsImport(far.import_position)) return error.UnknownImport;
     if (self.next_route_id.int() == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
     try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
     const route_id = self.next_route_id;
@@ -159,7 +159,7 @@ pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Refer
     self.route_lowering_active = true;
     return .{
         .reference = .{ .routed = .{ .id = route_id, .kind = kind } },
-        .rollback = .{
+        .abandon = .{
             .activated_lowering = activated_lowering,
             .home = home,
             .position = far.import_position,
@@ -168,17 +168,17 @@ pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Refer
     };
 }
 
-/// Undo a fresh enrollment before it becomes observable, burning its id. Only
-/// the route and import-row memo roll back, so stale ids never gain a new
-/// meaning even when the larger transaction fails.
-pub fn rollbackForeignEnrollment(self: *Node, rollback: ForeignEnrollmentRollback) void {
-    const home = self.peer(rollback.home) orelse unreachable;
-    std.debug.assert(home.session_state.foreignRouteIdFor(rollback.position) == rollback.route_id);
-    home.session_state.abandonForeignRouteId(rollback.position, rollback.route_id);
-    const removed = self.foreign_imports.fetchRemove(rollback.route_id) orelse unreachable;
-    std.debug.assert(removed.value.peer_handle == rollback.home);
+/// Abandon a fresh enrollment before it becomes observable, burning its id.
+/// The route and Session memo are the only published preparation; no prior
+/// authority is reconstructed and stale ids never gain a new meaning.
+pub fn abandonForeignEnrollment(self: *Node, abandoned: ForeignEnrollmentReceipt) void {
+    const home = self.peer(abandoned.home) orelse unreachable;
+    std.debug.assert(home.session_state.foreignRouteIdFor(abandoned.position) == abandoned.route_id);
+    home.session_state.abandonForeignRouteId(abandoned.position, abandoned.route_id);
+    const removed = self.foreign_imports.fetchRemove(abandoned.route_id) orelse unreachable;
+    std.debug.assert(removed.value.peer_handle == abandoned.home);
     model.freeReference(self.allocator, removed.value.reference);
-    if (rollback.activated_lowering) {
+    if (abandoned.activated_lowering) {
         std.debug.assert(self.foreign_imports.count() == 0);
         self.route_lowering_active = false;
     }

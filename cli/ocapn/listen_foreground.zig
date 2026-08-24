@@ -59,8 +59,7 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     const uri = try model.uri.writePeer(ctx.gpa, (try server.advertisedLocator()));
     defer ctx.gpa.free(uri);
     const locator_copy = try ctx.gpa.dupe(u8, uri);
-    if (ctx.last_locator) |old| ctx.gpa.free(old);
-    ctx.last_locator = locator_copy;
+    ctx.publishLocator(locator_copy);
 
     if (ctx.json == .json) {
         var out: std.ArrayList(u8) = .empty;

@@ -16,15 +16,27 @@ from .. import _constants as _abi
 from .. import _pump
 from .._errors import PancakeError, _check_host
 from .._ffi_host import _host
-from .._ffi_ocapn import _byte_buf
+from .._ffi_ocapn import _byte_buf, _ManagedFrame
 from .._host import Host
 from .._locator import _OwnedLocator, Locator
 from .lifecycle import _LifecycleMixin
+from .profile import SessionProfile, read_session_profile, read_session_transport_name
 from .verbs import PartnerIdentity, SendRedeemingResult, _VerbsMixin
 
 _ERR_CLOSED = _abi.ERR_CLOSED
 _ERR_TIMEOUT = _abi.ERR_TIMEOUT
 _HANDSHAKE_TIMEOUT_MS = _abi.HANDSHAKE_TIMEOUT_MS
+
+
+class _OutboundScratch:
+    """One Session's reusable C descriptors, serialized by ``write_lock``."""
+
+    __slots__ = ("frame", "prefix", "prefix_len")
+
+    def __init__(self) -> None:
+        self.frame = _ManagedFrame()
+        self.prefix = (ctypes.c_ubyte * _abi.HOST_OUTBOUND_PREFIX_CAP)()
+        self.prefix_len = ctypes.c_size_t()
 
 
 class Session(_LifecycleMixin, _VerbsMixin):
@@ -62,6 +74,9 @@ class Session(_LifecycleMixin, _VerbsMixin):
         # coordinator and must outlive cancellation of any one close waiter.
         self._close_task: Optional[asyncio.Task[None]] = None
         self._write_lock = asyncio.Lock()
+        # Reused only under _write_lock. Payload bytes are still copied before
+        # await because Python cannot retain the native frame across it.
+        self._outbound_scratch = _OutboundScratch()
         self._hosted = host._hosted
         self._gc_enabled = False
         try:
@@ -227,8 +242,22 @@ class Session(_LifecycleMixin, _VerbsMixin):
         return not self._released and _host.pancake_host_session_is_open(self._ptr) == 1
 
     @property
+    def profile(self) -> SessionProfile:
+        """The settled version, codec, and mutually supported feature bits."""
+        return read_session_profile(self.raw)
+
+    @property
+    def transport_name(self) -> str:
+        """The exact netlayer symbol this connection was opened through."""
+        return read_session_transport_name(self.raw)
+
+    @property
     def write_lock(self) -> asyncio.Lock:
         return self._write_lock
+
+    @property
+    def outbound_scratch(self) -> _OutboundScratch:
+        return self._outbound_scratch
 
     @property
     def transport(self):

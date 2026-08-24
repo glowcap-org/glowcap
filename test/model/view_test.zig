@@ -1,8 +1,8 @@
 //! Codec-neutral view round-trips: owned message through `view.Body.fromOwned`
 //! and back through `toOwned`.
 //!
-//! These exercise the owned-fallback (slice) backings of `Args` /
-//! `PositionList` / `PipelinePath` and the full materialization tree. The
+//! These exercise the owned-fallback (slice) backings of `Args` and
+//! `PositionList` and the full materialization tree. The
 //! testing allocator's leak detection guards `toOwned`'s fail-loud cleanup.
 //! Codec-wire backings are exercised by the per-codec view tests.
 
@@ -26,10 +26,8 @@ fn expectRoundTrip(message: model.Message) !void {
     try std.testing.expect(messagesEqual(message, owned));
 }
 
-test "deliver with nested args, promise path target, and resolve_me_desc round-trips" {
+test "deliver with nested args, promise target, and resolve_me_desc round-trips" {
     const inner = [_]model.Argument{ .{ .integer = 7 }, .{ .boolean = true } };
-    const call_args = [_]model.Argument{.{ .string = "hi" }};
-    const ops = [_]model.PipelineOp{ .{ .field = "field0" }, .{ .call = &call_args } };
     const args = [_]model.Argument{
         .{ .bytes = "raw" },
         .{ .symbol = "fulfill" },
@@ -38,7 +36,7 @@ test "deliver with nested args, promise path target, and resolve_me_desc round-t
         .{ .tagged = .{ .tag = "rec", .value = &inner } },
     };
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(9), .path = .{ .ops = &ops } } },
+        .target = .{ .promise = .{ .answer_position = .from(9) } },
         .args = &args,
         .answer = .from(11),
         .resolve_me_desc = .{ .near = model.NearRef.promise(4) },
@@ -119,38 +117,6 @@ test "Args slice backing reports len and projects each element" {
     try std.testing.expectEqual(@as(usize, 2), try a.len());
     try std.testing.expectEqual(@as(i64, 1), (try a.at(0)).integer);
     try std.testing.expectEqualStrings("x", (try a.at(1)).symbol);
-}
-
-test "toOwned bounds nesting through promise pipeline-path call ops, not just list/set/tagged" {
-    const allocator = std.testing.allocator;
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    // Build an argument nested through the promise → pipeline-path → call → arg
-    // cycle, the boundary where depth used to reset to 0 (so `max_owned_depth`
-    // never tripped and the native stack overflowed). 300 wraps is past the bound.
-    var arg: model.Argument = .{ .integer = 0 };
-    var i: usize = 0;
-    while (i < 300) : (i += 1) {
-        const call_args = try arena.alloc(model.Argument, 1);
-        call_args[0] = arg;
-        const ops = try arena.alloc(model.PipelineOp, 1);
-        ops[0] = .{ .call = call_args };
-        arg = .{ .reference = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = ops } } } };
-    }
-
-    const args = [_]model.Argument{arg};
-    const message = model.Message{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(0) },
-        .args = &args,
-    } };
-
-    // The borrowed view projects lazily; materializing it must fail loud at the
-    // depth bound rather than recurse off the stack. The testing allocator also
-    // proves the rejection path leaks nothing.
-    const body = view.Body.fromOwned(&message);
-    try std.testing.expectError(error.MalformedView, body.toOwned(allocator));
 }
 
 test "view.PeerLocator.toOwned clones transport and designator" {

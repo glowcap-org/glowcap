@@ -23,6 +23,7 @@
 // not exist yet opens it.
 
 import { Directory, Room } from "../../lib/room_client.ts";
+import type { RoomInfo } from "../../lib/directory_publications.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import type { Ref } from "@pancake/runtime";
 import { Reachability } from "@pancake/iroh";
@@ -44,19 +45,21 @@ const dir = await Directory.connect(locator, (address) => dial(address, runtime)
 
 // Follow the directory so `/list` is always current: fold each delta into a map
 // of live rooms, seeded with the snapshot `watch` returns.
-const liveRooms = new Map<string, number>();
+const liveRooms = new Map<string, RoomInfo>();
 for (
 	const room of await dir.watch((event) => {
 		// The directory carries direct-message nick registrations on the same
 		// stream as rooms ("registered" / "unregistered"). Only the three room
 		// kinds belong in this map; folding a registration in would list a
 		// person's nick as a room nobody can enter.
-		if (event.kind === "closed") liveRooms.delete(event.name);
-		else if (event.kind === "opened" || event.kind === "count") {
-			liveRooms.set(event.name, event.count);
+		if (event.kind === "closed") {
+			const key = event.name.toLowerCase();
+			if (liveRooms.get(key)?.id === event.entry.id) liveRooms.delete(key);
+		} else if (event.kind === "opened" || event.kind === "count") {
+			liveRooms.set(event.name.toLowerCase(), event.entry);
 		}
 	})
-) liveRooms.set(room.name, room.count);
+) liveRooms.set(room.name.toLowerCase(), room);
 
 // The single membership we are currently in, held in an object so it reads as
 // `Room | null` everywhere (a bare `let` would narrow to `null` across the
@@ -160,9 +163,11 @@ function showRooms(): void {
 	if (liveRooms.size === 0) {
 		return void console.log("* no rooms yet, /open one");
 	}
-	const rows = [...liveRooms.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	const rows = [...liveRooms.values()].sort((a, b) =>
+		(b.count ?? -1) - (a.count ?? -1) || a.name.localeCompare(b.name)
+	);
 	console.log(
-		`* rooms: ${rows.map(([name, count]) => `${name} (${count})`).join(", ")}`,
+		`* rooms: ${rows.map((room) => `${room.name} (${room.count ?? "unknown"})`).join(", ")}`,
 	);
 }
 

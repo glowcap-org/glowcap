@@ -36,6 +36,11 @@ export function outPointer(buf: Uint8Array): Ptr {
 	return L.getPtr(new DataView(buf.buffer), 0);
 }
 
+/** Read a 32-bit enum or feature-mask out-cell. */
+export function outU32(buf: Uint8Array): number {
+	return new DataView(buf.buffer).getUint32(0, true);
+}
+
 /** Read a `usize` out-cell (a consumed-byte count, a length, a hint count). */
 export function outUsize(buf: Uint8Array): bigint {
 	return L.getUsize(new DataView(buf.buffer), 0);

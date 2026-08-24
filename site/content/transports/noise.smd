@@ -329,54 +329,49 @@ relay and waits there.
 > 	seed,
 > });
 > ```
-> **Python (planned)**
+> **Python**
 > ```python
-> # PLANNED: Python has no managed relay listen helper yet.
-> # The provider already accepts a registration URL. This shows the planned
-> # first-call, the same shape as tcp.noise.listen.
-> #
-> # from pancake import relay
-> # import os
-> #
-> # seed = os.urandom(32)
-> # async with await relay.noise.listen(
-> #     "wss://relay.example/relay",
-> #     "wss://relay.example/register",
-> #     seed=seed,
-> # ) as server:
+> import os
+> from pancake import Argument, relay
+>
+> # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> seed = os.urandom(32)  # load durable secret bytes in a real service
+> async with await relay.noise.listen(
+>     "wss://relay.example/relay",
+>     "wss://relay.example/register",
+>     seed=seed,
+> ) as server:
 > ```
-> **Rust (planned)**
+> **Rust**
 > ```rust
-> // PLANNED: Rust has no managed relay listen helper yet.
-> // Config::with_register_url already exists. This shows the planned
-> // first-call, the same shape as tcp::noise::listen.
-> //
-> // use pancake::relay;
-> //
-> // let seed = [7u8; 32]; // replace with durable secret bytes across restarts
-> // let server = relay::noise::listen(
-> //     "wss://relay.example/relay",
-> //     "wss://relay.example/register",
-> //     relay::ListenOptions {
-> //         identity: relay::ListenerIdentity::Seed(seed),
-> //         ..relay::ListenOptions::default()
-> //     },
-> // )
-> // .await?;
+> use pancake::{relay, Argument};
+>
+> // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+> let server = relay::noise::listen(
+>     "wss://relay.example/relay",
+>     "wss://relay.example/register",
+>     relay::ListenOptions {
+>         identity: relay::ListenerIdentity::Seed(seed),
+>         ..relay::ListenOptions::default()
+>     },
+> )
+> .await?;
 > ```
-> **Racket (planned)**
+> **Racket**
 > ```scheme
-> ;; PLANNED: Racket has no managed relay listen helper yet.
-> ;; relay-provider already accepts #:register-url. This shows the planned
-> ;; first-call, the same shape as listen-noise-tcp.
-> ;;
-> ;; (require "pancake.rkt" "pancake-relay.rkt")
-> ;;
-> ;; (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
-> ;; (define server (listen-noise-relay
-> ;;                 "wss://relay.example/relay"
-> ;;                 "wss://relay.example/register"
-> ;;                 #:seed seed))
+> (require "pancake.rkt"
+>          "pancake-relay.rkt")
+>
+> ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+> (define server (listen-noise-relay
+>                 "wss://relay.example/relay"
+>                 "wss://relay.example/register"
+>                 #:seed seed))
+> (printf "~a\n" (server-uri server)) ; hand this locator to partners
+> (define host (server-host server))
+> (define (accept-session) (accept server))
 > ```
 ```=html
 <!-- /site-examples:listen:noise -->
@@ -411,7 +406,8 @@ in-tree check carries an authenticated fetch through the reference relay and
 asserts the observed pipe has no plaintext CapTP probe.
 
 The relay provider package dials and registers native peers through the generic
-driver, and every native binding composes that package. Browser wasm peers do
-not compose this provider. Rooms DMs use WebRTC, or explicit cleartext
-`keyed-relay` rendezvous.
+driver, and every native binding composes that package. A browser peer speaks
+the same `noise-relay` through its managed WebSocket connector rather than the
+native package. Rooms uses it as the direct-message path through the room's own
+relay, beside the default WebRTC channel.
 [What you can depend on]($link.page('stability')) lists the checks.

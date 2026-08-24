@@ -10,7 +10,7 @@
 /** True when `target` is a focusable text surface: an `<input>`, a
  *  `<textarea>`, or any element with `contenteditable`. */
 export function isTextInputTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" ||
-    el?.isContentEditable === true;
+	const el = target as HTMLElement | null;
+	return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" ||
+		el?.isContentEditable === true;
 }

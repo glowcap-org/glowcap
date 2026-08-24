@@ -13,24 +13,10 @@ from .._carrier_failure import _decode as _decode_carrier
 from .._driver_event import LoopEvent
 from .._ffi_driver import _driver, _DriverEvent
 from .._host_action_gen import HOST_ACTION_SETTLE, Fail, Settle, decode
-from .._trampoline import _enter_deliver, _exit_deliver, _inside_turn
+from .._trampoline import _enter_host_deliver, _exit_deliver, _inside_turn
 
 from .errors import _check
 from .state import DriverLoopMixinBase
-
-
-class _StepDeliverContext:
-    """What a loop step's behavior callbacks read as the arriving deliver
-    context. The byte-fed pump brackets its synchronous feed with the arriving
-    :class:`Session`, and the trampoline reads ``.host`` off that bracket to
-    latch the turn to its Host (turn-time spawn) and to own an async
-    behavior's deferral. A loop step is the feed here, so it brackets itself
-    with this carrier over the loop's adopted wrapper Host."""
-
-    __slots__ = ("host",)
-
-    def __init__(self, host) -> None:
-        self.host = host
 
 
 class _ProgressMixin(DriverLoopMixinBase):
@@ -111,7 +97,7 @@ class _ProgressMixin(DriverLoopMixinBase):
         if self._wrapper is None:
             rc = _driver.pancake_driver_step(self._h, timeout_ms)
         else:
-            prior = _enter_deliver(_StepDeliverContext(self._wrapper))
+            prior = _enter_host_deliver(self._wrapper)
             try:
                 rc = _driver.pancake_driver_step(self._h, timeout_ms)
             finally:

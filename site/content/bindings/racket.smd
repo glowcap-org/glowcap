@@ -147,6 +147,21 @@ survives a restart; iroh binds a node id instead of a host and port.
 > (define host (server-host server))
 > (define (accept-session) (accept server))
 > ```
+> **noise-relay**
+> ```scheme
+> (require "pancake.rkt"
+>          "pancake-relay.rkt")
+>
+> ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+> (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+> (define server (listen-noise-relay
+>                 "wss://relay.example/relay"
+>                 "wss://relay.example/register"
+>                 #:seed seed))
+> (printf "~a\n" (server-uri server)) ; hand this locator to partners
+> (define host (server-host server))
+> (define (accept-session) (accept server))
+> ```
 > **onion**
 > ```scheme
 > (require "pancake.rkt" "pancake-onion.rkt")
@@ -209,7 +224,7 @@ observe a promise with `on`, and become a new behavior with `bcom`, all inside
 a partner.
 
 > **`$` and `<-`**, near-call and eventual-send, come straight from the
-> [E language](http://erights.org/), and [The modules]($link.page('modules'))
+> [E language](https://web.archive.org/web/20241231230559/http://erights.org/), and [The modules]($link.page('modules'))
 > page defines both. Across a session only `<-` works, since a partner's object
 > is never in your vat.
 

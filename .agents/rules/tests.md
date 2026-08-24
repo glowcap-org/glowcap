@@ -57,8 +57,11 @@ a benchmark is never an authority for behavior.
 Every deterministic test or proof process emitted by the build has an
 owner-calibrated process-group deadline of at most 30 seconds. Zig bounds each
 runner-launched subprocess, not its aggregate suite; local protocol deadlines
-remain diagnostic. Benchmark, search, real-internet, service, and build work
-name their posture explicitly — none is a silent exemption.
+remain diagnostic. A proof that drives a real browser names the bounded
+`browser_proof` posture instead: its wrapper is the scenario's own deadline
+plus headroom, never a shorter number the scenario contradicts. Benchmark,
+search, real-internet, service, and build work name their posture explicitly —
+none is a silent exemption.
 
 ## Protocol Claims Need Scenarios
 

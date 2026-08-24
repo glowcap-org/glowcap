@@ -39,11 +39,11 @@ The `latency` and `throughput` modes run the same four verbs two ways:
   chain when the consumer awaits each step.
 - `throughput` runs them **pipelined** (ADR-0007, the questioner half): `assign`,
   `complete`, and `status` are addressed at the *answer* `create` will resolve to
-  (sent without awaiting it) so the whole unit costs one round trip and only the
-  final `status` is settled. Each binding expresses this with its own questioner
-  surface (a vow/promise returned by a send is itself a send target); the
-  Goblins-reference row uses Goblins' native promise pipelining, so the workload
-  stays identical across rows.
+  so the whole unit costs one round trip. `assign` and `complete` are one-way;
+  only the final `status` allocates an answer and is settled. Each binding
+  expresses this with its own questioner surface (a vow/promise returned by a
+  send is itself a send target); the Goblins-reference row uses Goblins' native
+  promise pipelining, so the workload stays identical across rows.
 
 Either way a client asserts the final status equals the bytes `done` and fails
 loudly otherwise.
@@ -75,7 +75,11 @@ names the concrete runtime and version where the client can determine it.
 - `connections`: open a few throwaway warmup connections, print the `warmed`
   marker (the orchestrator samples the baseline resident set here), then open
   `n` measured connections and print the `connections` line while holding them
-  open for the orchestrator's loaded sample.
+  open for the orchestrator's loaded sample. Each connection owns a fresh
+  client runtime/Host identity. A single Host correctly refuses a second live
+  session to the same peer, and the measured unit here is the complete
+  consumer-side runtime plus its one connection, not an invalid duplicate-peer
+  dial.
 
 ```json
 {"v":1,"event":"warmed"}

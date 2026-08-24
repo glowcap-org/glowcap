@@ -23,7 +23,8 @@
 
 import { lineCost, MAX_DIRECT_ATTACHMENT_BYTES, MAX_LINE, MAX_MESSAGE_FILES } from "../../lib/limits.ts";
 import { validateAttachmentSource } from "../../lib/attachment.ts";
-import { type DirId, type RoomDestination } from "./types.ts";
+import { typedRoomLink } from "./joining.ts";
+import { type DirId, liveRoomCounts, type RoomDestination } from "./types.ts";
 import type { Reach } from "./intent.ts";
 import * as store from "./store.ts";
 import { directoryName, lineRoom, roomCalled, tooLong } from "./text.ts";
@@ -40,8 +41,11 @@ export { openAttachment, stepViewer } from "./net/files.ts";
 export { startDm } from "./net/direct.ts";
 export { retrySend, selfLocator } from "./net/reachable.ts";
 export { connect, leaveDirectory } from "./net/connection.ts";
+export { bootRuntime } from "./net/runtime_boot.ts";
 export { dropOpsCap, refreshOpsCap, takeOpsCap } from "./net/ops.ts";
+export { joinIrcBridge, partIrcBridge } from "./net/irc.ts";
 export { requestListenerDown, requestListenerUp } from "./net/listeners.ts";
+export { publishPeeredRoom, revokePeeredPublication } from "./net/peering.ts";
 import { leaveDirectory, openDirectory } from "./net/connection.ts";
 export { setDirStanding, setRoomStanding, setStanding } from "./net/standing.ts";
 export { directoryId, directoryLocator, directoryReady } from "./net/bootstrap.ts";
@@ -73,6 +77,23 @@ const NO_GRANTS: ReadonlySet<string> = new Set();
 const POWERS: CommandPowers = {
 	say(text) {
 		store.deliverActive(store.sysItem(text));
+	},
+	ircLogin(account, password) {
+		const conv = store.activeConv();
+		if (conv?.type !== "room") {
+			store.deliverActive(store.sysItem("Log in from the bridged room you are in."));
+			return;
+		}
+		const key = conv.key;
+		const room = convSession(key)?.rooms.get(key);
+		if (room === undefined) {
+			store.deliver(key, store.sysItem("This membership is not connected right now."));
+			return;
+		}
+		void room.ircAccount(account, password).then(
+			(said) => store.deliver(key, store.sysItem(said === "" ? "The account was taken." : said)),
+			(err) => store.deliver(key, store.sysItem(`The room did not take the account: ${reason(err)}`)),
+		);
 	},
 	joinRoom(name) {
 		const conv = store.activeConv();
@@ -161,6 +182,8 @@ const POWERS: CommandPowers = {
 		notePickedRoom();
 		void takeRoomLink(link, label, nick).then((why) => {
 			if (why !== "") store.deliverActive(store.sysItem(`That link did not open a room: ${why}`));
+		}, (error) => {
+			store.deliverActive(store.sysItem(`That link did not open a room: ${reason(error)}`));
 		});
 	},
 	invite(nick) {
@@ -208,7 +231,32 @@ const POWERS: CommandPowers = {
 			);
 		return true;
 	},
-	roomLink() {
+	roomLink(name) {
+		const asked = name?.trim().replace(/^#/, "") ?? "";
+		if (asked !== "") {
+			const conv = store.activeConv();
+			const dir = conv?.dir ?? store.actingDir()?.id ?? null;
+			const session = dir === null ? null : dirSession(dir);
+			if (session === null) return false;
+			void session.dir.link(asked, dirAddress(session.id))
+				.then((link) => {
+					const target = store.joinedRooms(session.id).find((row) =>
+						!row.held && row.id.toLowerCase() === asked.toLowerCase()
+					);
+					if (target !== undefined) store.noteRoomLink(target.key, link);
+					store.deliverActive(
+						store.sysItem(
+							`Anybody who holds this link can be in ${roomCalled(asked, false)}:\n  ${link}`,
+						),
+					);
+				})
+				.catch((error) =>
+					store.deliverActive(
+						store.sysItem(`Could not link ${roomCalled(asked, false)}: ${reason(error)}`),
+					)
+				);
+			return true;
+		}
 		const conv = store.activeConv();
 		const session = conv === null ? null : convSession(conv.key);
 		if (conv?.type !== "room" || session === null) return false;
@@ -233,7 +281,7 @@ const POWERS: CommandPowers = {
 		return conv?.type === "room" ? conv.grants : NO_GRANTS;
 	},
 	liveRooms() {
-		return store.actingDir()?.liveRooms ?? new Map();
+		return liveRoomCounts(store.actingDir()?.liveRooms ?? new Map());
 	},
 	roster() {
 		const conv = store.activeConv();
@@ -260,7 +308,7 @@ const POWERS: CommandPowers = {
 			name: directoryName(dir.id, state.homeDir),
 			nick: dir.nick,
 			standing: store.standingOn(dir.id, state),
-			rooms: dir.liveRooms,
+			rooms: liveRoomCounts(dir.liveRooms),
 			joined: rooms(dir.id),
 			connected: dir.session === "connected",
 		}));
@@ -272,6 +320,9 @@ const POWERS: CommandPowers = {
 			return;
 		}
 		leaveDirectory(dir);
+	},
+	aboutConversation() {
+		store.showAboutConv();
 	},
 };
 
@@ -442,6 +493,16 @@ export function joinRoom(
 	const work = (async (): Promise<string> => {
 		try {
 			const room = destination.room;
+			// A `/link` sturdyref is not a directory address: `parsePeer` rejects
+			// the swissnum path, and entering by name would not find a private
+			// room. Redeem it as the room link it is, from either join field.
+			const linked = typedRoomLink(destination.locator, room);
+			if (linked !== null) {
+				if (signal?.aborted) return "";
+				notePickedRoom();
+				store.setStatus("taking up the room link…");
+				return await takeRoomLink(linked.link, linked.label, nick);
+			}
 			let locator: string;
 			try {
 				locator = await requestedLocator(destination.locator);
@@ -485,7 +546,7 @@ export function joinRoom(
 			if (signal?.aborted) return "";
 			store.setDirStatus(entering, "entering #" + room + "…");
 			if (destination.hidden === true) return openPrivateRoom(entering, room, nick, signal);
-			return enterRoom(entering, room, nick, 0, undefined, undefined, nick, true, signal);
+			return enterRoom(entering, room, nick, { requested: nick, signal });
 		} catch (err) {
 			if (signal?.aborted) return "";
 			return reason(err);

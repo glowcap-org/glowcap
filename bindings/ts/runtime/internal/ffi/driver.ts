@@ -12,8 +12,8 @@
 // `pancake_driver_wake` is the one cross-thread call, and borrowed views
 // in a popped event die at the next `pancake_driver_next_event`.
 
-import { libPath } from "./load.ts";
-import { lazySymbols } from "./runtime.ts";
+import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { DRIVER_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -23,6 +23,7 @@ const P = "pointer",
 	U64 = "u64";
 
 export const loopS = lazySymbols(() => libPath("pancake_driver"), {
+	pancake_driver_archive_fingerprint: { parameters: [], result: U64 },
 	// Lifecycle.
 	pancake_driver_take_host: { parameters: [P, P, B], result: I, outBuffers: [2] },
 	pancake_driver_close: { parameters: [P, B], result: I, outBuffers: [] },
@@ -57,4 +58,8 @@ export const loopS = lazySymbols(() => libPath("pancake_driver"), {
 	// Last error.
 	pancake_driver_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_driver_clear_last_error: { parameters: [], result: V },
+}, {
+	symbol: "pancake_driver_archive_fingerprint",
+	expected: DRIVER_ARCHIVE_FINGERPRINT,
+	archive: "pancake_driver",
 });

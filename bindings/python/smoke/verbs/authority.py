@@ -253,7 +253,6 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
         await asyncio.wait_for(hosted, timeout=5)
         await host.close()
         assert host._raw is None, "Host teardown retained native authority"
-        await asyncio.sleep(0)
         assert not callback_errors, callback_errors
     finally:
         loop.set_exception_handler(prior_exception_handler)

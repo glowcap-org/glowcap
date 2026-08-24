@@ -1,5 +1,5 @@
 # The hosted C release: build the complete archive set per platform with
-# `zig build release-pack`. On a version tag, attach every tarball plus one
+# `zig build -Doptimize=ReleaseSafe release-pack`. On a version tag, attach every tarball plus one
 # combined SHA256SUMS to the GitHub release when the resolve contract's
 # `releases_published` is true. workflow_dispatch builds and uploads CI
 # artifacts only — never creates a GitHub release. Versioning is `abi_version`
@@ -18,10 +18,47 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  contract:
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Require the ABI version tag
+        if: github.ref_type == 'tag'
+        run: |
+          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "release tag $GITHUB_REF_NAME does not match ABI tag $expected_tag" >&2
+            exit 1
+          fi
+
+      - name: Require this commit's successful check workflow
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          check_url="$(
+            gh api "/repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?head_sha=$GITHUB_SHA&status=success&per_page=100" |
+              jq -r --arg sha "$GITHUB_SHA" \
+                '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .html_url' |
+              head -n 1
+          )"
+          if [ -z "$check_url" ]; then
+            echo "release commit $GITHUB_SHA has no completed successful check.yml run" >&2
+            exit 1
+          fi
+          echo "release evidence: $check_url"
+
   archives:
+    needs: contract
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -48,7 +85,7 @@ jobs:
           rustup default "$RUST_VERSION"
 
       - name: Build the release tarball
-        run: zig build release-pack
+        run: zig build -Doptimize=ReleaseSafe release-pack
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -61,6 +98,12 @@ jobs:
   release:
     needs: archives
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: write
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -88,6 +131,14 @@ jobs:
           cat artifacts/*/SHA256SUMS | sort -k2 > release-assets/SHA256SUMS
           ls -l release-assets
 
+      - name: Attest release archives and checksums
+        if: steps.publish.outputs.enabled == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS
+
       - name: Create the release with archives
         if: steps.publish.outputs.enabled == 'true'
         env:
@@ -97,5 +148,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "pancake C archives $GITHUB_REF_NAME" \
             --verify-tag \
-            --notes "Per-platform pancake C archive sets (static + shared libraries, headers, licenses). Verify with SHA256SUMS. The ABI version is reported by \`pancake_abi_version\`." \
+            --notes "Per-platform pancake C archive sets (static + shared libraries, headers, licenses). Verify SHA256SUMS, then verify build provenance with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`pancake_abi_version\`." \
             release-assets/*

@@ -10,22 +10,22 @@
 import type { Graphics } from "pixi.js";
 
 export function drawGhostPlayhead(
-  graphics: Graphics,
-  x: number,
-  y0: number,
-  y1: number,
-  fgColor: number,
-  bgColor: number,
+	graphics: Graphics,
+	x: number,
+	y0: number,
+	y1: number,
+	fgColor: number,
+	bgColor: number,
 ): void {
-  const px = Math.round(x);
-  const start = Math.round(y0);
-  const end = Math.round(y1);
-  for (let y = start; y < end; y += 2) {
-    graphics.rect(px, y, 1, 1);
-  }
-  graphics.fill({ color: fgColor, alpha: 0.5 });
-  for (let y = start + 1; y < end; y += 2) {
-    graphics.rect(px, y, 1, 1);
-  }
-  graphics.fill({ color: bgColor, alpha: 0.5 });
+	const px = Math.round(x);
+	const start = Math.round(y0);
+	const end = Math.round(y1);
+	for (let y = start; y < end; y += 2) {
+		graphics.rect(px, y, 1, 1);
+	}
+	graphics.fill({ color: fgColor, alpha: 0.5 });
+	for (let y = start + 1; y < end; y += 2) {
+		graphics.rect(px, y, 1, 1);
+	}
+	graphics.fill({ color: bgColor, alpha: 0.5 });
 }

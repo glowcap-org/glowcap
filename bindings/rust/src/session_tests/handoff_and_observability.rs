@@ -72,23 +72,21 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 // the broken arm exercises a second call's fresh resolver.
 #[tokio::test]
 async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
-	use std::cell::RefCell;
-	use std::rc::Rc;
-
 	let local = LocalSet::new();
 	local
 		.run_until(async {
 			let captp = Host::new_host();
-			let parked: Rc<RefCell<Option<crate::Resolver>>> = Rc::new(RefCell::new(None));
+			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
 			let behavior_host = captp.clone();
-			let behavior_parked = Rc::clone(&parked);
 			captp
 				.publish_giftable("worker", move || {
 					let host = behavior_host.clone();
-					let parked = Rc::clone(&behavior_parked);
+					let resolver_tx = resolver_tx.clone();
 					Box::new(move |_verb, _args| {
 						let resolver = host.defer_turn().map_err(|e| e.to_string())?;
-						*parked.borrow_mut() = Some(resolver);
+						resolver_tx
+							.send(resolver)
+							.map_err(|_| "resolver observer closed".to_string())?;
 						Ok(Argument::Void)
 					})
 				})
@@ -108,26 +106,21 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 			.unwrap();
 			let worker = session.fetch("worker").await.unwrap();
 
-			// The worker's "real work": wait until the behavior parked its
-			// resolver, then settle it from the loop, top-level.
-			let take_parked = || async {
-				loop {
-					if let Some(resolver) = parked.borrow_mut().take() {
-						break resolver;
-					}
-					tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-				}
-			};
-
 			let fulfilled = async {
-				let mut resolver = take_parked().await;
+				let mut resolver = resolver_rx
+					.recv()
+					.await
+					.expect("the behavior parks one resolver per call");
 				resolver.fulfill(&Argument::String("computed off-turn".into())).unwrap();
 			};
 			let (reply, ()) = tokio::join!(session.send(&worker, "work", &[]), fulfilled);
 			assert_eq!(reply.unwrap(), Argument::String("computed off-turn".into()));
 
 			let broken_arm = async {
-				let mut resolver = take_parked().await;
+				let mut resolver = resolver_rx
+					.recv()
+					.await
+					.expect("the behavior parks one resolver per call");
 				resolver.break_with("worker gave up").unwrap();
 			};
 			let (broken, ()) = tokio::join!(session.send(&worker, "work", &[]), broken_arm);
@@ -140,7 +133,10 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 			);
 
 			let refused_then_broken = async {
-				let mut resolver = take_parked().await;
+				let mut resolver = resolver_rx
+					.recv()
+					.await
+					.expect("the behavior parks one resolver per call");
 				assert!(resolver.fulfill(&Argument::Reference(worker.clone())).is_err());
 				resolver.break_with("plain-data fallback").unwrap();
 			};
@@ -161,25 +157,23 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 // wire through a loop step rather than a byte-fed drain.
 #[tokio::test]
 async fn a_loop_hosted_worker_defers_its_answer_onto_a_resolver_vow() {
-	use std::cell::RefCell;
-	use std::rc::Rc;
-
 	let local = LocalSet::new();
 	local
 		.run_until(async {
 			let server = listen("127.0.0.1:0").await.unwrap();
 			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
 			let captp = server.host();
-			let parked: Rc<RefCell<Option<crate::Resolver>>> = Rc::new(RefCell::new(None));
+			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
 			let behavior_host = captp.clone();
-			let behavior_parked = Rc::clone(&parked);
 			captp
 				.publish_giftable("worker", move || {
 					let host = behavior_host.clone();
-					let parked = Rc::clone(&behavior_parked);
+					let resolver_tx = resolver_tx.clone();
 					Box::new(move |_verb, _args| {
 						let resolver = host.defer_turn().map_err(|e| e.to_string())?;
-						*parked.borrow_mut() = Some(resolver);
+						resolver_tx
+							.send(resolver)
+							.map_err(|_| "resolver observer closed".to_string())?;
 						Ok(Argument::Void)
 					})
 				})
@@ -198,13 +192,7 @@ async fn a_loop_hosted_worker_defers_its_answer_onto_a_resolver_vow() {
 			let worker = session.fetch("worker").await.unwrap();
 
 			let fulfilled = async {
-				let resolver = loop {
-					if let Some(resolver) = parked.borrow_mut().take() {
-						break resolver;
-					}
-					tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-				};
-				let mut resolver = resolver;
+				let mut resolver = resolver_rx.recv().await.expect("the behavior parks its resolver");
 				resolver.fulfill(&Argument::String("computed off-turn".into())).unwrap();
 			};
 			let (reply, ()) = tokio::join!(session.send(&worker, "work", &[]), fulfilled);

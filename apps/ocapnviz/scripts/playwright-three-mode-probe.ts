@@ -26,8 +26,7 @@ const page = await ctx.newPage();
 
 page.on("pageerror", (err) => console.log("[pageerror]", err.message));
 
-// Clear any persisted state so we start fresh — the migration
-// tests cover that path; this probe is about the live UI.
+// Clear persisted state because this probe owns the default-mode UI.
 await page.addInitScript(() => {
   try {
     localStorage.removeItem("ocapnviz:app-state");

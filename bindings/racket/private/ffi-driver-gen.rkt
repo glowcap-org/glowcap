@@ -11,7 +11,8 @@
 ;; in `ffi-shared.rkt`, the binding's types leaf.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"         "lib-resolve.rkt")
+         "ffi-shared.rkt"
+         "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_driver_take_host*
                      pancake_driver_lifecycle_state*
@@ -28,6 +29,7 @@
 
 (define-ffi-definer define-driver-loop loop-lib)
 
+(define-driver-loop pancake_driver_archive_fingerprint (_fun -> _uint64))
 (define-driver-loop pancake_driver_take_host*
   (_fun _pointer (_or-null _PancakeDriverOptions-pointer) _pointer -> _int32)
   #:c-id pancake_driver_take_host)

@@ -45,6 +45,8 @@ const retireClosedSession = harness.retireClosedSession;
 const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
+const give_capture = @import("give/capture.zig");
+const NestedCallCapture = give_capture.NestedCallCapture;
 
 fn signedGiveForLifecycleTest(allocator: std.mem.Allocator) ![]u8 {
     const location = try engine.encodePeerLocatorRecord(allocator, .{
@@ -112,7 +114,7 @@ test "failed application operation leaves a provisional exporter retireable" {
     try client.node.acceptGive(introducing_pair.a.peer_handle, 45, give, "ocapn://127.0.0.1%3A7099.tcp");
     const dial = client.node.nextAction() orelse return error.MissingDial;
     try std.testing.expect(dial == .dial);
-    try client.node.exporterDialed(dial.dial.pending, pair.a.peer_handle);
+    _ = try client.node.exporterDialed(dial.dial.pending, 0, pair.a.peer_handle);
     const withdraw_flush = client.node.nextAction() orelse return error.MissingFlush;
     try std.testing.expect(withdraw_flush == .flush);
 
@@ -255,7 +257,7 @@ test "core host: an inline give becomes one nested promise identity and terminal
         else => return error.UnexpectedAction,
     };
     try std.testing.expect(dial_ticket != null);
-    try host.dialFailed(dial_ticket.?, "exporter unavailable");
+    try host.dialFailed(dial_ticket.?, 0, "exporter unavailable");
     try std.testing.expect(pipelined.broken);
     try std.testing.expect(listened.broken);
     try std.testing.expectEqualStrings(
@@ -274,37 +276,75 @@ test "core host: an inline give becomes one nested promise identity and terminal
     try host.releaseCapability(promise, 1);
 }
 
-const NestedCallCapture = struct {
-    text_buf: [128]u8 = undefined,
-    text_len: usize = 0,
-    reason_buf: [128]u8 = undefined,
-    reason_len: usize = 0,
-    broken: bool = false,
-
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *NestedCallCapture = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| if (value == .string) {
-                self.text_len = @min(value.string.len, self.text_buf.len);
-                @memcpy(self.text_buf[0..self.text_len], value.string[0..self.text_len]);
-            },
-            .broken => |message| {
-                self.broken = true;
-                self.reason_len = @min(message.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], message[0..self.reason_len]);
-            },
-            .give => self.broken = true,
-        }
+test "core host: releasing queued promise operations cancels their exact ownership" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x52)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));
+    defer partner.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |dial| allocator.free(dial.designator);
+        dials.deinit(allocator);
     }
+    const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7101", &dials);
 
-    fn text(self: *const NestedCallCapture) []const u8 {
-        return self.text_buf[0..self.text_len];
-    }
+    const signed = try signedGiveForLifecycleTest(allocator);
+    defer allocator.free(signed);
+    const give = try pancake.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
+    defer model.freeHandoffGive(allocator, give);
+    var handoff: model.Handoff = .{ .give = give };
+    var lift_arena = std.heap.ArenaAllocator.init(allocator);
+    defer lift_arena.deinit();
+    const lifted = try host.liftValues(pair.a, lift_arena.allocator(), &.{.{ .handoff = &handoff }});
+    const promise = lifted[0].capability;
+    const promise_id = host.capabilities.resolve(promise).?.deferred;
 
-    fn reason(self: *const NestedCallCapture) []const u8 {
-        return self.reason_buf[0..self.reason_len];
-    }
-};
+    const argument = try host.spawn(pair.a, Widget, .{});
+    const argument_retains = host.capabilities.retainCount(argument).?;
+    const baseline_operations = pair.a.pendingOperations();
+    var value_arena = std.heap.ArenaAllocator.init(allocator);
+    defer value_arena.deinit();
+    const send_vow = try host.queueSendValues(
+        pair.a,
+        promise,
+        "poke",
+        &.{.{ .capability = argument }},
+        value_arena.allocator(),
+    );
+    const listen_vow = try host.queueListenToCapability(pair.a, promise);
+    try std.testing.expectEqual(@as(usize, 2), host.capability_promises.get(promise_id).?.operations.items.len);
+    try std.testing.expectEqual(argument_retains + 1, host.capabilities.retainCount(argument).?);
+    try std.testing.expectEqual(baseline_operations + 2, pair.a.pendingOperations());
+
+    try host.vowRelease(send_vow);
+    try std.testing.expectEqual(@as(usize, 1), host.capability_promises.get(promise_id).?.operations.items.len);
+    try std.testing.expectEqual(argument_retains, host.capabilities.retainCount(argument).?);
+    try host.vowRelease(listen_vow);
+    try std.testing.expectEqual(@as(usize, 0), host.capability_promises.get(promise_id).?.operations.items.len);
+    try std.testing.expectEqual(baseline_operations, pair.a.pendingOperations());
+    try std.testing.expectEqual(@as(usize, 0), host.vows.count());
+
+    // Breaking redemption later has no queued operation left to dispatch and
+    // cannot recreate either released public result.
+    var ticket: ?engine.Node.PendingId = null;
+    while (try host.nextAction()) |action| switch (action) {
+        .dial => |dial| ticket = dial.ticket,
+        .flush => {},
+        else => return error.UnexpectedAction,
+    };
+    try host.dialFailed(ticket orelse return error.MissingDial, 0, "cancelled owner");
+    try std.testing.expectEqual(@as(usize, 0), host.capability_promises.get(promise_id).?.operations.items.len);
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => {},
+        .settled => |settled| try std.testing.expect(settled.vow_id != send_vow and settled.vow_id != listen_vow),
+        .failed => |failed| try std.testing.expect(failed.vow_id != send_vow and failed.vow_id != listen_vow),
+        else => {},
+    };
+
+    try host.releaseCapability(argument, 1);
+    try host.releaseCapability(promise, 1);
+}
 
 fn runNestedGivePipelining(close_introducer: bool) !void {
     const allocator = std.testing.allocator;
@@ -409,6 +449,13 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     // queued operation must not mistake that source for the exporter route.
     const r_to_anchor = try openPair(allocator, &recipient, &anchor, "127.0.0.1:7113", &dials);
 
+    // Listening to the Host-owned handoff promise observes redemption itself.
+    // When it becomes an object under pancake-next, no second object-listen may
+    // be emitted: next permits listens only on promises.
+    const readiness_vow = try recipient.queueListenToCapability(r_to_anchor.a, promise);
+    var ready = CapturedRef{};
+    try recipient.vowOn(readiness_vow, .{ .ctx = &ready, .func = CapturedRef.record });
+
     // The pending message owns this nested capability after the caller drops
     // its copy. Successful redemption must still lower the retained identity
     // on the exporter session before releasing it.
@@ -438,10 +485,10 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
         try gifter.releaseSession(r_to_g.b);
     }
     const accepted = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7111", &.{});
-    const pending = recipient.pendingDial(ticket) orelse return error.MissingPendingDial;
+    const pending = recipient.pendingDial(ticket, 0) orelse return error.MissingPendingDial;
     const dialed = try recipient.openDialedLocator(.{
-        .transport = pending.transport,
-        .designator = pending.designator,
+        .transport = pending.locator.transport,
+        .designator = pending.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const r_to_e = Pair{ .ah = &recipient, .a = dialed, .bh = &exporter, .b = accepted };
@@ -450,7 +497,7 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     } else {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g, r_to_anchor, r_to_e }, &dials);
     }
-    try recipient.exporterDialed(ticket, dialed);
+    _ = try recipient.exporterDialed(ticket, 0, dialed);
     if (close_introducer) {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_anchor, r_to_e }, &dials);
         try std.testing.expect(reply.broken);
@@ -463,10 +510,15 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
             error.PromiseBroken,
             recipient.routeCapability(r_to_anchor.a, promise, true),
         );
+        try std.testing.expect(ready.broken);
     } else {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g, r_to_anchor, r_to_e }, &dials);
         const routed = try recipient.routeCapability(dialed, promise, true);
         try std.testing.expect(routed.session == dialed);
+        const observed = try recipient.routeSend(dialed, try ready.require(), &.{});
+        try std.testing.expect(observed.session == dialed);
+        try std.testing.expect(observed.target == .far);
+        try std.testing.expect(observed.target.far.kind == .object);
         try std.testing.expectEqualStrings("poked over fed bytes", reply.text());
     }
     try std.testing.expect(recipient.localActorFor(argument_cap) == null);
@@ -479,97 +531,4 @@ test "core host: a nested give pipelines immediately and settles through its exp
 
 test "core host: closing a nested give's introducing session breaks its pipeline once" {
     try runNestedGivePipelining(true);
-}
-
-test "core host: a staged inline gift owns its capability and failure settles its vow" {
-    const allocator = std.testing.allocator;
-    var options = Host.Options.withFrameCap(frame_cap);
-    options.captp_version = .next;
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x31)), options);
-    defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x32)), options);
-    defer gifter.deinit();
-    var recipient = test_host.init(allocator, @as([32]u8, @splat(0x33)), options);
-    defer recipient.deinit();
-    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
-    var dials: std.ArrayList(ParkedDial) = .empty;
-    defer dials.deinit(allocator);
-
-    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7061", &dials);
-    _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
-    var widget_wire = CapturedRef{};
-    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{
-        .ctx = &widget_wire,
-        .func = CapturedRef.record,
-    });
-
-    const g_to_r = try openPair(allocator, &gifter, &recipient, "127.0.0.1:7062", &dials);
-    _ = try g_to_r.b.served.publish(&g_to_r.b.host.vat, "sink", Widget, .{});
-    var sink_wire = CapturedRef{};
-    try gifter.vowOn(try gifter.fetch(g_to_r.a, "sink"), .{
-        .ctx = &sink_wire,
-        .func = CapturedRef.record,
-    });
-    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, g_to_r }, &dials);
-
-    const widget = try gifter.liftCapability(g_to_e.a, try widget_wire.require());
-    const sink = try gifter.liftCapability(g_to_r.a, try sink_wire.require());
-    defer gifter.releaseCapability(sink, 1) catch {};
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const nested = [_]driver.core.Value{.{ .tagged = .{
-        .tag = "delegated",
-        .value = &.{.{ .list = &.{.{ .capability = widget }} }},
-    } }};
-    const staged_vow = try gifter.queueSendValues(g_to_r.a, sink, "poke", &nested, arena.allocator());
-    var staged_reply = NestedCallCapture{};
-    try gifter.vowOn(staged_vow, .{ .ctx = &staged_reply, .func = NestedCallCapture.record });
-
-    // The accepted send, not the caller, now owns the delayed occurrence.
-    // Dropping the caller's only handle cannot retire its exporter route while
-    // gift-id entropy is outstanding.
-    try gifter.releaseCapability(widget, 1);
-    try std.testing.expect(gifter.capabilitySession(widget) == g_to_e.a);
-
-    var gift_ticket: ?u64 = null;
-    while (try gifter.nextAction()) |action| switch (action) {
-        .need_gift_id => |needed| gift_ticket = needed.ticket,
-        .flush => |peer_handle| {
-            const session = if (peer_handle == g_to_e.a.peer_handle)
-                g_to_e.a
-            else if (peer_handle == g_to_r.a.peer_handle)
-                g_to_r.a
-            else
-                continue;
-            while (try session.takeOutbound()) |frame_value| {
-                var frame = frame_value;
-                frame.deinit();
-            }
-        },
-        else => return error.UnexpectedAction,
-    };
-    try std.testing.expect(gift_ticket != null);
-    try std.testing.expect(gifter.capabilitySession(widget) == g_to_e.a);
-
-    try gifter.giftIdFailed(gift_ticket.?);
-    try std.testing.expect(staged_reply.broken);
-    try std.testing.expect(std.mem.indexOf(u8, staged_reply.reason(), "GiftIdUnavailable") != null);
-    try std.testing.expect(g_to_r.a.isTerminating());
-    while (try gifter.nextAction()) |action| switch (action) {
-        .flush => |peer_handle| {
-            const session = if (peer_handle == g_to_e.a.peer_handle)
-                g_to_e.a
-            else if (peer_handle == g_to_r.a.peer_handle)
-                g_to_r.a
-            else
-                continue;
-            while (try session.takeOutbound()) |frame_value| {
-                var frame = frame_value;
-                frame.deinit();
-            }
-        },
-        .close => {},
-        else => return error.UnexpectedAction,
-    };
-    try std.testing.expect(gifter.capabilitySession(widget) == null);
 }

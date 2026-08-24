@@ -149,9 +149,62 @@ Deno.test("rendezvous stop retires registrations but preserves admitted sessions
 		await firstStop;
 		assert(admitted.closeCalls === 0, "listener stop closed a Host-owned accepted session");
 		assert(sockets[1].closeCalls === 1, "listener stop did not close its pending registration");
+		const draining = handle.drain();
+		assert(draining === handle.drain(), "rendezvous drain did not preserve one barrier");
+		let drained = false;
+		void draining.then(() => drained = true);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert(!drained, "rendezvous drain returned before an accepted session ended");
 		finishServe();
+		await draining;
+		assert(drained, "rendezvous drain did not settle with its accepted session");
 	} finally {
 		Session.establishAccepted = realEstablishAccepted;
+		(globalThis as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
+	}
+});
+
+Deno.test("rendezvous stop joins each registration's physical close", async () => {
+	const realWebSocket = globalThis.WebSocket;
+	let socket!: DelayedCloseWebSocket;
+	class DelayedCloseWebSocket extends FakeWebSocket {
+		override close(): void {
+			this.closeCalls++;
+			this.readyState = FakeWebSocket.CLOSING;
+		}
+
+		finishClose(): void {
+			this.readyState = FakeWebSocket.CLOSED;
+			this.onclose?.({ wasClean: true, code: 1000, reason: "" } as CloseEvent);
+			this.dispatchEvent(new Event("close"));
+		}
+	}
+	class RecordingWebSocket extends DelayedCloseWebSocket {
+		constructor(url: string) {
+			super(url);
+			socket = this;
+		}
+	}
+	try {
+		(globalThis as { WebSocket: typeof WebSocket }).WebSocket = RecordingWebSocket as unknown as typeof WebSocket;
+		const handle = serveRendezvous(
+			new FakeHost() as unknown as Host,
+			TRANSPORT_NOISE_RELAY,
+			{
+				registerUrl: () => "wss://relay.example.test/register",
+				relayUrl: "wss://relay.example.test/relay",
+			},
+			{ pool: 1 },
+		);
+		const stopped = handle.stop();
+		let settled = false;
+		void stopped.then(() => settled = true);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert(!settled, "rendezvous stop returned before its registration physically closed");
+		socket.finishClose();
+		await stopped;
+		assert(settled, "rendezvous stop did not settle after physical close");
+	} finally {
 		(globalThis as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
 	}
 });
@@ -244,8 +297,13 @@ Deno.test("rendezvous stop preserves its first close refusal and later consequen
 	let next = 0;
 	class RefusingWebSocket extends FakeWebSocket {
 		override close(): void {
-			super.close();
-			throw failures[next++];
+			const refusal = failures[next++];
+			queueMicrotask(() => {
+				this.readyState = FakeWebSocket.CLOSED;
+				this.onclose?.({ wasClean: true, code: 1000, reason: "" } as CloseEvent);
+				this.dispatchEvent(new Event("close"));
+			});
+			throw refusal;
 		}
 	}
 	try {

@@ -85,7 +85,6 @@ pub fn prepareSettlingRearm(
     pending_batch: *engine.Peer.PendingBatch,
     source: session.PromiseIncarnation,
     target: model.ImportPosition,
-    shortening_send_count: usize,
 ) !?PreparedSettlingRearm {
     if (!self.session_state.promiseSettlingListenerClaimed(source)) return null;
     var move = try self.session_state.preparePromiseSettlingMove(source, target);
@@ -117,7 +116,6 @@ pub fn prepareSettlingRearm(
         .node_services = node_services,
         .move = move,
     };
-    _ = shortening_send_count;
     if (!prepared.move.converges) {
         const message: model.Message = .{ .listen = .{
             .target = .{ .far = model.FarRef.promise(target.int()) },

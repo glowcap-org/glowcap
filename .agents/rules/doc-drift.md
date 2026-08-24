@@ -52,6 +52,7 @@ change as the state they describe:
 - `apps/README.md`
 - `apps/ocapnviz/README.md`
 - `apps/rooms/README.md`
+- `apps/rooms/irc/README.md`
 - `apps/rooms/developing.md`
 - `apps/rooms/web/deploy/README.md`
 - `apps/tasks/README.md`

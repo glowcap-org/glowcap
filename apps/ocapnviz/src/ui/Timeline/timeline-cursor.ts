@@ -19,18 +19,20 @@
 import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "../../engine/visibility.ts";
 import { type CSSCursor, cursorFor } from "../../interactions/cursor.ts";
 import {
-  type DefaultVerb,
-  type EntityRef,
-  type Hit,
-  navigationToolOf,
-  type PointerMachineState,
-  type PointerSnapshot,
-  type SurfaceGestureCtx,
-  type SurfaceId,
+	type DefaultVerb,
+	type EntityRef,
+	type Hit,
+	type PointerMachineState,
+	type PointerSnapshot,
+	type SurfaceGestureCtx,
+	type SurfaceId,
 } from "../../interactions/types.ts";
+import { timelineCursorContext } from "./timeline-gesture.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { GUTTER_DRAG_GRAB_PX, hitTestGutter, OVERVIEW_EDGE_GRAB_PX } from "./hit-test.ts";
 import { hitTestEvents } from "./event-hit.ts";
+import type { EventHitIndex } from "./event-hit-index.ts";
+import type { ScrubberHit } from "./hit-test.ts";
 import { eyeGlyphStatus, HEADER_EYEBALL_X } from "./gutter-paint.ts";
 import { type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import { canvasPxToT, gutterWidthOf, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
@@ -40,24 +42,24 @@ import { canvasPxToT, gutterWidthOf, plotStartXOf, plotWidthOf, type TimelineVie
  * undo label for setting that mode. Null when the pointer is not on an eye.
  */
 export function eyeballHoverStatus(
-  hit: Hit | null,
-  doc: TimelineDocument,
+	hit: Hit | null,
+	doc: TimelineDocument,
 ): string | null {
-  if (hit?.surface !== "timeline-gutter-eyeball") return null;
-  switch (hit.scope.kind) {
-    case "row":
-      return eyeGlyphStatus(
-        rowVisModeOnDoc(doc, hit.scope.category, hit.scope.entityId),
-        { kind: "row" },
-      );
-    case "category":
-      return eyeGlyphStatus(
-        categoryVisModeOnDoc(doc, hit.scope.category),
-        { kind: "category", category: hit.scope.category },
-      );
-    case "all":
-      return eyeGlyphStatus(allVisModeOnDoc(doc), { kind: "all" });
-  }
+	if (hit?.surface !== "timeline-gutter-eyeball") return null;
+	switch (hit.scope.kind) {
+		case "row":
+			return eyeGlyphStatus(
+				rowVisModeOnDoc(doc, hit.scope.category, hit.scope.entityId),
+				{ kind: "row" },
+			);
+		case "category":
+			return eyeGlyphStatus(
+				categoryVisModeOnDoc(doc, hit.scope.category),
+				{ kind: "category", category: hit.scope.category },
+			);
+		case "all":
+			return eyeGlyphStatus(allVisModeOnDoc(doc), { kind: "all" });
+	}
 }
 
 /**
@@ -83,138 +85,165 @@ export type HostPoint = { px: number; py: number };
  * the pointer promises the gesture the press will actually start.
  */
 export function scrubberHoverAt(
-  args: {
-    point: HostPoint;
-    /** Host size in CSS px. */
-    size: { width: number; height: number };
-    view: TimelineView;
-    scrollY: number;
-    rows: readonly RowDescriptor[];
-    events: readonly TimelineEvent[];
-    doc: TimelineDocument;
-    /** Live mode suppresses seeking, so the scrub zone takes no click. */
-    disabledScrub: boolean;
-  },
-): { hit: Hit | null; hoverKey: string | null } {
-  const { point, size, view, scrollY, rows, events, doc } = args;
-  const { px, py } = point;
-  const gutter = gutterWidthOf(view);
-  if (Math.abs(px - gutter) <= GUTTER_DRAG_GRAB_PX) {
-    return { hit: { surface: "timeline-gutter-edge" }, hoverKey: "edge" };
-  }
-  if (px < gutter) return gutterHover(px, py + scrollY, rows, gutter);
+	args: {
+		point: HostPoint;
+		/** Host size in CSS px. */
+		size: { width: number; height: number };
+		view: TimelineView;
+		scrollY: number;
+		rows: readonly RowDescriptor[];
+		events: readonly TimelineEvent[];
+		doc: TimelineDocument;
+		eventIndex?: EventHitIndex | undefined;
+		/** Live mode suppresses seeking, so the scrub zone takes no click. */
+		disabledScrub: boolean;
+	},
+): { hit: Hit | null; hoverKey: string | null; eventHit: ScrubberHit | null } {
+	const { point, size, view, scrollY, rows, events, doc, eventIndex } = args;
+	const { px, py } = point;
+	const gutter = gutterWidthOf(view);
+	if (Math.abs(px - gutter) <= GUTTER_DRAG_GRAB_PX) {
+		return {
+			hit: { surface: "timeline-gutter-edge" },
+			hoverKey: "edge",
+			eventHit: null,
+		};
+	}
+	if (px < gutter) return gutterHover(px, py + scrollY, rows, gutter);
 
-  const lanesBottomY = (rows.length > 0 ? rows[rows.length - 1]!.y + rows[rows.length - 1]!.height : 0) - scrollY;
-  const rulerTopY = size.height - RULER_HEIGHT;
-  const t = canvasPxToT(px, size.width, view);
-  if (py >= rulerTopY || py >= lanesBottomY) {
-    // The ruler band plus the dead space between the last row and it: one
-    // scrub zone, as the pointer host reads it. In Live the feed is
-    // forward-only and the press does nothing, so there is nothing here to
-    // describe — the same answer the left pad gives, where `t` is null.
-    if (args.disabledScrub || t === null) return NOTHING;
-    return { hit: { surface: "timeline-ruler", t }, hoverKey: null };
-  }
+	const lanesBottomY = (rows.length > 0 ? rows[rows.length - 1]!.y + rows[rows.length - 1]!.height : 0) - scrollY;
+	const rulerTopY = size.height - RULER_HEIGHT;
+	const t = canvasPxToT(px, size.width, view);
+	if (py >= rulerTopY || py >= lanesBottomY) {
+		// The ruler band plus the dead space between the last row and it: one
+		// scrub zone, as the pointer host reads it. In Live the feed is
+		// forward-only and the press does nothing, so there is nothing here to
+		// describe — the same answer the left pad gives, where `t` is null.
+		if (args.disabledScrub || t === null) return NOTHING;
+		return {
+			hit: { surface: "timeline-ruler", t },
+			hoverKey: null,
+			eventHit: null,
+		};
+	}
 
-  const event = hitTestEvents(
-    px,
-    py,
-    size.width,
-    size.height,
-    view,
-    events,
-    rows,
-    doc,
-    scrollY,
-  );
-  if (event !== null) {
-    const entityRef: EntityRef = event.entity;
-    const plan = event.drag;
-    const onEdge = plan?.kind === "span-edge" ||
-      plan?.kind === "entity-span-edge" ||
-      plan?.kind === "message-edge";
-    // An entity-addressed plan retimes a span no observation names, so it
-    // carries no event id. The pill picks and drags the same either way.
-    const eventId = plan === null ||
-        plan.kind === "entity-span-edge" ||
-        plan.kind === "entity-span-body"
-      ? null
-      : plan.eventId;
-    return {
-      hit: onEdge
-        ? { surface: "timeline-lane-event-right-edge", eventId, entityRef }
-        : { surface: "timeline-lane-event", eventId, entityRef },
-      hoverKey: null,
-    };
-  }
-  if (t === null) return NOTHING;
-  return { hit: { surface: "timeline-lane-empty", t }, hoverKey: null };
+	const event = hitTestEvents(
+		px,
+		py,
+		size.width,
+		size.height,
+		view,
+		events,
+		rows,
+		doc,
+		scrollY,
+		eventIndex,
+	);
+	if (event !== null) {
+		const entityRef: EntityRef = event.entity;
+		const plan = event.drag;
+		const onEdge = plan?.kind === "span-edge" ||
+			plan?.kind === "entity-span-edge" ||
+			plan?.kind === "message-edge";
+		// An entity-addressed plan retimes a span no observation names, so it
+		// carries no event id. The pill picks and drags the same either way.
+		const eventId = plan === null ||
+				plan.kind === "entity-span-edge" ||
+				plan.kind === "entity-span-body"
+			? null
+			: plan.eventId;
+		return {
+			hit: onEdge
+				? { surface: "timeline-lane-event-edge", eventId, entityRef }
+				: { surface: "timeline-lane-event", eventId, entityRef },
+			hoverKey: null,
+			eventHit: event,
+		};
+	}
+	if (t === null) return NOTHING;
+	return {
+		hit: { surface: "timeline-lane-empty", t },
+		hoverKey: null,
+		eventHit: null,
+	};
 }
 
-const NOTHING: { hit: Hit | null; hoverKey: string | null } = {
-  hit: null,
-  hoverKey: null,
+const NOTHING: {
+	hit: Hit | null;
+	hoverKey: string | null;
+	eventHit: ScrubberHit | null;
+} = {
+	hit: null,
+	hoverKey: null,
+	eventHit: null,
 };
 
 /** The gutter's controls, and the row key each one lights. */
 function gutterHover(
-  px: number,
-  layoutY: number,
-  rows: readonly RowDescriptor[],
-  gutter: number,
-): { hit: Hit | null; hoverKey: string | null } {
-  const hit = hitTestGutter(px, layoutY, rows, gutter);
-  switch (hit?.kind) {
-    case "chevron":
-      return {
-        hit: { surface: "timeline-gutter-chevron", category: hit.category },
-        hoverKey: `header:${hit.category}`,
-      };
-    case "category-eyeball":
-      return {
-        hit: {
-          surface: "timeline-gutter-eyeball",
-          scope: { kind: "category", category: hit.category },
-        },
-        hoverKey: `category-eye:${hit.category}`,
-      };
-    case "eyeball":
-      return {
-        hit: {
-          surface: "timeline-gutter-eyeball",
-          scope: {
-            kind: "row",
-            category: hit.category,
-            entityId: hit.entityId,
-          },
-        },
-        hoverKey: `entity:${hit.category}:${hit.entityId}`,
-      };
-    case "row-drag":
-      return {
-        hit: {
-          surface: "timeline-gutter-label",
-          category: hit.category,
-          entityId: hit.entityId,
-        },
-        hoverKey: `entity:${hit.category}:${hit.entityId}`,
-      };
-    default:
-      // Gutter, but not on a control. The press no-ops, so nothing to say.
-      return NOTHING;
-  }
+	px: number,
+	layoutY: number,
+	rows: readonly RowDescriptor[],
+	gutter: number,
+): { hit: Hit | null; hoverKey: string | null; eventHit: ScrubberHit | null } {
+	const hit = hitTestGutter(px, layoutY, rows, gutter);
+	switch (hit?.kind) {
+		case "chevron":
+			return {
+				hit: {
+					surface: "timeline-gutter-chevron",
+					category: hit.category,
+				},
+				hoverKey: `header:${hit.category}`,
+				eventHit: null,
+			};
+		case "category-eyeball":
+			return {
+				hit: {
+					surface: "timeline-gutter-eyeball",
+					scope: { kind: "category", category: hit.category },
+				},
+				hoverKey: `category-eye:${hit.category}`,
+				eventHit: null,
+			};
+		case "eyeball":
+			return {
+				hit: {
+					surface: "timeline-gutter-eyeball",
+					scope: {
+						kind: "row",
+						category: hit.category,
+						entityId: hit.entityId,
+					},
+				},
+				hoverKey: `entity:${hit.category}:${hit.entityId}`,
+				eventHit: null,
+			};
+		case "row-drag":
+			return {
+				hit: {
+					surface: "timeline-gutter-label",
+					category: hit.category,
+					entityId: hit.entityId,
+				},
+				hoverKey: `entity:${hit.category}:${hit.entityId}`,
+				eventHit: null,
+			};
+		default:
+			// Gutter, but not on a control. The press no-ops, so nothing to say.
+			return NOTHING;
+	}
 }
 
 /** The three surfaces the Overview strip can produce. Named so a caller can
  *  read the hit's own `t` without re-deriving it. */
 export type OverviewHit = Extract<
-  Hit,
-  {
-    surface:
-      | "timeline-overview"
-      | "timeline-overview-edge"
-      | "timeline-gutter-eyeball";
-  }
+	Hit,
+	{
+		surface:
+			| "timeline-overview"
+			| "timeline-overview-edge"
+			| "timeline-gutter-eyeball";
+	}
 >;
 
 /**
@@ -226,39 +255,39 @@ export type OverviewHit = Extract<
  * control, the all-rows eyeball.
  */
 export function overviewHitAt(
-  args: {
-    px: number;
-    width: number;
-    view: TimelineView;
-    duration: number;
-    /** False when no all-rows callback is wired, so the eyeball is not
-     *  painted and there is no control to point at. */
-    hasAllRowsEyeball: boolean;
-  },
+	args: {
+		px: number;
+		width: number;
+		view: TimelineView;
+		duration: number;
+		/** False when no all-rows callback is wired, so the eyeball is not
+		 *  painted and there is no control to point at. */
+		hasAllRowsEyeball: boolean;
+	},
 ): OverviewHit | null {
-  const { px, width, view, duration } = args;
-  const plotStart = plotStartXOf(view);
-  if (px < plotStart) {
-    const onEye = args.hasAllRowsEyeball &&
-      px >= HEADER_EYEBALL_X - 8 && px < HEADER_EYEBALL_X + 8;
-    return onEye ? { surface: "timeline-gutter-eyeball", scope: { kind: "all" } } : null;
-  }
-  const plotW = plotWidthOf(width, view);
-  if (plotW <= 0) return null;
-  const span = Math.max(duration, 1);
-  const t = Math.max(
-    0,
-    Math.min(duration, ((px - plotStart) / plotW) * span),
-  );
-  const startPx = plotStart + (view.windowStart / span) * plotW;
-  const endPx = plotStart + (view.windowEnd / span) * plotW;
-  if (Math.abs(px - startPx) <= OVERVIEW_EDGE_GRAB_PX) {
-    return { surface: "timeline-overview-edge", edge: "start", t };
-  }
-  if (Math.abs(px - endPx) <= OVERVIEW_EDGE_GRAB_PX) {
-    return { surface: "timeline-overview-edge", edge: "end", t };
-  }
-  return { surface: "timeline-overview", t };
+	const { px, width, view, duration } = args;
+	const plotStart = plotStartXOf(view);
+	if (px < plotStart) {
+		const onEye = args.hasAllRowsEyeball &&
+			px >= HEADER_EYEBALL_X - 8 && px < HEADER_EYEBALL_X + 8;
+		return onEye ? { surface: "timeline-gutter-eyeball", scope: { kind: "all" } } : null;
+	}
+	const plotW = plotWidthOf(width, view);
+	if (plotW <= 0) return null;
+	const span = Math.max(duration, 1);
+	const t = Math.max(
+		0,
+		Math.min(duration, ((px - plotStart) / plotW) * span),
+	);
+	const startPx = plotStart + (view.windowStart / span) * plotW;
+	const endPx = plotStart + (view.windowEnd / span) * plotW;
+	if (Math.abs(px - startPx) <= OVERVIEW_EDGE_GRAB_PX) {
+		return { surface: "timeline-overview-edge", edge: "start", t };
+	}
+	if (Math.abs(px - endPx) <= OVERVIEW_EDGE_GRAB_PX) {
+		return { surface: "timeline-overview-edge", edge: "end", t };
+	}
+	return { surface: "timeline-overview", t };
 }
 
 /**
@@ -285,52 +314,47 @@ export function overviewHitAt(
  * because that is where a pick can be about to complete.
  */
 export function timelineCursor(
-  args: {
-    hit: Hit | null;
-    /** The gesture the host is running, or null when it is only hovering. */
-    inFlight: TimelineGesture | null;
-    /** Space, the active tool, and the keys held right now, from the App's
-     *  one keyboard authority — a modifier pressed over a still pointer
-     *  changes the next click, so the cursor has to hear about it. */
-    gestureCtx: SurfaceGestureCtx;
-  },
+	args: {
+		hit: Hit | null;
+		/** The gesture the host is running, or null when it is only hovering. */
+		inFlight: TimelineGesture | null;
+		/** Space, the active tool, and the keys held right now, from the App's
+		 *  one keyboard authority — a modifier pressed over a still pointer
+		 *  changes the next click, so the cursor has to hear about it. */
+		gestureCtx: SurfaceGestureCtx;
+	},
 ): CSSCursor {
-  return cursorFor(
-    {
-      ...args.gestureCtx,
-      activeTool: navigationToolOf(args.gestureCtx.activeTool),
-      toolState: null,
-    },
-    machineFor(args.hit, args.inFlight),
-  );
+	return cursorFor(
+		timelineCursorContext(args.gestureCtx),
+		machineFor(args.hit, args.inFlight),
+	);
 }
 
 /** A pointer snapshot carries where and when a press happened. These hosts
  *  keep neither for the cursor's sake, and `cursorFor` reads neither: from a
  *  running gesture it reads the resolved verb alone. */
 const UNKNOWN_SNAPSHOT: PointerSnapshot = {
-  clientX: 0,
-  clientY: 0,
-  buttons: 1,
-  modifiers: { shift: false, cmd: false, alt: false },
-  timestampMs: 0,
+	clientX: 0,
+	clientY: 0,
+	buttons: 1,
+	modifiers: { shift: false, cmd: false, alt: false },
+	timestampMs: 0,
 };
 
 function machineFor(
-  hit: Hit | null,
-  inFlight: TimelineGesture | null,
+	hit: Hit | null,
+	inFlight: TimelineGesture | null,
 ): PointerMachineState {
-  const hover = hit === null ? null : { surface: hit.surface, hit };
-  if (inFlight === null) return { fsm: { kind: "idle" }, hover, lastUp: null };
-  return {
-    fsm: {
-      kind: "dragging",
-      surface: inFlight.surface,
-      resolved: { tier: "default", verb: inFlight.verb },
-      start: UNKNOWN_SNAPSHOT,
-      current: UNKNOWN_SNAPSHOT,
-    },
-    hover,
-    lastUp: null,
-  };
+	const hover = hit === null ? null : { surface: hit.surface, hit };
+	if (inFlight === null) return { fsm: { kind: "idle" }, hover };
+	return {
+		fsm: {
+			kind: "dragging",
+			surface: inFlight.surface,
+			resolved: { tier: "default", verb: inFlight.verb },
+			start: UNKNOWN_SNAPSHOT,
+			current: UNKNOWN_SNAPSHOT,
+		},
+		hover,
+	};
 }

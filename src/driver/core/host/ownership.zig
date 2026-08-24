@@ -119,8 +119,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     while (vow_it.next()) |row| self.allocator.destroy(row.*);
     self.vows.deinit(self.allocator);
     self.resolver_index.deinit(self.allocator);
-    for (self.pending_enlivens.items) |parked| enliven.freeParkedEnliven(self, parked);
-    self.pending_enlivens.deinit(self.allocator);
+    enliven.deinitParkedEnlivens(self);
     self.pending_flush.deinit(self.allocator);
     self.session_close_timing.deinit(self.allocator);
     capability_promise.deinit(self);

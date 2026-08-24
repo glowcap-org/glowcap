@@ -4,9 +4,13 @@ This is the review brief for OCapN and Spritely Goblins maintainers. It states
 the interop target, the evidence that runs, and the known differences from the
 draft text or a live peer.
 
-pancake pins the OCapN suite and Goblins source and runs both in the public
-check workflow for main-branch pushes and pull requests. It has not asked to be
-listed as an OCapN implementation. Because the work is AI-assisted, it
+pancake pins the OCapN suite and Goblins source and gates both in
+[`ci/gates.sh`](../ci/gates.sh) for main-branch pushes and pull requests. The
+repository is still private, and its current GitHub Actions runs stop before a
+job starts because of the account's payment/spending state; restoring public,
+green evidence for the exact release commit is an explicit
+[release item](roadmap.md#release). It has not asked to be listed as an OCapN
+implementation. Because the work is AI-assisted, it
 sends no unsolicited patches, issues, or comments to projects whose policies
 forbid them. The policy is in
 [`PROVENANCE.md`](../PROVENANCE.md).
@@ -45,15 +49,27 @@ The pancake-native profile is a separate job. Native peers can negotiate
 Neither is offered as Goblins compatibility. The only outside CapTP
 implementations exercised today are the upstream suite and Racket Goblins.
 
+ADR-0125's `id/via` multi-home shape is a pancake-private extension. It is not
+understood by any external OCapN or Goblins implementation exercised by this
+repository. The existing OCapN and
+Goblins checks prove the baseline remains compatible; focused pancake and
+Rooms scenarios prove route lowering. None proves interoperability with an
+external route-bundle implementation.
+
 ## Known gaps
 
-- pancake has live coverage in all three handoff roles: gifter, recipient, and
-  exporter. The exporter check now proves exact-object identity: the Goblins
+- pancake has live Goblins coverage in all three handoff roles over TCP: gifter,
+  recipient, and exporter. The exporter check proves exact-object identity: the Goblins
   gifter primes the pancake-hosted actor, pancake replaces the alias with a
   decoy, and the Goblins recipient's withdrawn call must observe the primed
-  original. Handoff over a transport other than TCP has one live row, and only
-  in the exporter role: `goblins-rooms-dm-iroh`, where a browser redeems a give
-  naming a Goblins vat on an iroh endpoint. The other two roles are TCP only.
+  original. `goblins-rooms-dm-iroh` puts all three protocol roles in one live
+  iroh topology: the pancake room gifts, a Goblins vat exports, and a browser
+  redeems; the vat also acts as recipient when it starts a direct message to a
+  native pancake exporter. It does not make Goblins the gifter or exercise a
+  recipient after the exporter's `direct-addresses` change. Separately, the
+  upstream suite exercises pancake in all three handoff roles over onion on
+  demand with `ocapn-conformance-onion`. These are distinct outside
+  authorities, not one general non-TCP proof.
 - **Goblins indexes an exporter session by the complete locator.** pancake
   embeds the peer-owned advertised snapshot rather than reconstructing it at
   the handoff site. This is stable for Goblins Onion, whose locator is
@@ -66,9 +82,21 @@ implementations exercised today are the upstream suite and Racket Goblins.
   endpoint id and WebRTC supplies the identity authorized by signaling. Raw
   keyed TCP and keyed relay report `unauthenticated`; matching the dialed key
   remains a target check, not proof.
-- Relaying a foreign promise is live in the gifter role. Native pancake can
-  also play the recipient through `listenTo`, but no live partner calls that
-  path.
+- **Pinned Goblins can reject a valid receive certificate from an independent
+  receiver.** It retains `handoff-count` on the Gifter-Exporter session even
+  though the signed count belongs to the Receiver-Exporter session. Two
+  independent receivers may therefore each correctly begin at zero while the
+  latter is rejected. Pancake's V1 Node-lifetime issuance cursor prevents one
+  Node from moving backward across replacement sessions, but independent
+  recipients cannot coordinate a counter the protocol assigns to separate
+  sessions. `goblins-rooms-matrix-iroh` reproduces the rejection before its
+  clean matrix; [upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions)
+  owns the source analysis.
+- Relaying a foreign promise is live in both directions. In
+  `goblins-relayed-give`, pancake gifts the Goblins-owned promise to a Goblins
+  recipient. In `goblins-listen-recipient`, the owning native Session receives
+  that promise, installs `listenTo` before Goblins settles it, recursively
+  lifts the nested greeter, and calls it.
 - Goblins can put canonical `op:get` and `op:index` frames on pancake's wire.
   The Goblins-side netlayer probe observes pancake's resolver-callback
   fulfillments for both projected answers. Goblins still has no public
@@ -87,30 +115,35 @@ and Goblins questions live in [upstream-watch](upstream-watch.md). The
 
 ## Evidence
 
-A **yes** in the CI column means the step appears in `ci/gates.sh` and runs in
-the public [checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml).
-`zig build source-check` derives this column from that script, so a removed step
-cannot remain marked as recurring evidence.
+A **yes** in the CI column means the step appears in `ci/gates.sh` and is wired
+into the [checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml).
+It describes the workflow contract, not a claim that the currently private,
+account-blocked runs executed. `zig build source-check` derives this column from
+that script, so a removed step cannot remain marked as recurring evidence.
 
 | Evidence | CI | Proves | Does not prove |
 | -------- | -- | ------ | -------------- |
 | `zig build check` (includes `oracle-check`) | yes | In-tree protocol scenarios, message-arm coverage, committed Syrup fixtures, Cap'n Proto goldens, resource budgets, and a complete six-peer handoff scenario. | A live outside peer or a fresh upstream Syrup run. |
-| `zig build ocapn-conformance` | yes | The upstream suite's CapTP modules against the production Host stack, plus handshake refusal and a portable pre-setup abort check. | Future suite netlayers or transport recovery after abort; the raw upstream `tests.op_abort` rejects Linux TCP reset. |
+| `zig build ocapn-conformance` | yes | The upstream modules against the production Host/Node wire and authority paths, composed with canonical conformance actors and three suite-only interceptors that drive those library seams; plus handshake refusal and a portable pre-setup abort check. | An application with no conformance interceptors, future suite netlayers, or transport recovery after abort; the raw upstream `tests.op_abort` rejects Linux TCP reset. |
 | `zig build ocapn-findings-check` | yes | The pinned sources still disagree on `op:listen` arity and locator-hints typing. | Which form upstream should choose. |
 | `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, onion, or iroh. |
+| `zig build goblins-rooms` | yes | A real Goblins vat and a pancake member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the pancake session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport; those have separate on-demand rows. |
+| `zig build goblins-rooms-irc` | yes | Both shipped IRC application edges compose with a real Goblins vat. Fixture IRC traffic crosses the bridge both ways. Through the front, an ordinary IRC client and Goblins exchange native room lines; IRC then initiates a direct message, and Goblins replies on its arriving v1.0/Syrup TCP session. | A public IRC network, browser behavior, or the front's iroh deployment posture. The fixture is local and deterministic. |
 | `zig build goblins-onion` | no | Live Goblins sessions both ways over the Goblins onion netlayer and pancake's Tor resident. | Recurring CI (needs `tor` and outbound network), live scale, or hinted-onion sturdyrefs. |
+| `zig build ocapn-conformance-onion` | no | Every portable upstream module against pancake over the upstream Onion netlayer, including pancake in all three handoff roles. | Goblins application behavior, recurring CI, live scale, or the reset-sensitive raw `tests.op_abort`. |
 | `zig build goblins-iroh` | no | Live Goblins sessions both ways over the iroh netlayer this repository wrote for Goblins. | Recurring CI (needs cargo + racket), hole-punching, or non-TCP handoff roles beyond the on-demand rooms row below. |
 | `zig build goblins-handoff` | yes | pancake redeems a Goblins give. | pancake as gifter or exporter. |
 | `zig build goblins-gift` | yes | pancake mints a give that Goblins redeems. | pancake as recipient or exporter. |
 | `zig build goblins-gift-hints` | yes | A hinted locator survives decode, re-encode, signature verification, and live Goblins redemption. | General route discovery or non-TCP handoff. |
 | `zig build goblins-exporter` | yes | A Goblins pair deposits into and withdraws from pancake's gift registry, and the withdrawn object is the exact actor the gifter mutated, across an alias replacement. | Alias removal mid-flight, or handoff over a non-TCP transport. |
 | `zig build goblins-relayed-give` | yes | A Goblins recipient reads a signed give from a listener notification, dials the exporter, and calls the withdrawn capability. | pancake receiving that live introduction through `listenTo`. |
+| `zig build goblins-listen-recipient` | yes | Goblins delivers an unresolved promise to the owning native Session; one `listenTo` is ordered before one later Goblins settlement, whose nested capability pancake lifts, calls, releases, and closes cleanly. | A three-party give in that fulfillment; `goblins-relayed-give` covers the reciprocal gifter topology. |
 | `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. | Outbound GC, `op:gc-answers`, or binding finalizers. |
-| `zig build goblins-rooms-dm` / `-iroh` | no | Three peers across two implementations take the three handoff roles: a pancake room gifts, a real Goblins vat exports, and a pancake browser peer redeems and reaches the vat off-room, over cleartext TCP and over iroh. The vat answers on the arriving connection, and starts a direct message of its own to a native pancake member. | Recurring evidence: it drives a real Chromium and the checks workflow installs no browser, so it is run on demand. The iroh row does not yet cover a Goblins recipient dialing a pancake exporter after a direct-address update. |
+| `zig build goblins-rooms-dm` / `-iroh` | no | Three peers across two implementations take the three handoff roles: a pancake room gifts, a real Goblins vat exports, and a pancake browser peer redeems and reaches the vat off-room, over cleartext TCP and over iroh. The vat answers on the arriving connection, then acts as recipient when it starts a direct message to a native pancake exporter over the same selected transport. | Recurring evidence: this heavyweight browser/Goblins topology is absent from `ci/gates.sh` and remains on demand. The iroh row does not make Goblins the gifter or cover a recipient dialing after the exporter's `direct-addresses` update. |
 | Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or any binding as listener. | <!-- ci-gate: bindings-goblins-interop -->
 | `zig build deno-goblins-listen` | yes | Goblins dials a Deno binding and calls its published actor. | The other bindings as listener. |
 | Binding `*-goblins-handoff` / `*-goblins-gift` | yes | Deno, Python, Rust, and Racket act as recipient and gifter against Goblins; each gifter lifts a delegated capability from an ordinary vendor reply, returns it twice in one nested value, and Goblins redeems and calls both gives directly. | Bun or live recursive Tagged/user-record interop, which pinned Goblins does not implement. | <!-- ci-gate: bindings-goblins-handoff, bindings-goblins-gift -->
-| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. | pancake's `listenTo` path against a live outside partner. | <!-- ci-gate: check -->
+| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient gate covers pancake's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
 | `zig build fuzz` | yes | Coverage-guided inputs exercise codecs, framing, sessions, handoff, locators, the host, actors, persistent collections, and completion-loop accounting. Saved crashes replay under `check`. | Agreement with the specification, unreached code, or a well-formed but wrong decode. The recurring search is shallow. |
 | `zig build cli-test` / `pancake` | yes | CLI budgets, hang-proof dial, listen/call behavior, REPL, and MCP. | OCapN suite or Goblins behavior. | <!-- ci-gate: check -->
 
@@ -169,12 +202,14 @@ Then run:
 zig build check
 zig build ocapn-conformance
 zig build ocapn-findings-check
+zig build ocapn-conformance-onion
 zig build goblins-interop
 zig build deno-goblins-listen
 zig build goblins-handoff
 zig build goblins-gift
 zig build goblins-gift-hints
 zig build goblins-relayed-give
+zig build goblins-listen-recipient
 zig build goblins-exporter
 zig build goblins-gc
 ```

@@ -65,16 +65,26 @@ services:
       PANCAKE_ROOMS_TURN_CREDENTIALS_URL: ${PANCAKE_ROOMS_TURN_CREDENTIALS_URL:-}
       PANCAKE_ROOMS_TURN_BEARER_TOKEN: ${PANCAKE_ROOMS_TURN_BEARER_TOKEN:-}
       PANCAKE_ROOMS_TURN_TTL_SECONDS: ${PANCAKE_ROOMS_TURN_TTL_SECONDS:-86400}
-      # Same as starting with --diagnostics: mint inspect and print its swiss number.
-      # PANCAKE_ROOMS_DIAGNOSTICS: "1"
-      # Same as starting with --admin-listeners: mint the listener-admin
-      # capability and print its swiss number.
-      # PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
-      # Same as starting with --viz: serve the live timeline endpoint (default
-      # port 9300) and mint the viz capability it requires of every socket; its
-      # swiss number prints beside the other two. PANCAKE_ROOMS_VIZ_PORT only
-      # changes the port.
-      # PANCAKE_ROOMS_VIZ: "1"
+      # Every operator capability, on by default: each swiss number persists in
+      # the state volume and prints in the logs; comment one out to withhold
+      # that authority from this deployment. Read them any time with
+      #   docker compose exec rooms deno run --allow-read --allow-env --no-lock \
+      #     /repo/apps/rooms/server/capabilities.ts
+      # Same as starting with --diagnostics: mint inspect.
+      PANCAKE_ROOMS_DIAGNOSTICS: "1"
+      # Same as --admin-listeners: mint the listener-admin capability.
+      PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
+      # Same as --peering: mint the directory-peering capability.
+      PANCAKE_ROOMS_PEERING: "1"
+      # Same as --viz: serve the live timeline endpoint (default port 9300;
+      # PANCAKE_ROOMS_VIZ_PORT only changes the port) and mint the viz
+      # capability it requires of every socket.
+      PANCAKE_ROOMS_VIZ: "1"
+      # Same as --irc: mint the IRC gateway capability.
+      PANCAKE_ROOMS_IRC: "1"
+      # Same as --history: listed rooms keep their last lines in the state
+      # volume and serve them to members who join later.
+      PANCAKE_ROOMS_HISTORY: "1"
     volumes:
       # The TypeScript source and the prebuilt .so, both read-only mounts — neither
       # is baked into the image. Build the .so in the dev container first (above).

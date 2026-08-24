@@ -212,6 +212,17 @@
 #dmList li.here .rwhere-said {
 	opacity: 1;
 }
+/* A bridged room's caption: a fact in the caption's own column, quieter than
+   the name by size and by the said-span's own turning down. Not a control,
+   so it is a span and takes no hover, and it keeps the row's ink: a named
+   soft token fails the 4.5 bar on the selected row's painted ground, which
+   is the lesson the comment above already teaches. */
+.rwhere-bridge {
+	grid-column: 2;
+	display: flex;
+	min-width: 0;
+	font-size: var(--type-caption);
+}
 #roomList li.here:hover {
 	background: color-mix(in srgb, var(--accent) 21%, transparent);
 }

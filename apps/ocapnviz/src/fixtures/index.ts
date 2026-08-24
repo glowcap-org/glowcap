@@ -27,13 +27,13 @@ import { threeVatHandoffMixed } from "./three-vat-handoff-mixed.ts";
  * backticks and asterisks appear on screen exactly as typed.
  */
 export const scenarios: readonly TimelineDocument[] = [
-  threeVatHandoffMixed,
-  callARemoteMethod,
-  lookUpByName,
-  passAReferenceAlong,
-  skipTheRoundtrip,
-  doThreeThingsAtOnce,
-  pokeMeWhenReady,
-  speakGoblins,
-  enlivenASturdyref,
+	threeVatHandoffMixed,
+	callARemoteMethod,
+	lookUpByName,
+	passAReferenceAlong,
+	skipTheRoundtrip,
+	doThreeThingsAtOnce,
+	pokeMeWhenReady,
+	speakGoblins,
+	enlivenASturdyref,
 ] as const;

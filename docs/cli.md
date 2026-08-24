@@ -219,9 +219,10 @@ argv-only: `listen` parks on accept, so it is never an MCP tool.
 
 The tool schemas are projected from the CapTP registry, one front-applicable
 flag and positional at a time (`--repl` stays argv-only). `call`, `tell`, and
-`fetch` expose named fields (`locator`, `name`, `verb`, `args`); a legacy
-positional `args` array still works. After `zig build`, reload the MCP server
-in the host so the tools pick up the new binary. For hosts where `pancake` is
+`fetch` expose named fields (`locator`, `name`, `verb`, `args`), and tool calls
+that do not match that generated schema are refused as invalid parameters.
+After `zig build`, reload the MCP server in the host so the tools pick up the
+new binary. For hosts where `pancake` is
 already on `PATH`, a portable stub (no shim; set `PANCAKE_STATE` explicitly)
 lives at [`docs/pancake-mcp.json`](pancake-mcp.json).
 

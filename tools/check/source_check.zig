@@ -14,6 +14,7 @@ const bs_host_actions = @import("source_check/binding_spine/host_actions.zig");
 const bs_verb_spines = @import("source_check/binding_spine/verb_spines.zig");
 const bs_embedder = @import("source_check/binding_spine/embedder.zig");
 const bs_ffi_surface = @import("source_check/binding_spine/ffi_surface.zig");
+const bs_browser_ffi = @import("source_check/binding_spine/browser_ffi.zig");
 const bs_webrtc = @import("source_check/binding_spine/webrtc.zig");
 const bs_viewer = @import("source_check/binding_spine/viewer.zig");
 const bs_python_sigs = @import("source_check/binding_spine/python_sigs.zig");
@@ -34,9 +35,11 @@ const ps_execution_deadlines = @import("source_check/project_shape/execution_dea
 const ps_zig_module_surface = @import("source_check/project_shape/zig_module_surface.zig");
 const ps_budgets = @import("source_check/project_shape/budgets.zig");
 const ps_playwright = @import("source_check/project_shape/playwright.zig");
+const ps_formatting = @import("source_check/project_shape/formatting.zig");
 const test_wiring = @import("source_check/test_wiring.zig");
 const ui = @import("source_check/ui.zig");
 const css_wellformed = @import("source_check/css_wellformed.zig");
+const css_lightdark = @import("source_check/css_lightdark.zig");
 const rooms_ui = @import("source_check/rooms_ui.zig");
 const rooms_avatar = @import("source_check/rooms_avatar.zig");
 const rooms_proofs = @import("source_check/rooms_proofs.zig");
@@ -119,6 +122,7 @@ pub fn check(
     try agents_catalog.checkAgentPersonas(io, gpa, root, &violations);
     try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
     try docs_links.checkMarkdownLinks(io, gpa, root, &violations);
+    try docs_links.checkRepoBlobLinks(io, gpa, root, &violations);
     try docs_adr.checkAdrFrontmatter(io, gpa, root, &violations);
     try docs_adr.checkAdrRelations(io, gpa, root, &violations);
     try docs_adr.checkAdrEvidenceLinks(io, gpa, root, &violations);
@@ -135,6 +139,7 @@ pub fn check(
     try ui.checkUiCore(io, gpa, root, &violations);
     try ui.checkUiPaletteLiterals(io, gpa, root, &violations);
     try css_wellformed.checkCssWellFormed(io, gpa, root, &violations);
+    try css_lightdark.checkCssLightDarkGuard(io, gpa, root, &violations);
     try ui.checkUiProductTokens(io, gpa, root, &violations);
     try ui.checkUiThemeParity(io, gpa, root, &violations);
     try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
@@ -179,6 +184,7 @@ pub fn check(
     try bs_embedder.checkBindingEmbedderSpineDocs(io, gpa, root, &violations);
     try bs_embedder.checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try bs_ffi_surface.checkBindingReflectedFfiWired(io, gpa, root, &violations);
+    try bs_browser_ffi.checkBrowserFfiResolver(io, gpa, root, &violations);
     try bs_python_sigs.checkPythonSigsFactoryArity(io, gpa, root, &violations);
     try bs_viewer.checkTraceViewerVocabulary(io, gpa, root, &violations);
     try binding_runtime_proof.check(io, gpa, root, &violations);
@@ -193,6 +199,7 @@ pub fn check(
     try ps_steps.checkGatedStepsRideCheck(io, gpa, root, &violations);
     try cp_skills.checkPancakeCliSkillAuthority(io, gpa, root, &violations);
     try cp_skills.checkPancakeMcpSkillAuthority(io, gpa, root, &violations);
+    try cp_skills.checkGriddleSkillTruth(io, gpa, root, &violations);
     try cp_skills.checkCaptpAgentDogfoodRouting(io, gpa, root, &violations);
     try ps_examples.checkExampleIndex(io, gpa, root, &violations);
     try ps_examples.checkExampleWiring(io, gpa, root, &violations);
@@ -206,6 +213,7 @@ pub fn check(
     try cp_relay.checkProductionRelayClassifierLockstep(io, gpa, root, &violations);
     try cp_rooms_profile.checkRoomsWireProfile(io, gpa, root, &violations);
     try cp_rooms_profile.checkRoomsPeerMinting(io, gpa, root, &violations);
+    try cp_rooms_profile.checkRoomsBootstrapParseFailures(io, gpa, root, &violations);
     try cp_rooms_signaling.checkRoomsWebrtcIceCaps(io, gpa, root, &violations);
     try c_abi_resolve.checkCAbiResolve(io, gpa, root, &violations);
     try c_abi_resolve_ports.checkCAbiResolvePorts(io, gpa, root, &violations);
@@ -230,6 +238,7 @@ pub fn check(
     try ps_hygiene.checkPathIoCopies(io, gpa, root, &violations);
     try ps_budgets.checkFootprintBudgetQuotes(io, gpa, root, &violations);
     try ps_playwright.checkPlaywrightPin(io, gpa, root, &violations);
+    try ps_formatting.check(io, gpa, root, &violations);
     try ps_hygiene.checkDevcontainerBashScripts(io, gpa, root, &violations);
     _ = zig_lib_path;
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
@@ -245,6 +254,7 @@ pub fn check(
     try docs_site.checkSiteMotionReducedGuard(io, gpa, root, &violations);
     try docs_snippets.checkExampleFenceIndent(io, gpa, root, &violations);
     try ps_hygiene.checkRemoveDiscards(io, gpa, root, &violations);
+    try ps_hygiene.checkDiscardedErrors(io, gpa, root, &violations);
     try ps_steps.checkArchiveTables(io, gpa, root, &violations);
     try c_abi_cites.checkDocCAbiCites(io, gpa, root, &violations);
     try c_abi_cites.checkDeletedNodeCProjection(io, gpa, root, &violations);
@@ -291,6 +301,7 @@ test {
     _ = docs_snippets;
     _ = file_length;
     _ = ps_packages;
+    _ = ps_formatting;
     _ = ps_steps;
     _ = ps_execution_deadlines;
     _ = ps_zig_module_surface;

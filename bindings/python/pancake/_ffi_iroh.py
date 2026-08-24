@@ -62,7 +62,11 @@ pin_struct(_IrohConfig, "PANCAKE_IROH_CONFIG")
 
 def _load_iroh():
     lib = ctypes.CDLL(str(_IROH_LIB_PATH))
-    require_archive_fingerprint(lib, "iroh", IROH_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: lib.pancake_iroh_archive_fingerprint,
+        "iroh",
+        IROH_ARCHIVE_FINGERPRINT,
+    )
     for name, (argtypes, restype) in iroh_sigs(
         _IrohReadyEvent, _IrohConfig, _TransportProvider
     ).items():

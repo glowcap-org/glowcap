@@ -40,24 +40,24 @@
 
 import { type PeerProfile, SessionState } from "../../schema/topology.ts";
 import {
-  type EndpointAttachment,
-  endpointAttachment,
-  type EndpointAttribution,
-  endpointNodeId,
-  type SessionEndpoint,
-  sessionEndpoint,
-  type SessionSide,
+	type EndpointAttachment,
+	endpointAttachment,
+	type EndpointAttribution,
+	endpointNodeId,
+	type SessionEndpoint,
+	sessionEndpoint,
+	type SessionSide,
 } from "../../schema/session-end.ts";
 import type { SessionDefinition, TimelineDocument } from "../timeline.ts";
 import { effectiveOf } from "./effective.ts";
 import { intrinsicOf } from "./inheritance.ts";
 import { keyframeAt, type KeyframeTrack } from "./keyframes.ts";
 import {
-  PEER_TRAJECTORY,
-  type PeerProperty,
-  SESSION_TRAJECTORY,
-  type SessionProperty,
-  type SessionValue,
+	PEER_TRAJECTORY,
+	type PeerProperty,
+	SESSION_TRAJECTORY,
+	type SessionProperty,
+	type SessionValue,
 } from "../trajectory.ts";
 import { type EffectiveRange, intersect } from "./range.ts";
 import type { TimeSpan } from "./time-span.ts";
@@ -66,37 +66,37 @@ import { WORLD_EFFECTIVE, WORLD_INTRINSIC } from "./world.ts";
 export type EntityKind = "peers" | "sessions" | "messages";
 
 const FALLBACK_SPAN: TimeSpan = {
-  start: { value: 0, explicit: false },
-  duration: { value: 0, explicit: false },
+	start: { value: 0, explicit: false },
+	duration: { value: 0, explicit: false },
 };
 
 function peerSpan(doc: TimelineDocument, id: string): TimeSpan {
-  return doc.entities?.peers?.[id]?.timing ?? FALLBACK_SPAN;
+	return doc.entities?.peers?.[id]?.timing ?? FALLBACK_SPAN;
 }
 
 function sessionSpan(doc: TimelineDocument, id: string): TimeSpan {
-  return doc.entities?.sessions?.[id]?.timing ?? FALLBACK_SPAN;
+	return doc.entities?.sessions?.[id]?.timing ?? FALLBACK_SPAN;
 }
 
 function messageSpan(doc: TimelineDocument, id: string): TimeSpan {
-  return doc.entities?.messages?.[id]?.timing ?? FALLBACK_SPAN;
+	return doc.entities?.messages?.[id]?.timing ?? FALLBACK_SPAN;
 }
 
 /** Intrinsic range for a peer — parent is world. */
 export function peerIntrinsic(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  return intrinsicOf(peerSpan(doc, id), WORLD_INTRINSIC);
+	return intrinsicOf(peerSpan(doc, id), WORLD_INTRINSIC);
 }
 
 /** Effective range for a peer — clamped into world (which is
  *  unbounded, so this is effectively the intrinsic). */
 export function peerEffective(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  return effectiveOf(peerIntrinsic(doc, id), WORLD_EFFECTIVE);
+	return effectiveOf(peerIntrinsic(doc, id), WORLD_EFFECTIVE);
 }
 
 /** Every peer that has occupied one end of a session, oldest first:
@@ -108,18 +108,18 @@ export function peerEffective(
  * what comparing a peer id against the endpoint itself amounts to, and the
  * compiler does not catch that. */
 export function sessionEndpointOccupants(
-  def: SessionDefinition,
-  side: SessionSide,
+	def: SessionDefinition,
+	side: SessionSide,
 ): string[] {
-  // Genesis value then track, which is the same shape `sessionEndpointAt`
-  // reads one moment out of. A loose end has no occupant at all and yields
-  // none, which is what lets the span below stop compensating for one.
-  const genesis = def[side].peer;
-  const out: string[] = genesis === undefined ? [] : [genesis];
-  for (const kf of endpointTrack(def, side) ?? []) {
-    if (!out.includes(kf.value.peer)) out.push(kf.value.peer);
-  }
-  return out;
+	// Genesis value then track, which is the same shape `sessionEndpointAt`
+	// reads one moment out of. A loose end has no occupant at all and yields
+	// none, which is what lets the span below stop compensating for one.
+	const genesis = def[side].peer;
+	const out: string[] = genesis === undefined ? [] : [genesis];
+	for (const kf of endpointTrack(def, side) ?? []) {
+		if (!out.includes(kf.value.peer)) out.push(kf.value.peer);
+	}
+	return out;
 }
 
 /** One end's attachment track, typed as what it carries.
@@ -129,10 +129,10 @@ export function sessionEndpointOccupants(
  *  carry so that generic code can drive them all. It is the same field, and
  *  the readers below need the pair itself. */
 function endpointTrack(
-  def: SessionDefinition,
-  side: SessionSide,
+	def: SessionDefinition,
+	side: SessionSide,
 ): KeyframeTrack<EndpointAttachment> | undefined {
-  return def.keyframes?.[side];
+	return def.keyframes?.[side];
 }
 
 /** How long one end of a session was occupied: from the first occupant's
@@ -160,85 +160,85 @@ function endpointTrack(
  * session. The end was there and unoccupied, so nothing bounds it until
  * somebody arrives. */
 function sideContext(
-  doc: TimelineDocument,
-  def: SessionDefinition,
-  side: SessionSide,
+	doc: TimelineDocument,
+	def: SessionDefinition,
+	side: SessionSide,
 ): EffectiveRange {
-  const occupants = sessionEndpointOccupants(def, side);
-  const [first, ...rest] = occupants;
-  if (first === undefined) return WORLD_EFFECTIVE;
-  let span = peerEffective(doc, first);
-  for (const peerId of rest) {
-    const eff = peerEffective(doc, peerId);
-    span = {
-      start: Math.min(span.start, eff.start),
-      end: Math.max(span.end, eff.end),
-    };
-  }
-  // Born loose: the end was unoccupied from the session's own start until the
-  // first attachment, and an unoccupied end bounds nothing on that side.
-  if (def[side].peer === undefined) {
-    return { start: WORLD_EFFECTIVE.start, end: span.end };
-  }
-  return span;
+	const occupants = sessionEndpointOccupants(def, side);
+	const [first, ...rest] = occupants;
+	if (first === undefined) return WORLD_EFFECTIVE;
+	let span = peerEffective(doc, first);
+	for (const peerId of rest) {
+		const eff = peerEffective(doc, peerId);
+		span = {
+			start: Math.min(span.start, eff.start),
+			end: Math.max(span.end, eff.end),
+		};
+	}
+	// Born loose: the end was unoccupied from the session's own start until the
+	// first attachment, and an unoccupied end bounds nothing on that side.
+	if (def[side].peer === undefined) {
+		return { start: WORLD_EFFECTIVE.start, end: span.end };
+	}
+	return span;
 }
 
 /** Context for a session: the intersection of the ranges over which
  *  its two ends were occupied. May be empty when they don't overlap. */
 export function sessionContext(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  const def = doc.entities?.sessions?.[id];
-  if (!def) return WORLD_EFFECTIVE;
-  return intersect(sideContext(doc, def, "a"), sideContext(doc, def, "b"));
+	const def = doc.entities?.sessions?.[id];
+	if (!def) return WORLD_EFFECTIVE;
+	return intersect(sideContext(doc, def, "a"), sideContext(doc, def, "b"));
 }
 
 export function sessionIntrinsic(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  // Inheritance reads parent intrinsic, but for sessions we use the
-  // peer-overlap context for both layers — sessions' "intrinsic
-  // parent" is the same peer intersection we'd clamp against. The
-  // distinction between session.intrinsic and session.effective is
-  // carried by the session's own span values, not by two different
-  // parent ranges.
-  const ctx = sessionContext(doc, id);
-  return intrinsicOf(sessionSpan(doc, id), ctx);
+	// Inheritance reads parent intrinsic, but for sessions we use the
+	// peer-overlap context for both layers — sessions' "intrinsic
+	// parent" is the same peer intersection we'd clamp against. The
+	// distinction between session.intrinsic and session.effective is
+	// carried by the session's own span values, not by two different
+	// parent ranges.
+	const ctx = sessionContext(doc, id);
+	return intrinsicOf(sessionSpan(doc, id), ctx);
 }
 
 export function sessionEffective(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  return effectiveOf(sessionIntrinsic(doc, id), sessionContext(doc, id));
+	return effectiveOf(sessionIntrinsic(doc, id), sessionContext(doc, id));
 }
 
 /** Context for a message: its session's effective range. */
 export function messageContext(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  const def = doc.entities?.messages?.[id];
-  if (!def) return WORLD_EFFECTIVE;
-  return sessionEffective(doc, def.sessionId);
+	const def = doc.entities?.messages?.[id];
+	if (!def) return WORLD_EFFECTIVE;
+	return sessionEffective(doc, def.sessionId);
 }
 
 export function messageIntrinsic(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  // See sessionIntrinsic comment — same simplification.
-  const ctx = messageContext(doc, id);
-  return intrinsicOf(messageSpan(doc, id), ctx);
+	// See sessionIntrinsic comment — same simplification.
+	const ctx = messageContext(doc, id);
+	return intrinsicOf(messageSpan(doc, id), ctx);
 }
 
 export function messageEffective(
-  doc: TimelineDocument,
-  id: string,
+	doc: TimelineDocument,
+	id: string,
 ): EffectiveRange {
-  return effectiveOf(messageIntrinsic(doc, id), messageContext(doc, id));
+	return effectiveOf(messageIntrinsic(doc, id), messageContext(doc, id));
 }
 
 /** The value one of a session's temporal properties carries at `t`:
@@ -251,15 +251,15 @@ export function messageEffective(
  * both named readers below. Which properties exist is
  * `trajectory.ts`'s business, not this module's. */
 export function sessionPropertyValueAt(
-  doc: TimelineDocument,
-  sessionId: string,
-  property: SessionProperty,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	property: SessionProperty,
+	t: number,
 ): SessionValue | undefined {
-  const def = doc.entities?.sessions?.[sessionId];
-  if (def === undefined) return undefined;
-  const spec = SESSION_TRAJECTORY[property];
-  return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
+	const def = doc.entities?.sessions?.[sessionId];
+	if (def === undefined) return undefined;
+	const spec = SESSION_TRAJECTORY[property];
+	return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
 }
 
 /** The one string that names what a property carries at `t` — the reader
@@ -270,13 +270,13 @@ export function sessionPropertyValueAt(
  * `sessionEndpointAt`. It is a second name for one resolution rather than a
  * second resolution, so the two cannot answer about different moments. */
 export function sessionValueAt(
-  doc: TimelineDocument,
-  sessionId: string,
-  property: SessionProperty,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	property: SessionProperty,
+	t: number,
 ): string | undefined {
-  const value = sessionPropertyValueAt(doc, sessionId, property, t);
-  return value === undefined ? undefined : SESSION_TRAJECTORY[property].stated(value);
+	const value = sessionPropertyValueAt(doc, sessionId, property, t);
+	return value === undefined ? undefined : SESSION_TRAJECTORY[property].stated(value);
 }
 
 /** Resolved session state at `t`, falling back to the schema default
@@ -287,19 +287,19 @@ export function sessionValueAt(
  * the document is a question about the DECLARATION at `t`, which
  * `no-op-guards.ts` asks of the track itself. */
 export function sessionStateAt(
-  doc: TimelineDocument,
-  sessionId: string,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	t: number,
 ): SessionState {
-  const at = sessionValueAt(doc, sessionId, "state", t);
-  // The state picker is closed and its write refuses anything else,
-  // so a value outside the set can only reach here from a hand-edited
-  // document; such a document gets the default rather than a state
-  // nothing else in the app can paint.
-  return at !== undefined && (SessionState.options as readonly string[])
-      .includes(at)
-    ? at as SessionState
-    : "negotiating";
+	const at = sessionValueAt(doc, sessionId, "state", t);
+	// The state picker is closed and its write refuses anything else,
+	// so a value outside the set can only reach here from a hand-edited
+	// document; such a document gets the default rather than a state
+	// nothing else in the app can paint.
+	return at !== undefined && (SessionState.options as readonly string[])
+			.includes(at)
+		? at as SessionState
+		: "negotiating";
 }
 
 /** One end of a session as it stands at `t`: what it claims, the peer it is
@@ -317,22 +317,23 @@ export function sessionStateAt(
  * An undeclared session answers with a loose end, because that is what the
  * document says about it: nothing. */
 export function sessionEndpointAt(
-  doc: TimelineDocument,
-  sessionId: string,
-  side: SessionSide,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	side: SessionSide,
+	t: number,
 ): SessionEndpoint {
-  const def = doc.entities?.sessions?.[sessionId];
-  if (def === undefined) return sessionEndpoint({});
-  const end = def[side];
-  const at = keyframeAt(endpointTrack(def, side), t) ?? endpointAttachment(end);
-  const designator = end.designator;
-  if (at === undefined) return sessionEndpoint({ designator });
-  return sessionEndpoint({
-    peer: at.peer,
-    designator,
-    attributedBy: at.attributedBy,
-  });
+	const def = doc.entities?.sessions?.[sessionId];
+	if (def === undefined) return sessionEndpoint({});
+	const end = def[side];
+	const at = keyframeAt(endpointTrack(def, side), t) ??
+		endpointAttachment(end);
+	const designator = end.designator;
+	if (at === undefined) return sessionEndpoint({ designator });
+	return sessionEndpoint({
+		peer: at.peer,
+		designator,
+		attributedBy: at.attributedBy,
+	});
 }
 
 /** Where one end of a session sits at `t`, who is there, and what put them
@@ -349,24 +350,24 @@ export function sessionEndpointAt(
  * site takes two facts (`sessionEndpointAt` and `endpointStageId`)
  * and puts the relation between them back in prose. */
 export function sessionEndpointPlaceAt(
-  doc: TimelineDocument,
-  sessionId: string,
-  side: SessionSide,
-  t: number,
+	doc: TimelineDocument,
+	sessionId: string,
+	side: SessionSide,
+	t: number,
 ): {
-  node: string;
-  peer: string | undefined;
-  attributedBy: EndpointAttribution | undefined;
+	node: string;
+	peer: string | undefined;
+	attributedBy: EndpointAttribution | undefined;
 } {
-  const end = sessionEndpointAt(doc, sessionId, side, t);
-  // `endpointNodeId` is the same rule for a caller holding the endpoint
-  // itself rather than a document and a moment; resolving the tracks first
-  // is the whole of what this adds.
-  return {
-    node: endpointNodeId(sessionId, side, end),
-    peer: end.peer,
-    attributedBy: end.attributedBy,
-  };
+	const end = sessionEndpointAt(doc, sessionId, side, t);
+	// `endpointNodeId` is the same rule for a caller holding the endpoint
+	// itself rather than a document and a moment; resolving the tracks first
+	// is the whole of what this adds.
+	return {
+		node: endpointNodeId(sessionId, side, end),
+		peer: end.peer,
+		attributedBy: end.attributedBy,
+	};
 }
 
 /** The value one of a peer's temporal properties carries at `t`:
@@ -374,15 +375,15 @@ export function sessionEndpointPlaceAt(
  * with. Undefined when the peer never carried one. Which properties
  * exist is `trajectory.ts`'s business, not this module's. */
 export function peerValueAt(
-  doc: TimelineDocument,
-  peerId: string,
-  property: PeerProperty,
-  t: number,
+	doc: TimelineDocument,
+	peerId: string,
+	property: PeerProperty,
+	t: number,
 ): string | undefined {
-  const def = doc.entities?.peers?.[peerId];
-  if (def === undefined) return undefined;
-  const spec = PEER_TRAJECTORY[property];
-  return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
+	const def = doc.entities?.peers?.[peerId];
+	if (def === undefined) return undefined;
+	const spec = PEER_TRAJECTORY[property];
+	return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
 }
 
 /** What one of a peer's temporal properties carries when the peer ARRIVES,
@@ -395,13 +396,13 @@ export function peerValueAt(
  * this one. Falls back the same way, through the property's own declared
  * fallback, so neither reader spells a default the table already owns. */
 export function peerGenesisValue(
-  doc: TimelineDocument,
-  peerId: string,
-  property: PeerProperty,
+	doc: TimelineDocument,
+	peerId: string,
+	property: PeerProperty,
 ): string {
-  const def = doc.entities?.peers?.[peerId];
-  const spec = PEER_TRAJECTORY[property];
-  return (def && spec.genesis(def)) ?? spec.fallback(peerId);
+	const def = doc.entities?.peers?.[peerId];
+	const spec = PEER_TRAJECTORY[property];
+	return (def && spec.genesis(def)) ?? spec.fallback(peerId);
 }
 
 /** What one of a peer's temporal properties carries at `t`, always.
@@ -414,13 +415,13 @@ export function peerGenesisValue(
  * function with a return type; the trajectory insert control calls
  * it generically. */
 export function peerPropertyAt(
-  doc: TimelineDocument,
-  peerId: string,
-  property: PeerProperty,
-  t: number,
+	doc: TimelineDocument,
+	peerId: string,
+	property: PeerProperty,
+	t: number,
 ): string {
-  return peerValueAt(doc, peerId, property, t) ??
-    PEER_TRAJECTORY[property].fallback(peerId);
+	return peerValueAt(doc, peerId, property, t) ??
+		PEER_TRAJECTORY[property].fallback(peerId);
 }
 
 /** The name a peer answers to at `t`, falling back to its id so
@@ -428,11 +429,11 @@ export function peerPropertyAt(
  * `label` property: the stage, the Inspector, and the timeline lane
  * all call this, so they agree about who is who at a given moment. */
 export function peerLabelAt(
-  doc: TimelineDocument,
-  peerId: string,
-  t: number,
+	doc: TimelineDocument,
+	peerId: string,
+	t: number,
 ): string {
-  return peerPropertyAt(doc, peerId, "label", t);
+	return peerPropertyAt(doc, peerId, "label", t);
 }
 
 /** The implementation flavor a peer is known by at `t`, falling
@@ -440,11 +441,11 @@ export function peerLabelAt(
  * `profile` property, beside `peerLabelAt`: the stage colors peers
  * with it, and the Inspector names it. */
 export function peerProfileAt(
-  doc: TimelineDocument,
-  peerId: string,
-  t: number,
+	doc: TimelineDocument,
+	peerId: string,
+	t: number,
 ): PeerProfile {
-  return peerPropertyAt(doc, peerId, "profile", t);
+	return peerPropertyAt(doc, peerId, "profile", t);
 }
 
 /** Effective t for a single-moment observation parented to an
@@ -455,38 +456,38 @@ export function peerProfileAt(
  * pill. When the id doesn't resolve to a declared entity (orphan
  * glyph), the raw t passes through. */
 export function momentEffective(
-  doc: TimelineDocument,
-  kind: EntityKind,
-  id: string,
-  t: number,
+	doc: TimelineDocument,
+	kind: EntityKind,
+	id: string,
+	t: number,
 ): number {
-  if (doc.entities?.[kind]?.[id] === undefined) return t;
-  const eff = effectiveOfEntity(doc, kind, id);
-  if (t < eff.start) return eff.start;
-  if (Number.isFinite(eff.end) && t > eff.end) return eff.end;
-  return t;
+	if (doc.entities?.[kind]?.[id] === undefined) return t;
+	const eff = effectiveOfEntity(doc, kind, id);
+	if (t < eff.start) return eff.start;
+	if (Number.isFinite(eff.end) && t > eff.end) return eff.end;
+	return t;
 }
 
 /** Dispatch helper — kind-keyed effective range. */
 export function effectiveOfEntity(
-  doc: TimelineDocument,
-  kind: EntityKind,
-  id: string,
+	doc: TimelineDocument,
+	kind: EntityKind,
+	id: string,
 ): EffectiveRange {
-  if (kind === "peers") return peerEffective(doc, id);
-  if (kind === "sessions") return sessionEffective(doc, id);
-  return messageEffective(doc, id);
+	if (kind === "peers") return peerEffective(doc, id);
+	if (kind === "sessions") return sessionEffective(doc, id);
+	return messageEffective(doc, id);
 }
 
 /** Dispatch helper — kind-keyed intrinsic range. */
 export function intrinsicOfEntity(
-  doc: TimelineDocument,
-  kind: EntityKind,
-  id: string,
+	doc: TimelineDocument,
+	kind: EntityKind,
+	id: string,
 ): EffectiveRange {
-  if (kind === "peers") return peerIntrinsic(doc, id);
-  if (kind === "sessions") return sessionIntrinsic(doc, id);
-  return messageIntrinsic(doc, id);
+	if (kind === "peers") return peerIntrinsic(doc, id);
+	if (kind === "sessions") return sessionIntrinsic(doc, id);
+	return messageIntrinsic(doc, id);
 }
 
 /** Names the parent that's clamping a given side of an entity's
@@ -498,50 +499,50 @@ export function intrinsicOfEntity(
  *   peer is whichever endpoint forces the tighter bound.
  * For messages, parent is the session's effective range. */
 export function clampReasonFor(
-  doc: TimelineDocument,
-  kind: EntityKind,
-  id: string,
-  side: "start" | "end",
+	doc: TimelineDocument,
+	kind: EntityKind,
+	id: string,
+	side: "start" | "end",
 ): string | null {
-  if (kind === "peers") return null;
-  const intrinsic = intrinsicOfEntity(doc, kind, id);
-  const effective = effectiveOfEntity(doc, kind, id);
-  if (side === "start" && intrinsic.start >= effective.start) return null;
-  if (side === "end" && intrinsic.end <= effective.end) return null;
+	if (kind === "peers") return null;
+	const intrinsic = intrinsicOfEntity(doc, kind, id);
+	const effective = effectiveOfEntity(doc, kind, id);
+	if (side === "start" && intrinsic.start >= effective.start) return null;
+	if (side === "end" && intrinsic.end <= effective.end) return null;
 
-  if (kind === "sessions") {
-    const def = doc.entities?.sessions?.[id];
-    if (!def) return null;
-    // Whichever END forces the tighter bound, named by the peer that
-    // sets it. An end that changed hands is held by the occupant
-    // reaching furthest in that direction, because that is the one
-    // the side's own range came from.
-    // A loose end has no occupant, so it binds nothing and yields nothing
-    // to name here; the attached end is what set the range.
-    const bound = (
-      s: SessionSide,
-    ): { peerId: string; at: number } | undefined => {
-      let held: { peerId: string; at: number } | undefined;
-      for (const peerId of sessionEndpointOccupants(def, s)) {
-        const eff = peerEffective(doc, peerId);
-        const at = side === "start" ? eff.start : eff.end;
-        const better = held === undefined ||
-          (side === "start" ? at < held.at : at > held.at);
-        if (better) held = { peerId, at };
-      }
-      return held;
-    };
-    const a = bound("a");
-    const b = bound("b");
-    if (a === undefined && b === undefined) return null;
-    if (a === undefined) return `peer ${b!.peerId}`;
-    if (b === undefined) return `peer ${a.peerId}`;
-    const tighter = side === "start" ? (a.at >= b.at ? a.peerId : b.peerId) : (a.at <= b.at ? a.peerId : b.peerId);
-    return `peer ${tighter}`;
-  }
+	if (kind === "sessions") {
+		const def = doc.entities?.sessions?.[id];
+		if (!def) return null;
+		// Whichever END forces the tighter bound, named by the peer that
+		// sets it. An end that changed hands is held by the occupant
+		// reaching furthest in that direction, because that is the one
+		// the side's own range came from.
+		// A loose end has no occupant, so it binds nothing and yields nothing
+		// to name here; the attached end is what set the range.
+		const bound = (
+			s: SessionSide,
+		): { peerId: string; at: number } | undefined => {
+			let held: { peerId: string; at: number } | undefined;
+			for (const peerId of sessionEndpointOccupants(def, s)) {
+				const eff = peerEffective(doc, peerId);
+				const at = side === "start" ? eff.start : eff.end;
+				const better = held === undefined ||
+					(side === "start" ? at < held.at : at > held.at);
+				if (better) held = { peerId, at };
+			}
+			return held;
+		};
+		const a = bound("a");
+		const b = bound("b");
+		if (a === undefined && b === undefined) return null;
+		if (a === undefined) return `peer ${b!.peerId}`;
+		if (b === undefined) return `peer ${a.peerId}`;
+		const tighter = side === "start" ? (a.at >= b.at ? a.peerId : b.peerId) : (a.at <= b.at ? a.peerId : b.peerId);
+		return `peer ${tighter}`;
+	}
 
-  // messages
-  const def = doc.entities?.messages?.[id];
-  if (!def) return null;
-  return `session ${def.sessionId}`;
+	// messages
+	const def = doc.entities?.messages?.[id];
+	if (!def) return null;
+	return `session ${def.sessionId}`;
 }

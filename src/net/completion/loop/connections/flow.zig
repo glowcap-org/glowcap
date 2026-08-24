@@ -6,6 +6,7 @@
 //! and descriptor retirement remain in lifecycle.
 
 const std = @import("std");
+
 const frame_stream = @import("../../../frame_stream.zig");
 const failure_projection = @import("../../failure_projection.zig");
 const contract = @import("../../contract.zig");
@@ -32,7 +33,16 @@ pub fn Machine(
             affinity.assertOwnerOrUnclaimed(self);
             if (self.tearing_down) return;
             const c = Lifecycle.liveConn(self, slot) orelse return;
-            driveOut(self, slot, c) catch |err| failConnWith(self, slot, c, err);
+            driveOut(self, slot, c) catch |err| {
+                failConnWith(self, slot, c, err);
+                return;
+            };
+            // A cross-connection arm lands here when pump work touched this
+            // session, and that work may have been what released the retained
+            // bytes a saturated park was waiting on — with no send completion
+            // on this connection to carry the resume. Re-evaluate the park
+            // here so a pump-side drain wakes the read it throttled.
+            resumeIfDrained(self, slot, c);
         }
 
         /// Close `slot` after flushing the engine's already-projected terminal
@@ -71,12 +81,18 @@ pub fn Machine(
         /// Pending outbound past the high-water mark means every newly applied
         /// inbound frame would pile more replies onto an unread socket, so the
         /// read parks instead and `onSend` resumes it when the queue drains
-        /// (ADR-0042). With `fan_in_throttle`, a parked sink also parks every
+        /// (ADR-0042). The peer's own retained-work waterline parks the read
+        /// the same way: a saturated session would break each new deliver's
+        /// answer as resource-exhausted, and the byte-fed Host's feed
+        /// admission already refuses at that line, so the loop tier throttles
+        /// there too instead of letting inbound overrun it. With `fan_in_throttle`, a parked sink also parks every
         /// other connection's reads so many-A-to-one-B sources slow (ADR-0082).
         /// Protocol frames are never dropped; the queue is bounded at the mark
         /// plus the replies of frames already buffered.
         pub fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {
-            if (state.pendingOut(c) > self.outbound_high_water_bytes) {
+            if (state.pendingOut(c) > self.outbound_high_water_bytes or
+                c.peer.outboundSaturated())
+            {
                 // A genuine sink park: this connection is not draining its own
                 // outbound, so it is the slow reader the reaper targets.
                 // Which kind of park this is comes from the queue depth
@@ -305,7 +321,20 @@ pub fn Machine(
         /// Encode queued sends, append their frame bytes to the outbound queue,
         /// and submit a write if one is not already in flight.
         pub fn driveOut(self: *Self, slot: usize, c: *Conn) !void {
-            while ((try c.peer.step()) != .idle) {}
+            while (true) {
+                const outcome = c.peer.step() catch |err| switch (err) {
+                    // The engine's outbound waterline is flow control, not a
+                    // verdict: the refused carrier stays queued and retryable
+                    // (`Peer.pushEncodedFromPending`). Stop driving, flush what
+                    // is already encoded, and let the send completion's next
+                    // drive retry the carrier once the queue has room.
+                    // Condemning here turned a full queue into a dead
+                    // connection.
+                    error.OutboundBackpressure => break,
+                    else => return err,
+                };
+                if (outcome == .idle) break;
+            }
             try flushOutbound(self, slot, c);
         }
 
@@ -431,7 +460,8 @@ pub fn Machine(
             // it is given back. Only the re-arm below is `.open`-only.
             Deadlines.refreshWaiting(self, c);
             if (c.state == .open and c.read == .parked and
-                state.pendingOut(c) <= self.outbound_high_water_bytes)
+                state.pendingOut(c) <= self.outbound_high_water_bytes and
+                !c.peer.outboundSaturated())
             {
                 if (!(self.fan_in_throttle and anySinkParked(self))) {
                     // No refresh here: the call above already evaluated
@@ -582,7 +612,8 @@ pub fn Machine(
                     return;
                 }
                 next = c.next_link;
-                if (c.state != .open or state.pendingOut(c) > self.outbound_high_water_bytes) continue;
+                if (c.state != .open or state.pendingOut(c) > self.outbound_high_water_bytes or
+                    c.peer.outboundSaturated()) continue;
                 Lifecycle.unlinkParked(self, slot);
                 Deadlines.refreshWaiting(self, c);
                 armOrPark(self, slot, c) catch |err| closeConnWith(self, slot, c, err);

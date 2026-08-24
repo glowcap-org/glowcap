@@ -400,6 +400,10 @@
 		flex: 0 1 auto;
 		min-width: 0;
 	}
+	.topbar .title-about {
+		flex: 1;
+		min-width: 0;
+	}
 	/* A mark that waits for a pointer is a mark half this layout's readers cannot
 	   find, and the ones with a pointer are on a bar narrow enough that hunting
 	   for it is the same problem. So here it simply stands beside the name. */
@@ -581,4 +585,9 @@
 	color: var(--ink-soft);
 	font-size: var(--type-body);
 	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+.crash .said-more {
+	width: 100%;
+	margin-bottom: 4px;
 }

@@ -29,7 +29,7 @@ import { enterDeliver, exitDeliver, insideTurn } from "../trampoline.ts";
 import { duplicateReadinessDescriptor, joinParker } from "./parker.ts";
 
 import { DriverLoopLifecycle } from "./lifecycle.ts";
-import { type ListenerWaiter, utf8Encoder } from "./state.ts";
+import { type ListenerWaiter, loopClosedError, utf8Encoder } from "./state.ts";
 
 export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 	// ── Extension transports ──────────────────────────────────────────────────
@@ -120,14 +120,28 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 	scheduleStep(): void {
 		if (this._released || this._terminalFailure != null || this._stepScheduled) return;
 		this._stepScheduled = true;
-		queueMicrotask(() => {
+		const scheduled = Promise.resolve().then(() => {
 			this._stepScheduled = false;
-			try {
-				this.stepNow();
-			} catch (error) {
-				this._failBackground(error);
-			}
+			this.stepNow();
+		}).catch((error) => {
+			this._failBackground(error);
+			throw this._terminalFailure ?? error;
+		}).finally(() => {
+			if (this._scheduledStep === scheduled) this._scheduledStep = null;
 		});
+		this._scheduledStep = scheduled;
+		// Most scheduling sites are background wakes. The explicit barrier below
+		// observes the same promise when a caller owns the outcome.
+		void scheduled.catch(() => {});
+	}
+
+	/** Join the deferred step, event dispatch, and trace drain scheduled by a
+	 * caller-owned Host verb. */
+	settleStep(): Promise<void> {
+		if (this._terminalFailure != null) return Promise.reject(this._terminalFailure);
+		if (this._released) return Promise.reject(loopClosedError());
+		this.scheduleStep();
+		return this._scheduledStep ?? Promise.resolve();
 	}
 
 	/** Drain zero-timeout steps and events through quiescence on the driving
@@ -170,12 +184,11 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 			}
 		} finally {
 			this._stepping = false;
+			// Wrapper Host verbs can fill the trace ring before the native loop
+			// reports any step progress. Drain on every legal unwind, like the
+			// byte-fed action drain, so those facts do not wait for unrelated I/O.
+			traceDrainHost(this._wrapper.raw);
 			if (progressed) {
-				// The ring drains on the same unwind as the steps that filled
-				// it, the loop tier's mirror of the byte-fed kick: a captured
-				// fact must not wait on the next verb (or on an annotation
-				// happening by) to reach the sink.
-				traceDrainHost(this._wrapper.raw);
 				this._wrapper.signalCloseActivity();
 			}
 		}

@@ -310,6 +310,8 @@ pub const Sim = struct {
 
 /// The scenarios a run can name. Each is a whole CapTP conversation with an
 /// end state worth asserting.
+pub const scenario_args = "bootstrap-fetch, crossed-fetch, partitioned-fetch";
+
 pub const Scenario = enum {
     /// Peer 0 fetches a capability peer 1 published, and the answer settles.
     /// One question at a time, so the links take turns and every seed sees

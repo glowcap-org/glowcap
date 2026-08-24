@@ -37,6 +37,7 @@ pub fn writeMsg(io: std.Io, msg: []const u8) void {
         test_capture.append(msg);
         return;
     }
+    // best-effort: the diagnostic channel itself refused; nowhere to report.
     std.Io.File.stderr().writeStreamingAll(io, msg) catch {};
 }
 

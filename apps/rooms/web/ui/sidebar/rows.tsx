@@ -61,8 +61,11 @@ export function RowClose(
  * The badge is unread, for the same reason: a head-count is somebody else's
  * activity, and nothing on this list should move or change because of it. */
 export function RoomRow(
-	{ conv, unread, here, where, home, phase, onPick, onLeave, onAbout }: {
+	{ conv, unread, here, where, home, phase, bridgedFrom, onPick, onLeave, onAbout }: {
 		conv: RoomConv;
+		/** Where a bridged room's IRC channel lives, or null for every other
+		 * room: a fact about the row, said in words and in its label. */
+		bridgedFrom: string | null;
 		unread: number;
 		here: boolean;
 		/** Which directory this room is in, as words and as the color beside
@@ -113,6 +116,7 @@ export function RoomRow(
 	// gone.
 	const people = membersHere(conv.members);
 	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
+		(bridgedFrom !== null ? ", an IRC channel bridged via " + bridgedFrom : "") +
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : "") + unwell;
 	return (
 		<li
@@ -159,6 +163,13 @@ export function RoomRow(
 					{directory !== null && <span className="rwhere-said">in {directory}</span>}
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
+			)}
+			{bridgedFrom !== null && (
+				// A fact, not a control: where this room's channel actually
+				// lives, in the caption's own column.
+				<span className="rwhere rwhere-bridge" title={bridgedFrom}>
+					<span className="rwhere-said">bridged via {bridgedFrom}</span>
+				</span>
 			)}
 			<RowClose
 				title="Leave"

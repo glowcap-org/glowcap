@@ -23,8 +23,10 @@
 (require "../../../_demo/bindings.rkt"
          "../../../../bindings/racket/pancake-tcp.rkt"
          "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
+         racket/list
          racket/string)
 (provide room-connect directory-session dir-open dir-enter dir-list dir-watch
+         (struct-out room-info)
          room-next/timeout
          room-subscribe room-say room-leave in-room room-next
          (struct-out message) (struct-out presence))
@@ -143,6 +145,23 @@
 ;; raises a broken-vow exception whose message carries the reason.
 (struct directory (runtime session far))
 
+;; One exact directory publication. A foreign room's count is #f: unknown is
+;; distinct from an empty room.
+(struct room-info (name count id kind origin proof) #:transparent)
+
+(define (wire-room fields)
+  (and (list? fields)
+       (>= (length fields) 6)
+       (let ([name (list-ref fields 0)]
+             [count (list-ref fields 1)]
+             [id (list-ref fields 2)]
+             [kind (list-ref fields 3)]
+             [origin (list-ref fields 4)]
+             [proof (list-ref fields 5)])
+         (and (string? name) (string? id) (string? kind)
+              (string? origin) (string? proof)
+              (room-info name (and (exact-integer? count) count) id kind origin proof)))))
+
 (define (room-connect locator)
   (define-values (runtime c) (dial locator))
   (directory runtime c (session-fetch c "directory")))
@@ -155,25 +174,25 @@
 (define (dir-enter d name)
   (session-send (directory-session d) (directory-far d) 'enter name))
 
-;; The live rooms — the ones with people in them — as a list of `(name count)`
-;; pairs. `list` and `watch` send the directory a list of `[name count]` pairs.
+;; The exact live local and foreign room publications.
 (define (dir-list d)
-  (session-send (directory-session d) (directory-far d) 'list))
+  (filter-map wire-room (session-send (directory-session d) (directory-far d) 'list)))
 
 ;; Follow the live room list: spawn an observer the directory calls back with
 ;; each change, register it, and return the current snapshot as a baseline.
-;; `on-event` is called `(on-event kind name count)` on every open/close/count
-;; change (`kind` is "opened", "closed", or "count").
+;; `on-event` is called with the event kind and exact publication record.
 (define (dir-watch d on-event)
   (define c (directory-session d))
   (define observer
     (session-spawn c
-      (lambda (bcom)
-        (methods
-         [(notify kind name count)
-          (on-event kind name count)
-          (void)]))))
-  (session-send c (directory-far d) 'watch observer))
+      (lambda (_bcom)
+        (lambda (verb . args)
+          (unless (eq? verb 'notify)
+            (error 'dir-watch "watch inbox has no method ~a" verb))
+          (define entry (and (pair? args) (wire-room (cdr args))))
+          (when entry (on-event (car args) entry))
+          (void)))))
+  (filter-map wire-room (session-send c (directory-far d) 'watch observer)))
 
 ;; Subscribe to a room you already hold a reference to, on an open connection:
 ;; spawn an inbox actor the room can call back, hand it over, and start a

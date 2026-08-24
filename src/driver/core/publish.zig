@@ -156,10 +156,10 @@ pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSw
 /// `removeDurable`, and structurally disjoint from every mutable alias.
 /// The active table is still checked before insertion, so even an
 /// entropy-collision fails loud instead of retargeting. The row adopts
-/// the spawn root (ADR-0101). Durability across process restart requires
-/// durable registry storage, which remains unimplemented: today a
-/// restart makes the old sturdyref miss, which is the fail-closed half
-/// of the contract.
+/// the spawn root (ADR-0101). Persistence stays above this sans-I/O core:
+/// an embedder retains the entropy and publication identity, then republishes
+/// them during startup. A fresh Host intentionally begins with an empty
+/// registry, so an old sturdyref fails closed until that replay occurs.
 pub fn publishDurable(
     self: *Host,
     entropy: [engine.durable_swiss_entropy_len]u8,

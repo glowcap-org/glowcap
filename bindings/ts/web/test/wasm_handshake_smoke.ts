@@ -116,11 +116,9 @@ type Exports = {
 };
 
 const wasmBytes = await Deno.readFile(wasmPath);
-// The module declares one required import, env.pancake_behavior_trampoline
-// (7 i32 params, i32 result): the ctx-dispatch seam a hosted behavior's turn
-// calls. The real dispatch lives in the `@pancake/web` adapter; this smoke
-// hosts no objects, so a no-op stub returning 0 (PANCAKE_OK) only needs to
-// exist for the module to instantiate.
+// The module declares the behavior-dispatch and hosted-free imports. The real
+// callbacks live in the `@pancake/web` adapter; this smoke hosts no objects, so
+// no-op stubs only need to exist for the module to instantiate.
 const { instance } = await WebAssembly.instantiate(wasmBytes, {
 	env: {
 		pancake_behavior_trampoline: (
@@ -132,6 +130,7 @@ const { instance } = await WebAssembly.instantiate(wasmBytes, {
 			_argsLen: number,
 			_outReplyPtr: number,
 		) => 0,
+		pancake_hosted_free_trampoline: (_ctx: number) => {},
 	},
 });
 const ex = instance.exports as unknown as Exports;
@@ -151,7 +150,7 @@ const readU32 = (off: number) => dv().getUint32(off, true);
 // over the struct's manifest prefix, then the offsets in field-declaration
 // order. A cap=0 probe returns the total word count; allocate `count * 4`
 // bytes and call again to fill. `PancakeManagedFrame` is struct index 0
-// (fields: bytes, len, shape, release, private_data), so its block is
+// (fields: bytes, len, shape, release, private_words), so its block is
 // `hash, size, 5, bytes_off, len_off, …`.
 function readLayout() {
 	const count = ex.pancake_wasm_abi_layout(0, 0);

@@ -3,7 +3,7 @@
 //! One implementation of the completion-backend interface documented in
 //! `completion.Loop` (`loop.zig`). The portable connection orchestration lives in
 //! `completion.Loop`; this file provides only the platform completion primitive
-//! and the loopback socket primitives. The io_uring (Linux) sibling is
+//! and the native TCP socket primitives. The io_uring (Linux) sibling is
 //! `uring.zig`; the server logic does not change between them.
 //!
 //! kqueue is a *readiness* interface, not a completion one: `kevent` reports that
@@ -77,7 +77,7 @@ pub const Backend = struct {
     /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
     /// lives on `tcp.DialResolver`, not on this platform Backend.
     pub const ConnectTarget = std.Io.net.IpAddress;
-    pub const ListenerAddress = u16;
+    pub const ListenerAddress = socket_tcp.Ip4;
 
     allocator: std.mem.Allocator,
     kq: c.fd_t,
@@ -86,12 +86,35 @@ pub const Backend = struct {
     ready: completion.ReadyQueue,
     /// The shared recv scratch pool (ADR-0054).
     buffer_pool: BufferPool,
+    /// The local IPv4 address used by the one listener. The port remains loop
+    /// policy and arrives later through `openListener`.
+    listener_ip4: [4]u8,
 
     pub fn init(
         allocator: std.mem.Allocator,
         queue_entries: u16,
         read_buffers: u16,
         read_buffer_bytes: u32,
+    ) !Backend {
+        return initWithListenerIp4(
+            allocator,
+            queue_entries,
+            read_buffers,
+            read_buffer_bytes,
+            .{ 127, 0, 0, 1 },
+        );
+    }
+
+    /// Build a backend whose listener binds `listener_ip4`. The ordinary
+    /// constructor keeps the least-exposed default, `127.0.0.1`; a service
+    /// intended for other hosts can opt into an interface address or
+    /// `0.0.0.0` before moving the backend into `Loop.initWithBackend`.
+    pub fn initWithListenerIp4(
+        allocator: std.mem.Allocator,
+        queue_entries: u16,
+        read_buffers: u16,
+        read_buffer_bytes: u32,
+        listener_ip4: [4]u8,
     ) !Backend {
         // kqueue has no submission ring to size: `queue_entries` is the
         // io_uring backend's ring-depth hint, taken here only because both
@@ -110,6 +133,7 @@ pub const Backend = struct {
             .pending = std.AutoHashMap(c.fd_t, Pending).init(allocator),
             .ready = .{},
             .buffer_pool = buffer_pool,
+            .listener_ip4 = listener_ip4,
         };
     }
 
@@ -218,6 +242,7 @@ pub const Backend = struct {
     pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd {
         const fd = try openSocket();
         errdefer self.closeFd(fd);
+        if (!socket_tcp.setNodelay(tcp_os, fd)) return error.SocketConfigurationFailed;
         try self.submitConnect(user_data, fd, target);
         return fd;
     }
@@ -417,7 +442,7 @@ pub const Backend = struct {
                             // than a process signal. If either socket option
                             // cannot be set, refuse the connection; the loop's
                             // re-arm recovers.
-                            if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted))) {
+                            if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted) or !socket_tcp.setNodelay(tcp_os, accepted))) {
                                 _ = close(accepted);
                                 comp.result = -1;
                                 comp.failure = error.SocketConfigurationFailed;
@@ -494,8 +519,10 @@ pub const Backend = struct {
     }
 
     pub fn openListener(self: *Backend, port: u16) !Fd {
-        _ = self;
-        return socket_tcp.openListener(tcp_os, port);
+        return socket_tcp.openListener(tcp_os, .{
+            .bytes = self.listener_ip4,
+            .port = port,
+        });
     }
 
     pub fn openSocket() !Fd {
@@ -503,14 +530,15 @@ pub const Backend = struct {
     }
 
     pub fn listenerAddress(_: *Backend, fd: Fd) !ListenerAddress {
-        var addr: sockaddr_in = .{ .port = 0, .addr = 0 };
-        var len: c.socklen_t = @sizeOf(sockaddr_in);
-        if (c.getsockname(fd, @ptrCast(&addr), &len) < 0) return error.GetsocknameFailed;
-        return std.mem.bigToNative(u16, addr.port);
+        const address = try socket_tcp.boundIp4(tcp_os, fd);
+        return .{
+            .bytes = address.bytes,
+            .port = address.port,
+        };
     }
 
     pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
+        return address.port;
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {

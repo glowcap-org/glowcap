@@ -15,8 +15,8 @@ export type Theme = "light" | "dark";
  *  to a theme switch without prop-chaining. Returns `"light"` where
  *  there is no document. */
 export function currentTheme(): Theme {
-  if (typeof globalThis.document === "undefined") return "light";
-  return globalThis.document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+	if (typeof globalThis.document === "undefined") return "light";
+	return globalThis.document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
 /**
@@ -24,24 +24,24 @@ export function currentTheme(): Theme {
  * `c.text` evaluates to `--ocv-text` when the element renders.
  */
 export const c = {
-  surface: "var(--ocv-surface)",
-  /** A group of fields inside a pane. A step above `surfaceMuted`, so
-   *  the chips that ride at `surfaceMuted` still read against it. */
-  surfaceSubtle: "var(--ocv-surface-subtle)",
-  surfaceMuted: "var(--ocv-surface-muted)",
-  border: "var(--ocv-border)",
-  borderStrong: "var(--ocv-border-strong)",
-  divider: "var(--ocv-divider)",
-  text: "var(--ocv-text)",
-  textMuted: "var(--ocv-text-muted)",
-  textSubtle: "var(--ocv-text-subtle)",
-  accent: "var(--ocv-accent)",
-  positive: "var(--ocv-positive)",
-  positiveSoft: "var(--ocv-positive-soft)",
-  warning: "var(--ocv-warning)",
-  warningSoft: "var(--ocv-warning-soft)",
-  danger: "var(--ocv-danger)",
-  dangerSoft: "var(--ocv-danger-soft)",
+	surface: "var(--ocv-surface)",
+	/** A group of fields inside a pane. A step above `surfaceMuted`, so
+	 *  the chips that ride at `surfaceMuted` still read against it. */
+	surfaceSubtle: "var(--ocv-surface-subtle)",
+	surfaceMuted: "var(--ocv-surface-muted)",
+	border: "var(--ocv-border)",
+	borderStrong: "var(--ocv-border-strong)",
+	divider: "var(--ocv-divider)",
+	text: "var(--ocv-text)",
+	textMuted: "var(--ocv-text-muted)",
+	textSubtle: "var(--ocv-text-subtle)",
+	accent: "var(--ocv-accent)",
+	positive: "var(--ocv-positive)",
+	positiveSoft: "var(--ocv-positive-soft)",
+	warning: "var(--ocv-warning)",
+	warningSoft: "var(--ocv-warning-soft)",
+	danger: "var(--ocv-danger)",
+	dangerSoft: "var(--ocv-danger-soft)",
 } as const;
 
 /**
@@ -52,7 +52,7 @@ export const c = {
  * how the app came to have six control heights.
  */
 export const CONTROL = {
-  height: "var(--ocv-control-h)",
+	height: "var(--ocv-control-h)",
 } as const;
 
 /**
@@ -73,7 +73,7 @@ export const CONTROL = {
  * ring.
  */
 export function segmentCellClass(active: boolean): string {
-  return `ocv-btn ${SEGMENT_CELL}${active ? " is-active" : ""}`;
+	return `ocv-btn ${SEGMENT_CELL}${active ? " is-active" : ""}`;
 }
 
 /**
@@ -113,19 +113,19 @@ export const SEGMENT_CELL = "is-segment";
  * everything together would only make the same layout harder to read.
  */
 export const SPACE = {
-  xs: 3,
-  sm: 6,
-  md: 10,
-  lg: 16,
+	xs: 3,
+	sm: 6,
+	md: 10,
+	lg: 16,
 } as const;
 
 export const RADIUS = {
-  /** Small inset elements: swatches, chips, badges. */
-  sm: 3,
-  /** Anything that has to match a control's corner. `--ocv-control-r`
-   *  in styles.css is the value. */
-  md: "var(--ocv-control-r)",
-  pill: 999,
+	/** Small inset elements: swatches, chips, badges. */
+	sm: 3,
+	/** Anything that has to match a control's corner. `--ocv-control-r`
+	 *  in styles.css is the value. */
+	md: "var(--ocv-control-r)",
+	pill: 999,
 } as const;
 
 /**
@@ -149,19 +149,19 @@ export const RADIUS = {
  * one fact and each variant reads as the one thing it changes.
  */
 export const PANEL = {
-  background: c.surfaceSubtle,
-  borderRadius: RADIUS.md,
-  padding: SPACE.sm,
+	background: c.surfaceSubtle,
+	borderRadius: RADIUS.md,
+	padding: SPACE.sm,
 } as const;
 
 export const FONT = {
-  sans: "'Inter', 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-  // Departure Mono is a bitmap-inspired pixel-grid monospace,
-  // self-hosted; see the @font-face in styles.css. It ships Regular
-  // only, so nothing may ask this family for bold. The face is hinted
-  // for 11px increments, and a size off that grid renders softer.
-  mono:
-    "'Departure Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', 'Liberation Mono', monospace",
+	sans: "'Inter', 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+	// Departure Mono is a bitmap-inspired pixel-grid monospace,
+	// self-hosted; see the @font-face in styles.css. It ships Regular
+	// only, so nothing may ask this family for bold. The face is hinted
+	// for 11px increments, and a size off that grid renders softer.
+	mono:
+		"'Departure Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', 'Liberation Mono', monospace",
 } as const;
 
 /**
@@ -185,14 +185,14 @@ export const FONT = {
  * against it (`ui/Timeline/gutter-paint.ts` and its siblings).
  */
 export const SIZE = {
-  xs: 9,
-  sm: 10,
-  base: 11,
-  lg: 13,
+	xs: 9,
+	sm: 10,
+	base: 11,
+	lg: 13,
 } as const;
 
 export const WEIGHT = {
-  regular: 400,
-  medium: 500,
-  semibold: 600,
+	regular: 400,
+	medium: 500,
+	semibold: 600,
 } as const;

@@ -1,5 +1,5 @@
 {
-	"//": "The deno config every browser bundle in this repository is built with. Maps the same package specifiers the root deno.json does, plus the non-browser FFI host imports (node:*, bun:ffi) to browser stubs, so the runtime's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. That stub table tracks which built-ins the runtime's adapter cascade imports, so it has one owner and is not copied per surface; a browser app that needs more specifiers adds them here rather than forking it, which is why React (the rooms page's UI runtime, pinned to the version apps/rooms/web/ui/deno.json type-checks against) is mapped below and the JSX transform is configured here. A bundle whose entry contains no JSX is unaffected by either. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
+	"//": "The deno config every browser bundle in this repository is built with. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the native archive cascade out of the graph. The remaining node:net and bun:ffi stubs cover runtime adapters a bundler may discover through the dynamic adapter import, though the injected web adapter never selects them. React is pinned to the version the Rooms page type-checks against. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
 	"compilerOptions": {
 		"jsx": "react-jsx",
 		"jsxImportSource": "react",
@@ -16,7 +16,7 @@
 		"@pancake/web": "./mod.ts",
 		"@pancake/runtime": "../runtime/mod.ts",
 		"@pancake/runtime/websocket": "../runtime/websocket.ts",
-		"@pancake/runtime/ffi": "../runtime/ffi.ts",
+		"@pancake/runtime/ffi": "./browser_ffi.ts",
 		"@pancake/runtime/transport": "../runtime/transport.ts",
 		"@pancake/relay": "../relay/mod.ts",
 		"@pancake/iroh": "./browser_iroh_stub.ts",
@@ -24,13 +24,6 @@
 		"@pancake/webrtc": "../webrtc/mod.ts",
 		"@pancake/webrtc/channel": "../webrtc/channel.ts",
 		"node:net": "./browser_ffi_stubs.ts",
-		"bun:ffi": "./browser_ffi_stubs.ts",
-		"node:process": "./browser_ffi_stubs.ts",
-		"node:fs": "./browser_ffi_stubs.ts",
-		"node:crypto": "./browser_ffi_stubs.ts",
-		"node:os": "./browser_ffi_stubs.ts",
-		"node:path": "./browser_ffi_stubs.ts",
-		"node:url": "./browser_ffi_stubs.ts",
-		"node:child_process": "./browser_ffi_stubs.ts"
+		"bun:ffi": "./browser_ffi_stubs.ts"
 	}
 }

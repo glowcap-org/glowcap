@@ -66,8 +66,8 @@ export const UNNAMED_PROFILE = "other";
  *  that offers a profile reads this list, so there is one place a
  *  fourth implementation is named. */
 export const PROFILE_OPTIONS: readonly PeerProfile[] = [
-  ...KNOWN_PROFILES,
-  UNNAMED_PROFILE,
+	...KNOWN_PROFILES,
+	UNNAMED_PROFILE,
 ];
 
 /** One profile the picker offers, as a type.
@@ -77,8 +77,8 @@ export const PROFILE_OPTIONS: readonly PeerProfile[] = [
  *  `Record<ProfileOption, …>` — the Reference's profile section is one — fails
  *  to compile when a third implementation is named above. */
 export type ProfileOption =
-  | typeof KNOWN_PROFILES[number]
-  | typeof UNNAMED_PROFILE;
+	| typeof KNOWN_PROFILES[number]
+	| typeof UNNAMED_PROFILE;
 
 /**
  * The netlayer a session's bytes ride, spelled the way a locator spells
@@ -100,15 +100,15 @@ export type Transport = z.infer<typeof Transport>;
  *  Every surface that offers a transport reads this list, so there is
  *  one place a seventh netlayer is named. */
 const KNOWN_TRANSPORTS = [
-  "tcp",
-  "keyed-tcp",
-  "noise-tcp",
-  "keyed-relay",
-  "noise-relay",
-  "iroh",
-  "webrtc",
-  "onion",
-  "inproc",
+	"tcp",
+	"keyed-tcp",
+	"noise-tcp",
+	"keyed-relay",
+	"noise-relay",
+	"iroh",
+	"webrtc",
+	"onion",
+	"inproc",
 ] as const;
 
 export const TRANSPORT_OPTIONS: readonly Transport[] = KNOWN_TRANSPORTS;
@@ -143,8 +143,8 @@ export const UNKNOWN_CODEC = "unknown";
 export type CodecReferenceOption = BuiltinCodec | typeof UNKNOWN_CODEC;
 
 export const CODEC_REFERENCE_OPTIONS: readonly CodecReferenceOption[] = [
-  ...CODEC_OPTIONS,
-  UNKNOWN_CODEC,
+	...CODEC_OPTIONS,
+	UNKNOWN_CODEC,
 ];
 
 /**
@@ -163,12 +163,12 @@ export const CAPTP_VERSION_OPTIONS: readonly BuiltinCaptpVersion[] = BUILTIN_CAP
 
 export const UNKNOWN_CAPTP_VERSION = "unknown";
 export type CaptpVersionReferenceOption =
-  | BuiltinCaptpVersion
-  | typeof UNKNOWN_CAPTP_VERSION;
+	| BuiltinCaptpVersion
+	| typeof UNKNOWN_CAPTP_VERSION;
 
 export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOption[] = [
-  ...CAPTP_VERSION_OPTIONS,
-  UNKNOWN_CAPTP_VERSION,
+	...CAPTP_VERSION_OPTIONS,
+	UNKNOWN_CAPTP_VERSION,
 ];
 
 /**
@@ -194,12 +194,12 @@ export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOpti
  * (`checkTraceViewerVocabulary`), the same authority it holds the producers to.
  */
 export const CAPTP_VERSION_WIRE: Record<BuiltinCaptpVersion, string> = {
-  next: "pancake-next",
-  v1_0: "1.0",
+	next: "pancake-next",
+	v1_0: "1.0",
 };
 
 export function captpVersionLabel(version: CaptpVersion): string {
-  return version === UNKNOWN_CAPTP_VERSION ? UNKNOWN_CAPTP_VERSION : CAPTP_VERSION_WIRE[version];
+	return version === UNKNOWN_CAPTP_VERSION ? UNKNOWN_CAPTP_VERSION : CAPTP_VERSION_WIRE[version];
 }
 
 /**
@@ -214,14 +214,14 @@ export function captpVersionLabel(version: CaptpVersion): string {
  * in `session-end.ts` reads its own wire word the same way, for the same reason.
  */
 export function captpVersionFromWire(
-  wire: unknown,
+	wire: unknown,
 ): CaptpVersion | undefined {
-  if (wire === undefined) return undefined;
-  if (typeof wire !== "string") return UNKNOWN_CAPTP_VERSION;
-  for (const [version, spelling] of Object.entries(CAPTP_VERSION_WIRE)) {
-    if (spelling === wire) return version as CaptpVersion;
-  }
-  return UNKNOWN_CAPTP_VERSION;
+	if (wire === undefined) return undefined;
+	if (typeof wire !== "string") return UNKNOWN_CAPTP_VERSION;
+	for (const [version, spelling] of Object.entries(CAPTP_VERSION_WIRE)) {
+		if (spelling === wire) return version as CaptpVersion;
+	}
+	return UNKNOWN_CAPTP_VERSION;
 }
 
 /**
@@ -230,9 +230,9 @@ export function captpVersionFromWire(
  * stage for a session on its way out, not a protocol state.
  */
 export const SessionState = z.enum([
-  "negotiating",
-  "open",
-  "draining",
-  "closed",
+	"negotiating",
+	"open",
+	"draining",
+	"closed",
 ]);
 export type SessionState = z.infer<typeof SessionState>;

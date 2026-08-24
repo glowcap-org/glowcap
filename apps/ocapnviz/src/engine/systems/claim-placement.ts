@@ -66,16 +66,16 @@ export type ClaimSegment = { from: string; toward: string };
  * the two agree by construction: the truncated arc ENDS where the claim is.
  */
 function claimLeanTo(
-  fromId: string,
-  from: Vec2,
-  towardId: string,
-  toward: Vec2,
-  bundle: SessionBundleEntry,
+	fromId: string,
+	from: Vec2,
+	towardId: string,
+	toward: Vec2,
+	bundle: SessionBundleEntry,
 ): Vec2 {
-  return bezierAt(
-    curveBetween(fromId, from, towardId, toward, bundle),
-    CLAIM_LEAN,
-  );
+	return bezierAt(
+		curveBetween(fromId, from, towardId, toward, bundle),
+		CLAIM_LEAN,
+	);
 }
 
 /**
@@ -107,33 +107,33 @@ function claimLeanTo(
  * like any other, and `placeClaims` hands it the pin instead of the lean.
  */
 export function planClaimPlacements(
-  nodes: ReadonlySet<string>,
-  sessions: Iterable<{ a: string; b: string }>,
-  onStage: ReadonlyMap<string, string>,
+	nodes: ReadonlySet<string>,
+	sessions: Iterable<{ a: string; b: string }>,
+	onStage: ReadonlyMap<string, string>,
 ): Map<string, ClaimSegment> {
-  const placements = new Map<string, ClaimSegment>();
-  if (onStage.size === 0) return placements;
+	const placements = new Map<string, ClaimSegment>();
+	if (onStage.size === 0) return placements;
 
-  // A stage id belongs to exactly one session, so one entry per end is
-  // enough to find a claim's other end. Peers overwrite each other here and
-  // that is fine: nothing ever looks a peer up.
-  const otherEnd = new Map<string, string>();
-  for (const s of sessions) {
-    if (s.a === s.b) continue;
-    otherEnd.set(s.a, s.b);
-    otherEnd.set(s.b, s.a);
-  }
-  for (const [stageId, peerId] of onStage) {
-    const other = otherEnd.get(stageId);
-    if (other === undefined) continue;
-    // A claim at the far end contributes the peer IT names, never its own
-    // unsolved position, so the lookup is one step deep and never chases a
-    // chain.
-    const from = onStage.get(other) ?? other;
-    if (from === peerId || !nodes.has(from)) continue;
-    placements.set(stageId, { from, toward: peerId });
-  }
-  return placements;
+	// A stage id belongs to exactly one session, so one entry per end is
+	// enough to find a claim's other end. Peers overwrite each other here and
+	// that is fine: nothing ever looks a peer up.
+	const otherEnd = new Map<string, string>();
+	for (const s of sessions) {
+		if (s.a === s.b) continue;
+		otherEnd.set(s.a, s.b);
+		otherEnd.set(s.b, s.a);
+	}
+	for (const [stageId, peerId] of onStage) {
+		const other = otherEnd.get(stageId);
+		if (other === undefined) continue;
+		// A claim at the far end contributes the peer IT names, never its own
+		// unsolved position, so the lookup is one step deep and never chases a
+		// chain.
+		const from = onStage.get(other) ?? other;
+		if (from === peerId || !nodes.has(from)) continue;
+		placements.set(stageId, { from, toward: peerId });
+	}
+	return placements;
 }
 
 /**
@@ -146,32 +146,33 @@ export function planClaimPlacements(
  * enough to distort what it is attached to.
  */
 export function placeClaims(
-  layout: Map<string, Vec2>,
-  placements: ReadonlyMap<string, ClaimSegment>,
-  pins: Map<string, Vec2>,
-  bundles: ReadonlyMap<string, SessionBundleEntry>,
+	layout: Map<string, Vec2>,
+	placements: ReadonlyMap<string, ClaimSegment>,
+	pins: Map<string, Vec2>,
+	bundles: ReadonlyMap<string, SessionBundleEntry>,
 ): void {
-  for (const [stageId, segment] of placements) {
-    const pin = pins.get(stageId);
-    if (pin) {
-      layout.set(stageId, { x: pin.x, y: pin.y });
-      continue;
-    }
-    const from = layout.get(segment.from);
-    const toward = layout.get(segment.toward);
-    // No edge to sit on, because this era placed neither end of the segment.
-    // Only authored mode gets here: a solved era holds a position for every
-    // node it did not lean. The claim keeps what it has, which in authored
-    // mode is the same nothing any node the author skipped gets.
-    if (!from || !toward) continue;
-    // The claim's stage id names its own session, which is how its lane in
-    // the fan is found; an era that somehow lost the row falls back to the
-    // lone straight lane, which is what a singleton bundle already is.
-    const at = parseEndpointStageId(stageId);
-    const bundle = (at && bundles.get(at.sessionId)) ?? { index: 0, size: 1 };
-    layout.set(
-      stageId,
-      claimLeanTo(segment.from, from, segment.toward, toward, bundle),
-    );
-  }
+	for (const [stageId, segment] of placements) {
+		const pin = pins.get(stageId);
+		if (pin) {
+			layout.set(stageId, { x: pin.x, y: pin.y });
+			continue;
+		}
+		const from = layout.get(segment.from);
+		const toward = layout.get(segment.toward);
+		// No edge to sit on, because this era placed neither end of the segment.
+		// Only authored mode gets here: a solved era holds a position for every
+		// node it did not lean. The claim keeps what it has, which in authored
+		// mode is the same nothing any node the author skipped gets.
+		if (!from || !toward) continue;
+		// The claim's stage id names its own session, which is how its lane in
+		// the fan is found; an era that somehow lost the row falls back to the
+		// lone straight lane, which is what a singleton bundle already is.
+		const at = parseEndpointStageId(stageId);
+		const bundle = (at && bundles.get(at.sessionId)) ??
+			{ index: 0, size: 1 };
+		layout.set(
+			stageId,
+			claimLeanTo(segment.from, from, segment.toward, toward, bundle),
+		);
+	}
 }

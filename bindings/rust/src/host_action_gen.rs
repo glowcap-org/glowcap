@@ -32,6 +32,7 @@ pub const HOST_ACTION_CANCEL_DIAL: c_uint = 7;
 pub enum HostAction {
 	Dial {
 		ticket: u64,
+		route_index: usize,
 	},
 	Flush {
 		session: usize,
@@ -55,6 +56,7 @@ pub enum HostAction {
 	Resume,
 	CancelDial {
 		ticket: u64,
+		route_index: usize,
 	},
 }
 
@@ -72,7 +74,10 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
 		}
 	};
 	Ok(match raw.kind {
-		HOST_ACTION_DIAL => HostAction::Dial { ticket: raw.ticket },
+		HOST_ACTION_DIAL => HostAction::Dial {
+			ticket: raw.ticket,
+			route_index: raw.route_index,
+		},
 		HOST_ACTION_FLUSH => HostAction::Flush {
 			session: raw.session as usize,
 		},
@@ -91,7 +96,10 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
 			result: raw.result,
 		},
 		HOST_ACTION_RESUME => HostAction::Resume,
-		HOST_ACTION_CANCEL_DIAL => HostAction::CancelDial { ticket: raw.ticket },
+		HOST_ACTION_CANCEL_DIAL => HostAction::CancelDial {
+			ticket: raw.ticket,
+			route_index: raw.route_index,
+		},
 		kind => return Err(Error::with_detail(
 			crate::sys::ERR_INTERNAL,
 			format!("pancake ABI returned unknown host action kind {kind}"),
@@ -106,25 +114,25 @@ where
     H: HostActionHandlers,
 {
     match action {
-        HostAction::Dial { ticket } => handlers.dial(ticket).await,
+        HostAction::Dial { ticket, route_index } => handlers.dial(ticket, route_index).await,
         HostAction::Flush { session } => handlers.flush(session).await,
         HostAction::NeedGiftId { ticket } => handlers.need_gift_id(ticket).await,
         HostAction::Settle { ticket, value } => handlers.settle(ticket, value).await,
         HostAction::Fail { ticket, result, message } => handlers.fail(ticket, result, message).await,
         HostAction::Close { session, result } => handlers.close(session, result).await,
         HostAction::Resume => handlers.resume().await,
-        HostAction::CancelDial { ticket } => handlers.cancel_dial(ticket).await,
+        HostAction::CancelDial { ticket, route_index } => handlers.cancel_dial(ticket, route_index).await,
     }
 }
 
 /// Per-arm I/O the binding supplies to [`dispatch`].
 pub trait HostActionHandlers {
-    fn dial(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn dial(&self, ticket: u64, route_index: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn flush(&self, session: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn need_gift_id(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn settle(&self, ticket: u64, value: Argument) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn fail(&self, ticket: u64, result: i32, message: String) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn close(&self, session: usize, result: i32) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn resume(&self) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn cancel_dial(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn cancel_dial(&self, ticket: u64, route_index: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;
 }

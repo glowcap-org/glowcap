@@ -38,6 +38,7 @@ pub const Registered = struct {
     gift_step: *std.Build.Step,
     gift_hints_step: *std.Build.Step,
     relayed_give_step: *std.Build.Step,
+    listen_recipient_step: *std.Build.Step,
     exporter_step: *std.Build.Step,
 };
 
@@ -158,6 +159,11 @@ pub fn register(ctx: Context) Registered {
     // N+1. `-Dport=N` pins the pair.
     const goblins_relayed_give = liveDriver(ctx, .{ .exe_name = "pancake-goblins-relayed-give", .source = "interop/goblins_interop/relayed_give_driver.zig", .step_name = "goblins-relayed-give", .description = "Live relayed give vs Goblins: a give reaches a real Goblins recipient in a listener fire (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
+    // The reciprocal listener proof: pancake receives a Goblins-owned pending
+    // promise, queues Session.listenTo before asking Goblins to settle it, and
+    // calls the nested capability carried by the fulfillment.
+    const goblins_listen_recipient = liveDriver(ctx, .{ .exe_name = "pancake-goblins-listen-recipient", .source = "interop/goblins_interop/listen_recipient_driver.zig", .step_name = "goblins-listen-recipient", .description = "Live Goblins promise recipient: owning Session.listenTo observes a later settlement containing a callable capability (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
+
     // The third handoff role against live Goblins: pancake as the *exporter*,
     // answering deposit-gift from a Goblins gifter and withdraw-gift from a
     // Goblins recipient over two different sessions of one host.
@@ -177,7 +183,7 @@ pub fn register(ctx: Context) Registered {
     // `goblins` collection on PATH. The orchestrator spawns and tears down
     // both servers itself. Forward `-- <args>` (e.g. `--smoke`,
     // `--suite=echo`) to the orchestrator; `-Dport=N` pins the base port.
-    const run_bench_goblins = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "bench/goblins/bench.rkt" });
+    const run_bench_goblins = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/goblins/bench.rkt" });
     if (ctx.pin_port) |p| run_bench_goblins.addArg(b.fmt("--port={d}", .{p}));
     run_bench_goblins.addPassthruArgs();
     b.step("bench-goblins", "Cross-implementation benchmark: pancake's Racket binding vs Spritely Goblins (needs racket + goblins)")
@@ -220,14 +226,46 @@ pub fn register(ctx: Context) Registered {
     b.step("bench-langs", "Per-language consumer-cost benchmark: fixed Zig host, swap client (Zig always; joins deno/python3/cargo/racket+goblins when present)")
         .dependOn(&run_bench_langs.step);
 
-    // The langs host and Zig client consume the same driver API as any consumer,
-    // but they only compile inside the ReleaseFast `bench-langs` sibling of
-    // `check`, so an API change can rot them unnoticed (a missing `.give` arm, a
-    // Connection `close` that became `deinit`). Compile them under `check`,
-    // compile-only with no run and no cross-language runtime, so the gate catches
-    // that rot the same way it catches an example that stops compiling.
+    // Every language client otherwise compiles only under the opt-in benchmark,
+    // where a missing runtime looks like a routine skip. Compile all of them
+    // under `check`; the native host/client remain compile-only, and each binding
+    // client goes through its standard compiler without running the benchmark.
     check_step.dependOn(&langs_host_exe.step);
     check_step.dependOn(&langs_zig_client_exe.step);
+
+    const rust_langs_check = execution.addSystemCommand(b, .build_tool, &.{
+        "cargo",
+        "check",
+        "--manifest-path",
+        "bench/langs/clients/rust_bench/Cargo.toml",
+    });
+    rust_langs_check.step.dependOn(b.getInstallStep());
+    check_step.dependOn(&rust_langs_check.step);
+
+    const deno_langs_check = execution.addSystemCommand(b, .build_tool, &.{
+        "deno",
+        "check",
+        "bench/langs/clients/deno_bench.ts",
+    });
+    check_step.dependOn(&deno_langs_check.step);
+
+    const python_langs_check = execution.addSystemCommand(b, .build_tool, &.{
+        "python3",
+        "-m",
+        "py_compile",
+        "bench/langs/clients/python_bench.py",
+    });
+    check_step.dependOn(&python_langs_check.step);
+
+    const racket_langs_check = execution.addSystemCommand(b, .build_tool, &.{
+        "raco",
+        "make",
+        "bench/langs/clients/racket_bench.rkt",
+        "bench/langs/clients/goblins_bench.rkt",
+    });
+    racket_langs_check.step.dependOn(b.getInstallStep());
+    racket_langs_check.has_side_effects = true;
+    check_step.dependOn(&racket_langs_check.step);
 
     // Regenerate the performance page's charts and tables from live ReleaseFast
     // runs of every bench (codec, peer-scaling, frame-view) plus the Goblins
@@ -235,7 +273,7 @@ pub fn register(ctx: Context) Registered {
     // `<!-- bench:<name> -->` markers, the gen-header pattern, applied to docs.
     // Needs `racket` + `goblins`, and bench numbers are a dated snapshot of one
     // machine, not an invariant.
-    const run_site_report = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "bench/site_report.rkt" });
+    const run_site_report = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/site_report.rkt" });
     b.step("bench-site-report", "Regenerate the performance page's benchmark reports from live runs (needs racket + goblins)")
         .dependOn(&run_site_report.step);
 
@@ -245,6 +283,7 @@ pub fn register(ctx: Context) Registered {
         .gift_step = goblins_gift.step,
         .gift_hints_step = goblins_gift_hints_step,
         .relayed_give_step = goblins_relayed_give.step,
+        .listen_recipient_step = goblins_listen_recipient.step,
         .exporter_step = goblins_exporter.step,
     };
 }

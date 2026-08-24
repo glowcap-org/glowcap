@@ -8,10 +8,44 @@
 
 use std::time::{Duration, Instant};
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, Ref, Runtime, RuntimeConfig, Session};
+use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
+
+async fn open_runtime() -> Result<Runtime, String> {
+	Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))
+}
+
+async fn open_held_connection(locator: &Locator) -> Result<(Runtime, Session), String> {
+	let runtime = open_runtime().await?;
+	let conn = match runtime.connect(locator, ConnectOptions::default()).await {
+		Ok(conn) => conn,
+		Err(error) => {
+			let _ = runtime.close(PendingWork::Cancel).await;
+			return Err(format!("connect: {error:?}"));
+		}
+	};
+	drop(conn.serve());
+	if let Err(error) = conn.fetch("root").await {
+		let _ = conn.close(PendingWork::Cancel).await;
+		let _ = runtime.close(PendingWork::Cancel).await;
+		return Err(format!("fetch: {error:?}"));
+	}
+	Ok((runtime, conn))
+}
+
+async fn close_held_connection(runtime: Runtime, conn: Session) -> Result<(), String> {
+	conn.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close session: {e:?}"))?;
+	runtime
+		.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close runtime: {e:?}"))
+}
 
 async fn run_unit(conn: &Session, root: &Ref) -> Result<(), String> {
 	let reply = conn
@@ -37,14 +71,15 @@ async fn run_unit(conn: &Session, root: &Ref) -> Result<(), String> {
 
 // The same four verbs as `run_unit`, but pipelined (ADR-0007, questioner half):
 // `assign`/`complete`/`status` are addressed at the answer `create` will resolve
-// to — a `&RemotePromise` send target — without awaiting it, so the unit costs
-// one round trip instead of four. Only the final `status` is awaited. The
-// throughput unit; `run_unit` stays sequential so latency keeps measuring a
-// single round trip.
+// to through a `&RemotePromise` target. `assign` and `complete` are one-way;
+// only `status` allocates an answer and is awaited. The unit costs one round
+// trip without leaving discarded result promises behind.
 async fn run_unit_pipelined(conn: &Session, root: &Ref) -> Result<(), String> {
 	let create = conn.send(root, "create", &[Argument::Bytes(b"benchmark".to_vec())]);
-	let _assign = conn.send(&create, "assign", &[Argument::Bytes(b"alice".to_vec())]);
-	let _complete = conn.send(&create, "complete", &[]);
+	conn.tell(&create, "assign", &[Argument::Bytes(b"alice".to_vec())])
+		.map_err(|e| format!("assign: {e:?}"))?;
+	conn.tell(&create, "complete", &[])
+		.map_err(|e| format!("complete: {e:?}"))?;
 	let status = conn
 		.send(&create, "status", &[])
 		.await
@@ -64,13 +99,12 @@ fn percentile_ms(sorted: &[f64], p: f64) -> f64 {
 }
 
 async fn run_latency(locator: &Locator, n: usize) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
+	let runtime = open_runtime().await?;
 	let conn = runtime
 		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
+	let serving = conn.serve();
 	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let mut lats: Vec<f64> = Vec::with_capacity(n);
 	for _ in 0..n {
@@ -78,7 +112,14 @@ async fn run_latency(locator: &Locator, n: usize) -> Result<(), String> {
 		run_unit(&conn, &root).await?;
 		lats.push(s.elapsed().as_secs_f64() * 1000.0);
 	}
-	conn.close();
+	conn.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close session: {e:?}"))?;
+	serving.await.map_err(|e| format!("serve session: {e:?}"))?;
+	runtime
+		.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close runtime: {e:?}"))?;
 	lats.sort_by(|a, b| a.partial_cmp(b).unwrap());
 	let mean = if n == 0 {
 		0.0
@@ -93,20 +134,26 @@ async fn run_latency(locator: &Locator, n: usize) -> Result<(), String> {
 }
 
 async fn run_throughput(locator: &Locator, n: usize) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
+	let runtime = open_runtime().await?;
 	let conn = runtime
 		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
+	let serving = conn.serve();
 	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let t0 = Instant::now();
 	for _ in 0..n {
 		run_unit_pipelined(&conn, &root).await?;
 	}
 	let total = t0.elapsed().as_secs_f64() * 1000.0;
-	conn.close();
+	conn.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close session: {e:?}"))?;
+	serving.await.map_err(|e| format!("serve session: {e:?}"))?;
+	runtime
+		.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close runtime: {e:?}"))?;
 	let rps = if total <= 0.0 { 0.0 } else { n as f64 / (total / 1000.0) };
 	println!(
         "{{\"v\":1,\"metric\":\"throughput\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"total_ms\":{:.2},\"rps\":{},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
@@ -116,28 +163,16 @@ async fn run_throughput(locator: &Locator, n: usize) -> Result<(), String> {
 }
 
 async fn run_connections(locator: &Locator, n: usize) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
-	let mut warm: Vec<Session> = Vec::new();
+	let mut warm: Vec<(Runtime, Session)> = Vec::new();
 	for _ in 0..n.min(5) {
-		let c = runtime
-			.connect(locator, ConnectOptions::default())
-			.await
-			.map_err(|e| format!("connect: {e:?}"))?;
-		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
-		warm.push(c);
+		warm.push(open_held_connection(locator).await?);
 	}
 	println!("{{\"v\":1,\"event\":\"warmed\"}}");
 	tokio::time::sleep(Duration::from_millis(600)).await;
-	let mut handles: Vec<Session> = Vec::with_capacity(n);
+	let mut handles: Vec<(Runtime, Session)> = Vec::with_capacity(n);
 	let t0 = Instant::now();
 	for _ in 0..n {
-		let c = connect(locator, ConnectOptions::default())
-			.await
-			.map_err(|e| format!("connect: {e:?}"))?;
-		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
-		handles.push(c);
+		handles.push(open_held_connection(locator).await?);
 	}
 	let total = t0.elapsed().as_secs_f64() * 1000.0;
 	println!(
@@ -145,11 +180,11 @@ async fn run_connections(locator: &Locator, n: usize) -> Result<(), String> {
         total, total / n.max(1) as f64,
     );
 	tokio::time::sleep(Duration::from_millis(2500)).await;
-	for c in handles {
-		c.close();
+	for (runtime, conn) in handles {
+		close_held_connection(runtime, conn).await?;
 	}
-	for c in warm {
-		c.close();
+	for (runtime, conn) in warm {
+		close_held_connection(runtime, conn).await?;
 	}
 	Ok(())
 }
@@ -212,32 +247,38 @@ async fn run_local(n: usize) -> Result<(), String> {
 				std::process::exit(1);
 			}
 		};
-		if let Err(e) = conn.publish("counter", counter_behavior()).await {
+		if let Err(e) = conn.publish("counter", counter_behavior()) {
 			eprintln!("langs-bench local: publish failed: {e:?}");
 			std::process::exit(1);
 		}
-		conn.serve().await;
+		if let Err(e) = conn.serve().await {
+			eprintln!("langs-bench local: serve failed: {e:?}");
+			std::process::exit(1);
+		}
 	});
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
+	let runtime = open_runtime().await?;
 	let dial = runtime
 		.connect(&tcp::locator("127.0.0.1", loop_port), ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
+	let dial_serving = dial.serve();
 
 	// (a) in_lang: the binding's in-process actor dispatch.
-	let local = dial
-		.spawn(counter_behavior())
-		.await
-		.map_err(|e| format!("spawn: {e:?}"))?;
+	let local = dial.spawn(counter_behavior()).map_err(|e| format!("spawn: {e:?}"))?;
 	let in_lang = measure_hits(&dial, &local, n).await?;
 
 	// (b) via_host: the published counter across the loopback pair.
 	let far = dial.fetch("counter").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let via_host = measure_hits(&dial, &far, n).await?;
 
-	dial.close();
+	dial.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close session: {e:?}"))?;
+	dial_serving.await.map_err(|e| format!("serve session: {e:?}"))?;
+	runtime
+		.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close runtime: {e:?}"))?;
 
 	let in_mean = if n == 0 {
 		0.0
@@ -258,16 +299,22 @@ async fn run_local(n: usize) -> Result<(), String> {
 }
 
 async fn run_cold(locator: &Locator) -> Result<(), String> {
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
+	let runtime = open_runtime().await?;
 	let conn = runtime
 		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
+	let serving = conn.serve();
 	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	run_unit(&conn, &root).await?;
-	conn.close();
+	conn.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close session: {e:?}"))?;
+	serving.await.map_err(|e| format!("serve session: {e:?}"))?;
+	runtime
+		.close(PendingWork::Cancel)
+		.await
+		.map_err(|e| format!("close runtime: {e:?}"))?;
 	println!("{{\"v\":1,\"event\":\"cold-done\",\"client\":\"{CLIENT}\"}}");
 	Ok(())
 }

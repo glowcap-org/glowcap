@@ -48,11 +48,13 @@
          racket/tcp)
 
 ;; ── Distributed GC (ADR-0063): every projected application occurrence ────────
-;; Fetch results, nested send replies, and nested delivered arguments each own
-;; one finalizer release. The relay observes both real wire directions before
-;; teardown, so a session-close sweep cannot satisfy the proof accidentally.
+;; Fetch results, nested send replies, and nested delivered arguments are each
+;; released explicitly. The relay observes both real wire directions before
+;; teardown, so collector timing and a session-close sweep cannot satisfy the
+;; proof accidentally.
 (define gc-server (listen "127.0.0.1" 0))
 (define gc-ready (make-semaphore 0))
+(define gc-inbound (make-channel))
 (define gc-host
   (thread
    (lambda ()
@@ -71,33 +73,37 @@
                          (list? (cdar (struct-arg-entries payload)))
                          (ref? (car (cdar (struct-arg-entries payload)))))
                     "gc: server received a nested capability argument")
-            (void)]
-           [(tick) (void)])))
+            (channel-put gc-inbound (car (cdar (struct-arg-entries payload))))
+            (void)])))
        (semaphore-post gc-ready)
-       (session-serve hsession)))))
+       (define serving
+         (thread (lambda () (session-serve hsession))))
+       (session-release! hsession (channel-get gc-inbound))
+       (thread-wait serving)))))
 (define gc-to-server (box 0))
 (define gc-to-client (box 0))
+(define gc-to-server-seen (make-semaphore 0))
+(define gc-to-client-seen (make-semaphore 0))
 (define gc-needle #"op:gc-export")
-(define (make-gc-scanner count)
+(define (make-gc-scanner count seen)
   (define tail #"")
   (lambda (chunk)
     (define combined (bytes-append tail chunk))
-    (set-box! count (+ (unbox count)
-                       (length (regexp-match-positions* #rx#"op:gc-export" combined))))
+    (define found (length (regexp-match-positions* #rx#"op:gc-export" combined)))
+    (set-box! count (+ (unbox count) found))
+    (for ([_ (in-range found)]) (semaphore-post seen))
     (define keep (min (bytes-length combined) (sub1 (bytes-length gc-needle))))
     (set! tail (subbytes combined (- (bytes-length combined) keep)))
     #f))
 (define-values (gc-relay gc-relay-port)
   (start-sniffing-relay (server-port gc-server)
-                        (make-gc-scanner gc-to-server)
-                        #:on-return-chunk (make-gc-scanner gc-to-client)))
+                        (make-gc-scanner gc-to-server gc-to-server-seen)
+                        #:on-return-chunk (make-gc-scanner gc-to-client gc-to-client-seen)))
 (define gc-session (session-with-gc! (open-test-session (tcp-locator "127.0.0.1" gc-relay-port))))
 (semaphore-wait gc-ready)
-(define (wait-for-gc! count expected label)
-  (let loop ([i 0])
-    (collect-garbage)
-    (sleep 0.02) ; Finalizer scheduling shares CPU with parallel build steps: allow 10 seconds.
-    (unless (or (>= (unbox count) expected) (>= i 500)) (loop (add1 i))))
+(define (wait-for-gc! count seen expected label)
+  (unless (>= (unbox count) expected)
+    (sync/timeout 10 seen))
   (expect (>= (unbox count) expected) label))
 (define gc-factory (box (session-fetch gc-session "factory")))
 (define (gc-reply-and-drop!)
@@ -107,25 +113,24 @@
                (list? (cdar (struct-arg-entries reply)))
                (ref? (car (cdar (struct-arg-entries reply)))))
           "gc: send reply carried a nested capability")
+  (session-release! gc-session (car (cdar (struct-arg-entries reply))))
   (void))
 (gc-reply-and-drop!)
-(wait-for-gc! gc-to-server 1 "gc: nested send reply released")
+(wait-for-gc! gc-to-server gc-to-server-seen 1 "gc: nested send reply released")
 (define gc-callback
   (session-spawn gc-session (lambda (bcom) (methods [(ping) (sym "client")]))))
 (session-send gc-session (unbox gc-factory) 'accept
               (struct-arg (list (cons "nested" (list gc-callback)))))
-;; Move the serving loop past the callback frame that owned the delivered
-;; arguments before asking Racket's collector to prove their death.
-(session-send gc-session (unbox gc-factory) 'tick)
-(wait-for-gc! gc-to-client 1 "gc: nested delivered argument released")
+(wait-for-gc! gc-to-client gc-to-client-seen 1 "gc: nested delivered argument released")
+(session-release! gc-session (unbox gc-factory))
 (set-box! gc-factory #f)
-(wait-for-gc! gc-to-server 2 "gc: fetched capability released")
+(wait-for-gc! gc-to-server gc-to-server-seen 2 "gc: fetched capability released")
 (session-close! gc-session)
 (void (sync/timeout 2 (thread-dead-evt gc-host)))
 (tcp-close gc-relay)
 (server-close! gc-server)
 
-(printf "racket zig-smoke OK: GC releases fetched, replied, and delivered capability occurrences\n")
+(printf "racket zig-smoke OK: distributed release reaches fetched, replied, and delivered capability homes\n")
 
 ;; A transport read exception is not EOF. The byte pump retains the exact
 ;; object, reports physical loss to the core, retires the native Session, and

@@ -24,7 +24,10 @@ const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 /// it. NULL `hooks` discards every action (rarely useful). `*out_acted` is 1
 /// when any arm reported progress (optional). `*out_yielded` is 1 when the
 /// finite Host scheduler requested another embedder turn (optional); return to
-/// the reactor before calling the drain again.
+/// the reactor before calling the drain again. Resuming work through the
+/// underlying pop may synchronously invoke a `PancakeHostBehavior` before an
+/// action hook runs; binding runtimes must install their Host delivery context
+/// around this whole call.
 pub export fn pancake_host_pump_drain(
     host: ?*PancakeHost,
     hooks: ?*const PancakeHostPumpHooks,

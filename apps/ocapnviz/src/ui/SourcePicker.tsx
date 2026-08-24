@@ -32,7 +32,7 @@ import { useDocVersion } from "./useDocVersion.ts";
 export const CURRENT_SOURCE_OPTION = "__current-source";
 
 const sourceSelect = {
-  width: "100%",
+	width: "100%",
 } satisfies React.CSSProperties;
 
 // The URL field is a field, so it wears `.ocv-input`. It used to wear
@@ -40,128 +40,130 @@ const sourceSelect = {
 // thing you type into the dropdown's pointer cursor and unselectable
 // text. All that is left here is the mono face and the full width.
 const sourceTextInput = {
-  width: "100%",
-  fontFamily: FONT.mono,
+	width: "100%",
+	fontFamily: FONT.mono,
 } satisfies React.CSSProperties;
 
 export function SourcePicker(
-  {
-    mode,
-    scenarioId,
-    source,
-    engine,
-    liveSturdyref,
-    liveConnected,
-    liveObserved,
-    liveRecording = false,
-    onScenarioChange,
-    onLiveSturdyrefChange,
-    editor,
-  }: {
-    mode: AppMode;
-    scenarioId: string;
-    /** The buffer's actual provenance (derived in App). Null only
-     * before the first source resolves. */
-    source: BufferSourceInfo | null;
-    /** The active engine — subscribed here (not at the App level,
-     * which deliberately stays off the notify stream) so the
-     * "edited" badge appears the moment the first Build edit
-     * lands, not on the next unrelated re-render. */
-    engine: Engine;
-    liveSturdyref: string;
-    liveConnected: boolean;
-    /** At least one record has arrived on this dial. */
-    liveObserved: boolean;
-    /** Whether a live capture is running. A capture lives in the
-     *  engine the trace capability creates, so re-dialing throws it away —
-     *  the field therefore stops taking edits while one is running,
-     *  and says why. Merely being connected protects nothing, so the
-     *  field takes edits freely until Record.
-     *
-     *  Defaults to false, which reads as "no capture to protect". */
-    liveRecording?: boolean;
-    onScenarioChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
-    onLiveSturdyrefChange: (sturdyref: string) => void;
-    /** Passed through to the document's own fields: present only where editing is
-     *  allowed, which is Build. */
-    editor: EditBracket | undefined;
-  },
+	{
+		mode,
+		scenarioId,
+		source,
+		engine,
+		liveSturdyref,
+		liveConnected,
+		liveObserved,
+		liveRecording = false,
+		onScenarioChange,
+		onLiveSturdyrefChange,
+		editor,
+	}: {
+		mode: AppMode;
+		scenarioId: string;
+		/** The buffer's actual provenance (derived in App). Null only
+		 * before the first source resolves. */
+		source: BufferSourceInfo | null;
+		/** The active engine — subscribed here (not at the App level,
+		 * which deliberately stays off the notify stream) so the
+		 * "edited" badge appears the moment the first Build edit
+		 * lands, not on the next unrelated re-render. */
+		engine: Engine;
+		liveSturdyref: string;
+		liveConnected: boolean;
+		/** At least one record has arrived on this dial. */
+		liveObserved: boolean;
+		/** Whether a live capture is running. A capture lives in the
+		 *  engine the trace capability creates, so re-dialing throws it away —
+		 *  the field therefore stops taking edits while one is running,
+		 *  and says why. Merely being connected protects nothing, so the
+		 *  field takes edits freely until Record.
+		 *
+		 *  Defaults to false, which reads as "no capture to protect". */
+		liveRecording?: boolean;
+		onScenarioChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+		onLiveSturdyrefChange: (sturdyref: string) => void;
+		/** Passed through to the document's own fields: present only where editing is
+		 *  allowed, which is Build. */
+		editor: EditBracket | undefined;
+	},
 ) {
-  // What this panel paints is document-shaped: which source is loaded, what its
-  // provenance line says, and whether there is an edit to undo. None of it
-  // moves while a clock does.
-  useDocVersion(engine);
-  if (mode === "live") {
-    // The same two questions this panel answers everywhere else, which in Live
-    // have different answers rather than no answers: where the buffer comes from,
-    // and what it is. Both are rows, because a bare field and a line of text
-    // dropped straight into the key/value grid took a track each, so the
-    // sturdyref is laid out with the status beside it.
-    return (
-      <div style={panel}>
-        <Field label="Trace capability">
-          <LiveSturdyrefField
-            sturdyref={liveSturdyref}
-            recording={liveRecording}
-            onCommit={onLiveSturdyrefChange}
-          />
-        </Field>
-        <Field label="Status">
-          <ConnectionBadge
-            sturdyref={liveSturdyref}
-            connected={liveConnected}
-            observed={liveObserved}
-          />
-        </Field>
-      </div>
-    );
-  }
-  // A file or recording IS the buffer right now; it gets the
-  // selected synthetic row so the select never claims a fixture
-  // it isn't playing.
-  const current = source && source.kind !== "builtin"
-    ? {
-      label: source.kind === "file" ? source.name : source.kind === "new" ? "New document" : "Live recording",
-    }
-    : null;
-  return (
-    <div style={panel}>
-      <Field label="Source">
-        <select
-          value={current ? CURRENT_SOURCE_OPTION : scenarioId}
-          onChange={onScenarioChange}
-          className="ocv-select"
-          style={sourceSelect}
-          aria-label="Source"
-        >
-          {current && (
-            <optgroup label="Current">
-              <option value={CURRENT_SOURCE_OPTION}>{current.label}</option>
-            </optgroup>
-          )}
-          <optgroup label="Built-in">
-            {scenarios.map((s) => (
-              <option key={s.id} value={s.id}>
-                {docTitle(s)}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-      </Field>
-      <DocumentFields
-        engine={engine}
-        mode={mode}
-        editor={editor}
-        source={source}
-        // A live Build undo stack is already "edited" before the mode exit
-        // captures the fork. `canUndo` is the whole question, because every
-        // change to the document is a step in the history — including setting
-        // where it opens, which is why the camera moving is not one.
-        edited={(source?.edited ?? false) ||
-          (mode === "build" && engine.canUndo)}
-      />
-    </div>
-  );
+	// What this panel paints is document-shaped: which source is loaded, what its
+	// provenance line says, and whether there is an edit to undo. None of it
+	// moves while a clock does.
+	useDocVersion(engine);
+	if (mode === "live") {
+		// The same two questions this panel answers everywhere else, which in Live
+		// have different answers rather than no answers: where the buffer comes from,
+		// and what it is. Both are rows, because a bare field and a line of text
+		// dropped straight into the key/value grid took a track each, so the
+		// sturdyref is laid out with the status beside it.
+		return (
+			<div style={panel}>
+				<Field label="Trace capability">
+					<LiveSturdyrefField
+						sturdyref={liveSturdyref}
+						recording={liveRecording}
+						onCommit={onLiveSturdyrefChange}
+					/>
+				</Field>
+				<Field label="Status">
+					<ConnectionBadge
+						sturdyref={liveSturdyref}
+						connected={liveConnected}
+						observed={liveObserved}
+					/>
+				</Field>
+			</div>
+		);
+	}
+	// A file or recording IS the buffer right now; it gets the
+	// selected synthetic row so the select never claims a fixture
+	// it isn't playing.
+	const current = source && source.kind !== "builtin"
+		? {
+			label: source.kind === "file" ? source.name : source.kind === "new" ? "New document" : "Live recording",
+		}
+		: null;
+	return (
+		<div style={panel}>
+			<Field label="Source">
+				<select
+					value={current ? CURRENT_SOURCE_OPTION : scenarioId}
+					onChange={onScenarioChange}
+					className="ocv-select"
+					style={sourceSelect}
+					aria-label="Source"
+				>
+					{current && (
+						<optgroup label="Current">
+							<option value={CURRENT_SOURCE_OPTION}>
+								{current.label}
+							</option>
+						</optgroup>
+					)}
+					<optgroup label="Built-in">
+						{scenarios.map((s) => (
+							<option key={s.id} value={s.id}>
+								{docTitle(s)}
+							</option>
+						))}
+					</optgroup>
+				</select>
+			</Field>
+			<DocumentFields
+				engine={engine}
+				mode={mode}
+				editor={editor}
+				source={source}
+				// A live Build undo stack is already "edited" before the mode exit
+				// captures the fork. `canUndo` is the whole question, because every
+				// change to the document is a step in the history — including setting
+				// where it opens, which is why the camera moving is not one.
+				edited={(source?.edited ?? false) ||
+					(mode === "build" && engine.canUndo)}
+			/>
+		</div>
+	);
 }
 
 /**
@@ -177,8 +179,8 @@ export function SourcePicker(
  * one grid is what makes its key measure against the keys under it.
  */
 const panel = {
-  ...PANEL,
-  ...kv,
+	...PANEL,
+	...kv,
 } satisfies React.CSSProperties;
 
 /** Where the live feed dials.
@@ -201,52 +203,52 @@ const panel = {
  *  recording, and losing one to a stray click in a text box is not a
  *  trade worth offering. */
 function LiveSturdyrefField(
-  { sturdyref, recording, onCommit }: {
-    sturdyref: string;
-    recording: boolean;
-    onCommit: (sturdyref: string) => void;
-  },
+	{ sturdyref, recording, onCommit }: {
+		sturdyref: string;
+		recording: boolean;
+		onCommit: (sturdyref: string) => void;
+	},
 ) {
-  const [draft, setDraft] = useState(sturdyref);
-  // The sturdyref in force can change under the field (a preset, a reset), and
-  // the draft follows it whenever the field is not being typed in.
-  const [editing, setEditing] = useState(false);
-  const shown = editing ? draft : sturdyref;
-  const commit = () => {
-    setEditing(false);
-    if (draft !== sturdyref) onCommit(draft);
-  };
-  return (
-    <input
-      type="text"
-      value={shown}
-      readOnly={recording}
-      title={recording
-        ? "Stop the recording before changing where the feed dials — " +
-          "re-dialing starts a new capture."
-        : undefined}
-      onFocus={() => {
-        setDraft(sturdyref);
-        setEditing(true);
-      }}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          commit();
-          e.currentTarget.blur();
-        } else if (e.key === "Escape") {
-          setDraft(sturdyref);
-          setEditing(false);
-          e.currentTarget.blur();
-        }
-      }}
-      className="ocv-input"
-      style={sourceTextInput}
-      placeholder="ocapn://…/s/…"
-      spellCheck={false}
-    />
-  );
+	const [draft, setDraft] = useState(sturdyref);
+	// The sturdyref in force can change under the field (a preset, a reset), and
+	// the draft follows it whenever the field is not being typed in.
+	const [editing, setEditing] = useState(false);
+	const shown = editing ? draft : sturdyref;
+	const commit = () => {
+		setEditing(false);
+		if (draft !== sturdyref) onCommit(draft);
+	};
+	return (
+		<input
+			type="text"
+			value={shown}
+			readOnly={recording}
+			title={recording
+				? "Stop the recording before changing where the feed dials — " +
+					"re-dialing starts a new capture."
+				: undefined}
+			onFocus={() => {
+				setDraft(sturdyref);
+				setEditing(true);
+			}}
+			onChange={(e) => setDraft(e.target.value)}
+			onBlur={commit}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") {
+					commit();
+					e.currentTarget.blur();
+				} else if (e.key === "Escape") {
+					setDraft(sturdyref);
+					setEditing(false);
+					e.currentTarget.blur();
+				}
+			}}
+			className="ocv-input"
+			style={sourceTextInput}
+			placeholder="ocapn://…/s/…"
+			spellCheck={false}
+		/>
+	);
 }
 
 /**
@@ -264,63 +266,63 @@ function LiveSturdyrefField(
  * green as a feed that has already spoken.
  */
 function ConnectionBadge({
-  sturdyref,
-  connected,
-  observed,
+	sturdyref,
+	connected,
+	observed,
 }: {
-  sturdyref: string;
-  connected: boolean;
-  observed: boolean;
+	sturdyref: string;
+	connected: boolean;
+	observed: boolean;
 }) {
-  const status = liveFeedStatus({ sturdyref, connected, observed });
-  const copy = badgeCopy[status];
-  return (
-    <span style={badgeStyle[status]} title={copy.title}>
-      {copy.label}
-    </span>
-  );
+	const status = liveFeedStatus({ sturdyref, connected, observed });
+	const copy = badgeCopy[status];
+	return (
+		<span style={badgeStyle[status]} title={copy.title}>
+			{copy.label}
+		</span>
+	);
 }
 
 const badgeCopy: Record<LiveFeedStatus, { label: string; title: string }> = {
-  idle: {
-    label: "idle",
-    title: "Paste a sturdyref to dial the live feed",
-  },
-  connecting: {
-    label: "connecting…",
-    title: "Dialing the live feed — nothing arrives until it connects",
-  },
-  waiting: {
-    label: "waiting…",
-    title: "The live feed is connected — nothing has arrived yet",
-  },
-  connected: {
-    label: "connected",
-    title: "The live feed is connected",
-  },
+	idle: {
+		label: "idle",
+		title: "Paste a sturdyref to dial the live feed",
+	},
+	connecting: {
+		label: "connecting…",
+		title: "Dialing the live feed — nothing arrives until it connects",
+	},
+	waiting: {
+		label: "waiting…",
+		title: "The live feed is connected — nothing has arrived yet",
+	},
+	connected: {
+		label: "connected",
+		title: "The live feed is connected",
+	},
 };
 
 const connectedBadge = {
-  ...stateChipBase,
-  background: c.positiveSoft,
-  color: c.positive,
+	...stateChipBase,
+	background: c.positiveSoft,
+	color: c.positive,
 } satisfies React.CSSProperties;
 
 const connectingBadge = {
-  ...stateChipBase,
-  background: c.warningSoft,
-  color: c.warning,
+	...stateChipBase,
+	background: c.warningSoft,
+	color: c.warning,
 } satisfies React.CSSProperties;
 
 const idleBadge = {
-  ...stateChipBase,
-  background: c.surfaceMuted,
-  color: c.textMuted,
+	...stateChipBase,
+	background: c.surfaceMuted,
+	color: c.textMuted,
 } satisfies React.CSSProperties;
 
 const badgeStyle: Record<LiveFeedStatus, React.CSSProperties> = {
-  idle: idleBadge,
-  connecting: connectingBadge,
-  waiting: connectingBadge,
-  connected: connectedBadge,
+	idle: idleBadge,
+	connecting: connectingBadge,
+	waiting: connectingBadge,
+	connected: connectedBadge,
 };

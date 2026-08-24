@@ -1,0 +1,103 @@
+//! Host resolver pairs: defer one served turn onto a sessionless Vat vow, then
+//! settle that authority off-turn on the Host owner thread.
+
+const std = @import("std");
+
+const actors = @import("actors");
+const model = @import("model");
+
+const host_mod = @import("../host.zig");
+const host_pump = @import("../host/pump.zig");
+const settlement = @import("settlement.zig");
+const vows = @import("../vows.zig");
+
+const Host = host_mod.Host;
+const HostSession = host_mod.HostSession;
+const HostError = host_mod.HostError;
+
+fn ensureFreshResolverId(self: *Host) !void {
+    if (self.next_resolver == std.math.maxInt(u64))
+        return error.CapabilitySpaceExhausted;
+}
+
+/// Atomically mint the resolver authority and defer `turn` onto its vow. Every
+/// Host/Vat row and the forward listener are reserved before either side is
+/// published, so refusal leaves no resolver and no forwarded effect behind.
+pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
+    self.assertOwner();
+    try self.admitApplicationOperation();
+    if (session.host != self or self.sessions.get(session.peer_handle) != session)
+        return HostError.ForeignTurn;
+    if (turn.vat != &self.vat) return HostError.ForeignTurn;
+    switch (turn.origin) {
+        .local => return actors.Error.NotLocal,
+        .served => |answer| if (answer == null) return HostError.NoAnswer,
+    }
+    if (turn.port != &session.served.port or
+        turn.ingress != session.served.port.ingress)
+        return HostError.ForeignTurn;
+    try self.admitSessionOperation(session);
+    try vows.ensureFreshVowId(self);
+    try ensureFreshResolverId(self);
+    const row = try vows.reserveRow(self, null, .plain, .none, self.next_vow);
+    errdefer self.allocator.destroy(row);
+    try self.resolver_index.ensureUnusedCapacity(self.allocator, 1);
+    const vat_reservation = try self.vat.reserveResolverPair();
+    const forward_reservation = try turn.reserveForwardVow(.local);
+
+    const pair = self.vat.spawnReservedVow(vat_reservation);
+    row.vow = pair.vow;
+    vows.publishRow(self, row);
+    self.next_vow += 1;
+    const resolver_id = self.next_resolver;
+    self.next_resolver += 1;
+    self.resolver_index.putAssumeCapacity(resolver_id, .{
+        .vow_id = row.id,
+        .vat_resolver = pair.resolver,
+    });
+    turn.forwardReservedVow(forward_reservation, pair.vow);
+    row.forwarded_peer = session.peer_handle;
+    self.beginSessionOperation(session);
+    return resolver_id;
+}
+
+/// Settle a resolver vow fulfilled (ADR-0102). Top-level: the settle runs the
+/// deferred answer's listeners and pumps every session it dirtied, so it
+/// refuses from inside a callback. A successful settle consumes the resolver;
+/// preparation failure leaves it live for retry. `value` must contain no
+/// capability authority.
+pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
+    try self.refuseReentry();
+    if (!model.argumentIsPlainData(&value)) return HostError.ForeignArgument;
+    try settle(self, resolver_id, .{ .fulfilled = value });
+}
+
+/// Break a resolver vow. `reason` is borrowed for this call; ownership and
+/// retry behavior match `fulfill`.
+pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
+    try self.refuseReentry();
+    try settle(self, resolver_id, .{ .broken = reason });
+}
+
+fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution) !void {
+    const entry = self.resolver_index.get(resolver_id) orelse
+        return actors.Error.AlreadySettled;
+    const row = self.vows.get(entry.vow_id) orelse unreachable;
+    const forwarded_peer = row.forwarded_peer;
+    switch (resolution) {
+        .fulfilled => |value| try self.vat.fulfillVow(entry.vat_resolver, value),
+        .broken => |reason| try self.vat.breakVow(entry.vat_resolver, reason),
+        .give => unreachable,
+    }
+    settlement.markRowSettled(self, row);
+    std.debug.assert(self.resolver_index.remove(resolver_id));
+    std.debug.assert(self.vows.remove(entry.vow_id));
+    self.allocator.destroy(row);
+
+    if (forwarded_peer) |peer_handle| {
+        const session = self.sessions.get(peer_handle) orelse return;
+        self.finishSessionOperation(session);
+        host_pump.markDirty(self, peer_handle);
+        host_pump.finishCommittedWork(self, session);
+    }
+}

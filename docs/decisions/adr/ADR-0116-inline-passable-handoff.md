@@ -7,7 +7,7 @@ decision: "A signed handoff give may occur recursively in Passable data. Inbound
 supersedes: []
 superseded_by: []
 amends: [ADR-0009, ADR-0066, ADR-0069, ADR-0090, ADR-0100]
-amended_by: []
+amended_by: [ADR-0121]
 ---
 
 # ADR-0116 Inline Passable handoff
@@ -70,9 +70,10 @@ partner's pipelining name, not a resolver or listener notification already
 accepted for that incarnation. Such a notification moves to a private stamped
 owner until it publishes, so legal name reuse cannot cancel the old result or
 redirect it to the replacement question.
-When a settlement commits, its resolution charge moves one-for-one into the
-Session answer store and remains in the same outbound waterline until answer
-GC, local-promise retirement, or teardown releases the row.
+When a settlement commits, its resolution charge moves one-for-one out of the
+transient outbound waterline and into the Session answer store's separate
+durable-byte cap. Answer GC, local-promise retirement, or teardown releases the
+exact charge.
 The queued store-borrow carrier keeps its complete fixed footprint charged
 beside that resolution. Answer-payload and export-table capacity are acquired
 before any export mention or answer status changes; a V1 export mention is

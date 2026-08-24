@@ -1,7 +1,11 @@
 #!/bin/sh
 # Shared shell-port archive listing validation (ADR-0077).
 #
-# `archive_hygiene_check TARBALL PREFIX` returns:
+# `archive_hygiene_check TARBALL PREFIX` validates only PREFIX, matching the
+# binding extractors. An empty PREFIX validates the whole archive, for callers
+# such as release-pack that extract every member.
+#
+# Returns:
 #   0 clean
 #   1 unsafe member or an unrecognized verbose-listing format (message on stdout)
 #   2 tar listing failed
@@ -48,7 +52,7 @@ archive_hygiene_check_compressed() {
 			if (substr(name, 1, 2) == "./") name = substr(name, 3)
 			if (kind == "l") sub(/ -> .*/, "", name)
 			if (kind == "h") sub(/ link to .*/, "", name)
-			if (name != prefix && index(name, prefix "/") != 1) next
+			if (prefix != "" && name != prefix && index(name, prefix "/") != 1) next
 			if (kind != "-" && kind != "d") fail("refusing non-file tar member: " name)
 			if (substr(name, 1, 1) == "/" || name ~ /(^|\/)\.\.($|\/)/)
 				fail("refusing unsafe tar member: " name)

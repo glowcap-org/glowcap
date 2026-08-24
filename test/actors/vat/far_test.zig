@@ -267,9 +267,26 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     }
     try cross_peer.pumpAll(host_peer, caller_peer);
 
-    var first_event = caller_peer.pollEvent() orelse return error.ExpectedResolve;
+    var resolves: [2]?pancake.ocapn.engine.Event = .{ null, null };
+    var resolve_count: usize = 0;
+    while (caller_peer.pollEvent()) |event| {
+        if (event.kind() == .resolve) {
+            if (resolve_count == resolves.len) {
+                var extra = event;
+                extra.deinit();
+                return error.UnexpectedResolve;
+            }
+            resolves[resolve_count] = event;
+            resolve_count += 1;
+        } else {
+            var bookkeeping = event;
+            bookkeeping.deinit();
+        }
+    }
+    try std.testing.expectEqual(resolves.len, resolve_count);
+    var first_event = resolves[0] orelse return error.ExpectedResolve;
     defer first_event.deinit();
-    var second_event = caller_peer.pollEvent() orelse return error.ExpectedResolve;
+    var second_event = resolves[1] orelse return error.ExpectedResolve;
     defer second_event.deinit();
 
     var outer = NestedServeCapture{ .vat = &caller_vat, .port = &caller_port, .inner_event = &second_event };

@@ -57,7 +57,7 @@
          with-session-drain
          drain-host!
          run-drain-effects!
-         current-deliver-session
+         current-deliver-owner
          HANDSHAKE-TIMEOUT-MS
          drain-outbound!
          pending-writes-clear!
@@ -73,11 +73,10 @@
          break-far-vows-bytes!
          transport-closed-bytes!)
 
-;; The session whose inbound feed is running. Hosted callbacks fire
-;; synchronously inside that FFI call, so trampolines can identify the Port
-;; that delivered a turn even after the Port that first projected the actor
-;; has closed.
-(define current-deliver-session (make-parameter #f))
+;; The Session or Host whose native progress call is running. Hosted callbacks
+;; fire synchronously inside that call; the turn itself then identifies the
+;; exact ingress Session.
+(define current-deliver-owner (make-parameter #f))
 
 ;; What one locked drain hands back to run once the host lock releases: the
 ;; connections whose outbound was drained, and the deferred fires — settled
@@ -144,9 +143,11 @@
                          (void))])
         (fire)))
     (when (drain-effects-resume current)
-      ;; Yield with no host lock held, then continue in constant stack space.
-      (sleep 0)
-      (loop ((drain-effects-resume current))))))
+      ;; A native yield is an explicit scheduler boundary. Run its continuation
+      ;; in a nested Racket thread: the caller still joins the complete drain,
+      ;; while progress no longer depends on an elapsed-time sleep or immediate
+      ;; re-entry into the FFI callback's scheduler turn.
+      (loop (call-in-nested-thread (drain-effects-resume current))))))
 
 ;; Merge two drain-effects records in FIFO order (earlier first). Used when a
 ;; reader-held feed nests further locked drains under the same deferral box.
@@ -290,8 +291,8 @@
       'empty
       (let loop ([queued? #f])
         (if (pending-writes-has-room? (session-pending-writes c))
-            (let* ([mf (make-PancakeManagedFrame #f 0 0 #f #f)]
-                   [prefix (make-bytes HOST-OUTBOUND-PREFIX-CAP)])
+            (let ([mf (session-outbound-frame c)]
+                  [prefix (session-outbound-prefix c)])
               (define-values (rc prefix-len)
                 (pancake_host_session_take_outbound
                  (session-ptr c) mf prefix (bytes-length prefix)))
@@ -376,7 +377,7 @@
           (guard-open 'session-serve c)
           (define buf (pin-immobile got))
           (define rc
-            (parameterize ([current-deliver-session c])
+            (parameterize ([current-deliver-owner c])
               (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
           (host-drain-parked-releases! m)
           (cond
@@ -404,7 +405,7 @@
         (lambda ()
           (guard-open 'session-serve c)
           (define rc
-            (parameterize ([current-deliver-session c])
+            (parameterize ([current-deliver-owner c])
               (pancake_host_session_resume_feed (session-ptr c))))
           (host-drain-parked-releases! m)
           (cond

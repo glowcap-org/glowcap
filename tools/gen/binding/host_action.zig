@@ -30,6 +30,7 @@ pub const Shape = enum {
     none,
     session,
     close,
+    dial_attempt,
     ticket,
     settle,
     fail,
@@ -47,14 +48,14 @@ pub const Arm = struct {
 };
 
 pub const arms = [_]Arm{
-    .{ .name = "DIAL", .value = cd.PANCAKE_HOST_ACTION_DIAL, .variant = "Dial", .racket = "dial", .shape = .ticket },
+    .{ .name = "DIAL", .value = cd.PANCAKE_HOST_ACTION_DIAL, .variant = "Dial", .racket = "dial", .shape = .dial_attempt },
     .{ .name = "FLUSH", .value = cd.PANCAKE_HOST_ACTION_FLUSH, .variant = "Flush", .racket = "flush", .shape = .session },
     .{ .name = "NEED_GIFT_ID", .value = cd.PANCAKE_HOST_ACTION_NEED_GIFT_ID, .variant = "NeedGiftId", .racket = "need-gift-id", .shape = .ticket },
     .{ .name = "SETTLE", .value = cd.PANCAKE_HOST_ACTION_SETTLE, .variant = "Settle", .racket = "settle", .shape = .settle },
     .{ .name = "FAIL", .value = cd.PANCAKE_HOST_ACTION_FAIL, .variant = "Fail", .racket = "fail", .shape = .fail },
     .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .close },
     .{ .name = "RESUME", .value = cd.PANCAKE_HOST_ACTION_RESUME, .variant = "Resume", .racket = "resume", .shape = .none },
-    .{ .name = "CANCEL_DIAL", .value = cd.PANCAKE_HOST_ACTION_CANCEL_DIAL, .variant = "CancelDial", .racket = "cancel-dial", .shape = .ticket },
+    .{ .name = "CANCEL_DIAL", .value = cd.PANCAKE_HOST_ACTION_CANCEL_DIAL, .variant = "CancelDial", .racket = "cancel-dial", .shape = .dial_attempt },
 };
 
 comptime {
@@ -273,6 +274,11 @@ fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, 
             try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint }}", .{arm.name});
             try out.appendSlice(gpa, if (last) ";\n" else "\n");
         },
+        .dial_attempt => {
+            try out.append(gpa, '\t');
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; routeIndex: bigint }}", .{arm.name});
+            try out.appendSlice(gpa, if (last) ";\n" else "\n");
+        },
         .settle => {
             try out.append(gpa, '\t');
             try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; value: Argument }}", .{arm.name});
@@ -301,6 +307,7 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
             try tline(out, gpa, 3, "};");
         },
         .ticket => try tline(out, gpa, 3, "return { kind, ticket };"),
+        .dial_attempt => try tline(out, gpa, 3, "return { kind, ticket, routeIndex: L.getUsize(dv, L.HOST_ACTION_ROUTE_INDEX_OFF) };"),
         .settle => try tline(out, gpa, 3, "return { kind, ticket, value: readArg(dv, L.HOST_ACTION_VALUE_OFF) };"),
         .fail => {
             try tline(out, gpa, 3, "return {");

@@ -63,6 +63,8 @@ pub fn Vocabulary(
             /// Offered CapTP profile. Version and codec negotiate as separate
             /// axes, so callers normally set both but neither implies the other.
             captp_version: model.CaptpVersion = model.Preference.default_offer.captp_version,
+            /// Optional CapTP vocabulary negotiated independently per session.
+            features: model.FeatureSet = model.Preference.default_offer.features,
             /// Per-read deadline during the keyed handshake and redeem dial.
             handshake: Budget,
             /// Wall-clock deadline for externally paced listener construction.

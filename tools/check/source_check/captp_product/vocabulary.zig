@@ -54,7 +54,10 @@ pub fn checkCaptpVocabulary(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const driver_header = root.readFileAlloc(io, "include/pancake_host.h", gpa, .limited(4 << 20)) catch return;
+    const driver_header = root.readFileAlloc(io, "include/pancake_host.h", gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "include/pancake_host.h: cannot be read for the vocabulary check ({s})", .{@errorName(err)});
+        return;
+    };
     defer gpa.free(driver_header);
     for ([_][]const u8{ "PancakeHostSession", "pancake_host_session_" }) |needle| {
         if (std.mem.indexOf(u8, driver_header, needle) == null) {

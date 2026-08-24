@@ -246,19 +246,13 @@ Deno.test("an ignored line does not count at the reader, and their own always do
 });
 
 Deno.test("the ignore list survives a name with a comma in it across a reload", () => {
-	// The list holds whatever names foreign directories grant, and a name may
-	// contain the delimiter an older build joined on: `a,b` re-split into `a`
-	// and `b`, silently un-ignoring the offender and ignoring two innocents —
-	// the vanishing this list's own fix paid for, back through the encoding.
 	const KEY = "rooms.ignored";
 	localStorage.setItem(KEY, JSON.stringify(["a,b", "carol"]));
 	const round = store.readPersistedIgnored();
 	assert(round.has("a,b"), "a comma-bearing name did not round-trip");
 	assert(round.has("carol") && round.size === 2, `the reload mangled the list: ${[...round].join("|")}`);
-	// An older visit's comma-joined list is still read, so nobody's list is lost.
 	localStorage.setItem(KEY, "dave,erin");
-	const legacy = store.readPersistedIgnored();
-	assert(legacy.has("dave") && legacy.has("erin"), "a legacy comma-joined list was dropped");
+	assert(store.readPersistedIgnored().size === 0, "malformed storage minted ignored names");
 	localStorage.removeItem(KEY);
 });
 
@@ -373,10 +367,6 @@ Deno.test("this directory wears one mark across the page", () => {
 });
 
 Deno.test("a directory is named in words however many are held, and colored only within the ramp", () => {
-	// The words and the color used to be one predicate, capped at the ramp's
-	// five, so the sixth directory took the name off every row as well as the
-	// color: a reader lost the words at exactly the point there was most to tell
-	// apart. Two questions, and only the color has a ceiling.
 	const home = dirId("ocapn://home.iroh");
 	const held = (count: number) =>
 		new Map(
@@ -462,4 +452,28 @@ Deno.test("a direct row relays the rooms' word on who is away", () => {
 	assert(types.awayOf(words, dir, "cy") === "brb", "away everywhere online did not carry its reason");
 	assert(types.awayOf(words, dir, "dee") === null, "an offline member's stale reason was relayed");
 	assert(types.awayOf(words, other, "cy") === null, "a directory read another directory's roster");
+});
+
+Deno.test("a local listing entry never rekeys a room; only a foreign one enters by publication", () => {
+	const dir = dirId("test-dir-entered-pub");
+	store.openDir(dir);
+	// The directory lists a local room and a peered one. A local room is
+	// always reachable by name, so entering it must key by name whether or
+	// not the listing has arrived — keying it by its listing entry made one
+	// room two conversations when the listing landed after the first entry.
+	store.setLiveRoom(dir, { id: "gen-1", name: "lobby", kind: "local", count: 1, origin: "", proof: "local" });
+	store.setLiveRoom(dir, {
+		id: "gen-2",
+		name: "annex",
+		kind: "foreign",
+		count: null,
+		origin: "elsewhere",
+		proof: "session",
+	});
+	assert(store.enteredPublication(dir, "lobby") === null, "a local listing entry was offered as the way in");
+	assert(store.enteredPublication(dir, "unlisted") === null, "an unlisted name was offered a publication");
+	// A foreign room is the opposite: opening its name would mint a fresh
+	// local room wearing it, so the exact publication generation is the way in.
+	assert(store.enteredPublication(dir, "annex")?.id === "gen-2", "a foreign room did not enter by its publication");
+	store.forgetDir(dir);
 });

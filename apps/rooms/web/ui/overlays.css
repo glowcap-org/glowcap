@@ -111,6 +111,10 @@
 	max-width: 100%;
 	overflow-wrap: anywhere;
 }
+.attach-media.pending .why.said-more {
+	align-items: center;
+	white-space: normal;
+}
 .attach-media.pending .pct {
 	font-size: var(--type-ui);
 	line-height: 1;
@@ -249,6 +253,13 @@
 .attach-audio .sub[role="alert"] {
 	color: var(--danger);
 	font-weight: 600;
+}
+.attach-audio .sub.said-more,
+.attach-file .sub.said-more {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: unset;
+	max-width: 100%;
 }
 .row.mine .attach-file .sub {
 	color: var(--on-accent);
@@ -474,6 +485,7 @@
 /* Off the rail the lock has no mark column to agree with, and amber is the one
    thing saying the room is held. */
 .topbar .held-lock,
-.conv-intro .held-lock {
+.conv-intro .held-lock,
+#convcardTitle .held-lock {
 	color: var(--accent-ink);
 }

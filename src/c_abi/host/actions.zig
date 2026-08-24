@@ -52,6 +52,25 @@ pub fn enliven(
     return shared.PANCAKE_OK;
 }
 
+pub fn enlivenForVersion(
+    host: ?*c.PancakeHost,
+    captp_version: u32,
+    sturdyref_uri: ?[*]const u8,
+    sturdyref_uri_len: usize,
+    out_vow: ?*u64,
+) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const version = shared.captpVersionFromC(captp_version) orelse {
+        shared.setLastError("host: enliven captp_version must be a PANCAKE_CAPTP_* value", .{});
+        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    const slot = out_vow orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err|
+        return shared.marshalErrorToCode(err);
+    slot.* = inst.core.enlivenUriForVersion(version, uri) catch |err| return common.errToCode(err);
+    return shared.PANCAKE_OK;
+}
+
 pub fn next(host: ?*c.PancakeHost, out_action: ?*c.PancakeHostAction) i32 {
     const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(inst, "next_action")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
@@ -66,12 +85,14 @@ pub fn next(host: ?*c.PancakeHost, out_action: ?*c.PancakeHostAction) i32 {
                 slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_DIAL;
                 slot.ticket = dial.ticket;
+                slot.route_index = dial.route_index;
                 return shared.PANCAKE_OK;
             },
             .cancel_dial => |dial| {
                 slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_CANCEL_DIAL;
                 slot.ticket = dial.ticket;
+                slot.route_index = dial.route_index;
                 return shared.PANCAKE_OK;
             },
             .flush => |peer_handle| {
@@ -112,21 +133,31 @@ pub fn retryBorrowed(host: ?*c.PancakeHost) bool {
     return inst.core.retryBorrowedAction();
 }
 
-pub fn dialed(host: ?*c.PancakeHost, ticket: u64, raw: ?*c.PancakeHostSession) i32 {
+pub fn dialed(
+    host: ?*c.PancakeHost,
+    ticket: u64,
+    route_index: usize,
+    raw: ?*c.PancakeHostSession,
+    out_adopted: ?*u8,
+) i32 {
     const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const adopted_slot = out_adopted orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    adopted_slot.* = 0;
     if (!common.embedderOwnsDrive(inst, "dialed")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     const session = common.sessionFrom(raw) orelse return shared.PANCAKE_ERR_NULL_POINTER;
     if (common.instOf(session.host) != inst) {
         shared.setLastError("host: dialed: session belongs to another host", .{});
         return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     }
-    inst.core.exporterDialed(ticket, session) catch |err| return common.errToCode(err);
+    const adopted = inst.core.exporterDialed(ticket, route_index, session) catch |err| return common.errToCode(err);
+    adopted_slot.* = @intFromBool(adopted);
     return shared.PANCAKE_OK;
 }
 
 pub fn dialFailed(
     host: ?*c.PancakeHost,
     ticket: u64,
+    route_index: usize,
     reason: ?[*]const u8,
     reason_len: usize,
 ) i32 {
@@ -134,14 +165,14 @@ pub fn dialFailed(
     if (!common.embedderOwnsDrive(inst, "dial_failed")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     const reason_bytes = shared.sliceFromC(reason, reason_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.dialFailed(ticket, reason_bytes) catch |err| return common.errToCode(err);
+    inst.core.dialFailed(ticket, route_index, reason_bytes) catch |err| return common.errToCode(err);
     return shared.PANCAKE_OK;
 }
 
-pub fn dialCancelled(host: ?*c.PancakeHost, ticket: u64) i32 {
+pub fn dialCancelled(host: ?*c.PancakeHost, ticket: u64, route_index: usize) i32 {
     const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(inst, "dial_cancelled")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
-    inst.core.dialCancelled(ticket) catch |err| return common.errToCode(err);
+    inst.core.dialCancelled(ticket, route_index) catch |err| return common.errToCode(err);
     return shared.PANCAKE_OK;
 }
 

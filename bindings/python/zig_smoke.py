@@ -13,7 +13,6 @@ import gc
 import sys
 import socket
 import threading
-import time
 
 from pancake._lifecycle import _lifecycle_closed
 
@@ -43,6 +42,7 @@ from pancake.tcp import TcpNetlayer
 
 
 from smoke import (
+    allocator_failures,
     conversation,
     driver_release,
     failures,
@@ -52,7 +52,9 @@ from smoke import (
     transports,
     value_ownership,
     verbs,
+    vow_lifetime,
 )
+from smoke.verbs import pipeline
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
     "scenario_runtimes", default=None
@@ -72,7 +74,11 @@ def main() -> int:
     failures._stale_archive_is_refused_before_use()
     failures._driver_failure_preserves_carrier_detail()
     failures._gift_id_completion_preserves_native_refusal()
-    failures._gc_release_refusal_stays_owned()
+    vow_lifetime.gc_release_refusal_stays_owned()
+    vow_lifetime.retired_gc_ignores_late_finalizers()
+    asyncio.run(vow_lifetime.abandoned_vow_drops_pending_completion())
+    asyncio.run(vow_lifetime.promise_adoption_releases_every_post_mint_failure())
+    print("python zig-smoke OK: a dropped promise abandons its local completion row")
     asyncio.run(failures._websocket_close_failure_is_observable())
     print("python zig-smoke OK: WebSocket close retains its exact async failure")
     asyncio.run(failures._host_owns_async_behavior_settlement_failure())
@@ -83,7 +89,7 @@ def main() -> int:
     print("python zig-smoke OK: local tell failure enters its Host diagnostic seam")
     failures._native_finalizer_failure_is_nonfatal_and_observable()
     print("python zig-smoke OK: native finalizer failures stay nonfatal and observable")
-    failures._allocator_callback_exceptions_are_contained()
+    allocator_failures._callback_exceptions_are_contained()
     print(
         "python zig-smoke OK: allocator callback exceptions stay nonfatal and observable"
     )
@@ -231,7 +237,8 @@ def main() -> int:
     reader = threading.Thread(target=blocked_tcp_read, daemon=True)
     reader.start()
     assert entered.wait(1)
-    time.sleep(0.05)
+    transports._wait_for_native_call(accepted, "TCP read")
+    assert reader.is_alive(), "the empty TCP connection did not block read"
     accepted.close()
     reader.join(timeout=2)
     assert not reader.is_alive(), "TCP close did not join a blocked read"
@@ -255,7 +262,8 @@ def main() -> int:
     accepter = threading.Thread(target=blocked_tcp_accept, daemon=True)
     accepter.start()
     assert entered.wait(1)
-    time.sleep(0.05)
+    transports._wait_for_native_call(listener, "TCP accept")
+    assert accepter.is_alive(), "the empty TCP listener did not block accept"
     nl.release()
     accepter.join(timeout=2)
     assert not accepter.is_alive(), "TCP owner release did not join a blocked accept"
@@ -313,7 +321,8 @@ def main() -> int:
     reader = threading.Thread(target=blocked_inproc_read, daemon=True)
     reader.start()
     assert entered.wait(1)
-    time.sleep(0.05)
+    transports._wait_for_native_call(accepted, "in-process read")
+    assert reader.is_alive(), "the empty in-process connection did not block read"
     nl.release()
     reader.join(timeout=2)
     assert not reader.is_alive(), "inproc owner release did not join a blocked read"
@@ -335,7 +344,8 @@ def main() -> int:
     accepter = threading.Thread(target=blocked_inproc_accept, daemon=True)
     accepter.start()
     assert entered.wait(1)
-    time.sleep(0.05)
+    transports._wait_for_native_call(listener, "in-process accept")
+    assert accepter.is_alive(), "the empty in-process listener did not block accept"
     nl.release()
     accepter.join(timeout=2)
     assert not accepter.is_alive(), "inproc owner release did not join a blocked accept"
@@ -491,17 +501,17 @@ def main() -> int:
         "python zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache"
     )
 
-    runtime.run_managed(verbs._gc_releases_projected_capabilities())
+    runtime.run_managed(verbs._distributed_release_reaches_each_capability_home())
     print(
-        "python zig-smoke OK: GC releases fetched, replied, and delivered capability occurrences"
+        "python zig-smoke OK: distributed release reaches fetched, replied, and delivered capability homes"
     )
 
     runtime.run_managed(verbs._fetch_failed_is_typed())
     print("python zig-smoke OK: a non-capability fetch raises the typed FetchFailed")
 
-    runtime.run_managed(verbs._pipelining_drives_chain())
+    runtime.run_managed(pipeline.drives_chain())
     print(
-        "python zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch"
+        "python zig-smoke OK: promise pipelining drives one batch and refuses a colliding vow from another Host"
     )
 
     runtime.run_managed(verbs._turn_spawn_survives_originating_port_close())
@@ -509,12 +519,12 @@ def main() -> int:
         "python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes"
     )
 
-    runtime.run_managed(verbs._unawaited_break_stays_silent())
+    runtime.run_managed(pipeline.unawaited_break_stays_silent())
     print(
         "python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent"
     )
 
-    runtime.run_managed(verbs._projections_reach_a_field())
+    runtime.run_managed(pipeline.projections_reach_a_field())
     print(
         "python zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles"
     )

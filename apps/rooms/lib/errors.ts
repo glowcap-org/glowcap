@@ -28,6 +28,9 @@ export const ROOM_EXISTS = "room-exists";
 export const ROOM_TOO_LONG = "room-too-long";
 /** `open` from a connection that already holds `MAX_ROOMS_PER_CREATOR` rooms. */
 export const TOO_MANY_ROOMS = "too-many-rooms";
+/** A peering source or the destination directory reached its retained foreign
+ * room ceiling. */
+export const TOO_MANY_PEERED_ROOMS = "too-many-peered-rooms";
 /** A `link` that would make one more room name durable after the server has
  * reached `MAX_ROOM_LINKS`. Existing linked rooms still return their links. */
 export const ROOM_LINKS_FULL = "room-links-full";
@@ -86,6 +89,7 @@ export type RoomErrorCode =
 	| typeof ROOM_EXISTS
 	| typeof ROOM_TOO_LONG
 	| typeof TOO_MANY_ROOMS
+	| typeof TOO_MANY_PEERED_ROOMS
 	| typeof ROOM_LINKS_FULL
 	| typeof PEER_OFFLINE
 	| typeof INTRODUCTION_PENDING
@@ -107,6 +111,7 @@ const CODES = new Set<string>([
 	ROOM_EXISTS,
 	ROOM_TOO_LONG,
 	TOO_MANY_ROOMS,
+	TOO_MANY_PEERED_ROOMS,
 	ROOM_LINKS_FULL,
 	PEER_OFFLINE,
 	INTRODUCTION_PENDING,

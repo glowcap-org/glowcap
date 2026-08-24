@@ -50,17 +50,6 @@
   (lambda (name)
     (format "hello ~a, from goblins-bob" name)))
 
-;; Bob's published object. `hold-with` takes the capability pancake exports and
-;; sends the unresolved promise to it, which is the one shape that reaches
-;; pancake as `desc:import-promise`.
-(define (^rendezvous _bcom greeter-vow)
-  (lambda args
-    (case (and (pair? args) (car args))
-      [(hold-with)
-       (<-np (cadr args) 'hold greeter-vow)
-       'held]
-      [else (error '^rendezvous "unknown command: ~v" args)])))
-
 (define argv (current-command-line-arguments))
 
 (define listen-host
@@ -85,6 +74,31 @@
 ;; vat, which is where a Goblins reference is allowed to be called. The reader
 ;; empties the box before fulfilling, so the promise settles at most once.
 (define resolver-box (box #f))
+(define settlement-count (box 0))
+
+;; Bob's published object. `hold-with` is the relayed-give fixture's one-way
+;; handoff. `lend-to` returns the holder's answer, so an owning-session client
+;; knows the delivered promise has arrived before it subscribes. The separate
+;; `settle-nested` delivery is deliberately ordered after that subscription on
+;; the same CapTP session; it settles once to a list containing a callable cap.
+;; This makes the listen-before-settle ordering a wire fact, not a sleep.
+(define (^rendezvous _bcom greeter-vow)
+  (lambda args
+    (case (and (pair? args) (car args))
+      [(hold-with)
+       (<-np (cadr args) 'hold greeter-vow)
+       'held]
+      [(lend-to)
+       (<- (cadr args) 'hold greeter-vow)]
+      [(settle-nested)
+       (define resolver (unbox resolver-box))
+       (unless resolver
+         (error '^rendezvous "promise already settled"))
+       (set-box! resolver-box #f)
+       (set-box! settlement-count (add1 (unbox settlement-count)))
+       ($ resolver 'fulfill (list "ready" (spawn ^greeter)))
+       (unbox settlement-count)]
+      [else (error '^rendezvous "unknown command: ~v" args)])))
 
 (a-vat
  'run
@@ -120,6 +134,7 @@
      (define resolver (unbox resolver-box))
      (when resolver
        (set-box! resolver-box #f)
+       (set-box! settlement-count (add1 (unbox settlement-count)))
        (a-vat 'run (lambda () ($ resolver 'fulfill (spawn ^greeter))))
        (emit-ndjson
         `(("event" . "promise-settled")

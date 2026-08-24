@@ -10,6 +10,7 @@ const test_host = @import("../../support/core_host.zig");
 
 const model = pancake.ocapn.model;
 const driver = pancake.driver;
+const crypto = pancake.foundation.crypto;
 
 const Host = driver.core.Host;
 
@@ -29,6 +30,157 @@ const CapturedRef = harness.CapturedRef;
 const CapturedString = harness.CapturedString;
 const openPair = harness.openPair;
 const TraceLog = harness.TraceLog;
+const keyedDesignator = harness.keyedDesignator;
+const nextRouteOptions = harness.nextRouteOptions;
+
+test "core host: parked direct key sturdyref requires authenticated channel identity" {
+    const allocator = std.testing.allocator;
+    const server_seed = @as([32]u8, @splat(0x67));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x66)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const server_key = crypto.SecretKey.fromSeed(server_seed).publicKey().toDesignator();
+    const accepted = try publishAndOpenAccepted(&server, model.transport.iroh, &server_key, &.{});
+    _ = try accepted.served.publish(&accepted.host.vat, "widget", Widget, .{});
+    try client.ensureAdvertisedLocator(model.transport.iroh);
+
+    const vow_id = try client.enlivenSelectOrDial(.{
+        .peer = .{
+            .transport = model.transport.iroh,
+            .designator = &server_key,
+            .hints = model.Hints.emptyFalse(),
+        },
+        .swissnum = "widget",
+    });
+    const action = (try client.nextAction()).?;
+    try std.testing.expect(action == .dial);
+    const ticket = action.dial.ticket;
+
+    const dialed = try client.openPendingDial(ticket, 0) orelse return error.MissingPendingDial;
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+    _ = try client.exporterDialed(ticket, 0, dialed);
+    try std.testing.expect(client.pendingDial(ticket, 0) == null);
+
+    var refused = false;
+    while (try client.nextAction()) |result| switch (result) {
+        .failed => |failure| if (failure.vow_id == vow_id) {
+            try std.testing.expectEqualStrings("PeerIdentityUnverified", failure.message);
+            refused = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(refused);
+}
+
+test "core host: id pending dial does not preselect an unverified concrete session" {
+    const allocator = std.testing.allocator;
+    const server_seed = @as([32]u8, @splat(0x63));
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x62)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const server_key = crypto.SecretKey.fromSeed(server_seed).publicKey().toDesignator();
+    const accepted = try publishAndOpenAccepted(&server, model.transport.iroh, &server_key, &.{});
+    try client.ensureAdvertisedLocator(model.transport.iroh);
+    const dialed = try client.openDialedLocator(.{
+        .transport = model.transport.iroh,
+        .designator = &server_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+
+    const id_locator = try std.fmt.allocPrint(
+        allocator,
+        "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
+        .{ server_key[0..], server_key[0..] },
+    );
+    defer allocator.free(id_locator);
+
+    const staged = try client.node.stageDial(id_locator);
+    const action = (try client.nextAction()).?;
+    try std.testing.expect(action == .dial);
+    try std.testing.expectEqual(staged.pending, action.dial.ticket);
+    try std.testing.expect(client.pendingDial(staged.pending, 0) != null);
+
+    const routed = try client.openPendingDial(staged.pending, 0) orelse return error.MissingPendingDial;
+    defer client.releaseSession(routed) catch {};
+    try std.testing.expect(routed != dialed);
+    try std.testing.expect(routed.served.port.peer.demandedPartnerKey().?.eql(
+        crypto.PeerKey.fromDesignator(server_key[0..]).?,
+    ));
+}
+
+test "core host: session-scoped id sturdyrefs validate route bundle before fetch" {
+    const allocator = std.testing.allocator;
+    const client_seed = @as([32]u8, @splat(0x64));
+    const server_seed = @as([32]u8, @splat(0x65));
+    var client = test_host.init(allocator, client_seed, nextRouteOptions());
+    defer client.deinit();
+    var server = test_host.init(allocator, server_seed, nextRouteOptions());
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const server_key = keyedDesignator(server_seed);
+    const client_key = keyedDesignator(client_seed);
+    const accepted = try publishAndOpenAccepted(&server, model.transport.iroh, &server_key, &.{});
+    _ = try accepted.served.publish(&accepted.host.vat, "widget", Widget, .{});
+    try client.ensureAdvertisedLocator(model.transport.iroh);
+    const dialed = try client.openDialedLocator(.{
+        .transport = model.transport.iroh,
+        .designator = &server_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+    try client.bindVerifiedChannelKey(dialed, &server_key);
+    try server.bindVerifiedChannelKey(accepted, &client_key);
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+    try std.testing.expect(dialed.served.port.peer.session_state.features.multi_location);
+
+    try std.testing.expectError(
+        driver.core.HostError.PeerIdentityMismatch,
+        client.enliven(dialed, .{
+            .peer = .{
+                .transport = model.transport.id,
+                .designator = &server_key,
+                .hints = model.Hints.emptyFalse(),
+            },
+            .swissnum = "widget",
+        }),
+    );
+
+    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{server_key[0..]});
+    defer allocator.free(route);
+    const weak = "ocapn://baseline-service.onion";
+    const fallback_hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_via, .value = .{ .string = route } },
+        .{ .name = model.transport.hint_alt_locators, .value = .{ .string = weak } },
+    };
+    const fallback_vow = try client.enliven(dialed, .{
+        .peer = .{
+            .transport = model.transport.id,
+            .designator = &server_key,
+            .hints = .{ .entries = &fallback_hints },
+        },
+        .swissnum = "widget",
+    });
+    var fallback_settled = CapturedRef{};
+    try client.vowOn(fallback_vow, .{ .ctx = &fallback_settled, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    _ = try fallback_settled.require();
+}
 
 test "core host: listen refuses a foreign near target before routing" {
     const allocator = std.testing.allocator;
@@ -148,7 +300,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     const ticket = dials.items[0].ticket;
     allocator.free(dials.items[0].designator);
     _ = dials.orderedRemove(0);
-    try client.exporterDialed(ticket, dialed);
+    _ = try client.exporterDialed(ticket, 0, dialed);
 
     // The pre-minted vow settles through the action queue, naming the widget.
     // Drain by hand: the shared `drainActions` swallows completions, and this
@@ -175,6 +327,22 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     try std.testing.expect(saw_parked);
 }
 
+test "core host: select-or-dial does not attach new work to a finishing address session" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x74)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x75)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7821", &dials);
+    try client.beginSessionClose(pair.a, .{ .finish = .unbounded }, 0);
+
+    _ = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7821", "widget"));
+    try std.testing.expectEqual(@as(usize, 1), client.node.pendingDialCount());
+}
+
 test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
@@ -194,7 +362,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
 
     // The embedder could not open it: the parked vow breaks rather than
     // stranding, and it breaks host-scoped — no session ever existed.
-    try client.dialFailed(ticket, "connection refused");
+    try client.dialFailed(ticket, 0, "connection refused");
     var broke = false;
     while (try client.nextAction()) |action| {
         switch (action) {
@@ -209,7 +377,48 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     try std.testing.expect(broke);
 }
 
-test "core host: a failed pending path reuses its ticket for the next locator" {
+test "core host: parked enlivens group by ticket and settle independently" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x69)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const first = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7804", "one"));
+    const first_dial = (try host.nextAction()).?;
+    try std.testing.expect(first_dial == .dial);
+    const first_ticket = first_dial.dial.ticket;
+
+    const second = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7804", "two"));
+    try std.testing.expect(try host.nextAction() == null);
+
+    const third = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7805", "three"));
+    const second_dial = (try host.nextAction()).?;
+    try std.testing.expect(second_dial == .dial);
+    const second_ticket = second_dial.dial.ticket;
+    try std.testing.expect(first_ticket != second_ticket);
+
+    try host.dialFailed(first_ticket, 0, "first route unavailable");
+    var first_failed = false;
+    var second_failed = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .failed => |failure| {
+            if (failure.vow_id == first) first_failed = true;
+            if (failure.vow_id == second) second_failed = true;
+            try std.testing.expect(failure.vow_id != third);
+        },
+        else => return error.UnexpectedAction,
+    };
+    try std.testing.expect(first_failed);
+    try std.testing.expect(second_failed);
+    try std.testing.expect(host.pendingDial(first_ticket, 0) == null);
+    try std.testing.expect(host.pendingDial(second_ticket, 0) != null);
+
+    try host.dialFailed(second_ticket, 0, "second route unavailable");
+    const final = (try host.nextAction()).?;
+    try std.testing.expect(final == .failed);
+    try std.testing.expectEqual(third, final.failed.vow_id);
+}
+
+test "core host: a failed handoff path reuses its ticket for the next locator" {
     const allocator = std.testing.allocator;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x0d)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
@@ -224,35 +433,98 @@ test "core host: a failed pending path reuses its ticket for the next locator" {
         .name = model.transport.hint_alt_locators,
         .value = .{ .string = alternative },
     }};
-    const sturdyref = model.SturdyRef{
-        .peer = .{
-            .transport = model.transport.tcp,
-            .designator = "127.0.0.1:7810",
-            .hints = .{ .entries = &entries },
-        },
-        .swissnum = "widget",
-    };
-
-    const vow_id = try host.enlivenSelectOrDial(sturdyref);
+    const locator = try model.uri.writePeer(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:7810",
+        .hints = .{ .entries = &entries },
+    });
+    defer allocator.free(locator);
+    const staged = try host.node.stageDial(locator);
     const first = (try host.nextAction()).?;
     try std.testing.expect(first == .dial);
     const ticket = first.dial.ticket;
-    try std.testing.expectEqualStrings("127.0.0.1:7810", host.pendingDial(ticket).?.designator);
+    try std.testing.expectEqual(staged.pending, ticket);
+    try std.testing.expectEqualStrings("127.0.0.1:7810", host.pendingDial(ticket, 0).?.locator.designator);
 
     // The Host action remains transport-blind: reporting failure is enough for
     // Node to advance the active view and queue the same ticket again.
-    try host.dialFailed(ticket, "primary unreachable");
+    try host.dialFailed(ticket, 0, "primary unreachable");
     const retry = (try host.nextAction()).?;
     try std.testing.expect(retry == .dial);
     try std.testing.expectEqual(ticket, retry.dial.ticket);
-    try std.testing.expectEqualStrings("127.0.0.1:7811", host.pendingDial(ticket).?.designator);
+    try std.testing.expectEqualStrings("127.0.0.1:7811", host.pendingDial(ticket, 1).?.locator.designator);
 
-    try host.dialFailed(ticket, "alternative unreachable");
-    const failed = (try host.nextAction()).?;
-    try std.testing.expect(failed == .failed);
-    try std.testing.expectEqual(vow_id, failed.failed.vow_id);
-    try std.testing.expectEqual(driver.core.VowFailure.broken, failed.failed.failure);
-    try std.testing.expectEqualStrings("alternative unreachable", failed.failed.message);
+    try host.dialFailed(ticket, 1, "alternative unreachable");
+    try std.testing.expect(host.pendingDial(ticket, 0) == null);
+    try std.testing.expect(try host.nextAction() == null);
+}
+
+test "core host: ordinary sturdyrefs retry alternative locators and settle" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x6b)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const accepted = try publishAndOpenAccepted(&server, model.transport.tcp, "127.0.0.1:7813", &.{});
+    _ = try accepted.served.publish(&accepted.host.vat, "widget", Widget, .{});
+    try client.ensureAdvertisedLocator(model.transport.tcp);
+
+    const alternative = try model.uri.writePeer(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:7813",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(alternative);
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .string = alternative },
+    }};
+    const vow_id = try client.enlivenSelectOrDial(.{
+        .peer = .{
+            .transport = model.transport.tcp,
+            .designator = "127.0.0.1:7812",
+            .hints = .{ .entries = &hints },
+        },
+        .swissnum = "widget",
+    });
+    const first = (try client.nextAction()).?;
+    try std.testing.expect(first == .dial);
+    const ticket = first.dial.ticket;
+    try std.testing.expectEqualStrings("127.0.0.1:7812", client.pendingDial(ticket, 0).?.locator.designator);
+
+    try client.dialFailed(ticket, 0, "primary unreachable");
+    const retry = (try client.nextAction()).?;
+    try std.testing.expect(retry == .dial);
+    try std.testing.expectEqual(ticket, retry.dial.ticket);
+    const dialed = try client.openPendingDial(ticket, 1) orelse return error.MissingPendingDial;
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(try client.exporterDialed(ticket, 1, dialed));
+
+    var settled = false;
+    var rounds: usize = 0;
+    while (rounds < 64) : (rounds += 1) {
+        const moved = try shuttleAll(&.{pair});
+        var acted = false;
+        for ([_]*Host{ &client, &server }) |host| {
+            while (try host.nextAction()) |action| {
+                acted = true;
+                switch (action) {
+                    .settled => |result| if (result.vow_id == vow_id) {
+                        try std.testing.expect(result.value == .reference);
+                        settled = true;
+                    },
+                    .dial => return error.UnexpectedDial,
+                    else => {},
+                }
+            }
+        }
+        if (!moved and !acted) break;
+    }
+    try std.testing.expect(settled);
 }
 
 test "core host: sturdyref peer mismatch and accepted TCP assertion refuse before fetch" {

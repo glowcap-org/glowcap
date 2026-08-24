@@ -18,7 +18,11 @@
 ;; `ffi-shared.rkt`, the binding's types leaf. Every C out-param is a fresh
 ;; caller-owned cell inside a generated wrapper; star-suffixed raw stubs stay
 ;; unprovided. Callers see `(values rc …)` only.
-(require "ffi-driver-gen.rkt"
+(require "constants.rkt"
+         "lib-resolve.rkt"
+         "ffi-driver-gen.rkt"
          "ffi-shared.rkt")
+(require-archive-fingerprint!
+ 'driver pancake_driver_archive_fingerprint DRIVER-ARCHIVE-FINGERPRINT)
 (provide (all-from-out "ffi-driver-gen.rkt")
          (all-from-out "ffi-shared.rkt"))

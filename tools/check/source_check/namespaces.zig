@@ -239,10 +239,10 @@ const registered = [_]Table{
         .epoch = "A row enters when `finish_connect` claims the connection and leaves at `conn_close` (or netlayer release, which sweeps stragglers). A stale id looks up nothing — the resident contract's drain-to-nothing rule.",
     },
     .{
-        .file = "driver/bridge.zig",
-        .name = "pending_connects",
+        .file = "driver/bridge_connect.zig",
+        .name = "by_slot",
         .owner = "Loop slot indices this bridge itself handed out; a slot is the loop's own array position, never a number a partner supplied.",
-        .epoch = "A row lives only between the dial and its outcome, removed by `makeConnCtx` on connect and `onClose` on refusal, so a reused slot cannot inherit the previous dial's row.",
+        .epoch = "A row lives from dial admission through application adoption or the redeem session-open edge, and leaves on completion, cancellation, or close before a slot can be reused.",
     },
     .{
         .file = "net/completion/kqueue.zig",
@@ -422,7 +422,10 @@ pub fn checkBareKeyedTables(
         seen.deinit();
     }
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch return;
+    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src: cannot be opened for the bare-key namespace check ({s})", .{@errorName(err)});
+        return;
+    };
     defer dir.close(io);
 
     var walker = try dir.walk(gpa);
@@ -433,7 +436,10 @@ pub fn checkBareKeyedTables(
         defer gpa.free(rel);
         const path = try std.fmt.allocPrint(gpa, "src/{s}", .{rel});
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the bare-key namespace check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
 
         var line_no: usize = 0;

@@ -26,6 +26,7 @@ import {
 	UPLOAD_IDLE_MS,
 } from "../lib/limits.ts";
 import { handBack, type PendingUpload, type PostedFile, type RoomState } from "./registry.ts";
+import { noteTrouble } from "./journal.ts";
 
 /** Every file the server holds, oldest first, and the bytes they add up to.
  * Eviction is server-wide because the resource is: a per-room budget times
@@ -285,7 +286,7 @@ export function broadcastFiles(
 			() => blobs.forEach((blob) => handBack(m.session, blob)),
 			(error) => {
 				blobs.forEach((blob) => handBack(m.session, blob));
-				console.error(`[room] file notify to ${m.nick} failed: ${error}`);
+				noteTrouble(`a file notify to ${m.nick} failed`, error);
 			},
 		);
 	}

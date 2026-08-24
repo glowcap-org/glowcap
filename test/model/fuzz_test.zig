@@ -33,7 +33,9 @@ const uri = pancake.ocapn.model.uri;
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
 /// finds one.
-const regression_seeds = [_][]const u8{};
+const regression_seeds = [_][]const u8{
+    @embedFile("fuzz_regressions/uri-write-peer-roundtrip.bin"),
+};
 
 /// Upper bound on one fuzz input. A URI far past this is refused on length
 /// before any of the interesting parsing happens.

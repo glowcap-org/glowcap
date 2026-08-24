@@ -40,6 +40,7 @@ from ._value import Forward, Ref, _ref_from_id
 
 _OK = _abi.OK
 
+
 @dataclass
 class _BehaviorEntry:
     """One hosted object's behavior and its Host-local reference resolver.
@@ -121,8 +122,8 @@ def _run_hosted(entry: _BehaviorEntry, verb: str, args: list, turn=None):
     if turn is None:
         return _chase_local_forwards(entry, entry.run(verb, args))
     prev = getattr(_turn_state, "current_turn", None)
-    arriving = getattr(_turn_state, "active_deliver_session", None)
-    _turn_state.current_turn = (turn, arriving.host if arriving is not None else None)
+    arriving = getattr(_turn_state, "active_deliver_owner", None)
+    _turn_state.current_turn = (turn, _deliver_host(arriving))
     try:
         return _chase_local_forwards(entry, entry.run(verb, args))
     finally:
@@ -188,33 +189,43 @@ async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
 _turn_state = threading.local()
 
 
-def _enter_deliver(session: object) -> Optional[object]:
-    """Bracket the synchronous C feed whose callback may run an actor."""
-    prior = getattr(_turn_state, "active_deliver_session", None)
-    _turn_state.active_deliver_session = session
+def _enter_deliver(owner: object) -> Optional[object]:
+    """Bracket synchronous native progress that may run an actor."""
+    prior = getattr(_turn_state, "active_deliver_owner", None)
+    _turn_state.active_deliver_owner = owner
     return prior
 
 
+def _enter_host_deliver(host: object) -> Optional[object]:
+    return _enter_deliver(host)
+
+
 def _exit_deliver(prior: Optional[object]) -> None:
-    _turn_state.active_deliver_session = prior
+    _turn_state.active_deliver_owner = prior
+
+
+def _deliver_host(owner: object | None):
+    """Resolve either delivery carrier to its Host without allocating."""
+    if owner is None:
+        return None
+    return getattr(owner, "host", owner)
 
 
 def _turn_arriving_session(turn: int) -> tuple[object, object]:
-    """Resolve the core-owned turn to its existing public Session wrapper.
+    """Resolve the core-owned turn to its Session wrapper or owning Host.
 
-    A driver step is bracketed by a Host-only carrier because an internal
-    redeemed session may have no wrapper. The turn is the authority for the
-    actual ingress session; retain the carrier only when no wrapper exists.
-    Returns ``(carrier, arriving)`` so the trampoline can restore the outer
-    bracket exactly.
+    The turn is authoritative for ingress. An internal redeemed session may
+    have no public wrapper, in which case Host identity still supports turn
+    verbs and async settlement while per-session policy remains absent.
     """
-    carrier = getattr(_turn_state, "active_deliver_session", None)
-    owner = getattr(carrier, "host", None) if carrier is not None else None
+    carrier = getattr(_turn_state, "active_deliver_owner", None)
+    owner = _deliver_host(carrier)
     if owner is None:
-        raise RuntimeError("hosted callback ran outside a session feed")
+        raise RuntimeError("hosted callback ran outside native Host progress")
     out = ctypes.c_void_p()
     _check_host(_host.pancake_host_turn_session(turn, ctypes.byref(out)))
-    return carrier, owner.get_session(out.value) or carrier
+    arriving = owner.get_session(out.value) or owner
+    return carrier, arriving
 
 
 def _current_turn_for(session: object) -> Optional[int]:
@@ -255,10 +266,10 @@ def _settle_reply(turn: int, result, out_reply) -> int:
     # awaitable (an async behavior) defers onto a resolver vow the enclosing
     # feed's Host settles when the awaitable completes.
     if inspect.isawaitable(result):
-        arriving = getattr(_turn_state, "active_deliver_session", None)
-        owner = getattr(arriving, "host", None) if arriving is not None else None
+        arriving = getattr(_turn_state, "active_deliver_owner", None)
+        owner = _deliver_host(arriving)
         if owner is None:
-            return _turn_break(turn, "async behavior outside a session feed")
+            return _turn_break(turn, "async behavior outside native Host progress")
         if not owner._defer_turn_to_awaitable(turn, result):
             return _turn_break(turn, _host_last_error() or "deferral refused")
         # The behavior's own reply is a void placeholder; the real answer
@@ -278,7 +289,13 @@ def _settle_reply(turn: int, result, out_reply) -> int:
         vbuf, vptr = _byte_buf(verb_bytes)
         arr, count = _args_to_c(result.args, keep)
         rc = _host.pancake_host_turn_forward(
-            turn, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, out_reply,
+            turn,
+            ctypes.byref(ref),
+            vptr,
+            len(verb_bytes),
+            arr,
+            count,
+            out_reply,
         )
         if rc != _OK:
             return _turn_break(turn, _host_last_error() or "forward refused")
@@ -292,7 +309,9 @@ def _settle_reply(turn: int, result, out_reply) -> int:
     return _OK
 
 
-def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply) -> int:
+def _trampoline_body(
+    ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply
+) -> int:
     # The shared trampoline body: decode the deliver, run the entry under the
     # turn context, and settle the reply. Nothing may raise across the C frame,
     # KeyboardInterrupt and CancelledError included.
@@ -303,9 +322,13 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
     restore_deliver = False
     try:
         carrier, arriving = _turn_arriving_session(turn)
-        _turn_state.active_deliver_session = arriving
+        _turn_state.active_deliver_owner = arriving
         restore_deliver = True
-        verb = ctypes.string_at(verb_ptr, verb_len).decode(errors="replace") if verb_len else ""
+        verb = (
+            ctypes.string_at(verb_ptr, verb_len).decode(errors="replace")
+            if verb_len
+            else ""
+        )
         args = [_arg_from_c(args_ptr[i]) for i in range(args_len)]
         if getattr(arriving, "gc_enabled", False):
             getattr(arriving, "gc").track_arguments(args)
@@ -314,7 +337,7 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
         return _turn_break(turn, str(error) or type(error).__name__)
     finally:
         if restore_deliver:
-            _turn_state.active_deliver_session = carrier
+            _turn_state.active_deliver_owner = carrier
 
 
 # The one native callback, module-lifetime by construction: a per-spawn
@@ -327,9 +350,11 @@ def _turn_spawn(turn: int, ctx_id: int) -> int:
     """Spawn a hosted object from INSIDE a turn — the turn-time form the host
     allows where the top-level spawn is refused. Returns its opaque Host id."""
     out = _Reference()
-    _check_host(_host.pancake_host_turn_spawn(
-        turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)
-    ))
+    _check_host(
+        _host.pancake_host_turn_spawn(
+            turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)
+        )
+    )
     return out.id
 
 
@@ -359,17 +384,37 @@ def _attenuate_proxy(spawn, target: Ref, verbs: list) -> Ref:
     return spawn(proxy_behavior)
 
 
-async def _tell_far(session, target: Ref, verb: str, args: list) -> None:
+async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list) -> None:
     # Far tell mint: encode args, call pancake_host_session_tell, kick the drain. Local
     # targets stay behind _dispatch_tell / _tell_local.
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
     keepalive: list = []
     arr, count = _args_to_c(args, keepalive)
-    ref = _ref_to_c(target)
-    _check_host(_host.pancake_host_session_tell(
-        session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count,
-    ))
+    if isinstance(target, RemotePromise):
+        source_vow = target.far_vow(session.host)
+        _check_host(
+            _host.pancake_host_vow_tell(
+                session.host.raw,
+                source_vow,
+                vptr,
+                len(verb_bytes),
+                arr,
+                count,
+            )
+        )
+    else:
+        ref = _ref_to_c(target)
+        _check_host(
+            _host.pancake_host_session_tell(
+                session.raw,
+                ctypes.byref(ref),
+                vptr,
+                len(verb_bytes),
+                arr,
+                count,
+            )
+        )
     await session.host.kick_actions()
 
 
@@ -384,10 +429,10 @@ def _dispatch_send(session, target, verb: str, args) -> RemotePromise:
     return _send_far(session, target, verb, args)
 
 
-async def _dispatch_tell(session, target: Ref, verb: str, args) -> None:
+async def _dispatch_tell(session, target: Ref | RemotePromise, verb: str, args) -> None:
     # Near-hosted vs far tell dispatch: a self-hosted near runs _tell_local,
     # everything else mints through _tell_far.
-    if target is not None:
+    if isinstance(target, Ref):
         ctx = session.hosted.get(target.id)
         if ctx is not None:
             await _tell_local(session, ctx, verb, list(args))
@@ -399,10 +444,12 @@ def _register_actor(session, behavior) -> int:
     # Register `behavior` in the Host-owned trampoline index so local Forward
     # chains compose in process and an arriving Port can run it in a turn.
     hosted = session.hosted
-    return session.host._register_behavior(_BehaviorEntry(
-        run=behavior,
-        resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)),
-    ))
+    return session.host._register_behavior(
+        _BehaviorEntry(
+            run=behavior,
+            resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)),
+        )
+    )
 
 
 def _spawn_hosted(session, behavior) -> Ref:
@@ -417,9 +464,15 @@ def _spawn_hosted(session, behavior) -> Ref:
             ref_id = _turn_spawn(turn, ctx)
         else:
             out = _Reference()
-            _check_host(_host.pancake_host_session_spawn(
-                session.raw, _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
-            ))
+            _check_host(
+                _host.pancake_host_session_spawn(
+                    session.raw,
+                    _TRAMPOLINE,
+                    ctypes.c_void_p(ctx),
+                    None,
+                    ctypes.byref(out),
+                )
+            )
             ref_id = out.id
     except BaseException:
         # free = NULL: the C tier never owns the row, so a refused mint must
@@ -438,10 +491,17 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
     buf, ptr = _byte_buf(swiss)
     out = _Reference()
     try:
-        _check_host(_host.pancake_host_session_publish(
-            session.raw, ptr, len(swiss),
-            _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
-        ))
+        _check_host(
+            _host.pancake_host_session_publish(
+                session.raw,
+                ptr,
+                len(swiss),
+                _TRAMPOLINE,
+                ctypes.c_void_p(ctx),
+                None,
+                ctypes.byref(out),
+            )
+        )
     except BaseException:
         # free = NULL: the C tier never owns the row, so a refused publish
         # must drop it here or the registry pins the behavior forever.

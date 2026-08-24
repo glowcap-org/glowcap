@@ -5,10 +5,10 @@
 // is what answers on the connection that dial opens. `Session.publishedRef` then
 // names the position the directory's own connection granted it.
 //
-// Removing a Host alias does not reclaim its hosted behavior or any issued
-// capability, so publishing one spends a slot for the Host's life. The peer
-// asking is the one who chose the name, so `MAX_DM_INBOXES` is the ceiling on
-// how many any of them can spend, and an over-long nick is refused outright.
+// Removing a Host alias never retargets an issued capability: the old actor
+// remains exact while anything still roots it, then its hosted behavior is
+// reclaimed. The publisher retires aliases when their peer authority ends, so
+// churn does not spend its bounded live-publication ledger.
 //
 // Shared by the browser UI and the direct-message demos.
 
@@ -24,17 +24,17 @@ export interface InboxOfferer {
 	offer(peer: string): void;
 	/** Forget the inbox minted for `peer`, so a later `offer` mints a fresh one.
 	 * Call it when the peer leaves: the next holder of that name is someone else
-	 * and must not inherit their inbox. A published behavior cannot be reclaimed,
-	 * so a peer that rejoins costs another Host-lifetime slot. */
+	 * and must not inherit their inbox. The old issued capability keeps its exact
+	 * revoked/disconnected behavior; it is never retargeted. */
 	forget(peer: string): void;
+	/** Retire every alias owned by this offerer. Resolves after unpublication has
+	 * run outside any delivering Host turn. */
+	close(): Promise<void>;
 }
 
-/** Host-scoped owner of every inbox alias published through it.
- *
- * Publishing a giftable hosts behavior for the Host's whole lifetime, even if
- * its alias is later removed. Directory offerers are children of this owner:
- * reconnecting, leaving, reopening, or adding another directory must not reset
- * the one process-wide ceiling. */
+/** Host-scoped owner of every live inbox alias published through it. Directory
+ * offerers are children of this owner, so the configured ceiling is one
+ * structural ledger rather than a per-caller convention. */
 export interface InboxPublisher {
 	offerer(opts: InboxOffererOptions): InboxOfferer;
 }
@@ -51,28 +51,76 @@ export interface InboxOffererOptions {
 	onError?: (peer: string, err: unknown) => void;
 }
 
-const publishers = new WeakMap<Host, InboxPublisher>();
+interface PublisherState {
+	readonly limit: number;
+	readonly publisher: InboxPublisher;
+}
+
+const publishers = new WeakMap<Host, PublisherState>();
 
 /** Return the one inbox publication owner for `host`.
  *
  * Host identity, not caller discipline, makes the ledger singular: every call
  * with the same Host returns the same owner. Create each directory's offerer
  * through it. */
-export function inboxPublisher(host: Host): InboxPublisher {
+export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublisher {
+	if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("inbox publication limit must be positive");
 	const held = publishers.get(host);
-	if (held !== undefined) return held;
-	// Every name minted so far, and whether `publishGiftable` has taken it. A
-	// taken name is spent for good, which is what `MAX_DM_INBOXES` counts; one the
-	// host refused is free again.
+	if (held !== undefined) {
+		if (held.limit !== limit) {
+			throw new Error(`Host inbox publisher already owns limit ${held.limit}, not ${limit}`);
+		}
+		return held.publisher;
+	}
+	// Every live or provisional alias, and whether `publishGiftable` has taken
+	// it. Retirement removes a published name only after scheduling native
+	// unpublication ahead of any replacement publication.
 	const names = new Map<string, boolean>();
+	const retiringNames = new Set<string>();
 	const publisher: InboxPublisher = {
 		offerer(opts: InboxOffererOptions): InboxOfferer {
 			// The name minted for each peer in this directory. The same spelling in
 			// another directory is another authority and gets another alias, but both
 			// spend this Host's ledger.
 			const minted = new Map<string, string>();
+			const retirements = new Set<Promise<void>>();
+			let closed = false;
+
+			const retire = (key: string): Promise<void> | null => {
+				const name = minted.get(key);
+				minted.delete(key);
+				if (name === undefined) return null;
+				if (names.get(name) !== true) {
+					names.delete(name);
+					return null;
+				}
+				// Free logical capacity now. The retirement microtask was queued before
+				// any replacement publication, so the native alias leaves first.
+				names.delete(name);
+				retiringNames.add(name);
+				const pending = new Promise<void>((resolve) =>
+					queueMicrotask(() => {
+						try {
+							host.unpublishGiftable(name);
+							retiringNames.delete(name);
+						} catch (error) {
+							// The native alias is still live, so restore the ledger rather than
+							// pretending its slot was reclaimed.
+							retiringNames.delete(name);
+							names.set(name, true);
+							opts.onError?.(key, error);
+						} finally {
+							resolve();
+						}
+					})
+				);
+				retirements.add(pending);
+				void pending.finally(() => retirements.delete(pending));
+				return pending;
+			};
 			return {
 				offer(peer: string): void {
+					if (closed) return;
 					const key = peer.toLowerCase();
 					if (opts.skip?.(peer)) return;
 					const unnameable = nickRefusal(peer);
@@ -82,25 +130,25 @@ export function inboxPublisher(host: Host): InboxPublisher {
 					}
 					let swiss = minted.get(key);
 					if (swiss === undefined) {
-						if (names.size >= MAX_DM_INBOXES) {
+						if (names.size >= limit) {
 							opts.onError?.(
 								peer,
-								new Error(`already holding ${MAX_DM_INBOXES} inboxes; not minting another`),
+								new Error(`already holding ${limit} inboxes; not minting another`),
 							);
 							return;
 						}
 						// Claim before yielding so two requests cannot race into two
 						// aliases. The ledger, rather than probability, owns uniqueness.
-						do swiss = mintSwiss(peer); while (names.has(swiss));
+						do swiss = mintSwiss(peer); while (names.has(swiss) || retiringNames.has(swiss));
 						minted.set(key, swiss);
 						names.set(swiss, false);
 					}
 					const name = swiss;
 					queueMicrotask(() => {
 						const dir = opts.dir();
-						if (dir === null || minted.get(key) !== name) {
+						if (closed || dir === null || minted.get(key) !== name) {
 							// The Host never took this alias. Return its provisional slot;
-							// published aliases are permanent and never enter this arm.
+							// published aliases retire through `retire` instead.
 							if (names.get(name) === false) names.delete(name);
 							if (minted.get(key) === name) minted.delete(key);
 							return;
@@ -114,8 +162,8 @@ export function inboxPublisher(host: Host): InboxPublisher {
 							ref = dir.session.publishedRef(name);
 							if (ref === null) throw new Error("the giftable has no live capability");
 						} catch (err) {
-							// Only a name the Host never took is free again. Once published,
-							// forgetting it would mint a second alias while this one answers.
+							// A name the Host never took is free immediately. Once published,
+							// keep it for a later re-offer; explicit forget/close retires it.
 							if (names.get(name) !== true) {
 								names.delete(name);
 								minted.delete(key);
@@ -127,18 +175,18 @@ export function inboxPublisher(host: Host): InboxPublisher {
 					});
 				},
 				forget(peer: string): void {
-					const key = peer.toLowerCase();
-					const name = minted.get(key);
-					minted.delete(key);
-					// A queued publication has no Host authority yet. Return that slot
-					// now, not when its microtask eventually notices the forgotten row:
-					// the next holder may be offered in this same turn.
-					if (name !== undefined && names.get(name) === false) names.delete(name);
+					void retire(peer.toLowerCase());
+				},
+				async close(): Promise<void> {
+					if (closed) return;
+					closed = true;
+					for (const key of [...minted.keys()]) void retire(key);
+					await Promise.allSettled([...retirements]);
 				},
 			};
 		},
 	};
-	publishers.set(host, publisher);
+	publishers.set(host, { limit, publisher });
 	return publisher;
 }
 

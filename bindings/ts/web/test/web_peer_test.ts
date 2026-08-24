@@ -70,6 +70,19 @@ try {
 	const wasmBytes = await Deno.readFile(
 		new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url),
 	);
+	// `init` installs the Wasm adapter before it asks the shared Runtime to
+	// mint its Host. Refuse there once, then retry: a failed construction must
+	// withdraw that provisional registration or this second call reports an
+	// adapter conflict instead of opening the corrected runtime.
+	let badInit: unknown = null;
+	try {
+		await init({ wasm: wasmBytes, seed: new Uint8Array(1) });
+	} catch (error) {
+		badInit = error;
+	}
+	if (!(badInit instanceof Error) || !badInit.message.includes("seed must be 32 bytes")) {
+		fail(`invalid Host seed did not fail after adapter installation: ${String(badInit)}`);
+	}
 	const runtime = await init({
 		wasm: wasmBytes,
 		wsUrl: (host, port) => `ws://${host}:${port}/`,

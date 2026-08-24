@@ -26,6 +26,11 @@ const writeState = harness.writeState;
 pub var g_offset: usize = 0;
 pub var g_ever_joined: bool = false;
 
+pub const PendingInboxOfferRetry = struct {
+    bytes: [common.max_nick]u8,
+    len: usize,
+};
+
 // --- the peer daemon --------------------------------------------------------
 
 /// Everything the loop thread and the inbox actor share. The
@@ -100,6 +105,15 @@ pub const PeerState = struct {
     /// cannot run inside `RegInbox.handle`; `maintain` drains this set outside
     /// the latch. Owned keys; cleared with the other room-scoped DM tables.
     pending_inbox_offers: std.StringHashMapUnmanaged(void) = .{},
+    /// One bounded notification retry retained without an allocation when the
+    /// normal offer table is under memory pressure.
+    pending_inbox_offer_retry: ?PendingInboxOfferRetry = null,
+    /// A sidecar/state write failed. The loop must stop rather than claim a
+    /// lifecycle state that the operator cannot observe or recover from.
+    persistence_failed: bool = false,
+    /// Release failures are terminal diagnostics: the registry may still own
+    /// the capability after its application row is gone.
+    release_failures: usize = 0,
     /// One Host-vat registration callback, projected canonically onto each
     /// room Port. Registration retries resend this actor instead of minting an
     /// unbounded callback actor every time a directory stays silent.
@@ -109,8 +123,13 @@ pub const PeerState = struct {
         return signals.stopRequested();
     }
 
-    pub fn writeStateNow(self: *PeerState, status: []const u8) void {
-        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str, self.isRegistered(), self.join_attempts);
+    pub fn writeStateNow(self: *PeerState, status: []const u8) bool {
+        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str, self.isRegistered(), self.join_attempts) catch |err| {
+            self.persistence_failed = true;
+            log.err(self.io, "writing state.json failed: {s}", .{@errorName(err)});
+            return false;
+        };
+        return true;
     }
 
     /// The live room session, across every phase arm that holds one.
@@ -138,6 +157,7 @@ pub const PeerState = struct {
         var offer_it = self.pending_inbox_offers.keyIterator();
         while (offer_it.next()) |k| self.gpa.free(k.*);
         self.pending_inbox_offers.clearRetainingCapacity();
+        self.pending_inbox_offer_retry = null;
         // dm_back intentionally kept: room wire loss is not partner-session loss.
     }
 
@@ -145,9 +165,18 @@ pub const PeerState = struct {
         var it = self.dm_back.iterator();
         while (it.next()) |e| {
             self.gpa.free(e.key_ptr.*);
-            _ = self.host.capabilities.release(e.value_ptr.*, 1) catch {};
+            _ = self.releaseCapability(e.value_ptr.*, "teardown");
         }
         self.dm_back.clearRetainingCapacity();
+    }
+
+    pub fn releaseCapability(self: *PeerState, capability: Capability, context: []const u8) bool {
+        _ = self.host.capabilities.release(capability, 1) catch |err| {
+            if (self.release_failures < std.math.maxInt(usize)) self.release_failures += 1;
+            log.err(self.io, "capability release failed during {s}: {s}", .{ context, @errorName(err) });
+            return false;
+        };
+        return true;
     }
 
     pub fn clearRoomWire(self: *PeerState) void {
@@ -160,7 +189,7 @@ pub const PeerState = struct {
     /// redials outside it. No-op in any phase but `.joining`, so a stale
     /// callback after teardown or after a successful join cannot clobber.
     pub fn requestAbandonJoin(self: *PeerState) void {
-        if (phase_mod.requestAbandon(&self.phase)) self.writeStateNow("reconnecting");
+        if (phase_mod.requestAbandon(&self.phase)) _ = self.writeStateNow("reconnecting");
     }
 
     pub fn deinitTables(self: *PeerState) void {
@@ -172,6 +201,9 @@ pub const PeerState = struct {
         self.pending_introduces.deinit(self.gpa);
         self.failed_introduces.deinit(self.gpa);
         self.pending_inbox_offers.deinit(self.gpa);
+        if (self.release_failures > 0) {
+            log.err(self.io, "{d} capability release(s) failed during peer teardown", .{self.release_failures});
+        }
     }
 };
 

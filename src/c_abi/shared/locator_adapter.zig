@@ -54,6 +54,7 @@ pub const Projection = struct {
         value: model.PeerLocator,
         stack: []locator.PancakeLocatorHintView,
     ) CloneViewError!Projection {
+        model.validatePeerLocator(value) catch return error.InvalidLocatorView;
         const heap_hints = if (value.hints.entries.len > stack.len)
             try allocator.alloc(locator.PancakeLocatorHintView, value.hints.entries.len)
         else
@@ -61,7 +62,7 @@ pub const Projection = struct {
         errdefer if (heap_hints) |owned| allocator.free(owned);
         const hints = if (heap_hints) |owned| owned else stack[0..value.hints.entries.len];
         return .{
-            .view = try project(value, hints),
+            .view = try projectValidated(value, hints),
             .heap_hints = heap_hints,
         };
     }
@@ -134,6 +135,13 @@ pub fn project(
     hint_storage: []locator.PancakeLocatorHintView,
 ) ViewError!locator.PancakeLocatorView {
     model.validatePeerLocator(value) catch return error.InvalidLocatorView;
+    return projectValidated(value, hint_storage);
+}
+
+fn projectValidated(
+    value: model.PeerLocator,
+    hint_storage: []locator.PancakeLocatorHintView,
+) ViewError!locator.PancakeLocatorView {
     if (hint_storage.len != value.hints.entries.len) return error.InvalidLocatorView;
     for (value.hints.entries, hint_storage) |entry, *out| {
         out.* = .{
@@ -194,6 +202,7 @@ fn optionalSlice(ptr: ?[*]const u8, len: usize) ViewError![]const u8 {
 
 fn validateViewHeader(view: *const locator.PancakeLocatorView) ViewError!void {
     if (view.abi_version != locator.PANCAKE_LOCATOR_VIEW_ABI_VERSION or
-        view.struct_size < @sizeOf(locator.PancakeLocatorView))
+        view.struct_size < @sizeOf(locator.PancakeLocatorView) or
+        view.hint_count > model.max_locator_hint_count)
         return error.InvalidLocatorView;
 }

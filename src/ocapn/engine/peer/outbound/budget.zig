@@ -1,9 +1,30 @@
 //! Constant-time ownership accounting for one Peer's retained outbound work.
 //!
-//! Pending semantic carriers, Node-held Passable transactions, encoded frames,
-//! and Session-retained sent-answer resolutions share one Peer waterline. The
-//! transfer helpers move a charge between those owners without an uncharged or
+//! Pending semantic carriers, Node-held Passable transactions, and encoded
+//! frames share one Peer waterline of in-flight outbound work. The transfer
+//! helpers move a charge between those owners without an uncharged or
 //! double-charged interval.
+//!
+//! Session-retained sent-answer resolutions are deliberately outside it. A
+//! stored resolution is durable table state that lives with its answer row —
+//! forever, on a session whose partner sends no `op:gc-answers` — so counting
+//! it here made every long V1.0 session saturate its own waterline after a
+//! few dozen answered calls and stay saturated. The store answers to the
+//! session's answer-row and retained-byte caps (`InboundAnswerCapExceeded` and
+//! `RetainedAnswerCapExceeded`); `transferPendingToAnswerStore` is where a
+//! settlement's stored share leaves flow accounting and enters that separately
+//! bounded durable owner.
+//!
+//! The waterline gates admission only. A transfer — completing work a
+//! reservation already admitted — always proceeds, because retained state can
+//! shrink only through completion: a sent answer's stored resolution releases
+//! when its carrier encodes, so a waterline that refused transfers while the
+//! store was saturated deadlocked exactly there, with sixteen concurrently
+//! staged answers holding the budget closed against the encodes that would
+//! have drained them. Memory stays bounded without gating completion: every
+//! staged byte was admitted under the waterline, a completion converts those
+//! bytes to encoded frames at no more than one message's encoding expansion,
+//! and new producers stay refused until the transport drains.
 
 const std = @import("std");
 const model = @import("model");
@@ -34,6 +55,7 @@ pub fn measureAnswerSettlementCharge(
 
 pub fn pendingCharge(item: anytype) !usize {
     return switch (item) {
+        .answer_release => @sizeOf(@TypeOf(item)),
         .message => |message| model.measureMessageOwnedBytes(message),
         .next_answered => |pair| blk: {
             const operation = try model.measureMessageOwnedBytes(pair.operation);
@@ -55,9 +77,13 @@ pub fn reservePending(self: anytype, item: anytype, comptime Reservation: type) 
         if (charge > self.outbound_budget) return error.OutboundBackpressure;
         try checkWaterline(self);
     }
-    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+    try self.pending_send.ensureUnusedCapacity(
+        self.allocator,
+        self.pending_send_reservations + 1,
+    );
     self.pending_send_bytes = std.math.add(usize, self.pending_send_bytes, charge) catch
         return error.OutboundBackpressure;
+    self.pending_send_reservations += 1;
     return .{ .charge = charge };
 }
 
@@ -82,12 +108,14 @@ pub fn transferInline(
 ) !PendingReservation {
     const charge = try pendingCharge(item);
     if (charge > self.outbound_budget) return error.OutboundBackpressure;
-    // The staged producer may finish across the waterline, but work admitted
-    // after it must not make an already-saturated queue accept another
-    // semantic commit. Exclude this producer's existing charge exactly as the
-    // encoded-frame transfer does.
-    try checkTransferWaterline(self, staged.charge);
-    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+    // The staged producer finishes across the waterline (see the module doc):
+    // this commit converts an admitted inline reservation into its pending
+    // carrier, and refusing it here is how a saturated queue deadlocked
+    // against its own drain. Only the single-item ceiling above remains.
+    try self.pending_send.ensureUnusedCapacity(
+        self.allocator,
+        self.pending_send_reservations + 1,
+    );
     if (charge > staged.charge) {
         self.pending_send_bytes = std.math.add(
             usize,
@@ -98,6 +126,7 @@ pub fn transferInline(
         std.debug.assert(self.pending_send_bytes >= staged.charge - charge);
         self.pending_send_bytes -= staged.charge - charge;
     }
+    self.pending_send_reservations += 1;
     return .{ .charge = charge };
 }
 
@@ -109,33 +138,12 @@ pub fn transferPendingToAnswerStore(self: anytype, reservation: anytype, store_c
 }
 
 pub fn checkWaterline(self: anytype) !void {
-    const retained = std.math.add(
-        usize,
-        self.pending_send_bytes,
-        self.session_state.retainedSentAnswerBytes(),
-    ) catch return error.OutboundBackpressure;
-    const current = std.math.add(usize, retained, self.outbound.weight()) catch
-        return error.OutboundBackpressure;
-    if (current >= self.outbound_budget) return error.OutboundBackpressure;
-}
-
-pub fn checkTransferWaterline(self: anytype, staged_charge: usize) !void {
-    std.debug.assert(staged_charge <= self.pending_send_bytes);
-    const retained = std.math.add(
-        usize,
-        self.pending_send_bytes - staged_charge,
-        self.session_state.retainedSentAnswerBytes(),
-    ) catch return error.OutboundBackpressure;
-    const current = std.math.add(usize, retained, self.outbound.weight()) catch
+    const current = std.math.add(usize, self.pending_send_bytes, self.outbound.weight()) catch
         return error.OutboundBackpressure;
     if (current >= self.outbound_budget) return error.OutboundBackpressure;
 }
 
 pub fn queuedBytes(self: anytype) usize {
-    const retained = std.math.add(
-        usize,
-        self.pending_send_bytes,
-        self.session_state.retainedSentAnswerBytes(),
-    ) catch return std.math.maxInt(usize);
-    return std.math.add(usize, retained, self.outbound.weight()) catch std.math.maxInt(usize);
+    return std.math.add(usize, self.pending_send_bytes, self.outbound.weight()) catch
+        std.math.maxInt(usize);
 }

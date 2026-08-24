@@ -28,26 +28,26 @@ const error_consts = [_][]const u8{
     "PANCAKE_ERR_BUFFER_TOO_SMALL", "PANCAKE_ERR_TIMEOUT",
 };
 const discriminant_consts = [_][]const u8{
-    "PANCAKE_CODEC_UNKNOWN",        "PANCAKE_CODEC_SYRUP",
-    "PANCAKE_CODEC_CAPNP",          "PANCAKE_CAPTP_V1_0",
-    "PANCAKE_CAPTP_NEXT",           "PANCAKE_FEATURE_PIPELINING",
-    "PANCAKE_FEATURE_HANDOFF",      "PANCAKE_FEATURE_WIRE_DELTA",
-    "PANCAKE_FEATURE_STURDYREF",    "PANCAKE_FEATURE_UNTAG",
-    "PANCAKE_FEATURE_MINIMUM",      "PANCAKE_FEATURE_BASELINE",
-    "PANCAKE_FEATURE_FULL",         "PANCAKE_FRAME_SHAPE_BYTE",
-    "PANCAKE_DEFAULT_CODEC",        "PANCAKE_DEFAULT_CAPTP_VERSION",
-    "PANCAKE_DEFAULT_FEATURES",     "PANCAKE_FRAME_SHAPE_WORD",
-    "PANCAKE_ARG_INTEGER",          "PANCAKE_ARG_FLOAT64",
-    "PANCAKE_ARG_BOOLEAN",          "PANCAKE_ARG_BYTES",
-    "PANCAKE_ARG_STRING",           "PANCAKE_ARG_SYMBOL",
-    "PANCAKE_ARG_VOID",             "PANCAKE_ARG_REFERENCE",
-    "PANCAKE_ARG_LIST",             "PANCAKE_ARG_SET",
-    "PANCAKE_ARG_TAGGED",           "PANCAKE_ARG_KEYWORD",
-    "PANCAKE_ARG_BIG_INTEGER",      "PANCAKE_ARG_STRUCT",
-    "PANCAKE_ARG_ERROR",            "PANCAKE_RESOLUTION_FULFILL",
-    "PANCAKE_RESOLUTION_BREAK",     "PANCAKE_RESOLUTION_HANDOFF",
-    "PANCAKE_ABORT_DOMAIN_CODEC",   "PANCAKE_ABORT_DOMAIN_SESSION",
-    "PANCAKE_ABORT_DOMAIN_FOREIGN",
+    "PANCAKE_CODEC_UNKNOWN",          "PANCAKE_CODEC_SYRUP",
+    "PANCAKE_CODEC_CAPNP",            "PANCAKE_CAPTP_V1_0",
+    "PANCAKE_CAPTP_NEXT",             "PANCAKE_FEATURE_PIPELINING",
+    "PANCAKE_FEATURE_HANDOFF",        "PANCAKE_FEATURE_WIRE_DELTA",
+    "PANCAKE_FEATURE_STURDYREF",      "PANCAKE_FEATURE_UNTAG",
+    "PANCAKE_FEATURE_MULTI_LOCATION", "PANCAKE_FEATURE_MINIMUM",
+    "PANCAKE_FEATURE_BASELINE",       "PANCAKE_FEATURE_FULL",
+    "PANCAKE_FRAME_SHAPE_BYTE",       "PANCAKE_DEFAULT_CODEC",
+    "PANCAKE_DEFAULT_CAPTP_VERSION",  "PANCAKE_DEFAULT_FEATURES",
+    "PANCAKE_FRAME_SHAPE_WORD",       "PANCAKE_ARG_INTEGER",
+    "PANCAKE_ARG_FLOAT64",            "PANCAKE_ARG_BOOLEAN",
+    "PANCAKE_ARG_BYTES",              "PANCAKE_ARG_STRING",
+    "PANCAKE_ARG_SYMBOL",             "PANCAKE_ARG_VOID",
+    "PANCAKE_ARG_REFERENCE",          "PANCAKE_ARG_LIST",
+    "PANCAKE_ARG_SET",                "PANCAKE_ARG_TAGGED",
+    "PANCAKE_ARG_KEYWORD",            "PANCAKE_ARG_BIG_INTEGER",
+    "PANCAKE_ARG_STRUCT",             "PANCAKE_ARG_ERROR",
+    "PANCAKE_RESOLUTION_FULFILL",     "PANCAKE_RESOLUTION_BREAK",
+    "PANCAKE_RESOLUTION_HANDOFF",     "PANCAKE_ABORT_DOMAIN_CODEC",
+    "PANCAKE_ABORT_DOMAIN_SESSION",   "PANCAKE_ABORT_DOMAIN_FOREIGN",
 };
 const locator_consts = [_][]const u8{
     "PANCAKE_LOCATOR_VIEW_ABI_VERSION", "PANCAKE_HINT_STRING",
@@ -107,6 +107,7 @@ const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
 };
 
 const emitted_fn_names = [_][]const u8{
+    "pancake_ocapn_archive_fingerprint",
     "pancake_abi_version",
     "pancake_managed_frame_release",
     "pancake_context_new",
@@ -177,6 +178,9 @@ comptime {
     for (@typeInfo(c).@"struct".decl_names) |decl_name| {
         if (!std.mem.startsWith(u8, decl_name, "PANCAKE_")) continue;
         if (@typeInfo(@TypeOf(@field(c, decl_name))) != .int) continue;
+        // Archive identity crosses through its function, not a C macro: a
+        // consumer must compare against the binding/header version it built.
+        if (std.mem.eql(u8, decl_name, "PANCAKE_OCAPN_ARCHIVE_FINGERPRINT")) continue;
         var found = false;
         for (all) |name| {
             if (std.mem.eql(u8, name, decl_name)) found = true;
@@ -206,6 +210,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
 
     inline for (version_consts) |name| try emitConst(&b, gpa, name);
+    try emitFn(&b, gpa, "pancake_ocapn_archive_fingerprint", &.{}, "Read the exact reflected callable and layout identity of this core archive.");
     try emitFn(&b, gpa, "pancake_abi_version", &.{ "out_major", "out_minor", "out_patch" }, "Read the linked shared archive's ABI version.");
     try section(&b, gpa, "Return codes");
     inline for (error_consts) |name| try emitConst(&b, gpa, name);
@@ -224,8 +229,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
     try emitBareStruct(&b, gpa, c.PancakeManagedFrame, "PancakeManagedFrame", &.{
-        "owned bytes",                                               "byte length", "PANCAKE_FRAME_SHAPE_*",
-        "internal release hook; call pancake_managed_frame_release", "",
+        "owned bytes",                                               "byte length",                                  "PANCAKE_FRAME_SHAPE_*",
+        "internal release hook; call pancake_managed_frame_release", "internal owned-frame storage; do not inspect",
     });
     try emitFn(&b, gpa, "pancake_managed_frame_release", &.{"frame"}, "Release an owned managed frame. NULL and repeated release are no-ops.");
 

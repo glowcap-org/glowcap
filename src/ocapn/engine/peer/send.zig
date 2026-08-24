@@ -13,7 +13,6 @@ const engine = @import("../mod.zig");
 const fetch = @import("../fetch.zig");
 const outbound = @import("../outbound.zig");
 const outbound_copying = @import("../outbound/copying.zig");
-const pipeline = @import("../pipeline.zig");
 
 const Peer = engine.Peer;
 
@@ -27,18 +26,6 @@ const Peer = engine.Peer;
 /// overwrite or answer teardown. Borrowed or static input goes through
 /// `sendCopying` instead.
 pub fn send(self: *Peer, message: model.Message) !void {
-    // A multi-hop pipelined deliver (promise target carrying a non-empty path)
-    // has no single-frame Syrup shape — `desc:answer` carries no path operand —
-    // so it decomposes into a chain of single-hop links, each recorded and
-    // enqueued through this same path (ADR-0007). Cap'n Proto alone could carry
-    // a path operand directly.
-    if (message == .deliver and
-        message.deliver.target == .promise and
-        !message.deliver.target.promise.path.isEmpty())
-    {
-        return sendDecomposedPipeline(self, message);
-    }
-
     return outbound.enqueueRecorded(self, message);
 }
 
@@ -62,39 +49,6 @@ pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
         return;
     }
     try send(self, prepared.message);
-}
-
-/// Decompose a multi-hop pipelined deliver and enqueue each single-hop link in
-/// send order, taking ownership of `message`. Each link is flat by construction
-/// and rejoins the ordinary record/enqueue path. A mid-chain refusal frees only
-/// the unsent remainder; already-enqueued links belong to the queue.
-fn sendDecomposedPipeline(self: *Peer, message: model.Message) !void {
-    const chain = pipeline.decomposeOutboundDeliver(
-        self.allocator,
-        &self.session_state,
-        message,
-    ) catch |err| {
-        // Decomposition never partially consumes `message` before failing.
-        model.freeMessage(self.allocator, message);
-        return err;
-    };
-    defer self.allocator.free(chain.intermediates);
-
-    var next: usize = 0;
-    var terminal_owned = true;
-    errdefer {
-        for (chain.intermediates[next..]) |link| model.freeMessage(self.allocator, link);
-        if (terminal_owned) model.freeMessage(self.allocator, chain.terminal);
-    }
-    while (next < chain.intermediates.len) {
-        const link = chain.intermediates[next];
-        // enqueueRecorded owns `link` on both outcomes; advance first so the
-        // unwind cannot double-free it.
-        next += 1;
-        try outbound.enqueueRecorded(self, link);
-    }
-    terminal_owned = false;
-    try outbound.enqueueRecorded(self, chain.terminal);
 }
 
 pub fn sendCopying(self: *Peer, message: model.Message) !void {
@@ -139,19 +93,45 @@ pub fn pushEncoded(self: *Peer, message: model.Message) !void {
     try self.outbound.push(self.allocator, frame);
 }
 
-/// Encode the front staged carrier without removing it. Encoding, waterline
-/// admission, and queue capacity may fail while the carrier remains retryable;
-/// the caller consumes it only after this succeeds.
-pub fn pushEncodedFromPending(
-    self: *Peer,
-    staged_charge: usize,
-    message: model.Message,
-) !void {
+/// Encode the front staged carrier without removing it. Encoding and queue
+/// capacity may fail while the carrier remains retryable; the caller consumes
+/// it only after this succeeds. No waterline stands here: the carrier's bytes
+/// were admitted at staging, and completion is what lets retained state drain
+/// (see `outbound/budget.zig`).
+pub fn pushEncodedFromPending(self: *Peer, message: model.Message) !void {
     var frame = try encodeOutbound(self, message);
     errdefer frame.deinit();
-    try self.checkOutboundTransferWaterline(staged_charge);
     try self.outbound.ensureUnusedCapacity(self.allocator, 1);
     self.outbound.pushAssumeCapacity(frame);
+}
+
+pub const SecondMessageAccounting = enum {
+    already_recorded,
+    record_at_commit,
+};
+
+/// Encode and publish two adjacent frames as one pending-carrier transaction.
+/// Both encodes and both queue slots are acquired before either frame becomes
+/// visible. `record_at_commit` transfers the second message's Session
+/// accounting only after every fallible preparation succeeds. No waterline
+/// stands here (see `outbound/budget.zig`).
+pub fn pushEncodedPairFromPending(
+    self: *Peer,
+    first: model.Message,
+    second: model.Message,
+    second_accounting: SecondMessageAccounting,
+) !void {
+    var first_frame = try encodeOutbound(self, first);
+    errdefer first_frame.deinit();
+    var second_frame = try encodeOutbound(self, second);
+    errdefer second_frame.deinit();
+    try self.outbound.ensureUnusedCapacity(self.allocator, 2);
+
+    if (second_accounting == .record_at_commit)
+        self.session_state.recordSend(second) catch unreachable;
+
+    self.outbound.pushAssumeCapacity(first_frame);
+    self.outbound.pushAssumeCapacity(second_frame);
 }
 
 /// Encode `op:abort`, then close CapTP. A terminal frame bypasses ordinary

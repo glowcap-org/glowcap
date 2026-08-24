@@ -95,6 +95,8 @@
   (define c (session ac v m ptr
                      (make-pending-writes)
                      (make-semaphore 1)
+                     (make-PancakeManagedFrame #f 0 0 #f (make-vector 8 0))
+                     (make-bytes HOST-OUTBOUND-PREFIX-CAP)
                      (box #f)
                      (box OK)
                      (box #f)
@@ -330,9 +332,11 @@
 ;; `target` for a later `session-send`/`session-send-promise`/`session-tell`, so a
 ;; dependent call rides a `desc:answer` deliver the partner queues until the
 ;; answer settles; a `create -> use` chain then costs one round trip. The
-;; deliver is queued now and its bytes leave the wire when the chain is settled
-;; by passing its tail to `session-send` (which pumps to the value) — a chain
-;; never settled is fire-and-forget, for which `session-tell` is the right call.
+;; Each send schedules progress before returning; settling the tail observes the
+;; result rather than making an otherwise-idle chain move. Use `session-tell`
+;; for a dependent delivery whose answer is not needed.
+;; A target belongs to the Host that minted it; another Host refuses it before
+;; interpreting the Host-local vow number.
 ;; A reference this session spawned resolves in process.
 (define (session-send-promise c target verb . args)
   (guard-open 'session-send-promise c)
@@ -447,42 +451,53 @@
 ;; failure handler breaks the vow, so the wait always ends. Every binding's
 ;; `pancake_host_enliven` contract: the full sturdyref verifies before wire
 ;; traffic, and a session-scoped repeat rides `session-enliven`'s cache.
-(define (host-enliven m sturdyref #:connector [connector #f])
+(define (host-enliven m sturdyref
+                      #:captp-version [captp-version #f]
+                      #:connector [connector #f])
   (when (unbox (host-released? m))
     (raise-pancake 'host-enliven ERR-CLOSED "host released"))
+  (define version-id (and captp-version (captp-version-id captp-version)))
   (when connector (host-register-connector! m connector))
   (define sturdyref-bytes (string->bytes/utf-8 sturdyref))
   (define v
     (call-with-host m
       (lambda ()
         (define-values (rc id)
-          (pancake_host_enliven (host-ptr m) (pin-immobile sturdyref-bytes)
-                                (bytes-length sturdyref-bytes)))
+          (if captp-version
+              (pancake_host_enliven_for_version
+               (host-ptr m) version-id
+               (pin-immobile sturdyref-bytes) (bytes-length sturdyref-bytes))
+              (pancake_host_enliven
+               (host-ptr m) (pin-immobile sturdyref-bytes)
+               (bytes-length sturdyref-bytes))))
         (check/host rc)
-        (define fresh (session-vow #f id 'pending '() #f))
-        (register-vow! m fresh)
-        fresh)))
-  ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial action
-  ;; whose executor uses the connector explicitly registered on this Host.
-  (with-host-drain m (lambda () (drain-host-actions! m)))
-  (let loop ()
-    (define s (session-vow-state v))
-    (cond
-      [(eq? s 'pending)
-       ;; Snapshot, re-check, then park: the bump posts the snapshot under
-       ;; the host lock, so a settle between the check and the sync still
-       ;; wakes this waiter (the pump-until idiom, host-scoped).
-       (define gen (host-progress-evt m))
-       (when (eq? (session-vow-state v) 'pending) (sync gen))
-       (loop)]
-      [(eq? (car s) 'ok)
-       (define val (cdr s))
-       (unless (ref? val)
-         (raise-pancake 'host-enliven ERR-UNSUPPORTED-VALUE
-                        "enliven \"~a\" did not resolve to a capability: ~a" sturdyref val))
-       val]
-      [else
-       (raise-pancake 'host-enliven ERR-BROKEN "enliven \"~a\" broke: ~a" sturdyref (cdr s))])))
+        (adopt-minted-vow! m #f id #f #f))))
+  (dynamic-wind
+    void
+    (lambda ()
+      ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial action
+      ;; whose executor uses the connector explicitly registered on this Host.
+      (with-host-drain m (lambda () (drain-host-actions! m)))
+      (let loop ()
+        (define s (session-vow-state v))
+        (cond
+          [(eq? s 'pending)
+           ;; Snapshot, re-check, then park: the bump posts the snapshot under
+           ;; the host lock, so a settle between the check and the sync still
+           ;; wakes this waiter (the pump-until idiom, host-scoped).
+           (define gen (host-progress-evt m))
+           (when (eq? (session-vow-state v) 'pending) (sync gen))
+           (loop)]
+          [(eq? (car s) 'ok)
+           (define val (cdr s))
+           (unless (ref? val)
+             (raise-pancake 'host-enliven ERR-UNSUPPORTED-VALUE
+                            "enliven \"~a\" did not resolve to a capability: ~a" sturdyref val))
+           val]
+          [else
+           (raise-pancake 'host-enliven ERR-BROKEN
+                          "enliven \"~a\" broke: ~a" sturdyref (cdr s))])))
+    (lambda () (release-vow-from-host! m v))))
 
 ;; ── Off-turn settlement: the resolver pair ────────────────────────────────────
 ;; A behavior atomically defers with `host-defer-turn`, parks the resolver for
@@ -499,11 +514,11 @@
   (define t (current-turn))
   (unless t
     (error 'host-defer-turn "a turn verb: call it inside a behavior"))
-  (unless (eq? (session-host (cdr t)) m)
+  (unless (eq? (turn-context-host t) m)
     (error 'host-defer-turn "the turn belongs to another host"))
   (call-with-host m
     (lambda ()
-      (define-values (rc resolver-id) (pancake_host_turn_defer (car t)))
+      (define-values (rc resolver-id) (pancake_host_turn_defer (turn-context-turn t)))
       (check/host rc)
       (resolver m resolver-id))))
 
@@ -520,6 +535,9 @@
       (check/host (pancake_host_resolver_fulfill
                    (host-ptr m) (resolver-id r)
                    (cast aptr _pointer _PancakeArgument-pointer)))
+      ;; Buffers nested inside `aptr` are reachable only through `keep`, whose
+      ;; raw addresses the collector cannot see; keep them live past the call.
+      (void/reference-sink keep)
       (drain-host-actions! m))))
 
 ;; Settle the deferred answer broken with the worker's own words.

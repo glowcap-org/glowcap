@@ -82,17 +82,16 @@
 
 ;; The same four verbs as run-unit, but pipelined through Goblins' own promise
 ;; pipelining: assign/complete/status eventual-send at the promise `create`
-;; returns, in one vat turn, so the four delivers leave together and only the
-;; final status is settled, the reference counterpart to the bindings' pipelined
-;; throughput unit, keeping the row fair (the same workload, each stack's native
-;; pipelining). run-unit stays sequential for the latency row.
+;; returns, in one vat turn. assign/complete use `<-np`; only the final status
+;; allocates an answer and is settled. This is the reference counterpart to the
+;; bindings' pipelined throughput unit. run-unit stays sequential for latency.
 (define (run-unit-pipelined h root)
   (define ch (gconn-ch h))
   (settle h
           (lambda ()
             (define create (<- root 'create #"benchmark"))
-            (<- create 'assign #"alice")
-            (<- create 'complete)
+            (<-np create 'assign #"alice")
+            (<-np create 'complete)
             (on (<- create 'status)
                 (lambda (v) (async-channel-put ch (cons 'ok v)))
                 #:catch (lambda (e) (async-channel-put ch (cons 'err e)))))

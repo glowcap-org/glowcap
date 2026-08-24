@@ -24,6 +24,7 @@ pub fn mapDialErr(err: anyerror) u8 {
         error.Usage => exit_codes.usage,
         error.HandshakeTimedOut, error.WaitTimedOut, error.CloseTimedOut => exit_codes.timeout,
         error.Busy => exit_codes.busy,
+        error.CleanupPending => exit_codes.busy,
         error.OutOfMemory => exit_codes.internal,
         else => exit_codes.dial,
     };
@@ -76,6 +77,7 @@ pub fn sessionOpts() driver.SessionOptions {
 /// cold-dial through the same deployment-configured mapping ADR-0088 keeps out
 /// of locator bytes.
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
+    try ctx.ensureDialAllowed();
     ctx.dial_resident = .{ .io = ctx.io };
     ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
     var netlayer_count: usize = 1;
@@ -89,16 +91,17 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
             };
             created_relay = true;
         }
-        errdefer {
-            if (created_relay) {
-                const failure = relay_runtime.deinitAndReport(ctx, &ctx.rendezvous_provider.?);
-                if (failure == null) ctx.rendezvous_provider = null;
-            }
-        }
         const relay_layers = ctx.rendezvous_provider.?.netlayers();
         @memcpy(ctx.dial_netlayers[1..3], relay_layers);
         netlayer_count = 3;
     }
+    // Undo only a provider this dial created; a refused deinit keeps the slot
+    // as its own retry owner. Declared at function scope so it covers the
+    // fallible identity load and dial below.
+    errdefer if (created_relay) {
+        const failure = relay_runtime.deinitAndReport(ctx, &ctx.rendezvous_provider.?);
+        if (failure == null) ctx.rendezvous_provider = null;
+    };
     const identity = try ctx.dialIdentity();
     return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
@@ -203,13 +206,13 @@ fn resolveSession(ctx: *Ctx, pos: []const []const u8, min_after_uri: usize) !str
     if (pos.len > 0 and std.mem.startsWith(u8, pos[0], "ocapn://")) {
         if (pos.len < 1 + min_after_uri) return error.Usage;
         const s = dialUri(ctx, pos[0]) catch |err| return err;
-        if (retainSessionAfterDial(ctx) and ctx.session == null) {
-            ctx.session = s;
+        if (retainSessionAfterDial(ctx) and ctx.activeSession() == null) {
+            ctx.holdSession(s);
             return .{ .{ .borrow = s }, 1 };
         }
         return .{ .{ .owned = s }, 1 };
     }
-    const held = ctx.session orelse return error.Usage;
+    const held = ctx.activeSession() orelse return error.Usage;
     if (pos.len < min_after_uri) return error.Usage;
     return .{ .{ .borrow = held }, 0 };
 }
@@ -246,8 +249,12 @@ pub fn cmdDial(ctx: *Ctx, parsed: *Parsed) !u8 {
     }
     if (ctx.closeHeldSession(.cancel)) |close_failure| {
         var failure = close_failure;
-        session.close(.cancel) catch |cleanup| failure.note(cleanup);
-        session.deinit();
+        if (session.close(.cancel)) |_| {
+            session.deinit();
+        } else |cleanup| {
+            failure.note(cleanup);
+            ctx.retainPendingSession(session);
+        }
         if (ctx.takeCallerless()) |cleanup| failure.noteChain(cleanup);
         ctx.logErr(
             "replace session: {s} (and {d} later failure(s))",
@@ -255,7 +262,7 @@ pub fn cmdDial(ctx: *Ctx, parsed: *Parsed) !u8 {
         );
         return mapDialErr(failure.cause);
     }
-    ctx.session = session;
+    ctx.holdSession(session);
     _ = try reportDial(ctx, target);
     if (want_repl) {
         ctx.front = .repl;
@@ -405,7 +412,7 @@ fn cmdFetchResolved(ctx: *Ctx, pos: []const []const u8, session: *driver.Session
 }
 
 pub fn cmdPublish(ctx: *Ctx, parsed: *Parsed) !u8 {
-    const session = ctx.session orelse {
+    const session = ctx.activeSession() orelse {
         ctx.logErr("publish needs an open session (dial --repl or mcp dial)", .{});
         return exit_codes.usage;
     };
@@ -440,7 +447,8 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
     const secret = ctx.ensureSecret() catch |err|
         return @import("../operability/identity.zig").refuseSecret(ctx.io, err, ctx.identity_path);
     const designator = secret.publicKey().toDesignator();
-    const abort = if (ctx.session) |s| s.partnerAbort() else null;
+    const active_session = ctx.activeSession();
+    const abort = if (active_session) |s| s.partnerAbort() else null;
     const front = switch (ctx.front) {
         .argv => "argv",
         .repl => "repl",
@@ -451,14 +459,15 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
         defer out.deinit(ctx.gpa);
         try out.appendSlice(ctx.gpa, "{\"ok\":true,\"identity\":");
         try argv.writeJsonString(&out, ctx.gpa, designator[0..]);
-        try out.print(ctx.gpa, ",\"session\":{s}", .{if (ctx.session != null) "true" else "false"});
+        try out.print(ctx.gpa, ",\"session\":{s}", .{if (active_session != null) "true" else "false"});
+        if (ctx.sessionCleanupPending()) try out.appendSlice(ctx.gpa, ",\"session_cleanup_pending\":true");
         try out.appendSlice(ctx.gpa, ",\"front\":");
         try argv.writeJsonString(&out, ctx.gpa, front);
         if (ctx.identity_path.len > 0) {
             try out.appendSlice(ctx.gpa, ",\"path\":");
             try argv.writeJsonString(&out, ctx.gpa, ctx.identity_path);
         }
-        if (ctx.last_locator) |loc| {
+        if (ctx.publishedLocator()) |loc| {
             try out.appendSlice(ctx.gpa, ",\"locator\":");
             try argv.writeJsonString(&out, ctx.gpa, loc);
         }
@@ -487,9 +496,21 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
         try ctx.writeResult(out.items);
     } else {
         try printOut(ctx, "identity: {s}\n", .{designator[0..]});
-        try printOut(ctx, "session:  {s}\n", .{if (ctx.session != null) "open" else "none"});
+        const session_status: []const u8 = if (active_session != null)
+            "open"
+        else if (ctx.sessionCleanupPending())
+            "cleanup pending"
+        else
+            "none";
+        try printOut(ctx, "session:  {s}\n", .{session_status});
         try printOut(ctx, "front:    {s}\n", .{front});
-        if (ctx.last_locator) |loc| try printOut(ctx, "locator:  {s}\n", .{loc});
+        if (ctx.publishedLocator()) |loc| try printOut(ctx, "locator:  {s}\n", .{loc});
+        if (ctx.background_listener) |listener| {
+            const stopped = listener.stop_reason.load(.acquire);
+            try printOut(ctx, "listening: {s}\n", .{if (stopped == null) "true" else "false"});
+            try printOut(ctx, "accepted:  {d}\n", .{listener.accepted.load(.acquire)});
+            if (stopped) |reason| try printOut(ctx, "listener_stopped: {s}\n", .{std.mem.span(reason)});
+        }
         if (abort) |info| {
             try printOut(ctx, "abort:    {s}: {s}\n", .{ info.kind.wireName(), info.message });
         }
@@ -500,7 +521,7 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
 
 pub fn cmdLocator(ctx: *Ctx, parsed: *Parsed) !u8 {
     _ = parsed;
-    const loc = ctx.last_locator orelse {
+    const loc = ctx.publishedLocator() orelse {
         ctx.logErr("no listen locator in this process", .{});
         return exit_codes.usage;
     };

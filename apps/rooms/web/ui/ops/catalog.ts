@@ -9,7 +9,7 @@
 import type { OpsCap } from "../types.ts";
 
 export interface OpsCapFace {
-	/** The Advanced toggle's row label, and the take modal's title. */
+	/** The Capabilities toggle's row label, and the take modal's title. */
 	label: string;
 	/** The toggle's DOM id, which the browser proofs press. */
 	toggleId: string;
@@ -39,6 +39,22 @@ export const OPS_CATALOG: Record<OpsCap, OpsCapFace> = {
 		flag: "--diagnostics",
 		how: "Paste it here to fetch the capability on this directory's session.",
 		lead: "Holding it lists what this directory currently holds.",
+	},
+	irc: {
+		label: "IRC gateway",
+		toggleId: "opsIrcToggle",
+		pane: "IRC",
+		flag: "--irc",
+		how: "Paste it here to fetch the capability on this directory's session.",
+		lead: "Holding it bridges IRC channels into this directory as ordinary rooms.",
+	},
+	peering: {
+		label: "Directory peering",
+		toggleId: "opsPeeringToggle",
+		pane: "Peering",
+		flag: "--peering",
+		how: "Paste it here to fetch the capability on this directory's session.",
+		lead: "Holding it publishes a room this tab has joined on another directory into this one, durably.",
 	},
 	viz: {
 		label: "Protocol visualizer",

@@ -9,21 +9,25 @@ import { L } from "./internal/layout.ts";
 import { ab, outPointer, outUsize, readBytes } from "./internal/seam.ts";
 import {
 	BUFFER_TOO_SMALL,
+	HINT_ALT_LOCATORS,
 	HINT_BOOLEAN,
 	HINT_BYTES,
 	HINT_DIRECT_ADDRESSES,
 	HINT_INTEGER,
 	HINT_STRING,
+	HINT_VIA,
 	HINTS_BOOLEAN_FALSE,
 	HINTS_MAP,
 	INVALID_ARGUMENT,
 	OK,
+	TRANSPORT_ID,
 	TRANSPORT_INPROC,
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_RELAY,
 	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
 	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
 } from "@pancake/abi";
@@ -31,13 +35,17 @@ import { check, PancakeError } from "./errors.ts";
 import { type CaptpVersion, captpVersionId } from "./value.ts";
 
 export {
+	HINT_ALT_LOCATORS,
 	HINT_DIRECT_ADDRESSES,
+	HINT_VIA,
+	TRANSPORT_ID,
 	TRANSPORT_INPROC,
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_RELAY,
 	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
 	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
 };
@@ -292,6 +300,11 @@ function readLocatorField(
 
 /** Parse an `ocapn://` peer URI through the core grammar. */
 export function parseLocator(uri: string): Locator {
+	// Same empty-input refusal as `designatorHostPort`, for the same
+	// null-pointer boundary reason.
+	if (uri.length === 0) {
+		throw new PancakeError(INVALID_ARGUMENT, "locator is empty");
+	}
 	const uriBytes = new TextEncoder().encode(uri);
 	const outLoc = new Uint8Array(8);
 	check(s.pancake_uri_parse_peer(
@@ -486,6 +499,12 @@ function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
  * (`pancake_designator_host_port`). Prefer this over minting a peer URI
  * just to call `parseLocator`. */
 export function designatorHostPort(designator: string): { hostname: string; port: number } {
+	// A zero-length buffer crosses the FFI as a null pointer, so the archive
+	// would truthfully answer null-pointer for what is really empty input.
+	// The refusal the caller can act on is the grammar's own: not an address.
+	if (designator.length === 0) {
+		throw new PancakeError(INVALID_ARGUMENT, "designator is empty");
+	}
 	const data = new TextEncoder().encode(designator);
 	const hPtr = new Uint8Array(8), hLen = new Uint8Array(8);
 	const portBuf = new Uint8Array(2);

@@ -237,9 +237,10 @@
   (values (<- mycapn 'enliven (ocapn-sturdyref node directory-swiss))
           (node->locator ($ netlayer 'our-location))))
 
-;; Enter `name`, opening it when there is no such room yet. Both verbs answer
-;; with a live reference to that room, so `on-room` receives one either way;
-;; `on-error` hears the reason when neither works.
+;; Enter `name`, opening it when there is no such room yet. Another peer may
+;; open the room after our failed enter, so an open collision retries enter.
+;; Both verbs answer with a live reference to that room; `on-error` hears the
+;; reason when none of the three attempts works.
 (define (enter-or-open directory name on-room on-error)
   (on (<- directory 'enter name)
       on-room
@@ -247,7 +248,11 @@
       (lambda (_no-such-room)
         (on (<- directory 'open name)
             on-room
-            #:catch on-error))))
+            #:catch
+            (lambda (err)
+              (if (equal? (room-error-code err) "room-exists")
+                  (on (<- directory 'enter name) on-room #:catch on-error)
+                  (on-error err)))))))
 
 ;; The failures a rooms peer branches on, as the room server spells them
 ;; (`apps/rooms/lib/errors.ts`). A broken OCapN promise carries a string reason,

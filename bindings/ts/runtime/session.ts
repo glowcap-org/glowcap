@@ -89,6 +89,8 @@ export interface DriverLoopHandle {
 	stepNow(): void;
 	/** Schedule one step soon — a kick that is legal from inside a turn. */
 	scheduleStep(): void;
+	/** Schedule one deferred step and join its complete effect drain. */
+	settleStep(): Promise<void>;
 	/** Release one loop-owned session through the loop's own verb. */
 	nativeSessionRelease(ptr: Ptr): void;
 	/** Start delivering one loop-owned session's inbound: setup is done. */

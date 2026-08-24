@@ -17,6 +17,7 @@ are in [`interop/_common/`](../../interop/_common/).
 | [`keyed_tcp_restart/`](keyed_tcp_restart/) | Restart, key-squatter refusal, identity continuity, and a new port with the same seed ([ADR-0075](../../docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) | `zig build bindings-keyed-tcp-restart` and language siblings |
 | [`iroh_redeem_posture/`](iroh_redeem_posture/) | The recipient's redeem policy controls a hint-free iroh handoff | `zig build bindings-iroh-redeem-posture` and language siblings |
 | [`keyed_relay_rendezvous/`](keyed_relay_rendezvous/) | A binding cold-dials a registered non-listening peer through the reference relay's rendezvous bridge ([ADR-0088](../../docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)) | `zig build bindings-keyed-relay-rendezvous` and language siblings |
+| [`noise_relay_listen/`](noise_relay_listen/) | Each binding registers a durable key, advertises its relay locator, and serves a Noise-sealed session dialed by one fixed client | `zig build bindings-noise-relay-listen` and language siblings |
 
 `zig build source-check` also reads these scripts. Every wrapped
 `pancake_host_*` verb must appear in a script that a build step runs.

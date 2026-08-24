@@ -214,16 +214,21 @@
   (define val-ptrs (and (> n 0) (list->cblock (map car vals) _pointer)))
   (define val-lens (and (> n 0) (list->cblock (map cadr vals) _size)))
   (define (call-format buf cap)
-    (if swissnum
-        (let ([sbuf (pin-immobile swissnum)])
-          (pancake_uri_format_sturdyref
-           (captp-version-id captp-version)
-           tbuf (bytes-length tb) dbuf (bytes-length db)
-           sbuf (bytes-length swissnum)
-           key-ptrs key-lens val-ptrs val-lens n buf cap))
-        (pancake_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
-                                 key-ptrs key-lens val-ptrs val-lens n
-                                 buf cap)))
+    (begin0
+      (if swissnum
+          (let ([sbuf (pin-immobile swissnum)])
+            (pancake_uri_format_sturdyref
+             (captp-version-id captp-version)
+             tbuf (bytes-length tb) dbuf (bytes-length db)
+             sbuf (bytes-length swissnum)
+             key-ptrs key-lens val-ptrs val-lens n buf cap))
+          (pancake_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
+                                   key-ptrs key-lens val-ptrs val-lens n
+                                   buf cap))
+      ;; The cblocks carry only the pinned hint buffers' raw addresses, which
+      ;; the collector cannot see; referencing the pin lists here keeps every
+      ;; buffer live for each format call.
+      (void/reference-sink keys vals)))
   (define-values (probe-rc probe-len) (call-format #f 0))
   (define (read-uri cap)
     (let loop ([cap cap])

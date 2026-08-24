@@ -1,0 +1,212 @@
+/* The card plane: the ground, well, and field vocabulary a raised card's
+   content stands on. It began as the modal's own three planes, and then the
+   Operations page stood its cards on the same treatment, so the system moved
+   here and surfaces opt in by wearing `card-plane` beside their own card
+   class — every modal card, and the /ops page's pane and gate cards. One
+   class and one authority: a group, a well, a field, a hint, or a choice
+   reads identically wherever the plane is worn. */
+
+.card-plane {
+	/* Native radios and checkboxes take the brand's accent instead of the
+	   browser's blue, which sat untinted in every choice row. */
+	accent-color: var(--accent-ink);
+}
+.card-plane p.lead {
+	margin: 0;
+	color: var(--ink-soft);
+	font-size: var(--type-body);
+}
+/* A named group of controls, drawn as an ordinary box.
+   `<fieldset>` and `<legend>` are what this means, and a `role="group"` with an
+   `aria-labelledby` is the same thing to a screen reader, but a fieldset is not
+   an ordinary box: every engine gives it a renderer of its own, older WebKit
+   refuses to make one a flex container at all, and the legend is lifted out of
+   flow into the border. Layout duty belongs to a box that only has to be a box.
+   The semantics stay on the element; only the layout moved. */
+.card-plane .group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+/* The quiet well every plane wearer shares: a hairline and a breath of ink over the
+   card's paper, so a panel reads as a few labeled clusters rather than one
+   undifferentiated column. One class and one authority — Settings groups,
+   the directory card's clusters, the take form, and the Operations panes all
+   opt in with `well` rather than each restating the treatment. Recessed
+   rather than raised in both themes, because a raised surface on the
+   already-raised card has no edge to catch; the ground-versus-raised step in
+   ui/tokens.css is what keeps the recess and the fields inside it readable
+   in light exactly as in dark. */
+.card-plane .well {
+	padding: 12px 14px;
+	border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+/* What a directory says about itself: a question on the left, its answer on the
+   right, in the order the questions occur to a reader. Two columns rather than
+   stacked pairs, because the answers are short and a column of them can be
+   compared down the page — and because the left column is then a list of what
+   can be asked, which is the shape of the surface as much as its content.
+
+   The label column is sized to its own text so a longer question moves both
+   columns together instead of wrapping under itself. */
+.dirfacts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: baseline;
+	gap: 6px 14px;
+	margin: 2px 0 0;
+	font-size: var(--type-ui);
+}
+.dirfacts dt {
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+	font-weight: 700;
+}
+.dirfacts dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 7px;
+}
+/* The connection dot sits on the text's own line rather than on the row's, so
+   it lines up with the word beside it the way it does in the rail's foot. */
+.dirfacts dd .dot {
+	flex: none;
+}
+/* A section's title stands outside its well so a heading cannot be mistaken
+   for a row label inside the box. Its type is the shared caption voice,
+   `.overline` beside it in the markup; this rule only tucks the title toward
+   the well it names against the card's row gap. */
+.card-plane .well-title {
+	margin: 4px 2px -8px;
+}
+.card-plane .group-label {
+	/* No margin of its own: the group's own gap is the spacing, the way it is
+	   between any two rows in the group. A legend used to sit four pixels from
+	   its first control because the engine lifted it out of the flex flow, where
+	   the gap could not reach it. */
+	margin: 0;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+.card-plane .choice {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 10px 12px;
+	align-items: start;
+	padding: 10px 12px;
+	border: 1px solid var(--rule);
+	border-radius: 11px;
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	cursor: pointer;
+}
+.card-plane .choice:has(input:checked) {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.card-plane .choice input {
+	margin-top: 3px;
+}
+.card-plane .choice span {
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.card-plane .choice strong {
+	display: block;
+	font-size: var(--type-body);
+	color: var(--ink);
+	margin-bottom: 2px;
+}
+.card-plane .field {
+	font: inherit;
+	padding: 11px 13px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	color: var(--ink);
+}
+.card-plane .field:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+/* A select in a card wears the field's clothes: the platform arrow and fill
+   go, the app's own chevron sits at the line's end, and the closed control is
+   exactly the text field beside it. The open list stays the platform's. */
+.card-plane .select-wrap {
+	position: relative;
+	display: flex;
+}
+.card-plane .select-wrap .field {
+	appearance: none;
+	width: 100%;
+	padding-right: 38px;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+.card-plane .select-wrap::after {
+	content: "";
+	position: absolute;
+	right: 16px;
+	top: 50%;
+	width: 8px;
+	height: 8px;
+	border-right: 2px solid var(--ink-soft);
+	border-bottom: 2px solid var(--ink-soft);
+	border-radius: 1px;
+	transform: translateY(-70%) rotate(45deg);
+	pointer-events: none;
+}
+/* A field's own written label, for a form whose group label cannot name every
+   field: the group label's voice, one step into the form. */
+.card-plane .field-label {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin-top: 2px;
+}
+.card-plane p.hint {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.card-plane p.hint code {
+	font-size: 11px;
+}
+/* Quiet is the way out of a card, and it sits at the width of its words.
+   Direct children used to be the only ones that did: Close, Leave, Stay. A
+   quiet button inside a group — About this directory, under the locator —
+   stretched with the column instead, which is a different control from the
+   same variant at the foot of the same card. */
+.card-plane .button[data-variant="quiet"] {
+	align-self: center;
+}
+.card-plane .field[aria-invalid="true"] {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.card-plane .field[aria-invalid="true"]:focus {
+	outline: none;
+	border-color: var(--danger);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+/* A link inside plane content speaks accent ink, not the browser's blue:
+   the panes' hints cite pages ("about Noise") and nothing else on the plane
+   owns anchor color. Deeper ink under a pointer, the same step every accent
+   control takes. */
+.card-plane a {
+	color: var(--accent-ink);
+}
+.card-plane a:hover {
+	color: var(--accent-fill-deep);
+}

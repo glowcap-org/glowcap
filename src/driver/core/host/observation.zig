@@ -39,7 +39,7 @@ fn fetchWithProgress(self: *Host, session: *HostSession, name: []const u8, drive
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.checkOutboundAdmission(session);
-    const reservation = try vows.reserveVow(self, session, .far, .fetch);
+    const reservation = try vows.reserveVow(self, session, .far, .fetch, .peer_visible);
     var reservation_live = true;
     errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
     const vow = try session.served.sendBootstrapFetch(&self.vat, name);
@@ -153,7 +153,7 @@ fn commitRoutedListen(
     wire: model.Reference,
     drive_now: bool,
 ) !u64 {
-    const reservation = try vows.reserveVow(self, home, .far, .plain);
+    const reservation = try vows.reserveVow(self, home, .far, .plain, .session_private);
     var reservation_live = true;
     errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
     const vow = try home.served.listenTo(wire);

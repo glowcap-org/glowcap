@@ -132,6 +132,7 @@
 	font-size: var(--type-body);
 	line-height: 1.5;
 	text-align: center;
+	overflow-wrap: anywhere;
 }
 @keyframes attach-spin {
 	to {

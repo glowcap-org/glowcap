@@ -3,8 +3,8 @@
 //!
 //! A netlayer is a locator transport symbol (`tcp`, `keyed-tcp`, `inproc`,
 //! `iroh`); its job is CapTP over a byte stream. The OS plumbing beneath it —
-//! opening and binding sockets, packing sockaddrs, the nonblocking and keepalive
-//! options, the pinned reader/writer stream wrapper — is a different concern, and
+//! opening and binding sockets, packing sockaddrs, stream options, and the
+//! pinned reader/writer stream wrapper — is a different concern, and
 //! it lives here. Residents reach socket bits through `net.socket`, never by
 //! importing `completion/` internals or `@import`-ing a sibling file, so "tcp
 //! logic" cannot leak back into a netlayer or across a module boundary. The
@@ -27,6 +27,7 @@ pub const openSocket = socket_tcp.openSocket;
 pub const openListener = socket_tcp.openListener;
 pub const openListenerReuseAddr = socket_tcp.openListenerReuseAddr;
 pub const BoundListener = socket_tcp.BoundListener;
+pub const boundIp4 = socket_tcp.boundIp4;
 pub const setNonblocking = socket_tcp.setNonblocking;
 pub const sendNonblocking = socket_tcp.sendNonblocking;
 pub const receiveNonblocking = socket_tcp.receiveNonblocking;
@@ -38,3 +39,15 @@ pub const receiveNonblocking = socket_tcp.receiveNonblocking;
 pub const Keepalive = keepalive.Keepalive;
 pub const ConfigurationError = std.posix.SetSockOptError || keepalive.ApplyError;
 pub const applyKeepalive = keepalive.apply;
+
+/// Disable Nagle on a connected TCP stream. Callers choose whether refusal is
+/// fatal: direct TCP residents require this latency contract, while carrier
+/// hops may keep a functional connection and accept lower throughput.
+pub fn applyNodelay(fd: std.posix.socket_t) std.posix.SetSockOptError!void {
+    try std.posix.setsockopt(
+        fd,
+        std.posix.IPPROTO.TCP,
+        std.posix.TCP.NODELAY,
+        &std.mem.toBytes(@as(c_int, 1)),
+    );
+}

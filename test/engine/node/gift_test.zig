@@ -23,6 +23,198 @@ const testGiveBytes = harness.testGiveBytes;
 const mintRedeemedRoute = harness.mintRedeemedRoute;
 const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
+const CarrierFixture = struct {
+    recipient: engine.PeerHandle,
+    transport: []const u8,
+};
+
+fn fixtureDesignatorScheme(_: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme {
+    const known = model.transport.parseKnown(transport) orelse return null;
+    return known.metadata().designator_scheme;
+}
+
+fn fixtureSessionTransport(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?[]const u8 {
+    const fixture: *const CarrierFixture = @ptrCast(@alignCast(ctx.?));
+    if (peer_handle != fixture.recipient) return null;
+    return fixture.transport;
+}
+
+const fixture_transport_vtable: Node.RuntimeTransportResolver.VTable = .{
+    .designator_scheme = fixtureDesignatorScheme,
+    .session_transport = fixtureSessionTransport,
+};
+
+test "one baseline exporter recipe stays concrete for every recipient" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x6a)));
+    defer node.deinit();
+
+    const next_id = try node.registerPeer(.{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    const baseline_id = try node.registerPeer(.{});
+    const exporter_id = try node.registerPeer(.{});
+    const next = node.peer(next_id).?;
+    const baseline = node.peer(baseline_id).?;
+    const exporter = node.peer(exporter_id).?;
+    var next_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        next,
+        @as([crypto.SEED_BYTES]u8, @splat(0x6b)),
+    );
+    defer next_counterpart.deinit();
+    var baseline_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        baseline,
+        @as([crypto.SEED_BYTES]u8, @splat(0x6c)),
+    );
+    defer baseline_counterpart.deinit();
+    var exporter_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        exporter,
+        @as([crypto.SEED_BYTES]u8, @splat(0x6d)),
+    );
+    defer exporter_counterpart.deinit();
+
+    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6e))).publicKey().toDesignator();
+    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    defer allocator.free(via);
+    const route_hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_via, .value = .{ .string = via } },
+        .{ .name = model.transport.hint_alt_locators, .value = .{ .string = "ocapn://127.0.0.1%3A7099.tcp" } },
+    };
+    try node.setExporterLocation(exporter_id, .{
+        .transport = model.transport.id,
+        .designator = &key,
+        .hints = .{ .entries = &route_hints },
+    });
+
+    try next.session_state.registerImport(.from(2));
+    try baseline.session_state.registerImport(.from(3));
+    try exporter.session_state.registerImport(.from(4));
+    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    try next.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(2) },
+        .args = &.{.{ .reference = foreign }},
+    } });
+    try baseline.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(3) },
+        .args = &.{.{ .reference = foreign }},
+    } });
+
+    const next_ticket = node.nextAction().?.need_gift_id.ticket;
+    const baseline_ticket = node.nextAction().?.need_gift_id.ticket;
+    try node.provideGiftId(next_ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x6f)));
+    try node.provideGiftId(baseline_ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x70)));
+    while (node.nextAction()) |_| {}
+
+    try next.stepToIdle();
+    var next_frame = next.takeOutbound().?;
+    defer next_frame.deinit();
+    const next_deliver = (try codec.dispatch.decodeBodyForProfile(
+        next.session_state.codec,
+        next.session_state.captp_version,
+        next_frame.view(),
+    )).deliver;
+    const next_exporter = (try next_deliver.args.at(0)).handoff.give.exporter;
+    try std.testing.expectEqualStrings(model.transport.tcp, next_exporter.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:2", next_exporter.designator);
+    try std.testing.expect((try next_exporter.hints.findNamed(model.transport.hint_via)) == null);
+    try std.testing.expect((try next_exporter.hints.findNamed(model.transport.hint_alt_locators)) == null);
+
+    try baseline.stepToIdle();
+    var baseline_frame = baseline.takeOutbound().?;
+    defer baseline_frame.deinit();
+    const baseline_deliver = (try codec.dispatch.decodeBodyForProfile(
+        baseline.session_state.codec,
+        baseline.session_state.captp_version,
+        baseline_frame.view(),
+    )).deliver;
+    const baseline_exporter = (try baseline_deliver.args.at(0)).handoff.give.exporter;
+    try std.testing.expectEqualStrings(model.transport.tcp, baseline_exporter.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:2", baseline_exporter.designator);
+    try std.testing.expect((try baseline_exporter.hints.findNamed(model.transport.hint_via)) == null);
+    try std.testing.expect((try baseline_exporter.hints.findNamed(model.transport.hint_alt_locators)) == null);
+}
+
+test "give lowering asks for the physical recipient transport instead of its advertised route" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x71)));
+    defer node.deinit();
+
+    const recipient_id = try node.registerPeer(.{});
+    const exporter_id = try node.registerPeer(.{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    var fixture = CarrierFixture{
+        .recipient = recipient_id,
+        .transport = model.transport.iroh,
+    };
+    node.setTransportResolver(.{ .ctx = &fixture, .vtable = &fixture_transport_vtable });
+
+    const recipient = node.peer(recipient_id).?;
+    const exporter = node.peer(exporter_id).?;
+    var recipient_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        recipient,
+        @as([crypto.SEED_BYTES]u8, @splat(0x72)),
+    );
+    defer recipient_counterpart.deinit();
+    var exporter_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        exporter,
+        @as([crypto.SEED_BYTES]u8, @splat(0x73)),
+    );
+    defer exporter_counterpart.deinit();
+
+    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x74))).publicKey().toDesignator();
+    const via = try std.fmt.allocPrint(
+        allocator,
+        "ocapn://{s}.iroh|ocapn://{s}.noise-tcp",
+        .{ key[0..], key[0..] },
+    );
+    defer allocator.free(via);
+    const route_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = via },
+    }};
+    try node.setExporterLocation(exporter_id, .{
+        .transport = model.transport.id,
+        .designator = &key,
+        .hints = .{ .entries = &route_hints },
+    });
+
+    try recipient.session_state.registerImport(.from(2));
+    try exporter.session_state.registerImport(.from(3));
+    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(3) });
+    try recipient.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(2) },
+        .args = &.{.{ .reference = foreign }},
+    } });
+    const ticket = node.nextAction().?.need_gift_id.ticket;
+    try node.provideGiftId(ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x75)));
+    while (node.nextAction()) |_| {}
+
+    try recipient.stepToIdle();
+    var frame = recipient.takeOutbound().?;
+    defer frame.deinit();
+    const deliver = (try codec.dispatch.decodeBodyForProfile(
+        recipient.session_state.codec,
+        recipient.session_state.captp_version,
+        frame.view(),
+    )).deliver;
+    const location = (try deliver.args.at(0)).handoff.give.exporter;
+    try std.testing.expectEqualStrings(model.transport.iroh, location.transport);
+    try std.testing.expectEqualStrings(key[0..], location.designator);
+}
+
 test "inline gift staging refuses a complete message that exceeds the recipient budget" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x70)));
@@ -109,12 +301,11 @@ test "inline gift occurrence admission is aggregate per recipient" {
     try std.testing.expect(!node.hasPendingGift(first));
     try std.testing.expect(node.hasPendingGift(second));
     try std.testing.expectEqual(@as(usize, 1), node.pendingGiftEffects());
-    // Failing either admitted batch terminalizes the recipient. The sibling
-    // batch is then retired by the session-close seam.
-    const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_handle);
-    recipient.closeSession();
-    try node.giftIdFailed(second); // stale after recipient retirement
+    // A failed tell retires only its own batch. Its sibling and recipient stay
+    // live until their own outcomes are known.
+    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expect(recipient.sessionIsOpen());
+    try node.giftIdFailed(second);
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expect(node.nextAction() == null);
 }
@@ -166,9 +357,8 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
     try node.provideGiftId(first, &first_id);
     try node.provideGiftId(second, &second_id);
 
-    const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_handle);
-    recipient.closeSession();
+    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     try std.testing.expect(exporter.takeOutbound() == null);

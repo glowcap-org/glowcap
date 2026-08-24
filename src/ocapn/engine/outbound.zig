@@ -20,6 +20,7 @@ const lower = @import("lower.zig");
 const passable = @import("node/passable.zig");
 const outbound_budget = @import("peer/outbound/budget.zig");
 const pipeline = @import("pipeline.zig");
+const resolution_chain = @import("resolution_chain.zig");
 const v1_0 = @import("v1_0.zig");
 
 const freeMessage = model.freeMessage;
@@ -67,6 +68,11 @@ const SettledAnswer = struct {
 /// stamp proves the payload too.
 pub const Outbound = union(enum) {
     message: model.Message,
+    /// One application answer owner relinquished after its in-process
+    /// observer settled. The position is POD; recording the decrement waits
+    /// until the release frame is encoded, so deferred V1.0 answer setup runs
+    /// first and allocator/backpressure refusal remains retryable.
+    answer_release: model.AnswerPosition,
     /// A next-profile answered operation and the mandatory listener that must
     /// immediately follow it. `step` encodes both and reserves both outbound
     /// slots before publishing either frame, so an internal allocation failure
@@ -92,6 +98,7 @@ pub const Outbound = union(enum) {
 
     pub fn deinit(self: Outbound, peer: *Peer) void {
         switch (self) {
+            .answer_release => {},
             .settled_answer => |settled| {
                 peer.session_state.retireDetachedAnswer(settled.target, settled.payload);
                 peer.session_state.releaseAnswerPayload(settled.payload);
@@ -156,7 +163,7 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     }
 
     if (self.session_state.captp_version == .next) {
-        if (answerProducedBy(message)) |answer| {
+        if ((passable.Outbound{ .message = message }).answerProduced()) |answer| {
             return enqueueNextAnsweredOperation(self, message, answer);
         }
     }
@@ -171,6 +178,7 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     errdefer if (appended) self.popPendingBack().?.item.deinit(self);
 
     try self.session_state.recordSend(message);
+    if (message == .start_session) self.settleNegotiatedProfile();
     appended = false;
 }
 
@@ -295,16 +303,6 @@ fn transferAnswerStaging(
     return transferred;
 }
 
-fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
-    return switch (message) {
-        .deliver => |deliver| deliver.answer,
-        .get => |get| get.answer,
-        .index => |index| index.answer,
-        .untag => |untag| untag.answer,
-        else => null,
-    };
-}
-
 /// Queue a next-profile operation and its mandatory shortening-capable listen
 /// as one preparation. Every fallible resource is acquired before `recordSend`
 /// commits the operation's answer; the two queue appends are then infallible and
@@ -354,10 +352,39 @@ fn enqueueNextAnsweredOperation(
 /// queued, so allocator pressure is retryable without losing a carrier or
 /// leaving a partial projection transaction on the wire.
 pub fn stepPending(self: *Peer) !void {
+    if (self.sessionIsClosed()) {
+        var discarded = self.takePending();
+        discarded.item.deinit(self);
+        return;
+    }
     const pending = self.pending_send.peek() orelse unreachable;
     switch (pending.item) {
+        .answer_release => |answer| {
+            if (self.sessionIsOpen()) {
+                const positions = [_]u64{answer.int()};
+                try emitRecordedPendingMessage(self, .{
+                    .gc_answer = .{ .positions = &positions },
+                });
+            }
+            var consumed = self.takePending();
+            consumed.item.deinit(self);
+        },
         .settled_answer => |sa| {
             const stored = self.session_state.answerPayloadResolution(sa.payload) orelse unreachable;
+            const has_consequences = sa.payload.queue.items.len != 0 or
+                sa.payload.listeners.len() != 0 or
+                sa.payload.projections.items.len != 0;
+            const consequence = if (has_consequences)
+                resolution_chain.followAnswer(self, sa.target, sa.payload)
+            else
+                null;
+            var prepared_listeners = try pipeline.prepareAnswerListenerDrain(
+                self,
+                sa.payload,
+                consequence,
+            );
+            var listeners_prepared = true;
+            errdefer if (listeners_prepared) prepared_listeners.abandon(self);
             // A temporary retain bridges carrier consumption and consequence
             // drain. Resolver/listener publication is committed once, then the
             // queue carrier is consumed before any fallible local consequence,
@@ -373,74 +400,104 @@ pub fn stepPending(self: *Peer) !void {
             // the notification path, so only the local consequence drain runs.
             if (self.session_state.captp_version == .v1_0) {
                 if (self.session_state.answerPayloadResolver(sa.payload)) |resolver_import| {
-                    try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import, pending.charge);
+                    try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import);
                     self.session_state.clearAnswerPayloadResolver(sa.target, sa.payload);
                 }
             }
-            // Once notification is committed (or, on next, deliberately
-            // omitted), a consequence-drain failure must not retain the
-            // carrier and repeat the settlement on retry.
-            // A sent `op:resolve` also settles one of our inbound answers locally.
+            // A sent settlement also resolves this answer locally. Notification
+            // publication is the last retryable boundary: after it, repeating
+            // the carrier would duplicate wire authority, while dropping a
+            // failed call/projection drain would leave the peer hanging. Make
+            // that failure terminal and consume the carrier exactly once.
+            settleSentAnswer(self, sa.target, sa.payload, consequence, &prepared_listeners) catch |err| {
+                prepared_listeners.abandon(self);
+                listeners_prepared = false;
+                self.session_state.retireReleasedLocalPromiseAnswer(sa.target.name);
+                const consumed = self.takePending();
+                consumed.item.deinit(self);
+                emitTerminalConsequenceFailure(self, err);
+                return err;
+            };
+            listeners_prepared = false;
             const consumed = self.takePending();
             consumed.item.deinit(self);
-            try settleSentAnswer(self, sa.target, sa.payload, stored.*);
         },
         .next_answered => |pair| {
-            try stepNextAnswered(self, pending.charge, pair);
+            try stepNextAnswered(self, pair);
             var consumed = self.takePending();
             consumed.item.deinit(self);
         },
         .message => |message| {
-            try emitPendingMessage(self, message, pending.charge);
+            try emitPendingMessage(self, message);
             var consumed = self.takePending();
             consumed.item.deinit(self);
         },
         .listener_fire => |fire| {
-            try emitPendingListenerFire(self, pending.charge, fire);
+            try emitPendingListenerFire(self, fire);
             const consumed = self.takePending();
-            consumed.item.deinit(self);
+            const emitted = switch (consumed.item) {
+                .listener_fire => |item| item,
+                else => unreachable,
+            };
+            listener_fire.deinitEmitted(emitted, self);
         },
     }
 }
 
-fn stepNextAnswered(self: *Peer, staged_charge: usize, pair: NextAnswered) !void {
-    try pushEncodedPairFromPending(self, staged_charge, pair.operation, pair.listener);
+fn emitTerminalConsequenceFailure(self: *Peer, err: anyerror) void {
+    self.recordFailure(err);
+    const projected = abort_projection.abortForError(err);
+    if (projected) |reason| {
+        self.commitAbortOutbound(.{ .kind = reason.kind, .message = reason.message }) catch |abort_err| {
+            self.recordAbortDeliveryFailure(abort_err);
+            self.closeSession();
+        };
+    } else {
+        self.closeSession();
+    }
 }
 
-/// Encode and publish two adjacent frames as one pending-carrier transaction.
-/// Both encodes, the waterline check, and both queue slots are acquired before
-/// either frame becomes visible, so the first half can never escape alone.
-fn pushEncodedPairFromPending(
-    self: *Peer,
-    staged_charge: usize,
-    first: model.Message,
-    second: model.Message,
-) !void {
-    var operation_frame = try codec.dispatch.encodeMessageForProfile(
-        self.session_state.codec,
-        self.allocator,
-        self.session_state.captp_version,
-        first,
+fn stepNextAnswered(self: *Peer, pair: NextAnswered) !void {
+    try self.pushEncodedPairFromPending(
+        pair.operation,
+        pair.listener,
+        .already_recorded,
     );
-    errdefer operation_frame.deinit();
-    var listener_frame = try codec.dispatch.encodeMessageForProfile(
-        self.session_state.codec,
-        self.allocator,
-        self.session_state.captp_version,
-        second,
-    );
-    errdefer listener_frame.deinit();
-    try self.checkOutboundTransferWaterline(staged_charge);
-    try self.ensureOutboundCapacity(2);
-
-    self.outbound.pushAssumeCapacity(operation_frame);
-    self.outbound.pushAssumeCapacity(listener_frame);
 }
 
-fn emitPendingListenerFire(self: *Peer, staged_charge: usize, fire: listener_fire.Carrier) !void {
+fn emitPendingListenerFire(self: *Peer, fire: listener_fire.Carrier) !void {
     var args: [2]model.Argument = undefined;
-    if (listener_fire.borrowedMessage(self, fire, &args)) |message|
-        try emitPendingMessage(self, message, staged_charge);
+    const message = listener_fire.borrowedMessage(self, fire, &args);
+    const listener_import = model.ImportPosition.from(fire.listener_position);
+    if (!self.session_state.importRequiresWireRelease(listener_import)) {
+        if (message) |callback|
+            try self.pushEncodedFromPending(callback);
+        return;
+    }
+    const positions = [_]u64{fire.listener_position};
+    const deltas = [_]u64{1};
+    const release: model.Message = .{ .gc_export = .{
+        .positions = &positions,
+        .deltas = &deltas,
+    } };
+    if (message) |callback| {
+        try self.pushEncodedPairFromPending(callback, release, .record_at_commit);
+    } else {
+        try emitRecordedPendingMessage(self, release);
+    }
+}
+
+fn emitRecordedPendingMessage(self: *Peer, message: model.Message) !void {
+    var frame = try codec.dispatch.encodeMessageForProfile(
+        self.session_state.codec,
+        self.allocator,
+        self.session_state.captp_version,
+        message,
+    );
+    errdefer frame.deinit();
+    try self.ensureOutboundCapacity(1);
+    self.session_state.recordSend(message) catch unreachable;
+    self.outbound.pushAssumeCapacity(frame);
 }
 
 /// Encode one pending message onto `outbound`, applying the V1.0
@@ -458,7 +515,7 @@ fn emitPendingListenerFire(self: *Peer, staged_charge: usize, fire: listener_fir
 /// next encodes the message as it stands. Borrows `message`; the pending queue
 /// continues owning it until this returns successfully. An `op:abort` closes
 /// only after its frame is published so the partner can still take it.
-fn emitPendingMessage(self: *Peer, message: model.Message, pending_charge: usize) !void {
+fn emitPendingMessage(self: *Peer, message: model.Message) !void {
     if (message == .abort) {
         try self.commitAbortOutbound(message.abort);
         return;
@@ -473,35 +530,39 @@ fn emitPendingMessage(self: *Peer, message: model.Message, pending_charge: usize
         // callback: there is nobody to notify, so the resolve emits nothing —
         // V1.0 has no wire shape to invent for it.
         if (self.session_state.resolverForInboundAnswer(.fromWire(message.resolve.answer))) |resolver_import| {
-            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import, pending_charge);
+            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import);
         }
         return;
     }
 
-    if (!needs_v1_0) return self.pushEncodedFromPending(pending_charge, message);
+    if (!needs_v1_0) return self.pushEncodedFromPending(message);
 
     switch (message) {
         .deliver => |deliver| {
             const prepared = try v1_0.prepareOutboundDeliver(self, deliver);
-            errdefer prepared.rollback(self);
-            try self.pushEncodedFromPending(pending_charge, prepared.message);
+            errdefer prepared.abandon(self);
+            try self.pushEncodedFromPending(prepared.message);
         },
-        .get => |get| try emitV1Projection(self, pending_charge, message, get.answer),
-        .index => |index| try emitV1Projection(self, pending_charge, message, index.answer),
-        .untag => |untag| try emitV1Projection(self, pending_charge, message, untag.answer),
-        else => try self.pushEncodedFromPending(pending_charge, message),
+        .get => |get| try emitV1Projection(self, message, get.answer),
+        .index => |index| try emitV1Projection(self, message, index.answer),
+        .untag => |untag| try emitV1Projection(self, message, untag.answer),
+        else => try self.pushEncodedFromPending(message),
     }
 }
 
 fn emitV1Projection(
     self: *Peer,
-    pending_charge: usize,
     projection: model.Message,
     answer: model.AnswerPosition,
 ) !void {
-    const listener = try v1_0.prepareProjectionListener(self, answer);
-    errdefer listener.rollback(self);
-    try pushEncodedPairFromPending(self, pending_charge, projection, listener.message);
+    const listener = (try v1_0.prepareProjectionListener(self, answer)) orelse
+        return self.pushEncodedFromPending(projection);
+    errdefer listener.abandon(self);
+    try self.pushEncodedPairFromPending(
+        projection,
+        listener.message,
+        .already_recorded,
+    );
 }
 
 /// Settle the local consequences of a just-sent `op:resolve`: drain the
@@ -522,8 +583,9 @@ fn settleSentAnswer(
     self: *Peer,
     target: session.AnswerTarget,
     payload: *session.AnswerPayload,
-    resolution: model.Resolution,
+    consequence: ?resolution_chain.Outcome,
+    prepared_listeners: *pipeline.PreparedListenerDrain,
 ) !void {
-    try pipeline.drainAnswerConsequencesTarget(self, target, payload, resolution);
+    try pipeline.drainAnswerConsequencesTarget(self, target, payload, consequence, prepared_listeners);
     self.session_state.retireReleasedLocalPromiseAnswer(target.name);
 }

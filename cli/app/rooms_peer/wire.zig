@@ -5,7 +5,7 @@
 const std = @import("std");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
-const harness = @import("harness.zig");
+const ledger = @import("harness/ledger.zig");
 const phase_mod = @import("phase.zig");
 const st = @import("state.zig");
 
@@ -22,7 +22,7 @@ const RoomsBridge = common.RoomsBridge;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
 const max_nick = common.max_nick;
 const max_dm_inboxes = common.max_dm_inboxes;
-const recordInbox = harness.recordInbox;
+const recordInbox = ledger.recordInbox;
 
 pub const RoomLine = struct {
     from: []const u8,
@@ -71,10 +71,12 @@ pub fn recordReceived(
     author: []const u8,
     text: []const u8,
     peer: []const u8,
-) void {
+) bool {
     recordInbox(io, gpa, dir, "msg", channel, author, text, peer) catch |err| {
         log.err(io, "recording {s} line from \"{s}\" failed: {s}", .{ channel, author, @errorName(err) });
+        return false;
     };
+    return true;
 }
 
 /// The room calls `notify(from, text, ...)` back on this exported inbox, and
@@ -95,7 +97,9 @@ const RoomInbox = struct {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
         if (roomLine(msg.args, self.state.nick)) |line| {
-            recordReceived(self.state.io, self.state.gpa, self.state.dir, "room", line.from, line.text, "");
+            if (!recordReceived(self.state.io, self.state.gpa, self.state.dir, "room", line.from, line.text, "")) {
+                self.state.persistence_failed = true;
+            }
         }
         return .{ .void = {} };
     }
@@ -121,7 +125,9 @@ const DmInbox = struct {
             rememberDmBack(self.state, self.peer, args[1].capability);
         }
         if (text.len > 0) {
-            recordReceived(self.state.io, self.state.gpa, self.state.dir, "dm", self.peer, text, self.peer);
+            if (!recordReceived(self.state.io, self.state.gpa, self.state.dir, "dm", self.peer, text, self.peer)) {
+                self.state.persistence_failed = true;
+            }
         }
         return .void;
     }
@@ -178,22 +184,22 @@ fn inboxNameFor(state: *st.PeerState, peer: []const u8) ?[]const u8 {
 fn rememberDmBack(state: *st.PeerState, peer: []const u8, reply: Capability) void {
     if (state.dm_back.getPtr(peer)) |held| {
         if (state.host.capabilities.resolve(held.*) != null) {
-            _ = state.host.capabilities.release(reply, 1) catch {};
+            _ = state.releaseCapability(reply, "duplicate DM route");
             if (state.failed_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
             return;
         }
-        _ = state.host.capabilities.release(held.*, 1) catch {};
+        _ = state.releaseCapability(held.*, "replaced DM route");
         held.* = reply;
         if (state.failed_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
         return;
     }
     const key = state.gpa.dupe(u8, peer) catch {
-        _ = state.host.capabilities.release(reply, 1) catch {};
+        _ = state.releaseCapability(reply, "DM route bookkeeping allocation");
         return;
     };
     state.dm_back.put(state.gpa, key, reply) catch {
         state.gpa.free(key);
-        _ = state.host.capabilities.release(reply, 1) catch {};
+        _ = state.releaseCapability(reply, "DM route bookkeeping insertion");
         return;
     };
     if (state.failed_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
@@ -204,7 +210,25 @@ fn rememberDmBack(state: *st.PeerState, peer: []const u8, reply: Capability) voi
 /// work runs from `drainPendingInboxOffers` in `maintain`.
 fn scheduleInboxOffer(state: *st.PeerState, peer: []const u8) void {
     if (peer.len > max_nick) return;
-    phase_mod.schedulePendingOffer(state.gpa, &state.pending_inbox_offers, peer, max_dm_inboxes);
+    switch (phase_mod.schedulePendingOffer(state.gpa, &state.pending_inbox_offers, peer, max_dm_inboxes)) {
+        .allocation_failed => {
+            // Keep the first exact bounded retry without asking the failing
+            // allocator for another map entry. A later offer is bounded loss,
+            // and must be visible rather than silently replacing the first.
+            if (state.pending_inbox_offer_retry != null) {
+                log.err(state.io, "dm inbox offer for \"{s}\" dropped: bounded retry slot already holds \"{s}\"", .{
+                    peer,
+                    state.pending_inbox_offer_retry.?.bytes[0..state.pending_inbox_offer_retry.?.len],
+                });
+            } else {
+                var retry = st.PendingInboxOfferRetry{ .bytes = undefined, .len = 0 };
+                @memcpy(retry.bytes[0..peer.len], peer);
+                retry.len = peer.len;
+                state.pending_inbox_offer_retry = retry;
+            }
+        },
+        else => {},
+    }
 }
 
 /// Offer the directory an inbox for `peer`, the answer to its `mintInboxFor`.
@@ -245,6 +269,12 @@ fn offerInboxFor(state: *st.PeerState, peer: []const u8) bool {
 /// `offerInboxFor` succeeds so a transient tell failure retries next wake.
 pub fn drainPendingInboxOffers(state: *st.PeerState) void {
     phase_mod.drainPendingOffers(state.gpa, &state.pending_inbox_offers, state, offerInboxFor);
+    if (state.pending_inbox_offer_retry) |retry| {
+        switch (phase_mod.schedulePendingOffer(state.gpa, &state.pending_inbox_offers, retry.bytes[0..retry.len], max_dm_inboxes)) {
+            .queued, .already_pending => state.pending_inbox_offer_retry = null,
+            .at_capacity, .allocation_failed => {},
+        }
+    }
 }
 
 /// The directory's channel to this member: `notify("registered", nick)` once the
@@ -263,7 +293,7 @@ const RegInbox = struct {
             // Outside `.joined` this no-ops: a late notify after teardown must
             // not write status "joined" with the wire down.
             if (phase_mod.noteRegistered(&self.state.phase)) {
-                self.state.writeStateNow("joined");
+                _ = self.state.writeStateNow("joined");
             }
         } else if (std.mem.eql(u8, kind, "mintInboxFor") and peer.len > 0) {
             // Queue only: publishGiftable/tell refuse ReenteredHost under this latch.
@@ -288,7 +318,10 @@ pub fn onOpen(ctx: ?*anyopaque, bridge: *RoomsBridge, slot: *RoomsBridge.Slot) a
     const state: *st.PeerState = @ptrCast(@alignCast(ctx.?));
     if (state.phase != .dialing or slot.leg != .app_dial) return;
     state.phase = .{ .joining = .{ .session = slot.session } };
-    state.writeStateNow("joining");
+    if (!state.writeStateNow("joining")) {
+        state.requestAbandonJoin();
+        return;
+    }
     const vow = state.host.fetch(slot.session, "directory") catch |err| {
         log.err(state.io, "directory fetch failed: {s}", .{@errorName(err)});
         state.requestAbandonJoin();
@@ -448,7 +481,7 @@ fn onSubscribed(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     }
     state.join_attempts = 0;
     st.g_ever_joined = true;
-    state.writeStateNow("joined");
+    if (!state.writeStateNow("joined")) return;
     registerWithDirectory(state);
 }
 

@@ -27,11 +27,29 @@ export async function run(tab: Page, second: Page): Promise<void> {
 	await tab.click("#line");
 	await tab.type("#line", "@bart");
 	await tab.waitForSelector("#completePop [role=option]", { timeout: 10_000 })
-		.catch(() => fail("typing @bart never raised the completion list"));
+		.catch(async () => {
+			const saw = await tab.evaluate(() => ({
+				draft: (document.getElementById("line") as HTMLTextAreaElement | null)?.value ?? "",
+				pop: document.getElementById("completePop")?.innerHTML ?? "(no pop)",
+				members: [...document.querySelectorAll("#members li")].map((li) => (li.textContent ?? "").slice(0, 40)),
+				room: document.getElementById("roomName")?.textContent ?? "",
+				rail: [...document.querySelectorAll("#roomList li .rname")].map((n) => n.textContent ?? ""),
+				log: [...document.querySelectorAll("#log .sys")].map((s) => (s.textContent ?? "").slice(0, 80)).slice(
+					-6,
+				),
+				address: location.pathname + location.search + location.hash,
+			}));
+			fail(`typing @bart never raised the completion list; the page held ${JSON.stringify(saw)}`);
+		});
 	await tab.press("#line", "Enter");
 	const completed = await tab.inputValue("#line");
 	if (completed !== "@bartholomew-longname ") {
-		fail(`completion left the draft as ${JSON.stringify(completed)}`);
+		const saw = await tab.evaluate(() => ({
+			pop: document.getElementById("completePop")?.innerHTML ?? "(no pop)",
+			members: [...document.querySelectorAll("#members li")].map((li) => (li.textContent ?? "").slice(0, 40)),
+			log: [...document.querySelectorAll("#log .sys")].map((s) => (s.textContent ?? "").slice(0, 60)).slice(-4),
+		}));
+		fail(`completion left the draft as ${JSON.stringify(completed)}; the page held ${JSON.stringify(saw)}`);
 	}
 	// Completion starts on the first useful emoji character; waiting for two or
 	// more makes a fast typist outrun a discoverability feature.

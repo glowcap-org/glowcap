@@ -181,17 +181,17 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     // projected on this Port until either the exact gift or a fresh fetch asks.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7001", &.{});
     // Production Bridge dials from pendingDial parts — no URI re-parse.
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
+        .transport = redeem_view.locator.transport,
+        .designator = redeem_view.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     try std.testing.expect(r_to_e.sessionOpen());
-    try recipient.exporterDialed(parked.ticket, r_to_e);
+    _ = try recipient.exporterDialed(parked.ticket, 0, r_to_e);
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
 
     const token_ref = try redeemed.require();
@@ -294,17 +294,17 @@ test "core host: unpublish removes discovery on every session while issued capab
     // Outcome 3: the deposited gift still redeems the exact actor over the
     // recipient's own exporter session, opened after the removal.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
+        .transport = redeem_view.locator.transport,
+        .designator = redeem_view.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     try std.testing.expect(r_to_e.sessionOpen());
-    try recipient.exporterDialed(parked.ticket, r_to_e);
+    _ = try recipient.exporterDialed(parked.ticket, 0, r_to_e);
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     const token_ref = try redeemed.require();
     var exact = CapturedString{};
@@ -416,16 +416,16 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
     const parked = dials.items[0];
 
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7031", &.{});
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
+        .transport = redeem_view.locator.transport,
+        .designator = redeem_view.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
-    try recipient.exporterDialed(parked.ticket, r_to_e);
+    _ = try recipient.exporterDialed(parked.ticket, 0, r_to_e);
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
 
     // The withdrawn capability is the exact unnamed actor, mutated state and
@@ -545,16 +545,16 @@ test "core host: a target reached directly and through handoff lifts to one Host
     const parked = dials.items[0];
 
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7051", &.{});
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
+        .transport = redeem_view.locator.transport,
+        .designator = redeem_view.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
-    try recipient.exporterDialed(parked.ticket, r_to_e);
+    _ = try recipient.exporterDialed(parked.ticket, 0, r_to_e);
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     const token_ref = try redeemed.require();
 

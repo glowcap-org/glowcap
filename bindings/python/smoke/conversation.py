@@ -183,9 +183,12 @@ async def _async_behavior_defers() -> None:
     host's turn loop never blocks on it. A raise crosses as the caller's
     break carrying the behavior's own words."""
     host = Host()
+    entered = {verb: asyncio.Event() for verb in ("work", "fail", "unsupported")}
+    resume = {verb: asyncio.Event() for verb in entered}
 
     async def work(verb, args):
-        await asyncio.sleep(0.005)
+        entered[verb].set()
+        await resume[verb].wait()
         if verb == "fail":
             raise ValueError("worker gave up")
         if verb == "unsupported":
@@ -205,16 +208,23 @@ async def _async_behavior_defers() -> None:
         client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         client.serve()
         worker = await client.fetch("worker")
-        reply = await client.send(worker, "work", [])
+
+        async def invoke(verb):
+            pending = client.send(worker, verb, [])
+            await entered[verb].wait()
+            resume[verb].set()
+            return await pending
+
+        reply = await invoke("work")
         assert reply == "computed off-turn", f"async behavior reply, got {reply!r}"
         try:
-            await client.send(worker, "fail", [])
+            await invoke("fail")
         except VowBroken as broke:
             assert "worker gave up" in str(broke), f"async raise carries the reason, got {broke!s}"
         else:
             raise AssertionError("an async behavior's raise must break the caller")
         try:
-            await client.send(worker, "unsupported", [])
+            await invoke("unsupported")
         except VowBroken as broke:
             assert "unsupported" in str(broke).lower(), f"async marshal failure carries the reason, got {broke!s}"
         else:
@@ -473,7 +483,10 @@ async def _tightened_admission_cap_refuses() -> None:
         session.close_transport()
 
     tightened = Host()
-    tightened.set_session_limits(max_frame_bytes=1024)
+    tightened.set_session_limits(
+        max_frame_bytes=1024,
+        max_retained_sent_answer_bytes=8 * 1024 * 1024,
+    )
     session = _dial_injected(tightened)
     try:
         await _pump._feed(session, prefix)
@@ -491,16 +504,26 @@ async def _disconnect_rejects_pending_send() -> None:
     typed rejection once the disconnect lands."""
     server = await tcp.listen("127.0.0.1", 0)
     closed = asyncio.Event()
+    called = asyncio.Event()
+    hold_late_reply = asyncio.Event()
     published = asyncio.Event()
     try:
 
         async def serve_one() -> None:
             async for session in server:
-                session.publish("svc", lambda verb, args: None)
+                async def service(verb, args):
+                    if verb == "ping":
+                        return None
+                    called.set()
+                    await hold_late_reply.wait()
+                    return None
+
+                session.publish("svc", service)
                 session.serve()
                 published.set()
-                await asyncio.sleep(0.05)
+                await called.wait()
                 await session.close()
+                hold_late_reply.set()
                 closed.set()
                 break
 
@@ -510,10 +533,12 @@ async def _disconnect_rejects_pending_send() -> None:
         await asyncio.wait_for(published.wait(), timeout=5)
         svc = await session.fetch("svc")
         await session.send(svc, "ping", [])
+        pending = session.send(svc, "late", [])
+        await called.wait()
         await closed.wait()
         rejected = False
         try:
-            await session.send(svc, "late", [])
+            await pending
         except (PancakeError, VowBroken):
             rejected = True
         assert rejected, "an outstanding send rejects when the connection drops"
@@ -521,5 +546,3 @@ async def _disconnect_rejects_pending_send() -> None:
         await asyncio.wait_for(hosted, timeout=5)
     finally:
         await server.close()
-
-

@@ -52,7 +52,7 @@ import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
-import { connectVizViewer, scrapeVizSturdyref, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
@@ -78,10 +78,8 @@ const TO_NATIVE = "hello bob, privately, from a goblins vat";
  * from the vat is told from one the room or the tab produced. */
 const GOBLINS_PROFILE = "goblins";
 
-/** How long any one wait may take. Generous, because a cold Racket start and a
- * browser launch are both slow, and finite, because a step that never finishes
- * has to fail rather than hang. */
-const WAIT_MS = 60_000;
+/** Every diagnostic wait expires before the build's 30-second process owner. */
+const WAIT_MS = 20_000;
 
 /** How long an iroh endpoint may take to learn a direct address of its own.
  * Shorter than `WAIT_MS`, because nothing here is starting up cold. */
@@ -107,7 +105,8 @@ async function until(ready: () => boolean, what: string, ms = WAIT_MS): Promise<
 }
 
 async function waitForLocator(port: number): Promise<string> {
-	for (let i = 0; i < 800; i++) {
+	const deadline = Date.now() + WAIT_MS;
+	while (Date.now() < deadline) {
 		try {
 			const res = await fetch(`http://127.0.0.1:${port}/locator`);
 			const text = (await res.text()).trim();
@@ -183,7 +182,7 @@ async function startNativeMember() {
 type Rec = Record<string, unknown>;
 async function watchTimeline(sturdyref: string): Promise<{ seen: Rec[]; close: () => Promise<void> }> {
 	const seen: Rec[] = [];
-	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+	const viewer = await connectVizViewer(sturdyref, (record) => {
 		seen.push(record);
 	});
 	return { seen, close: () => viewer.close() };
@@ -264,7 +263,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { PANCAKE_ROOMS_VIZ_URL: `ws://127.0.0.1:${vizPort}/` },
+		env: { PANCAKE_ROOMS_VIZ_URL: vizUrlOf(vizRef) },
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
@@ -337,7 +336,12 @@ try {
 
 	// The browser tab.
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const tab: Page = await browser.newPage();
+	const context = await browser.newContext();
+	await context.addInitScript(
+		({ key, value }) => localStorage.setItem(key, value),
+		vizMemorySeed(httpPort, vizRef),
+	);
+	const tab: Page = await context.newPage();
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
 	await tab.fill("#nick", TAB_NICK);

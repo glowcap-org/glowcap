@@ -50,10 +50,10 @@
  * which during a drag manifests as the pill silently resizing —
  * the original bug these helpers were carved out to fix.
  *
- * # Historical rationale
+ * # Design rationale
  *
  * The design rationale (why three layers, not two; why split intent
- * from constraint; the migration from `(start, end)`) lives in
+ * from constraint; why storage is `(start, duration)`) lives in
  * `docs/temporal-model.md`. That file is reference, not spec. The
  * spec is this module and its siblings.
  */
@@ -61,34 +61,34 @@
 import { type Bound, explicitBound, implicitBound, withValue } from "./bound.ts";
 
 export type TimeSpan = {
-  start: Bound;
-  duration: Bound;
-  /** Provenance: `true` when the projection derived this span from
-   *  observations (`projectFromObservations`), absent when a user
-   *  authored it. Derived spans are re-derived whenever the entity's
-   *  observations grow (a live feed's late-arriving `peer-left` /
-   *  `session-closed` must land); authored spans are never touched
-   *  by projection. Every authoring op in this module strips the
-   *  flag, so an edit — even one that re-states the derived value —
-   *  promotes the span to authored. (`| undefined` matches the zod
-   *  schema's `.optional()` inference under
-   *  `exactOptionalPropertyTypes`.) */
-  derived?: true | undefined;
+	start: Bound;
+	duration: Bound;
+	/** Provenance: `true` when the projection derived this span from
+	 *  observations (`projectFromObservations`), absent when a user
+	 *  authored it. Derived spans are re-derived whenever the entity's
+	 *  observations grow (a live feed's late-arriving `peer-left` /
+	 *  `session-closed` must land); authored spans are never touched
+	 *  by projection. Every authoring op in this module strips the
+	 *  flag, so an edit — even one that re-states the derived value —
+	 *  promotes the span to authored. (`| undefined` matches the zod
+	 *  schema's `.optional()` inference under
+	 *  `exactOptionalPropertyTypes`.) */
+	derived?: true | undefined;
 };
 
 /** Mark a span as projection-derived. Only `projectFromObservations`
  *  calls this; see `TimeSpan.derived`. */
 export const markDerived = (v: TimeSpan): TimeSpan => ({
-  start: v.start,
-  duration: v.duration,
-  derived: true,
+	start: v.start,
+	duration: v.duration,
+	derived: true,
 });
 
 /** Strip the derived marker: the span is now user intent. Applied by
  *  every authoring op below, and by any write path that assigns a
  *  span it did not build itself (`applyPatch`). */
 export const asAuthored = (v: TimeSpan): TimeSpan =>
-  v.derived === undefined ? v : { start: v.start, duration: v.duration };
+	v.derived === undefined ? v : { start: v.start, duration: v.duration };
 
 /** True when the span is projection-owned (see `TimeSpan.derived`).
  *  No-op guards consult this: re-stating a derived value IS a real
@@ -99,16 +99,16 @@ export const isDerived = (v: TimeSpan): boolean => v.derived === true;
 /** Default span for a freshly-created entity with no explicit
  *  authoring yet. Both sides implicit, values seeded at 0. */
 export const implicitTimeSpan = (): TimeSpan => ({
-  start: implicitBound(0),
-  duration: implicitBound(0),
+	start: implicitBound(0),
+	duration: implicitBound(0),
 });
 
 /** Default span for a message — duration is always explicit; the
  *  caller passes the flight ms (default 500 elsewhere). Start is
  *  implicit by default; the authoring intent will normally set it. */
 export const messageTimeSpan = (flightMs: number): TimeSpan => ({
-  start: implicitBound(0),
-  duration: explicitBound(Math.max(0, flightMs)),
+	start: implicitBound(0),
+	duration: explicitBound(Math.max(0, flightMs)),
 });
 
 /* ------------------------------------------------------------------ *
@@ -117,53 +117,53 @@ export const messageTimeSpan = (flightMs: number): TimeSpan => ({
  * ------------------------------------------------------------------ */
 
 export function setStart(v: TimeSpan, value: number): TimeSpan {
-  return { start: withValue(v.start, value), duration: v.duration };
+	return { start: withValue(v.start, value), duration: v.duration };
 }
 
 export function clearStart(v: TimeSpan): TimeSpan {
-  return {
-    start: { ...v.start, explicit: false },
-    duration: v.duration,
-  };
+	return {
+		start: { ...v.start, explicit: false },
+		duration: v.duration,
+	};
 }
 
 export function setDuration(v: TimeSpan, value: number): TimeSpan {
-  return {
-    start: v.start,
-    duration: withValue(v.duration, Math.max(0, value)),
-  };
+	return {
+		start: v.start,
+		duration: withValue(v.duration, Math.max(0, value)),
+	};
 }
 
 export function clearDuration(v: TimeSpan): TimeSpan {
-  return {
-    start: v.start,
-    duration: { ...v.duration, explicit: false },
-  };
+	return {
+		start: v.start,
+		duration: { ...v.duration, explicit: false },
+	};
 }
 
 /** Sugar — set end by computing duration from the entity's
  *  currently-resolved intrinsic start. Caller MUST pass that
  *  resolved start (this module can't ask context). */
 export function setEnd(
-  v: TimeSpan,
-  endValue: number,
-  intrinsicStart: number,
+	v: TimeSpan,
+	endValue: number,
+	intrinsicStart: number,
 ): TimeSpan {
-  return setDuration(v, endValue - intrinsicStart);
+	return setDuration(v, endValue - intrinsicStart);
 }
 
 export function clearEnd(v: TimeSpan): TimeSpan {
-  return clearDuration(v);
+	return clearDuration(v);
 }
 
 /** Rigid move — change start, leave duration untouched. Caller
  *  passes the resolved start to compute the new start absolutely. */
 export function moveBy(
-  v: TimeSpan,
-  delta: number,
-  intrinsicStart: number,
+	v: TimeSpan,
+	delta: number,
+	intrinsicStart: number,
 ): TimeSpan {
-  return setStart(v, intrinsicStart + delta);
+	return setStart(v, intrinsicStart + delta);
 }
 
 /** Alias for setDuration with intent-naming. */
@@ -189,41 +189,41 @@ export const resize = setDuration;
  *  is no user-stated end to pin against; the pill keeps trailing to
  *  doc.duration which is the only sensible visual. */
 export function translateSpan(
-  span: TimeSpan,
-  dt: number,
-  resolvedStart: number,
-  resolvedEnd: number,
+	span: TimeSpan,
+	dt: number,
+	resolvedStart: number,
+	resolvedEnd: number,
 ): TimeSpan {
-  const newStart = resolvedStart + dt;
-  if (Number.isFinite(resolvedEnd)) {
-    return {
-      start: { value: newStart, explicit: true },
-      duration: {
-        value: Math.max(0, resolvedEnd - resolvedStart),
-        explicit: true,
-      },
-    };
-  }
-  return {
-    start: { value: newStart, explicit: true },
-    duration: span.duration,
-  };
+	const newStart = resolvedStart + dt;
+	if (Number.isFinite(resolvedEnd)) {
+		return {
+			start: { value: newStart, explicit: true },
+			duration: {
+				value: Math.max(0, resolvedEnd - resolvedStart),
+				explicit: true,
+			},
+		};
+	}
+	return {
+		start: { value: newStart, explicit: true },
+		duration: span.duration,
+	};
 }
 
 /** Right-edge resize: pin end to `newEndT`, keep the resolved start.
  *  Both bounds explicit so duration recomputes from the new end
  *  rather than inheriting from the parent intrinsic. */
 export function setSpanEndAt(
-  resolvedStart: number,
-  newEndT: number,
+	resolvedStart: number,
+	newEndT: number,
 ): TimeSpan {
-  return {
-    start: { value: resolvedStart, explicit: true },
-    duration: {
-      value: Math.max(0, newEndT - resolvedStart),
-      explicit: true,
-    },
-  };
+	return {
+		start: { value: resolvedStart, explicit: true },
+		duration: {
+			value: Math.max(0, newEndT - resolvedStart),
+			explicit: true,
+		},
+	};
 }
 
 /** Left-edge resize: pin start to `newStartT`, keep the resolved end.
@@ -235,21 +235,21 @@ export function setSpanEndAt(
  *  open pill into one with `duration = Infinity`, which then paints
  *  past the doc and confuses every downstream resolver. */
 export function setSpanStartAt(
-  span: TimeSpan,
-  newStartT: number,
-  resolvedEnd: number,
+	span: TimeSpan,
+	newStartT: number,
+	resolvedEnd: number,
 ): TimeSpan {
-  if (!Number.isFinite(resolvedEnd)) {
-    return {
-      start: { value: newStartT, explicit: true },
-      duration: span.duration,
-    };
-  }
-  return {
-    start: { value: newStartT, explicit: true },
-    duration: {
-      value: Math.max(0, resolvedEnd - newStartT),
-      explicit: true,
-    },
-  };
+	if (!Number.isFinite(resolvedEnd)) {
+		return {
+			start: { value: newStartT, explicit: true },
+			duration: span.duration,
+		};
+	}
+	return {
+		start: { value: newStartT, explicit: true },
+		duration: {
+			value: Math.max(0, resolvedEnd - newStartT),
+			explicit: true,
+		},
+	};
 }

@@ -62,8 +62,8 @@ pub const zig_demo_locator = [_]struct { path: []const u8, required: []const u8,
         .banned = &.{ "host ++ \":1\"", "127.0.0.1:{d}" },
     },
     .{
-        .path = "bench/peer_scaling_bench.zig",
-        .required = "net.tcp.locatorFromAddress(",
+        .path = "bench/peer_scaling/live_worker.zig",
+        .required = "tcp.locatorFromAddress(",
         .banned = &.{"127.0.0.1:{d}"},
     },
     .{

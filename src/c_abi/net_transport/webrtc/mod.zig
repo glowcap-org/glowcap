@@ -40,9 +40,16 @@ const provider = @import("provider.zig");
 // none of libpancake_ocapn's exported surface (ADR-0059 companion split).
 const c = @import("c_abi_shared");
 
+pub const contract_layouts = [_]c.archive_contract.Layout{
+    c.archive_contract.layout("PANCAKE_WEBRTC_READY_EVENT", PancakeWebrtcReadyEvent),
+    c.archive_contract.layout("PANCAKE_WEBRTC_STRING_VIEW", PancakeWebrtcStringView),
+    c.archive_contract.layout("PANCAKE_WEBRTC_ICE_SERVER", PancakeWebrtcIceServer),
+    c.archive_contract.layout("PANCAKE_WEBRTC_CONFIG", PancakeWebrtcConfig),
+};
 pub const PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
-    @embedFile("mod.zig"),
-    @embedFile("symbols.zig"),
+    "webrtc",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
 );
 
 pub export fn pancake_webrtc_archive_fingerprint() u64 {

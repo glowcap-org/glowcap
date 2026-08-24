@@ -60,11 +60,10 @@ pub const FetchMatch = union(enum) {
 /// answered operation with a listener.
 ///
 /// Atomic on failure: the heap allocations run first (unwound by errdefer), the
-/// fallible session-state steps next (`allocateExport` unwound by errdefer, then
-/// the bootstrap-import retain unwound by errdefer), and
+/// fallible session-state steps next (`allocateExport` unwound by errdefer), and
 /// `allocateOutboundAnswer` last, so an `error` leaves the session's export
-/// table, import table, and answer counter exactly as they were. A failed
-/// prepare never burns an export slot or an answer position.
+/// table and answer counter exactly as they were. A failed prepare never burns
+/// an export slot or an answer position.
 pub fn prepareFetchSwissnum(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
@@ -88,11 +87,6 @@ pub fn prepareFetchSwissnum(
     else
         null;
     errdefer if (resolver_export) |position| session.releaseUnsharedExport(position);
-    // The deliver targets the partner's bootstrap export, our well-known
-    // import 0. Track it here, where the fetch shape lives, so no caller
-    // carries a pre-fetch registration ritual of its own.
-    try session.registerImport(model.ImportPosition.from(session_mod.BOOTSTRAP_POSITION));
-    errdefer session.releaseImportRetain(model.ImportPosition.from(session_mod.BOOTSTRAP_POSITION));
     const answer_position = try session.allocateOutboundAnswer();
 
     // Project the mention from the authoritative slot rather than hand-typing

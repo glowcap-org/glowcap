@@ -1,12 +1,11 @@
-// Gate: the browser binding's wasm32 module imports exactly one thing.
+// Gate: the browser binding's wasm32 module imports exactly its two hosted-
+// object callbacks.
 //
 // The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0070) declares a
-// single synchronous import — `env.pancake_behavior_trampoline` — the one
-// behavior-dispatch seam the browser adapter implements (every wasm-hosted
-// object registers this shared trampoline and is told apart by its `ctx`). The
+// two synchronous imports: behavior dispatch and hosted-actor retirement. The
 // module is otherwise self-contained: it draws no entropy, owns no I/O, and
-// carries no other host callback. A second import creeping in — an accidental
-// libc dependency, a new unfulfilled seam, or a rename of this one — changes the
+// carries no other host callback. Another import creeping in — an accidental
+// libc dependency, a new unfulfilled seam, or a rename of either one — changes the
 // contract the adapter's import object must satisfy, so it must fail the build
 // rather than surface as an instantiation error in a browser.
 //
@@ -16,7 +15,10 @@
 
 const wasmPath = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 
-const EXPECTED = { module: "env", name: "pancake_behavior_trampoline", kind: "function" };
+const EXPECTED = [
+	{ module: "env", name: "pancake_behavior_trampoline", kind: "function" },
+	{ module: "env", name: "pancake_hosted_free_trampoline", kind: "function" },
+];
 
 function fail(msg: string): never {
 	console.error("wasm-import-check: " + msg);
@@ -27,19 +29,20 @@ const bytes = await Deno.readFile(wasmPath);
 const mod = new WebAssembly.Module(bytes);
 const imports = WebAssembly.Module.imports(mod);
 
-if (imports.length !== 1) {
+if (imports.length !== EXPECTED.length) {
 	const list = imports.map((i) => `${i.module}.${i.name} (${i.kind})`).join(", ");
-	fail(`expected exactly 1 import, found ${imports.length}: [${list}]`);
+	fail(`expected exactly ${EXPECTED.length} imports, found ${imports.length}: [${list}]`);
 }
 
-const only = imports[0];
-if (only.module !== EXPECTED.module || only.name !== EXPECTED.name || only.kind !== EXPECTED.kind) {
-	fail(
-		`import mismatch: expected ${EXPECTED.module}.${EXPECTED.name} (${EXPECTED.kind}), ` +
-			`found ${only.module}.${only.name} (${only.kind})`,
-	);
+const label = (item: { module: string; name: string; kind: string }) => `${item.module}.${item.name} (${item.kind})`;
+const expectedLabels = EXPECTED.map(label).sort();
+const actualLabels = imports.map(label).sort();
+if (actualLabels.join("\n") !== expectedLabels.join("\n")) {
+	fail(`import mismatch: expected [${expectedLabels.join(", ")}], found [${actualLabels.join(", ")}]`);
 }
 
 console.log(
-	`wasm-import-check: sole import is ${only.module}.${only.name} (${only.kind}) — contract holds.`,
+	`wasm-import-check: exact hosted callback imports (${
+		EXPECTED.map((item) => item.name).join(", ")
+	}) — contract holds.`,
 );

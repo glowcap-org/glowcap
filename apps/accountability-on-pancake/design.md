@@ -72,11 +72,14 @@ mode.
 
 ## Three-party scenario
 
-`zig build accountability-three-party` uses pancake's handoff machinery and
-three actor vats in memory. A introduces B to C; B rotates before calling C.
-C's Outcome Episode attributes B. The scenario deliberately separates the
-identity check, which belongs to this application, from the introduction, which
-belongs to OCapN.
+`zig build accountability-three-party` runs three owning Hosts over loopback
+TCP. A fetches C's Affordance, returns that foreign-homed capability to B, and
+B's Host redeems the handoff by dialing C through the ordinary `Session.call`
+path. B rotates before invoking the introduced capability; C's Outcome Episode
+attributes B rather than A. The scenario deliberately separates the identity
+check, which belongs to this application, from the introduction, which belongs
+to OCapN. The bare TCP route is isolated test transport, not a deployment
+recommendation.
 
 ## Source map
 
@@ -90,7 +93,7 @@ belongs to OCapN.
 | `zig/log.zig` | Merkle transparency log over Episode hashes. |
 | `zig/accountable.zig` | Durable Episode store. |
 | `zig/host.zig` | Single-caller Zig host for foreign-language runs. |
-| `zig/three_party_test.zig` | Attribution after a three-party handoff. |
+| `zig/three_party_test.zig` | Attribution after a three-Host TCP handoff. |
 | `deno/caller.ts`, `deno/identity.ts` | TypeScript identity and caller. |
 | `deno/blake3.ts`, `python/blake3.py` | Blake3-256 for SAIDs; the host platforms do not carry it. |
 | `python/caller.py`, `python/identity.py` | Python identity and caller. |

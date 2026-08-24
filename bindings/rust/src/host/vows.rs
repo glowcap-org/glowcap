@@ -25,6 +25,10 @@ impl VowTable {
 		self.rows.borrow_mut().insert(vow, row);
 	}
 
+	fn abandon(&self, vow: u64) {
+		self.rows.borrow_mut().remove(&vow);
+	}
+
 	fn begin_await(&self, vow: u64) -> Waiting {
 		let mut rows = self.rows.borrow_mut();
 		match rows.get_mut(&vow) {
@@ -200,6 +204,10 @@ impl HostShared {
 		self.vows.settle(vow, outcome);
 	}
 
+	pub(crate) fn abandon_vow(&self, vow: u64) {
+		self.vows.abandon(vow);
+	}
+
 	/// Settle every binding-side waiter after the loop itself has failed before
 	/// it could project C ABI FAIL events. The core Host remains the semantic
 	/// authority; this only prevents its wrapper promises from parking forever
@@ -241,6 +249,14 @@ mod tests {
 
 		assert_eq!(now(&table, 0).unwrap_err().code(), sys::ERR_CLOSED);
 		assert_eq!(now(&table, 1).unwrap_err().code(), sys::ERR_BROKEN);
+	}
+
+	#[test]
+	fn abandoned_public_handle_drops_its_pending_completion_row() {
+		let table = VowTable::new();
+		table.insert(9, row());
+		table.abandon(9);
+		assert_eq!(now(&table, 9).unwrap_err().code(), sys::ERR_CLOSED);
 	}
 
 	#[test]

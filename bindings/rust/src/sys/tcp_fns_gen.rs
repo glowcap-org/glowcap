@@ -13,8 +13,7 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::tcp::{PancakeTcpConfig, PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer, PancakeTcpStreamOptions};
-use crate::sys::driver::PancakeTransportProvider;
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
+use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};
 
 extern "C" {
 	pub fn pancake_tcp_archive_fingerprint() -> u64;

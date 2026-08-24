@@ -160,7 +160,10 @@ pub fn checkSigningDomains(
         seen_counts.deinit();
     }
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch return;
+    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src: cannot be opened for the signing-domain check ({s})", .{@errorName(err)});
+        return;
+    };
     defer dir.close(io);
 
     var walker = try dir.walk(gpa);
@@ -170,7 +173,10 @@ pub fn checkSigningDomains(
         const rel = entry.path;
         const path = try std.fmt.allocPrint(gpa, "src/{s}", .{rel});
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the signing-domain check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
 
         // Rule 1: registered signing sites only, at the registered count.

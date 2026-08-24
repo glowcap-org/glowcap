@@ -8,3 +8,7 @@ test "io_uring listener cancellation waits for a target already completing" {
     try std.testing.expect(!uring.cancelResolved(-@as(i32, @backingInt(linux.E.ALREADY))));
     try std.testing.expect(!uring.cancelResolved(-@as(i32, @backingInt(linux.E.INVAL))));
 }
+
+test "io_uring dialed and accepted sockets disable Nagle" {
+    try std.testing.expect(try uring.dialAndAcceptSetNodelay(std.testing.allocator));
+}

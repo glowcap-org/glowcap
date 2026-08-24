@@ -25,7 +25,7 @@ import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab, outPointer } from "../internal/seam.ts";
 import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
 import { traceDrainHost } from "../trace.ts";
-import { insideTurn } from "../trampoline.ts";
+import { enterDeliver, exitDeliver, insideTurn } from "../trampoline.ts";
 import { retireDriverLoopFinalizer } from "./finalizer.ts";
 import { armProgressClock, clearProgressClock, driverStepWaitMs, waitForProgressClock } from "./progress_clock.ts";
 
@@ -188,7 +188,14 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 	serveSession(ptr: Ptr): void {
 		if (this._terminalFailure != null) throw this._terminalFailure;
 		if (this._released || ptr === NULL) return;
-		checkDriver(loopS.pancake_driver_session_serve(this._h, ptr));
+		// Serving releases application frames parked behind the handshake, and
+		// may therefore invoke a hosted behavior before this call returns.
+		const prior = enterDeliver(this._wrapper);
+		try {
+			checkDriver(loopS.pancake_driver_session_serve(this._h, ptr));
+		} finally {
+			exitDeliver(prior);
+		}
 		this.scheduleStep();
 	}
 

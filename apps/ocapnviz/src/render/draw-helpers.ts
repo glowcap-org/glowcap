@@ -52,17 +52,17 @@ const MARCH_RING_MIN_DASHES = 8;
  * a recorder implementing these five methods is a valid argument,
  * and a real `Graphics` still satisfies it structurally. */
 export interface MarchCanvas {
-  clear(): unknown;
-  moveTo(x: number, y: number): unknown;
-  lineTo(x: number, y: number): unknown;
-  arc(
-    cx: number,
-    cy: number,
-    radius: number,
-    start: number,
-    end: number,
-  ): unknown;
-  stroke(style: StrokeStyle): unknown;
+	clear(): unknown;
+	moveTo(x: number, y: number): unknown;
+	lineTo(x: number, y: number): unknown;
+	arc(
+		cx: number,
+		cy: number,
+		radius: number,
+		start: number,
+		end: number,
+	): unknown;
+	stroke(style: StrokeStyle): unknown;
 }
 
 /** Wire-preview line — straight dashed line from `(x0, y0)` to
@@ -70,48 +70,48 @@ export interface MarchCanvas {
  * dashes appear to march toward the cursor. Node-editor convention
  * (Blender, Unreal Blueprint, Houdini, …). */
 export function drawMarchingLine(
-  g: MarchCanvas,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  offsetPx: number,
-  color: number,
-  scale: number,
+	g: MarchCanvas,
+	x0: number,
+	y0: number,
+	x1: number,
+	y1: number,
+	offsetPx: number,
+	color: number,
+	scale: number,
 ): void {
-  g.clear();
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const length = Math.hypot(dx, dy);
-  if (length === 0) return;
-  const ux = dx / length;
-  const uy = dy / length;
-  // Screen pixels, expressed in the world units this paints into.
-  const dash = MARCH_DASH_PX / scale;
-  const period = (MARCH_DASH_PX + MARCH_GAP_PX) / scale;
-  // Phase advances each frame so dashes shift toward (x1, y1) —
-  // i.e. toward the cursor / the peer you're about to click. The
-  // first iteration's dash starts in negative territory so a new
-  // dash slides in from behind the source as the previous one
-  // moves out, keeping the line continuous off the armed peer.
-  const walked = offsetPx / scale;
-  const phase = ((walked % period) + period) % period;
-  let dist = phase - period;
-  while (dist < length) {
-    const a = Math.max(0, dist);
-    const b = Math.min(length, dist + dash);
-    if (b > a) {
-      g.moveTo(x0 + ux * a, y0 + uy * a);
-      g.lineTo(x0 + ux * b, y0 + uy * b);
-    }
-    dist += period;
-  }
-  g.stroke({
-    color,
-    width: MARCH_WIRE_WIDTH / scale,
-    cap: "round",
-    alpha: 0.85,
-  });
+	g.clear();
+	const dx = x1 - x0;
+	const dy = y1 - y0;
+	const length = Math.hypot(dx, dy);
+	if (length === 0) return;
+	const ux = dx / length;
+	const uy = dy / length;
+	// Screen pixels, expressed in the world units this paints into.
+	const dash = MARCH_DASH_PX / scale;
+	const period = (MARCH_DASH_PX + MARCH_GAP_PX) / scale;
+	// Phase advances each frame so dashes shift toward (x1, y1) —
+	// i.e. toward the cursor / the peer you're about to click. The
+	// first iteration's dash starts in negative territory so a new
+	// dash slides in from behind the source as the previous one
+	// moves out, keeping the line continuous off the armed peer.
+	const walked = offsetPx / scale;
+	const phase = ((walked % period) + period) % period;
+	let dist = phase - period;
+	while (dist < length) {
+		const a = Math.max(0, dist);
+		const b = Math.min(length, dist + dash);
+		if (b > a) {
+			g.moveTo(x0 + ux * a, y0 + uy * a);
+			g.lineTo(x0 + ux * b, y0 + uy * b);
+		}
+		dist += period;
+	}
+	g.stroke({
+		color,
+		width: MARCH_WIRE_WIDTH / scale,
+		cap: "round",
+		alpha: 0.85,
+	});
 }
 
 /** Armed-peer ring — short arcs around a circle just outside
@@ -130,45 +130,45 @@ export function drawMarchingLine(
  * every zoom, which is the whole reason the two read as one
  * animation. */
 export function drawArmedRing(
-  g: MarchCanvas,
-  cx: number,
-  cy: number,
-  containedRadius: number,
-  offsetPx: number,
-  color: number,
-  scale: number,
+	g: MarchCanvas,
+	cx: number,
+	cy: number,
+	containedRadius: number,
+	offsetPx: number,
+	color: number,
+	scale: number,
 ): void {
-  g.clear();
-  const radius = haloRadius(containedRadius, scale) +
-    MARCH_RING_GAP_PX / scale;
-  const circumferencePx = 2 * Math.PI * radius * scale;
-  const period = MARCH_DASH_PX + MARCH_GAP_PX;
-  const dashes = Math.max(
-    MARCH_RING_MIN_DASHES,
-    Math.round(circumferencePx / period),
-  );
-  const step = (Math.PI * 2) / dashes;
-  const arcAngle = step * (MARCH_DASH_PX / period);
-  // Radians that advance at a constant screen-pixel rate, so the
-  // ring marches at the wire's speed rather than at a speed the
-  // zoom decides.
-  const phase = offsetPx / (radius * scale);
-  for (let i = 0; i < dashes; i++) {
-    const start = i * step + phase;
-    // One sub-path per dash. Consecutive `arc()` calls append to a
-    // single open polyline — `ShapePath._ensurePoly` returns early
-    // while one is live — so without this `moveTo` every gap is
-    // rendered as a straight chord across it, and the ring reads as
-    // a faceted polygon instead of a dashed circle.
-    g.moveTo(cx + Math.cos(start) * radius, cy + Math.sin(start) * radius);
-    g.arc(cx, cy, radius, start, start + arcAngle);
-  }
-  g.stroke({
-    color,
-    width: MARCH_RING_WIDTH / scale,
-    cap: "round",
-    alpha: 0.9,
-  });
+	g.clear();
+	const radius = haloRadius(containedRadius, scale) +
+		MARCH_RING_GAP_PX / scale;
+	const circumferencePx = 2 * Math.PI * radius * scale;
+	const period = MARCH_DASH_PX + MARCH_GAP_PX;
+	const dashes = Math.max(
+		MARCH_RING_MIN_DASHES,
+		Math.round(circumferencePx / period),
+	);
+	const step = (Math.PI * 2) / dashes;
+	const arcAngle = step * (MARCH_DASH_PX / period);
+	// Radians that advance at a constant screen-pixel rate, so the
+	// ring marches at the wire's speed rather than at a speed the
+	// zoom decides.
+	const phase = offsetPx / (radius * scale);
+	for (let i = 0; i < dashes; i++) {
+		const start = i * step + phase;
+		// One sub-path per dash. Consecutive `arc()` calls append to a
+		// single open polyline — `ShapePath._ensurePoly` returns early
+		// while one is live — so without this `moveTo` every gap is
+		// rendered as a straight chord across it, and the ring reads as
+		// a faceted polygon instead of a dashed circle.
+		g.moveTo(cx + Math.cos(start) * radius, cy + Math.sin(start) * radius);
+		g.arc(cx, cy, radius, start, start + arcAngle);
+	}
+	g.stroke({
+		color,
+		width: MARCH_RING_WIDTH / scale,
+		cap: "round",
+		alpha: 0.9,
+	});
 }
 
 // ─────────────────────── node outlines ───────────────────────
@@ -179,16 +179,16 @@ export function drawArmedRing(
  * stand in for a `Graphics` this suite cannot construct, and the path
  * arithmetic becomes ordinary testable arithmetic. */
 export interface RectCanvas {
-  moveTo(x: number, y: number): unknown;
-  lineTo(x: number, y: number): unknown;
-  arcTo(
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    radius: number,
-  ): unknown;
-  stroke(style: StrokeStyle): unknown;
+	moveTo(x: number, y: number): unknown;
+	lineTo(x: number, y: number): unknown;
+	arcTo(
+		x1: number,
+		y1: number,
+		x2: number,
+		y2: number,
+		radius: number,
+	): unknown;
+	stroke(style: StrokeStyle): unknown;
 }
 
 /** Half-width of a node's body, in world units, so a node is 60 across.
@@ -224,49 +224,49 @@ const NODE_GAP = 4;
  * nobody has attributed occupies a node's footprint without claiming to be
  * one. */
 export function strokeDashedRoundRect(
-  g: RectCanvas,
-  radius: number,
-  corner: number,
-  stroke: StrokeStyle,
+	g: RectCanvas,
+	radius: number,
+	corner: number,
+	stroke: StrokeStyle,
 ): void {
-  const run = radius * 2 - corner * 2;
-  // Each side runs corner-to-corner; `along` walks it in dash+gap
-  // steps, and the last dash is clipped rather than overshooting.
-  const side = (
-    x0: number,
-    y0: number,
-    dx: number,
-    dy: number,
-  ): void => {
-    for (let along = 0; along < run; along += NODE_DASH + NODE_GAP) {
-      const end = Math.min(along + NODE_DASH, run);
-      g.moveTo(x0 + dx * along, y0 + dy * along);
-      g.lineTo(x0 + dx * end, y0 + dy * end);
-    }
-  };
-  const r = radius;
-  side(-r + corner, -r, 1, 0); // top, left to right
-  side(r, -r + corner, 0, 1); // right, top to bottom
-  side(r - corner, r, -1, 0); // bottom, right to left
-  side(-r, r - corner, 0, -1); // left, bottom to top
-  // The four corner arcs, whole. Each opens its own sub-path, or Pixi
-  // appends it to the last dash and renders a chord across the gap.
-  g.moveTo(-r + corner, -r);
-  g.arcTo(-r, -r, -r, -r + corner, corner);
-  g.moveTo(r, -r + corner);
-  g.arcTo(r, -r, r - corner, -r, corner);
-  g.moveTo(r - corner, r);
-  g.arcTo(r, r, r, r - corner, corner);
-  g.moveTo(-r, r - corner);
-  g.arcTo(-r, r, -r + corner, r, corner);
-  g.stroke(stroke);
+	const run = radius * 2 - corner * 2;
+	// Each side runs corner-to-corner; `along` walks it in dash+gap
+	// steps, and the last dash is clipped rather than overshooting.
+	const side = (
+		x0: number,
+		y0: number,
+		dx: number,
+		dy: number,
+	): void => {
+		for (let along = 0; along < run; along += NODE_DASH + NODE_GAP) {
+			const end = Math.min(along + NODE_DASH, run);
+			g.moveTo(x0 + dx * along, y0 + dy * along);
+			g.lineTo(x0 + dx * end, y0 + dy * end);
+		}
+	};
+	const r = radius;
+	side(-r + corner, -r, 1, 0); // top, left to right
+	side(r, -r + corner, 0, 1); // right, top to bottom
+	side(r - corner, r, -1, 0); // bottom, right to left
+	side(-r, r - corner, 0, -1); // left, bottom to top
+	// The four corner arcs, whole. Each opens its own sub-path, or Pixi
+	// appends it to the last dash and renders a chord across the gap.
+	g.moveTo(-r + corner, -r);
+	g.arcTo(-r, -r, -r, -r + corner, corner);
+	g.moveTo(r, -r + corner);
+	g.arcTo(r, -r, r - corner, -r, corner);
+	g.moveTo(r - corner, r);
+	g.arcTo(r, r, r, r - corner, corner);
+	g.moveTo(-r, r - corner);
+	g.arcTo(-r, r, -r + corner, r, corner);
+	g.stroke(stroke);
 }
 
 /** The part of a `Graphics` a node's focus ring uses. */
 export interface HaloCanvas {
-  clear(): unknown;
-  circle(cx: number, cy: number, radius: number): unknown;
-  stroke(style: StrokeStyle): unknown;
+	clear(): unknown;
+	circle(cx: number, cy: number, radius: number): unknown;
+	stroke(style: StrokeStyle): unknown;
 }
 
 // ───────────────── selection marks, in screen pixels ─────────────────
@@ -308,7 +308,7 @@ const HALO_HOVER_WIDTH_PX = 1.5;
  *  further out. That is the trade the constant screen size buys, and it is the
  *  same trade `drawArmedRing` already makes. */
 export function haloRadius(containedRadius: number, scale: number): number {
-  return containedRadius * Math.SQRT2 + HALO_GAP_PX / scale;
+	return containedRadius * Math.SQRT2 + HALO_GAP_PX / scale;
 }
 
 /**
@@ -329,52 +329,52 @@ export function haloRadius(containedRadius: number, scale: number): number {
  * size is divided by it, so the mark holds one screen size at any zoom.
  */
 export function drawNodeHalo(
-  g: HaloCanvas,
-  containedRadius: number,
-  tier: HaloTier,
-  hovered: boolean,
-  accent: number,
-  scale: number,
+	g: HaloCanvas,
+	containedRadius: number,
+	tier: HaloTier,
+	hovered: boolean,
+	accent: number,
+	scale: number,
 ): void {
-  g.clear();
-  const radius = haloRadius(containedRadius, scale);
-  if (tier !== "none") {
-    g.circle(0, 0, radius);
-    g.stroke({ color: accent, width: HALO_WIDTH_PX / scale, alpha: 0.95 });
-    if (tier === "anchor") {
-      g.circle(0, 0, radius - HALO_INNER_GAP_PX / scale);
-      g.stroke({
-        color: accent,
-        width: HALO_INNER_WIDTH_PX / scale,
-        alpha: 0.85,
-      });
-    }
-    return;
-  }
-  if (hovered) {
-    g.circle(0, 0, radius - HALO_HOVER_INSET_PX / scale);
-    g.stroke({
-      color: accent,
-      width: HALO_HOVER_WIDTH_PX / scale,
-      alpha: 0.45,
-    });
-  }
+	g.clear();
+	const radius = haloRadius(containedRadius, scale);
+	if (tier !== "none") {
+		g.circle(0, 0, radius);
+		g.stroke({ color: accent, width: HALO_WIDTH_PX / scale, alpha: 0.95 });
+		if (tier === "anchor") {
+			g.circle(0, 0, radius - HALO_INNER_GAP_PX / scale);
+			g.stroke({
+				color: accent,
+				width: HALO_INNER_WIDTH_PX / scale,
+				alpha: 0.85,
+			});
+		}
+		return;
+	}
+	if (hovered) {
+		g.circle(0, 0, radius - HALO_HOVER_INSET_PX / scale);
+		g.stroke({
+			color: accent,
+			width: HALO_HOVER_WIDTH_PX / scale,
+			alpha: 0.45,
+		});
+	}
 }
 
 /** The part of a `Graphics` the activity mark uses: a filled ring, and the
  *  arcs the split `both` dot is built from. */
 export interface ActivityCanvas {
-  circle(cx: number, cy: number, radius: number): unknown;
-  moveTo(x: number, y: number): unknown;
-  arc(
-    cx: number,
-    cy: number,
-    radius: number,
-    start: number,
-    end: number,
-  ): unknown;
-  closePath(): unknown;
-  fill(style: { color: number }): unknown;
+	circle(cx: number, cy: number, radius: number): unknown;
+	moveTo(x: number, y: number): unknown;
+	arc(
+		cx: number,
+		cy: number,
+		radius: number,
+		start: number,
+		end: number,
+	): unknown;
+	closePath(): unknown;
+	fill(style: { color: number }): unknown;
 }
 
 /** Where the mark sits relative to the body's own corner, and how big it is.
@@ -402,67 +402,67 @@ const ACTIVITY_RADIUS = 3.5;
  * read as a lesser fact.
  */
 export function drawNodeActivity(
-  g: ActivityCanvas,
-  containedRadius: number,
-  activity: PeerActivity,
-  colors: ThemedColors,
+	g: ActivityCanvas,
+	containedRadius: number,
+	activity: PeerActivity,
+	colors: ThemedColors,
 ): void {
-  if (activity === "idle") return;
-  const cx = containedRadius - ACTIVITY_INSET;
-  const cy = -containedRadius + ACTIVITY_INSET;
-  g.circle(cx, cy, ACTIVITY_RING_RADIUS);
-  g.fill({ color: colors.peerStroke });
-  const r = ACTIVITY_RADIUS;
-  if (activity !== "both") {
-    g.circle(cx, cy, r);
-    g.fill({
-      color: activity === "sending" ? colors.messageInFlight : colors.positive,
-    });
-    return;
-  }
-  // Two half-discs sharing the ring's center: the upper one sending, the
-  // lower receiving, so a node doing both says so without a third color.
-  g.moveTo(cx - r, cy);
-  g.arc(cx, cy, r, Math.PI, 0);
-  g.closePath();
-  g.fill({ color: colors.messageInFlight });
-  g.moveTo(cx + r, cy);
-  g.arc(cx, cy, r, 0, Math.PI);
-  g.closePath();
-  g.fill({ color: colors.positive });
+	if (activity === "idle") return;
+	const cx = containedRadius - ACTIVITY_INSET;
+	const cy = -containedRadius + ACTIVITY_INSET;
+	g.circle(cx, cy, ACTIVITY_RING_RADIUS);
+	g.fill({ color: colors.peerStroke });
+	const r = ACTIVITY_RADIUS;
+	if (activity !== "both") {
+		g.circle(cx, cy, r);
+		g.fill({
+			color: activity === "sending" ? colors.messageInFlight : colors.positive,
+		});
+		return;
+	}
+	// Two half-discs sharing the ring's center: the upper one sending, the
+	// lower receiving, so a node doing both says so without a third color.
+	g.moveTo(cx - r, cy);
+	g.arc(cx, cy, r, Math.PI, 0);
+	g.closePath();
+	g.fill({ color: colors.messageInFlight });
+	g.moveTo(cx + r, cy);
+	g.arc(cx, cy, r, 0, Math.PI);
+	g.closePath();
+	g.fill({ color: colors.positive });
 }
 
 /** The part of a `Graphics` an unattributed end's body uses — the dashed
  *  outline's four methods plus the two the faint fill needs. */
 export interface NodeBodyCanvas extends RectCanvas {
-  roundRect(
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    radius: number,
-  ): unknown;
-  fill(style: { color: number; alpha: number }): unknown;
+	roundRect(
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		radius: number,
+	): unknown;
+	fill(style: { color: number; alpha: number }): unknown;
 }
 
 /** How an unattributed end's body is drawn. The two readings differ only in
  *  size and weight, because they are the same thing in two relationships. */
 export type LooseEndStyle = {
-  radius: number;
-  corner: number;
-  fillAlpha: number;
-  strokeAlpha: number;
-  strokeWidth: number;
+	radius: number;
+	corner: number;
+	fillAlpha: number;
+	strokeAlpha: number;
+	strokeWidth: number;
 };
 
 /** An end standing on its own: a peer's full footprint, because that is what
  *  it is holding — a place a peer will attach. */
 export const LOOSE_END_ALONE: LooseEndStyle = {
-  radius: NODE_RADIUS,
-  corner: NODE_CORNER,
-  fillAlpha: 0.22,
-  strokeAlpha: 0.9,
-  strokeWidth: 2,
+	radius: NODE_RADIUS,
+	corner: NODE_CORNER,
+	fillAlpha: 0.22,
+	strokeAlpha: 0.9,
+	strokeWidth: 2,
 };
 
 /** An end whose claim names a peer this stage draws.
@@ -479,11 +479,11 @@ export const LOOSE_END_ALONE: LooseEndStyle = {
  * are near enough in size to read as siblings, and the picture would be
  * saying the claim is a peer's equal, which is the one thing it is not. */
 export const LOOSE_END_CLAIMING: LooseEndStyle = {
-  radius: NODE_RADIUS * 0.5,
-  corner: NODE_CORNER * 0.5,
-  fillAlpha: 0.18,
-  strokeAlpha: 0.7,
-  strokeWidth: 1.5,
+	radius: NODE_RADIUS * 0.5,
+	corner: NODE_CORNER * 0.5,
+	fillAlpha: 0.18,
+	strokeAlpha: 0.7,
+	strokeWidth: 1.5,
 };
 
 /** Which of the two readings an end takes: `claiming` is true when its claim
@@ -492,7 +492,7 @@ export const LOOSE_END_CLAIMING: LooseEndStyle = {
  *  the drawing is not its only reader — a hit test has to measure the body
  *  that was actually painted. */
 export function looseEndStyle(claiming: boolean): LooseEndStyle {
-  return claiming ? LOOSE_END_CLAIMING : LOOSE_END_ALONE;
+	return claiming ? LOOSE_END_CLAIMING : LOOSE_END_ALONE;
 }
 
 /** Paint one unattributed end's body: a faint fill under a dashed outline,
@@ -505,24 +505,24 @@ export function looseEndStyle(claiming: boolean): LooseEndStyle {
  *  center of it is accepted rather than stopped at the edge. A backdrop behind
  *  the fill, or a shortened wire, would each undo one of them. */
 export function drawLooseEndBody(
-  g: NodeBodyCanvas,
-  style: LooseEndStyle,
-  fillColor: number,
-  strokeColor: number,
+	g: NodeBodyCanvas,
+	style: LooseEndStyle,
+	fillColor: number,
+	strokeColor: number,
 ): void {
-  g.roundRect(
-    -style.radius,
-    -style.radius,
-    style.radius * 2,
-    style.radius * 2,
-    style.corner,
-  );
-  g.fill({ color: fillColor, alpha: style.fillAlpha });
-  strokeDashedRoundRect(g, style.radius, style.corner, {
-    color: strokeColor,
-    width: style.strokeWidth,
-    alpha: style.strokeAlpha,
-  });
+	g.roundRect(
+		-style.radius,
+		-style.radius,
+		style.radius * 2,
+		style.radius * 2,
+		style.corner,
+	);
+	g.fill({ color: fillColor, alpha: style.fillAlpha });
+	strokeDashedRoundRect(g, style.radius, style.corner, {
+		color: strokeColor,
+		width: style.strokeWidth,
+		alpha: style.strokeAlpha,
+	});
 }
 
 // ─────────────────────── label backgrounds ───────────────────────
@@ -536,19 +536,19 @@ export function drawLooseEndBody(
  * what the layout reserves room for, and a call site free to pass its own two
  * numbers is a call site that can disagree with the solver. */
 export function layoutPillBackground(
-  bg: Graphics,
-  text: Text,
-  colors: ThemedColors,
-  pill: LabelPill,
+	bg: Graphics,
+	text: Text,
+	colors: ThemedColors,
+	pill: LabelPill,
 ): void {
-  const w = text.width + pill.padX * 2;
-  const h = text.height + pill.padY * 2;
-  bg.clear()
-    .roundRect(-w / 2, -h / 2, w, h, 3)
-    .fill({ color: colors.labelBg, alpha: colors.labelBgAlpha })
-    .stroke({
-      color: colors.labelBorder,
-      width: 0.5,
-      alpha: colors.labelBorderAlpha,
-    });
+	const w = text.width + pill.padX * 2;
+	const h = text.height + pill.padY * 2;
+	bg.clear()
+		.roundRect(-w / 2, -h / 2, w, h, 3)
+		.fill({ color: colors.labelBg, alpha: colors.labelBgAlpha })
+		.stroke({
+			color: colors.labelBorder,
+			width: 0.5,
+			alpha: colors.labelBorderAlpha,
+		});
 }

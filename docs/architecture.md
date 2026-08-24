@@ -63,6 +63,12 @@ does not open sockets, start tasks, or choose a scheduler.
 | `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
 | `engine` | The caller-driven state machine around one session. |
 
+`model.route_bundle` owns ordered route-list syntax, limits, and owned path
+materialization. `session.id_route` owns the identity rule layered on that
+syntax: every `id/via` carrier must prove the durable key named by the outer
+locator. `engine.Node` schedules only bundles those lower owners admitted; it
+does not parse a second route grammar or treat `id` as a physical transport.
+
 `engine.Peer` remains the state aggregate and deliberate method index. Its
 supporting hierarchy begins with dependency leaves under `engine/peer/`:
 `queue.zig` is the single cursor, burst-reclaim, and optional byte-accounting
@@ -91,8 +97,11 @@ between the Node staging seat, pending queue, Session answer store, and encoded
 queue; `peer/outbound/budget.zig` is its constant-time byte-accounting leaf.
 `engine/outbound.zig` remains the separate semantic recording and encoding
 owner, with `engine/outbound/listener_fire.zig` owning store-borrow listener-fire
-carriers and their checked lookup. This keeps pressure policy out of codecs and
-prevents a queue transfer from re-walking a Passable tree.
+carriers and their checked lookup. The flow charge ends when ownership enters
+the Session answer store; that durable owner has its own cumulative byte cap
+and exact release ledger (ADR-0121). This keeps pressure policy out of codecs,
+prevents durable rows from deadlocking transient flow, and avoids re-walking a
+Passable tree on transfer.
 
 `engine.Node` likewise keeps its aggregate state and supported method index
 while internal packages own coherent cross-session subjects. In
@@ -200,6 +209,13 @@ refuses. Crossed connections, where both peers dial at once, are resolved by
 the host because the choice depends on peer identity rather than transport
 mechanics.
 
+The native TCP completion backend binds loopback by default. A service that
+accepts from other hosts constructs `net.Backend` with
+`initWithListenerIp4`, then gives that backend to `TcpLoop.initWithBackend`.
+The backend reports the kernel-bound IPv4 address and resolved port together;
+the embedding remains responsible for publishing a dialable locator when it
+binds a wildcard address.
+
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
 
@@ -215,6 +231,7 @@ amplification are separate decisions:
 | `driver.HostRuntime.Options.max_pending_opens` / `PancakeDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
 | `driver.HostRuntime.Options.listener_setup` / `PancakeDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
+| `SessionLimits.max_retained_sent_answer_bytes` / `PancakeSessionLimitOptions.max_retained_sent_answer_bytes` | Owned resolutions retained by sent inbound-answer rows after they leave transient flow accounting. | 16 MiB per session |
 | `driver_core.Host.Options.local_turn_budget` / `pancake_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | Unbounded (`null` in Zig, `0` in C); loop demos and benches opt into `driver.core.default_loop_local_turn_budget` (4096). |
 | Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | Admission for direct blocking frame-shuttle handles before a Host owns the session. | `PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP` (4 KiB) |
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
@@ -245,6 +262,11 @@ each namespace in its own hash table:
 - locally minted outbound answers fail closed in `session/answers/pipeline.zig`
   before their cursor can wrap;
 - imports retain a separate cap because the remote peer chooses their count.
+
+Sent inbound-answer rows have both cardinality and cumulative owned-byte caps.
+Their semantic resolutions cannot be evicted without changing pipelining
+authority, so overflow fails loud as `resource_exhausted`; answer GC and local
+promise retirement release the exact durable charge (ADR-0121).
 
 A near reference, far reference, promise, and answer share one internal slot
 representation. The codec derives the corresponding wire descriptor only when
@@ -316,6 +338,10 @@ through `PancakeContext`. Peer locators and sturdyrefs stay distinct values at
 every public surface: a locator carries transport, designator, and hints; a
 sturdyref embeds a peer locator plus swiss bytes.
 
+An owned `PancakeManagedFrame` moves the native frame owner into opaque words
+inside the caller's descriptor. Producing, probing, and releasing that
+descriptor allocate no metadata and copy no frame bytes (ADR-0122).
+
 Lifecycle, admission, provider composition, protocol state, and failure
 classification remain in `driver_core` or `driver`. The C layer validates ABI
 layout and lossless representation, marshals values, owns opaque-handle and
@@ -336,6 +362,13 @@ There is no umbrella library. A C program links the shared OCapN vocabulary and
 only the Host, driver, and transport archives it needs. [The C
 guide](consuming-from-c.md) has the archive table, build commands, provider
 install, and a complete program.
+
+Every separately loaded archive exposes a reflected callable/constant/layout
+fingerprint, including the core, Host, and driver. Binding-projected rows in
+the canonical struct manifests also generate the Rust, TypeScript, Python, and
+Racket layout expectations; C-only rows remain part of archive identity.
+Native binding loaders compare every archive before an ordinary call;
+implementation-only edits do not perturb the contract (ADR-0123).
 
 Native bindings load `libpancake_host` and `libpancake_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness

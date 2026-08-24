@@ -107,7 +107,7 @@ pub fn mintRedeemedRoute(
     defer node.allocator.free(give);
     try node.acceptGive(recipient, answer, give, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // the withdraw flush
     const withdraw_answer = pendingWithdrawAnswer(node, exporter);
     if (!try node.claimResolve(exporter, withdraw_answer, .{ .far = far_id })) return error.NotClaimed;

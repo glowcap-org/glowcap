@@ -124,6 +124,7 @@ pub const RelayRecipient = struct {
             self.recipient.peer,
             &payload,
             &destination,
+            null,
         ) catch {
             self.recipient.* = destination.relayed;
             payload.deinit(recipient_peer.allocator, &recipient_peer.session_state);

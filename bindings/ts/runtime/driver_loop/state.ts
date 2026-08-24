@@ -62,6 +62,7 @@ export interface ListenerWaiter {
 export abstract class DriverLoopState implements DriverLoopHandle {
 	abstract stepNow(): void;
 	abstract scheduleStep(): void;
+	abstract settleStep(): Promise<void>;
 	abstract nativeSessionRelease(ptr: Ptr): void;
 	abstract serveSession(ptr: Ptr): void;
 	abstract claimReferenceExporter(reference: Uint8Array): Ptr | null;
@@ -92,6 +93,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	protected _terminalRelease: TerminalDriverRelease | null = null;
 	protected _stepping = false;
 	protected _stepScheduled = false;
+	protected _scheduledStep: Promise<void> | null = null;
 	protected _parkExited: Promise<void> | null = null;
 	protected _closing: Promise<void> | null = null;
 	protected _progressTimer: DriverProgressTimer = null;

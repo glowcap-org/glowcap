@@ -2,9 +2,9 @@
 //! for, and the caller-side attestation it verifies.
 //!
 //! This is the load-bearing claim of the whole application, so it lives in one
-//! place: the in-process host (`main.zig`), the standalone host (`host.zig`),
-//! and the three-party attribution test (`three_party_test.zig`) all publish
-//! this same behavior rather than transcribing the verify path three times.
+//! place: the blocking host (`main.zig`), the standalone host (`host.zig`),
+//! and the owning three-Host proof (`three_party_test.zig`) use thin adapters
+//! over the same verification and recording state.
 //!
 //! Attribution is attested, not trusted. The caller signs a canonical preimage
 //! over the request with its KERI key, and presents that verkey together with
@@ -21,6 +21,7 @@ const accountable = @import("accountable.zig");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
+const driver = pancake.driver;
 
 const enc = std.base64.url_safe_no_pad.Encoder;
 
@@ -109,21 +110,21 @@ pub const Attestation = struct {
 /// A published Affordance bound to one accountability store. Every verified
 /// invocation records an Outcome Episode attributing the true caller and, when
 /// `last_subject` is set, captures that caller's AID for the demo to assert on.
-pub const Affordance = struct {
+pub const State = struct {
     store: *accountable.Store,
     served: *usize,
     /// Optional attribution capture: the standalone host leaves it null.
     last_subject: ?*[said.SAID_LEN]u8 = null,
 
-    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, invoke_verb)) return error.NoSuchMethod;
-        if (msg.args.len != 5) return error.BadInvocation;
-        const subject = strArg(msg.args[0]) orelse return error.BadInvocation;
-        const verkey_b64 = strArg(msg.args[1]) orelse return error.BadInvocation;
-        const request = strArg(msg.args[2]) orelse return error.BadInvocation;
-        const sig_b64 = strArg(msg.args[3]) orelse return error.BadInvocation;
-        const kel = strArg(msg.args[4]) orelse return error.BadInvocation;
-
+    fn invoke(
+        self: *State,
+        arena: std.mem.Allocator,
+        subject: []const u8,
+        verkey_b64: []const u8,
+        request: []const u8,
+        sig_b64: []const u8,
+        kel: []const u8,
+    ) ![]const u8 {
         // The subject is a fixed-width AID; a peer that sends a short one is
         // malformed, not attributable. Validate before the fixed-size copy below.
         if (subject.len != said.SAID_LEN) return error.BadInvocation;
@@ -133,7 +134,7 @@ pub const Affordance = struct {
         // signature cannot be re-presented under a different AID.
         const verkey = said.decodeVerkey(verkey_b64) catch return error.UnattestedCaller;
         const sig = said.decodeSig(sig_b64) catch return error.UnattestedCaller;
-        const att = try attestation(turn.arena, subject[0..said.SAID_LEN], request);
+        const att = try attestation(arena, subject[0..said.SAID_LEN], request);
         said.verify(verkey, att, sig) catch return error.UnattestedCaller;
 
         // Second: that key really speaks for the AID being claimed. The caller
@@ -142,13 +143,57 @@ pub const Affordance = struct {
         // be the one the log ends on. A caller signing under its own key while
         // naming somebody else's AID is refused here, and so is a caller
         // presenting a key its own log has already rotated away from.
-        kel_mod.verifyBinding(turn.arena, kel, subject, verkey) catch return error.UnboundCaller;
+        kel_mod.verifyBinding(arena, kel, subject, verkey) catch return error.UnboundCaller;
 
         // The capability invocation succeeds; account for it.
-        const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});
+        const result = try std.fmt.allocPrint(arena, "ack:{s}", .{request});
         _ = try self.store.record(.outcome, subject, "demo", result);
         self.served.* += 1;
         if (self.last_subject) |dst| @memcpy(dst, subject[0..said.SAID_LEN]);
-        return .{ .string = result };
+        return result;
+    }
+};
+
+/// Borrowing-tier adapter used by `BlockingSession` and the standalone host.
+pub const Affordance = struct {
+    state: State,
+
+    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, invoke_verb)) return error.NoSuchMethod;
+        if (msg.args.len != 5) return error.BadInvocation;
+        return .{ .string = try self.state.invoke(
+            turn.arena,
+            strArg(msg.args[0]) orelse return error.BadInvocation,
+            strArg(msg.args[1]) orelse return error.BadInvocation,
+            strArg(msg.args[2]) orelse return error.BadInvocation,
+            strArg(msg.args[3]) orelse return error.BadInvocation,
+            strArg(msg.args[4]) orelse return error.BadInvocation,
+        ) };
+    }
+};
+
+fn valueString(value: driver.Value) ?[]const u8 {
+    return switch (value) {
+        .string => |text| text,
+        else => null,
+    };
+}
+
+/// Owning Host adapter used when one runtime serves several sessions and can
+/// therefore return a foreign-homed capability as an ordinary introduction.
+pub const HostAffordance = struct {
+    state: State,
+
+    pub fn handle(self: *HostAffordance, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        if (!std.mem.eql(u8, verb, invoke_verb)) return error.NoSuchMethod;
+        if (args.len != 5) return error.BadInvocation;
+        return .{ .string = try self.state.invoke(
+            turn.turn.arena,
+            valueString(args[0]) orelse return error.BadInvocation,
+            valueString(args[1]) orelse return error.BadInvocation,
+            valueString(args[2]) orelse return error.BadInvocation,
+            valueString(args[3]) orelse return error.BadInvocation,
+            valueString(args[4]) orelse return error.BadInvocation,
+        ) };
     }
 };

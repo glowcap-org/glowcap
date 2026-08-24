@@ -155,15 +155,12 @@ pub fn recvPacket(self: *Peer, packet: []const u8) !void {
         self.recordFailure(err);
         return err;
     };
-    inbound.applyDecodedOwnedFrame(
+    try inbound.dispatchDecodedOwnedFrame(
         self,
         owned,
         decoded.body,
         self.inboundProfile(),
-    ) catch |err| {
-        inbound.emitAbortForError(self, err);
-        return err;
-    };
+    );
 }
 
 /// Outcome of framing one message off a byte-stream prefix.
@@ -223,15 +220,12 @@ pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
                 self.recordFailure(err);
                 return err;
             };
-            inbound.applyDecodedOwnedFrame(
+            try inbound.dispatchDecodedOwnedFrame(
                 self,
                 owned,
                 decoded.body,
                 wire_profile,
-            ) catch |err| {
-                inbound.emitAbortForError(self, err);
-                return err;
-            };
+            );
             return .{ .consumed = decoded.consumed };
         },
     }

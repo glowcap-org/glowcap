@@ -331,12 +331,7 @@ fn writePayloadReference(allocator: std.mem.Allocator, sink: anytype, reference:
             try writePositiveInt(sink, far.import_position.int());
             try endRecord(sink);
         },
-        // `desc:answer` carries no path operand: a non-empty path must have been
-        // decomposed into single-hop links by the engine before encode (ADR-0007
-        // § Multi-hop decomposition at the sender). One reaching here is an
-        // engine bug, fail loud rather than silently drop the path.
         .promise => |promise| {
-            if (!promise.path.isEmpty()) return Error.UnsupportedReference;
             try beginRecord(sink);
             try writeSymbol(sink, "desc:answer");
             try writePositiveInt(sink, promise.answer_position.int());

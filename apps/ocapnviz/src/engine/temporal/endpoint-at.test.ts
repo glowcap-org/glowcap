@@ -37,195 +37,195 @@ import { messageEffective, sessionEffective, sessionEndpointAt, sessionEndpointP
 /** A one-session capture: the session opens with `b` loose and carrying a
  *  claim, and whatever moments the case adds land after it. */
 function captureWith(...moments: TimelineEvent[]): TimelineDocument {
-  const doc = {
-    id: "cap",
-    duration: 10_000,
-    recording: {
-      sources: [{
-        id: "live",
-        meta: { kind: "pancake-host" as const },
-        observations: [
-          {
-            id: "e1",
-            t: 0,
-            kind: "peer-joined" as const,
-            peerId: "rooms",
-            profile: "pancake",
-          },
-          {
-            id: "e2",
-            t: 0,
-            kind: "peer-joined" as const,
-            peerId: "bob",
-            profile: "pancake",
-          },
-          {
-            id: "e3",
-            t: 1000,
-            kind: "session-opened" as const,
-            sessionId: "w1",
-            a: attachedEndpoint("rooms"),
-            b: sessionEndpoint({ designator: "127.0.0.1:0" }),
-            codec: "syrup" as const,
-            captpVersion: "v1_0" as const,
-            initialState: "open" as const,
-          },
-          ...moments,
-        ],
-      }],
-    },
-  } as unknown as TimelineDocument;
-  return projectFromObservations(doc);
+	const doc = {
+		id: "cap",
+		duration: 10_000,
+		recording: {
+			sources: [{
+				id: "live",
+				meta: { kind: "pancake-host" as const },
+				observations: [
+					{
+						id: "e1",
+						t: 0,
+						kind: "peer-joined" as const,
+						peerId: "rooms",
+						profile: "pancake",
+					},
+					{
+						id: "e2",
+						t: 0,
+						kind: "peer-joined" as const,
+						peerId: "bob",
+						profile: "pancake",
+					},
+					{
+						id: "e3",
+						t: 1000,
+						kind: "session-opened" as const,
+						sessionId: "w1",
+						a: attachedEndpoint("rooms"),
+						b: sessionEndpoint({ designator: "127.0.0.1:0" }),
+						codec: "syrup" as const,
+						captpVersion: "v1_0" as const,
+						initialState: "open" as const,
+					},
+					...moments,
+				],
+			}],
+		},
+	} as unknown as TimelineDocument;
+	return projectFromObservations(doc);
 }
 
 const attributed = (
-  t: number,
-  attributedBy?: "verified-handoff" | "viewer-correlated",
+	t: number,
+	attributedBy?: "verified-handoff" | "viewer-correlated",
 ): TimelineEvent =>
-  ({
-    id: `att-${t}`,
-    t,
-    kind: "session-endpoint-attributed",
-    sessionId: "w1",
-    side: "b",
-    peerId: "bob",
-    ...(attributedBy !== undefined && { attributedBy }),
-  }) as TimelineEvent;
+	({
+		id: `att-${t}`,
+		t,
+		kind: "session-endpoint-attributed",
+		sessionId: "w1",
+		side: "b",
+		peerId: "bob",
+		...(attributedBy !== undefined && { attributedBy }),
+	}) as TimelineEvent;
 
 Deno.test("a mid-session attachment says what backed it", () => {
-  const doc = captureWith(attributed(3500, "verified-handoff"));
-  const at = sessionEndpointPlaceAt(doc, "w1", "b", 4000);
-  assertEquals(at.peer, "bob");
-  assertEquals(
-    at.attributedBy,
-    "verified-handoff",
-    "the end attached and the reader could not say what put it there",
-  );
+	const doc = captureWith(attributed(3500, "verified-handoff"));
+	const at = sessionEndpointPlaceAt(doc, "w1", "b", 4000);
+	assertEquals(at.peer, "bob");
+	assertEquals(
+		at.attributedBy,
+		"verified-handoff",
+		"the end attached and the reader could not say what put it there",
+	);
 });
 
 Deno.test("before the moment the end is loose, and says nothing backed it", () => {
-  const doc = captureWith(attributed(3500, "verified-handoff"));
-  const before = sessionEndpointPlaceAt(doc, "w1", "b", 3499);
-  assertEquals(before.peer, undefined);
-  assertEquals(before.attributedBy, undefined);
-  // Loose ends draw at a node of their own, which is what the stage reaches.
-  assertEquals(before.node, "w1::b");
-  // And the attachment takes effect AT its own t, not the instant after.
-  assertEquals(sessionEndpointPlaceAt(doc, "w1", "b", 3500).peer, "bob");
+	const doc = captureWith(attributed(3500, "verified-handoff"));
+	const before = sessionEndpointPlaceAt(doc, "w1", "b", 3499);
+	assertEquals(before.peer, undefined);
+	assertEquals(before.attributedBy, undefined);
+	// Loose ends draw at a node of their own, which is what the stage reaches.
+	assertEquals(before.node, "w1::b");
+	// And the attachment takes effect AT its own t, not the instant after.
+	assertEquals(sessionEndpointPlaceAt(doc, "w1", "b", 3500).peer, "bob");
 });
 
 Deno.test("the end keeps its claim across the attachment", () => {
-  // The claim is stated once, when the session opens, and attaching does not
-  // restate it — so it comes off the genesis end at every moment. An end that
-  // lost its claim the instant it attached would erase what the far side had
-  // said of itself.
-  const doc = captureWith(attributed(3500, "verified-handoff"));
-  for (const t of [1000, 3499, 3500, 9000]) {
-    assertEquals(
-      sessionEndpointAt(doc, "w1", "b", t).designator,
-      "127.0.0.1:0",
-      `the claim was gone at t=${t}`,
-    );
-  }
+	// The claim is stated once, when the session opens, and attaching does not
+	// restate it — so it comes off the genesis end at every moment. An end that
+	// lost its claim the instant it attached would erase what the far side had
+	// said of itself.
+	const doc = captureWith(attributed(3500, "verified-handoff"));
+	for (const t of [1000, 3499, 3500, 9000]) {
+		assertEquals(
+			sessionEndpointAt(doc, "w1", "b", t).designator,
+			"127.0.0.1:0",
+			`the claim was gone at t=${t}`,
+		);
+	}
 });
 
 Deno.test("an attachment nothing backed attaches without inventing a word", () => {
-  // The invariant runs one way: something that attributed an end names the
-  // peer, and an end may be attached with nothing recorded about what put it
-  // there. Requiring a word here would make an author's write invent one.
-  const doc = captureWith(attributed(3500));
-  const at = sessionEndpointPlaceAt(doc, "w1", "b", 4000);
-  assertEquals(at.peer, "bob");
-  assertEquals(at.attributedBy, undefined);
+	// The invariant runs one way: something that attributed an end names the
+	// peer, and an end may be attached with nothing recorded about what put it
+	// there. Requiring a word here would make an author's write invent one.
+	const doc = captureWith(attributed(3500));
+	const at = sessionEndpointPlaceAt(doc, "w1", "b", 4000);
+	assertEquals(at.peer, "bob");
+	assertEquals(at.attributedBy, undefined);
 });
 
 Deno.test("the pair survives the projection that re-derives the track", () => {
-  // The endpoint tracks are the projection's product of the observations and
-  // are rebuilt on every run, so this is where half a pair goes missing.
-  const doc = captureWith(attributed(3500, "verified-handoff"));
-  const track = doc.entities?.sessions?.["w1"]?.keyframes?.b;
-  assertEquals(track, [{
-    t: 3500,
-    value: { peer: "bob", attributedBy: "verified-handoff" },
-  }]);
-  // Re-running is idempotent, so a second pass neither drops the backing nor
-  // reports a change.
-  const again = projectFromObservations(doc);
-  assert(again === doc, "a quiet re-projection rebuilt the document");
+	// The endpoint tracks are the projection's product of the observations and
+	// are rebuilt on every run, so this is where half a pair goes missing.
+	const doc = captureWith(attributed(3500, "verified-handoff"));
+	const track = doc.entities?.sessions?.["w1"]?.keyframes?.b;
+	assertEquals(track, [{
+		t: 3500,
+		value: { peer: "bob", attributedBy: "verified-handoff" },
+	}]);
+	// Re-running is idempotent, so a second pass neither drops the backing nor
+	// reports a change.
+	const again = projectFromObservations(doc);
+	assert(again === doc, "a quiet re-projection rebuilt the document");
 });
 
 Deno.test("a later attribution supersedes an earlier one, backing and all", () => {
-  const doc = captureWith(
-    attributed(2000, "viewer-correlated"),
-    attributed(3500, "verified-handoff"),
-  );
-  assertEquals(
-    sessionEndpointPlaceAt(doc, "w1", "b", 2500).attributedBy,
-    "viewer-correlated",
-  );
-  assertEquals(
-    sessionEndpointPlaceAt(doc, "w1", "b", 3500).attributedBy,
-    "verified-handoff",
-  );
+	const doc = captureWith(
+		attributed(2000, "viewer-correlated"),
+		attributed(3500, "verified-handoff"),
+	);
+	assertEquals(
+		sessionEndpointPlaceAt(doc, "w1", "b", 2500).attributedBy,
+		"viewer-correlated",
+	);
+	assertEquals(
+		sessionEndpointPlaceAt(doc, "w1", "b", 3500).attributedBy,
+		"verified-handoff",
+	);
 });
 
 /** A peer that arrives partway through, and the moment the loose end attaches
  *  to it. The pair is the live feed's ordinary shape: a host accepts a dialer
  *  it cannot name, and a second producer speaks for that end later. */
 const latecomer = (t: number): TimelineEvent[] => [
-  {
-    id: `join-${t}`,
-    t,
-    kind: "peer-joined",
-    peerId: "carol",
-    profile: "pancake",
-  } as TimelineEvent,
-  {
-    id: `att-carol-${t}`,
-    t,
-    kind: "session-endpoint-attributed",
-    sessionId: "w1",
-    side: "b",
-    peerId: "carol",
-    attributedBy: "viewer-correlated",
-  } as TimelineEvent,
+	{
+		id: `join-${t}`,
+		t,
+		kind: "peer-joined",
+		peerId: "carol",
+		profile: "pancake",
+	} as TimelineEvent,
+	{
+		id: `att-carol-${t}`,
+		t,
+		kind: "session-endpoint-attributed",
+		sessionId: "w1",
+		side: "b",
+		peerId: "carol",
+		attributedBy: "viewer-correlated",
+	} as TimelineEvent,
 ];
 
 Deno.test("a session born with a loose end runs from its own open", () => {
-  // The end was there and unoccupied from t=1000, and somebody arrived at it
-  // at t=3500. Dating the end from that arrival dates the SESSION from it, so
-  // the 2500ms everyone observed would vanish — and it would vanish only once
-  // the attribution had arrived, which is why a recording and the live feed
-  // that produced it disagreed about the same moment.
-  const doc = captureWith(...latecomer(3500));
-  assertEquals(sessionEffective(doc, "w1").start, 1000);
+	// The end was there and unoccupied from t=1000, and somebody arrived at it
+	// at t=3500. Dating the end from that arrival dates the SESSION from it, so
+	// the 2500ms everyone observed would vanish — and it would vanish only once
+	// the attribution had arrived, which is why a recording and the live feed
+	// that produced it disagreed about the same moment.
+	const doc = captureWith(...latecomer(3500));
+	assertEquals(sessionEffective(doc, "w1").start, 1000);
 });
 
 Deno.test("a message carried before the far end was named stays in the picture", () => {
-  // A message's context is its session, so a session that lost its opening
-  // takes every message it carried there with it.
-  const doc = captureWith(
-    {
-      id: "m1",
-      t: 1500,
-      kind: "message-sent",
-      messageId: "msg-1",
-      sessionId: "w1",
-      from: "rooms",
-      to: "w1::b",
-      arrivalT: 1600,
-    } as TimelineEvent,
-    ...latecomer(3500),
-  );
-  assertEquals(messageEffective(doc, "msg-1"), { start: 1500, end: 1600 });
+	// A message's context is its session, so a session that lost its opening
+	// takes every message it carried there with it.
+	const doc = captureWith(
+		{
+			id: "m1",
+			t: 1500,
+			kind: "message-sent",
+			messageId: "msg-1",
+			sessionId: "w1",
+			from: "rooms",
+			to: "w1::b",
+			arrivalT: 1600,
+		} as TimelineEvent,
+		...latecomer(3500),
+	);
+	assertEquals(messageEffective(doc, "msg-1"), { start: 1500, end: 1600 });
 });
 
 Deno.test("a genesis attachment reads at every moment of the session", () => {
-  // The genesis end is not a special case: it is the pair stated at the
-  // session's own start rather than the only place it can be stated.
-  const doc = captureWith();
-  const born = sessionEndpointPlaceAt(doc, "w1", "a", 5000);
-  assertEquals(born.peer, "rooms");
-  assertEquals(born.attributedBy, undefined);
-  assertEquals(born.node, "rooms");
+	// The genesis end is not a special case: it is the pair stated at the
+	// session's own start rather than the only place it can be stated.
+	const doc = captureWith();
+	const born = sessionEndpointPlaceAt(doc, "w1", "a", 5000);
+	assertEquals(born.peer, "rooms");
+	assertEquals(born.attributedBy, undefined);
+	assertEquals(born.node, "rooms");
 });

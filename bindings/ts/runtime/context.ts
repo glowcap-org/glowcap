@@ -8,8 +8,6 @@ import { outPointer, outUsize, readBytes } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
 import {
 	BUFFER_TOO_SMALL,
-	DEFAULT_FAILURE_CAPACITY,
-	DEFAULT_FAILURE_PAYLOAD_CAP,
 	FAILURE_LAYER_APPLICATION_OBSERVER,
 	FAILURE_LAYER_BINDING,
 	FAILURE_LAYER_CORE,
@@ -24,49 +22,21 @@ import {
 	FAILURE_SCOPE_TRANSPORT,
 	INTERNAL,
 	OK,
-	TIMEOUT,
 	WOULD_BLOCK,
 } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 import { drainFinalizerRetries } from "./finalizer_retry.ts";
+import {
+	type FailureEvent,
+	type FailureLayer,
+	type FailureReport,
+	type FailureScope,
+	recordRuntimeFailure,
+	validateFailureReport,
+} from "./failure_journal.ts";
 
-export type FailureLayer = "core" | "driver" | "transport" | "binding" | "application-observer";
-export type FailureScope = "process" | "context" | "host" | "session" | "listener" | "transport" | "operation";
-
-/** One failure that had no remaining deterministic return recipient. */
-export interface FailureEvent {
-	readonly sequence: bigint;
-	readonly droppedBefore: bigint;
-	readonly layer: FailureLayer;
-	readonly scope: FailureScope;
-	readonly scopeId: bigint;
-	readonly operationId: bigint;
-	readonly primaryResult: number;
-	readonly secondaryResult: number;
-	readonly secondaryCount: number;
-	readonly truncatedFields: number;
-	readonly operation: string;
-	readonly primaryName: string;
-	readonly primaryMessage: string;
-	readonly secondaryName: string;
-	readonly secondaryMessage: string;
-}
-
-/** Package-internal input for a callback seam whose failure cannot return. */
-export interface FailureReport {
-	readonly layer: FailureLayer;
-	readonly scope: FailureScope;
-	readonly operation: string;
-	readonly primaryName: string;
-	readonly primaryResult: number;
-	readonly primaryMessage?: string;
-	readonly scopeId?: bigint;
-	readonly operationId?: bigint;
-	readonly secondaryResult?: number;
-	readonly secondaryName?: string;
-	readonly secondaryMessage?: string;
-	readonly secondaryCount?: number;
-}
+export type { FailureEvent, FailureLayer, FailureReport, FailureScope } from "./failure_journal.ts";
+export { takeRuntimeFailures } from "./failure_journal.ts";
 
 const failureLayers: readonly (readonly [number, FailureLayer])[] = [
 	[FAILURE_LAYER_CORE, "core"],
@@ -96,103 +66,7 @@ function failureVocabularyName<T extends string>(
 	return entries.find((entry) => entry[0] === value)?.[1];
 }
 
-const U64_MAX = (1n << 64n) - 1n;
 const failureEventDecoder = new TextDecoder("utf-8", { fatal: true });
-const runtimeFailures: FailureEvent[] = [];
-let nextRuntimeFailureSequence = 1n;
-
-function boundedFailureText(fields: readonly string[]): { fields: string[]; truncatedFields: number } {
-	let remaining = DEFAULT_FAILURE_PAYLOAD_CAP;
-	let truncatedFields = 0;
-	const encoder = new TextEncoder();
-	const decoder = new TextDecoder();
-	return {
-		fields: fields.map((field, index) => {
-			const encoded = encoder.encode(field);
-			let copied = Math.min(encoded.byteLength, remaining);
-			while (copied > 0 && copied < encoded.byteLength && (encoded[copied] & 0xc0) === 0x80) copied--;
-			const retained = encoded.subarray(0, copied);
-			remaining -= copied;
-			if (retained.byteLength !== encoded.byteLength) truncatedFields |= 1 << index;
-			return decoder.decode(retained);
-		}),
-		truncatedFields,
-	};
-}
-
-function isStableResult(value: number): boolean {
-	return Number.isInteger(value) && value <= OK && value >= TIMEOUT;
-}
-
-function validateFailureReport(input: FailureReport): FailureReport {
-	if (input.operation.length === 0 || input.primaryName.length === 0) {
-		throw new TypeError("failure operation and primaryName must be non-empty");
-	}
-	if (!isStableResult(input.primaryResult)) throw new TypeError("invalid primary failure result");
-	const secondaryResult = input.secondaryResult ?? OK;
-	const secondaryName = input.secondaryName ?? "";
-	const secondaryMessage = input.secondaryMessage ?? "";
-	const secondaryCount = input.secondaryCount ?? 0;
-	if (!Number.isInteger(secondaryCount) || secondaryCount < 0 || secondaryCount > 0xffff_ffff) {
-		throw new TypeError("invalid secondary failure count");
-	}
-	if (secondaryCount === 0) {
-		if (secondaryResult !== OK || secondaryName.length !== 0 || secondaryMessage.length !== 0) {
-			throw new TypeError("secondary failure fields require a nonzero count");
-		}
-	} else if (!isStableResult(secondaryResult) || secondaryName.length === 0) {
-		throw new TypeError("a secondary failure count requires one named stable cause");
-	}
-	return input;
-}
-
-function minU64(value: bigint): bigint {
-	return value > U64_MAX ? U64_MAX : value;
-}
-
-function recordRuntimeReport(input: FailureReport): void {
-	const bounded = boundedFailureText([
-		input.operation,
-		input.primaryName,
-		input.primaryMessage ?? "",
-		input.secondaryName ?? "",
-		input.secondaryMessage ?? "",
-	]);
-	let droppedBefore = 0n;
-	if (runtimeFailures.length === DEFAULT_FAILURE_CAPACITY) {
-		const dropped = (runtimeFailures.shift()?.droppedBefore ?? 0n) + 1n;
-		if (runtimeFailures.length > 0) {
-			runtimeFailures[0] = {
-				...runtimeFailures[0],
-				droppedBefore: minU64(runtimeFailures[0].droppedBefore + dropped),
-			};
-		} else droppedBefore = minU64(dropped);
-	}
-	const [operation, primaryName, primaryMessage, secondaryName, secondaryMessage] = bounded.fields;
-	runtimeFailures.push({
-		sequence: nextRuntimeFailureSequence,
-		droppedBefore,
-		layer: input.layer,
-		scope: "process",
-		scopeId: 0n,
-		operationId: 0n,
-		primaryResult: input.primaryResult,
-		secondaryResult: input.secondaryResult ?? OK,
-		secondaryCount: input.secondaryCount ?? 0,
-		truncatedFields: bounded.truncatedFields,
-		operation,
-		primaryName,
-		primaryMessage,
-		secondaryName,
-		secondaryMessage,
-	});
-	nextRuntimeFailureSequence = minU64(nextRuntimeFailureSequence + 1n);
-}
-
-/** Atomically claim failures that outlived a usable Context owner. */
-export function takeRuntimeFailures(): FailureEvent[] {
-	return runtimeFailures.splice(0);
-}
 
 /** Record a callerless failure into its Context owner. Package-internal;
  * ordinary returned failures must never also pass through this function. */
@@ -247,14 +121,14 @@ export function reportFailure(context: Context, input: FailureReport): void {
 export function recordCallerlessFailure(context: Context | null, input: FailureReport): void {
 	const valid = validateFailureReport(input);
 	if (context == null) {
-		recordRuntimeReport(valid);
+		recordRuntimeFailure(valid);
 		return;
 	}
 	try {
 		reportValidatedFailure(context, valid);
 	} catch (error) {
-		recordRuntimeReport(valid);
-		recordRuntimeReport({
+		recordRuntimeFailure(valid);
+		recordRuntimeFailure({
 			layer: "binding",
 			scope: "process",
 			operation: `${input.operation}.diagnostic`,

@@ -7,6 +7,7 @@
 import { usePeer } from "./peer.ts";
 import { memo } from "react";
 import { membersHere, type RoomConv, type Standing } from "./types.ts";
+import { ircName } from "./text.ts";
 import { IconButton } from "./IconButton.tsx";
 import { PresenceAvatar } from "./Avatar.tsx";
 
@@ -56,6 +57,7 @@ function MemberRow(
 	const online = standing.online;
 	const away = online && standing.away !== "";
 	const said = away ? "away" : online ? "online" : "offline";
+	const irc = ircName(name);
 	return (
 		<li className={said}>
 			<PresenceAvatar name={name} state={said} reason={away ? standing.away : undefined} />
@@ -65,7 +67,10 @@ function MemberRow(
 			    whole of it — a long name would simply have been unreadable. */
 			}
 			<span className="name-line">
-				<span className="name" title={name}>{you ? name + " (you)" : name}</span>
+				<span className="name" title={name}>
+					{irc ?? (you ? name + " (you)" : name)}
+					{irc !== null && <span className="irc-chip">IRC</span>}
+				</span>
 				{
 					/* The row's second line: the away reason when one was given, the
 				    state said small otherwise. Every row keeps the two-line shape,
@@ -112,7 +117,7 @@ function MembersPane(
 		: roster.online + " online · " + roster.rows.length + " seen";
 	return (
 		<aside className="members" id="memberPane" aria-label="Members">
-			<h2>Members</h2>
+			<h2 className="overline">Members</h2>
 			<p id="presenceSummary">{summary}</p>
 			<ul id="members">
 				{conv &&

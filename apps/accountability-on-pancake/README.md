@@ -58,10 +58,13 @@ supported: each host serves one caller and exits.
 zig build accountability-three-party
 ```
 
-This scenario has A introduce B to C. When B invokes C's capability, C's record
-attributes B—the caller—not A, the introducer. It runs three vats in memory and
-also exercises the invalid key-history cases. A three-vat version over TCP is
-not implemented.
+This scenario runs three pancake Hosts over loopback TCP. A fetches C's
+Affordance and introduces B to it; B's ordinary call redeems the handoff by
+opening a direct session to C. When B invokes the introduced capability, C's
+record attributes B—the caller—not A, the introducer. The proof uses the same
+owning Host and application-shaped capability surface as the bindings, with no
+test-side handoff routing. Bare TCP is appropriate here as isolated loopback
+test transport; deployments should choose an authenticated transport.
 
 ## Limits
 

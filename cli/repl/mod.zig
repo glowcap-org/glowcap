@@ -52,7 +52,7 @@ fn runAttachedLine(ctx: *Ctx) !u8 {
     var read_buf: [4096]u8 = undefined;
     var reader = std.Io.File.stdin().reader(ctx.io, &read_buf);
     while (true) {
-        const prompt = if (ctx.session != null) "pancake> " else "pancake. ";
+        const prompt = if (ctx.activeSession() != null) "pancake> " else "pancake. ";
         try std.Io.File.stdout().writeStreamingAll(ctx.io, prompt);
         const line_raw = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => break,

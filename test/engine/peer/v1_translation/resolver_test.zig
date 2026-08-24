@@ -9,6 +9,7 @@ const codec = pancake.ocapn.codec;
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const session = pancake.ocapn.session;
+const driver = pancake.driver;
 const peer_fixture = @import("../../../support/peer_fixture.zig");
 
 test "raw-open fixture peer is already open on v1.0, not next" {
@@ -45,6 +46,75 @@ test "raw-open fixture records v1.0 resolver callback imports" {
     try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
 }
 
+test "V1 resolver authority outlives stateless argument GC" {
+    const allocator = std.testing.allocator;
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // The same export position appears once as an application argument and
+    // once as the answer-owned resolver. Their retains have different owners.
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[<18'desc:import-object99+>]11+<19'desc:import-promise99+>>",
+        .shape = .byte,
+    });
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    try std.testing.expectEqual(@as(u64, 2), peer.session_state.imports.count(.from(99)));
+    try std.testing.expectEqual(@as(usize, 1), event.introduced_far_imports.?.len);
+    try std.testing.expectEqual(@as(model.ImportPosition, .from(99)), event.introduced_far_imports.?[0]);
+
+    try driver.core.testing.emitStatelessAfter(&peer, &event);
+    try std.testing.expectEqual(@as(u64, 1), peer.session_state.imports.count(.from(99)));
+    try std.testing.expectEqual(
+        @as(?model.ImportPosition, .from(99)),
+        peer.session_state.resolverForInboundAnswer(.fromWire(.from(11))),
+    );
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .integer = 7 } },
+    } });
+    try std.testing.expectEqual(.progress, try peer.step());
+    try std.testing.expectEqual(@as(u64, 0), peer.session_state.imports.count(.from(99)));
+    try std.testing.expect(peer.session_state.resolverForInboundAnswer(.fromWire(.from(11))) == null);
+    var callback = peer.takeOutbound().?;
+    callback.deinit();
+    var release = peer.takeOutbound().?;
+    release.deinit();
+}
+
+test "a bootstrap resolver callback emits no wire-delta release" {
+    const allocator = std.testing.allocator;
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+    const bootstrap_count = peer.session_state.imports.count(.from(0));
+
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[]11+<19'desc:import-promise0+>>",
+        .shape = .byte,
+    });
+    var event = peer.pollEvent().?;
+    event.deinit();
+    try std.testing.expectEqual(bootstrap_count, peer.session_state.imports.count(.from(0)));
+
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .integer = 7 } },
+    } });
+    try std.testing.expectEqual(.progress, try peer.step());
+    var callback = peer.takeOutbound().?;
+    callback.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
+    try std.testing.expectEqual(bootstrap_count, peer.session_state.imports.count(.from(0)));
+}
+
 test "V1.0 resolver-only delivery retains a virtual answer without inventing a wire position" {
     const allocator = std.testing.allocator;
     var peer = engine.testing.initRawOpenPeer(allocator);
@@ -73,6 +143,32 @@ test "V1.0 resolver-only delivery retains a virtual answer without inventing a w
     try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
 }
 
+test "V1.0 resolver-only bootstrap fetch answers through its prepared virtual answer" {
+    const allocator = std.testing.allocator;
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+    _ = try peer.registerBootstrapCap("known");
+
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export0+>[5'fetch5:known]f<19'desc:import-promise99+>>",
+        .shape = .byte,
+    });
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var callback = peer.takeOutbound() orelse return error.MissingBootstrapCallback;
+    defer callback.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.v1_0, callback.view());
+    try std.testing.expectEqual(@as(u64, 99), body.deliver.target.near.export_position.int());
+    try std.testing.expectEqualStrings("fulfill", (try body.deliver.args.at(0)).symbol);
+    try std.testing.expect((try body.deliver.args.at(1)) == .reference);
+    var release = peer.takeOutbound() orelse return error.MissingResolverRelease;
+    defer release.deinit();
+    try std.testing.expect((try codec.syrup.decodeBodyForProfile(.v1_0, release.view())) == .gc_export);
+}
+
 test "malformed V1.0 deliver cannot install its advertised resolver" {
     const allocator = std.testing.allocator;
     var peer = engine.testing.initRawOpenPeer(allocator);
@@ -91,6 +187,22 @@ test "malformed V1.0 deliver cannot install its advertised resolver" {
         @as(?model.AnswerName, null),
         peer.session_state.answerForResolverImport(.from(99)),
     );
+}
+
+test "next refuses the V1.0 inline resolver field" {
+    var peer = peer_fixture.openPeer(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try std.testing.expectError(
+        error.MalformedFrame,
+        peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:export7+>[]11+<19'desc:import-promise99+>>",
+            .shape = .byte,
+        }),
+    );
+    try std.testing.expect(!peer.session_state.hasInboundAnswer(.from(11)));
+    try std.testing.expect(!peer.session_state.hasImport(.from(99)));
 }
 
 test "raw-open v1.0 fixture rejects raw inbound op:resolve" {

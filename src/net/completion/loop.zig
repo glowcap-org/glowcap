@@ -9,9 +9,11 @@
 //! is supplied by a `Backend`, such as io_uring on Linux or kqueue on macOS/BSD.
 //! Adding a backend does not change this loop.
 //!
-//! The TCP backends bind `127.0.0.1` only, and nothing here takes a bind
-//! address. A loop that accepts from off-host is not implemented; the
-//! high-fan-out numbers this loop is measured against are loopback numbers.
+//! The native TCP backends default their listener to `127.0.0.1`. Embedders that
+//! accept from other hosts construct the platform backend with
+//! `Backend.initWithListenerIp4` and move it into `initWithBackend`; listener
+//! exposure is transport state, not portable loop policy. The high-fan-out
+//! numbers this loop is measured against remain loopback numbers.
 //!
 //! The loop is direction-neutral by design. OCapN is symmetric: a vat can accept
 //! and dial. The type is therefore named for what it is, an event loop over
@@ -245,9 +247,9 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         parked_head: usize,
 
         /// Build a loop over a backend the caller already constructed. Use this
-        /// when the backend needs state `Backend.init` cannot take (an iroh
-        /// resident's endpoint). Socket backends prefer `init`, which builds
-        /// the platform backend itself.
+        /// for backend state that portable loop options do not own, such as a
+        /// native listener interface or an iroh resident's endpoint. `init`
+        /// builds the platform backend with its ordinary defaults.
         pub fn initWithBackend(
             allocator: std.mem.Allocator,
             backend: Backend,

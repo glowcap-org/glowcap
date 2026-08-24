@@ -31,7 +31,7 @@ import { retainSecondaryFailure } from "./errors.ts";
 import { Session } from "./session.ts";
 import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
 import type { Locator } from "./locator.ts";
-import { webSocketChannel } from "./websocket.ts";
+import { type WebSocketByteChannel, webSocketChannel } from "./websocket.ts";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 
 /** The two wire profiles the relay rendezvous can carry. Required at the API
@@ -60,6 +60,10 @@ export interface RendezvousHandle {
 	 * stopped first, reject instead of leaving initialization parked forever. */
 	ready(): Promise<void>;
 	stop(): Promise<void>;
+	/** Stop new admission, then join sessions already accepted through this
+	 * listener without closing them. Use this process-teardown barrier before
+	 * releasing the Host; an active peer may keep it pending indefinitely. */
+	drain(): Promise<void>;
 	[Symbol.asyncDispose](): Promise<void>;
 }
 
@@ -103,8 +107,14 @@ export function serveRendezvous(
 	host.setAdvertisedLocator(locator);
 	let stopped = false;
 	let stopPromise: Promise<void> | null = null;
-	const pending = new Set<WebSocket>();
+	let drainPromise: Promise<void> | null = null;
+	// Adapt at construction, not after admission. The listener then has exactly
+	// one owner for buffering and physical close from the socket's first byte:
+	// pending registrations are retired through the channel barrier, while an
+	// admitted channel is transferred unchanged to its Session.
+	const pending = new Map<WebSocket, WebSocketByteChannel>();
 	const registrations = new Set<Promise<void>>();
+	const accepted = new Set<Promise<void>>();
 	const retries = new Set<number>();
 	let readyState: "pending" | "ready" | "stopped" = "pending";
 	const readyWaiters: Array<{ resolve(): void; reject(error: Error): void }> = [];
@@ -144,7 +154,8 @@ export function serveRendezvous(
 			schedule(REPLENISH_BACKOFF_MS);
 			return;
 		}
-		pending.add(ws);
+		const channel = webSocketChannel(ws);
+		pending.set(ws, channel);
 		const work = (async () => {
 			let admitted = false;
 			try {
@@ -182,14 +193,20 @@ export function serveRendezvous(
 						transport,
 						designatorScheme: DESIGNATOR_SCHEME_KEY,
 						serverDesignator: designator,
-						channel: webSocketChannel(ws),
+						channel,
 					},
 					0,
 				);
 				admitted = true;
 				pending.delete(ws);
 				if (!stopped) registerOne();
-				void session.serve().catch((error) => report("rendezvous.session.serve", error));
+				const serving = session.serve()
+					.catch((error) => report("rendezvous.session.serve", error));
+				accepted.add(serving);
+				void serving.then(
+					() => accepted.delete(serving),
+					() => accepted.delete(serving),
+				);
 			} catch (error) {
 				if (!stopped) report("rendezvous.register.accept", error);
 			} finally {
@@ -223,18 +240,36 @@ export function serveRendezvous(
 				for (const timer of retries) clearTimeout(timer);
 				retries.clear();
 				let failure: unknown = null;
-				for (const ws of pending) {
-					try {
-						ws.close();
-					} catch (error) {
-						if (failure == null) failure = error;
-						else retainSecondaryFailure(failure, error);
-					}
+				const closing = [...pending.values()].map((channel) => channel.close(1000, "rendezvous stopped"));
+				for (const outcome of await Promise.allSettled(closing)) {
+					if (outcome.status === "fulfilled") continue;
+					if (failure == null) failure = outcome.reason;
+					else retainSecondaryFailure(failure, outcome.reason);
 				}
-				await Promise.all([...registrations]);
+				for (const outcome of await Promise.allSettled([...registrations])) {
+					if (outcome.status === "fulfilled") continue;
+					if (failure == null) failure = outcome.reason;
+					else retainSecondaryFailure(failure, outcome.reason);
+				}
 				if (failure != null) throw failure;
 			})();
 			return stopPromise;
+		},
+		drain() {
+			if (drainPromise != null) return drainPromise;
+			drainPromise = (async () => {
+				await this.stop();
+				let failure: unknown = null;
+				while (accepted.size !== 0) {
+					for (const outcome of await Promise.allSettled([...accepted])) {
+						if (outcome.status === "fulfilled") continue;
+						if (failure == null) failure = outcome.reason;
+						else retainSecondaryFailure(failure, outcome.reason);
+					}
+				}
+				if (failure != null) throw failure;
+			})();
+			return drainPromise;
 		},
 		[Symbol.asyncDispose]() {
 			return this.stop();

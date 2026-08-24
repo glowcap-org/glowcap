@@ -28,6 +28,8 @@ pub fn prepareAdvertisedLocator(
     locator: model.PeerLocator,
 ) !model.PeerLocator {
     try admission.admitConfigurationMutation(self);
+    if ((try self.transportProfile(locator.transport)).dial_shape == .route_bundle)
+        return HostError.UnknownTransport;
     if (try designatorScheme(self, locator.transport) == .key)
         try sessions.refuseUnheldIdentity(self, locator.designator);
     var hint_storage: engine.Peer.HelloHints = .{};
@@ -71,6 +73,8 @@ pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
 /// placeholder; a reachable adapter must publish its complete locator.
 pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
     try admission.admitConfigurationMutation(self);
+    if ((try self.transportProfile(transport)).dial_shape == .route_bundle)
+        return HostError.UnknownTransport;
     var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
     const designator = switch (try designatorScheme(self, transport)) {
         .key => blk: {

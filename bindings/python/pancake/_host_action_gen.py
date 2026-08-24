@@ -27,6 +27,7 @@ HOST_ACTION_CANCEL_DIAL = 7
 @dataclass(frozen=True)
 class Dial:
     ticket: int
+    route_index: int
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ class Resume:
 @dataclass(frozen=True)
 class CancelDial:
     ticket: int
+    route_index: int
 
 
 HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close, Resume, CancelDial]
@@ -86,7 +88,7 @@ def decode(a) -> HostAction:
 
     kind = a.kind
     if kind == HOST_ACTION_DIAL:
-        return Dial(ticket=a.ticket)
+        return Dial(ticket=a.ticket, route_index=a.route_index)
     if kind == HOST_ACTION_FLUSH:
         return Flush(session_ptr=a.session or 0)
     if kind == HOST_ACTION_NEED_GIFT_ID:
@@ -100,7 +102,7 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_RESUME:
         return Resume()
     if kind == HOST_ACTION_CANCEL_DIAL:
-        return CancelDial(ticket=a.ticket)
+        return CancelDial(ticket=a.ticket, route_index=a.route_index)
     raise RuntimeError(f"unknown host action kind: {kind}")
 
 

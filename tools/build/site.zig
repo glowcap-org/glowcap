@@ -25,6 +25,8 @@ pub const Context = struct {
     model_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     pin_port: ?u16,
+    /// The shared headless-Chromium preflight every browser proof depends on.
+    browser_preflight: *std.Build.Step,
 };
 
 /// The step handles the root's `bindings` aggregate wires: the site example
@@ -200,12 +202,30 @@ pub fn register(ctx: Context) Registered {
     // module, installed into the rendered site after Zine has written the pages.
     // The inner build clears generated site output before Zine renders; this
     // install then restores the generated reference at reference/api/.
+    // Rewrite the rendered pages into the DOM the browser would repair them
+    // to (paragraph-wrapped figures, missing figure-image alt, bare table
+    // rows), so the served bytes are the document every consumer sees.
+    const site_normalize = common.addRootedSystemCommand(b, .build_tool, &.{
+        "python3", "tools/gen/site_normalize.py", common.rootPath(b, "zig-out/site"),
+    });
+    site_normalize.has_side_effects = true;
+    site_normalize.step.dependOn(&render_site.step);
+
     const site_docs_install = b.addInstallDirectory(.{
         .source_dir = docs_lib.getEmittedDocs(),
         .install_dir = .{ .custom = "site" },
         .install_subdir = "reference/api",
     });
-    site_docs_install.step.dependOn(&render_site.step);
+    site_docs_install.step.dependOn(&site_normalize.step);
+
+    // The upstream viewer lacks a document language and an accessible name on
+    // its logo link; the fix-up owns those two attributes at the install seam
+    // and fails loudly if the viewer's shape changes underneath it.
+    const autodoc_access = common.addRootedSystemCommand(b, .build_tool, &.{
+        "python3", "tools/gen/autodoc_access.py", common.rootPath(b, "zig-out/site/reference/api/index.html"),
+    });
+    autodoc_access.has_side_effects = true;
+    autodoc_access.step.dependOn(&site_docs_install.step);
 
     // Validate the artifact after autodoc replaces the reference placeholder.
     // Source checks cannot see Zine's resolved URLs, and checking before this
@@ -221,7 +241,7 @@ pub fn register(ctx: Context) Registered {
     });
     const run_site_output_check = execution.addArtifact(b, .{ .deterministic = 30 }, site_output_check_exe);
     run_site_output_check.addArg(common.rootPath(b, "zig-out/site"));
-    run_site_output_check.step.dependOn(&site_docs_install.step);
+    run_site_output_check.step.dependOn(&autodoc_access.step);
     const site_output_check_tests = b.addTest(.{
         .name = "site-output-check-tests",
         .root_module = site_output_check_mod,
@@ -231,6 +251,22 @@ pub fn register(ctx: Context) Registered {
 
     const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/");
     site_step.dependOn(&run_site_output_check.step);
+
+    // Render the built pages in the pinned headless Chromium at phone width.
+    // The source checks and the output checker cannot see layout, and the
+    // site's real regressions have been layout: a page a wide code listing
+    // stretched past the viewport, a tab strip that widened the whole page,
+    // and module doc prose that could not wrap inside the autodoc reference.
+    // On-demand like every browser proof.
+    const site_render_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+        "deno", "run", "--allow-all", "tools/check/site_render.ts", common.rootPath(b, "zig-out/site"),
+    });
+    site_render_check.setCwd(b.path("."));
+    site_render_check.has_side_effects = true;
+    site_render_check.step.dependOn(&autodoc_access.step);
+    site_render_check.step.dependOn(ctx.browser_preflight);
+    const site_render_check_step = b.step("site-render-check", "Render every built site page at phone width in the pinned Chromium (fails on console errors or horizontal overflow)");
+    site_render_check_step.dependOn(&site_render_check.step);
 
     // `docs-serve` is the normal local preview: Zine's development server
     // rebuilds and reloads as the content and templates change. It serves the

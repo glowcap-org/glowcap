@@ -81,6 +81,7 @@ class _LifecycleMixin(HostMixinBase):
             session._native_owner_did_release()
         self._sessions.clear()
         _trace._detach_host(self)
+        self._gc.retire()
         self._raw = None
         self._driver_loop = None
         state = self._finalizer_state
@@ -217,6 +218,7 @@ class _LifecycleMixin(HostMixinBase):
                 if not state.raw:
                     finalizer.detach()
                     _trace._detach_host(self)
+                    self._gc.retire()
                     self._raw = None
                     self._connectors.clear()
                     self._behavior_entries.clear()

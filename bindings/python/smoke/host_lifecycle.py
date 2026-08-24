@@ -65,9 +65,9 @@ def run() -> None:
             finally:
                 stopped_work_finished = True
 
-        host.start_dial_task(1, pending)
+        host.start_dial_task(1, 0, pending)
         await started.wait()
-        await host.cancel_dial_task(1)
+        await host.cancel_dial_task(1, 0)
         return host
 
     stopped_work_host = stopped_work_loop.run_until_complete(

@@ -147,7 +147,7 @@ test "mixed object and promise projections publish only after gift entropy" {
     try std.testing.expectEqual(@as(usize, 1), listens);
 }
 
-test "closing a promise home retires a mixed projection waiting on gift entropy" {
+test "closing a promise home breaks only the mixed projection's answer" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x85)));
     defer node.deinit();
@@ -188,21 +188,24 @@ test "closing a promise home retires a mixed projection waiting on gift entropy"
     try recipient.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = object }, .{ .reference = promise } },
+        .answer = .from(31),
     } });
 
     _ = node.nextAction().?.need_gift_id;
     node.removePeer(promise_home_id);
 
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
-    const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_handle);
-    recipient.closeSession();
+    const failure = node.nextAction().?.fail;
+    try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
+    try std.testing.expectEqual(model.AnswerPosition.from(31), failure.dest.answer.answer);
+    try std.testing.expectEqualStrings("RouteNotLowerable", failure.reason.bytes());
     try std.testing.expect(node.nextAction() == null);
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     try std.testing.expect(exporter.takeOutbound() == null);
 }
 
-test "inline gift entropy failure retires the whole message without a deposit" {
+test "inline gift entropy failure breaks only the answered message" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x30)));
     defer node.deinit();
@@ -235,16 +238,18 @@ test "inline gift entropy failure retires the whole message without a deposit" {
     try recipient.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = foreign }, .{ .reference = foreign } },
+        .answer = .from(32),
     } });
     const failed_ticket = node.nextAction().?.need_gift_id.ticket;
     _ = node.nextAction().?; // the sibling ticket becomes stale with the batch
     try node.giftIdFailed(failed_ticket);
 
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
-    const action = node.nextAction().?;
-    try std.testing.expectEqual(recipient_id, action.fail_session.peer_handle);
-    recipient.closeSession();
-    try std.testing.expect(!recipient.sessionIsOpen());
+    const failure = node.nextAction().?.fail;
+    try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
+    try std.testing.expectEqual(model.AnswerPosition.from(32), failure.dest.answer.answer);
+    try std.testing.expectEqualStrings("GiftIdUnavailable", failure.reason.bytes());
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     try std.testing.expect(exporter.takeOutbound() == null);
@@ -302,7 +307,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
     try std.testing.expect(node.nextAction() == null);
 }
 
-test "closing an inline gift exporter retires every entropy ticket and the recipient" {
+test "closing an inline gift exporter retires a tell without condemning its recipient" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x36)));
     defer node.deinit();
@@ -341,11 +346,8 @@ test "closing an inline gift exporter retires every entropy ticket and the recip
 
     node.removePeer(exporter_id);
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
-    const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_handle);
-    recipient.closeSession();
-    try std.testing.expect(!recipient.sessionIsOpen());
     try std.testing.expect(node.nextAction() == null);
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(engine.StepOutcome.idle, try recipient.step());
     try std.testing.expect(recipient.takeOutbound() == null);
 }
@@ -383,6 +385,7 @@ test "inline gift recipient refusal publishes no prepared deposit" {
     try recipient.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
+        .answer = .from(33),
     } });
     const ticket = node.nextAction().?.need_gift_id.ticket;
 
@@ -391,10 +394,11 @@ test "inline gift recipient refusal publishes no prepared deposit" {
     recipient.outbound_budget = 1;
     const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xa3));
     try node.provideGiftId(ticket, &gift_id);
-    const failure = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, failure.peer_handle);
-    recipient.closeSession();
-    try std.testing.expect(!recipient.sessionIsOpen());
+    const failure = node.nextAction().?.fail;
+    try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
+    try std.testing.expectEqual(model.AnswerPosition.from(33), failure.dest.answer.answer);
+    try std.testing.expectEqualStrings("OutboundBackpressure", failure.reason.bytes());
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
@@ -519,6 +523,13 @@ test "relayed gift-id failure spends no allocation after the home fire" {
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
+    var recipient_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(recipient).?,
+        @as([crypto.SEED_BYTES]u8, @splat(0x75)),
+    );
+    defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
@@ -571,7 +582,14 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
     var fire = node.peer(recipient).?.takeOutbound().?;
-    fire.deinit();
+    defer fire.deinit();
+    const fire_body = try pancake.ocapn.codec.syrup.decodeBody(fire.view());
+    try std.testing.expect(fire_body == .deliver);
+    var release = node.peer(recipient).?.takeOutbound().?;
+    defer release.deinit();
+    const release_body = try pancake.ocapn.codec.syrup.decodeBody(release.view());
+    try std.testing.expect(release_body == .gc_export);
+    try std.testing.expect(node.peer(recipient).?.takeOutbound() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(recipient).?.step());
 }
 

@@ -16,7 +16,8 @@
 ;; queue, and lifecycle barriers. Handoff redemption and routed sends remain
 ;; Host-owned; queue byte accounting lives in `pending-writes.rkt`.
 (struct session
-  (async vat host native pending-writes write-gate release-pending? close-result
+  (async vat host native pending-writes write-gate outbound-frame outbound-prefix
+         release-pending? close-result
          closing-state wire-failure transport-lost? transport-close-started?))
 
 (define (session-ptr c) (session-native c))
@@ -69,6 +70,10 @@
   (when (or (session-closing? c) (session-released? c))
     (raise-session-wire-failure! c)
     (raise-pancake who ERR-CLOSED "connection closed")))
+
+(define (guard-retained who c)
+  (when (session-released? c)
+    (raise-pancake who ERR-CLOSED "the session has been released")))
 
 ;; Nonzero once the keyed handshake has completed and the session is open.
 (define (session-open? c)

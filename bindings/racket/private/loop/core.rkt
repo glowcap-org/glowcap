@@ -6,6 +6,7 @@
 (require ffi/unsafe
          ffi/unsafe/port
          racket/async-channel
+         racket/lazy-require
          racket/random
          "../constants.rkt"
          "../abi-value.rkt"
@@ -25,6 +26,10 @@
          "../promise.rkt"
          (combine-in "../session.rkt" "../session/state.rkt")
          "../transport.rkt")
+
+(lazy-require
+ ["../gc.rkt"
+  (host-gc-pending?)])
 
 (provide (struct-out driver-loop)
          (struct-out loop-dial-waiter)
@@ -61,8 +66,8 @@
 
 ;; One stepping native loop over one multi-session host. `handle` is the
 ;; PancakeDriverLoop*; `host` is the adopted wrapper `host` whose
-;; `driver-loop` field points back here; `carrier` is the step-deliver
-;; bracket below; `event-buf` is the one reused `_PancakeDriverEvent` pop
+;; `driver-loop` field points back here; `event-buf` is the one reused
+;; `_PancakeDriverEvent` pop
 ;; target (views die at the next pop, so decode copies out immediately);
 ;; `dials` maps an admitted operation's id to its waiter; `listeners` owns the
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
@@ -73,7 +78,6 @@
 (struct driver-loop
   ([handle #:mutable]
    [host #:mutable]
-   [carrier #:mutable]
    event-buf
    dials
    listeners
@@ -231,10 +235,15 @@
         (unless sema
           (error 'pancake-loop "the loop readiness fd cannot be registered for polling"))
         (define stop (semaphore-peek-evt (driver-loop-stop-sema lp)))
-        (define wait-ms (loop-step-wait-ms lp))
-        (if (negative? wait-ms)
-            (sync sema stop)
-            (sync/timeout (/ wait-ms 1000.0) sema stop))
+        (define progress (host-progress-evt m))
+        ;; Snapshot progress before testing the queue. An enqueue before the
+        ;; snapshot leaves `host-gc-pending?` true; one after it posts this exact
+        ;; generation. Either way the owner cannot sleep past finalizer work.
+        (unless (host-gc-pending? m)
+          (define wait-ms (loop-step-wait-ms lp))
+          (if (negative? wait-ms)
+              (sync sema stop progress)
+              (sync/timeout (/ wait-ms 1000.0) sema stop progress)))
         (loop))))
   ;; After a native release the fd is gone (release-from-a-fire deregisters
   ;; it first, in `loop-prestop!`'s self arm); deregister only a live one.
@@ -256,7 +265,7 @@
        ;; wire the binding has already condemned.
        (host-drain-parked-releases! m)
        (define events
-         (parameterize ([current-deliver-session (driver-loop-carrier lp)])
+         (parameterize ([current-deliver-owner (driver-loop-host lp)])
            (let step-loop ([acc '()])
              ;; The step is the deliver: behaviors fire inside it, and the
              ;; trampoline latches their turns to this loop's wrapper host

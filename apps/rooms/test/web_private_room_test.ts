@@ -40,152 +40,30 @@
 // (serve.ts's room server is native), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web_private_room_test.ts`.
 
-import { type Browser, chromium, type Page } from "playwright";
+import { type Browser, chromium } from "playwright";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import {
+	directoriesNamed,
+	fail,
+	freePort,
+	joinAs,
+	makeRoom,
+	openRailRoom,
+	railRooms,
+	refusalAbout,
+	ROOM,
+	roomLink,
+	said,
+	say,
+	waitForHttp,
+	waitForTcp,
+} from "./support/private_room_page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
-const ROOM = "lobby";
 const LABEL = "plans";
 const PRIVATE_LINE = "just us then";
 const PUBLIC_LINE = "this is my own plans room";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const answer = await fetch(`http://127.0.0.1:${port}/locator`);
-			await answer.body?.cancel();
-			if (answer.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
-
-async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
-	const context = await browser.newContext();
-	const tab = await context.newPage();
-	tab.on("pageerror", (error) => console.error(`  [${nick} page error]`, error.message));
-	tab.on("console", (message) => {
-		if (message.type() === "error") console.error(`  [${nick} console.error]`, message.text());
-	});
-	await tab.goto(`http://127.0.0.1:${port}/`);
-	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
-	await tab.fill("#nick", nick);
-	await tab.fill("#room", ROOM);
-	await tab.click("#joinBtn");
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
-		const status = await tab.textContent("#status").catch(() => "?");
-		fail(`${nick} never joined; status="${status}"`);
-	});
-	return tab;
-}
-
-async function say(tab: Page, text: string): Promise<void> {
-	await tab.fill("#line", text);
-	await tab.press("#line", "Enter");
-}
-
-/** Name a room in the rail's own field, privately or not. */
-async function makeRoom(tab: Page, label: string, privately: boolean): Promise<void> {
-	await tab.click("#newRoomBtn");
-	const publicName = await tab.getAttribute("#newRoomInput", "placeholder");
-	if (publicName !== "room name") {
-		fail(`the rail field said ${JSON.stringify(publicName)} before the lock was pressed`);
-	}
-	await tab.fill("#newRoomInput", label);
-	if (privately) {
-		await tab.click(".newroom-private");
-		const privateName = await tab.getAttribute("#newRoomInput", "placeholder");
-		if (privateName !== "private room name") {
-			fail(`the rail field said ${JSON.stringify(privateName)} after the lock was pressed`);
-		}
-	}
-	await tab.press("#newRoomInput", "Enter");
-}
-
-/** Every room row this tab holds, as a reader sees it: what it is called, and
- * whether it wears the lock that says nobody can walk in by name. */
-function railRooms(tab: Page): Promise<{ name: string; locked: boolean; here: boolean }[]> {
-	return tab.evaluate(() =>
-		[...document.querySelectorAll("#roomList li")].map((row) => ({
-			name: row.querySelector(".rname")?.textContent ?? "",
-			locked: row.querySelector(".hash svg") !== null,
-			here: row.classList.contains("here"),
-		}))
-	);
-}
-
-function said(tab: Page): Promise<string> {
-	return tab.evaluate(() => document.getElementById("log")?.textContent ?? "");
-}
-
-/** Wait until something is accepting connections on `port`. The second room
- * server announces on stdout, but this scenario only ever needs to know that a
- * browser can reach it, and that is the question a connect answers. */
-async function waitForTcp(port: number, what: string): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const probe = await Deno.connect({ hostname: "127.0.0.1", port });
-			probe.close();
-			return;
-		} catch {
-			// not listening yet
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	fail(`${what} never began listening on ${port}`);
-}
-
-/** The link one tab reads out of its own room, as text a person could copy. */
-async function roomLink(tab: Page, who: string): Promise<string> {
-	await say(tab, "/link");
-	const shown = await tab.waitForFunction(
-		() => {
-			const line = [...document.querySelectorAll("#log .sys")]
-				.map((row) => row.textContent ?? "")
-				.find((text) => text.includes("ocapn://"));
-			return line === undefined ? null : (line.match(/ocapn:\/\/\S+/) ?? [null])[0];
-		},
-		undefined,
-		{ timeout: 30_000 },
-	).then((handle) => handle.jsonValue()).catch(() => null);
-	if (typeof shown !== "string" || !shown.includes("/s/")) {
-		fail(`/link did not say a link to ${who}'s room: ${JSON.stringify(shown)}`);
-	}
-	return shown;
-}
-
-/** How many rows in this tab's rooms list name the directory they are on. The
- * rail names one only once there is more than one to tell apart, so this is
- * "does this tab hold a second directory" asked the way a reader sees it. */
-function directoriesNamed(tab: Page): Promise<number> {
-	return tab.locator("#roomList .rwhere").count();
-}
-
-/** What the page said last about a link that was pasted into it. */
-function refusalAbout(tab: Page): Promise<string> {
-	return tab.evaluate(() =>
-		[...document.querySelectorAll("#log .sys")]
-			.map((row) => row.textContent ?? "")
-			.filter((text) => text.includes("That link did not open a room"))
-			.at(-1) ?? ""
-	);
-}
 
 const deadline = setTimeout(() => fail("web-private-room scenario timed out after 240s"), 240_000);
 
@@ -374,13 +252,59 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("bo took up the invitation but the room never reached him"));
 
+	// ── A public room handed over stays public ───────────────────────────
+	// The same gesture from bo's listed "plans": /invite hands the reference,
+	// but a listed room is its name on the directory. Taking the offer up
+	// seats ada in the listed room, beside — never inside — the private room
+	// wearing the same label.
+	const handedPublicLine = "handed over, and still the listed room";
+	await openRailRoom(bo, LABEL, false);
+	await say(bo, "/invite ada");
+	await ada.waitForSelector(".inviterow", { timeout: 30_000 })
+		.catch(() => fail("handing the listed room over never reached ada"));
+	await ada.click(".inviterow .room-open");
+	await ada.waitForFunction(
+		(label) =>
+			[...document.querySelectorAll("#roomList li")].some((li) =>
+				(li.querySelector(".rname")?.textContent ?? "") === label &&
+				li.querySelector(".hash svg") === null
+			),
+		LABEL,
+		{ timeout: 30_000 },
+	).catch(() => fail("taking up a listed room's offer did not seat ada in the listed room"));
+	const adaPlans = (await railRooms(ada)).filter((row) => row.name === LABEL);
+	if (adaPlans.length !== 2 || adaPlans.filter((row) => row.locked).length !== 1) {
+		fail(`the listed offer did not sit beside the private room: ${JSON.stringify(adaPlans)}`);
+	}
+	await say(ada, handedPublicLine);
+	await bo.waitForFunction(
+		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
+		handedPublicLine,
+		{ timeout: 30_000 },
+	).catch(() => fail("ada's line never reached the listed room she was handed"));
+	await openRailRoom(ada, LABEL, true);
+	if ((await said(ada)).includes(handedPublicLine)) {
+		fail("a listed room's offer reached into the private room of the same name");
+	}
+	await openRailRoom(bo, LABEL, true);
+
 	// ── The link on its own ──────────────────────────────────────────────
 	// An invitation through the rail is one channel; the link under it is the
-	// authority, and it works with no channel at all. Ada reads hers out, cy
-	// arrives knowing nothing, and pasting it is the whole of getting in.
+	// authority, and it works with no channel at all. Ada reads hers out. Cy
+	// `/join`s that locator and nothing else — the same paste a person makes —
+	// and lands in the room under the name it already has, not an invented one.
 	const shown = await roomLink(ada, "ada");
-	// Redeemed by somebody who was never offered anything, on their own session.
-	await say(cy, `/join ${shown} plans`);
+	await say(ada, `/join ${shown}`);
+	await ada.waitForFunction(
+		() => (document.getElementById("log")?.textContent ?? "").includes("You are already in this room."),
+		undefined,
+		{ timeout: 15_000 },
+	).catch(() => fail("joining a room this tab is already in did not say so"));
+	const adaHeld = (await railRooms(ada)).filter((row) => row.locked);
+	if (adaHeld.length !== 1 || adaHeld[0].name !== LABEL) {
+		fail(`joining this tab's own link duplicated the room: ${JSON.stringify(adaHeld)}`);
+	}
+	await say(cy, `/join ${shown}`);
 	await cy.waitForFunction(
 		() => document.querySelector("#roomList li.held") !== null,
 		undefined,
@@ -396,10 +320,11 @@ try {
 		heard,
 		{ timeout: 30_000 },
 	).catch(() => fail("the reader who redeemed the link is not in the room"));
-	// A link carries no name, so what the reader called it is what they see.
+	// The locator is to this room, so `/join` of it sits here under this room's
+	// name, not under a placeholder the joiner never typed.
 	const named = (await railRooms(cy)).find((row) => row.locked);
-	if (named?.name !== "plans") {
-		fail(`a room taken up by link is not called what the reader called it: ${JSON.stringify(named)}`);
+	if (named?.name !== LABEL) {
+		fail(`a room taken up by link is not called what it already is: ${JSON.stringify(named)}`);
 	}
 	// And it cost him no second connection to the server he was already on. A
 	// link for a directory this tab holds is redeemed on that very session:
@@ -574,10 +499,11 @@ try {
 		"PASS: a private room is reachable only by the authority to it — it is in no list, " +
 			"naming the same thing opens a different room, an offer over a direct line is what " +
 			"puts somebody else in it, and the link under that offer gets a reader in with no " +
-			"channel at all; a declined offer leaves them out. A link redeems where it says: on " +
-			"the session this tab already holds when it names that directory, and on one opened " +
-			"beside it when it names another. A link whose peer is not there and a link whose " +
-			"secret is wrong are refused in words of their own, and neither leaves a server behind",
+			"channel at all — `/join` of that locator sits in the room under its name; a declined offer " +
+			"leaves them out. A link redeems where it says: on the session this tab already " +
+			"holds when it names that directory, and on one opened beside it when it names " +
+			"another. A link whose peer is not there and a link whose secret is wrong are " +
+			"refused in words of their own, and neither leaves a server behind",
 	);
 } finally {
 	clearTimeout(deadline);

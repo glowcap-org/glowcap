@@ -454,9 +454,9 @@ fn serve(server: *pancake.driver.Server) !void {
 <!-- /site-examples:listen:zig -->
 ```
 
-The matching Listen tab is the live partner for these snippets. `pancake ocapn
-listen --publish greeter` is a cleartext lab greeter; see the
-[CapTP CLI]($link.page('cli')).
+The matching Listen tab is the live partner for these snippets, and the
+[CapTP CLI]($link.page('cli')) offers a cleartext lab greeter:
+`pancake ocapn listen` with `--publish greeter`.
 
 # From C, or any FFI host
 

@@ -3,40 +3,63 @@
 const std = @import("std");
 
 const model = @import("model");
+const codec = @import("codec");
+const crypto = @import("foundation").crypto;
 const node_mod = @import("../../node.zig");
 const actions = @import("../actions.zig");
 const redeem = @import("../redeem.zig");
 const plan = @import("plan.zig");
+const attempts = @import("dials/attempts.zig");
 const withdrawals = @import("withdrawals.zig");
+const gift_recipe = @import("../handoffs/gifts/recipe.zig");
 
 const Node = node_mod.Node;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
 pub const PendingId = u64;
-pub const PendingDialView = model.PeerLocator;
-pub const Failure = enum { retry, exhausted, stale };
-pub const Stage = union(enum) {
-    open: PeerHandle,
-    pending: PendingId,
+pub const PendingDialView = struct {
+    locator: model.PeerLocator,
+    demanded_partner_key: ?crypto.PeerKey = null,
+    authenticated_partner_required: bool = false,
 };
-
-const Waiter = struct {
+pub const ExporterCompletion = enum { dialed, selected };
+pub const Failure = enum { retry, waiting, exhausted, stale };
+pub const Waiter = struct {
     dest: redeem.Destination,
     give: []u8,
 };
 
+fn demandedPartnerKeyForPath(self: *const Node, staged: plan.Owned, path_index: usize) ?crypto.PeerKey {
+    if (staged.pathRequiresIdentity(path_index))
+        return plan.demandedPartnerKey(staged);
+    if (path_index != 0 or staged.source == .id) return null;
+    const primary = staged.paths[path_index];
+    if (node_mod.Internal.designatorScheme(self, primary.transport) != .key) return null;
+    return crypto.PeerKey.fromDesignator(primary.designator);
+}
+
 /// One in-flight exporter dial. A second redeem for the same canonical peer
 /// identity joins `waiters` rather than opening another session.
-const Pending = struct {
+pub const Dialing = struct {
     plan: plan.Owned,
-    path_index: usize = 0,
+    /// Parsed identity locator from an incoming give. It remains candidate
+    /// advice until the reached session carries a successful withdrawal, and
+    /// is encoded only if that session still needs discovered route advice.
+    exporter_locator: ?model.PeerLocator = null,
+    attempts: attempts.State = .{},
     /// A non-redeem owner joined or originated this dial.
     application_owned: bool = false,
-    /// The external executor adopted the borrowed active plan.
-    effect_in_flight: bool = false,
     /// Host closure sealed this row against later delivery.
     cancel_requested: bool = false,
     waiters: std.ArrayListUnmanaged(Waiter) = .empty,
+};
+
+/// A winning route has settled the logical dial while these losing physical
+/// effects are still being interrupted and joined. No locator or identity
+/// storage survives in this state.
+pub const Pending = union(enum) {
+    dialing: Dialing,
+    retiring: u8,
 };
 
 pub const State = struct {
@@ -57,38 +80,51 @@ pub fn deinit(self: *Node) void {
     state.exporters.deinit(self.allocator);
 
     var dial_it = state.pending.valueIterator();
-    while (dial_it.next()) |pending| {
-        pending.plan.deinit(self.allocator);
-        for (pending.waiters.items) |waiter| self.allocator.free(waiter.give);
-        releaseWaiterReservations(self, pending.waiters.items.len);
-        pending.waiters.deinit(self.allocator);
-    }
+    while (dial_it.next()) |pending| switch (pending.*) {
+        .dialing => |*dialing| freeDialing(self, dialing),
+        .retiring => {},
+    };
     std.debug.assert(state.waiter_action_reservations == 0);
     state.pending.deinit(self.allocator);
     // Keys aliased pending identities freed above.
     state.by_identity.deinit(self.allocator);
 }
 
-pub fn pendingDial(self: *const Node, pending: PendingId) ?PendingDialView {
-    const entry = self.redeems.dials.pending.get(pending) orelse return null;
-    if (entry.cancel_requested) return null;
-    return entry.plan.view(entry.path_index);
+pub fn pendingDial(self: *const Node, pending: PendingId, route_index: usize) ?PendingDialView {
+    const row = self.redeems.dials.pending.get(pending) orelse return null;
+    const entry = switch (row) {
+        .dialing => |dialing| dialing,
+        .retiring => return null,
+    };
+    if (entry.cancel_requested or route_index >= entry.plan.paths.len or
+        !entry.attempts.admitsReport(route_index)) return null;
+    const locator = entry.plan.view(route_index);
+    const identity_required = entry.plan.pathRequiresIdentity(route_index);
+    return .{
+        .locator = locator,
+        .demanded_partner_key = demandedPartnerKeyForPath(self, entry.plan, route_index),
+        .authenticated_partner_required = identity_required,
+    };
 }
 
 /// Commit delivery of one dial effect to an external executor.
-pub fn beginEffect(self: *Node, pending: PendingId) bool {
-    const entry = self.redeems.dials.pending.getPtr(pending) orelse return false;
+pub fn beginEffect(self: *Node, pending: PendingId, route_index: usize) bool {
+    const row = self.redeems.dials.pending.getPtr(pending) orelse return false;
+    const entry = switch (row.*) {
+        .dialing => |*dialing| dialing,
+        .retiring => return false,
+    };
     if (entry.cancel_requested) return false;
-    std.debug.assert(!entry.effect_in_flight);
-    entry.effect_in_flight = true;
-    return true;
+    return entry.attempts.begin(route_index);
 }
 
 /// Roll back a callback that refused before publishing its external effect.
-pub fn rollbackEffect(self: *Node, pending: PendingId) void {
-    const entry = self.redeems.dials.pending.getPtr(pending) orelse return;
-    std.debug.assert(entry.effect_in_flight);
-    entry.effect_in_flight = false;
+pub fn rollbackEffect(self: *Node, pending: PendingId, route_index: usize) void {
+    const row = self.redeems.dials.pending.getPtr(pending) orelse return;
+    switch (row.*) {
+        .dialing => |*entry| entry.attempts.rollback(route_index),
+        .retiring => {},
+    }
 }
 
 /// Seal all pending dials and yield each already-running effect exactly once
@@ -96,21 +132,40 @@ pub fn rollbackEffect(self: *Node, pending: PendingId) void {
 pub const CancellationIterator = struct {
     node: *Node,
     pending_dials: std.AutoHashMapUnmanaged(PendingId, Pending).Iterator,
+    current_pending: PendingId = 0,
+    remaining_routes: u8 = 0,
 
-    pub fn next(self: *CancellationIterator) ?PendingId {
+    pub fn next(self: *CancellationIterator) ?Cancellation {
         const state = &self.node.redeems.dials;
+        if (popRoute(&self.remaining_routes)) |route_index|
+            return .{ .pending = self.current_pending, .route_index = route_index };
         while (self.pending_dials.next()) |entry| {
-            if (entry.value_ptr.cancel_requested) continue;
-            entry.value_ptr.cancel_requested = true;
-            settleCancelledWaiters(self.node, entry.value_ptr);
-            if (entry.value_ptr.effect_in_flight) return entry.key_ptr.*;
-            const owned = entry.value_ptr.*;
-            std.debug.assert(state.by_identity.remove(owned.plan.identity));
-            state.pending.removeByPtr(entry.key_ptr);
-            freeCancelled(self.node, owned);
+            const dialing = switch (entry.value_ptr.*) {
+                .dialing => |*value| value,
+                .retiring => continue,
+            };
+            if (dialing.cancel_requested) continue;
+            dialing.cancel_requested = true;
+            settleCancelledWaiters(self.node, dialing);
+            std.debug.assert(state.by_identity.remove(dialing.plan.identity));
+            const flights = dialing.attempts.in_flight;
+            if (flights == 0) {
+                var owned = dialing.*;
+                state.pending.removeByPtr(entry.key_ptr);
+                freeDialing(self.node, &owned);
+                continue;
+            }
+            self.current_pending = entry.key_ptr.*;
+            self.remaining_routes = flights;
+            return self.next();
         }
         return null;
     }
+};
+
+pub const Cancellation = struct {
+    pending: PendingId,
+    route_index: usize,
 };
 
 pub fn requestCancellations(self: *Node) CancellationIterator {
@@ -130,9 +185,13 @@ pub fn cancelInlineGive(self: *Node, recipient_peer: PeerHandle, deferred: u64) 
     const state = &self.redeems.dials;
     var it = state.pending.iterator();
     while (it.next()) |entry| {
+        const dialing = switch (entry.value_ptr.*) {
+            .dialing => |*value| value,
+            .retiring => continue,
+        };
         var index: usize = 0;
-        while (index < entry.value_ptr.waiters.items.len) {
-            const waiter = entry.value_ptr.waiters.items[index];
+        while (index < dialing.waiters.items.len) {
+            const waiter = dialing.waiters.items[index];
             const matches = switch (waiter.dest) {
                 .answer => false,
                 .deferred => |dest| dest.recipient_peer == recipient_peer and
@@ -142,39 +201,53 @@ pub fn cancelInlineGive(self: *Node, recipient_peer: PeerHandle, deferred: u64) 
                 index += 1;
                 continue;
             }
-            const removed = entry.value_ptr.waiters.orderedRemove(index);
+            const removed = dialing.waiters.orderedRemove(index);
             releaseWaiterReservations(self, 1);
             self.allocator.free(removed.give);
         }
-        if (entry.value_ptr.waiters.items.len != 0 or
-            entry.value_ptr.application_owned or
-            entry.value_ptr.effect_in_flight)
+        if (dialing.waiters.items.len != 0 or
+            dialing.application_owned or
+            dialing.attempts.in_flight != 0)
             continue;
-        const owned = entry.value_ptr.*;
+        var owned = dialing.*;
         std.debug.assert(state.by_identity.remove(owned.plan.identity));
         state.pending.removeByPtr(entry.key_ptr);
-        freeCancelled(self, owned);
+        freeDialing(self, &owned);
     }
 }
 
 /// Physical cancellation completion. Idempotent when an ordinary outcome won.
-pub fn cancelled(self: *Node, pending: PendingId) void {
+pub fn cancelled(self: *Node, pending: PendingId, route_index: usize) void {
+    if (route_index >= model.route_bundle.max_route_list_count) return;
     const state = &self.redeems.dials;
-    const current = state.pending.get(pending) orelse return;
-    if (!current.cancel_requested) return;
-    const entry = (state.pending.fetchRemove(pending) orelse unreachable).value;
-    std.debug.assert(state.by_identity.remove(entry.plan.identity));
-    freeCancelled(self, entry);
+    const row = state.pending.getPtr(pending) orelse return;
+    const route = routeBit(route_index);
+    switch (row.*) {
+        .dialing => |*entry| {
+            if (!entry.cancel_requested or entry.attempts.in_flight & route == 0) return;
+            entry.attempts.in_flight &= ~route;
+            if (entry.attempts.in_flight != 0) return;
+            const removed = (state.pending.fetchRemove(pending) orelse unreachable).value;
+            var owned = removed.dialing;
+            freeDialing(self, &owned);
+        },
+        .retiring => |*routes| {
+            if (routes.* & route == 0) return;
+            routes.* &= ~route;
+            if (routes.* == 0) std.debug.assert(state.pending.remove(pending));
+        },
+    }
 }
 
-fn freeCancelled(self: *Node, pending: Pending) void {
-    var entry = pending;
-    std.debug.assert(entry.waiters.items.len == 0);
+fn freeDialing(self: *Node, entry: *Dialing) void {
+    for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
+    releaseWaiterReservations(self, entry.waiters.items.len);
     entry.waiters.deinit(self.allocator);
     entry.plan.deinit(self.allocator);
+    if (entry.exporter_locator) |locator| model.freePeerLocator(self.allocator, locator);
 }
 
-fn settleCancelledWaiters(self: *Node, pending: *Pending) void {
+fn settleCancelledWaiters(self: *Node, pending: *Dialing) void {
     releaseWaiterReservations(self, pending.waiters.items.len);
     for (pending.waiters.items) |waiter| {
         actions.pushReserved(self, .{ .fail = .{
@@ -187,160 +260,55 @@ fn settleCancelledWaiters(self: *Node, pending: *Pending) void {
     pending.waiters = .empty;
 }
 
+fn routeBit(index: usize) u8 {
+    std.debug.assert(index < model.route_bundle.max_route_list_count);
+    return @as(u8, 1) << @intCast(index);
+}
+
+fn popRoute(routes: *u8) ?usize {
+    if (routes.* == 0) return null;
+    const index: usize = @ctz(routes.*);
+    routes.* &= ~routeBit(index);
+    return index;
+}
+
 fn releaseWaiterReservations(self: *Node, count_value: usize) void {
     const state = &self.redeems.dials;
     std.debug.assert(state.waiter_action_reservations >= count_value);
     state.waiter_action_reservations -= count_value;
 }
 
-/// Recipient intercept for a returned handoff give.
-pub fn acceptGive(
-    self: *Node,
-    recipient_peer: PeerHandle,
-    answer: u64,
-    give: []const u8,
-    exporter_locator: []const u8,
-) !void {
-    return acceptGiveTo(
-        self,
-        .{ .answer = .{
-            .recipient_peer = recipient_peer,
-            .answer = .from(answer),
-        } },
-        give,
-        exporter_locator,
-    );
+pub fn exporterDialed(self: *Node, pending: PendingId, route_index: usize, exporter_peer: PeerHandle) !bool {
+    return exporterCompleted(self, pending, route_index, exporter_peer, .dialed);
 }
 
-/// Recipient intercept for a give nested in a Passable value.
-pub fn acceptInlineGive(
-    self: *Node,
-    recipient_peer: PeerHandle,
-    deferred: u64,
-    give: []const u8,
-    exporter_locator: []const u8,
-) !void {
-    return acceptGiveTo(
-        self,
-        .{ .deferred = .{ .recipient_peer = recipient_peer, .id = deferred } },
-        give,
-        exporter_locator,
-    );
+pub fn exporterSelected(self: *Node, pending: PendingId, route_index: usize, exporter_peer: PeerHandle) !bool {
+    return exporterCompleted(self, pending, route_index, exporter_peer, .selected);
 }
 
-fn acceptGiveTo(
+pub fn exporterCompleted(
     self: *Node,
-    dest: redeem.Destination,
-    give: []const u8,
-    exporter_locator: []const u8,
-) !void {
-    if (exporter_locator.len == 0)
-        return withdrawals.queueFailure(
-            self,
-            dest,
-            "handoff give names no dialable exporter locator",
-        );
-
-    // One parse yields both canonical identity and owned dial parts. The
-    // scheduler never retains or reparses the verbatim URI.
-    var staged = plan.parse(self.allocator, exporter_locator) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.UnparseableExporterLocator => return withdrawals.queueFailure(
-            self,
-            dest,
-            "handoff give names unparseable exporter locator",
-        ),
+    pending: PendingId,
+    route_index: usize,
+    exporter_peer: PeerHandle,
+    completion: ExporterCompletion,
+) !bool {
+    const row = self.redeems.dials.pending.get(pending) orelse return false;
+    const pending_view = switch (row) {
+        .dialing => |dialing| dialing,
+        .retiring => return false,
     };
-    var staged_owned = true;
-    defer if (staged_owned) staged.deinit(self.allocator);
-
-    const state = &self.redeems.dials;
-    if (state.exporters.get(staged.identity)) |exporter_peer| {
-        const slot = self.peers.getPtr(exporter_peer);
-        const retire_on_failure = if (slot) |live|
-            live.provisional_exporter and live.pending_withdraw_count == 0
-        else
-            false;
-        if (retire_on_failure) try actions.reserve(self, 3);
-        try withdrawals.begin(self, exporter_peer, dest, give);
-        if (retire_on_failure and slot.?.pending_withdraw_count == 0)
-            actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
-        return;
-    }
-
-    const owned_give = try self.allocator.dupe(u8, give);
-    errdefer self.allocator.free(owned_give);
-    const waiter: Waiter = .{ .dest = dest, .give = owned_give };
-
-    if (state.by_identity.get(staged.identity)) |pending_id| {
-        const entry = state.pending.getPtr(pending_id).?;
-        try actions.reserve(self, 1);
-        try entry.waiters.append(self.allocator, waiter);
-        state.waiter_action_reservations += 1;
-        return;
-    }
-
-    // Every fallible acquisition precedes the pending-row publication. The
-    // ticket itself is claimed last, after which all publication is infallible.
-    try state.pending.ensureUnusedCapacity(self.allocator, 1);
-    try state.by_identity.ensureUnusedCapacity(self.allocator, 1);
-    try actions.reserve(self, 2);
-    var pending: Pending = .{ .plan = staged };
-    staged_owned = false;
-    var pending_owned = true;
-    errdefer if (pending_owned) {
-        pending.waiters.deinit(self.allocator);
-        pending.plan.deinit(self.allocator);
-    };
-    try pending.waiters.append(self.allocator, waiter);
-
-    const pending_id = try actions.claimTicketRange(self, 1);
-    const identity = pending.plan.identity;
-    state.pending.putAssumeCapacity(pending_id, pending);
-    pending_owned = false;
-    state.waiter_action_reservations += 1;
-    state.by_identity.putAssumeCapacity(identity, pending_id);
-    actions.pushReserved(self, .{ .dial = .{ .pending = pending_id } });
-}
-
-/// Stage a connection dial with no redeem waiter, sharing cache and in-flight
-/// identity with handoff redemption.
-pub fn stage(self: *Node, locator: []const u8) !Stage {
-    if (locator.len == 0) return error.UnparseableExporterLocator;
-    var staged = try plan.parse(self.allocator, locator);
-    var staged_owned = true;
-    defer if (staged_owned) staged.deinit(self.allocator);
-    const state = &self.redeems.dials;
-    if (state.exporters.get(staged.identity)) |exporter_peer| {
-        if (self.peers.getPtr(exporter_peer)) |slot| slot.provisional_exporter = false;
-        return .{ .open = exporter_peer };
-    }
-    if (state.by_identity.get(staged.identity)) |pending_id| {
-        state.pending.getPtr(pending_id).?.application_owned = true;
-        return .{ .pending = pending_id };
-    }
-
-    try state.pending.ensureUnusedCapacity(self.allocator, 1);
-    try state.by_identity.ensureUnusedCapacity(self.allocator, 1);
-    try actions.reserve(self, 1);
-    const pending_id = try actions.claimTicketRange(self, 1);
-    const identity = staged.identity;
-    state.pending.putAssumeCapacity(pending_id, .{
-        .plan = staged,
-        .application_owned = true,
-    });
-    staged_owned = false;
-    state.by_identity.putAssumeCapacity(identity, pending_id);
-    actions.pushReserved(self, .{ .dial = .{ .pending = pending_id } });
-    return .{ .pending = pending_id };
-}
-
-pub fn exporterDialed(self: *Node, pending: PendingId, exporter_peer: PeerHandle) !void {
-    try exporterReady(self, pending, exporter_peer, false);
-}
-
-pub fn exporterSelected(self: *Node, pending: PendingId, exporter_peer: PeerHandle) !void {
-    try exporterReady(self, pending, exporter_peer, true);
+    if (route_index >= pending_view.plan.paths.len) return error.PeerIdentityMismatch;
+    if (!pending_view.attempts.acceptsCompletion(route_index)) return false;
+    const exporter = self.peer(exporter_peer) orelse return error.UnknownConnection;
+    const demanded_partner_key = demandedPartnerKeyForPath(self, pending_view.plan, route_index);
+    const authenticated_identity = if (demanded_partner_key) |demanded| authenticated: {
+        const designator = demanded.toDesignator();
+        break :authenticated exporter.partnerDurableProvenance(&designator) == .authenticated_transport;
+    } else false;
+    if (pending_view.plan.pathRequiresIdentity(route_index) and !authenticated_identity)
+        return error.PeerIdentityMismatch;
+    return exporterReady(self, pending, route_index, exporter_peer, completion == .selected, authenticated_identity);
 }
 
 pub fn exporterApplicationOwned(self: *Node, exporter_peer: PeerHandle) void {
@@ -350,50 +318,107 @@ pub fn exporterApplicationOwned(self: *Node, exporter_peer: PeerHandle) void {
 fn exporterReady(
     self: *Node,
     pending_id: PendingId,
+    route_index: usize,
     exporter_peer: PeerHandle,
     selected: bool,
-) !void {
+    authenticated_identity: bool,
+) !bool {
     const state = &self.redeems.dials;
-    const pending_ptr = state.pending.getPtr(pending_id) orelse return;
-    pending_ptr.effect_in_flight = false;
-    if (pending_ptr.cancel_requested) return;
+    const pending_row = state.pending.getPtr(pending_id) orelse return false;
+    const pending_ptr = switch (pending_row.*) {
+        .dialing => |*dialing| dialing,
+        .retiring => return false,
+    };
+    if (pending_ptr.cancel_requested) return false;
     const pending_view = pending_ptr.*;
+    const losing_flights = pending_view.attempts.losingFlights(route_index);
     const waiter_count = pending_view.waiters.items.len;
     const redeem_only = !pending_view.application_owned and !selected;
+    const cache_identity = if (pending_view.plan.source == .id)
+        authenticated_identity
+    else
+        route_index == 0 or authenticated_identity;
+    // Route advice is scoped to this exact exporter session and becomes live
+    // only after that session answers the authenticated withdrawal. A weak
+    // carrier still cannot populate the durable-identity cache above, but it
+    // may preserve the route that reached the capability for a later give.
+    const retain_route_advice = pending_view.plan.source == .id and
+        pending_view.exporter_locator != null and
+        gift_recipe.needsDiscovered(self, exporter_peer);
+    const encoded_route_advice = if (retain_route_advice)
+        try codec.signed.encodeLocatorRecord(self.allocator, pending_view.exporter_locator.?)
+    else
+        null;
+    var encoded_route_advice_owned = encoded_route_advice != null;
+    errdefer if (encoded_route_advice_owned) if (encoded_route_advice) |location|
+        self.allocator.free(location);
 
     // Preflight the whole batch before consuming the pending row. Each waiter
     // then becomes a tracked withdrawal or an explicit terminal failure.
-    const batch_actions = std.math.add(
+    const outcome_actions = std.math.add(
         usize,
         waiter_count,
         @intFromBool(redeem_only),
     ) catch return error.OutOfMemory;
-    try state.exporters.ensureUnusedCapacity(self.allocator, 1);
+    const batch_actions = std.math.add(
+        usize,
+        outcome_actions,
+        @popCount(losing_flights),
+    ) catch return error.OutOfMemory;
+    if (cache_identity) try state.exporters.ensureUnusedCapacity(self.allocator, 1);
+    const route_advice = if (retain_route_advice)
+        try withdrawals.createEmptyRouteAdvice(self)
+    else
+        null;
+    errdefer withdrawals.finishRouteAdviceSetup(self, route_advice);
     try self.redeems.withdrawals.rows.ensureUnusedCapacity(
         self.allocator,
         std.math.cast(u32, waiter_count) orelse return error.OutOfMemory,
     );
     try actions.reserve(self, batch_actions);
 
-    var entry = (state.pending.fetchRemove(pending_id) orelse return).value;
+    var entry = pending_ptr.*;
+    if (losing_flights == 0)
+        std.debug.assert(state.pending.remove(pending_id))
+    else
+        pending_row.* = .{ .retiring = losing_flights };
     releaseWaiterReservations(self, entry.waiters.items.len);
     defer {
         for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
         entry.waiters.deinit(self.allocator);
     }
     std.debug.assert(state.by_identity.remove(entry.plan.identity));
+    var cancel_routes = losing_flights;
+    while (popRoute(&cancel_routes)) |losing_route| actions.pushReserved(self, .{
+        .cancel_dial = .{
+            .pending = pending_id,
+            .route_index = losing_route,
+        },
+    });
     entry.plan.deinitPaths(self.allocator);
-    const cached = state.exporters.getOrPutAssumeCapacity(entry.plan.identity);
-    if (cached.found_existing) {
-        self.allocator.free(entry.plan.identity);
+    if (entry.exporter_locator) |locator| {
+        model.freePeerLocator(self.allocator, locator);
+        entry.exporter_locator = null;
+    }
+    if (route_advice) |advice| {
+        advice.location = encoded_route_advice.?;
+        encoded_route_advice_owned = false;
+    }
+    if (cache_identity) {
+        const cached = state.exporters.getOrPutAssumeCapacity(entry.plan.identity);
+        if (cached.found_existing) {
+            self.allocator.free(entry.plan.identity);
+        } else {
+            cached.value_ptr.* = exporter_peer;
+        }
     } else {
-        cached.value_ptr.* = exporter_peer;
+        self.allocator.free(entry.plan.identity);
     }
 
     const slot = self.peers.getPtr(exporter_peer);
     if (slot) |live| live.provisional_exporter = redeem_only;
     for (entry.waiters.items) |waiter| {
-        withdrawals.begin(self, exporter_peer, waiter.dest, waiter.give) catch |err| switch (err) {
+        withdrawals.begin(self, exporter_peer, waiter.dest, waiter.give, route_advice) catch |err| switch (err) {
             error.OutOfMemory => actions.pushReserved(self, .{ .fail = .{
                 .dest = redeem.failureDestination(waiter.dest),
                 .reason = .{ .static = "handoff redeem failed: local allocation failure" },
@@ -404,10 +429,12 @@ fn exporterReady(
             } }),
         };
     }
+    withdrawals.finishRouteAdviceSetup(self, route_advice);
     if (slot) |live| {
         if (redeem_only and live.pending_withdraw_count == 0)
             actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
     }
+    return true;
 }
 
 /// Claim a queued redeem-only exporter retirement at execution time.
@@ -419,20 +446,38 @@ pub fn claimExporterRetirement(self: *Node, exporter_peer: PeerHandle) bool {
     return true;
 }
 
-/// Report one path failure, retrying the next parsed path under the same ticket
-/// or settling every waiter after exhaustion.
-pub fn failed(self: *Node, pending: PendingId, reason: []const u8) !Failure {
+/// Report one route failure. Strong identity routes keep a bounded race window
+/// full; weak fallbacks remain serial. Every waiter settles only after the last
+/// eligible route fails.
+pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []const u8) !Failure {
     const state = &self.redeems.dials;
-    const pending_view = state.pending.getPtr(pending) orelse return .stale;
-    pending_view.effect_in_flight = false;
+    const pending_row = state.pending.getPtr(pending) orelse return .stale;
+    const pending_view = switch (pending_row.*) {
+        .dialing => |*dialing| dialing,
+        .retiring => return .stale,
+    };
     if (pending_view.cancel_requested) return .stale;
+    if (route_index >= pending_view.plan.paths.len or
+        !pending_view.attempts.acceptsCompletion(route_index)) return .stale;
     const waiter_count = pending_view.waiters.items.len;
 
-    if (pending_view.path_index + 1 < pending_view.plan.paths.len) {
-        try actions.reserve(self, 1);
-        pending_view.path_index += 1;
-        actions.pushReserved(self, .{ .dial = .{ .pending = pending } });
-        return .retry;
+    const next = pending_view.attempts.previewAfterFailure(pending_view.plan, route_index);
+    switch (next) {
+        .queue => try actions.reserve(self, 1),
+        .waiting, .exhausted => {},
+    }
+    pending_view.attempts.commitFailure(route_index);
+    switch (next) {
+        .queue => |next_index| {
+            pending_view.attempts.markScheduled(next_index);
+            actions.pushReserved(self, .{ .dial = .{
+                .pending = pending,
+                .route_index = next_index,
+            } });
+            return .retry;
+        },
+        .waiting => return .waiting,
+        .exhausted => {},
     }
 
     var buf: [256]u8 = undefined;
@@ -459,10 +504,12 @@ pub fn failed(self: *Node, pending: PendingId, reason: []const u8) !Failure {
     };
     defer if (owned_reasons) |reasons| self.allocator.free(reasons);
 
-    var entry = (state.pending.fetchRemove(pending) orelse return .stale).value;
+    const removed = (state.pending.fetchRemove(pending) orelse return .stale).value;
+    var entry = removed.dialing;
     releaseWaiterReservations(self, entry.waiters.items.len);
     defer {
         entry.plan.deinit(self.allocator);
+        if (entry.exporter_locator) |locator| model.freePeerLocator(self.allocator, locator);
         for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
         entry.waiters.deinit(self.allocator);
     }

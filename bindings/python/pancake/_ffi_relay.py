@@ -48,7 +48,11 @@ pin_struct(_RelayTrustSummary, "PANCAKE_RELAY_TRUST_SUMMARY")
 
 def _load():
     lib = ctypes.CDLL(str(_lib_path("pancake_net_transport_relay")))
-    require_archive_fingerprint(lib, "relay", RELAY_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: lib.pancake_relay_archive_fingerprint,
+        "relay",
+        RELAY_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(lib)
     _bind(
         facade,

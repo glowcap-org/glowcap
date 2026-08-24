@@ -24,6 +24,7 @@ const omit = shared.symbols.omit_reason;
 pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_host_archive_fingerprint" },
     .{
         .name = "pancake_host_new",
         .out_params = &.{8},
@@ -79,7 +80,7 @@ pub const symbols = [_]Symbol{
         .racket_omit = "transport packages interpret their own locators; the generic Runtime retains only providers and connectors",
         .section = "Resolve a dial to a PancakeDialPlan (grammar + hint + iroh posture); a free function.",
     },
-    .{ .name = "pancake_host_pending_dial", .out_params = &.{ 2, 4, 5 } },
+    .{ .name = "pancake_host_pending_dial", .out_params = &.{ 3, 5, 6 } },
     .{ .name = "pancake_host_reference_exporter", .out_params = &.{2} },
     .{ .name = "pancake_host_session_close" },
     .{ .name = "pancake_host_session_close_progress", .out_params = &.{2} },
@@ -93,6 +94,8 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "pancake_host_session_release" },
     .{ .name = "pancake_host_session_is_open" },
+    .{ .name = "pancake_host_session_profile", .out_params = &.{ 1, 2, 3 } },
+    .{ .name = "pancake_host_session_transport_name", .out_params = &.{ 1, 2 } },
     .{ .name = "pancake_host_session_trace_id", .out_params = &.{1} },
     .{
         .name = "pancake_host_session_feed",
@@ -136,7 +139,7 @@ pub const symbols = [_]Symbol{
         .out_params = &.{ 2, 3 },
         .ts_omit = "the TS action loop drains through next_action directly; the C hook pump is for embedders without closures",
     },
-    .{ .name = "pancake_host_dialed" },
+    .{ .name = "pancake_host_dialed", .out_params = &.{4} },
     .{ .name = "pancake_host_dial_failed", .out_params = &.{} },
     .{ .name = "pancake_host_dial_cancelled" },
     .{ .name = "pancake_host_provide_gift_id", .out_params = &.{} },
@@ -158,16 +161,18 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "pancake_host_session_enliven", .out_params = &.{3} },
     .{ .name = "pancake_host_enliven", .out_params = &.{3} },
+    .{ .name = "pancake_host_enliven_for_version", .out_params = &.{4} },
     .{
         .name = "pancake_host_set_trace",
         .out_params = &.{},
         .section = "Live trace: the host reports session opens, message verbs, and closes\nthrough one callback (null clears), or into a ring the embedder drains.",
     },
     // The drained trace seam exists for an embedder that cannot hand the
-    // library a C function pointer — the browser, whose wasm module declares
-    // exactly one import. Rust, Python, and Racket each install the callback
-    // beside it, which is lossless and needs no ring, so they take the queue's
-    // omission rather than a second way to say the same thing.
+    // library an arbitrary C function pointer — the browser, whose wasm module
+    // admits only its fixed hosted-object callbacks. Rust, Python, and Racket
+    // each install the trace callback, which is lossless and needs no ring, so
+    // they take the queue's omission rather than a second way to say the same
+    // thing.
     .{
         .name = "pancake_host_set_trace_queue",
         .out_params = &.{},
@@ -199,6 +204,8 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "pancake_host_session_tell", .out_params = &.{} },
     .{ .name = "pancake_host_vow_send", .out_params = &.{6} },
+    .{ .name = "pancake_host_vow_tell", .out_params = &.{} },
+    .{ .name = "pancake_host_vow_release", .out_params = &.{} },
     .{ .name = "pancake_host_vow_index", .out_params = &.{3} },
     .{ .name = "pancake_host_vow_untag", .out_params = &.{4} },
     .{ .name = "pancake_host_vow_get", .out_params = &.{4} },

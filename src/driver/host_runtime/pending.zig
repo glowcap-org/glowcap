@@ -42,7 +42,10 @@ pub const Open = struct {
 
     pub const Outcome = union(enum) {
         operation: lifecycle.SessionOpenObservation,
-        redeem: engine.Node.PendingId,
+        redeem: struct {
+            ticket: engine.Node.PendingId,
+            route_index: usize,
+        },
         listener_accept: lifecycle.SessionAcceptObservation,
     };
 };

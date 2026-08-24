@@ -13,6 +13,7 @@
 //! same cadence the argv front polls its signal latch.
 
 const std = @import("std");
+const zig_builtin = @import("builtin");
 const pancake = @import("pancake");
 const ctx_mod = @import("../ctx.zig");
 const cmd_types = @import("../cmd/types.zig");
@@ -28,6 +29,11 @@ const Ctx = ctx_mod.Ctx;
 const FailureChain = pancake.foundation.FailureChain;
 const session_opts = @import("session_opts.zig");
 const listen_close = @import("listen_close.zig");
+
+const TestControl = if (zig_builtin.is_test) struct {
+    request_terminal_failure: std.atomic.Value(bool) = .init(false),
+    terminal_failure_published: std.atomic.Value(bool) = .init(false),
+} else struct {};
 
 /// One live background listener: the bound server, its accept thread, and
 /// the two atomics the fronts read. Freed only through `shutdown`.
@@ -54,12 +60,30 @@ pub const Handle = struct {
     /// listening. The bound socket stays held either way, so the locator in
     /// `info` stays honest.
     stop_reason: std.atomic.Value(?[*:0]const u8) = std.atomic.Value(?[*:0]const u8).init(null),
+    /// First failure owned by the accept thread. It is read after `join` and
+    /// becomes the close operation's primary cause, rather than an info-only
+    /// status that disappears when the thread exits.
+    terminal_failure: ?FailureChain = null,
     thread_joined: bool = false,
     server_closed: bool = false,
+    test_control: TestControl = .{},
 
     /// The benign stop: the one-partner listener served its partner and went
     /// quiet by design.
     pub const served_stop: [*:0]const u8 = "served its one partner";
+
+    /// Test-only control for producing a listener failure on the accept
+    /// thread. The acknowledgement is the synchronization point; tests must
+    /// still use `shutdown`/`cmdClose` before observing the failure itself.
+    pub const testing = if (zig_builtin.is_test) struct {
+        pub fn requestTerminalFailure(handle: *Handle) void {
+            handle.test_control.request_terminal_failure.store(true, .release);
+            while (!handle.test_control.terminal_failure_published.load(.acquire)) {
+                // tolerant: a refused yield only spins this test wait hotter.
+                std.Thread.yield() catch {};
+            }
+        }
+    } else struct {};
 
     pub const Shutdown = struct {
         failure: ?FailureChain,
@@ -84,8 +108,11 @@ pub const Handle = struct {
             handle.thread_joined = true;
         }
         var failure: ?FailureChain = null;
+        if (handle.terminal_failure) |thread_failure| failure = thread_failure;
         if (!handle.server_closed) {
-            if (listen_close.closeServer(ctx, handle.server)) |chain| failure = chain;
+            if (listen_close.closeServer(ctx, handle.server)) |chain| {
+                ctx.retainCleanup(&failure, chain);
+            }
             handle.server_closed = true;
         }
         if (handle.relay) |*provider| {
@@ -102,6 +129,45 @@ pub const Handle = struct {
     }
 };
 
+fn isSessionFailure(err: anyerror) bool {
+    // Once accept has yielded a session, transport, protocol, and timeout
+    // failures belong to that partner. Reuse the driver's classification so
+    // a new pump error cannot silently become listener-fatal here.
+    return switch (driver.OperationFailure.classify(err)) {
+        .timeout, .closed, .session, .malformed, .frame_too_large, .io => true,
+        .invalid_argument, .would_block, .internal => false,
+    };
+}
+
+fn isAcceptedPeerFailure(err: anyerror) bool {
+    return switch (err) {
+        // These are failures of the listener's own socket/runtime machinery,
+        // not bytes supplied by the connection being accepted.
+        error.SocketConfigurationFailed,
+        error.WakeNudgeFailed,
+        error.WakeDrainFailed,
+        => false,
+        else => isSessionFailure(err),
+    };
+}
+
+const ServeOutcome = enum { peer_ended, terminal, stopped };
+
+fn continueAfterServe(outcome: ServeOutcome, one_shot: bool) bool {
+    return outcome == .peer_ended and !one_shot;
+}
+
+fn consumeTestTerminalFailure(handle: *Handle) bool {
+    if (comptime zig_builtin.is_test) {
+        if (!handle.test_control.request_terminal_failure.swap(false, .acq_rel)) return false;
+        handle.stop_reason.store(@errorName(error.SocketConfigurationFailed), .release);
+        handle.terminal_failure = .init(error.SocketConfigurationFailed);
+        handle.test_control.terminal_failure_published.store(true, .release);
+        return true;
+    }
+    return false;
+}
+
 /// The non-argv `listen`: bind now, answer with the locator now, accept in
 /// the background until `close` or teardown. `--once` / `--publish` serve
 /// one partner and then go quiet (the bound socket stays held until the
@@ -116,8 +182,8 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     const once = parsed.flagBool("once");
     if (publish_name) |name| {
         var known = false;
-        for (ocapn.builtin_names) |builtin| {
-            if (std.mem.eql(u8, builtin, name)) known = true;
+        for (ocapn.builtin_names) |builtin_name| {
+            if (std.mem.eql(u8, builtin_name, name)) known = true;
         }
         if (!known) {
             ctx.logErr("unknown --publish {s} (want greeter or echo)", .{name});
@@ -181,6 +247,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     handle.once = once;
     handle.locator = locator_copy;
     handle.stop_reason = .init(null);
+    handle.terminal_failure = null;
     handle.thread_joined = false;
     handle.server_closed = false;
     handle.thread = try std.Thread.spawn(.{}, acceptLoop, .{handle});
@@ -192,8 +259,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     // From here nothing may fail into a cleanup the live thread owns; the
     // flags above are already flipped, so the defers are inert.
     const last_copy = try ctx.gpa.dupe(u8, uri);
-    if (ctx.last_locator) |old| ctx.gpa.free(old);
-    ctx.last_locator = last_copy;
+    ctx.publishLocator(last_copy);
 
     if (ctx.json == .json) {
         var out: std.ArrayList(u8) = .empty;
@@ -215,26 +281,39 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
 /// signal-latched loop, latched on the handle's stop flag instead.
 fn acceptLoop(handle: *Handle) void {
     while (!handle.stop.load(.acquire)) {
+        if (consumeTestTerminalFailure(handle)) return;
         const ready = handle.server.waitAcceptable(signals.poll_ms) catch |err| {
             // The listener is finished and nobody asked it to be. Record why,
             // so `info` reports a dead listener instead of a live one.
             handle.stop_reason.store(@errorName(err), .release);
+            handle.terminal_failure = .init(err);
             return;
         };
         if (!ready) continue;
         if (handle.stop.load(.acquire)) return;
-        var session = handle.server.accept() catch continue;
+        var session = handle.server.accept() catch |err| {
+            if (isAcceptedPeerFailure(err)) continue;
+            handle.stop_reason.store(@errorName(err), .release);
+            handle.terminal_failure = .init(err);
+            return;
+        };
         defer session.deinit();
         if (handle.publish) |name| {
             // The name was validated at `start`, so a failure here is a torn
             // connection. Serving a partner with nothing published would only
             // give it a session that answers no fetch, so drop it instead.
-            ocapn.publishBuiltin(session, name) catch continue;
+            ocapn.publishBuiltin(session, name) catch |err| {
+                handle.stop_reason.store(@errorName(err), .release);
+                handle.terminal_failure = .init(err);
+                return;
+            };
         }
         _ = handle.accepted.fetchAdd(1, .monotonic);
-        serveUntilStop(session, handle);
-        if (handle.once or handle.publish != null) {
-            handle.stop_reason.store(Handle.served_stop, .release);
+        const outcome = serveUntilStop(session, handle);
+        if (!continueAfterServe(outcome, handle.once or handle.publish != null)) {
+            if (outcome == .peer_ended and (handle.once or handle.publish != null)) {
+                handle.stop_reason.store(Handle.served_stop, .release);
+            }
             return;
         }
     }
@@ -243,15 +322,33 @@ fn acceptLoop(handle: *Handle) void {
 /// Serve until the partner leaves or the stop latch fires — the background
 /// twin of the argv front's signal-latched serve. A partner drop is quiet; any
 /// other step failure is this loop's primary and is stored for `info`.
-fn serveUntilStop(session: *driver.Session, handle: *Handle) void {
+fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
     while (!handle.stop.load(.acquire)) {
-        const progress = session.stepReadable(signals.poll_ms) catch |err| switch (err) {
-            error.ConnectionLost, error.TruncatedFrame => return,
-            else => {
-                handle.stop_reason.store(@errorName(err), .release);
-                return;
-            },
+        const progress = session.stepReadable(signals.poll_ms) catch |err| {
+            if (isSessionFailure(err)) return .peer_ended;
+            handle.stop_reason.store(@errorName(err), .release);
+            handle.terminal_failure = .init(err);
+            return .terminal;
         };
-        if (progress) |p| if (p == .closed) return;
+        if (progress) |p| if (p == .closed) return .peer_ended;
     }
+    return .stopped;
+}
+
+test "background listener keeps peer failures local" {
+    try std.testing.expect(isAcceptedPeerFailure(error.ConnectionLost));
+    try std.testing.expect(isAcceptedPeerFailure(error.HandshakeTimedOut));
+    try std.testing.expect(isSessionFailure(error.MalformedFrame));
+    try std.testing.expect(isSessionFailure(error.ProtocolAbort));
+    try std.testing.expect(isSessionFailure(error.AbortFlushFailed));
+    try std.testing.expect(!isSessionFailure(error.OutOfMemory));
+    try std.testing.expect(!isAcceptedPeerFailure(error.SocketConfigurationFailed));
+    try std.testing.expect(!isAcceptedPeerFailure(error.WakeDrainFailed));
+}
+
+test "background listener exits after terminal serving failure" {
+    try std.testing.expect(continueAfterServe(.peer_ended, false));
+    try std.testing.expect(!continueAfterServe(.peer_ended, true));
+    try std.testing.expect(!continueAfterServe(.terminal, false));
+    try std.testing.expect(!continueAfterServe(.stopped, false));
 }

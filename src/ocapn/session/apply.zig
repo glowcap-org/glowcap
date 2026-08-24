@@ -67,7 +67,7 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             // resolver-callback fulfill payloads), each repeat a wire-delta
             // refresh. Validation already proved the import cap holds, so
             // `registerImport` can only fail on OOM (fatal by contract).
-            try installIntroducedImports(self, introduced);
+            installIntroducedImports(self, introduced);
         },
         .resolve => |resolve| {
             if (self.outbound_answers.getPtr(resolve.answer)) |cell| {
@@ -81,7 +81,7 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             // A canonical `op:resolve` fulfilling with a `far` reference hands
             // us a new import (the resolved capability), install the recorded
             // mentions exactly as the deliver arm does.
-            try installIntroducedImports(self, introduced);
+            installIntroducedImports(self, introduced);
         },
         .start_session => |ss| {
             // Learn the partner's session key and location (duped into
@@ -215,6 +215,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             // session name a handoff receive must carry from it (ADR-0009), and
             // both steps here are fallible, so the whole arm stays atomic by
             // doing the dupe first and flipping state last.
+            const local_preference = try validate.parsePreferenceHints(ss.acceptable_location.hints);
             const pubkey = sessionPubkeyBytes(ss);
             if (pubkey.len > 0) {
                 self.local_session_key = try self.key_arena.allocator().dupe(u8, pubkey);
@@ -222,6 +223,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             // Transition before setting local_sent so a failed bootstrap
             // install leaves the handshake unmarked.
             if (self.handshake_remote_received) try self.transitionToOpen();
+            self.local_preference = local_preference;
             self.handshake_local_sent = true;
         },
         // No send-side table mutation beyond export-retain accounting
@@ -273,11 +275,15 @@ pub fn applySentResolutionNamed(
     var resolution_owned = true;
     errdefer if (resolution_owned)
         model.freeResolution(self.allocator, resolution);
+    // Admit the durable answer bytes before any capacity reservation or export
+    // mutation. The plan measures the tree once and carries its charge through
+    // the later infallible commit.
+    const store_plan = try answers.planResolutionStoreNamed(self, answer_name, resolution);
     // Reserve every allocation the export walk and answer store can need before
     // either authority changes. Validation already bounded the recursive tree;
     // capacity plus the prepared store make the commit below infallible.
     try self.ensureSentResolutionExportCapacity(resolution);
-    const prepared_store = try answers.prepareResolutionStoreNamed(self, answer_name, resolution);
+    const prepared_store = try answers.prepareResolutionStore(self, store_plan);
     // Establish every fulfilled local export now. A V1 resolver callback is a
     // known publication and takes its wire retain here; next keeps only the
     // local baseline until each listener fire takes its retain at queue time.
@@ -301,13 +307,14 @@ pub fn applySentResolutionTarget(
     var resolution_owned = true;
     errdefer if (resolution_owned)
         model.freeResolution(self.allocator, resolution);
-    try self.ensureSentResolutionExportCapacity(resolution);
-    const prepared_store = try answers.prepareResolutionStoreTarget(
+    const store_plan = try answers.planResolutionStoreTarget(
         self,
         target,
         payload,
         resolution,
     );
+    try self.ensureSentResolutionExportCapacity(resolution);
+    const prepared_store = try answers.prepareResolutionStore(self, store_plan);
     if (resolution == .fulfill) {
         const has_v1_callback = self.captp_version == .v1_0 and
             payload.resolver_import != null;
@@ -325,6 +332,7 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
                 const export_position = model.ExportPosition.from(position);
                 if (self.answerForLocalPromiseExport(export_position)) |answer|
                     self.retireReleasedLocalPromiseAnswer(answer);
+                self.releaseRetiredResolverIfUnmentioned(export_position);
                 self.releaseShorteningResolverExport(model.ExportPosition.from(position));
             }
         },
@@ -355,9 +363,9 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
 /// tree — is what keeps one inbound message's argument bytes to a single
 /// traversal; the walk that produced it is
 /// `session/validate/passable.zig`'s one dual-shape walker.
-fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) RecvViewError!void {
+fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) void {
     for (introduced.mentions.items) |import_position| {
-        try self.registerImport(import_position);
+        self.imports.retainAssumeCapacity(import_position);
     }
 }
 
@@ -385,50 +393,17 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) !void {
 fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
         const answer = model.AnswerPosition.from(position);
-        const entry = self.outbound_answers.getPtr(answer) orelse return Error.GcUnderflow;
-        const final_release = entry.count == 1;
-        const retired_state: session.RetiredResolverState = if (entry.status() == .pending)
-            .pending
-        else
-            .complete;
-        const settling_source = if (final_release)
-            self.unlinkPromiseSettlingAnswer(answer)
-        else
-            null;
-        if (!try decrementAnswer(self, &self.outbound_answers, answer)) continue;
-        self.retireApplicationResolver(answer, retired_state, settling_source);
+        try self.releaseOutboundAnswer(answer);
     }
-}
-
-/// Decrement an answer's refcount, removing it at zero. Returns whether the
-/// answer was fully released (count reached zero). Releasing an answer frees
-/// any queued pipelined calls, listeners, and stored resolution it owns.
-fn decrementAnswer(self: *Session, table: anytype, position: @TypeOf(table.*).Id) Error!bool {
-    const entry = table.getPtr(position) orelse return Error.GcUnderflow;
-    if (entry.count == 0) return Error.GcUnderflow;
-    entry.count -= 1;
-    if (entry.count == 0) {
-        const released = session.deinitAnswerCell(self.allocator, entry);
-        if (comptime @TypeOf(table.*) == session.InboundAnswerTable) {
-            std.debug.assert(self.retained_sent_answer_bytes >= released);
-            self.retained_sent_answer_bytes -= released;
-        } else {
-            std.debug.assert(released == 0);
-        }
-        table.remove(position);
-        return true;
-    }
-    return false;
 }
 
 /// Install a pending answer row in the table `direction` names. Inbound rows
-/// are partner-named and capped by `SessionLimits.max_inbound_answers`;
+/// and detached accepted consequences share `SessionLimits.max_inbound_answers`;
 /// outbound rows are positions we allocate, bounded by our own sends, so the
 /// cap is the direction's policy, not a property of which pointer was passed.
-/// Idempotent only for a still-pending inbound row: the engine installs a
-/// queued pipelined call's answer at queue time and again at redirect time.
-/// Outbound rows are locally chosen question identities and must always be
-/// fresh.
+/// Idempotent only for a still-pending inbound row: validation and apply may
+/// meet the same answer during one prepared receive transaction. Outbound rows
+/// are locally chosen question identities and must always be fresh.
 pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
     switch (direction) {
         .inbound => return installInboundAnswerNamed(self, .fromWire(position)),
@@ -449,7 +424,7 @@ pub fn installInboundAnswerNamed(self: *Session, answer: model.AnswerName) !void
         if (entry.status() != .pending) return Error.UnexpectedMessage;
         return;
     }
-    if (self.inbound_answers.len() >= self.limits.max_inbound_answers) {
+    if (self.inboundAnswerObligationCount() >= self.limits.max_inbound_answers) {
         return Error.InboundAnswerCapExceeded;
     }
     try self.inbound_answers.put(

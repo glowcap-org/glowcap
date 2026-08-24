@@ -415,7 +415,7 @@ unsafe fn bytes_from_sys(c: &sys::PancakeArgument) -> Vec<u8> {
 /// # Safety
 /// When `ptr` is non-null and `len > 0`, it must point to `len` initialized,
 /// readable bytes valid for the duration of the call.
-#[cfg(any(feature = "async", feature = "tcp", feature = "inproc"))]
+#[cfg(any(feature = "async", feature = "tcp", feature = "inproc", feature = "onion"))]
 pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 	if ptr.is_null() || len == 0 {
 		Vec::new()

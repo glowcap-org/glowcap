@@ -118,8 +118,16 @@ pub fn expireCooldowns(
     return n;
 }
 
+pub const PendingOfferResult = enum {
+    queued,
+    already_pending,
+    at_capacity,
+    allocation_failed,
+};
+
 /// Queue an owned nick for a later inbox offer, idempotently and up to
-/// `max_pending`. Silent on OOM, matching the other best-effort peer tables.
+/// `max_pending`. Resource failure is distinct from the intentional bound so
+/// the caller can preserve one bounded retry marker.
 /// Safe under the host callback latch: only allocates into the map; never
 /// publishes or tells.
 pub fn schedulePendingOffer(
@@ -127,15 +135,16 @@ pub fn schedulePendingOffer(
     table: *std.StringHashMapUnmanaged(void),
     peer: []const u8,
     max_pending: usize,
-) void {
-    if (peer.len == 0) return;
-    if (table.contains(peer)) return;
-    if (table.count() >= max_pending) return;
-    const key = gpa.dupe(u8, peer) catch return;
+) PendingOfferResult {
+    if (peer.len == 0) return .at_capacity;
+    if (table.contains(peer)) return .already_pending;
+    if (table.count() >= max_pending) return .at_capacity;
+    const key = gpa.dupe(u8, peer) catch return .allocation_failed;
     table.put(gpa, key, {}) catch {
         gpa.free(key);
-        return;
+        return .allocation_failed;
     };
+    return .queued;
 }
 
 /// Call `offer` for each pending nick; free and remove those that return true.
@@ -152,6 +161,7 @@ pub fn drainPendingOffers(
     defer done.deinit(gpa);
     // Reserve before calling offer: once a tell is admitted, recording its
     // removal must be infallible or the next wake can send it twice.
+    // best-effort: refusing the reservation defers the sweep to the next wake.
     done.ensureTotalCapacity(gpa, table.count()) catch return;
     var it = table.keyIterator();
     while (it.next()) |key_ptr| {

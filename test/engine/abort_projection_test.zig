@@ -34,6 +34,7 @@ test "queue-cap and handoff-replay project to their typed kinds and close" {
 test "table-cap exhaustion projects to resource-exhausted and close" {
     for ([_]anyerror{
         session.Error.InboundAnswerCapExceeded,
+        session.Error.RetainedAnswerCapExceeded,
         session.Error.ListenerCapExceeded,
         session.Error.ImportCapExceeded,
         session.Error.DepositedGiftCapExceeded,
@@ -53,7 +54,6 @@ test "generic protocol violations project to protocol-error and close" {
         session.Error.GcUnderflow,
         session.Error.UnexpectedMessage,
         session.Error.DuplicateStartSession,
-        session.Error.ResolutionCycle,
         session.Error.HostMismatch,
     }) |err| {
         const a = abort_projection.abortForError(err).?;

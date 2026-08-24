@@ -1,7 +1,7 @@
 // Distributed GC (ADR-0063), opt-in and off by default. Owns the Host-wide
 // `HostGc` state, recursive application-value tracking / verb-head `drainGc`, and
-// `pancake_host_ref_release`. Session keeps `withGc` as a thin opt-in; Host
-// owns the finalizer state.
+// native release verbs. Session keeps `withGc` as a thin capability opt-in;
+// public vow lifetime is mandatory and uses the same Host-owned scheduler.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -16,6 +16,7 @@ export interface GcHandle {
 	readonly hostRaw: Ptr;
 	kick(): void;
 	recordFailure(failure: unknown): void;
+	abandonVow(vow: bigint): void;
 	/** Park a drain on the event loop (finalizer path must not call host FFI). */
 	scheduleDrain(run: () => void): void;
 }
@@ -25,12 +26,25 @@ export interface GcHandle {
  * registry nor its release queue may belong to a Session. */
 export class HostGc {
 	#registry: FinalizationRegistry<bigint> | null = null;
+	#vowRegistry: FinalizationRegistry<bigint> | null = null;
 	readonly pending: bigint[] = [];
+	readonly pendingVows: bigint[] = [];
+	readonly #pendingVowIds = new Set<bigint>();
 	#h: GcHandle | null = null;
+	#scheduled = false;
 
 	/** Bind the live Host once so track/drain can schedule progress. */
 	bind(h: GcHandle): void {
 		this.#h = h;
+	}
+
+	/** Retire queues whose native Host owner has been consumed. */
+	retire(): void {
+		this.#h = null;
+		this.#scheduled = false;
+		this.pending.length = 0;
+		this.pendingVows.length = 0;
+		this.#pendingVowIds.clear();
 	}
 
 	/** Register one projected capability occurrence selected by a GC-enabled
@@ -45,11 +59,7 @@ export class HostGc {
 		if (h === null) return ref;
 		if (this.#registry === null) {
 			this.#registry = new FinalizationRegistry<bigint>((token) => {
-				// Park only: ref_release never runs from the finalizer callback.
-				// The release rides out on the connection's next verb, or on the
-				// scheduled drain below (its own event-loop task).
-				this.pending.push(token);
-				h.scheduleDrain(() => this.#drainScheduled());
+				this.#parkRef(token);
 			});
 		}
 		this.#registry.unregister(ref);
@@ -84,14 +94,27 @@ export class HostGc {
 		this.#registry?.unregister(ref);
 	}
 
+	/** Bind one native Host vow to its public promise wrapper. */
+	trackVow(handle: object, vow: bigint): void {
+		const h = this.#h;
+		if (h === null) return;
+		if (this.#vowRegistry === null) {
+			this.#vowRegistry = new FinalizationRegistry<bigint>((token) => {
+				this.parkVow(token);
+			});
+		}
+		this.#vowRegistry.register(handle, vow);
+	}
+
 	/** Drain parked GC releases: one release delta per reclaimed token, then
 	 * a kick so the op:gc-exports flushes. A token leaves the queue only after
 	 * its native release commits. A scheduled drain has no immediate caller,
 	 * so its exact failure is retained and raised by the next observable drain. */
 	drainGc(): void {
 		const h = this.#h;
-		if (h === null || this.pending.length === 0 || h.released) return;
-		let committed = 0;
+		if (h === null || (this.pending.length === 0 && this.pendingVows.length === 0) || h.released) return;
+		let refsCommitted = 0;
+		let vowsCommitted = 0;
 		try {
 			for (const token of this.pending) {
 				checkHost(
@@ -101,12 +124,53 @@ export class HostGc {
 						1n,
 					),
 				);
-				committed += 1;
+				refsCommitted += 1;
+			}
+			for (const vow of this.pendingVows) {
+				h.abandonVow(vow);
+				checkHost(hostS.pancake_host_vow_release(h.hostRaw, vow));
+				vowsCommitted += 1;
 			}
 		} finally {
-			this.pending.splice(0, committed);
+			this.pending.splice(0, refsCommitted);
+			for (let index = 0; index < vowsCommitted; index += 1) {
+				this.#pendingVowIds.delete(this.pendingVows[index]);
+			}
+			this.pendingVows.splice(0, vowsCommitted);
 		}
 		h.kick();
+	}
+
+	/** Transfer one callerless vow release to the Host owner loop. */
+	parkVow(vow: bigint): void {
+		const h = this.#h;
+		if (h === null) return;
+		if (!this.#pendingVowIds.has(vow)) {
+			this.#pendingVowIds.add(vow);
+			this.pendingVows.push(vow);
+		}
+		this.#schedule(h);
+	}
+
+	#parkRef(token: bigint): void {
+		const h = this.#h;
+		if (h === null) return;
+		this.pending.push(token);
+		this.#schedule(h);
+	}
+
+	#schedule(h: GcHandle): void {
+		if (this.#scheduled) return;
+		this.#scheduled = true;
+		try {
+			h.scheduleDrain(() => {
+				this.#scheduled = false;
+				this.#drainScheduled();
+			});
+		} catch (failure) {
+			this.#scheduled = false;
+			throw failure;
+		}
 	}
 
 	#drainScheduled(): void {

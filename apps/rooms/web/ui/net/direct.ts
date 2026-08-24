@@ -35,6 +35,7 @@ import { MAX_PENDING_INVITES } from "../../../lib/limits.ts";
 import { markSend, reason } from "./common.ts";
 import { actingDir, convSession, dirSession, isCurrent, type Live } from "./live.ts";
 import { holdDirectFile, openAttachment, releaseHeldFile } from "./files.ts";
+import { hydrateDm } from "./history.ts";
 
 /** Reply routes a peer handed us with an incoming message, by conversation.
  *
@@ -84,6 +85,7 @@ export function startDm(peer: string): void {
 	}
 	const conv = store.ensureDm(here, peer);
 	if (conv === null) return;
+	hydrateDm(conv);
 	noteIgnoredDm(conv.key, peer);
 	store.switchTo(conv.key);
 }
@@ -167,12 +169,6 @@ export function sendDm(key: string, id: number, text: string): void {
 			store.setDmLine(key, "live");
 		})
 		.catch((err) => {
-			// The reader gets the friendly line; the devtools console gets what
-			// actually happened. A direct message crosses a redeem, a dial, and a
-			// carrier of its own, and every one of those failures reads as
-			// "couldn't reach them" up here, so dropping the cause leaves nobody
-			// anything to work from.
-			console.error(`rooms: could not deliver a direct message to ${peer}:`, err);
 			markSend(key, id, "failed");
 			store.deliver(key, store.sysItem(dmFailureText(peer, err)));
 		});
@@ -212,13 +208,22 @@ export async function deliverDm(
 	}
 }
 
-// A friendly reason a direct message could not land, from the typed taxonomy rather than
-// the raw wire reason: a member the directory has no registration for is offline, and any
-// other failure is reported generically instead of leaking a wire code.
+// The reason a direct message could not land, said where the reader is looking.
+// A direct message crosses a redeem, a dial, and a carrier of its own, and every
+// one of those failures used to read as a bare "couldn't reach them" here, with
+// the cause going to a console the reader does not have — which made a
+// misconfigured deployment look like the feature not existing. The typed
+// taxonomy still speaks first where it has a better sentence, and the failure
+// that has a setting to change names it.
 function dmFailureText(peer: string, err: unknown): string {
 	const re = roomErrorOf(err);
 	if (re?.code === PEER_OFFLINE) return `${peer} is offline.`;
-	return `Couldn't reach ${peer}.`;
+	const why = re?.detail ?? reason(err);
+	if (why.includes("ICE failed")) {
+		return `Couldn't reach ${peer}: ${why}. ` +
+			`"Through the room relay" in Settings sends direct messages without needing one.`;
+	}
+	return `Couldn't reach ${peer}: ${why}`;
 }
 
 // The introduced direct line to a peer, opened once and reused. `DirectMessage.open`

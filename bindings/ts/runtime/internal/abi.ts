@@ -28,12 +28,12 @@ export const FRAME_LEN_OFF = 8;
 export const FRAME_SHAPE_OFF = 16;
 
 // PancakeManagedFrame (owned, self-releasing)
-export const MANAGED_FRAME_SIZE = 40;
+export const MANAGED_FRAME_SIZE = 96;
 export const MANAGED_FRAME_BYTES_OFF = 0;
 export const MANAGED_FRAME_LEN_OFF = 8;
 export const MANAGED_FRAME_SHAPE_OFF = 16;
 export const MANAGED_FRAME_RELEASE_OFF = 24;
-export const MANAGED_FRAME_PRIVATE_DATA_OFF = 32;
+export const MANAGED_FRAME_PRIVATE_WORDS_OFF = 32;
 
 // PancakeLastAbort
 export const LAST_ABORT_SIZE = 96;
@@ -105,14 +105,15 @@ export const FAILURE_EVENT_SECONDARY_MESSAGE_OFF = 136;
 export const FAILURE_EVENT_SECONDARY_MESSAGE_LEN_OFF = 144;
 
 // PancakeHostAction (libpancake_host, pancake_host_next_action)
-export const HOST_ACTION_SIZE = 112;
+export const HOST_ACTION_SIZE = 120;
 export const HOST_ACTION_KIND_OFF = 0;
 export const HOST_ACTION_TICKET_OFF = 8;
-export const HOST_ACTION_SESSION_OFF = 16;
-export const HOST_ACTION_VALUE_OFF = 24;
-export const HOST_ACTION_MESSAGE_OFF = 88;
-export const HOST_ACTION_MESSAGE_LEN_OFF = 96;
-export const HOST_ACTION_RESULT_OFF = 104;
+export const HOST_ACTION_ROUTE_INDEX_OFF = 16;
+export const HOST_ACTION_SESSION_OFF = 24;
+export const HOST_ACTION_VALUE_OFF = 32;
+export const HOST_ACTION_MESSAGE_OFF = 96;
+export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
+export const HOST_ACTION_RESULT_OFF = 112;
 
 // PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)
 export const HOST_PUMP_HOOKS_SIZE = 48;
@@ -190,8 +191,17 @@ export const CLOSE_OPTIONS_PENDING_OFF = 16;
 export const CLOSE_OPTIONS_GRACE_MODE_OFF = 20;
 export const CLOSE_OPTIONS_GRACE_MS_OFF = 24;
 
+// PancakeSessionLimitOptions (libpancake_host)
+export const SESSION_LIMIT_OPTIONS_SIZE = 48;
+export const SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF = 0;
+export const SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF = 8;
+export const SESSION_LIMIT_OPTIONS_MAX_FRAME_BYTES_OFF = 16;
+export const SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF = 24;
+export const SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF = 32;
+export const SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF = 40;
+
 // PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)
-export const DRIVER_EVENT_SIZE = 208;
+export const DRIVER_EVENT_SIZE = 216;
 export const DRIVER_EVENT_KIND_OFF = 0;
 export const DRIVER_EVENT_PRIMARY_RESULT_OFF = 4;
 export const DRIVER_EVENT_SECONDARY_RESULT_OFF = 8;
@@ -205,10 +215,10 @@ export const DRIVER_EVENT_OPERATION_ID_OFF = 40;
 export const DRIVER_EVENT_LISTENER_ID_OFF = 48;
 export const DRIVER_EVENT_SESSION_OFF = 56;
 export const DRIVER_EVENT_ACTION_OFF = 64;
-export const DRIVER_EVENT_PRIMARY_NAME_OFF = 176;
-export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 184;
-export const DRIVER_EVENT_SECONDARY_NAME_OFF = 192;
-export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 200;
+export const DRIVER_EVENT_PRIMARY_NAME_OFF = 184;
+export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 192;
+export const DRIVER_EVENT_SECONDARY_NAME_OFF = 200;
+export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 208;
 
 // PancakeTransportOperationOptions (pancake_driver_dial)
 export const TRANSPORT_OPERATION_OPTIONS_SIZE = 16;

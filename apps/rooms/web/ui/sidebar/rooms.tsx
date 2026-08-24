@@ -10,6 +10,7 @@ import { type Conv, type DirId, dirMarkIn, type DirView, type Invitation, type R
 import { dirWhere } from "../text.ts";
 import { dirRow, inviteRow, type RailRow, roomRow } from "./filter.ts";
 import { Empty, EmptyDirRow, heldBack, InviteRow, nothingMatches, RoomRow } from "./rows.tsx";
+import { bridgedOrigin } from "../store.ts";
 
 /** The rooms this tab is in, across every directory, in the order it entered
  * them, and under them the directories it is on with nothing open.
@@ -100,6 +101,7 @@ export function YourRooms(
 					where={dirWhere(conv.dir, home, dirs)}
 					home={home}
 					phase={dirs.get(conv.dir)?.session ?? "disconnected"}
+					bridgedFrom={bridgedOrigin(dirs.get(conv.dir), conv.id)}
 					onPick={onPick}
 					onLeave={onLeave}
 					onAbout={onAbout}

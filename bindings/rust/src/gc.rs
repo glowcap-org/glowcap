@@ -24,10 +24,41 @@ pub(crate) struct CapabilityGuard {
 	armed: Cell<bool>,
 }
 
+/// One public Host vow's release right. The wrapper may die inside a behavior,
+/// so Drop only parks the id; the owner-loop drain performs the C call.
+pub(crate) struct VowGuard {
+	vow: u64,
+	host: Weak<HostShared>,
+}
+
+impl VowGuard {
+	pub(crate) fn new(host: &Rc<HostShared>, vow: u64) -> Self {
+		Self {
+			vow,
+			host: Rc::downgrade(host),
+		}
+	}
+}
+
+impl Drop for VowGuard {
+	fn drop(&mut self) {
+		if let Some(host) = self.host.upgrade() {
+			if host.raw().is_null() {
+				return;
+			}
+			host.vow_gc_pending.borrow_mut().push_back(self.vow);
+			host.schedule_kick_or_record();
+		}
+	}
+}
+
 impl Drop for CapabilityGuard {
 	fn drop(&mut self) {
 		if self.armed.get() {
 			if let Some(host) = self.host.upgrade() {
+				if host.raw().is_null() {
+					return;
+				}
 				host.gc_pending.borrow_mut().push_back(self.token);
 				host.schedule_kick_or_record();
 			}
@@ -45,16 +76,31 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 		return Err(failure);
 	}
 	if host.raw().is_null() {
+		retire(host);
 		return Ok(());
 	}
 	loop {
 		let Some(token) = host.gc_pending.borrow().front().copied() else {
-			return Ok(());
+			break;
 		};
 		let raw = crate::sys::PancakeReference { id: token };
 		crate::host::check_host(unsafe { ffi::pancake_host_ref_release(host.raw(), &raw, 1) })?;
 		host.gc_pending.borrow_mut().pop_front();
 	}
+	loop {
+		let Some(vow) = host.vow_gc_pending.borrow().front().copied() else {
+			return Ok(());
+		};
+		host.abandon_vow(vow);
+		crate::host::check_host(unsafe { ffi::pancake_host_vow_release(host.raw(), vow) })?;
+		host.vow_gc_pending.borrow_mut().pop_front();
+	}
+}
+
+/// Drop binding queues after their native Host owner has been consumed.
+pub(crate) fn retire(host: &HostShared) {
+	host.gc_pending.borrow_mut().clear();
+	host.vow_gc_pending.borrow_mut().clear();
 }
 
 /// Build a [`CapabilityGuard`] when GC is on.
@@ -156,5 +202,18 @@ mod tests {
 		let retry = drain(&host).expect_err("the retained token must be retried");
 		assert_eq!(retry, refusal);
 		assert_eq!(host.gc_pending.borrow().front(), Some(&u64::MAX));
+	}
+
+	#[test]
+	fn retirement_discards_queues_without_native_work() {
+		let owner = crate::Host::new_host();
+		let host = owner.shared();
+		host.gc_pending.borrow_mut().push_back(17);
+		host.vow_gc_pending.borrow_mut().push_back(19);
+
+		retire(&host);
+
+		assert!(host.gc_pending.borrow().is_empty());
+		assert!(host.vow_gc_pending.borrow().is_empty());
 	}
 }

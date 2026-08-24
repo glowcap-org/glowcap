@@ -18,7 +18,7 @@ import { MAX_MESSAGE_FILES } from "../../../lib/limits.ts";
 import * as store from "../store.ts";
 import { type Item, type RoomConv } from "../types.ts";
 
-import { markSend, reason } from "./common.ts";
+import { markSend, reason, trouble } from "./common.ts";
 import { convSession, type Live } from "./live.ts";
 import { releaseHeldFile } from "./files.ts";
 import { activeBackChannel } from "./direct.ts";
@@ -141,7 +141,7 @@ function postRoomLine(key: string, id: number, text: string): void {
 			// a reader pressed retry into the same refusal for as long as they
 			// were willing to believe it might work. The direct-message path has
 			// said why since it shipped — this one never got the same sentence.
-			console.error("rooms: the room did not take the line:", reason(error));
+			trouble("the room did not take a line", error);
 			store.deliver(key, store.sysItem(`The room did not take that line: ${reason(error)}`));
 			failRoomSend(key, id);
 		});

@@ -34,40 +34,40 @@
 import { resolveGesture } from "./gesture-resolver.ts";
 import { inFlightGesture } from "./pointer-machine.ts";
 import {
-  type BuilderTool,
-  isStageSurface,
-  type PointerMachineState,
-  type ResolvedGesture,
-  selectModeFromModifiers,
-  type SurfaceGestureCtx,
-  type SurfaceId,
-  type ToolState,
+	type BuilderTool,
+	isStageSurface,
+	type PointerMachineState,
+	type ResolvedGesture,
+	selectModeFromModifiers,
+	type SurfaceGestureCtx,
+	type SurfaceId,
+	type ToolState,
 } from "./types.ts";
 
 /** Subset of valid `cursor` CSS values we actually emit. */
 export type CSSCursor =
-  | "default"
-  | "pointer"
-  | "grab"
-  | "grabbing"
-  | "crosshair"
-  /** A handle that resizes something's extent: an event pill's right edge,
-   *  the gutter's seam. */
-  | "col-resize"
-  /** A drag that moves along time: the playhead under a scrub, an event
-   *  retimed, the overview window's ends. */
-  | "ew-resize"
-  | "move"
-  /** Open Session's resting cursor — the spreadsheet-style pick. */
-  | "cell"
-  /** A click or marquee would ADD to the selection (Shift), and Send
-   *  Message's resting cursor. */
-  | "copy"
-  /** A click or marquee would REMOVE from the selection (Shift+Option). */
-  | "no-drop"
-  /** The active tool cannot act on the node under the pointer. Says so
-   *  before the click, rather than an error saying so after it. */
-  | "not-allowed";
+	| "default"
+	| "pointer"
+	| "grab"
+	| "grabbing"
+	| "crosshair"
+	/** A handle that resizes something's extent: either event-pill edge,
+	 *  the gutter's seam. */
+	| "col-resize"
+	/** A drag that moves along time: the playhead under a scrub, an event
+	 *  retimed, the overview window's ends. */
+	| "ew-resize"
+	| "move"
+	/** Open Session's resting cursor — the spreadsheet-style pick. */
+	| "cell"
+	/** A click or marquee would ADD to the selection (Shift), and Send
+	 *  Message's resting cursor. */
+	| "copy"
+	/** A click or marquee would REMOVE from the selection (Shift+Option). */
+	| "no-drop"
+	/** The active tool cannot act on the node under the pointer. Says so
+	 *  before the click, rather than an error saying so after it. */
+	| "not-allowed";
 
 /**
  * The gesture context a cursor is drawn from: what every surface carries,
@@ -82,7 +82,7 @@ export type CSSCursor =
  * with no pointer event to snapshot it.
  */
 export type CursorContext = SurfaceGestureCtx & {
-  toolState: ToolState | null;
+	toolState: ToolState | null;
 };
 
 /**
@@ -99,71 +99,72 @@ export type CursorContext = SurfaceGestureCtx & {
  * the kind of node, which is the whole answer until a pick is armed.
  */
 export type ToolWillPick = (pick: {
-  tool: "open-session" | "send-message";
-  /** The node already picked and waiting for its partner. Null on a first
-   *  pick, when there is no partner to be wrong for. */
-  armedNodeId: string | null;
-  /** The node under the pointer. */
-  nodeId: string;
+	tool: "open-session" | "send-message";
+	/** The node already picked and waiting for its partner. Null on a first
+	 *  pick, when there is no partner to be wrong for. */
+	armedNodeId: string | null;
+	/** The node under the pointer. */
+	nodeId: string;
 }) => boolean;
 
 export function cursorFor(
-  ctx: CursorContext,
-  fsmState: PointerMachineState,
-  willPick: ToolWillPick = () => true,
+	ctx: CursorContext,
+	fsmState: PointerMachineState,
+	willPick: ToolWillPick = () => true,
 ): CSSCursor {
-  // A gesture the FSM holds is what is HAPPENING; the rest of the ladder
-  // only offers. The FSM is the authority on which one, because only it knows
-  // what the press resolved to: releasing Space during a pan leaves a pan
-  // running, and releasing it during a marquee that Space interrupted puts the
-  // marquee back. Same key event, two outcomes.
-  const running = inFlightGesture(fsmState);
-  if (running !== null) return cursorForGestureInFlight(running);
-  // Space held → grab (Adobe convention: Space temporarily activates the Hand
-  // tool's cursor).
-  if (ctx.spaceHeld) return "grab";
-  if (ctx.activeTool === "hand") return "grab";
-  // Hover is the cursor's reason to exist: off every surface there is no next
-  // click to describe.
-  if (fsmState.hover === null) return "default";
-  // Resolve first, because a tool's own cursor is what it says when it CAN
-  // act. Over a node it has declined, the answer is that it cannot, and
-  // returning the tool's cursor before asking would show a pick cursor over
-  // a node no click will do anything to.
-  const resolved = resolveGesture({ ...ctx, hit: fsmState.hover.hit });
-  if (resolved.tier === "tool-refuses") return "not-allowed";
-  if (resolved.tier === "tool-create") {
-    if (resolved.verb.kind === "two-click-pick") {
-      // The resolver took this node on the tool and the kind alone. Whether
-      // the pick already armed leaves it a legal partner is the document's
-      // answer, and only the host has that.
-      const armed = ctx.toolState !== null &&
-          ctx.toolState.tool === resolved.verb.tool
-        ? ctx.toolState.nodeId
-        : null;
-      if (
-        !willPick({
-          tool: resolved.verb.tool,
-          armedNodeId: armed,
-          nodeId: resolved.verb.nodeId,
-        })
-      ) {
-        return "not-allowed";
-      }
-    }
-    // The tool's own cursor outranks the verb here — cursor.md step 5 before step
-    // 6. The tool is what the user chose, and the node it is about to act on
-    // is the last place to stop saying which tool that is: every authoring
-    // tool would otherwise read `crosshair` at the exact moment of aiming.
-    // Only the two refusals above override it, because a refusal is the tool
-    // NOT acting.
-    return restingCursor(ctx.activeTool) ?? cursorForResolvedHover(resolved);
-  }
-  const preview = selectionPreview(ctx, resolved);
-  if (preview !== null) return preview;
-  const toolCursor = restingCursorOver(fsmState.hover.hit.surface, ctx);
-  if (toolCursor !== null) return toolCursor;
-  return cursorForResolvedHover(resolved);
+	// A gesture the FSM holds is what is HAPPENING; the rest of the ladder
+	// only offers. The FSM is the authority on which one, because only it knows
+	// what the press resolved to: releasing Space during a pan leaves a pan
+	// running, and releasing it during a marquee that Space interrupted puts the
+	// marquee back. Same key event, two outcomes.
+	const running = inFlightGesture(fsmState);
+	if (running !== null) return cursorForGestureInFlight(running);
+	// Space held → grab (Adobe convention: Space temporarily activates the Hand
+	// tool's cursor).
+	if (ctx.spaceHeld) return "grab";
+	if (ctx.activeTool === "hand") return "grab";
+	// Hover is the cursor's reason to exist: off every surface there is no next
+	// click to describe.
+	if (fsmState.hover === null) return "default";
+	// Resolve first, because a tool's own cursor is what it says when it CAN
+	// act. Over a node it has declined, the answer is that it cannot, and
+	// returning the tool's cursor before asking would show a pick cursor over
+	// a node no click will do anything to.
+	const resolved = resolveGesture({ ...ctx, hit: fsmState.hover.hit });
+	if (resolved.tier === "tool-refuses") return "not-allowed";
+	if (resolved.tier === "tool-create") {
+		if (resolved.verb.kind === "two-click-pick") {
+			// The resolver took this node on the tool and the kind alone. Whether
+			// the pick already armed leaves it a legal partner is the document's
+			// answer, and only the host has that.
+			const armed = ctx.toolState !== null &&
+					ctx.toolState.tool === resolved.verb.tool
+				? ctx.toolState.nodeId
+				: null;
+			if (
+				!willPick({
+					tool: resolved.verb.tool,
+					armedNodeId: armed,
+					nodeId: resolved.verb.nodeId,
+				})
+			) {
+				return "not-allowed";
+			}
+		}
+		// The tool's own cursor outranks the verb here — cursor.md step 5 before step
+		// 6. The tool is what the user chose, and the node it is about to act on
+		// is the last place to stop saying which tool that is: every authoring
+		// tool would otherwise read `crosshair` at the exact moment of aiming.
+		// Only the two refusals above override it, because a refusal is the tool
+		// NOT acting.
+		return restingCursor(ctx.activeTool) ??
+			cursorForResolvedHover(resolved);
+	}
+	const preview = selectionPreview(ctx, resolved);
+	if (preview !== null) return preview;
+	const toolCursor = restingCursorOver(fsmState.hover.hit.surface, ctx);
+	if (toolCursor !== null) return toolCursor;
+	return cursorForResolvedHover(resolved);
 }
 
 /**
@@ -184,11 +185,11 @@ export function cursorFor(
  * the answer in the one place that can get it wrong.
  */
 function restingCursorOver(
-  surface: SurfaceId,
-  ctx: CursorContext,
+	surface: SurfaceId,
+	ctx: CursorContext,
 ): CSSCursor | null {
-  if (!isStageSurface(surface)) return null;
-  return restingCursor(ctx.activeTool);
+	if (!isStageSurface(surface)) return null;
+	return restingCursor(ctx.activeTool);
 }
 
 /**
@@ -203,39 +204,37 @@ function restingCursorOver(
  * its verdict rather than re-reading the keys.
  */
 function selectionPreview(
-  ctx: CursorContext,
-  resolved: ResolvedGesture,
+	ctx: CursorContext,
+	resolved: ResolvedGesture,
 ): CSSCursor | null {
-  if (ctx.activeTool !== "select") return null;
-  if (!verbTouchesSelection(resolved)) return null;
-  switch (
-    selectModeFromModifiers({
-      shiftKey: ctx.modifiers.shift,
-      altKey: ctx.modifiers.alt,
-    })
-  ) {
-    case "add":
-      return "copy";
-    case "remove":
-      return "no-drop";
-    case "replace":
-      return null;
-  }
+	if (ctx.activeTool !== "select") return null;
+	if (!verbTouchesSelection(resolved)) return null;
+	switch (
+		selectModeFromModifiers({
+			shiftKey: ctx.modifiers.shift,
+			altKey: ctx.modifiers.alt,
+		})
+	) {
+		case "add":
+			return "copy";
+		case "remove":
+			return "no-drop";
+		case "replace":
+			return null;
+	}
 }
 
 /** Whether the resolved gesture would commit into the selection. The marquee
  *  and the range extension join {@link verbSelectsEntity}'s single-entity
  *  picks, because all three are what a Shift preview speaks about. */
 function verbTouchesSelection(verb: ResolvedGesture): boolean {
-  if (verb.tier !== "default" && verb.tier !== "modifier") return false;
-  switch (verb.verb.kind) {
-    case "rubber-band":
-    case "extend-selection-range":
-    case "toggle-in-selection":
-      return true;
-    default:
-      return verbSelectsEntity(verb);
-  }
+	if (verb.tier !== "default") return false;
+	switch (verb.verb.kind) {
+		case "rubber-band":
+			return true;
+		default:
+			return verbSelectsEntity(verb);
+	}
 }
 
 /**
@@ -252,64 +251,62 @@ function verbTouchesSelection(verb: ResolvedGesture): boolean {
  * this function has to read one.
  */
 function restingCursor(tool: BuilderTool): CSSCursor | null {
-  switch (tool) {
-    case "select":
-    case "hand":
-      return null;
-    case "add-peer":
-      return "crosshair";
-    case "open-session":
-      return "cell";
-    case "send-message":
-      return "copy";
-    default:
-      return assertNever(tool);
-  }
+	switch (tool) {
+		case "select":
+		case "hand":
+			return null;
+		case "add-peer":
+			return "crosshair";
+		case "open-session":
+			return "cell";
+		case "send-message":
+			return "copy";
+		default:
+			return assertNever(tool);
+	}
 }
 
 /** Cursor for a verb resolved at a HOVER hit (no press yet) — what the next
  *  click on this surface would do. */
 function cursorForResolvedHover(
-  verb: ResolvedGesture,
+	verb: ResolvedGesture,
 ): CSSCursor {
-  if (verb.tier === "space-pan" || verb.tier === "hand-tool") return "grab";
-  if (verb.tier === "tool-create") return "crosshair";
-  if (verb.tier === "tool-refuses") return "not-allowed";
-  const v = verb.verb;
-  switch (v.kind) {
-    case "select-or-drag-peer":
-    case "select-or-drag-endpoint":
-    case "select-edge":
-    case "select-message":
-    case "select-or-drag-event":
-    case "toggle-in-selection":
-    case "extend-selection-range":
-    case "toggle-category":
-    case "toggle-row-visibility":
-    // A row label's click selects that row's entity and its drag reorders the
-    // rows. Both are "the click does something here", which is what `pointer`
-    // says; the reorder is a discovered affordance, and a resize cursor over a
-    // control whose click selects would describe neither half.
-    case "reorder-row":
-      return "pointer";
-    case "drag-event-right-edge":
-    case "resize-gutter":
-      return "col-resize";
-    case "scrub":
-    case "resize-time-window":
-      return "ew-resize";
-    case "pan-view":
-      return "grab";
-    // Empty space, pointer up, Select in hand: the ordinary arrow. A
-    // marquee is what a press and drag here DOES, not a thing being
-    // aimed, and a crosshair standing over every empty pixel advertises
-    // a gesture nobody has started. It appears once the sweep is
-    // running, which `cursorForGestureInFlight` answers.
-    case "rubber-band":
-      return "default";
-    default:
-      return assertNever(v);
-  }
+	if (verb.tier === "space-pan" || verb.tier === "hand-tool") return "grab";
+	if (verb.tier === "tool-create") return "crosshair";
+	if (verb.tier === "tool-refuses") return "not-allowed";
+	const v = verb.verb;
+	switch (v.kind) {
+		case "select-or-drag-peer":
+		case "select-or-drag-endpoint":
+		case "select-edge":
+		case "select-message":
+		case "select-or-drag-event":
+		case "toggle-category":
+		case "toggle-row-visibility":
+		// A row label's click selects that row's entity and its drag reorders the
+		// rows. Both are "the click does something here", which is what `pointer`
+		// says; the reorder is a discovered affordance, and a resize cursor over a
+		// control whose click selects would describe neither half.
+		case "reorder-row":
+			return "pointer";
+		case "drag-event-edge":
+		case "resize-gutter":
+			return "col-resize";
+		case "scrub":
+		case "resize-time-window":
+			return "ew-resize";
+		case "pan-view":
+			return "grab";
+		// Empty space, pointer up, Select in hand: the ordinary arrow. A
+		// marquee is what a press and drag here DOES, not a thing being
+		// aimed, and a crosshair standing over every empty pixel advertises
+		// a gesture nobody has started. It appears once the sweep is
+		// running, which `cursorForGestureInFlight` answers.
+		case "rubber-band":
+			return "default";
+		default:
+			return assertNever(v);
+	}
 }
 
 // ─────────────────────── Affordance predicates ───────────────────────
@@ -324,69 +321,69 @@ function cursorForResolvedHover(
  *  hovered (single-select or drag-on-press). Drives the "hover
  *  ring" affordance on Stage and pill highlight on Timeline. */
 export function verbSelectsEntity(verb: ResolvedGesture): boolean {
-  if (verb.tier !== "default" && verb.tier !== "modifier") return false;
-  const k = verb.verb.kind;
-  return k === "select-or-drag-peer" ||
-    k === "select-or-drag-endpoint" ||
-    k === "select-edge" ||
-    k === "select-message" ||
-    k === "select-or-drag-event";
+	if (verb.tier !== "default") return false;
+	const k = verb.verb.kind;
+	return k === "select-or-drag-peer" ||
+		k === "select-or-drag-endpoint" ||
+		k === "select-edge" ||
+		k === "select-message" ||
+		k === "select-or-drag-event";
 }
 
 /** True when the resolved verb is a two-click-pick (Open Session /
  *  Send Message arming the first or completing the second click).
  *  Drives the marching-ants affordance on candidate peers. */
 export function verbArmsForTool(verb: ResolvedGesture): boolean {
-  return verb.tier === "tool-create" && verb.verb.kind === "two-click-pick";
+	return verb.tier === "tool-create" && verb.verb.kind === "two-click-pick";
 }
 
 /** True when the resolved verb is a pan (Hand tool active OR Space
  *  held). Affordances that respond to pointer (hover rings,
  *  marching ants, etc.) suppress themselves. */
 export function verbIsPan(verb: ResolvedGesture): boolean {
-  return verb.tier === "space-pan" || verb.tier === "hand-tool";
+	return verb.tier === "space-pan" || verb.tier === "hand-tool";
 }
 
 /** Cursor while `verb` is in flight — a press the FSM has resolved, the drag
  *  it became, or a pan that interrupted one. */
 function cursorForGestureInFlight(
-  verb: ResolvedGesture,
+	verb: ResolvedGesture,
 ): CSSCursor {
-  if (verb.tier === "space-pan" || verb.tier === "hand-tool") {
-    return "grabbing";
-  }
-  if (verb.tier === "tool-create") return "crosshair";
-  // A refused node never starts a drag, so this is unreachable in practice;
-  // answering it keeps the mapping total over the tiers.
-  if (verb.tier === "tool-refuses") return "not-allowed";
-  const v = verb.verb;
-  switch (v.kind) {
-    case "select-or-drag-peer":
-    case "select-or-drag-endpoint":
-      return "move";
-    case "select-or-drag-event":
-      return "ew-resize"; // event drag = retime (horizontal)
-    case "drag-event-right-edge":
-    case "resize-gutter":
-      return "col-resize";
-    case "scrub":
-    case "resize-time-window":
-      return "ew-resize";
-    case "pan-view":
-      return "grabbing";
-    case "rubber-band":
-      return "crosshair";
-    // A row lifted out of its stack, the same "you are carrying this" the pan
-    // shows. It is a move, not a resize.
-    case "reorder-row":
-      return "grabbing";
-    default:
-      // Catch-all for verbs that shouldn't appear during drag
-      // (clicks-only verbs); return default to be safe.
-      return "default";
-  }
+	if (verb.tier === "space-pan" || verb.tier === "hand-tool") {
+		return "grabbing";
+	}
+	if (verb.tier === "tool-create") return "crosshair";
+	// A refused node never starts a drag, so this is unreachable in practice;
+	// answering it keeps the mapping total over the tiers.
+	if (verb.tier === "tool-refuses") return "not-allowed";
+	const v = verb.verb;
+	switch (v.kind) {
+		case "select-or-drag-peer":
+		case "select-or-drag-endpoint":
+			return "move";
+		case "select-or-drag-event":
+			return "ew-resize"; // event drag = retime (horizontal)
+		case "drag-event-edge":
+		case "resize-gutter":
+			return "col-resize";
+		case "scrub":
+		case "resize-time-window":
+			return "ew-resize";
+		case "pan-view":
+			return "grabbing";
+		case "rubber-band":
+			return "crosshair";
+		// A row lifted out of its stack, the same "you are carrying this" the pan
+		// shows. It is a move, not a resize.
+		case "reorder-row":
+			return "grabbing";
+		default:
+			// Catch-all for verbs that shouldn't appear during drag
+			// (clicks-only verbs); return default to be safe.
+			return "default";
+	}
 }
 
 function assertNever(x: never): never {
-  throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
+	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

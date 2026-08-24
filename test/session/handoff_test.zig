@@ -10,6 +10,7 @@ const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
 const syrup = pancake.ocapn.codec.syrup;
 const capnp = pancake.ocapn.codec.capnp;
+const crypto = pancake.foundation.crypto;
 
 const harness = @import("session_harness.zig");
 const startSessionMessage = harness.startSessionMessage;
@@ -226,6 +227,181 @@ test "session feature gates listen and sturdyref-bearing payloads" {
             .deltas = &.{1},
         },
     }));
+}
+
+test "identity-route locators require the negotiated feature in sturdyrefs" {
+    const allocator = std.testing.allocator;
+    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x70))).publicKey().toDesignator();
+    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
+    defer allocator.free(route);
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = route },
+    }};
+    const sturdy: model.Reference = .{ .sturdy = &.{
+        .peer = .{
+            .transport = model.transport.id,
+            .designator = &key,
+            .hints = .{ .entries = &hints },
+        },
+        .swissnum = &.{ 1, 2, 3 },
+    } };
+
+    var default_features = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+        .features = model.FeatureSet.defaultOffer(),
+    });
+    defer default_features.deinit();
+    try default_features.registerImport(.from(1));
+    try default_features.registerExport(.from(2));
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, default_features.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .reference = sturdy }},
+    } }));
+    const inbound = model.Message{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(2) },
+        .args = &.{.{ .reference = sturdy }},
+    } };
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, default_features.recordRecv(inbound));
+    try std.testing.expectError(
+        session.Error.FeatureNotNegotiated,
+        default_features.recordRecvView(model.view.Body.fromOwned(&inbound)),
+    );
+
+    var opted_in = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    defer opted_in.deinit();
+    try opted_in.registerImport(.from(1));
+    try opted_in.registerExport(.from(2));
+    try opted_in.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .reference = sturdy }},
+    } });
+    try opted_in.recordRecv(inbound);
+}
+
+test "sturdyref locators must be structurally valid" {
+    const allocator = std.testing.allocator;
+    const duplicate_hints = [_]model.HintEntry{
+        .{
+            .name = "route",
+            .value = .{ .string = "one" },
+        },
+        .{
+            .name = "route",
+            .value = .{ .string = "two" },
+        },
+    };
+    const empty_name_hint = [_]model.HintEntry{.{
+        .name = "",
+        .value = .{ .string = "value" },
+    }};
+    const invalid_false_hint = [_]model.HintEntry{.{
+        .name = "route",
+        .value = .{ .string = "value" },
+    }};
+    const locators = [_]model.PeerLocator{
+        .{
+            .transport = "tcp",
+            .designator = "127.0.0.1:9048",
+            .hints = .{ .entries = &duplicate_hints },
+        },
+        .{
+            .transport = "tcp",
+            .designator = "127.0.0.1:9048",
+            .hints = .{ .entries = &empty_name_hint },
+        },
+        .{
+            .transport = "tcp",
+            .designator = "127.0.0.1:9048",
+            .hints = .{ .entries = &invalid_false_hint, .wire_form = .boolean_false },
+        },
+    };
+
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+
+    for (locators) |peer| {
+        const sturdyref: model.SturdyRef = .{ .peer = peer, .swissnum = &.{ 1, 2, 3 } };
+        const sturdy: model.Reference = .{ .sturdy = &sturdyref };
+        try std.testing.expectError(session.Error.MalformedMessage, s.recordSend(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(1) },
+            .args = &.{.{ .reference = sturdy }},
+        } }));
+        const inbound = model.Message{ .deliver = .{
+            .target = .{ .near = model.NearRef.object(2) },
+            .args = &.{.{ .reference = sturdy }},
+        } };
+        try std.testing.expectError(session.Error.MalformedMessage, s.recordRecv(inbound));
+        try std.testing.expectError(
+            session.Error.MalformedMessage,
+            s.recordRecvView(model.view.Body.fromOwned(&inbound)),
+        );
+    }
+}
+
+test "identity-route locators require the negotiated feature in handoff gives" {
+    const allocator = std.testing.allocator;
+    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x74))).publicKey().toDesignator();
+    const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{exporter_key[0..]});
+    defer allocator.free(route);
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = route },
+    }};
+    const partner_key = @as([32]u8, @splat(0x72));
+    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x73));
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &partner_key,
+        .exporter = .{
+            .transport = model.transport.id,
+            .designator = &exporter_key,
+            .hints = .{ .entries = &hints },
+        },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = &gift_id,
+        .signature = "signature",
+    } };
+
+    var s = session.Session.initWith(allocator, .{ .negotiating = true });
+    defer s.deinit();
+    const local_key = @as([32]u8, @splat(0x71));
+    try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
+    try s.recordRecv(startSessionMessageWithKey(.v1_0, &partner_key));
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+
+    const outbound = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .handoff = &handoff }},
+    } };
+    const inbound = model.Message{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(2) },
+        .args = &.{.{ .handoff = &handoff }},
+        .answer = .from(61),
+    } };
+
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(outbound));
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(61)) == null);
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(61)) == null);
+
+    s.features = model.FeatureSet.full();
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(outbound));
+
+    s.captp_version = .next;
+    try s.recordSend(outbound);
+    handoff.give.recipient_key = &local_key;
+    try s.recordRecv(inbound);
 }
 
 test "listen target and listener descriptor roles match on owned and borrowed paths" {

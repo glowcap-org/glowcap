@@ -121,17 +121,17 @@ export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
     return layout_word_count;
 }
 
-// ── Behavior-dispatch seam ───────────────────────────────────────────────
+// ── Hosted-object callback seams ────────────────────────────────────────────
 // A hosted object's behavior is a C function pointer (`PancakeHostBehavior`)
 // the vat calls on every deliver. A browser cannot hand wasm a distinct C
 // function pointer per object, so every wasm-hosted object registers this one
 // shared imported trampoline as its behavior and tells objects apart by the
-// `ctx` argument. The JavaScript adapter supplies `env.pancake_behavior_trampoline`,
-// dispatches on `ctx` to the right JS object, and the vat's call routes straight
-// out to it. This is the adapter seam only: the module adds no CapTP semantics,
-// and both the ctx→object dispatch and the publish/spawn registration that
-// installs this trampoline as an object's behavior are the browser adapter's
-// job (ADR-0070 Milestone 1), not wired here.
+// `ctx` argument. The JavaScript adapter supplies the behavior import and a
+// separately typed hosted-free import. The latter drops the JS registry row
+// exactly when the native actor loses its final root; retaining every displaced
+// publication until Host close would turn alias churn into an unbounded leak.
+// These are adapter seams only: the module adds no CapTP semantics, and the
+// ctx→object ownership stays in the browser adapter (ADR-0070 Milestone 1).
 
 /// The one behavior trampoline the browser adapter implements. Its signature
 /// mirrors `PancakeHostBehavior` exactly — on wasm32 every pointer and `usize`
@@ -150,6 +150,10 @@ extern "env" fn pancake_behavior_trampoline(
     out_reply: *shared.PancakeArgument,
 ) callconv(.c) i32;
 
+/// Notify the JavaScript adapter that native ownership of a hosted behavior
+/// ended. Its signature mirrors `PancakeHostFree` exactly.
+extern "env" fn pancake_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) void;
+
 /// Return the behavior function pointer the browser adapter registers when it
 /// publishes or spawns a wasm-hosted object: the `__indirect_function_table`
 /// index of `pancake_behavior_trampoline`, passed as the `behavior` argument to
@@ -158,4 +162,11 @@ extern "env" fn pancake_behavior_trampoline(
 /// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam.
 export fn pancake_wasm_behavior_trampoline_addr() usize {
     return @intFromPtr(&pancake_behavior_trampoline);
+}
+
+/// Return the function-table index registered as a hosted actor's `free`
+/// callback. Keeping this distinct from behavior dispatch preserves both C
+/// signatures and makes a mismatched adapter fail at instantiation.
+export fn pancake_wasm_hosted_free_trampoline_addr() usize {
+    return @intFromPtr(&pancake_hosted_free_trampoline);
 }

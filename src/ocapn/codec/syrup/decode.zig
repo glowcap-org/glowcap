@@ -418,5 +418,6 @@ pub const readSignatureView = syntax.readSignatureView;
 pub const readByte = syntax.readByte;
 pub const expectEnd = syntax.expectEnd;
 pub const readLocatorOwned = locator.readLocatorOwned;
+pub const readLocatorView = locator.readLocatorView;
 pub const decodeSignedHandoffGiveOwned = values.decodeSignedHandoffGiveOwned;
 pub const spanSignedHandoffGive = values.spanSignedHandoffGive;

@@ -11,7 +11,7 @@
 //!
 //! Scalar fields and slices point right into the frame's bytes. (On the
 //! owned-fallback path they point into an owned `model.Message` instead.) The
-//! three open-ended sequences, `Args`, `PositionList`, and `PipelinePath`, need a
+//! open-ended `Args`, `StructEntries`, and `PositionList` sequences need a
 //! little more machinery, and all three get it from one `LazySequence` generic.
 //! Each carries a small piece of borrowed state plus a
 //! tiny table of `len` and `at` functions the codec hands it. That's what lets
@@ -53,7 +53,7 @@ pub const Error = ProjectError || std.mem.Allocator.Error;
 /// `bytes` is the codec's view of the list region; `w0`/`w1`/`w2` are
 /// codec-interpreted scalars (e.g. a word offset, element stride, and element
 /// count). One shared type, so a codec can build a cursor once and hand it to
-/// `Args`, `PositionList`, or `PipelinePath` alike.
+/// `Args` or `PositionList` alike.
 const SequenceCtx = struct {
     bytes: []const u8 = &.{},
     w0: u64 = 0,
@@ -61,8 +61,8 @@ const SequenceCtx = struct {
     w2: u64 = 0,
 };
 
-/// The slice-or-vtable backing machinery behind `Args`, `PositionList`,
-/// and `PipelinePath`. One comptime generic, instantiated three times.
+/// The slice-or-vtable backing machinery behind `Args`, `StructEntries`,
+/// and `PositionList`. One comptime generic, instantiated for each shape.
 ///
 /// A sequence is backed one of two ways: by a plain `slice` of owned elements
 /// (the fallback path), or by a small codec-supplied table that reads them
@@ -141,8 +141,6 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
         fn freeOwned(allocator: std.mem.Allocator, elem: OwnedElem) void {
             if (comptime OwnedElem == model.Argument) {
                 model.freeArgument(allocator, elem);
-            } else if (comptime OwnedElem == model.PipelineOp) {
-                model.owned.freePipelineOp(allocator, elem);
             } else if (comptime OwnedElem == model.StructEntry) {
                 model.freeArgument(allocator, elem.value);
                 allocator.free(elem.key);
@@ -251,22 +249,6 @@ pub const StructEntry = struct {
 /// wire-delta values).
 pub const PositionList = LazySequence(u64, u64);
 
-/// Borrowed sequence of `PipelineOp` values (a promise pipeline path).
-pub const PipelinePath = LazySequence(model.PipelineOp, PipelineOp);
-
-/// Materialize the owned `model.PipelinePath` record from a borrowed path.
-/// The record wrapping is pipeline-path-specific (an empty path collapses to
-/// the shared empty record without touching the allocator), so it lives here
-/// beside the alias; the generic sequence materializes plain slices only.
-fn pipelinePathToOwned(path: PipelinePath, allocator: std.mem.Allocator, depth: usize) Error!model.PipelinePath {
-    const ops = try path.toOwnedSliceDepth(allocator, depth);
-    if (ops.len == 0) {
-        allocator.free(ops);
-        return .{};
-    }
-    return .{ .ops = ops };
-}
-
 // ── Value views ──────────────────────────────────────────────────────────────
 
 pub const BreakReason = records.BreakReason;
@@ -283,11 +265,10 @@ pub const SturdyRef = struct {
 /// Borrowed mirror of `model.PromiseRef`.
 pub const PromiseRef = struct {
     answer_position: model.AnswerPosition,
-    path: PipelinePath = PipelinePath.empty(),
 };
 
 /// Borrowed mirror of `model.Reference`. `near` / `far` carry POD ids by
-/// value; `sturdy` / `broken` borrow wire bytes; `promise` carries a lazy path.
+/// value; `sturdy` / `broken` borrow wire bytes.
 pub const Reference = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
@@ -330,10 +311,7 @@ pub const Reference = union(enum) {
             .near => |near| .{ .near = near },
             .far => |far| .{ .far = far },
             .routed => |routed| .{ .routed = routed },
-            .promise => |promise| .{ .promise = .{
-                .answer_position = promise.answer_position,
-                .path = PipelinePath.fromOwnedSlice(promise.path.ops),
-            } },
+            .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
             .sturdy => |sturdy| .{ .sturdy = .{
                 .peer = PeerLocator.fromOwned(&sturdy.peer),
                 .swissnum = sturdy.swissnum,
@@ -343,18 +321,11 @@ pub const Reference = union(enum) {
     }
 
     pub fn toOwned(self: Reference, allocator: std.mem.Allocator) Error!model.Reference {
-        return self.toOwnedDepth(allocator, 0);
-    }
-
-    fn toOwnedDepth(self: Reference, allocator: std.mem.Allocator, depth: usize) Error!model.Reference {
         return switch (self) {
             .near => |near| .{ .near = near },
             .far => |far| .{ .far = far },
             .routed => |routed| .{ .routed = routed },
-            .promise => |promise| .{ .promise = .{
-                .answer_position = promise.answer_position,
-                .path = try pipelinePathToOwned(promise.path, allocator, depth),
-            } },
+            .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
             .sturdy => |sturdy| blk: {
                 const peer = try sturdy.peer.toOwned(allocator);
                 errdefer model.freePeerLocator(allocator, peer);
@@ -425,7 +396,7 @@ pub const Argument = union(enum) {
         return switch (self) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
             .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
-            .reference => |reference| .{ .reference = try reference.toOwnedDepth(allocator, depth) },
+            .reference => |reference| .{ .reference = try reference.toOwned(allocator) },
             .@"error" => |err| .{ .@"error" = try err.toOwned(allocator) },
             .handoff => |handoff| blk: {
                 const boxed = try allocator.create(model.Handoff);
@@ -452,30 +423,6 @@ pub const Argument = union(enum) {
                 .negative = big.negative,
                 .digits = try allocator.dupe(u8, big.digits),
             } },
-        };
-    }
-};
-
-/// Borrowed mirror of `model.PipelineOp`.
-pub const PipelineOp = union(enum) {
-    field: []const u8,
-    call: Args,
-
-    pub fn fromOwned(owned: *const model.PipelineOp) PipelineOp {
-        return switch (owned.*) {
-            .field => |field| .{ .field = field },
-            .call => |args| .{ .call = Args.fromOwnedSlice(args) },
-        };
-    }
-
-    fn toOwnedDepth(self: PipelineOp, allocator: std.mem.Allocator, depth: usize) Error!model.PipelineOp {
-        return switch (self) {
-            .field => |field| .{ .field = try allocator.dupe(u8, field) },
-            // A call op's args are one nesting level deeper, increment rather than
-            // reset, so a promise→call→promise→call… tree is bounded by
-            // `model.max_value_depth` like list/set/tagged nesting. Resetting to 0
-            // here (the old `toOwnedSlice`) let such a tree recurse off the stack.
-            .call => |args| .{ .call = try args.toOwnedSliceDepth(allocator, depth + 1) },
         };
     }
 };

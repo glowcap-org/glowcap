@@ -2,9 +2,9 @@
 //
 // Like inspect, the listeners object is not a directory method: it is a second
 // Host publication under an unguessable swiss, and holding that swiss is the
-// whole of the authority — no ranks, no accounts. The registry below is only
-// built when the flag asks for it, so a server started without it allocates
-// nothing here.
+// whole of the authority — no ranks, no accounts. The server always keeps the
+// small listener inventory because it also owns durable route advertisement;
+// the flag controls only whether administration is published.
 //
 // The capability is exactly as capable as this process: `up` can realize a
 // transport only when what it needs was built in or named at start — the tcp
@@ -15,13 +15,20 @@
 // deserves the real boundary rather than a generic failure.
 
 import type { Argument, Behavior, Host, Session } from "@pancake/runtime";
-import { formatPeerUri, TRANSPORT_IROH, TRANSPORT_KEYED_TCP } from "@pancake/runtime";
+import {
+	FEATURE_MULTI_LOCATION,
+	formatLocatorUri,
+	formatPeerUri,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_TCP,
+} from "@pancake/runtime";
 import type { ProfileInfo } from "@pancake/runtime/transport";
 import * as irohTransport from "@pancake/iroh";
 import * as tcpTransport from "@pancake/tcp";
 import * as relayTransport from "@pancake/relay";
 import * as onionTransport from "@pancake/onion";
 import { roomsListen } from "../lib/locator.ts";
+import { roomsIdentityRoute } from "../lib/routes.ts";
 import { optionalEnv } from "../lib/env.ts";
 import { DOWN, LIST, UP } from "../lib/protocol.ts";
 import {
@@ -32,6 +39,7 @@ import {
 	RoomError,
 } from "../lib/errors.ts";
 import { serveAccepted } from "./sessions.ts";
+import { noteTrouble } from "./journal.ts";
 
 /** The transports an `up` may name. The set is closed here rather than passed
  * through to a listen call, so an arbitrary wire string never reaches one. */
@@ -232,8 +240,7 @@ function unavailable(error: unknown): boolean {
 	return /transport unavailable|could not (load|open)|unstable/i.test(said);
 }
 
-/** The live listeners of one rooms server, and the verbs the admin capability
- * drives them with. Built only when `--admin-listeners` asked for it. */
+/** The live listeners and the verbs the optional admin capability drives. */
 export class ListenerRegistry {
 	readonly #host: Host;
 	readonly #rows: Row[] = [];
@@ -301,6 +308,15 @@ export class ListenerRegistry {
 		return TRANSPORTS.map((transport) => this.#entry(transport));
 	}
 
+	/** The location new durable Rooms links should carry for this caller. */
+	advertisedLocation(session: Session): string {
+		const concrete = this.#rows.find((row) => row.transport === session.transportName)?.locator ?? this.#announced;
+		const profile = session.profile;
+		if (profile.captpVersion !== "next" || (profile.features & FEATURE_MULTI_LOCATION) === 0) return concrete;
+		const identity = roomsIdentityRoute(this.#host.designator(), this.#rows.map((row) => row.locator));
+		return identity === null ? concrete : formatLocatorUri(identity);
+	}
+
 	async up(transport: AdminTransport, option: UpOption): Promise<Argument> {
 		if (this.#rows.length >= MAX_ADMIN_LISTENERS) {
 			throw new Error(`this server holds at most ${MAX_ADMIN_LISTENERS} listeners at once`);
@@ -334,7 +350,7 @@ export class ListenerRegistry {
 		// served; the directory is a Host-wide publication, so nothing more is
 		// needed for a session arriving here to reach it.
 		void serveAccepted(brought.server).catch((error) => {
-			console.error(`rooms: listener ${row.id} stopped serving: ${error}`);
+			noteTrouble(`listener ${row.id} stopped serving`, error);
 		});
 		// The binding's listen selects the new listener's locator as the location
 		// signed into new sessions. An admin `up` must not move the Host's signed

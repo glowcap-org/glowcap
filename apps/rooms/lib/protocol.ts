@@ -30,10 +30,12 @@ export const SNAPSHOT = "snapshot";
 
 /** Directory methods a client sends. `open(name, private?)` creates a room and
  * returns a reference to it, erroring if a public name is taken; `enter(name)`
- * returns the existing room, erroring if there is no such room. `list()` returns
- * the live rooms — the ones with people in them — as `[name, count]` pairs;
- * `watch(inbox)` hands the directory an inbox capability, returns that same
- * snapshot, and then calls the inbox back with each change.
+ * returns the existing room, erroring if there is no such room. `list()` and
+ * `watch(inbox)` retain the Goblins-compatible `[name, count|null]` records.
+ * `listPublications()` and `watchPublications(inbox)` are the rooms extension:
+ * they add `[id, kind, origin, proof]`, and the exact `id` is accepted by
+ * `enterPublication(id)`. Keeping this choice in the directory verb avoids
+ * coupling an application record shape to CapTP transport negotiation.
  *
  * `open(name, true)` makes a private room, and that second argument is the
  * whole of what private means here. Such a room is in no list, has no deltas,
@@ -57,8 +59,23 @@ export const SNAPSHOT = "snapshot";
  * reference they asked with. */
 export const OPEN = "open";
 export const ENTER = "enter";
+/** Enter the exact public-room generation named by a list/watch record. */
+export const ENTER_PUBLICATION = "enterPublication";
 export const LIST = "list";
+export const LIST_PUBLICATIONS = "listPublications";
 export const WATCH = "watch";
+export const WATCH_PUBLICATIONS = "watchPublications";
+export type RoomRecordShape = "baseline" | "publication";
+/** The directory's preferred durable location, derived from live listeners. */
+export const ADVERTISED_LOCATION = "advertisedLocation";
+
+/** The opt-in directory-peering capability and the exact lease it returns.
+ * `publishDurableRoom(name, room)` adds one source-session-owned foreign room;
+ * `revoke()` removes only that exact publication generation. */
+export const PUBLISH_DURABLE_ROOM = "publishDurableRoom";
+/** Wait until the publication's handed room has resolved to a live object. */
+export const PUBLICATION_READY = "ready";
+export const REVOKE = "revoke";
 
 /** What the operator listeners object answers, when the process is started with
  * `--admin-listeners`.
@@ -76,6 +93,15 @@ export const WATCH = "watch";
  * `up` for a transport this process cannot realize, a second `up` on a
  * transport already up, and a `down` on the serving listener all refuse with
  * the typed codes in `errors.ts`. */
+/** Bridge an IRC channel into this directory as an ordinary room. */
+export const JOIN_IRC = "joinIrc";
+/** Part a bridged channel; its room leaves the directory with it. */
+export const PART_IRC = "partIrc";
+/** A member of a bridged room hands their own registered IRC account to
+ * their seat: sent once, held in memory beside their connections, gone with
+ * the seat. Answered by the gateway's room wrapper, so a native room refuses
+ * it as an unknown verb. */
+export const IRC_ACCOUNT = "ircAccount";
 export const UP = "up";
 export const DOWN = "down";
 
@@ -89,10 +115,10 @@ export const LINK = "link";
  * Both ends of an OCapN session must name the same codec, and pancake's
  * negotiation exists for peers that do not know each other: it settles a
  * mutual preference from two offers. A closed fleet has no such problem —
- * every rooms peer is a pancake peer, written here, so the room simply
- * agrees on pancake's native word-aligned format rather than the Syrup
- * interop floor. A peer that speaks Syrup (a Goblins vat) is not a rooms
- * peer; it reaches pancake through the OCapN interop surface instead.
+ * pancake peers use the native pair here. The room protocol itself is ordinary
+ * CapTP messaging: a Goblins peer may speak the same verbs over the 1.0/Syrup
+ * floor, and pancake's additive list fields and methods do not alter those
+ * baseline messages.
  */
 export const CODEC = "capnp" as const;
 
@@ -101,7 +127,8 @@ export const CODEC = "capnp" as const;
  * It travels with `CODEC`, not beside it by coincidence: ADR-0003 names
  * `next` + Cap'n Proto as the pancake-to-pancake pair (what
  * `engine.negotiation.Offer.native` prefers), and `v1_0` + Syrup as the
- * interop floor a Goblins vat and the upstream suite speak. Picking the
+ * interop floor a Goblins vat and the upstream suite speak. This client chooses
+ * the native pair; the server still negotiates the floor with a floor-only peer. Picking the
  * native codec while staying on the floor version would be half a
  * decision. */
 export const CAPTP_VERSION = "next" as const;
@@ -149,6 +176,9 @@ export const REFILE = "refile";
  * below for the whole set and why an unknown one is skipped rather than
  * refused. */
 export const LINE = "line";
+/** Ask a room what it kept of its own conversation. A server that keeps no
+ * history refuses the verb, which callers read as an empty answer. */
+export const HISTORY = "history";
 export const EDITED = "edited";
 export const WITHDRAWN = "withdrawn";
 /** The tag a room puts on a line whose file set changed: `refiled`, id, then
@@ -161,12 +191,31 @@ export const TYPING = "typing";
 export const LEAVE = "leave";
 export const TOPIC = "topic";
 export const LINE_BYTES = "line-bytes";
+/** Arrival tags: whether this occupancy is a directory name. Additive; an older
+ * client skips them. `/join` of a locator seats from this, not from a method
+ * asked before subscribe. */
+export const LISTED = "listed";
+export const UNLISTED = "unlisted";
 /** Both the verb and the tag, the way `leave` is: `away(reason)` says this
  * membership has stepped away and `away("")` says it is back, and the room
  * states the same word about a member. Nothing is handed over for it, because a
  * member's own standing is theirs to state and the room already knows which
  * membership is calling. */
 export const AWAY = "away";
+
+/** What this room calls itself: `called()`.
+ *
+ * A sturdyref does not carry a name — that is what makes a private room's link
+ * unguessable from its label. The live room still has one: a public room's
+ * directory name, or a private room's label while anybody is in it. Empty when
+ * a private room was reconstituted from a link and has no label left to give.
+ * `/join` of a locator with nothing after it asks this rather than inventing
+ * a name. */
+export const CALLED = "called";
+
+/** Direct question: `private()`. Answers `"private"` or `"listed"`. Join does
+ * not ask this — listed-ness arrives on subscribe as `LISTED` / `UNLISTED`. */
+export const PRIVATE = "private";
 
 /** The method on the reference `subscribe` answers with: what this room is
  * about.

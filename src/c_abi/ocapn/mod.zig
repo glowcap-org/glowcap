@@ -38,6 +38,18 @@ pub const PANCAKE_VERSION_PATCH: u32 = 0;
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
+pub const contract_layouts = abi.contract_layouts;
+
+/// Exact reflected callable/layout identity for the core archive.
+pub const PANCAKE_OCAPN_ARCHIVE_FINGERPRINT = abi.archive_contract.fingerprint(
+    "ocapn",
+    @This(),
+    .{abi.contract_layouts},
+);
+
+pub export fn pancake_ocapn_archive_fingerprint() u64 {
+    return PANCAKE_OCAPN_ARCHIVE_FINGERPRINT;
+}
 
 /// Report the ABI version the linked library implements. Any out-pointer may be
 /// null to skip that component. Lets a consumer detect header/library skew by
@@ -76,6 +88,7 @@ pub const PANCAKE_FEATURE_HANDOFF = abi.PANCAKE_FEATURE_HANDOFF;
 pub const PANCAKE_FEATURE_WIRE_DELTA = abi.PANCAKE_FEATURE_WIRE_DELTA;
 pub const PANCAKE_FEATURE_STURDYREF = abi.PANCAKE_FEATURE_STURDYREF;
 pub const PANCAKE_FEATURE_UNTAG = abi.PANCAKE_FEATURE_UNTAG;
+pub const PANCAKE_FEATURE_MULTI_LOCATION = abi.PANCAKE_FEATURE_MULTI_LOCATION;
 pub const PANCAKE_FEATURE_MINIMUM = abi.PANCAKE_FEATURE_MINIMUM;
 pub const PANCAKE_FEATURE_FULL = abi.PANCAKE_FEATURE_FULL;
 pub const PANCAKE_FEATURE_BASELINE = abi.PANCAKE_FEATURE_BASELINE;

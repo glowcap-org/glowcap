@@ -299,6 +299,7 @@ const MultiplexedRuntime = struct {
         try self.connections.append(self.allocator, conn);
         errdefer _ = self.connections.pop();
         try self.by_id.put(id, conn);
+        if (conn.events.load(.acquire) != 0) self.signalReady();
         return id;
     }
 

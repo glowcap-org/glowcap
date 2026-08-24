@@ -33,6 +33,12 @@ pub fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Erro
     };
 }
 
+/// Borrow one complete signed locator record. The caller keeps `bytes` alive
+/// for the returned view and owns no cleanup.
+pub fn readLocatorView(bytes: []const u8, cursor: *usize) Error!model.view.PeerLocator {
+    return readPeerLocatorView(bytes, cursor, syntax.no_limit);
+}
+
 /// Borrowed find over the lazy dict span: walk `{name value …}` in place and
 /// return the named entry's value borrowing the frame without allocating. An
 /// exotic value under another name is skipped exactly as materialize skips it;
@@ -51,15 +57,18 @@ fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
     return null;
 }
 
-fn syrupValidateHintNamesUnique(hl: model.view.HintList) model.view.ProjectError!void {
+fn syrupValidateHintShape(
+    hl: model.view.HintList,
+    wire_form: model.Hints.WireForm,
+) model.view.ProjectError!void {
+    if (wire_form == .boolean_false) return error.MalformedView;
     const bytes = hl.bytes;
     var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
     var previous_key: ?[]const u8 = null;
-    var entries: usize = 0;
+    var names: HintNameSet = .{};
     while (cursor < bytes.len and bytes[cursor] != '}') {
-        entries += 1;
-        if (entries > syntax.max_collection_elements) return error.MalformedView;
         const key = readSyrupHintKeyLimited(bytes, &cursor, syntax.no_limit) catch return error.MalformedView;
+        if (!names.insert(key.name)) return error.MalformedView;
         if (previous_key) |previous| {
             if (!codec_order.byteSliceBefore(previous, key.encoded)) return error.MalformedView;
         }
@@ -84,7 +93,7 @@ fn syrupMaterializeHintList(
 
 const syrup_hint_list_vtable = model.view.HintList.VTable{
     .materialize = syrupMaterializeHintList,
-    .validate_unique_names = syrupValidateHintNamesUnique,
+    .validate_shape = syrupValidateHintShape,
     .find = syrupFindHint,
 };
 
@@ -113,9 +122,25 @@ const SyrupHintKey = struct {
     encoded: []const u8,
 };
 
+const HintNameSet = struct {
+    items: [model.max_locator_hint_count][]const u8 = undefined,
+    len: usize = 0,
+
+    fn insert(self: *HintNameSet, name: []const u8) bool {
+        model.validateHintName(name) catch return false;
+        if (self.len == self.items.len) return false;
+        for (self.items[0..self.len]) |seen| {
+            if (std.mem.eql(u8, seen, name)) return false;
+        }
+        self.items[self.len] = name;
+        self.len += 1;
+        return true;
+    }
+};
+
 fn readSyrupHintKeyLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!SyrupHintKey {
     const start = cursor.*;
-    const name = try readStringOrSymbolLimited(bytes, cursor, limit);
+    const name = try syntax.readStringLimited(bytes, cursor, limit);
     return .{ .name = name, .encoded = bytes[start..cursor.*] };
 }
 
@@ -137,11 +162,10 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
         const start = cursor.*;
         try syntax.readByte(bytes, cursor, '{');
         var previous_key: ?[]const u8 = null;
-        var entries: usize = 0;
+        var names: HintNameSet = .{};
         while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            entries += 1;
-            if (entries > syntax.max_collection_elements) return Error.MalformedFrame;
             const key = try readSyrupHintKeyLimited(bytes, cursor, limit);
+            if (!names.insert(key.name)) return Error.MalformedFrame;
             if (previous_key) |previous| {
                 if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
             }
@@ -186,15 +210,14 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
         cursor.* += 1;
         var entries: std.ArrayList(model.HintEntry) = .empty;
         var previous_key: ?[]const u8 = null;
-        var entry_count: usize = 0;
+        var names: HintNameSet = .{};
         errdefer {
             for (entries.items) |entry| model.freeHintEntry(allocator, entry);
             entries.deinit(allocator);
         }
         while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            entry_count += 1;
-            if (entry_count > syntax.max_collection_elements) return Error.MalformedFrame;
             const key = try readSyrupHintKeyLimited(bytes, cursor, syntax.no_limit);
+            if (!names.insert(key.name)) return Error.MalformedFrame;
             if (previous_key) |previous| {
                 if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
             }
@@ -232,21 +255,15 @@ pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor:
     const hints = try readHintsOwned(allocator, bytes, cursor);
     errdefer model.freeHints(allocator, hints);
     try syntax.readByte(bytes, cursor, '>');
+    model.validatePeerLocator(.{
+        .transport = transport,
+        .designator = designator,
+        .hints = hints,
+    }) catch return Error.MalformedFrame;
     const t = try allocator.dupe(u8, transport);
     errdefer allocator.free(t);
     const d = try allocator.dupe(u8, designator);
     return .{ .transport = t, .designator = d, .hints = hints };
-}
-
-fn readStringOrSymbolLimited(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    const start = cursor.* + syntax.countDigits(bytes[cursor.*..]);
-    if (start >= bytes.len) return Error.Incomplete;
-    return switch (bytes[start]) {
-        '"' => syntax.readStringLimited(bytes, cursor, limit),
-        '\'' => syntax.readSymbolLimited(bytes, cursor, limit),
-        else => Error.MalformedFrame,
-    };
 }
 
 fn isKnownHintValue(bytes: []const u8, cursor: usize) Error!bool {

@@ -8,6 +8,7 @@
 // different answer from `state.mobile`.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router";
 import { useStore } from "./hooks.ts";
 import * as store from "./store.ts";
 import { Sidebar } from "./Sidebar.tsx";
@@ -17,12 +18,14 @@ import { Members, rosterOf } from "./Members.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { Settings } from "./Settings.tsx";
 import { Help } from "./Help.tsx";
-import { Operations } from "./ops/Operations.tsx";
 import { OpsTakeModal } from "./ops/Take.tsx";
+import { opsAddressOf, OpsMain } from "./ops/OpsPage.tsx";
 import { DirectoryCard } from "./DirectoryCard.tsx";
+import { ConvCard } from "./ConvCard.tsx";
+import { ErrorDetail } from "./ErrorDetail.tsx";
 import { Viewer } from "./Viewer.tsx";
 import { Toasts } from "./Toast.tsx";
-import { awayByPeer, awayOf, dirMarkIn, opsHeldOf } from "./types.ts";
+import { awayByPeer, awayOf, dirMarkIn, type LiveRooms, opsHeldOf } from "./types.ts";
 import { directoryName, dirWhere, roomCalled } from "./text.ts";
 
 /** How long the "New messages" rule stays up once you have arrived. Long enough
@@ -32,10 +35,14 @@ const UNREAD_RULE_MS = 1500;
 // Shared empties, so a directory this tab does not hold yet draws as one with
 // nothing in it rather than making every reader below handle null.
 const EMPTY_PEERS: ReadonlySet<string> = new Set();
-const EMPTY_ROOMS: ReadonlyMap<string, number> = new Map();
+const EMPTY_ROOMS: LiveRooms = new Map();
 
 export function App() {
 	const state = useStore();
+	// Where the address stands: on /ops the content cell shows the operations
+	// surface instead of the conversation, and the rest of the shell stays
+	// exactly what it was.
+	const ops = opsAddressOf(useLocation().pathname);
 	const mobile = state.mobile;
 	const returns = state.returns;
 	const conv = state.activeKey === null ? null : state.convs.get(state.activeKey) ?? null;
@@ -65,7 +72,11 @@ export function App() {
 		document.documentElement.dataset.theme = state.theme;
 	}, [state.theme]);
 
-	const where = conv ? (conv.type === "dm" ? "@" + conv.id : roomCalled(conv.id, conv.held)) : "";
+	const where = ops.on
+		? "Operations"
+		: conv
+		? (conv.type === "dm" ? "@" + conv.id : roomCalled(conv.id, conv.held))
+		: "";
 	useEffect(() => {
 		document.title = (unread > 0 ? "(" + unread + ") " : "") +
 			(where ? where + " · " : "") + "pancake rooms";
@@ -117,22 +128,28 @@ export function App() {
 	// open reach it rather than settling behind a copy taken when it opened.
 	const viewed = store.viewedAttachment(state);
 	const [helpLayer, setHelpLayer] = useState(false);
-	const [opsLayer, setOpsLayer] = useState(false);
 	const [opsTakeLayer, setOpsTakeLayer] = useState(false);
 	const [dirLayer, setDirLayer] = useState(false);
+	const [errorLayer, setErrorLayer] = useState(false);
+	const [convLayer, setConvLayer] = useState(false);
 	const onHelpLayer = useCallback((held: boolean) => setHelpLayer(held), []);
-	const onOpsLayer = useCallback((held: boolean) => setOpsLayer(held), []);
 	const onOpsTakeLayer = useCallback((held: boolean) => setOpsTakeLayer(held), []);
 	const onDirLayer = useCallback((held: boolean) => setDirLayer(held), []);
+	const onErrorLayer = useCallback((held: boolean) => setErrorLayer(held), []);
+	const onConvLayer = useCallback((held: boolean) => setConvLayer(held), []);
 	// The store state blocks Settings in the same commit that opens the next
 	// layer. The held state keeps it blocked while that layer animates out.
 	// Waiting for a child layout effect alone briefly leaves two modal dialogs
 	// open, which gives the browser two competing focus traps.
-	const settingsBlocked = state.helpOpen || state.opsOpen || state.opsTake !== null ||
-		helpLayer || opsLayer || opsTakeLayer || state.aboutDir !== null || dirLayer;
+	const settingsBlocked = state.helpOpen || state.opsTake !== null ||
+		helpLayer || opsTakeLayer || state.aboutDir !== null || dirLayer ||
+		state.errorDetail !== null || state.aboutConv || errorLayer || convLayer;
 	// The toggles and the Operations control mirror possession, whose one
-	// authority is the three row fields the data layer sets and clears.
-	const opsHeld = opsHeldOf(state.listeners, state.diagnostics, state.viz);
+	// authority is the row fields the data layer sets and clears.
+	const opsHeld = opsHeldOf(state.listeners, state.diagnostics, state.irc, state.peering, state.viz);
+	// What the peering pane could publish: rooms joined on a directory other
+	// than this one. Memoised on the maps it reads, the same reason the roster
+	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
 	// The directory this page came from: Settings still names its locator, and
 	// a button there opens the same card a room caption would. Null when this
 	// tab does not hold that session — before it has answered, or after Leave.
@@ -176,17 +193,18 @@ export function App() {
 	// With no conversation open the join card is the workarea, and its own top
 	// stripe stands in for the topbar's; the stylesheet reads this to put the
 	// topbar's away rather than draw the same flourish twice on one screen.
-	if (conv === null) appClass.push("joining");
+	if (conv === null && !ops.on) appClass.push("joining");
 
 	// The member column is the wide layout's preference, and a direct line has no
 	// roster to show at all. The phone always leaves the column expanded here and
 	// uses the sheet instead, which `members-open` above drives.
-	const noMembers = conv?.type === "dm" ||
+	const noMembers = ops.on || conv?.type === "dm" ||
 		(conv?.type === "room" && !mobile && !state.rosterOpen);
 
 	return (
 		<div className={appClass.join(" ")}>
 			<Sidebar
+				cardUp={conv === null && !ops.on}
 				convs={state.convs}
 				dirs={state.dirs}
 				homeDir={state.homeDir}
@@ -221,11 +239,12 @@ export function App() {
 			}
 			<div
 				className="workarea"
-				data-dir={conv === null ? "unknown" : dirWhere(conv.dir, state.homeDir, state.dirs).mark}
+				data-dir={ops.on || conv === null ? "unknown" : dirWhere(conv.dir, state.homeDir, state.dirs).mark}
 				inert={mobile && state.listScreen ? true : undefined}
 			>
 				<Topbar
 					conv={conv}
+					ops={ops.on}
 					online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
 					away={conv?.type === "dm" ? awayOf(awayWords, conv.dir, conv.id) : null}
 					unread={unread}
@@ -236,33 +255,38 @@ export function App() {
 					settingsOpen={state.settingsOpen}
 					standing={conv === null ? "" : store.standingFor(conv.key, state)}
 					follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
+					aboutConv={state.aboutConv}
 				/>
 				<div className={noMembers ? "content no-members" : "content"} id="content">
-					<Stream
-						conv={conv}
-						nick={nick}
-						draft={draft.text}
-						draftFiles={draft.files}
-						changing={draft.changing}
-						draftKeeping={draft.keeping}
-						liveRooms={acting?.liveRooms ?? EMPTY_ROOMS}
-						reachable={dmablePeers}
-						join={joining}
-						dirs={state.dirs}
-						homeDir={state.homeDir}
-						composerEnabled={conv !== null && activeDir?.session === "connected"}
-						composerPhase={activeDir?.session ?? "disconnected"}
-						ignored={state.ignored}
-						mobile={mobile}
-					/>
-					<ErrorBoundary part="member list">
-						<Members
-							conv={room}
-							roster={roster}
-							nick={nick}
-							dmablePeers={dmablePeers}
-						/>
-					</ErrorBoundary>
+					{ops.on ? <OpsMain segment={ops.segment} /> : (
+						<>
+							<Stream
+								conv={conv}
+								nick={nick}
+								draft={draft.text}
+								draftFiles={draft.files}
+								changing={draft.changing}
+								draftKeeping={draft.keeping}
+								liveRooms={acting?.liveRooms ?? EMPTY_ROOMS}
+								reachable={dmablePeers}
+								join={joining}
+								dirs={state.dirs}
+								homeDir={state.homeDir}
+								composerEnabled={conv !== null && activeDir?.session === "connected"}
+								composerPhase={activeDir?.session ?? "disconnected"}
+								ignored={state.ignored}
+								mobile={mobile}
+							/>
+							<ErrorBoundary part="member list">
+								<Members
+									conv={room}
+									roster={roster}
+									nick={nick}
+									dmablePeers={dmablePeers}
+								/>
+							</ErrorBoundary>
+						</>
+					)}
 				</div>
 			</div>
 			<div
@@ -280,23 +304,15 @@ export function App() {
 				notifyOn={state.notifyOn}
 				dir={onDir}
 				opsHeld={opsHeld}
-				opsOpen={state.opsOpen}
+				keepHistory={state.keepHistory}
 				tab={state.settingsTab}
 			/>
 			<Help
-				open={state.helpOpen}
+				open={state.helpOpen && state.errorDetail === null && !errorLayer}
+				retain={state.helpOpen}
 				theme={state.theme}
 				notifyOn={state.notifyOn}
 				onLayer={onHelpLayer}
-			/>
-			<Operations
-				open={state.opsOpen}
-				held={opsHeld}
-				tab={state.opsTab}
-				diagnostics={state.diagnostics}
-				listeners={state.listeners}
-				viz={state.viz}
-				onLayer={onOpsLayer}
 			/>
 			<OpsTakeModal cap={state.opsTake} onLayer={onOpsTakeLayer} />
 			<DirectoryCard
@@ -309,6 +325,25 @@ export function App() {
 				standing={state.standing}
 				homeDir={state.homeDir}
 				onLayer={onDirLayer}
+			/>
+			<ErrorDetail
+				title={state.errorDetail?.title ?? null}
+				text={state.errorDetail?.text ?? null}
+				onLayer={onErrorLayer}
+			/>
+			<ConvCard
+				conv={state.aboutConv ? conv : null}
+				dir={conv === null ? null : state.dirs.get(conv.dir) ?? null}
+				homeDir={state.homeDir}
+				mark={conv === null ? undefined : dirMarkIn(conv.dir, state.homeDir, state.dirs)}
+				standing={conv === null || conv.type !== "room" ? "" : store.standingFor(conv.key, state)}
+				follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
+				online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
+				away={conv?.type === "dm" ? awayOf(awayWords, conv.dir, conv.id) : null}
+				open={state.aboutConv && state.aboutDir === null && !dirLayer &&
+					state.errorDetail === null && !errorLayer}
+				retain={state.aboutConv}
+				onLayer={onConvLayer}
 			/>
 			<Viewer
 				open={viewed !== null && state.viewing !== null}

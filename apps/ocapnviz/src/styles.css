@@ -18,11 +18,11 @@
  * `controls.css` holds that line for every field and read-out.
  */
 @font-face {
-  font-family: "Departure Mono";
-  src: url("/fonts/DepartureMono-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+	font-family: "Departure Mono";
+	src: url("/fonts/DepartureMono-Regular.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
 }
 
 /*
@@ -41,108 +41,108 @@
 
 :root,
 [data-theme="light"] {
-  color-scheme: light;
+	color-scheme: light;
 
-  --ocv-bg: #e9ebf0;
-  --ocv-canvas: #ffffff;
-  --ocv-surface: #f4f6f8;
-  --ocv-surface-subtle: #f0f2f5;
-  --ocv-surface-muted: #ebedf1;
-  --ocv-border: #dde0e6;
-  --ocv-border-strong: #c8ccd4;
-  /* What a control with no chrome of its own still shows, so a toolbar
-     reads as buttons rather than as a bare row of glyphs. */
-  --ocv-border-faint: #e9ecf1;
-  --ocv-divider: #e3e6eb;
-  --ocv-text: #101828;
-  --ocv-text-muted: #475467;
-  --ocv-text-subtle: #667085;
-  --ocv-text-inverse: #ffffff;
-  --ocv-accent: #4f46e5;
-  --ocv-accent-hover: #4338ca;
-  --ocv-accent-soft: #eef2ff;
-  /* The `<select>` chevron. A data URI cannot read a custom property,
-     so the stroke repeats `--ocv-text-muted` as literal hex; it lives
-     here beside the token it has to equal. */
-  --ocv-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23475467' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 5.5 7 9 10.5 5.5'/%3E%3C/svg%3E");
-  --ocv-positive: #10b981;
-  --ocv-positive-soft: rgba(16, 185, 129, 0.12);
-  --ocv-warning: #c97a16;
-  --ocv-warning-soft: rgba(245, 158, 11, 0.14);
-  --ocv-danger: #ef4444;
-  --ocv-danger-soft: rgba(239, 68, 68, 0.12);
+	--ocv-bg: #e9ebf0;
+	--ocv-canvas: #ffffff;
+	--ocv-surface: #f4f6f8;
+	--ocv-surface-subtle: #f0f2f5;
+	--ocv-surface-muted: #ebedf1;
+	--ocv-border: #dde0e6;
+	--ocv-border-strong: #c8ccd4;
+	/* What a control with no chrome of its own still shows, so a toolbar
+	   reads as buttons rather than as a bare row of glyphs. */
+	--ocv-border-faint: #e9ecf1;
+	--ocv-divider: #e3e6eb;
+	--ocv-text: #101828;
+	--ocv-text-muted: #475467;
+	--ocv-text-subtle: #667085;
+	--ocv-text-inverse: #ffffff;
+	--ocv-accent: #4f46e5;
+	--ocv-accent-hover: #4338ca;
+	--ocv-accent-soft: #eef2ff;
+	/* The `<select>` chevron. A data URI cannot read a custom property,
+	   so the stroke repeats `--ocv-text-muted` as literal hex; it lives
+	   here beside the token it has to equal. */
+	--ocv-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23475467' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 5.5 7 9 10.5 5.5'/%3E%3C/svg%3E");
+	--ocv-positive: #10b981;
+	--ocv-positive-soft: rgba(16, 185, 129, 0.12);
+	--ocv-warning: #c97a16;
+	--ocv-warning-soft: rgba(245, 158, 11, 0.14);
+	--ocv-danger: #ef4444;
+	--ocv-danger-soft: rgba(239, 68, 68, 0.12);
 }
 
 [data-theme="dark"] {
-  color-scheme: dark;
+	color-scheme: dark;
 
-  --ocv-bg: #0a0b0e;
-  --ocv-canvas: #181a20;
-  --ocv-surface: #0e1014;
-  --ocv-surface-subtle: #14171e;
-  --ocv-surface-muted: #1a1d24;
-  --ocv-border: #22252e;
-  --ocv-border-strong: #2e323d;
-  /* Same step away from the surface as light takes, in the direction
-     dark needs: lighter than what it sits on. */
-  --ocv-border-faint: #191c24;
-  --ocv-divider: #16181f;
-  --ocv-text: #e6e7ea;
-  --ocv-text-muted: #a1a3aa;
-  --ocv-text-subtle: #7c7f88;
-  --ocv-text-inverse: #0a0b0e;
-  --ocv-accent: #818cf8;
-  --ocv-accent-hover: #a5b4fc;
-  --ocv-accent-soft: rgba(129, 140, 248, 0.12);
-  /* The same chevron, with this theme's `--ocv-text-muted` encoded. */
-  --ocv-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23a1a3aa' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 5.5 7 9 10.5 5.5'/%3E%3C/svg%3E");
-  --ocv-positive: #34d399;
-  --ocv-positive-soft: rgba(52, 211, 153, 0.18);
-  --ocv-warning: #fbbf24;
-  --ocv-warning-soft: rgba(251, 191, 36, 0.18);
-  --ocv-danger: #fb7185;
-  --ocv-danger-soft: rgba(251, 113, 133, 0.18);
+	--ocv-bg: #0a0b0e;
+	--ocv-canvas: #181a20;
+	--ocv-surface: #0e1014;
+	--ocv-surface-subtle: #14171e;
+	--ocv-surface-muted: #1a1d24;
+	--ocv-border: #22252e;
+	--ocv-border-strong: #2e323d;
+	/* Same step away from the surface as light takes, in the direction
+	   dark needs: lighter than what it sits on. */
+	--ocv-border-faint: #191c24;
+	--ocv-divider: #16181f;
+	--ocv-text: #e6e7ea;
+	--ocv-text-muted: #a1a3aa;
+	--ocv-text-subtle: #7c7f88;
+	--ocv-text-inverse: #0a0b0e;
+	--ocv-accent: #818cf8;
+	--ocv-accent-hover: #a5b4fc;
+	--ocv-accent-soft: rgba(129, 140, 248, 0.12);
+	/* The same chevron, with this theme's `--ocv-text-muted` encoded. */
+	--ocv-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23a1a3aa' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 5.5 7 9 10.5 5.5'/%3E%3C/svg%3E");
+	--ocv-positive: #34d399;
+	--ocv-positive-soft: rgba(52, 211, 153, 0.18);
+	--ocv-warning: #fbbf24;
+	--ocv-warning-soft: rgba(251, 191, 36, 0.18);
+	--ocv-danger: #fb7185;
+	--ocv-danger-soft: rgba(251, 113, 133, 0.18);
 }
 
 :root {
-  font-feature-settings: "ss01", "cv11", "tnum";
+	font-feature-settings: "ss01", "cv11", "tnum";
 
-  /* The height every control stands at — button, segmented cell,
-     select, text field, numeric scrub input — and the width an
-     icon-only button takes so it comes out square. A row of controls is
-     read as a row, and two pixels of difference between neighbours
-     reads as sloppiness before it reads as anything at all.
-     `CONTROL.height` in src/ui/tokens.ts exposes it to inline styles.
+	/* The height every control stands at — button, segmented cell,
+	   select, text field, numeric scrub input — and the width an
+	   icon-only button takes so it comes out square. A row of controls is
+	   read as a row, and two pixels of difference between neighbours
+	   reads as sloppiness before it reads as anything at all.
+	   `CONTROL.height` in src/ui/tokens.ts exposes it to inline styles.
 
-     Twenty is the floor, not a preference. The Inspector's field rows
-     take their rhythm from this number, and the ink in a row has to
-     land on the same pixel whether the value is a control's label or a
-     bare word; below twenty an 11px label has too little room left and
-     the two start to disagree. */
-  --ocv-control-h: 20px;
+	   Twenty is the floor, not a preference. The Inspector's field rows
+	   take their rhythm from this number, and the ink in a row has to
+	   land on the same pixel whether the value is a control's label or a
+	   bare word; below twenty an 11px label has too little room left and
+	   the two start to disagree. */
+	--ocv-control-h: 20px;
 
-  /* And one corner, for the same reason: a bar of boxes rounded three
-     different ways looks like three kinds of thing. `RADIUS.md` in
-     src/ui/tokens.ts is this value. */
-  --ocv-control-r: 5px;
+	/* And one corner, for the same reason: a bar of boxes rounded three
+	   different ways looks like three kinds of thing. `RADIUS.md` in
+	   src/ui/tokens.ts is this value. */
+	--ocv-control-r: 5px;
 
-  /* Keyboard focus is drawn in the accent, as a line outside the
-     control's box. Hover paints the control itself, so a keyboard user
-     can tell "the caret is here" from "the mouse is resting here". */
-  --ocv-focus-w: 2px;
+	/* Keyboard focus is drawn in the accent, as a line outside the
+	   control's box. Hover paints the control itself, so a keyboard user
+	   can tell "the caret is here" from "the mouse is resting here". */
+	--ocv-focus-w: 2px;
 }
 
 html,
 body,
 #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  background: var(--ocv-bg);
-  color: var(--ocv-text);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  transition: background-color 200ms ease, color 200ms ease;
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	background: var(--ocv-bg);
+	color: var(--ocv-text);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	transition: background-color 200ms ease, color 200ms ease;
 }
 
 /* The app shell is a fixed-viewport layout; only the side panes scroll,
@@ -150,34 +150,34 @@ body,
  * overflows, that is a layout bug rather than a reason to scroll. */
 html,
 body {
-  overflow: hidden;
-  overscroll-behavior: none;
+	overflow: hidden;
+	overscroll-behavior: none;
 }
 
 *,
 *::before,
 *::after {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 
 button {
-  font: inherit;
+	font: inherit;
 }
 
 /* Motion — a fade means "something appeared"; the one-pixel nudge on
  * `.ocv-btn:active` means "you did something". Two signals, two
  * properties. */
 @keyframes ocv-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
 }
 
 .ocv-app-root {
-  animation: ocv-fade-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+	animation: ocv-fade-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Mirrors the `Section` body's flex stack. Section gaps its direct
@@ -185,41 +185,41 @@ button {
  * without the column and gap the field rows collapse together. The gap
  * is `SPACE.md`, the same step Section uses. */
 .ocv-inspector-swap {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  animation: ocv-fade-in 140ms ease-out both;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	animation: ocv-fade-in 140ms ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ocv-app-root,
-  .ocv-inspector-swap {
-    animation: none;
-  }
+	.ocv-app-root,
+	.ocv-inspector-swap {
+		animation: none;
+	}
 }
 
 /* Scrollbars -------------------------------------------------------- */
 
 * {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ocv-border-strong) transparent;
+	scrollbar-width: thin;
+	scrollbar-color: var(--ocv-border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+	width: 10px;
+	height: 10px;
 }
 *::-webkit-scrollbar-track {
-  background: transparent;
+	background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--ocv-border-strong);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+	background: var(--ocv-border-strong);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--ocv-text-subtle);
+	background: var(--ocv-text-subtle);
 }
 
 /* Side panes ---------------------------------------------------------
@@ -230,14 +230,14 @@ button {
  * intrinsically wider than the pane. */
 
 .ocv-pane {
-  overflow-x: hidden;
-  /* Anchors the Legend's container query. The pane's inline size is
-     what governs the column count. */
-  container-type: inline-size;
+	overflow-x: hidden;
+	/* Anchors the Legend's container query. The pane's inline size is
+	   what governs the column count. */
+	container-type: inline-size;
 }
 
 .ocv-pane > section + section {
-  border-top: 1px solid var(--ocv-divider);
+	border-top: 1px solid var(--ocv-divider);
 }
 
 /* Field row (Inspector key/value pairs) ------------------------------
@@ -264,23 +264,23 @@ button {
  * the middle of a paragraph.
  */
 .ocv-field {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  align-items: baseline;
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--ocv-border);
-  /* A grid item's automatic minimum size is its min-content size, and
-     this one spans every track — so a long key would widen the row past
-     the pane instead of the value cell clipping. */
-  min-width: 0;
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: subgrid;
+	align-items: baseline;
+	padding-bottom: 5px;
+	border-bottom: 1px solid var(--ocv-border);
+	/* A grid item's automatic minimum size is its min-content size, and
+	   this one spans every track — so a long key would widen the row past
+	   the pane instead of the value cell clipping. */
+	min-width: 0;
 }
 
 /* The group's own box is the boundary under the last row; a line there
  * would rule under nothing. */
 .ocv-field:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
+	padding-bottom: 0;
+	border-bottom: none;
 }
 
 /* The Tools panel's rows — the tool strip, and the commands under it.
@@ -298,22 +298,22 @@ button {
  * all and the strip becomes the last row — so the line goes away by
  * itself instead of by somebody remembering to check the mode. */
 .ocv-tools-panel > *:not(:last-child) {
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--ocv-border);
+	padding-bottom: 5px;
+	border-bottom: 1px solid var(--ocv-border);
 }
 
 /* Legend — one column, or two once the pane is wide enough that one
  * leaves obvious empty space. */
 .ocv-legend-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 8px;
 }
 
 @container (min-width: 280px) {
-  .ocv-legend-grid {
-    grid-template-columns: 1fr 1fr;
-  }
+	.ocv-legend-grid {
+		grid-template-columns: 1fr 1fr;
+	}
 }
 
 /* Link row (the Inspector's Connections lists) -----------------------
@@ -331,36 +331,36 @@ button {
  */
 
 .ocv-session-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  border: 1px solid var(--ocv-border);
-  border-radius: var(--ocv-control-r);
-  background-color: transparent;
-  color: var(--ocv-text);
-  font-family: inherit;
-  font-size: 10px;
-  text-align: left;
-  cursor: pointer;
-  outline: var(--ocv-focus-w) solid transparent;
-  outline-offset: 1px;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    outline-color 120ms ease;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+	padding: 5px 8px;
+	border: 1px solid var(--ocv-border);
+	border-radius: var(--ocv-control-r);
+	background-color: transparent;
+	color: var(--ocv-text);
+	font-family: inherit;
+	font-size: 10px;
+	text-align: left;
+	cursor: pointer;
+	outline: var(--ocv-focus-w) solid transparent;
+	outline-offset: 1px;
+	transition:
+		background-color 120ms ease,
+		border-color 120ms ease,
+		outline-color 120ms ease;
 }
 
 .ocv-session-row:hover {
-  background-color: var(--ocv-surface-muted);
-  border-color: var(--ocv-border-strong);
+	background-color: var(--ocv-surface-muted);
+	border-color: var(--ocv-border-strong);
 }
 
 /* "What this row names is also in the selection" — the same accent box
  * over the same wash a chosen control wears. */
 .ocv-session-row.is-active {
-  background-color: var(--ocv-accent-soft);
-  border-color: var(--ocv-accent);
+	background-color: var(--ocv-accent-soft);
+	border-color: var(--ocv-accent);
 }

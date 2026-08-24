@@ -28,31 +28,31 @@ import type { EntityKind } from "./refs.ts";
 
 /** Subset of `Entities` carrying only the selected entities. */
 export type ClipboardEntities = {
-  peers?: Record<string, PeerDefinition>;
-  sessions?: Record<string, SessionDefinition>;
-  messages?: Record<string, MessageDefinition>;
+	peers?: Record<string, PeerDefinition>;
+	sessions?: Record<string, SessionDefinition>;
+	messages?: Record<string, MessageDefinition>;
 };
 
 /** A reference inside the payload that points at an entity NOT in
  * the payload. Paste validates these against the target doc and
  * blocks if any is missing. */
 export type ExternalRef = {
-  readonly kind: EntityKind;
-  readonly id: string;
+	readonly kind: EntityKind;
+	readonly id: string;
 };
 
 export type ClipboardPayload = {
-  /** Entity definitions copied. Mirrors `doc.entities` shape. */
-  readonly entities: ClipboardEntities;
-  /** Events copied — every event that references at least one of
-   *  the selected entities via a class-1 edge. */
-  readonly events: ReadonlyArray<TimelineEvent>;
-  /** Ids referenced by the payload but not present in
-   *  `payload.entities`. Paste validates each against the target
-   *  doc; missing ones block the paste. */
-  readonly externalRefs: ReadonlyArray<ExternalRef>;
-  /** Earliest `t` in `events`, captured at extraction time so
-   *  paste can offset to playhead without rescanning. `0` when
-   *  `events` is empty. */
-  readonly minT: number;
+	/** Entity definitions copied. Mirrors `doc.entities` shape. */
+	readonly entities: ClipboardEntities;
+	/** Events copied — every event that references at least one of
+	 *  the selected entities via a class-1 edge. */
+	readonly events: ReadonlyArray<TimelineEvent>;
+	/** Ids referenced by the payload but not present in
+	 *  `payload.entities`. Paste validates each against the target
+	 *  doc; missing ones block the paste. */
+	readonly externalRefs: ReadonlyArray<ExternalRef>;
+	/** Earliest `t` in `events`, captured at extraction time so
+	 *  paste can offset to playhead without rescanning. `0` when
+	 *  `events` is empty. */
+	readonly minT: number;
 };

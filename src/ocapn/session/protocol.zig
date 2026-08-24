@@ -64,8 +64,8 @@ fn admitOpen(self: *const Session) Error!void {
     }
 }
 
-/// Expose the state gate so the engine can run it before any pre-record
-/// authority mutation such as resolver registration or pipeline retention.
+/// Expose the state gate so the engine can run it before route-specific
+/// preparation and commit.
 pub fn admits(self: *const Session, body: model.view.Body) Error!void {
     try admitInState(self, body);
 }
@@ -110,6 +110,11 @@ pub fn recordRecv(self: *Session, message: model.Message) !void {
         self.limits,
     );
     try validate.validateRecv(self, message, &introduced);
+    switch (message) {
+        .deliver => |deliver| try prepareValidatedInboundDeliverOwned(self, deliver, &introduced),
+        .resolve => try prepareIntroducedImports(self, &introduced),
+        else => {},
+    }
     try apply.applyRecv(self, message, &introduced);
 }
 
@@ -128,6 +133,11 @@ pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
     switch (body) {
         .deliver, .resolve, .listen, .start_session, .abort, .get, .index, .untag => {
             try validate.validateRecvView(self, body, &introduced);
+            switch (body) {
+                .deliver => |deliver| try prepareValidatedInboundDeliverView(self, deliver, &introduced),
+                .resolve => try prepareIntroducedImports(self, &introduced),
+                else => {},
+            }
             try apply.applyRecvView(self, body, &introduced);
         },
         .gc_export, .gc_answer => {
@@ -163,6 +173,76 @@ pub fn validateInboundDeliverView(
     try validate.validateRecvView(self, body, introduced);
 }
 
+/// Reserve every table row the validated deliver may add. The matching apply
+/// then performs only bounded lookups, refcount increments, and
+/// `putAssumeCapacity`; allocator refusal cannot split answer installation from
+/// introduced-import retention after the engine has accepted the frame.
+pub fn prepareValidatedInboundDeliverView(
+    self: *Session,
+    deliver: model.view.Deliver,
+    introduced: *const validate.IntroducedImports,
+) !void {
+    try prepareValidatedInboundDeliver(self, deliver, introduced);
+}
+
+fn prepareValidatedInboundDeliverOwned(
+    self: *Session,
+    deliver: model.Deliver,
+    introduced: *const validate.IntroducedImports,
+) !void {
+    try prepareValidatedInboundDeliver(self, deliver, introduced);
+}
+
+fn prepareValidatedInboundDeliver(
+    self: *Session,
+    deliver: anytype,
+    introduced: *const validate.IntroducedImports,
+) !void {
+    if (deliver.answer) |answer|
+        try self.prepareFreshInboundAnswerNamed(.fromWire(answer));
+    try prepareIntroducedImports(self, introduced);
+}
+
+/// Reserve and overflow-check the import batch produced by one validation
+/// walk. Every mention remains ordered in `introduced.mentions`; this preflight
+/// only proves that replaying those increments at commit cannot fail.
+pub fn prepareIntroducedImports(
+    self: *Session,
+    introduced: *const validate.IntroducedImports,
+) !void {
+    // A row can approach u64 exhaustion only after an infeasible number of
+    // prior wire mentions. Keep exact duplicate counting off the ordinary path
+    // and allocate it only when this frame's total mention count could possibly
+    // overflow at least one held row.
+    const mention_count = std.math.cast(u64, introduced.mentions.items.len) orelse
+        return Error.GcUnderflow;
+    var needs_exact_counts = false;
+    for (introduced.mentions.items) |position| {
+        const held = self.imports.count(position);
+        if (mention_count > std.math.maxInt(u64) - held) {
+            needs_exact_counts = true;
+            break;
+        }
+    }
+    if (needs_exact_counts) {
+        var counts: std.AutoHashMapUnmanaged(model.ImportPosition, u64) = .empty;
+        defer counts.deinit(introduced.allocator);
+        for (introduced.mentions.items) |position| {
+            const gop = try counts.getOrPut(introduced.allocator, position);
+            if (!gop.found_existing) gop.value_ptr.* = 0;
+            gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, 1) catch
+                return Error.GcUnderflow;
+        }
+        var it = counts.iterator();
+        while (it.next()) |entry| {
+            const held = self.imports.count(entry.key_ptr.*);
+            if (entry.value_ptr.* > std.math.maxInt(u64) - held)
+                return Error.GcUnderflow;
+        }
+    }
+    try self.imports.ensureUnusedCapacity(self.allocator, introduced.seen.count());
+}
+
 /// Apply a deliver already accepted by `validateInboundDeliverView`.
 pub fn applyValidatedInboundDeliverView(
     self: *Session,
@@ -185,6 +265,7 @@ pub fn recordResolverCallbackResolve(
         self.limits,
     );
     try validateResolverCallbackResolve(self, resolve, &introduced);
+    try prepareIntroducedImports(self, &introduced);
     try applyValidatedResolverCallbackResolve(self, resolve, &introduced);
 }
 

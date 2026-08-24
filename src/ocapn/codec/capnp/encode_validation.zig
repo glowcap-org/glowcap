@@ -54,10 +54,7 @@ fn validateResolutionUtf8(resolution: model.Resolution) Error!void {
 
 fn validateReferenceUtf8(reference: model.Reference) Error!void {
     switch (reference) {
-        .promise => |promise| for (promise.path.ops) |op| switch (op) {
-            .field => |field| try validateUtf8(field),
-            .call => |arguments| try validateArgumentsUtf8(arguments),
-        },
+        .promise => {},
         .sturdy => |sturdy| try validateLocatorUtf8(sturdy.peer),
         .broken => |reason| try validateUtf8(reason.message),
         .near, .far => {},

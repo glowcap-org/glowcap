@@ -143,7 +143,6 @@ fn runNestedSettlement(
         try std.testing.expect(recipient.session_state.peekResolutionNamed(answer) == null);
     const store_bytes = recipient.session_state.retainedSentAnswerBytes();
     try std.testing.expect(store_bytes > 0);
-    try std.testing.expect(recipient.queuedOutboundBytes() >= store_bytes);
 
     var exporter_flushes: usize = 0;
     var recipient_flushes: usize = 0;
@@ -184,7 +183,28 @@ fn runNestedSettlement(
     try std.testing.expectEqual(@as(usize, 2), try callback_values.len());
     try std.testing.expect((try callback_values.at(0)) == .handoff);
     try std.testing.expect((try (try callback_values.at(1)).list.at(0)) == .handoff);
+    var release_frame = recipient.takeOutbound() orelse return error.MissingResolverRelease;
+    var release_owned = true;
+    defer if (release_owned) release_frame.deinit();
+    const release = try codec.dispatch.decodeBodyForProfile(
+        recipient.session_state.codec,
+        recipient.session_state.captp_version,
+        release_frame.view(),
+    );
+    try std.testing.expect(release == .gc_export);
+    try std.testing.expectEqual(@as(usize, 1), try release.gc_export.positions.len());
+    try std.testing.expectEqual(
+        callback.target.near.export_position.int(),
+        try release.gc_export.positions.at(0),
+    );
+    try std.testing.expectEqual(@as(u64, 1), try release.gc_export.deltas.at(0));
     try std.testing.expect(recipient.takeOutbound() == null);
+    // The flow aggregate drains to zero regardless of what the answer store
+    // still retains: table state and in-flight outbound work are separate
+    // ledgers (`peer/outbound/budget.zig`), which is what keeps a
+    // long-answering session from saturating its own waterline with rows only
+    // `op:gc-answers` can release.
+    try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
 
     if (path == .v1_virtual)
         try std.testing.expect(!recipient.session_state.hasInboundAnswerNamed(answer));
@@ -201,6 +221,13 @@ fn runNestedSettlement(
             if (event.kind() == .resolve) saw_resolution = true;
         }
         try std.testing.expect(saw_resolution);
+    }
+    try recipient_counterpart.feedOwned(release_frame);
+    release_owned = false;
+    try recipient_counterpart.stepToIdle();
+    while (recipient_counterpart.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
     }
 
     try std.testing.expect(recipient.sessionIsOpen());
@@ -387,8 +414,8 @@ test "settlement admission refusal leaves named answer and projection authority 
     // The routed tree itself now fits, but replacing both leaves with signed
     // gives grows the retained settlement beyond the budget at commit. That
     // refusal releases the staging charge and publishes neither the answer nor
-    // either prepared deposit; the adopted batch has one correlated terminal
-    // session outcome.
+    // either prepared deposit; the adopted batch breaks exactly the answer it
+    // could not fulfill and leaves the session usable.
     recipient.outbound_budget = staging_carrier_charge + charge;
     try recipient.sendAnswerResolutionCopying(answer, resolution);
     const first = node.nextAction().?.need_gift_id.ticket;
@@ -397,11 +424,17 @@ test "settlement admission refusal leaves named answer and projection authority 
     const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xc4));
     try node.provideGiftId(first, &first_id);
     try node.provideGiftId(second, &second_id);
-    const terminal = node.nextAction().?.fail_session;
-    try std.testing.expectEqual(recipient_id, terminal.peer_handle);
+    const terminal = node.nextAction().?.fail;
+    try std.testing.expectEqual(recipient_id, terminal.dest.served_answer.recipient_peer);
+    try std.testing.expectEqual(
+        recipient.session_state.answerTargetNamed(answer).?,
+        terminal.dest.served_answer.answer,
+    );
+    try std.testing.expectEqualStrings("OutboundBackpressure", terminal.reason.bytes());
     try std.testing.expect(!recipient.session_state.answerResolvedNamed(answer));
     try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
+    try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     try std.testing.expect(exporter.takeOutbound() == null);
 }
@@ -429,7 +462,9 @@ test "settled answer admission charges its full fixed carrier plus resolution" {
     peer.outbound_budget = total_charge;
     try peer.sendAnswerResolutionCopying(answer, resolution);
     try std.testing.expectEqual(resolution_charge, peer.session_state.retainedSentAnswerBytes());
-    try std.testing.expectEqual(total_charge, peer.queuedOutboundBytes());
+    // The stored share left flow accounting at the store handoff; only the
+    // fixed carrier remains in flight (`peer/outbound/budget.zig`).
+    try std.testing.expectEqual(carrier_charge, peer.queuedOutboundBytes());
 }
 
 test "stored answer replacement transfers the exact retained charge" {
@@ -445,6 +480,20 @@ test "stored answer replacement transfers the exact retained charge" {
     const large_charge = try model.measureResolutionOwnedBytes(large);
     try peer.session_state.storeResolutionNamed(answer, large);
     try std.testing.expectEqual(large_charge, peer.session_state.retainedSentAnswerBytes());
+    peer.session_state.limits.max_retained_sent_answer_bytes = @intCast(large_charge);
+
+    const oversized: model.Resolution = .{ .fulfill = .{
+        .bytes = try allocator.dupe(u8, "a replacement larger than the retained answer payload"),
+    } };
+    try std.testing.expectError(
+        error.RetainedAnswerCapExceeded,
+        peer.session_state.storeResolutionNamed(answer, oversized),
+    );
+    try std.testing.expectEqual(large_charge, peer.session_state.retainedSentAnswerBytes());
+    try std.testing.expectEqualStrings(
+        "a retained answer payload",
+        peer.session_state.peekResolutionNamed(answer).?.fulfill.bytes,
+    );
 
     const small: model.Resolution = .{ .fulfill = .{
         .bytes = try allocator.dupe(u8, "small"),
@@ -452,7 +501,51 @@ test "stored answer replacement transfers the exact retained charge" {
     const small_charge = try model.measureResolutionOwnedBytes(small);
     try peer.session_state.storeResolutionNamed(answer, small);
     try std.testing.expectEqual(small_charge, peer.session_state.retainedSentAnswerBytes());
-    try std.testing.expectEqual(small_charge, peer.queuedOutboundBytes());
+    // Store bytes are table state, not flow: nothing here is in-flight
+    // outbound work (`peer/outbound/budget.zig`).
+    try std.testing.expectEqual(@as(usize, 0), peer.queuedOutboundBytes());
+}
+
+test "durable answer byte cap refuses atomically and released rows restore admission" {
+    const allocator = std.testing.allocator;
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+
+    const first_answer = model.AnswerName.fromWire(.from(47));
+    const second_answer = model.AnswerName.fromWire(.from(48));
+    try peer.session_state.installInboundAnswerNamed(first_answer);
+    try peer.session_state.installInboundAnswerNamed(second_answer);
+
+    const first_borrowed: model.Resolution = .{ .fulfill = .{ .bytes = "first retained answer" } };
+    const first_charge = try model.measureResolutionOwnedBytes(first_borrowed);
+    peer.session_state.limits.max_retained_sent_answer_bytes = @intCast(first_charge);
+    const first_owned = try model.view.Resolution.fromOwned(&first_borrowed).toOwned(allocator);
+    try peer.session_state.recordSentResolutionNamed(first_answer, first_owned);
+    try std.testing.expectEqual(first_charge, peer.session_state.retainedSentAnswerBytes());
+
+    const export_position = model.ExportPosition.from(9);
+    try peer.session_state.reserveExport(export_position);
+    const second: model.Resolution = .{ .fulfill = .{ .reference = .{
+        .near = model.NearRef.promise(export_position.int()),
+    } } };
+    try std.testing.expectError(
+        error.RetainedAnswerCapExceeded,
+        peer.session_state.recordSentResolutionNamed(second_answer, second),
+    );
+    try std.testing.expect(!peer.session_state.answerResolvedNamed(second_answer));
+    try std.testing.expectEqual(first_charge, peer.session_state.retainedSentAnswerBytes());
+    try std.testing.expectEqual(@as(u64, 1), peer.session_state.exportRefcount(export_position));
+
+    try peer.session_state.recordRecv(.{ .gc_answer = .{
+        .positions = &.{first_answer.wire.int()},
+    } });
+    try std.testing.expectEqual(@as(usize, 0), peer.session_state.retainedSentAnswerBytes());
+    try peer.session_state.recordSentResolutionNamed(second_answer, second);
+    try std.testing.expect(peer.session_state.answerResolvedNamed(second_answer));
+    try std.testing.expectEqual(
+        try model.measureResolutionOwnedBytes(second),
+        peer.session_state.retainedSentAnswerBytes(),
+    );
 }
 
 test "answer-store allocation refusal precedes every export mutation" {

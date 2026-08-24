@@ -57,6 +57,16 @@ fn jsonGet(obj: std.json.Value, key: []const u8) ?std.json.Value {
     };
 }
 
+fn propertyKnown(cmd: *const registry.Command, name: []const u8) bool {
+    for (cmd.flags) |flag| {
+        if (registry.flagVisibleMcp(flag) and std.mem.eql(u8, flag.long, name)) return true;
+    }
+    for (cmd.positionals) |positional| {
+        if (std.mem.eql(u8, positional.name, name)) return true;
+    }
+    return false;
+}
+
 /// Map MCP `arguments` object into `Parsed` using the leaf's flags/positionals.
 /// Owns flag map entries and `positionals_owned` on success; caller must `deinit`.
 pub fn fillParsed(
@@ -68,7 +78,17 @@ pub fn fillParsed(
     parsed.* = .{ .gpa = gpa };
     errdefer parsed.deinit();
 
-    const args_obj: ?std.json.Value = arguments;
+    const args_obj: ?std.json.Value = if (arguments) |value| switch (value) {
+        .object => value,
+        else => return error.InvalidArguments,
+    } else null;
+
+    if (args_obj) |value| {
+        var fields = value.object.iterator();
+        while (fields.next()) |field| {
+            if (!propertyKnown(cmd, field.key_ptr.*)) return error.InvalidArguments;
+        }
+    }
 
     for (cmd.flags) |f| {
         if (!registry.flagVisibleMcp(f)) continue;
@@ -77,13 +97,13 @@ pub fn fillParsed(
             .bool_flag => {
                 if (v) |val| switch (val) {
                     .bool => |b| if (b) try parsed.setBool(f.long, true),
-                    else => {},
+                    else => return error.InvalidArguments,
                 };
             },
             .string_flag => {
                 if (v) |val| switch (val) {
                     .string => |s| try parsed.setString(f.long, s),
-                    else => {},
+                    else => return error.InvalidArguments,
                 };
             },
         }
@@ -92,41 +112,25 @@ pub fn fillParsed(
     var pos: std.ArrayList([]const u8) = .empty;
     errdefer pos.deinit(gpa);
 
-    // Prefer named positionals; fall back to legacy `args: string[]` when the
-    // leaf has no property named `args` (or when named fields are absent).
-    var used_named = false;
     for (cmd.positionals) |p| {
         const v = if (args_obj) |obj| jsonGet(obj, p.name) else null;
-        if (v == null) continue;
-        used_named = true;
+        if (v == null) {
+            if (p.required) return error.InvalidArguments;
+            continue;
+        }
         if (p.variadic) {
             switch (v.?) {
                 .array => |arr| {
                     for (arr.items) |item| switch (item) {
                         .string => |s| try pos.append(gpa, s),
-                        else => {},
+                        else => return error.InvalidArguments,
                     };
                 },
-                .string => |s| try pos.append(gpa, s),
-                else => {},
+                else => return error.InvalidArguments,
             }
         } else switch (v.?) {
             .string => |s| try pos.append(gpa, s),
-            else => {},
-        }
-    }
-
-    if (!used_named) {
-        if (args_obj) |obj| {
-            if (jsonGet(obj, "args")) |args_val| switch (args_val) {
-                .array => |arr| {
-                    for (arr.items) |item| switch (item) {
-                        .string => |s| try pos.append(gpa, s),
-                        else => {},
-                    };
-                },
-                else => {},
-            };
+            else => return error.InvalidArguments,
         }
     }
 

@@ -8,9 +8,113 @@ const pancake = @import("pancake");
 const admission = @import("../../support/keyed_relay_admission.zig");
 
 const net = pancake.net;
+const keyed_relay = net.relay;
 const admissionBackend = admission.admissionBackend;
 const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 const openAdmissionRelay = admission.openAdmissionRelay;
+
+const FakeReader = struct {
+    bytes: []const u8,
+    pos: usize = 0,
+
+    pub fn buffered(self: *FakeReader) []const u8 {
+        return self.bytes[self.pos..];
+    }
+
+    pub fn bufferedLen(self: *FakeReader) usize {
+        return self.bytes.len - self.pos;
+    }
+
+    pub fn toss(self: *FakeReader, len: usize) void {
+        self.pos += len;
+    }
+};
+
+const FakeSource = struct {
+    reader: *FakeReader,
+    pending_write: bool = false,
+    flush_result: isize = 0,
+
+    const Fill = enum { progress, would_block, closed };
+
+    pub fn tryFill(_: *FakeSource) error{ReadFailed}!Fill {
+        return .would_block;
+    }
+
+    pub fn hasPendingWrite(self: *const FakeSource) bool {
+        return self.pending_write;
+    }
+};
+
+const FakeStream = struct {
+    source: FakeSource,
+    remaining: u64 = 0,
+    read_closed: bool = false,
+    failure: ?anyerror = null,
+
+    const Step = enum { data, handled, closed };
+
+    pub fn noteFailure(self: *FakeStream, err: anyerror) void {
+        self.failure = self.failure orelse err;
+    }
+
+    pub fn noteSourceFailure(self: *FakeStream, err: anyerror) void {
+        self.noteFailure(err);
+    }
+
+    pub fn noteFrameFailure(self: *FakeStream, err: anyerror) void {
+        self.noteFailure(err);
+    }
+
+    pub fn applyFrame(self: *FakeStream, header: keyed_relay.FrameHeader, _: []const u8, _: anytype) error{WriteFailed}!Step {
+        return switch (header.opcode) {
+            .binary, .continuation => data: {
+                self.remaining = header.len;
+                break :data if (header.len == 0) .handled else .data;
+            },
+            .ping => control: {
+                self.source.pending_write = true;
+                break :control .handled;
+            },
+            .pong => .handled,
+            .close => closed: {
+                self.read_closed = true;
+                break :closed .closed;
+            },
+            else => unreachable,
+        };
+    }
+
+    pub fn tryFlushPending(self: *FakeStream) isize {
+        return self.source.flush_result;
+    }
+};
+
+test "keyed-relay close discards in-flight data before the peer close" {
+    const wire = [_]u8{ 0x82, 3, 'o', 'l', 'd', 0x88, 0 };
+    var reader: FakeReader = .{ .bytes = &wire };
+    var stream: FakeStream = .{ .source = .{ .reader = &reader } };
+
+    try std.testing.expectEqual(.closed, keyed_relay.white_box.drainAfterLocalClose(&stream));
+    try std.testing.expectEqual(wire.len, reader.pos);
+    try std.testing.expectEqual(@as(u64, 0), stream.remaining);
+    try std.testing.expectEqual(@as(?anyerror, null), stream.failure);
+}
+
+test "keyed-relay close requests write readiness for a blocked pong" {
+    const wire = [_]u8{ 0x89, 0 };
+    var reader: FakeReader = .{ .bytes = &wire };
+    var stream: FakeStream = .{
+        .source = .{
+            .reader = &reader,
+            .flush_result = net.multiplexed_resident.would_block,
+        },
+    };
+
+    try std.testing.expectEqual(.wait_write, keyed_relay.white_box.drainAfterLocalClose(&stream));
+    try std.testing.expect(stream.source.pending_write);
+    try std.testing.expectEqual(@as(?anyerror, null), stream.failure);
+}
 
 test "keyed-relay partial application send gives way to one close frame" {
     var backend = try admissionBackend(std.testing.allocator);

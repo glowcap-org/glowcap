@@ -74,6 +74,14 @@ application owns the byte-fed loop. Add the TCP archive and any sidecar
 transport archives whose providers you install. The generated headers are
 checked against their Zig declarations on every build.
 
+Before minting sessions, selectively override Host policy with a caller-owned
+`PancakeSessionLimitOptions`. Set `abi_version` to
+`PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION` and `struct_size` to
+`sizeof(PancakeSessionLimitOptions)`. Zero fields preserve the current policy;
+the durable sent-answer budget is independent of transient outbound pressure.
+The Host copies the scalar values during the call, and sessions already open
+keep the limits they were minted with.
+
 ## Drive the byte-fed Host
 
 `PancakeHost` does not own sockets. A runtime opens a Host session, associates
@@ -188,7 +196,9 @@ surface:
 
 Constructors ending in `_in` allocate through the `PancakeContext` supplied by
 the caller. `PancakeManagedFrame` owns its bytes and must be released exactly
-once. A `PancakeReference` is an integer value, but its Host retain is explicit
+once. Its opaque private words hold pancake's native owner inline: producing or
+probing one does not allocate a second descriptor or copy the bytes, and callers
+must not inspect or modify those words. A `PancakeReference` is an integer value, but its Host retain is explicit
 and must be returned with `pancake_host_ref_release`. This applies to every
 reference leaf surfaced in a callback argument or SETTLE action as well as a
 top-level `out_ref`; the containing bytes may be borrowed while the capability

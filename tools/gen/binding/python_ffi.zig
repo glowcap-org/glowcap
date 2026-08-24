@@ -262,7 +262,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
         "_Argument",        "_Reference",       "_ManagedFrame", "_LastAbort",
         "_HostPumpHooks",   "_LocatorHintView", "_LocatorView",  "_HostBehavior",
-        "_PartnerIdentity", "_TraceCallback",   "_CloseOptions",
+        "_PartnerIdentity", "_TraceCallback",   "_CloseOptions", "_SessionLimitOptions",
     }, "``libpancake_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },

@@ -8,14 +8,33 @@ use super::support::*;
 struct Scanning<S> {
 	inner: S,
 	needle: &'static [u8],
-	read_seen: Option<Rc<Cell<bool>>>,
-	write_seen: Option<Rc<Cell<bool>>>,
+	read_seen: Option<Rc<WireSignal>>,
+	write_seen: Option<Rc<WireSignal>>,
 	read_tail: Vec<u8>,
 	write_tail: Vec<u8>,
 }
 
+struct WireSignal {
+	count: Cell<usize>,
+	changed: tokio::sync::Notify,
+}
+
+impl WireSignal {
+	fn new() -> Self {
+		Self {
+			count: Cell::new(0),
+			changed: tokio::sync::Notify::new(),
+		}
+	}
+
+	fn observe(&self, count: usize) {
+		self.count.set(self.count.get() + count);
+		self.changed.notify_one();
+	}
+}
+
 impl<S> Scanning<S> {
-	fn new(inner: S, needle: &'static [u8], seen: Rc<Cell<bool>>) -> Scanning<S> {
+	fn new(inner: S, needle: &'static [u8], seen: Rc<WireSignal>) -> Scanning<S> {
 		Scanning {
 			inner,
 			needle,
@@ -26,7 +45,7 @@ impl<S> Scanning<S> {
 		}
 	}
 
-	fn duplex(inner: S, needle: &'static [u8], read_seen: Rc<Cell<bool>>, write_seen: Rc<Cell<bool>>) -> Scanning<S> {
+	fn duplex(inner: S, needle: &'static [u8], read_seen: Rc<WireSignal>, write_seen: Rc<WireSignal>) -> Scanning<S> {
 		Scanning {
 			inner,
 			needle,
@@ -37,11 +56,12 @@ impl<S> Scanning<S> {
 		}
 	}
 
-	fn scan(needle: &[u8], seen: Option<&Rc<Cell<bool>>>, tail: &mut Vec<u8>, fresh: &[u8]) {
+	fn scan(needle: &[u8], seen: Option<&Rc<WireSignal>>, tail: &mut Vec<u8>, fresh: &[u8]) {
 		tail.extend_from_slice(fresh);
-		if tail.windows(needle.len()).any(|window| window == needle) {
+		let matches = tail.windows(needle.len()).filter(|window| *window == needle).count();
+		if matches != 0 {
 			if let Some(seen) = seen {
-				seen.set(true);
+				seen.observe(matches);
 			}
 		}
 		// Keep only enough tail to catch a needle across chunk boundaries.
@@ -100,14 +120,19 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Scanning<S> {
 	}
 }
 
-async fn wait_for(flag: &Rc<Cell<bool>>, what: &str) {
-	for _ in 0..2000 {
-		if flag.get() {
-			return;
+async fn wait_for(signal: &WireSignal, expected: usize, what: &str) {
+	let observed = async {
+		loop {
+			let changed = signal.changed.notified();
+			if signal.count.get() >= expected {
+				return;
+			}
+			changed.await;
 		}
-		tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-	}
-	panic!("timed out waiting for {what}");
+	};
+	tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+		.await
+		.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
 }
 
 // Distributed GC (ADR-0063), opt-in: every newly projected application
@@ -145,8 +170,8 @@ async fn serve_gc_tracking(server: tcp::Server) {
 
 async fn exercise_gc_tracking(
 	addr: std::net::SocketAddr,
-	client_to_server_gc: Rc<Cell<bool>>,
-	server_to_client_gc: Rc<Cell<bool>>,
+	client_to_server_gc: Rc<WireSignal>,
+	server_to_client_gc: Rc<WireSignal>,
 ) {
 	let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
 	let peer = stream.peer_addr().unwrap();
@@ -177,7 +202,7 @@ async fn exercise_gc_tracking(
 				if name == "nested" && matches!(items.as_slice(), [Argument::Reference(_)]))
 	));
 	drop(reply);
-	wait_for(&client_to_server_gc, "the nested send reply release").await;
+	wait_for(&client_to_server_gc, 1, "the nested send reply release").await;
 
 	let callback = session.spawn(|_verb, _args| Ok(Argument::Void)).unwrap();
 	let inbound = [Argument::Struct(vec![(
@@ -188,11 +213,10 @@ async fn exercise_gc_tracking(
 		session.send(&factory, "accept", &inbound).await.unwrap(),
 		Argument::Void
 	);
-	wait_for(&server_to_client_gc, "the nested delivered argument release").await;
+	wait_for(&server_to_client_gc, 1, "the nested delivered argument release").await;
 
-	client_to_server_gc.set(false);
 	drop(factory);
-	wait_for(&client_to_server_gc, "the fetched capability release").await;
+	wait_for(&client_to_server_gc, 2, "the fetched capability release").await;
 	session.close(crate::PendingWork::Cancel).await.unwrap();
 }
 
@@ -203,8 +227,8 @@ async fn gc_tracks_fetch_replies_and_delivered_arguments() {
 		.run_until(Box::pin(async {
 			let server = listen("127.0.0.1:0").await.unwrap();
 			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
-			let client_to_server_gc = Rc::new(Cell::new(false));
-			let server_to_client_gc = Rc::new(Cell::new(false));
+			let client_to_server_gc = Rc::new(WireSignal::new());
+			let server_to_client_gc = Rc::new(WireSignal::new());
 			let host = tokio::task::spawn_local(serve_gc_tracking(server));
 			exercise_gc_tracking(addr, client_to_server_gc, server_to_client_gc).await;
 			host.await.unwrap();
@@ -240,7 +264,7 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 			let std_stream = stream.into_std().unwrap();
 			let dup = std_stream.try_clone().unwrap();
 			let stream = tokio::net::TcpStream::from_std(std_stream).unwrap();
-			let seen = Rc::new(Cell::new(false));
+			let seen = Rc::new(WireSignal::new());
 			let stream = Scanning::new(stream, b"op:abort", Rc::clone(&seen));
 			let captp = Host::new_host();
 			let designator = crate::tcp::address_designator(&peer.ip().to_string(), peer.port());
@@ -262,7 +286,7 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 
 			// The server's refused feed leaves a typed op:abort on its
 			// outbound queue and writes it before releasing; it lands here.
-			wait_for(&seen, "the typed op:abort from the partner").await;
+			wait_for(&seen, 1, "the typed op:abort from the partner").await;
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})

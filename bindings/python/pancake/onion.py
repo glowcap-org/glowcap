@@ -548,7 +548,7 @@ async def listen(
             loop,
             listener,
             restored_key,
-            retire_loop=host is None,
+            retire_loop=prepared.owns_loop,
         )
     except BaseException as error:
         _rollback_listener_construction(error, loop, listener, prepared.owns_loop)

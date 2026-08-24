@@ -219,7 +219,7 @@ test "redeemed route id exhaustion returns before cloning or consuming the withd
     defer allocator.free(give);
     try node.acceptGive(recipient, 73, give, "ocapn://127.0.0.1%3A9073.tcp");
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // withdraw flush
     try std.testing.expect(node.nextAction() == null);
     const answer = pendingWithdrawAnswer(&node, exporter);
@@ -278,14 +278,42 @@ test "setExporterLocation preserves the previous route when replacement allocati
     const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7001.tcp");
     defer model.freePeerLocator(allocator, first);
     try node.setExporterLocation(conn, first);
-    const preserved = try allocator.dupe(u8, node.gifts.recipe.by_exporter.get(conn).?);
+    const preserved = try allocator.dupe(u8, node.gifts.recipe.by_exporter.get(conn).?.explicit.?);
     defer allocator.free(preserved);
 
     const replacement = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7002.tcp");
     defer model.freePeerLocator(allocator, replacement);
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(error.OutOfMemory, node.setExporterLocation(conn, replacement));
-    try std.testing.expectEqualSlices(u8, preserved, node.gifts.recipe.by_exporter.get(conn).?);
+    try std.testing.expectEqualSlices(u8, preserved, node.gifts.recipe.by_exporter.get(conn).?.explicit.?);
+}
+
+test "setExporterLocation rejects an id route that cannot prove its outer key" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x45)));
+    defer node.deinit();
+
+    const conn = try node.registerPeer(.{});
+    const previous = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7001.tcp");
+    defer model.freePeerLocator(allocator, previous);
+    try node.setExporterLocation(conn, previous);
+    const preserved = try allocator.dupe(u8, node.gifts.recipe.by_exporter.get(conn).?.explicit.?);
+    defer allocator.free(preserved);
+
+    const outer_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x46))).publicKey().toDesignator();
+    const route_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x47))).publicKey().toDesignator();
+    const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{route_key[0..]});
+    defer allocator.free(via);
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = via },
+    }};
+    try std.testing.expectError(error.UnsupportedId, node.setExporterLocation(conn, .{
+        .transport = model.transport.id,
+        .designator = &outer_key,
+        .hints = .{ .entries = &hints },
+    }));
+    try std.testing.expectEqualSlices(u8, preserved, node.gifts.recipe.by_exporter.get(conn).?.explicit.?);
 }
 
 test "removePeer evicts the exporter cache and fails stranded withdraws closed" {
@@ -304,7 +332,7 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
     defer allocator.free(give);
     try node.acceptGive(recipient, 61, give, locator);
     const dial = node.nextAction().?;
-    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // the flush
 
     // The exporter dies mid-withdraw: the pending withdraw fails closed (the
@@ -322,9 +350,9 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
     failing.fail_index = std.math.maxInt(usize);
     try node.acceptGive(recipient, 62, "give-again", locator);
     const redial = node.nextAction().?;
-    const redial_view = node.pendingDial(redial.dial.pending).?;
-    try std.testing.expectEqualStrings("tcp", redial_view.transport);
-    try std.testing.expectEqualStrings("127.0.0.1:9054", redial_view.designator);
+    const redial_view = node.pendingDial(redial.dial.pending, 0).?;
+    try std.testing.expectEqualStrings("tcp", redial_view.locator.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9054", redial_view.locator.designator);
 }
 
 test "enrollForeign gives one import one route identity, and forgets it when the import goes" {
@@ -362,7 +390,7 @@ test "enrollForeign gives one import one route identity, and forgets it when the
     try std.testing.expect(after_reuse.routed.id != first.routed.id);
 }
 
-test "a prepared foreign enrollment rolls back before publication" {
+test "a prepared foreign enrollment abandons only its unpublished authority" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(31)));
     defer node.deinit();
@@ -372,19 +400,47 @@ test "a prepared foreign enrollment rolls back before publication" {
     try node.peer(home).?.session_state.registerImport(position);
 
     const prepared = try node.prepareForeignEnrollment(home, .{ .far = model.FarRef.object(position.int()) });
-    const rollback = prepared.rollback orelse return error.MissingRollbackAuthority;
+    const abandon = prepared.abandon orelse return error.MissingAbandonAuthority;
     try std.testing.expectEqual(@as(usize, 1), node.foreign_imports.count());
-    try std.testing.expectEqual(rollback.route_id, node.peer(home).?.session_state.foreignRouteIdFor(position).?);
+    try std.testing.expectEqual(abandon.route_id, node.peer(home).?.session_state.foreignRouteIdFor(position).?);
     try std.testing.expect(node.route_lowering_active);
 
-    node.rollbackForeignEnrollment(rollback);
+    node.abandonForeignEnrollment(abandon);
     try std.testing.expectEqual(@as(usize, 0), node.foreign_imports.count());
     try std.testing.expect(node.peer(home).?.session_state.foreignRouteIdFor(position) == null);
-    try std.testing.expect(node.routeCapability(rollback.route_id) == null);
+    try std.testing.expect(node.routeCapability(abandon.route_id) == null);
     try std.testing.expect(!node.route_lowering_active);
 }
 
-test "foreign enrollment requires a live import row" {
+test "the permanent bootstrap import has one node route per session" {
+    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2d)));
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const other = try node.registerPeer(.{});
+    const bootstrap: model.Reference = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) };
+
+    const first = try node.enrollForeign(home, bootstrap);
+    const repeated = try node.enrollForeign(home, bootstrap);
+    try std.testing.expectEqual(first.routed.id, repeated.routed.id);
+    try std.testing.expectEqual(@as(usize, 1), node.foreign_imports.count());
+    try std.testing.expect(!node.peer(home).?.session_state.hasImport(.from(engine.BOOTSTRAP_POSITION)));
+    try std.testing.expect(node.peer(home).?.session_state.holdsImport(.from(engine.BOOTSTRAP_POSITION)));
+    try std.testing.expectEqual(
+        first.routed.id,
+        node.peer(home).?.session_state.foreignRouteIdFor(.from(engine.BOOTSTRAP_POSITION)).?,
+    );
+    try std.testing.expectEqual(
+        model.ImportPosition.from(engine.BOOTSTRAP_POSITION),
+        (try node.lowerForConn(home, first)).far.import_position,
+    );
+    try std.testing.expectError(error.RouteNotLowerable, node.lowerForConn(other, first));
+
+    node.removePeer(home);
+    try std.testing.expect(node.routeReference(other, first) == null);
+}
+
+test "foreign enrollment refuses authority the session does not hold" {
     var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(32)));
     defer node.deinit();
 

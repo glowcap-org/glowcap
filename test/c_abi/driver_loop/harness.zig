@@ -11,6 +11,22 @@ const cdrv = @import("c_abi_driver");
 const crelay = @import("c_abi_net_transport_relay");
 const ctcp = @import("c_abi_net_transport_tcp");
 const pancake = @import("pancake");
+
+pub fn sessionLimitOptions(
+    max_frame_bytes: usize,
+    queue_cap: usize,
+    outbound_high_water_bytes: usize,
+    max_retained_sent_answer_bytes: usize,
+) cd.PancakeSessionLimitOptions {
+    return .{
+        .abi_version = cd.PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION,
+        .struct_size = @sizeOf(cd.PancakeSessionLimitOptions),
+        .max_frame_bytes = max_frame_bytes,
+        .queue_cap = queue_cap,
+        .outbound_high_water_bytes = outbound_high_water_bytes,
+        .max_retained_sent_answer_bytes = max_retained_sent_answer_bytes,
+    };
+}
 const c_args = @import("../../support/c_abi_args.zig");
 const ws_relay = @import("../../support/ws_relay.zig");
 

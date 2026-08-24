@@ -374,7 +374,10 @@ test "the provider ABI preserves typed locators and holds one package lease" {
     try std.testing.expect(published.hints.entries[2].value.boolean);
     try std.testing.expectEqual(@as(i64, 73), published.hints.entries[3].value.integer);
     try std.testing.expectEqualStrings(pancake.ocapn.model.transport.hint_features, published.hints.entries[4].name);
-    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref,untag", published.hints.entries[4].value.string);
+    try std.testing.expectEqualStrings(
+        "pipelining,handoff,wire_delta,sturdyref,untag",
+        published.hints.entries[4].value.string,
+    );
 
     var restoration_len: usize = 0;
     try std.testing.expectEqual(

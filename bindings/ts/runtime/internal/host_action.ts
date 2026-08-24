@@ -36,14 +36,14 @@ const utf8Decoder = new TextDecoder();
  * it. Every borrowed view is copied out (and a SETTLE's value lifted)
  * before the next `pancake_host_next_action` call can free them. */
 export type HostAction =
-	| { kind: typeof HOST_ACTION_DIAL; ticket: bigint }
+	| { kind: typeof HOST_ACTION_DIAL; ticket: bigint; routeIndex: bigint }
 	| { kind: typeof HOST_ACTION_FLUSH; session: Ptr }
 	| { kind: typeof HOST_ACTION_NEED_GIFT_ID; ticket: bigint }
 	| { kind: typeof HOST_ACTION_SETTLE; ticket: bigint; value: Argument }
 	| { kind: typeof HOST_ACTION_FAIL; ticket: bigint; result: number; message: string }
 	| { kind: typeof HOST_ACTION_CLOSE; session: Ptr; result: number }
 	| { kind: typeof HOST_ACTION_RESUME }
-	| { kind: typeof HOST_ACTION_CANCEL_DIAL; ticket: bigint };
+	| { kind: typeof HOST_ACTION_CANCEL_DIAL; ticket: bigint; routeIndex: bigint };
 
 /** Decode a filled `PancakeHostAction` buffer into an owned HostAction. */
 export function decodeHostAction(dv: DataView): HostAction {
@@ -55,7 +55,7 @@ export function decodeHostAction(dv: DataView): HostAction {
 		);
 	switch (kind) {
 		case HOST_ACTION_DIAL:
-			return { kind, ticket };
+			return { kind, ticket, routeIndex: L.getUsize(dv, L.HOST_ACTION_ROUTE_INDEX_OFF) };
 		case HOST_ACTION_FLUSH:
 			return { kind, session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };
 		case HOST_ACTION_NEED_GIFT_ID:
@@ -78,7 +78,7 @@ export function decodeHostAction(dv: DataView): HostAction {
 		case HOST_ACTION_RESUME:
 			return { kind };
 		case HOST_ACTION_CANCEL_DIAL:
-			return { kind, ticket };
+			return { kind, ticket, routeIndex: L.getUsize(dv, L.HOST_ACTION_ROUTE_INDEX_OFF) };
 		default:
 			throw new PancakeError(
 				INTERNAL,

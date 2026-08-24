@@ -44,7 +44,7 @@
   (define (view->string ptr len) (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD))
   (cond
     [(= kind HOST-ACTION-DIAL)
-     (list 'dial (PancakeHostAction-ticket a))]
+     (list 'dial (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
     [(= kind HOST-ACTION-FLUSH)
      (list 'flush (PancakeHostAction-session a))]
     [(= kind HOST-ACTION-NEED-GIFT-ID)
@@ -61,7 +61,7 @@
     [(= kind HOST-ACTION-RESUME)
      (list 'resume)]
     [(= kind HOST-ACTION-CANCEL-DIAL)
-     (list 'cancel-dial (PancakeHostAction-ticket a))]
+     (list 'cancel-dial (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
     [else (raise-pancake 'pancake ERR-INTERNAL
                          "ABI returned unknown host action kind: ~a" kind)]))
 

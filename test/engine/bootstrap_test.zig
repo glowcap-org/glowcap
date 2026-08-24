@@ -35,7 +35,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
     var frame = try codec.syrup.encodeMessage(allocator, prepared.message);
     defer frame.deinit();
     const view = try codec.syrup.decodeBody(frame.view());
-    const action = try engine.bootstrap.pendingBootstrapAction(view.deliver, &sess);
+    const action = try engine.bootstrap.pendingBootstrapAction(view.deliver, null);
     try std.testing.expect(action != null);
     try std.testing.expect(action.? == .fetch);
     try std.testing.expectEqualStrings("swiss", action.?.fetch.swissnum);
@@ -55,7 +55,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, &sess)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, null)) == null);
     }
 
     // Miss: a fetch-shaped deliver to a non-bootstrap target falls through too.
@@ -72,7 +72,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, &sess)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, null)) == null);
     }
 }
 
@@ -90,7 +90,7 @@ test "a deliver to .far import 0 is not auto-served as a bootstrap fetch" {
     const view = try codec.syrup.decodeBody(.{ .bytes = wire, .shape = .byte });
     try std.testing.expect(view.deliver.target == .far);
     try std.testing.expectEqual(session.BOOTSTRAP_POSITION, view.deliver.target.far.import_position.int());
-    try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(view.deliver, &sess)) == null);
+    try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(view.deliver, null)) == null);
 }
 
 test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {

@@ -98,9 +98,7 @@ fn float64Hash(x: f64) u64 {
 /// `referencesStructurallyEqual`
 /// compares. A sturdyref's locator hints are left out because equality leaves
 /// them out: two locators differing only in dial advice name the same peer. A
-/// promise contributes its answer position but not its pipeline path: that
-/// under-approximates, which costs a collision at worst, where hashing a path
-/// the equality walks differently could split an Equal pair.
+/// promise contributes its answer position.
 fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
     h.update(std.mem.asBytes(&@backingInt(std.meta.activeTag(ref))));
     switch (ref) {
@@ -288,7 +286,7 @@ fn viewArgumentsEqualDepth(
         .symbol => |x| b == .symbol and std.mem.eql(u8, x, b.symbol),
         .string => |x| b == .string and std.mem.eql(u8, x, b.string),
         .keyword => |x| b == .keyword and std.mem.eql(u8, x, b.keyword),
-        .reference => |x| b == .reference and try viewReferencesEqualDepth(x, b.reference, depth, ctx),
+        .reference => |x| b == .reference and viewReferencesEqual(x, b.reference),
         .@"error" => |x| b == .@"error" and std.mem.eql(u8, x.message, b.@"error".message),
         .handoff => |x| b == .handoff and try viewHandoffsEqual(x, b.handoff, scratch),
         .integer => |x| b == .integer and x == b.integer,
@@ -305,49 +303,21 @@ fn viewArgumentsEqualDepth(
     };
 }
 
-fn viewReferencesEqualDepth(
+fn viewReferencesEqual(
     a: model.view.Reference,
     b: model.view.Reference,
-    depth: usize,
-    ctx: CompareCtx,
-) CompareError!bool {
-    if (depth > model.max_value_depth) return false;
+) bool {
     return switch (a) {
         .near => |x| b == .near and x.export_position == b.near.export_position and x.kind == b.near.kind,
         .far => |x| b == .far and x.import_position == b.far.import_position and x.kind == b.far.kind,
         .routed => |x| b == .routed and x.id == b.routed.id and x.kind == b.routed.kind,
-        .promise => |x| blk: {
-            if (b != .promise or x.answer_position != b.promise.answer_position) break :blk false;
-            break :blk try viewPipelinePathsEqualDepth(x.path, b.promise.path, depth, ctx);
-        },
+        .promise => |x| b == .promise and x.answer_position == b.promise.answer_position,
         .sturdy => |x| b == .sturdy and
             std.mem.eql(u8, x.peer.transport, b.sturdy.peer.transport) and
             std.mem.eql(u8, x.peer.designator, b.sturdy.peer.designator) and
             std.mem.eql(u8, x.swissnum, b.sturdy.swissnum),
         .broken => |x| b == .broken and std.mem.eql(u8, x.message, b.broken.message),
     };
-}
-
-fn viewPipelinePathsEqualDepth(
-    a: model.view.PipelinePath,
-    b: model.view.PipelinePath,
-    depth: usize,
-    ctx: CompareCtx,
-) CompareError!bool {
-    if (depth > model.max_value_depth) return false;
-    const a_len = try a.len();
-    const b_len = try b.len();
-    if (a_len != b_len) return false;
-    var a_it = a.iterator();
-    var b_it = b.iterator();
-    while (try a_it.next()) |x| {
-        const y = (try b_it.next()) orelse return false;
-        switch (x) {
-            .field => |name| if (!(y == .field and std.mem.eql(u8, name, y.field))) return false,
-            .call => |args| if (!(y == .call and try viewArgsEqualDepth(args, y.call, depth + 1, ctx))) return false,
-        }
-    }
-    return (try b_it.next()) == null;
 }
 
 fn viewArgsEqualDepth(

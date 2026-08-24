@@ -8,7 +8,14 @@ import { impossibleStatus, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
 import { MAX_ROOM_LINKS } from "../lib/limits.ts";
 import { loopbackTcpDesignator } from "../lib/locator.ts";
 import { DIRECTORY, SNAPSHOT, SUBSCRIBE } from "../lib/protocol.ts";
-import { Directory, Room, snapshotDiagnostics, takeDiagnostics } from "../lib/room_client.ts";
+import {
+	Directory,
+	Room,
+	roomCalledAs,
+	roomIsPrivate,
+	snapshotDiagnostics,
+	takeDiagnostics,
+} from "../lib/room_client.ts";
 import { RoomServerState } from "../server/state.ts";
 import {
 	assert,
@@ -28,6 +35,7 @@ import {
 	startStatefulServer,
 	stopServer,
 	subscribeOnceIroh,
+	until,
 	waitForLine,
 	waitForMatch,
 	watchRoomIroh,
@@ -36,6 +44,13 @@ import {
 } from "./support/rooms_server.ts";
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
 import { spawnOwned, stopOwned } from "./support/children.ts";
+
+async function untilListed(room: Room): Promise<void> {
+	await until(
+		() => room.listed !== undefined,
+		"subscribe did not say whether the occupancy is listed",
+	);
+}
 
 roomsTest("a private room mints a link that reaches it, and nothing else does", async () => {
 	// The capability answer to inviting somebody: a durable authority asked for
@@ -54,6 +69,8 @@ roomsTest("a private room mints a link that reaches it, and nothing else does", 
 		const dir = await Directory.connect(locator, (address) => dial(address));
 		const room = await Room.subscribe(dir.session, await dir.open("plans", true), "ada");
 		const link = await room.link(locator);
+		assert((await room.called()) === "plans", "a live private room did not say what it is called");
+		assert((await room.isPrivate()) === true, "a live private room did not say it is unlisted");
 		// The label is not in the link and the link is not reachable by label:
 		// asking the directory for one by that name finds nothing, because a
 		// private room is not in the table names are looked up in.
@@ -67,7 +84,14 @@ roomsTest("a private room mints a link that reaches it, and nothing else does", 
 
 		// Somebody else, holding the string and nothing else, is in the room.
 		const guest = await Directory.connect(locator, (address) => dial(address));
-		const asGuest = await Room.subscribe(guest.session, await guest.session.enliven(link), "bo");
+		const guestRef = await guest.session.enliven(link);
+		assert(
+			(await roomCalledAs(guest.session, guestRef)) === "plans",
+			"enlivening a live private room's link did not say what the room is called",
+		);
+		const asGuest = await Room.subscribe(guest.session, guestRef, "bo");
+		await untilListed(asGuest);
+		assert(asGuest.listed === false, "a private room's welcome did not say it is unlisted");
 		await asGuest.say("here by the link alone");
 		await room.leave();
 		await asGuest.leave();
@@ -87,6 +111,44 @@ roomsTest("a private room mints a link that reaches it, and nothing else does", 
 		await stopServer(server);
 		await Deno.remove(stateDirectory, { recursive: true });
 	}
+});
+
+roomsTest("a public room's link is that listed room", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const owner = await Directory.connect(locator, (address) => dial(address));
+		const guest = await Directory.connect(locator, (address) => dial(address));
+		try {
+			const room = await Room.subscribe(owner.session, await owner.open("general"), "ada");
+			const link = await room.link(locator);
+			const other = await Room.subscribe(guest.session, await guest.open("foo"), "cy");
+			const guestRef = await guest.session.enliven(link);
+			assert(
+				(await roomCalledAs(guest.session, guestRef)) === "general",
+				"a public room's link did not say the listed name",
+			);
+			const heard = roomLines(room);
+			// Join is subscribe. Asking `private()` first is what aborted `/join`
+			// of a locator on an older occupancy: pancake error -12, "room has
+			// no method private". Listed-ness arrives on the welcome.
+			const asGuest = await Room.subscribe(guest.session, guestRef, "bo");
+			await untilListed(asGuest);
+			assert(asGuest.listed === true, "a public room's welcome did not say it is listed");
+			assert((await room.isPrivate()) === false, "a public room answered as unlisted");
+			assert(
+				(await roomIsPrivate(guest.session, guestRef)) === false,
+				"a public room's link answered as unlisted while this peer was in another room",
+			);
+			await asGuest.say("here by the public link");
+			await waitForLine(heard, /here by the public link/);
+			await asGuest.leave();
+			await other.leave();
+			await room.leave();
+		} finally {
+			await owner.close();
+			await guest.close();
+		}
+	});
 });
 
 roomsTest("room link state restores its identity and sealed room names", async () => {

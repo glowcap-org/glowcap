@@ -412,14 +412,12 @@ pub const Served = struct {
     }
 
     /// Enqueue the bootstrap `fetch` for `name` and return the promise of the
-    /// partner's answer: import the well-known bootstrap export, then
-    /// eventual-send `fetch(name)` to it. This is the one definition of the
+    /// partner's answer: eventual-send `fetch(name)` to the permanently
+    /// addressable bootstrap export. This is the one definition of the
     /// bootstrap-fetch deliver shape. `BlockingSession.fetch` drives the returned
     /// promise to settlement; the byte-fed `Host`'s fetch rides the same
     /// deliver with a host vow instead of a blocking wait.
     pub fn sendBootstrapFetch(self: *Served, vat: *actors.Vat, name: []const u8) !actors.Vow {
-        try self.port.peer.importObject(engine.BOOTSTRAP_POSITION);
-        errdefer self.port.peer.session_state.releaseImportRetain(.from(engine.BOOTSTRAP_POSITION));
         return self.port.send(
             vat,
             .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
@@ -451,6 +449,15 @@ pub const Served = struct {
     pub fn sendToAnswer(self: *Served, vat: *actors.Vat, vow: actors.Vow, msg: actors.Message) !actors.Vow {
         return switch (vow) {
             .far => |answer_pos| self.port.sendToAnswer(vat, answer_pos, msg),
+            .local => Error.NotPipelineable,
+        };
+    }
+
+    /// Fire-and-forget eventual-send through a far answer. A local vow has no
+    /// wire answer to address.
+    pub fn tellToAnswer(self: *Served, vat: *actors.Vat, vow: actors.Vow, msg: actors.Message) !void {
+        return switch (vow) {
+            .far => |answer_pos| self.port.tellToAnswer(vat, answer_pos, msg),
             .local => Error.NotPipelineable,
         };
     }

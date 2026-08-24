@@ -13,7 +13,7 @@ evidence uses the cleartext `tcp` testing adapter. Read
 | --- | --- |
 | Zig | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.HostRuntime` owns the sessions behind that API. |
 | Sans-I/O Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events. |
-| C | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`PancakeCloseOptions`). Separate archives cover the core, host, native loop, and transports. Each transport archive exposes a build-derived fingerprint, and generated binding loaders compare it before any other call so a stale companion is refused. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage; fallible blocking transport calls can return their worker-thread diagnostic in caller-owned storage. Every status call begins a fresh archive-local diagnostic fact, so an undetailed refusal cannot inherit an earlier call's cause. |
+| C | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`PancakeCloseOptions`). Managed frames carry ownership inline without a descriptor allocation or byte copy. Separate archives cover the core, Host, native loop, and transports; every archive exposes a fingerprint derived from reflected functions, public constants, and canonical layout manifests. Binding-projected manifest rows also generate language mirrors, while C-only rows remain out of package APIs. Generated binding loaders compare each fingerprint before ordinary use so a stale companion is refused. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage; fallible blocking transport calls can return their worker-thread diagnostic in caller-owned storage. Every status call begins a fresh archive-local diagnostic fact, so an undetailed refusal cannot inherit an earlier call's cause. |
 | Bindings | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities. |
 | Browser | `@pancake/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs over WebSocket, register for sealed `noise-relay` cold-dials, and hold an ordinary keyed session over WebRTC after signaling. |
 
@@ -59,6 +59,38 @@ channels use the byte-fed Host instead.
   checks the complete peer locator before cache lookup or wire traffic;
   repeated enlivenment on that session shares the same import. A mismatched
   peer or an accepted plain-TCP assertion is refused.
+- **Route bundles.** Handoff fallback and `id` `via` route hints parse through
+  one model-owned route bundle. `id` is the one private multi-home shape: its
+  designator names the durable key and its strong routes must prove that key.
+  Handoff gives use route vocabulary only when both the
+  recipient and exporter sessions negotiated it. For a baseline exporter, a
+  baseline-compatible override remains usable while private route vocabulary
+  falls back to its concrete session location. A baseline recipient lowers `id`
+  to the first compatible route, strips private route vocabulary, or fails
+  closed when no such route exists.
+  Node redeem admits `id` dials only through routes that can prove the same
+  durable key as the outer id. Declared `via` order is the route rank: Node
+  keeps a two-attempt strong-route window full in that order, accepts the first
+  proved completion, and cancels exact losing `(ticket, route_index)` attempts.
+  Optional `alt-locators` remain serial weak handoff fallbacks after that race
+  is exhausted: they can redeem the signed gift that authorized the dial but
+  do not establish the outer identity, enter its durable cache, or become a
+  sturdyref dial path. Route advice is retained for later gives only after a
+  withdrawal succeeds. Host-level sturdyref enlivenment supports `id`
+  sturdyrefs only when the Host opts into `pancake-next` with
+  `multi_location`; it selects an
+  already authenticated same-key session or stages the concrete routes through
+  the pending-dial waist.
+- **Rooms directory peering.** A separately published peering capability adds
+  bounded foreign-room generations to a directory and returns exact revocation
+  leases. A source with several listeners advertises one `id` route: iroh and
+  Noise paths prove the key under `via`, while onion and baseline socket paths
+  remain weak `alt-locators`. The recurring server suite proves profile-gated
+  route advertisement, TCP directory peering, exact revocation, and continued
+  use of references already handed out. An on-demand iroh scenario additionally
+  publishes through an identity route and redeems through its weak TCP fallback
+  when the destination has no iroh provider. Servers without `--peering`
+  publish no such authority.
 - **Three-party handoff.** A capability received from one peer can be returned
   or passed recursively to another. Inbound signed gives become Host-owned
   promises immediately. Outbound foreign objects and promises wait as one
@@ -70,16 +102,21 @@ channels use the byte-fed Host instead.
   and Racket gifter matrix proves two nested gives against live Goblins.
 
 - **Relayed promise settlement.** When a shared home promise settles, its
-  complete Passable value crosses Host identity once and reuses the bounded
-  Passable transaction for each recipient. Nested objects become gives, nested
-  promises become successor proxies, and a
-  recipient that cannot admit its projection breaks without publishing a
-  prefix or rolling back a sibling.
+  complete Passable value crosses Host identity once. Each recipient reuses the
+  bounded Passable transaction. Nested objects become gives, and nested
+  promises become successor proxies. A recipient that cannot admit its
+  projection breaks without publishing a prefix. No sibling rolls back.
+  The live Goblins evidence covers both directions. A Goblins recipient reads
+  pancake's relayed give. In the reciprocal scenario, an owning native Session
+  installs `listenTo` on a Goblins-owned pending promise. Goblins then settles
+  it to a list containing a callable capability.
 
-- **Handoff capability ownership.** Deposited gifts keep the exact actor in the Host Vat
+- **Handoff capability ownership.** Deposited gifts keep the exact actor in the
+  Host Vat
   ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)).
   Zig and the bindings can also listen for settlement of a promise received
-  from a peer
+  from a peer. The native path is recurring live Goblins evidence, including
+  recursive capability lifting and explicit release
   ([ADR-0095](decisions/adr/ADR-0095-listening-on-a-received-promise.md)).
   Gifts and replay counters live on the sessions that own them; product Hosts
   mint a fresh signing key per session
@@ -111,8 +148,13 @@ channels use the byte-fed Host instead.
   swiss-number path form; no C or binding helper silently chooses one.
   Applications dial through a locator rather than a transport-specific
   session API.
-- **Resource limits.** Session tables, projection depth, nesting depth, and
-  Cap'n Proto traversal are bounded. Distributed garbage collection is
+- **Resource limits.** Session tables, durable sent-answer resolution bytes,
+  projection depth, nesting depth, and Cap'n Proto traversal are bounded.
+  Durable answer retention is independent of transient outbound pressure, so
+  neither ledger can deadlock the other. The C Host and every binding expose
+  both ledgers through one versioned, named session-limit options value; zero
+  fields preserve the current Host policy, and already-minted peers keep their
+  snapshot. Distributed garbage collection is
   available as a per-session opt-in in every binding: fetched capabilities,
   fulfilled far results, and recursively nested delivered arguments all return
   their opaque Host retain through one finalizer seam. A final import release
@@ -205,7 +247,7 @@ without changing the protocol core.
 | `iroh` | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc` | An encrypted DataChannel reached through signaling. It carries a normal keyed OCapN session once the channel is open. |
 | `noise-tcp` | The keyed-tcp grammar with ADR-0107's sealed channel on the wire: a Noise_XK handshake between the two peers encrypts the channel end to end, and completing it proves the dialed key. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. |
-| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider and every native binding compose it. The managed browser connector uses the same byte-fed Host sealing and can register or dial this profile. |
+| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider and every native binding compose it. Every event-loop binding can register a durable listener or dial this profile; the managed browser connector uses the same byte-fed Host sealing. |
 | `onion` | The standardized OCapN Tor netlayer. A version 3 service id addresses an encrypted, location-hiding circuit; Tor proves the service to the dialer but reveals no caller identity to the listener. |
 | `keyed-tcp` | TCP with a key designator as the dial target. The channel is cleartext and unauthenticated; the key does not prove possession. |
 | `keyed-relay` | Cleartext WebSocket to a relay; the key designator is a dial target with no listening address. Trusted network and relay only. |
@@ -230,6 +272,18 @@ ICE server records, including credentialed TURN; provider-specific credential
 issuance stays with the embedding. Browsers without native sockets use the
 byte-transparent relay in Deno, Python, Rust, and Racket. The relay forwards
 bytes without parsing CapTP or holding a capability.
+
+The native TCP completion path has held 500,000 authenticated sessions live in
+one release-mode server process. Each session completed its signed handshake
+and fetched a published capability before the measurement barrier. The
+repeatable machine, memory, timing, and namespace setup are recorded in
+[the 1.0 ladder](ladder.md#2-performance-at-scale); the cheap eight-session
+form runs under `zig build check` so the two-process harness stays live.
+Its listener defaults to `127.0.0.1`; `net.Backend.initWithListenerIp4` selects
+an interface address or `0.0.0.0` before the backend enters `TcpLoop`. The loop
+then exposes the exact kernel-bound IPv4 address and resolved port. A runtime
+test binds the wildcard address and reaches it through loopback, while the
+Darwin build checks the same API against kqueue.
 
 `noise-tcp` and `noise-relay` run ADR-0107's Noise_XK channel on the byte-fed
 Host and native tiers; `BlockingSession` refuses both symbols. The optional
@@ -274,6 +328,31 @@ listening socket can still receive replies and participate in a handoff.
   its Noise channel keeps the room relay outside the plaintext boundary. Direct
   files are sender-hosted blob capabilities on the existing peer
   session, so the transport stays below the message contract.
+- `zig build rooms-irc-bridge` presents one IRC channel as a Rooms directory.
+  Its default is read-only. Two-way mode requires TLS and SASL PLAIN for a
+  registered bridge nick, then sends Rooms posts with `<nick>` attribution
+  through a 1.2-second pacer and a 64-line, 32-KiB reconnect queue. The bridge
+  joins on its first Rooms reader and parts after its last reader and queued
+  line. The CapTP side is the ordinary Rooms protocol; the in-tree scenario
+  carries messages both ways through the native profile and the 1.0/Syrup
+  floor. IRC names carry an `irc/` prefix, and roster and viewer tables are
+  bounded.
+- `zig build rooms-irc-front` presents a native Rooms directory to ordinary IRC
+  clients. Each IRC connection owns its Directory, Room memberships, and
+  introduced direct lines; `JOIN`, channel and direct `PRIVMSG`, `NAMES`,
+  `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` translate through those public
+  capabilities. The clear IRC listener is loopback-only unless TLS keys are
+  supplied, while the endpoint registered for direct-message redemption is
+  Noise-sealed and key-authenticated by default. Operators can explicitly
+  select authenticated iroh for Goblins cold-dials, or loopback-only clear TCP
+  for local conformance. Client, room, direct-line, live-inbox,
+  projected-name, and socket-output retention are bounded; disconnect retires
+  aliases without retargeting old issued capabilities. The real-socket
+  scenario drives both DM directions and channel operations through a
+  v1.0/Syrup front Host. The recurring `goblins-rooms-irc` proof composes both
+  IRC edges with a real Goblins vat. Fixture traffic crosses the bridge both
+  ways. An ordinary IRC client reaches Goblins through the front for channel
+  traffic plus an IRC-initiated direct-message reply.
 - Starting the rooms web UI with `--diagnostics` (or `-Ddiagnostics` on the
   zig step) publishes an inspect object under an unguessable swiss number on
   that Host. Fetching the swiss number is the capability; the directory itself
@@ -301,7 +380,9 @@ listening socket can still receive replies and participate in a handoff.
   endpoint behind that sturdyref admits no socket — viewer or trace producer —
   without the viz capability the sturdyref carries (ADR-0120).
 - The accountability example layers signed identity and an audit log above
-  ordinary capabilities without changing CapTP.
+  ordinary capabilities without changing CapTP. Its three-Host loopback proof
+  redeems a real handoff and attributes the resulting call to the recipient,
+  not the introducer.
 
 [`docs/cli.md`](cli.md) is the command-line guide. The
 [examples](../examples/README.md) and [apps](../apps/README.md) pages list the

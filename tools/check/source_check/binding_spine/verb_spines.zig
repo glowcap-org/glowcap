@@ -341,6 +341,8 @@ pub fn checkBindingDialSpine(
         "bindings/racket/private/transport-composition.rkt",
     };
     for (obsolete_compositions) |path| {
+        // tolerant: access failing means the obsolete file is absent, which
+        // is the passing outcome.
         root.access(io, path, .{}) catch continue;
         try appendViolation(gpa, violations, "{s}: obsolete transport-composition dispatcher must stay deleted; Runtime composes explicit providers/connectors", .{path});
     }
@@ -368,12 +370,28 @@ pub fn checkBindingListenSpine(
             .markers = &.{ "class Server", "async def listen", "listen_keyed", "listen_noise", "DriverServer", ".install(", "address_designator" },
         },
         .{
+            .path = "bindings/ts/relay/listen.ts",
+            .markers = &.{ "DriverServer", "RelayListenOptions", "function listenProfile", "function listenKeyed", "function listenNoise", "installProvider" },
+        },
+        .{
+            .path = "bindings/python/pancake/relay.py",
+            .markers = &.{ "async def listen", "DriverServer", "prepare_driver_loop", "provider(config).install", "TRANSPORT_KEYED_RELAY", "TRANSPORT_NOISE_RELAY" },
+        },
+        .{
             .path = "bindings/rust/src/tcp_listen.rs",
             .markers = &.{ "struct Server", "crate::server::LoopListener", "pub(crate) async fn listen", "pub(crate) async fn listen_keyed", "ensure_loop_provider", "tcp::address_designator" },
         },
         .{
             .path = "bindings/racket/private/tcp-listen.rkt",
-            .markers = &.{ "make-loop-server", "driver-loop-add-tcp!", "loop-listen!", "(define server?", "server-locator", "listen-keyed-tcp", "listen-noise-tcp", "(define (listen", "tcp-address-designator" },
+            .markers = &.{ "make-loop-server", "driver-loop-add-tcp!", "loop-listen!", "listen-keyed-tcp", "listen-noise-tcp", "(define (listen", "tcp-address-designator" },
+        },
+        .{
+            .path = "bindings/racket/private/server-verbs.rkt",
+            .markers = &.{ "(define (server?", "(define (server-host", "(define (server-locator", "(define (server-uri", "(define (server-close!", "(define (accept" },
+        },
+        .{
+            .path = "bindings/racket/private/relay-listen.rkt",
+            .markers = &.{ "make-loop-server", "driver-loop-add-relay!", "loop-listen!", "listen-keyed-relay", "listen-noise-relay", "(all-from-out \"server-verbs.rkt\")" },
         },
     };
     for (mods) |mod| {
@@ -426,6 +444,11 @@ pub fn checkBindingListenSpine(
             .path = "bindings/rust/src/onion.rs",
             .markers = &.{ "pub struct Config", "pub struct Netlayer", "pub struct Server", "pub struct ListenOptions", "pub fn provider", "pub async fn listen" },
             .banned = &.{ "pub struct OnionServer", "pub struct ConnectOptions", "pub async fn connect", "listen_with_host", "connect_with_host" },
+        },
+        .{
+            .path = "bindings/rust/src/relay.rs",
+            .markers = &.{ "pub struct Config", "pub struct Server", "pub struct ListenOptions", "pub mod keyed", "pub mod noise", "pub async fn listen", "pub fn provider" },
+            .banned = &.{ "pub struct RelayServer", "listen_with_seed", "listen_with_host" },
         },
     };
     for (rust_transport_surfaces) |surface| {

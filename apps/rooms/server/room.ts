@@ -16,15 +16,20 @@ import { attachmentRefusal } from "../lib/attachment.ts";
 import {
 	ATTACH,
 	AWAY,
+	CALLED,
+	HISTORY,
 	LEAVE,
 	LINE,
 	LINK,
+	LISTED,
 	NOTIFY,
 	POST,
 	POST_FILES,
+	PRIVATE,
 	SUBSCRIBE,
 	TOPIC,
 	TYPING,
+	UNLISTED,
 } from "../lib/protocol.ts";
 import {
 	ATTACHMENT_REFUSED,
@@ -53,8 +58,11 @@ import {
 } from "./registry.ts";
 import { allocateUpload, armUploadTimer, broadcastFiles, dropUpload, postStaged, uploadBehavior } from "./files.ts";
 import { lineBehavior, topicBehavior } from "./lines.ts";
-import { broadcast, broadcastTyping, leaveRoom, notifyRoomList, statePresence } from "./presence.ts";
+import { notifyLocalRoom } from "./discovery.ts";
+import { broadcast, broadcastTyping, leaveRoom, statePresence } from "./presence.ts";
 import { redeemNameVoucher, registeredByAnother } from "./introductions.ts";
+import { noteTrouble } from "./journal.ts";
+import { historyEnabled, readRoomLines, recordRoomLine } from "./history.ts";
 
 /** The room behavior for one connection. The room grants at most one live
  * membership to the connection, so `post` needs no "from" argument — the
@@ -141,9 +149,19 @@ export function roomBehavior(state: RoomState) {
 			// carries: state it for the trace, so a viewer can name the peer
 			// instead of showing its claimed address.
 			statePresence(session);
+			// Listed-ness before the join line this arrival also receives.
+			// `/join` of a locator seats from that fact; the join broadcast is
+			// sent to every member and must not be the first thing the occupant
+			// hears, or listed-ness is still unknown and a public link sits in a
+			// held clone. Additive: an older client skips the unknown tag.
+			// Subscribe still answers the topic capability in this turn — a
+			// deferred answer cannot carry a reference.
+			session.tell(inbox, NOTIFY, ["room", "", state.private ? UNLISTED : LISTED]).catch((error) => {
+				noteTrouble(`a listed notify to ${nick} failed`, error);
+			});
 			broadcast(state, "room", `${nick} joined (${state.members.length} here)`, "join", nick);
 			if (!wasMember) {
-				notifyRoomList(
+				notifyLocalRoom(
 					state,
 					state.members.length === 1 ? "opened" : "count",
 					state.members.length,
@@ -168,7 +186,7 @@ export function roomBehavior(state: RoomState) {
 				"roster",
 				...names,
 			]).catch((error) => {
-				console.error(`[room] roster notify to ${nick} failed: ${error}`);
+				noteTrouble(`a roster notify to ${nick} failed`, error);
 			});
 			// Who is already away. One line each rather than a field on the roster,
 			// because that is the same line every later change arrives on: a client
@@ -178,7 +196,7 @@ export function roomBehavior(state: RoomState) {
 				if (m.away === "" || m.nick === nick) continue;
 				session.tell(inbox, NOTIFY, ["room", `${m.nick} is away: ${m.away}`, AWAY, m.nick, m.away]).catch(
 					(error) => {
-						console.error(`[room] away notify to ${nick} failed: ${error}`);
+						noteTrouble(`an away notify to ${nick} failed`, error);
 					},
 				);
 			}
@@ -189,7 +207,7 @@ export function roomBehavior(state: RoomState) {
 			if (state.topic !== "") {
 				session.tell(inbox, NOTIFY, ["room", `the topic is: ${state.topic}`, TOPIC, state.topic]).catch(
 					(error) => {
-						console.error(`[room] topic notify to ${nick} failed: ${error}`);
+						noteTrouble(`a topic notify to ${nick} failed`, error);
 					},
 				);
 			}
@@ -232,6 +250,9 @@ export function roomBehavior(state: RoomState) {
 			// give it one, which is what makes a text line and a file line one kind.
 			const line = session.spawn(lineBehavior(state, member.nick, id, []));
 			broadcast(state, member.nick, said, LINE, BigInt(id));
+			// Listed rooms only: a private room is reference-only, and keeping
+			// its lines is a retention decision its holders never made.
+			if (!state.private) recordRoomLine(state.name, { from: member.nick, text: said, at: Date.now(), id });
 			// Past the bound the oldest goes back, so a member talking all day
 			// costs the room a fixed number of exports rather than one per line.
 			// Oldest first, because what a member wants to fix is what they just
@@ -348,6 +369,26 @@ export function roomBehavior(state: RoomState) {
 			if (member !== null) broadcastTyping(state, member.nick, args[0] === true, session);
 			return null;
 		}
+		if (verb === HISTORY) {
+			if (!historyEnabled()) throw new Error("room has no method history");
+			if (findBySession(state, session) === null) {
+				throw new Error("history needs a claimed room membership");
+			}
+			if (state.private) return [];
+			return readRoomLines(state.name, 100).then((lines) =>
+				lines.map((line) => [line.from, line.text, line.at] as Argument)
+			) as ReturnType<Behavior>;
+		}
+		if (verb === CALLED) {
+			// A link is not a name, but the room still has one while it is live:
+			// a public room's directory name, or a private room's label. Empty
+			// when a private room came back from a link with nobody left to
+			// remember what it was called.
+			return state.name;
+		}
+		if (verb === PRIVATE) {
+			return state.private ? "private" : "listed";
+		}
 		if (verb === LINK) {
 			// Asked for with the reference, so nothing here asks who is calling:
 			// holding the room is the authority to hold a durable name for it, the
@@ -413,6 +454,8 @@ export function linkedRoomBehavior(durable: string): Behavior {
 		if (session === null) throw new Error("a room link is reachable only over a session");
 		let state = rooms.get(key);
 		if (state === undefined) {
+			if (verb === CALLED) return isPrivate ? "" : durable;
+			if (verb === PRIVATE) return isPrivate ? "private" : "listed";
 			if (verb !== SUBSCRIBE) throw new Error("subscribe to this room before using it");
 			state = makeRoomState(isPrivate ? "" : durable, session, { private: isPrivate, key });
 			registerRoom(state);

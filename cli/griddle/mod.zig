@@ -13,6 +13,7 @@ const Command = @import("../cmd/types.zig").Command;
 const Parsed = @import("../cmd/types.zig").Parsed;
 const exit_codes = @import("../exit_codes.zig");
 const argv = @import("../argv.zig");
+const sim = @import("sim.zig");
 
 const status_text =
     \\pancake griddle: simulator / timeline family.
@@ -44,7 +45,11 @@ fn runHelp(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
         \\Deterministic CapTP simulation. `run` prints a timeline as NDJSON,
         \\one event per line; the same seed replays exactly.
         \\
-        \\Scenarios: bootstrap-fetch, crossed-fetch, partitioned-fetch
+        \\Scenarios:
+    );
+    try argv.writeStdout(ctx.io, " " ++ sim.scenario_args);
+    try argv.writeStdout(ctx.io,
+        \\
         \\
         \\A reliable transport does not drop or reorder bytes, so neither does
         \\this simulator. What it models is what a real network does to a
@@ -65,7 +70,6 @@ const run_flags = [_]@import("../cmd/types.zig").Flag{
 /// seed, so a run that shows something interesting can be handed to someone
 /// else as a number.
 fn runRun(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
-    const sim = @import("sim.zig");
     const seed_text = parsed.flagString("seed") orelse "0";
     const seed = std.fmt.parseInt(u64, seed_text, 10) catch {
         ctx.logErr("--seed wants a number, got {s}", .{seed_text});
@@ -73,7 +77,7 @@ fn runRun(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     };
     const scenario_text = parsed.flagString("scenario") orelse "bootstrap-fetch";
     const scenario = sim.Scenario.fromArg(scenario_text) orelse {
-        ctx.logErr("unknown --scenario {s} (want bootstrap-fetch)", .{scenario_text});
+        ctx.logErr("unknown --scenario {s} (want {s})", .{ scenario_text, sim.scenario_args });
         return exit_codes.usage;
     };
     var weather = sim.Weather{ .latency = parsed.flagBool("latency") };

@@ -82,6 +82,16 @@ export type ViewerDirection = "previous" | "next";
  * the one thing a reader of the key most needs to know. */
 export type DirId = string & { readonly __dir: unique symbol };
 
+export type LiveRooms = ReadonlyMap<string, import("../../lib/directory_publications.ts").RoomInfo>;
+
+export function liveRoomNames(rooms: LiveRooms): string[] {
+	return [...rooms.values()].map((room) => room.name);
+}
+
+export function liveRoomCounts(rooms: LiveRooms): ReadonlyMap<string, number | null> {
+	return new Map([...rooms.values()].map((room) => [room.name, room.count]));
+}
+
 /** Name a directory by the locator that reaches it. */
 export function dirId(locator: string): DirId {
 	return locator as DirId;
@@ -355,6 +365,9 @@ export function awayOf(
 export type Conv =
 	| (ConvBase & {
 		type: "room";
+		/** Exact list/watch generation used to enter this room, when it was
+		 * discoverable. */
+		publicationId?: string;
 		members: ReadonlyMap<string, Standing>;
 		typers: ReadonlySet<string>; // nicks currently typing (auto-cleared by net.ts)
 		/** The longest line this room will carry, in bytes, when it caps them
@@ -397,6 +410,12 @@ export type Conv =
 		 * `id` is a label two rooms may share, which is why its key is minted
 		 * here rather than derived from the name. */
 		held: boolean;
+		/** The sturdyref this tab holds for this room, when it has one.
+		 *
+		 * Present after `/link`, or after `/join` of a room link. Opening the
+		 * conversation card never mints one: a mint is durable server state, and
+		 * looking at a room is not asking for that. */
+		link?: string;
 		/** This room's own word for where this reader stands, or null while the
 		 * room follows the directory (and through it, the reader).
 		 *
@@ -451,9 +470,8 @@ export interface ToastNotice {
  * outlive a session. What is here is only what the directory itself says. */
 export interface DirView {
 	id: DirId;
-	/** Rooms live on this directory now: room name to member count. Name-keyed
-	 * because it is one directory's own list. */
-	liveRooms: ReadonlyMap<string, number>;
+	/** Current public-room generations, keyed by case-folded name. */
+	liveRooms: LiveRooms;
 	/** Nicks (lowercased) this directory says are reachable for direct messages.
 	 * A nick means someone else under another directory. */
 	dmablePeers: ReadonlySet<string>;
@@ -539,77 +557,9 @@ export interface Invitation {
 	link: string;
 }
 
-import type { DiagnosticRow, ListenerRow } from "../../lib/room_client.ts";
-
-/** One named object the inspect capability reported on this directory. */
-export type { DiagnosticRow } from "../../lib/room_client.ts";
-
-/** One live listener the admin capability reported on this directory. */
-export type { ListenerRow } from "../../lib/room_client.ts";
-
-/** The operations capabilities the page knows how to hold. Advanced keeps one
- * toggle per capability; the Operations modal draws one pane per held one.
- * The order here is the tab order when more than one is held. */
-export const OPS_CAPS = ["listeners", "diagnostics", "viz"] as const;
-export type OpsCap = (typeof OPS_CAPS)[number];
-
-/** What this tab knows about its own timeline publishing while it holds the
- * viz capability: where it publishes, and whether the socket is up right now.
- * Unlike its two siblings this capability is presented to the timeline
- * endpoint rather than fetched on the directory session, so it survives a
- * directory reconnect and dies only by the reader's drop or the endpoint's
- * refusal. */
-export interface VizPublishState {
-	/** The endpoint this tab publishes to: Settings' URL, or the page's own. */
-	readonly url: string;
-	/** Whether the publish socket is connected; false while it redials. */
-	readonly connected: boolean;
-}
-
-/** Where a remembered operations swiss was redeemed: a directory for the two
- * session-fetched capabilities, the endpoint URL for the visualizer. */
-export type OpsScope = DirId | string;
-
-/** Where `cap`'s swiss for `home` is kept in this browser.
- *
- * The name of a remembered fact is vocabulary, so it is here rather than with
- * the reading and writing of it in `net/ops_memory.ts`: a proof that seeds one
- * of these rows has to seed the row the page will actually look up, and this
- * module imports nothing at runtime, so it can say what that row is called
- * without starting a page. A row under a key nothing reads is silent — the tab
- * arms nothing, goes on working, and the failure surfaces somewhere else
- * entirely — which is worth one export to make impossible. */
-export function opsSwissKey(cap: OpsCap, home: OpsScope): string {
-	return `rooms.ops-swiss.${cap}.${home}`;
-}
-
-/** Which operations capabilities this tab holds now.
- *
- * Never stored: possession's one authority is whether each capability's rows
- * are in the store, which the data layer sets on take and clears on drop or
- * reconnect. The Advanced toggles, the Operations control, and the modal's
- * panes are all derived from this, so none of them can disagree with the
- * capability actually being in hand. */
-export interface OpsHeld {
-	readonly listeners: boolean;
-	readonly diagnostics: boolean;
-	readonly viz: boolean;
-}
-
-/** Derive possession from the three row fields. */
-export function opsHeldOf(
-	listeners: readonly ListenerRow[] | null,
-	diagnostics: readonly DiagnosticRow[] | null,
-	viz: VizPublishState | null,
-): OpsHeld {
-	return { listeners: listeners !== null, diagnostics: diagnostics !== null, viz: viz !== null };
-}
-
-/** Whether any operations capability is held, which is what makes the
- * Operations control appear. One reader for the head, the modal, and App. */
-export function anyOpsHeld(held: OpsHeld): boolean {
-	return held.listeners || held.diagnostics || held.viz;
-}
+// The operations-capability vocabulary lives beside its panes; re-exported
+// here so the page vocabulary keeps one import surface.
+export * from "./ops/types.ts";
 
 /** How the foot of the sidebar reads the connection.
  *
@@ -619,7 +569,18 @@ export function anyOpsHeld(held: OpsHeld): boolean {
  * and the dot went amber while everything worked. */
 export type SessionPhase = "connecting" | "connected" | "disconnected" | "reconnecting";
 
-/** Which panel Settings is showing. Locators is the ordinary opening; Advanced
- * holds preferences that save by reload and the operations toggles. Help and
- * Operations are their own modals, not panels here. */
-export type SettingsTab = "overview" | "settings";
+/** Which panel Settings is showing. Locators is the ordinary opening,
+ * Capabilities holds the operations toggles, and Advanced holds preferences
+ * that save by reload. Help is its own modal and Operations its own page,
+ * not panels here. */
+/** One entry in the page's bounded trouble journal: a failure that had no
+ * reader-facing surface of its own, kept where an operator can read it
+ * instead of dying in the console. Repeats of the same trouble fold into
+ * `count` rather than growing the ring. */
+export interface TroubleRow {
+	readonly source: string;
+	readonly reason: string;
+	readonly count: number;
+}
+
+export type SettingsTab = "overview" | "capabilities" | "settings";

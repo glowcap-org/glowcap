@@ -79,8 +79,8 @@ pub const Event = struct {
     /// one place to free it from.
     allocator: std.mem.Allocator,
     /// For a `.deliver` event: the far import positions the session's
-    /// validate walk introduced for this deliver
-    /// (`session.validate.IntroducedImports.mentions`, threaded through
+    /// validate walk introduced in this deliver's application arguments,
+    /// excluding an answer-owned V1.0 resolver descriptor (threaded through
     /// `session.validateInboundDeliverView`), captured while that record was
     /// still alive — its own backing arena resets before this event is ever
     /// polled. Null for every non-deliver kind, and for a deliver that

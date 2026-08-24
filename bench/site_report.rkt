@@ -190,13 +190,21 @@
 
 (define (html-table headers rows)
   (string-append
-   "<table>\n<tr>" (apply string-append (map (lambda (h) (format "<th>~a</th>" h)) headers)) "</tr>\n"
+   "<table>\n<thead><tr>" (apply string-append (map (lambda (h) (format "<th>~a</th>" h)) headers)) "</tr></thead>\n<tbody>\n"
    (apply string-append
           (for/list ([row (in-list rows)])
             (string-append "<tr>" (apply string-append (map (lambda (c) (format "<td>~a</td>" c)) row)) "</tr>\n")))
-   "</table>"))
+   "</tbody></table>"))
 
-(define (figure caption svg) (string-append "<figure>\n<figcaption><strong>" caption "</strong></figcaption>\n" svg "\n</figure>"))
+;; The chart is role="img", and an image role with no accessible name is
+;; announced as nothing, so the figure lends its caption to the svg as the
+;; aria-label. Captions here are plain sentences with no attribute-breaking
+;; characters.
+(define (figure caption svg)
+  (string-append "<figure>\n<figcaption><strong>" caption "</strong></figcaption>\n"
+                 (string-replace svg "role=\"img\">"
+                                 (string-append "role=\"img\" aria-label=\"" caption "\">"))
+                 "\n</figure>"))
 (define (charts . figs) (string-append "<div class=\"bench-charts\">\n" (string-join figs "\n") "\n</div>"))
 
 ;; ── Per-bench regions (body inside the =html block) ──────────────────────────

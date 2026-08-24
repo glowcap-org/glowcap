@@ -12,6 +12,7 @@ const common = @import("common.zig");
 pub fn pendingDial(
     host: ?*c.PancakeHost,
     ticket: u64,
+    route_index: usize,
     hint_storage: ?[*]c.PancakeLocatorHintView,
     hint_capacity: usize,
     out_locator: ?*c.PancakeLocatorView,
@@ -21,19 +22,19 @@ pub fn pendingDial(
     if (!common.embedderOwnsDrive(inst, "pending_dial")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     const locator_slot = out_locator orelse return shared.PANCAKE_ERR_NULL_POINTER;
     const count_slot = out_hint_count orelse return shared.PANCAKE_ERR_NULL_POINTER;
-    const view = inst.core.pendingDial(ticket) orelse {
-        shared.setLastError("host: pending dial: unknown ticket {d}", .{ticket});
+    const view = inst.core.pendingDial(ticket, route_index) orelse {
+        shared.setLastError("host: pending dial: unknown ticket {d} route {d}", .{ ticket, route_index });
         return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    count_slot.* = view.hints.entries.len;
-    if (hint_capacity < view.hints.entries.len) return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
-    if (view.hints.entries.len == 0) {
+    count_slot.* = view.locator.hints.entries.len;
+    if (hint_capacity < view.locator.hints.entries.len) return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
+    if (view.locator.hints.entries.len == 0) {
         var no_hints: [0]c.PancakeLocatorHintView = .{};
-        locator_slot.* = shared.locator_adapter.project(view, &no_hints) catch
+        locator_slot.* = shared.locator_adapter.project(view.locator, &no_hints) catch
             return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     } else {
-        const hints = (hint_storage orelse return shared.PANCAKE_ERR_NULL_POINTER)[0..view.hints.entries.len];
-        locator_slot.* = shared.locator_adapter.project(view, hints) catch
+        const hints = (hint_storage orelse return shared.PANCAKE_ERR_NULL_POINTER)[0..view.locator.hints.entries.len];
+        locator_slot.* = shared.locator_adapter.project(view.locator, hints) catch
             return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     }
     return shared.PANCAKE_OK;

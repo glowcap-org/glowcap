@@ -13,8 +13,8 @@
 
 use core::ffi::{c_int, c_uchar};
 
-use super::driver::PancakeTransportProvider;
 use super::webrtc::{PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
+use super::PancakeTransportProvider;
 
 extern "C" {
 	pub fn pancake_webrtc_archive_fingerprint() -> u64;

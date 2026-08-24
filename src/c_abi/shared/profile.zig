@@ -16,6 +16,7 @@ pub const PANCAKE_FEATURE_HANDOFF: u32 = 1 << 1;
 pub const PANCAKE_FEATURE_WIRE_DELTA: u32 = 1 << 2;
 pub const PANCAKE_FEATURE_STURDYREF: u32 = 1 << 3;
 pub const PANCAKE_FEATURE_UNTAG: u32 = 1 << 4;
+pub const PANCAKE_FEATURE_MULTI_LOCATION: u32 = 1 << 5;
 pub const PANCAKE_FEATURE_MINIMUM: u32 = 0;
 
 const FeatureSpec = struct {
@@ -29,6 +30,7 @@ const feature_specs = [_]FeatureSpec{
     .{ .field = "wire_delta", .bit = PANCAKE_FEATURE_WIRE_DELTA },
     .{ .field = "sturdyref", .bit = PANCAKE_FEATURE_STURDYREF },
     .{ .field = "untag", .bit = PANCAKE_FEATURE_UNTAG },
+    .{ .field = "multi_location", .bit = PANCAKE_FEATURE_MULTI_LOCATION },
 };
 
 fn featureFullMask() u32 {

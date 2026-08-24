@@ -147,12 +147,29 @@ pancake uses iroh rather than implementing QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
 ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 
-## An encrypted meta-netlayer
+## An encrypted identity layer
 
-OCapN issue 208 proposes a Noise-based meta-netlayer that would run inside any
+OCapN issue 208 proposes a Noise-based identity layer that would run inside any
 byte transport, and an NLnet grant funds a standardized end-to-end encrypted
 relay netlayer at Spritely. Neither has spec text yet. pancake's own sealed
 channel is [ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)
 (`Noise_XK` under two pancake-only symbols, `noise-tcp` and `noise-relay`);
 if upstream lands a Noise netlayer, the handshake pattern, prologue, and
 locator shape are what have to agree before the symbols can converge.
+
+ADR-0125's identity-route implementation is present but not an upstream claim.
+The model recognizes `id` and its `via` hint behind the negotiated
+`multi_location` feature. Handoff redeem parses `id` and `alt-locators` through
+the same route-bundle owner. Paths under `via` must prove the durable
+key the outer `id` designator names; optional `alt-locators` are weak handoff
+fallbacks that neither establish that identity nor become sturdyref dial
+paths. Declared `via` order ranks a bounded two-attempt strong-route race;
+`alt-locators` remain ordered and serial after every strong route fails, with no
+transport-name weighting presented as upstream behavior. Session validation
+keeps route vocabulary out of a first hello until the remote side has offered
+`pancake-next` with the feature bit, and
+settled-session payloads require the negotiated bit. Host-level `id` sturdyrefs
+use the same opted-in feature gate and
+resolve through the Node pending-dial waist rather than through a physical
+`id` transport. Arbitrary carrier wrapping, route-key binding, and final hint
+schema remain the private extension surface to reconcile with future spec text.

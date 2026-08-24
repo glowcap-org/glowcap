@@ -7,17 +7,17 @@
 // control know which one it is on.
 
 import {
-	anyOpsHeld,
 	type AttachmentView,
 	type DiagnosticRow,
 	type DirId,
 	type ListenerRow,
 	type OpsCap,
-	opsHeldOf,
+	type PeeringState,
 	type ToastKind,
 	type ViewerDirection,
 	type VizPublishState,
 } from "../types.ts";
+import type { IrcGatewayState } from "../types.ts";
 import { kindOf } from "../media.ts";
 import { type Draft, KEY, NO_DRAFT, set, type State, state } from "./core.ts";
 import { LS } from "../storage.ts";
@@ -139,7 +139,28 @@ export function dirNick(dir: DirId): string {
 }
 /** Open or close the card describing one directory. */
 export function showAboutDir(dir: DirId | null): void {
-	set({ aboutDir: dir });
+	set({ aboutDir: dir, errorDetail: null });
+}
+
+/** Open the card that holds the rest of a long refusal. */
+export function showErrorDetail(detail: { title: string; text: string }): void {
+	set({ errorDetail: detail, aboutConv: false, aboutDir: null });
+}
+
+/** Put the error card away. */
+export function closeErrorDetail(): void {
+	if (state.errorDetail !== null) set({ errorDetail: null });
+}
+
+/** Open the card about the conversation on screen. Nothing happens with none. */
+export function showAboutConv(): void {
+	if (state.activeKey === null) return;
+	set({ aboutConv: true, errorDetail: null, aboutDir: null });
+}
+
+/** Put the conversation card away. */
+export function closeAboutConv(): void {
+	if (state.aboutConv) set({ aboutConv: false });
 }
 
 /** Report whether the tab is being looked at. `hooks.ts` is the one caller.
@@ -163,13 +184,14 @@ export function setNotify(notifyOn: boolean): void {
 export function openSettings(): void {
 	set({
 		settingsOpen: true,
-		opsOpen: false,
 		opsTake: null,
 		helpOpen: false,
 		// The last panel the reader chose, not a reset: the store keeps it and
 		// its localStorage twin carries it across reloads.
 		settingsTab: state.settingsTab,
 		aboutDir: null,
+		errorDetail: null,
+		aboutConv: false,
 	});
 }
 
@@ -181,8 +203,15 @@ export function setSettingsTab(settingsTab: State["settingsTab"]): void {
 }
 
 export function closeSettings(): void {
-	if (state.settingsOpen || state.helpOpen || state.opsOpen || state.opsTake !== null) {
-		set({ settingsOpen: false, helpOpen: false, opsOpen: false, opsTake: null, aboutDir: null });
+	if (state.settingsOpen || state.helpOpen || state.opsTake !== null) {
+		set({
+			settingsOpen: false,
+			helpOpen: false,
+			opsTake: null,
+			aboutDir: null,
+			errorDetail: null,
+			aboutConv: false,
+		});
 	}
 }
 
@@ -190,7 +219,7 @@ export function closeSettings(): void {
  * Settings session stays open so the Settings control stays pressed, and Help's own
  * copy of that title row keeps the Help control on screen, pressed. */
 export function openHelp(): void {
-	set({ helpOpen: true, opsOpen: false, opsTake: null });
+	set({ helpOpen: true, opsTake: null });
 }
 
 /** Put Settings back after Help. */
@@ -198,66 +227,58 @@ export function closeHelp(): void {
 	set({ helpOpen: false, settingsOpen: true });
 }
 
-/** Close Settings beneath the Operations modal, the way Help does. */
-export function openOperations(): void {
-	set({ opsOpen: true, helpOpen: false, opsTake: null });
-}
-
-/** Put Settings back after Operations, on the Advanced panel that holds the
- * toggles the reader was working. */
-export function closeOperations(): void {
-	set({ opsOpen: false, settingsOpen: true, settingsTab: "settings" });
-}
-
-/** Which operations pane is selected while more than one is held,
- * remembered on this device so the modal reopens where the reader was. */
+/** Which operations pane the reader stood on last, remembered on this
+ * device so /ops lands where they were. */
 export function setOpsTab(opsTab: OpsCap): void {
 	LS.set(KEY.opsTab, opsTab);
 	set({ opsTab });
 }
 
-/** Close Settings beneath `cap`'s take modal: flipping the Advanced toggle on
- * is asking to hold the capability, and the toggle lands on only when the
- * take succeeds. Cancel or a failed take leaves nothing held. */
-export function openOpsTake(cap: OpsCap): void {
-	set({ opsTake: cap, opsOpen: false, helpOpen: false });
+/** Open `cap`'s take modal: asking to hold the capability, which lands only
+ * when the take succeeds. Cancel or a failed take leaves nothing held.
+ * `from` records who asked — the Settings toggle, or an Operations-page
+ * gate — which is where the close returns. */
+export function openOpsTake(cap: OpsCap, from: "settings" | "ops" = "settings"): void {
+	set({ opsTake: cap, opsTakeFrom: from, helpOpen: false });
 }
 
-/** Put Settings back after the take modal, on the Advanced panel whose toggle
- * opened it — whether the capability was taken or the ask was dismissed. */
+/** Put the asking surface back after the take modal — Settings on the
+ * Capabilities panel for its toggle, nothing at all for an Operations-page gate,
+ * which is still standing where it was. */
+/** Flip whether this device keeps direct-message history. The store field
+ * is what the switch draws; `ui/history.ts` owns the bytes and does the
+ * wiping, so the caller hands it the same choice. */
+export function setKeepHistory(keep: boolean): void {
+	set({ keepHistory: keep });
+}
+
 export function closeOpsTake(): void {
-	set({ opsTake: null, settingsOpen: true, settingsTab: "settings" });
+	if (state.opsTakeFrom === "settings") {
+		set({ opsTake: null, settingsOpen: true, settingsTab: "capabilities" });
+		return;
+	}
+	set({ opsTake: null });
 }
 
 /** What the row fields say when a capability arrives or goes.
  *
  * Possession is derived from these rows, so this is also where its
- * consequences live: rows landing select that pane; the last capability going
- * while the Operations modal is up closes it back onto Settings, since a
- * modal of no panes answers nothing. A reconnect's drops flow through here
- * too, which is what makes the Advanced toggles fall back off with the
+ * consequences live: rows landing select that pane. A reconnect's drops flow through here
+ * too, which is what makes the Capabilities toggles fall back off with the
  * capabilities they mirror. */
 function patchOpsRows(
 	patch: {
 		diagnostics?: readonly DiagnosticRow[] | null;
 		listeners?: readonly ListenerRow[] | null;
+		irc?: IrcGatewayState | null;
+		peering?: PeeringState | null;
 		viz?: VizPublishState | null;
 	},
 ): void {
-	const next = {
-		diagnostics: patch.diagnostics !== undefined ? patch.diagnostics : state.diagnostics,
-		listeners: patch.listeners !== undefined ? patch.listeners : state.listeners,
-		viz: patch.viz !== undefined ? patch.viz : state.viz,
-	};
 	// Arrival does not move the selection: the modal opens on the pane the
 	// reader last chose (or the first held one), however the capabilities
 	// came in.
 	const grew: Parameters<typeof set>[0] = { ...patch };
-	if (!anyOpsHeld(opsHeldOf(next.listeners, next.diagnostics, next.viz)) && state.opsOpen) {
-		grew.opsOpen = false;
-		grew.settingsOpen = true;
-		grew.settingsTab = "settings";
-	}
 	set(grew);
 }
 
@@ -267,6 +288,18 @@ export function setDiagnostics(diagnostics: readonly DiagnosticRow[] | null): vo
 
 export function setListeners(listeners: readonly ListenerRow[] | null): void {
 	patchOpsRows({ listeners });
+}
+
+/** What the gateway possession row says when the capability arrives, the
+ * bridged list changes, or the capability goes. */
+export function setIrcGateway(irc: IrcGatewayState | null): void {
+	patchOpsRows({ irc });
+}
+
+/** What the peering possession row says when the capability arrives, a
+ * publication changes standing, or the capability goes. */
+export function setPeering(peering: PeeringState | null): void {
+	patchOpsRows({ peering });
 }
 
 /** What the viz possession row says when the capability arrives, redials, or
@@ -392,5 +425,5 @@ export function clearConv(): void {
  * behind it. Everything that only means something inside a conversation is
  * derived from `activeKey`, so this one field is the whole of it. */
 export function showJoinCard(): void {
-	set({ activeKey: null, listScreen: false, rosterSheet: false });
+	set({ activeKey: null, listScreen: false, rosterSheet: false, aboutConv: false });
 }

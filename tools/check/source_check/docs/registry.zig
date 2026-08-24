@@ -91,7 +91,10 @@ pub fn checkLivingStateRegistry(
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "docs/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "docs/{s}", .{entry.name}) catch {
+            try appendViolation(gpa, violations, "docs/{s}: the file name overflows the registry needle buffer; grow it", .{entry.name});
+            continue;
+        };
         if (!registry.contains(needle)) {
             try appendViolation(gpa, violations, "{s}: top-level doc `{s}` is not in the living-state registry", .{ rule_path, needle });
         }
@@ -109,11 +112,17 @@ pub fn checkLivingStateRegistry(
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
         if (std.mem.indexOfScalar(u8, entry.path, '/') == null) continue;
         if (std.mem.startsWith(u8, entry.path, "planning/")) continue;
-        const contents = docs.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch continue;
+        const contents = docs.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "docs/{s}: cannot be read for the living-state registry check ({s})", .{ entry.path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, "Living-state surface") == null) continue;
         var covered_buf: [256]u8 = undefined;
-        const covered_path = std.fmt.bufPrint(&covered_buf, "docs/{s}", .{entry.path}) catch continue;
+        const covered_path = std.fmt.bufPrint(&covered_buf, "docs/{s}", .{entry.path}) catch {
+            try appendViolation(gpa, violations, "docs/{s}: the path overflows the registry needle buffer; grow it", .{entry.path});
+            continue;
+        };
         if (!registryCovers(&registry, covered_path)) {
             try appendViolation(gpa, violations, "{s}: `{s}` declares itself a living-state surface but no registry entry covers it", .{ rule_path, covered_path });
         }
@@ -132,11 +141,17 @@ pub fn checkLivingStateRegistry(
     while (try planning_it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
-        const contents = planning.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch continue;
+        const contents = planning.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "docs/planning/{s}: cannot be read for the living-state registry check ({s})", .{ entry.name, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, "Status: living-state") == null) continue;
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "docs/planning/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "docs/planning/{s}", .{entry.name}) catch {
+            try appendViolation(gpa, violations, "docs/planning/{s}: the file name overflows the registry needle buffer; grow it", .{entry.name});
+            continue;
+        };
         if (!registry.contains(needle)) {
             try appendViolation(gpa, violations, "{s}: planning doc `{s}` declares living-state but is not in the registry", .{ rule_path, needle });
         }

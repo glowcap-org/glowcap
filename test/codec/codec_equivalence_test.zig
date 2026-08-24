@@ -106,7 +106,7 @@ test "deliver arms are codec-equivalent across every target and argument kind" {
 
     try expectCodecEquivalent(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(3) }, .args = &.{} } });
     try expectCodecEquivalent(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = &.{} } } },
+        .target = .{ .promise = .{ .answer_position = .from(1) } },
         .args = &.{},
     } });
 }
@@ -148,6 +148,52 @@ test "a sturdyref argument with locator hint entries is codec-equivalent" {
     } });
 }
 
+test "route-bearing sturdyrefs and hellos are codec-equivalent" {
+    const fallback_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .string = "ocapn://127.0.0.1%3A9001.tcp" },
+    }};
+    const via_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = "ocapn://peer-key.iroh" },
+    }};
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(4) },
+        .args = &.{
+            .{ .reference = .{ .sturdy = &.{
+                .peer = .{
+                    .transport = model.transport.tcp,
+                    .designator = "127.0.0.1:9000",
+                    .hints = .{ .entries = &fallback_hints },
+                },
+                .swissnum = "fallback",
+            } } },
+            .{ .reference = .{ .sturdy = &.{
+                .peer = .{
+                    .transport = model.transport.id,
+                    .designator = "peer-key",
+                    .hints = .{ .entries = &via_hints },
+                },
+                .swissnum = "identity",
+            } } },
+        },
+        .answer = .from(7),
+    } });
+
+    const pubkey = @as([32]u8, @splat(0xaa));
+    const signature = @as([64]u8, @splat(0xbb));
+    try expectCodecEquivalent(.{ .start_session = .{
+        .captp_version = .v1_0,
+        .session_pubkey = .{ .bytes = &pubkey },
+        .acceptable_location = .{
+            .transport = model.transport.id,
+            .designator = "peer-key",
+            .hints = .{ .entries = &via_hints },
+        },
+        .acceptable_location_sig = .{ .bytes = &signature },
+    } });
+}
+
 test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
     try expectCodecEquivalentForProfile(.v1_0, .{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .integer = -7 } } } });
     try expectCodecEquivalentForProfile(.v1_0, .{ .resolve = .{
@@ -164,7 +210,7 @@ test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
     try expectCodecEquivalent(.{ .abort = .{ .kind = .normal_shutdown, .message = "" } });
 
     try expectCodecEquivalent(.{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = .from(7), .path = .{ .ops = &.{} } } },
+        .target = .{ .promise = .{ .answer_position = .from(7) } },
         .listener = .{ .near = model.NearRef.object(2) },
         .mode = .settling_only,
     } });

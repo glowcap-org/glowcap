@@ -72,9 +72,11 @@ fn hostServe(args: HostArgs) !void {
     defer vat.deinit();
 
     _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
-        .store = args.store,
-        .served = args.served,
-        .last_subject = args.last_subject,
+        .state = .{
+            .store = args.store,
+            .served = args.served,
+            .last_subject = args.last_subject,
+        },
     });
 
     try vat.serve();
@@ -132,6 +134,8 @@ fn bail(
 ) noreturn {
     std.debug.print("      " ++ msg ++ "\n", .{});
     cv.deinit();
+    // best-effort: unwind join; this path has already printed the failure and
+    // exits nonzero on the next line.
     _ = host_future.await(io) catch {};
     std.process.exit(1);
 }

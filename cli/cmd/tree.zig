@@ -112,9 +112,7 @@ const app_children = [_]Command{
 
 fn runInit(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     _ = parsed;
-    // Mint always targets XDG state (or explicit --identity / PANCAKE_*), never
-    // the legacy ~/.config path even when one still exists for load.
-    if (ctx.identity_path.len == 0) try ctx.resolveMintIdentityPath();
+    if (ctx.identity_path.len == 0) try ctx.resolveIdentityPath();
     ctx.ensureStateLock() catch |err| {
         return @import("../operability/state_lock.zig").refuseLockFailure(ctx.io, err, ctx.identity_path);
     };

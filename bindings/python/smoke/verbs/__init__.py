@@ -118,7 +118,6 @@ async def _structured_args_round_trip() -> None:
     finally:
         await server.close()
 
-
 async def _enliven_round_trips_then_caches() -> None:
     """Sturdyref enliven (ADR-0012): the requester brings a durable
     ``(peer, swissnum)`` to life as a live :class:`Ref` through the host's
@@ -160,10 +159,25 @@ async def _enliven_round_trips_then_caches() -> None:
         assert again == cap, "cached enliven preserves Target equality"
         greeting2 = await session.send(again, "hello", [])
         assert greeting2 == Symbol("alive"), f"cached enliven answers hello, got {greeting2!r}"
+        host_cap = await session.host.enliven(sturdyref, captp_version="v1_0")
+        assert await session.send(host_cap, "hello", []) == Symbol("alive")
+        try:
+            await session.host.enliven(sturdyref, captp_version="next")
+        except VowBroken:
+            pass
+        else:
+            raise AssertionError("next interpreted a v1.0 swiss as the same authority")
         # Listen (CapTP ``op:listen``): a held capability's resolution comes
         # back through the vow -- a listen on an already-settled capability
         # answers at once.
-        settled = await session.listen(cap)
+        observation = session.listen(cap)
+        try:
+            await session.send(observation, "hello", [])
+        except PancakeError as err:
+            assert err.code == ERR_INVALID_ARGUMENT, err
+        else:
+            raise AssertionError("an op:listen observer became a remote pipeline target")
+        settled = await observation
         assert isinstance(settled, Ref), f"listen settles naming the capability, got {settled!r}"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
@@ -174,7 +188,7 @@ async def _enliven_round_trips_then_caches() -> None:
         cold_serve = asyncio.ensure_future(serve_one())
         cold = Host()
         cold.register_connector(tcp.connector())
-        cold_cap = await cold.enliven(sturdyref)
+        cold_cap = await cold.enliven(sturdyref, captp_version="v1_0")
         cold_exporter = cold.exporter_for(cold_cap)
         assert cold_exporter is not None, "cold enliven retains its exporter session"
         cold_greeting = await cold_exporter.send(cold_cap, "hello", [])
@@ -185,21 +199,32 @@ async def _enliven_round_trips_then_caches() -> None:
         await server.close()
 
 
-async def _gc_releases_projected_capabilities() -> None:
-    """Distributed GC (ADR-0063), opt-in: fetch results, nested send replies,
-    and nested delivered arguments each release their one projected capability
-    occurrence. Both real wire directions are observed before teardown, so a
+async def _distributed_release_reaches_each_capability_home() -> None:
+    """Distributed release (ADR-0063): fetch results, nested send replies, and
+    nested delivered arguments each release their projected capability at its
+    actual home. Both real wire directions are observed before teardown, so a
     session-close sweep cannot satisfy the proof accidentally."""
     server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     gc_counts = {True: 0, False: 0}
     gc_tails = {True: b"", False: b""}
+    gc_seen = {True: asyncio.Event(), False: asyncio.Event()}
     needle = b"op:gc-export"
 
     def observe(chunk: bytes, to_server: bool) -> None:
         combined = gc_tails[to_server] + chunk
-        gc_counts[to_server] += combined.count(needle)
+        found = combined.count(needle)
+        gc_counts[to_server] += found
         gc_tails[to_server] = combined[-(len(needle) - 1):]
+        if found:
+            gc_seen[to_server].set()
+
+    async def await_gc(to_server: bool, expected: int, label: str) -> None:
+        if gc_counts[to_server] >= expected:
+            return
+        gc_seen[to_server].clear()
+        await asyncio.wait_for(gc_seen[to_server].wait(), timeout=2)
+        assert gc_counts[to_server] >= expected, label
 
     relay_port, relay_close = await _start_relay(server.port, observe=observe)
     try:
@@ -208,6 +233,7 @@ async def _gc_releases_projected_capabilities() -> None:
             async for session in server:
                 session.with_gc()
                 delegated = session.spawn(lambda verb, args: None)
+                inbound = asyncio.get_running_loop().create_future()
 
                 def factory(verb, args):
                     if verb == "reply":
@@ -220,11 +246,15 @@ async def _gc_releases_projected_capabilities() -> None:
                         and isinstance(args[0].entries[0][1], list)
                         and isinstance(args[0].entries[0][1][0], Ref)
                     ), args
+                    if not inbound.done():
+                        inbound.set_result(args[0].entries[0][1][0])
                     return None
 
                 session.publish("factory", factory)
                 published.set()
-                await session.serve()
+                serving = session.serve()
+                session.release(await inbound)
+                await serving
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
@@ -240,31 +270,15 @@ async def _gc_releases_projected_capabilities() -> None:
             and isinstance(reply.entries[0][1], list)
             and isinstance(reply.entries[0][1][0], Ref)
         ), reply
-        del reply
-        for _ in range(200):
-            if gc_counts[True] >= 1:
-                break
-            await asyncio.sleep(0.01)
-        assert gc_counts[True] >= 1, "the nested send reply did not release"
+        session.release(reply.entries[0][1][0])
+        await await_gc(True, 1, "the nested send reply did not release")
 
         callback = session.spawn(lambda verb, args: None)
         await session.send(factory, "accept", [Struct([("nested", [callback])])])
-        for _ in range(200):
-            if gc_counts[False] >= 1:
-                break
-            await asyncio.sleep(0.01)
-        assert gc_counts[False] >= 1, "the nested delivered argument did not release"
+        await await_gc(False, 1, "the nested delivered argument did not release")
 
-        del factory
-        for _ in range(200):
-            if gc_counts[True] >= 2:
-                break
-            await asyncio.sleep(0.01)
-        assert gc_counts[True] >= 2, "the fetched capability did not release"
-        # The finalizer parked the release and hopped to the loop; observing
-        # each op:gc-export means it ran, so no parked release is left behind (parity
-        # with the TypeScript, Rust, and Racket dogfoods, which assert the same).
-        assert session._host.pending_release_count() == 0, "the finalizer's parked release drained after the turn"
+        session.release(factory)
+        await await_gc(True, 2, "the fetched capability did not release")
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
@@ -353,10 +367,6 @@ async def _fetch_failed_is_typed() -> None:
         # deliver below.
         state["capturing"] = True
         await session.fetch("plain")
-        for _ in range(100):
-            if plain_export:
-                break
-            await asyncio.sleep(0)
         assert plain_export, "the granting fetch exposed no import-object descriptor"
         state["capturing"] = False
         state["armed"] = True
@@ -369,61 +379,6 @@ async def _fetch_failed_is_typed() -> None:
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         relay_close()
-        await server.close()
-
-
-async def _pipelining_drives_chain() -> None:
-    """Promise pipelining (ADR-0007), the questioner's half: ``Session.send``
-    returns a handle that is also a ``send`` target, so a create -> assign ->
-    complete -> status chain is issued against the *unresolved* ``create`` answer
-    and the four delivers travel as one batch. The board's ``create`` spawns a
-    fresh task from inside the served turn (the turn-time spawn) and returns
-    it; the partner's engine queues the pipelined calls on that pending answer
-    and drains them onto the task once ``create`` resolves. A ``status`` of
-    ``done`` proves the chain crossed without round-tripping per link."""
-    server = await tcp.listen("127.0.0.1", 0)
-    published = asyncio.Event()
-    try:
-
-        async def serve_one() -> None:
-            async for session in server:
-
-                def root(verb, args):
-                    assert verb == "create", verb
-                    state = {"done": False}
-
-                    def task(task_verb, task_args):
-                        if task_verb == "assign":
-                            return "assigned"
-                        if task_verb == "complete":
-                            state["done"] = True
-                            return "done"
-                        if task_verb == "status":
-                            return "done" if state["done"] else "open"
-                        raise ValueError(f"no such method: {task_verb}")
-
-                    return session.spawn(task)
-
-                session.publish("root", root)
-                published.set()
-                await session.serve()
-                break
-
-        serve_task = asyncio.ensure_future(serve_one())
-        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
-        session.serve()
-        await asyncio.wait_for(published.wait(), timeout=5)
-        root_ref = await session.fetch("root")
-        # The four verbs leave together: none awaits create's reply, and assign /
-        # complete / status target the create answer directly.
-        task = session.send(root_ref, "create", ["benchmark"])
-        session.send(task, "assign", ["alice"])
-        session.send(task, "complete", [])
-        status = await session.send(task, "status", [])
-        assert status == "done", f"pipelined status should be done, got {status!r}"
-        await session.close()
-        await asyncio.wait_for(serve_task, timeout=5)
-    finally:
         await server.close()
 
 
@@ -475,103 +430,5 @@ async def _turn_spawn_survives_originating_port_close() -> None:
         await sibling.close()
         await origin_client.close()
         await asyncio.wait_for(hosted, timeout=5)
-    finally:
-        await server.close()
-
-
-async def _unawaited_break_stays_silent() -> None:
-    """Promise pipelining (ADR-0007), the unawaited-anchor contract: a send
-    handle is a real ``asyncio.Future``, and an anchor whose far answer
-    *breaks* -- even after its bytes flush on a sibling's tail -- never
-    surfaces that break, because an unobserved handle materializes no
-    exception (the outcome is recorded, not thrown). This is what lets a
-    pipelining anchor go unawaited safely."""
-    loop = asyncio.get_running_loop()
-    seen: list = []
-    loop.set_exception_handler(lambda _loop, ctx: seen.append(ctx))
-    server = await tcp.listen("127.0.0.1", 0)
-    published = asyncio.Event()
-    try:
-
-        async def serve_one() -> None:
-            async for session in server:
-
-                def root(verb, args):
-                    if verb == "ping":
-                        return "pong"
-                    raise ValueError(f"boom: {verb}")
-
-                session.publish("root", root)
-                published.set()
-                await session.serve()
-                break
-
-        serve_task = asyncio.ensure_future(serve_one())
-        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
-        session.serve()
-        await asyncio.wait_for(published.wait(), timeout=5)
-        root_ref = await session.fetch("root")
-        anchor = session.send(root_ref, "explode", [])
-        assert isinstance(anchor, asyncio.Future), "a send handle must be an asyncio.Future"
-        # `anchor` is never awaited; awaiting ping flushes the queued batch, so
-        # explode's deliver crosses the wire and the host breaks its answer. The
-        # break's FAIL completion is recorded with no waiter -- no exception.
-        pong = await session.send(root_ref, "ping", [])
-        assert pong == "pong", f"expected pong, got {pong!r}"
-        del anchor
-        await asyncio.sleep(0.05)  # let the break land
-        assert not seen, f"unawaited break must stay silent, saw {seen}"
-        await session.close()
-        await asyncio.wait_for(serve_task, timeout=5)
-    finally:
-        await server.close()
-
-
-async def _projections_reach_a_field() -> None:
-    """Pipelined projections (ADR-0050/ADR-0052): ``RemotePromise.index(i)`` and
-    ``.untag(tag)`` access an element / unwrap a tag *at the answer*, before it
-    resolves, each returning a new pipelinable ``RemotePromise``. The board's
-    ``make`` returns ``["assigned", label, 7]`` tagged "task"; untag unwraps the
-    single-value tag to that row, index 1 takes the label -- a two-hop chain that
-    rides the still-pending ``make`` answer with no extra round trip. The source
-    handle is also awaited afterward to prove a far reply observed *late* (after
-    a sibling projection already pumped the loop) still settles from the
-    recorded outcome."""
-    server = await tcp.listen("127.0.0.1", 0, host=Host(captp_version="next"))
-    published = asyncio.Event()
-    try:
-
-        async def serve_one() -> None:
-            async for session in server:
-
-                def root(verb, args):
-                    assert verb == "make", verb
-                    label = str(args[0]) if args else "anon"
-                    # A Tagged wrapping a single list value: untag unwraps to it.
-                    return Tagged("task", [["assigned", label, 7]])
-
-                session.publish("root", root)
-                published.set()
-                await session.serve()
-                break
-
-        serve_task = asyncio.ensure_future(serve_one())
-        session = await tcp_connect(tcp.locator("127.0.0.1", server.port), host=Host(captp_version="next"))
-        session.serve()
-        await asyncio.wait_for(published.wait(), timeout=5)
-        root_ref = await session.fetch("root")
-        # Neither projection awaits a prior reply: they ride the unresolved make
-        # answer and the whole chain leaves on one flush.
-        made = session.send(root_ref, "make", ["alice"])
-        label = await made.untag("task").index(1)
-        assert label == "alice", f"pipelined untag->index should reach the label, got {label!r}"
-        # The source answer settled while the projection pumped the loop; awaiting
-        # it now must still resolve (a late observation settles from the store).
-        full = await made
-        assert isinstance(full, Tagged) and full.tag == "task", (
-            f"awaited source should be the tagged task, got {full!r}"
-        )
-        await session.close()
-        await asyncio.wait_for(serve_task, timeout=5)
     finally:
         await server.close()

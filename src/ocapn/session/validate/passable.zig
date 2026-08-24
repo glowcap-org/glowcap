@@ -9,6 +9,7 @@
 const std = @import("std");
 const model = @import("model");
 const session = @import("../mod.zig");
+const locator_vocabulary = @import("locator_vocabulary.zig");
 
 const Session = session.Session;
 const Error = session.Error;
@@ -36,16 +37,24 @@ const inline_uniqueness_stack_cap = 8;
 /// counts prospective installs against `SessionLimits.max_imports` with the
 /// same rules `registerImport` applies (bootstrap excluded, already-held ids
 /// are refcount refreshes, one new id counts once however often the message
-/// repeats it). `mentions` records every non-bootstrap far mention —
-/// repeats included, each is one wire-delta retain apply must take. Lazy: a
+/// repeats it). `seen` records those distinct fresh rows; `mentions` records
+/// every non-bootstrap far mention — repeats included, each is one wire-delta
+/// retain apply must take — and supports the cold exact-overflow check. Lazy: a
 /// message that carries no far reference never allocates. The record spine
 /// backs it with the per-turn `recv_scratch` arena (no deinit; the turn reset
 /// reclaims it); a validation-only caller backs it with the gpa and pairs it
 /// with `deinit`.
 pub const IntroducedImports = struct {
     allocator: std.mem.Allocator,
+    /// Distinct fresh rows for import-cap and capacity preparation. Already
+    /// held rows stay off this map, preserving the steady-state allocation
+    /// budget; exact overflow counting is a cold prepare branch.
     seen: std.AutoHashMapUnmanaged(model.ImportPosition, void) = .empty,
     mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
+    /// Index in `mentions` owned by the answer's inline V1.0 resolver link,
+    /// not by the surfaced application arguments. Stateless event GC excludes
+    /// this retain; settlement releases it beside the resolver callback.
+    resolver_mention_index: ?usize = null,
     /// Promise-shaped far mentions that require the next profile's one private
     /// shortening subscription. Repeats are retained here; the session table
     /// deduplicates by live import identity when the engine schedules them.
@@ -72,10 +81,42 @@ pub const IntroducedImports = struct {
     }
 
     fn noteFar(self: *IntroducedImports, s: *Session, far: model.FarRef) RecvViewError!void {
-        const import_position = far.import_position;
+        try self.noteIntroduction(s, far.import_position);
+        if (far.kind == .promise) try self.promise_mentions.append(self.allocator, far.import_position);
+    }
+
+    /// Record a resolver descriptor as one introduced import without treating
+    /// a promise-shaped resolver as a promise value that needs shortening.
+    pub fn noteResolver(self: *IntroducedImports, s: *Session, far: model.FarRef) RecvViewError!void {
+        std.debug.assert(self.resolver_mention_index == null);
+        const prior_len = self.mentions.items.len;
+        try self.noteIntroduction(s, far.import_position);
+        if (self.mentions.items.len != prior_len)
+            self.resolver_mention_index = prior_len;
+    }
+
+    /// Copy only application-argument imports for the surfaced event's
+    /// stateless GC pass. The resolver retain remains answer-owned.
+    pub fn dupeArgumentMentions(
+        self: *const IntroducedImports,
+        allocator: std.mem.Allocator,
+    ) !?[]model.ImportPosition {
+        const count = self.mentions.items.len - @intFromBool(self.resolver_mention_index != null);
+        if (count == 0) return null;
+        const result = try allocator.alloc(model.ImportPosition, count);
+        var out: usize = 0;
+        for (self.mentions.items, 0..) |position, index| {
+            if (index == self.resolver_mention_index) continue;
+            result[out] = position;
+            out += 1;
+        }
+        std.debug.assert(out == count);
+        return result;
+    }
+
+    fn noteIntroduction(self: *IntroducedImports, s: *Session, import_position: model.ImportPosition) RecvViewError!void {
         if (import_position.int() == BOOTSTRAP_POSITION) return;
         try self.mentions.append(self.allocator, import_position);
-        if (far.kind == .promise) try self.promise_mentions.append(self.allocator, import_position);
         if (s.imports.contains(import_position)) return;
         const gop = try self.seen.getOrPut(self.allocator, import_position);
         if (gop.found_existing) return;
@@ -186,7 +227,7 @@ pub fn validateReference(
         .near => |near| validateNearReference(self, near, perspective),
         .far => |far| validateFarReference(self, far, far_policy),
         .promise, .broken => {},
-        .sturdy => validateSturdyReference(self),
+        .sturdy => |sturdy| validateSturdyReference(self, sturdy),
     };
 }
 
@@ -206,8 +247,13 @@ fn validateFarReference(self: *Session, far: model.FarRef, comptime far_policy: 
     }
 }
 
-fn validateSturdyReference(self: *Session) Error!void {
+fn validateSturdyReference(self: *Session, sturdy: anytype) Error!void {
     if (!self.features.sturdyref) return Error.FeatureNotNegotiated;
+    const value = if (comptime @typeInfo(@TypeOf(sturdy)) == .pointer)
+        sturdy.*
+    else
+        sturdy;
+    try locator_vocabulary.requireNegotiated(self, value.peer);
 }
 
 pub fn validateInboundArguments(
@@ -450,6 +496,7 @@ fn validateHandoffArgument(self: *const Session, handoff: anytype) Error!void {
         .receive => |receive| receive.signed_give,
     };
     try validateHandoffGiftId(self.captp_version, give.gift_id);
+    try locator_vocabulary.requireNegotiated(self, give.exporter);
 }
 
 /// Validate the profile-specific gift-id domain used by every nested handoff

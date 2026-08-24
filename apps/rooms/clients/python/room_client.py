@@ -55,14 +55,37 @@ DM = "dm"
 REGISTER_ACK_TIMEOUT_S = 10.0
 
 
-def _rooms(raw) -> "list[tuple[str, int]]":
-    """The wire shape of ``list``/``watch`` is a list of ``[name, count]`` pairs;
-    lift it to ``(name, count)`` tuples."""
-    out: list[tuple[str, int]] = []
+@dataclass(frozen=True)
+class RoomInfo:
+    """One exact directory publication. Foreign occupancy is unknown, not zero."""
+
+    name: str
+    count: int | None
+    id: str
+    kind: str
+    origin: str
+    proof: str
+
+
+def _room(raw) -> RoomInfo | None:
+    if not isinstance(raw, list) or len(raw) < 6:
+        return None
+    name, count_raw, entry_id, kind, origin, proof = raw[:6]
+    if not all(isinstance(value, str) for value in (name, entry_id, kind, origin, proof)):
+        return None
+    if count_raw is not None and not isinstance(count_raw, int):
+        return None
+    return RoomInfo(name, count_raw, entry_id, kind, origin, proof)
+
+
+def _rooms(raw) -> "list[RoomInfo]":
+    """Decode the complete list/watch snapshot without inventing occupancy."""
+    out: list[RoomInfo] = []
     if isinstance(raw, list):
         for item in raw:
-            if isinstance(item, list) and len(item) >= 2:
-                out.append((str(item[0]), int(item[1])))
+            room = _room(item)
+            if room is not None:
+                out.append(room)
     return out
 
 
@@ -82,7 +105,7 @@ def rooms_host() -> Host:
     return Host(codec=ROOMS_CODEC, captp_version=ROOMS_CAPTP_VERSION)
 
 
-async def _dial(locator: str) -> Session:
+async def _dial(locator: str) -> "tuple[Runtime, Session]":
     """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
     a bare ``host:port`` over TCP. The room's wire is identical either way; only
     how a member reaches it differs. A URI carrying direct-addresses dials those
@@ -124,6 +147,8 @@ class Directory:
         return cls(session, directory, runtime)
 
     async def close(self) -> None:
+        """Close the session, ending every room's message stream, then release
+        the runtime that carried it."""
         await self.session.close()
         await self._runtime.close()
 
@@ -135,22 +160,21 @@ class Directory:
         """Return a reference to an existing room. Raises if there is none."""
         return await self.session.send(self._directory, ENTER, [name])
 
-    async def list(self) -> "list[tuple[str, int]]":
-        """The live rooms — the ones with people in them — as (name, count)."""
+    async def list(self) -> "list[RoomInfo]":
+        """The directory's exact live local and foreign room publications."""
         return _rooms(await self.session.send(self._directory, LIST, []))
 
-    async def watch(self, on_event) -> "list[tuple[str, int]]":
+    async def watch(self, on_event) -> "list[RoomInfo]":
         """Follow the live room list: hand the directory an inbox it calls back
         with each change, and return the current snapshot as a baseline.
-        ``on_event(kind, name, count)`` then fires on every open/close/count
-        change (``kind`` is ``"opened"``, ``"closed"``, or ``"count"``)."""
+        ``on_event(kind, room)`` then fires with the exact publication record."""
         def observer(verb: str, args: list):
             if verb != NOTIFY:
                 raise ValueError(f"watch inbox has no method {verb!r}")
             kind = args[0] if args and isinstance(args[0], str) else "count"
-            name = args[1] if len(args) > 1 and isinstance(args[1], str) else ""
-            count = int(args[2]) if len(args) > 2 else 0
-            on_event(kind, name, count)
+            room = _room(args[1:])
+            if room is not None:
+                on_event(kind, room)
             return None
 
         inbox = self.session.spawn(observer)
@@ -186,10 +210,6 @@ class Directory:
         if ref is None:
             raise ValueError(f'introduce("{nick}") did not return a capability')
         return ref
-
-    async def close(self) -> None:
-        """Close the session, ending every room's message stream."""
-        await self.session.close()
 
 
 @dataclass

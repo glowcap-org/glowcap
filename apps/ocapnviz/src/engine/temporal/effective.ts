@@ -18,8 +18,8 @@
 import { clampInto, type EffectiveRange } from "./range.ts";
 
 export function effectiveOf(
-  intrinsic: EffectiveRange,
-  parentEffective: EffectiveRange,
+	intrinsic: EffectiveRange,
+	parentEffective: EffectiveRange,
 ): EffectiveRange {
-  return clampInto(intrinsic, parentEffective);
+	return clampInto(intrinsic, parentEffective);
 }

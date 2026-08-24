@@ -28,19 +28,19 @@ import type { DragPlan } from "../hit-test.ts";
  * loaded-fixture cases below all expect the event-addressed variants;
  * entity-addressed plans (freshly authored spans) have their own cases. */
 export function eventIdOf(plan: DragPlan | null): string {
-  if (plan === null || !("eventId" in plan)) {
-    throw new Error("expected an event-addressed drag plan");
-  }
-  return plan.eventId;
+	if (plan === null || !("eventId" in plan)) {
+		throw new Error("expected an event-addressed drag plan");
+	}
+	return plan.eventId;
 }
 
 export const VIEW: TimelineView = {
-  windowStart: 0,
-  windowEnd: 1000,
-  expandedLanes: new Set<LaneKind>(["peers", "sessions", "messages"]),
-  // Categories collapsed (today's default look). Expanded
-  // per-entity rows are covered in `events.test.ts`.
-  expandedCategories: new Set(),
+	windowStart: 0,
+	windowEnd: 1000,
+	expandedLanes: new Set<LaneKind>(["peers", "sessions", "messages"]),
+	// Categories collapsed (today's default look). Expanded
+	// per-entity rows are covered in `events.test.ts`.
+	expandedCategories: new Set(),
 };
 // Width chosen so the plot is exactly 120 px after subtracting the
 // 104 px gutter AND the 4 px left + 4 px right pad — keeps the pixel
@@ -50,25 +50,29 @@ export const WIDTH = 232;
 export const HEIGHT = 118;
 export const LANE_HEIGHT = 30;
 
-export function makePeer(id: string, joinT: number, leftT?: number): TimelineEvent[] {
-  const out: TimelineEvent[] = [
-    {
-      id: `${id}-joined`,
-      kind: "peer-joined",
-      t: joinT,
-      peerId: id,
-      profile: "pancake",
-    },
-  ];
-  if (leftT !== undefined) {
-    out.push({
-      id: `${id}-left`,
-      kind: "peer-left",
-      t: leftT,
-      peerId: id,
-    });
-  }
-  return out;
+export function makePeer(
+	id: string,
+	joinT: number,
+	leftT?: number,
+): TimelineEvent[] {
+	const out: TimelineEvent[] = [
+		{
+			id: `${id}-joined`,
+			kind: "peer-joined",
+			t: joinT,
+			peerId: id,
+			profile: "pancake",
+		},
+	];
+	if (leftT !== undefined) {
+		out.push({
+			id: `${id}-left`,
+			kind: "peer-left",
+			t: leftT,
+			peerId: id,
+		});
+	}
+	return out;
 }
 
 /** Build a minimal TimelineDocument from `events` so hitTestEvents
@@ -77,22 +81,22 @@ export function makePeer(id: string, joinT: number, leftT?: number): TimelineEve
  *  observations on a fixture recording source and run
  *  `projectFromObservations` to seed `entities.*.timing`. */
 export function docFor(events: readonly TimelineEvent[]): TimelineDocument {
-  const base: TimelineDocument = {
-    id: "scrubber-test",
-    duration: 1000,
-    recording: {
-      sources: [{
-        id: "fixture",
-        meta: { kind: "fixture" },
-        observations: [...events],
-      }],
-    },
-    rowOrder: {},
-    rowHidden: {},
-    rowLabelHidden: {},
-    rowBodyHidden: {},
-  };
-  return projectFromObservations(base);
+	const base: TimelineDocument = {
+		id: "scrubber-test",
+		duration: 1000,
+		recording: {
+			sources: [{
+				id: "fixture",
+				meta: { kind: "fixture" },
+				observations: [...events],
+			}],
+		},
+		rowOrder: {},
+		rowHidden: {},
+		rowLabelHidden: {},
+		rowBodyHidden: {},
+	};
+	return projectFromObservations(base);
 }
 
 /** Build the row layout the renderer would paint for `events`,
@@ -102,30 +106,30 @@ export function docFor(events: readonly TimelineEvent[]): TimelineDocument {
  *  of what events the specific test supplies. Empty categories still
  *  get a row — `row-layout.test.ts` pins that walk. */
 export function rowsFor(events: readonly TimelineEvent[]): RowDescriptor[] {
-  const peers = new Set<string>(["_peer_placeholder"]);
-  const sessions = new Set<string>(["_session_placeholder"]);
-  const messages = new Set<string>(["_message_placeholder"]);
-  for (const ev of events) {
-    if (ev.kind === "peer-joined" || ev.kind === "peer-left") {
-      peers.add(ev.peerId);
-    } else if (
-      ev.kind === "session-opened" ||
-      ev.kind === "session-closed" ||
-      ev.kind === "session-state-changed"
-    ) sessions.add(ev.sessionId);
-    else if (
-      ev.kind === "message-sent" || ev.kind === "message-delivered"
-    ) messages.add(ev.messageId);
-  }
-  return [...iterateRows(
-    VIEW.expandedLanes,
-    VIEW.expandedCategories,
-    {
-      peers: [...peers],
-      sessions: [...sessions],
-      messages: [...messages],
-    },
-    undefined,
-    LANE_HEIGHT,
-  )];
+	const peers = new Set<string>(["_peer_placeholder"]);
+	const sessions = new Set<string>(["_session_placeholder"]);
+	const messages = new Set<string>(["_message_placeholder"]);
+	for (const ev of events) {
+		if (ev.kind === "peer-joined" || ev.kind === "peer-left") {
+			peers.add(ev.peerId);
+		} else if (
+			ev.kind === "session-opened" ||
+			ev.kind === "session-closed" ||
+			ev.kind === "session-state-changed"
+		) sessions.add(ev.sessionId);
+		else if (
+			ev.kind === "message-sent" || ev.kind === "message-delivered"
+		) messages.add(ev.messageId);
+	}
+	return [...iterateRows(
+		VIEW.expandedLanes,
+		VIEW.expandedCategories,
+		{
+			peers: [...peers],
+			sessions: [...sessions],
+			messages: [...messages],
+		},
+		undefined,
+		LANE_HEIGHT,
+	)];
 }

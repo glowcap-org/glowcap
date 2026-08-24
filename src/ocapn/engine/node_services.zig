@@ -25,7 +25,6 @@ pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || err
     PeerGone,
     session_not_open,
     MissingPartnerDesignator,
-    UnsupportedPipelineOp,
 };
 pub const HandoffCountError = error{HandoffCountExhausted};
 pub const PromiseShorteningError = std.mem.Allocator.Error || error{

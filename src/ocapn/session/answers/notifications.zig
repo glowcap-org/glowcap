@@ -40,9 +40,20 @@ pub fn payload(self: *Session, target: answers.AnswerTarget) ?*answers.AnswerPay
     return livePayload(self, target) orelse detachedPayload(self, target);
 }
 
-fn needsDetachedOwner(answer_payload: *const answers.AnswerPayload) bool {
+/// Every inbound answer obligation still owned by the session. Wire-name GC
+/// moves accepted work from the live table to the detached store, so both
+/// stores spend the one inbound-answer budget.
+pub fn obligationCount(self: *const Session) usize {
+    const detached = if (self.detached_inbound_answers) |store| store.rows.count() else 0;
+    return std.math.add(usize, self.inbound_answers.len(), detached) catch
+        std.math.maxInt(usize);
+}
+
+fn hasAcceptedConsequences(answer_payload: *const answers.AnswerPayload) bool {
     return answer_payload.resolver_import != null or
+        answer_payload.queue.items.len != 0 or
         answer_payload.listeners.len() != 0 or
+        answer_payload.projections.items.len != 0 or
         answer_payload.refs > 1;
 }
 
@@ -102,7 +113,7 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
             }
         }
         if (row.payload) |answer_payload| {
-            if (self.resolverForInboundAnswer(name) != null or needsDetachedOwner(answer_payload))
+            if (self.resolverForInboundAnswer(name) != null or hasAcceptedConsequences(answer_payload))
                 detached_count = std.math.add(u32, detached_count, 1) catch
                     return error.QueueCapExceeded;
         }
@@ -119,17 +130,17 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
 }
 
 /// Commit the final decrement of one inbound answer after `prepareGc`.
-/// Pipelining state dies now; an independently accepted notification moves to
-/// the detached row-id store without allocation and the wire name becomes
-/// immediately reusable.
+/// Future pipelining dies now; calls, projections, and notifications already
+/// accepted for this incarnation move to the detached row-id store without
+/// allocation. The wire name becomes immediately reusable without cancelling
+/// work that crossed the receive transaction before the release.
 pub fn commitFinalGc(self: *Session, name: model.AnswerName) void {
     const row = self.inbound_answers.getPtr(name) orelse unreachable;
     std.debug.assert(row.count == 1);
     row.count = 0;
     _ = self.v1_0_inbound_resolver_link.removeByKey(name);
     if (row.payload) |answer_payload| {
-        answers.clearAnswerPipelining(self.allocator, answer_payload);
-        if (needsDetachedOwner(answer_payload)) {
+        if (hasAcceptedConsequences(answer_payload)) {
             const target: answers.AnswerTarget = .{ .name = name, .row_id = row.row_id };
             self.detached_inbound_answers.?.rows.putAssumeCapacity(
                 target.row_id,
@@ -200,6 +211,11 @@ pub fn retainPayload(_: *Session, answer_payload: *answers.AnswerPayload) !void 
 }
 
 pub fn resolution(_: *Session, answer_payload: *answers.AnswerPayload) ?*const model.Resolution {
+    if (answer_payload.resolution) |*stored| return &stored.value;
+    return null;
+}
+
+pub fn storedResolution(_: *Session, answer_payload: *answers.AnswerPayload) ?*const answers.StoredResolution {
     if (answer_payload.resolution) |*stored| return stored;
     return null;
 }
@@ -226,8 +242,10 @@ pub fn clearResolver(self: *Session, target: answers.AnswerTarget, answer_payloa
 
 fn noticeComplete(payload_in: *const answers.AnswerPayload) bool {
     return payload_in.resolution != null and
+        payload_in.queue.items.len == 0 and
         payload_in.resolver_import == null and
-        payload_in.listeners.len() == 0;
+        payload_in.listeners.len() == 0 and
+        payload_in.projections.items.len == 0;
 }
 
 /// Remove a completed detached registry owner. Queued carriers retain the same

@@ -129,6 +129,22 @@ export class RtcPeer {
 			this.#pendingLocal.push(queued.candidate);
 			this.#pendingLocalBytes += queued.textBytes;
 		};
+		// The ICE agent's terminal verdict. Without this, two peers with no
+		// route to each other (no reachable STUN or TURN, different networks)
+		// never open a channel and never fail one either: `waitOpen` simply
+		// hangs, and every caller above it hangs with it. "failed" is the one
+		// state that cannot recover, so it closes the peer with a reason a
+		// person can act on; "disconnected" can still repair itself and is
+		// deliberately not treated as an ending.
+		this.#pc.onconnectionstatechange = () => {
+			if (this.#pc.connectionState !== "failed") return;
+			this.#closeWithError(
+				new Error(
+					"webrtc: the peers found no route to each other (ICE failed); " +
+						"without a reachable STUN or TURN server, only peers on the same network can connect",
+				),
+			);
+		};
 		if (init.offerer) {
 			this.#wireChannel(this.#pc.createDataChannel(CHANNEL_LABEL, { ordered: true }));
 		} else {

@@ -10,9 +10,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCoarsePointer, useDismissOnClickOutside } from "./hooks.ts";
 import { usePeer } from "./peer.ts";
-import type { AttachmentView, Conv, SessionPhase } from "./types.ts";
+import { type AttachmentView, type Conv, liveRoomNames, type LiveRooms, type SessionPhase } from "./types.ts";
 import { commandIn, hereOf } from "./commands.ts";
-import { acceptCompletion, type Candidate, completeCandidates, triggerAt } from "./complete.ts";
+import { acceptCompletion, type Candidate, commandArgTrigger, completeCandidates, triggerAt } from "./complete.ts";
 import { lineRoom, PICKER, roomCalled } from "./text.ts";
 import { lineCost } from "../../lib/limits.ts";
 import { PHASE_SAID } from "./text.ts";
@@ -49,7 +49,7 @@ export function Composer(
 		 * Present makes the composer a view of that line's files, each removable,
 		 * with the new ones added after them. */
 		draftKeeping: readonly AttachmentView[] | undefined;
-		liveRooms: ReadonlyMap<string, number>;
+		liveRooms: LiveRooms;
 		/** Names this directory says are reachable for a direct message. What a
 		 * command whose target is somebody to bring in — `/invite`, `/msg` —
 		 * completes against, since those want the people the members list omits. */
@@ -82,11 +82,11 @@ export function Composer(
 	// Last submitted line currently sitting in the field because Up recalled it.
 	// Down restores empty while this still matches; any other edit drops it.
 	const [recalled, setRecalled] = useState<string | null>(null);
-	const trigger = focused && enabled ? triggerAt(draft, caret) : null;
+	const trigger = focused && enabled ? commandArgTrigger(draft, caret) ?? triggerAt(draft, caret) : null;
 	const candidates = trigger !== null && trigger.start !== dismissedAt
 		? completeCandidates(trigger, {
 			nicks: nickSource(trigger, conv, draft, reachable, nick),
-			rooms: trigger.kind === "room" ? [...liveRooms.keys()] : [],
+			rooms: trigger.kind === "room" ? liveRoomNames(liveRooms) : [],
 			grants: conv?.type === "room" ? conv.grants : undefined,
 			here: hereOf(conv),
 			targets: commandIn(draft)?.command.targets,

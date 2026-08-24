@@ -82,9 +82,11 @@ pub const HostError = error{
     /// A CapTP session for this partner is already enrolled (ADR-0012):
     /// dial-to-dial by our dial target, or by a durable peer identity that a
     /// matching channel proof authenticated. A partner's locator claim alone
-    /// never enters the durable-peer index. Crossed hellos may still open an
-    /// accepted session while a dial is in flight; authenticated pairs then
-    /// keep at most one non-condemned session (ADR-0068).
+    /// never enters the durable-peer index. Identity-routed pending dials may
+    /// pass a concrete-route match only when the existing session has not
+    /// authenticated the demanded key; crossed hellos may still open an accepted
+    /// session while a dial is in flight. Authenticated pairs then keep at most
+    /// one non-condemned session (ADR-0068).
     SessionPairExists,
     /// One live import position was observed under both reference kinds. The
     /// first lift established its canonical Host identity; accepting the

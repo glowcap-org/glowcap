@@ -10,8 +10,9 @@
 // already the window that names what this page is made of, and the catalog is
 // the same idea aimed at the controls rather than the words. Only the cursor
 // gives the door away — a development surface earns an easter egg's
-// affordance — and it stays this dialog rather than a third modal, because a
-// dialog on a dialog is the shape this file exists to avoid.
+// affordance. A long refusal in that catalog opens its own card the way this
+// dialog sits over Settings: Help leaves without an exit, and closing the
+// card puts the catalog back.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePeer } from "./peer.ts";
@@ -21,8 +22,9 @@ import { KitchenSink } from "./KitchenSink.tsx";
 import { Button } from "./Button.tsx";
 
 export function Help(
-	{ open, theme, notifyOn, onLayer }: {
+	{ open, retain = false, theme, notifyOn, onLayer }: {
 		open: boolean;
+		retain?: boolean;
 		theme: "light" | "dark";
 		notifyOn: boolean;
 		onLayer: (held: boolean) => void;
@@ -32,16 +34,16 @@ export function Help(
 	const titleId = "helpTitle";
 	const close = useRef<HTMLButtonElement>(null);
 	const dialog = useRef<HTMLDialogElement>(null);
-	const { held, onExited } = useHeldModal(open);
+	const { held, onExited } = useHeldModal(open, retain);
 	const [sink, setSink] = useState(false);
 	useEffect(() => {
-		if (!open) setSink(false);
-	}, [open]);
+		if (!open && !retain) setSink(false);
+	}, [open, retain]);
 	useLayoutEffect(() => {
 		onLayer(held);
 		return () => onLayer(false);
 	}, [held, onLayer]);
-	useModalDialog(dialog, () => peer.closeHelp(), close, open, onExited);
+	useModalDialog(dialog, () => peer.closeHelp(), close, open, onExited, retain);
 	if (!held) return null;
 
 	return (
@@ -51,7 +53,7 @@ export function Help(
 			aria-labelledby={titleId}
 		>
 			<form
-				className={sink ? "modal-card kitchen-card" : "modal-card"}
+				className={sink ? "modal-card card-plane kitchen-card" : "modal-card"}
 				onSubmit={(event) => event.preventDefault()}
 			>
 				<SettingsHead
@@ -113,7 +115,8 @@ export function Help(
 											secret
 										</button>, unguessable name a peer will look up for you. Each operations
 										capability is published under one when the app is started with its flag —{" "}
-										<code>--diagnostics</code> or <code>--admin-listeners</code>{" "}
+										<code>--diagnostics</code>, <code>--admin-listeners</code>, or{" "}
+										<code>--peering</code>{" "}
 										— and that is what the server prints. A durable room link is named by one too.
 									</dd>
 								</div>

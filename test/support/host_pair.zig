@@ -15,6 +15,13 @@ const HostSession = driver.core.HostSession;
 
 pub const Pair = struct { ah: *Host, a: *HostSession, bh: *Host, b: *HostSession };
 
+fn acceptsInbound(session: *const HostSession) bool {
+    return switch (session.lifecyclePhase()) {
+        .active, .finishing => true,
+        .cancel_pending, .terminating => false,
+    };
+}
+
 /// Move every queued frame across the pair, both directions; a feed error
 /// surfaces to the caller (often the assertion under test).
 pub fn shuttle(pair: Pair) !bool {
@@ -22,13 +29,13 @@ pub fn shuttle(pair: Pair) !bool {
     while (try pair.a.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        try pair.bh.feed(pair.b, frame.view());
+        if (acceptsInbound(pair.b)) try pair.bh.feed(pair.b, frame.view());
         moved = true;
     }
     while (try pair.b.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        try pair.ah.feed(pair.a, frame.view());
+        if (acceptsInbound(pair.a)) try pair.ah.feed(pair.a, frame.view());
         moved = true;
     }
     return moved;

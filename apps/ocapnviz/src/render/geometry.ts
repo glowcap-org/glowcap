@@ -14,20 +14,20 @@ import type { Graphics } from "pixi.js";
 
 /** Axis-aligned rectangle in surface-local coordinates. */
 export type Rect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
 };
 
 /** Half-open clamp bounds. `maxX` / `maxY` are exclusive in the same
  *  sense as canvas dimensions — a rect that ends exactly at `maxX`
  *  reads as flush-right against the edge. */
 export type Bounds = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
 };
 
 /** Clamp a rectangle's corners into `bounds`. Returns a rect whose
@@ -46,30 +46,30 @@ export type Bounds = {
  *  surface (Stage marquee, Scrubber marquee) so the "two pointer
  *  positions → AABB" conversion is spelled the same way everywhere. */
 export function rectFromCorners(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
+	ax: number,
+	ay: number,
+	bx: number,
+	by: number,
 ): Rect {
-  return {
-    x: Math.min(ax, bx),
-    y: Math.min(ay, by),
-    width: Math.abs(bx - ax),
-    height: Math.abs(by - ay),
-  };
+	return {
+		x: Math.min(ax, bx),
+		y: Math.min(ay, by),
+		width: Math.abs(bx - ax),
+		height: Math.abs(by - ay),
+	};
 }
 
 export function clampRectToBounds(rect: Rect, bounds: Bounds): Rect {
-  const x0 = Math.max(bounds.minX, rect.x);
-  const y0 = Math.max(bounds.minY, rect.y);
-  const x1 = Math.min(bounds.maxX, rect.x + rect.width);
-  const y1 = Math.min(bounds.maxY, rect.y + rect.height);
-  return {
-    x: x0,
-    y: y0,
-    width: Math.max(0, x1 - x0),
-    height: Math.max(0, y1 - y0),
-  };
+	const x0 = Math.max(bounds.minX, rect.x);
+	const y0 = Math.max(bounds.minY, rect.y);
+	const x1 = Math.min(bounds.maxX, rect.x + rect.width);
+	const y1 = Math.min(bounds.maxY, rect.y + rect.height);
+	return {
+		x: x0,
+		y: y0,
+		width: Math.max(0, x1 - x0),
+		height: Math.max(0, y1 - y0),
+	};
 }
 
 /** Rectangle ↔ circle overlap. True iff any point inside the
@@ -78,19 +78,19 @@ export function clampRectToBounds(rect: Rect, bounds: Bounds): Rect {
  *  point on the rect to the circle center; the circle overlaps
  *  iff that point lies within `r` of the center. */
 export function rectCircleOverlap(
-  rx0: number,
-  ry0: number,
-  rx1: number,
-  ry1: number,
-  cx: number,
-  cy: number,
-  r: number,
+	rx0: number,
+	ry0: number,
+	rx1: number,
+	ry1: number,
+	cx: number,
+	cy: number,
+	r: number,
 ): boolean {
-  const closestX = cx < rx0 ? rx0 : cx > rx1 ? rx1 : cx;
-  const closestY = cy < ry0 ? ry0 : cy > ry1 ? ry1 : cy;
-  const dx = cx - closestX;
-  const dy = cy - closestY;
-  return dx * dx + dy * dy <= r * r;
+	const closestX = cx < rx0 ? rx0 : cx > rx1 ? rx1 : cx;
+	const closestY = cy < ry0 ? ry0 : cy > ry1 ? ry1 : cy;
+	const dx = cx - closestX;
+	const dy = cy - closestY;
+	return dx * dx + dy * dy <= r * r;
 }
 
 /** Proper segment-segment intersection (parametric). Excludes the
@@ -98,42 +98,42 @@ export function rectCircleOverlap(
  *  endpoint-in-rect check covers collinear segments touching the
  *  rect anyway. */
 export function segmentsIntersect(
-  p1x: number,
-  p1y: number,
-  p2x: number,
-  p2y: number,
-  p3x: number,
-  p3y: number,
-  p4x: number,
-  p4y: number,
+	p1x: number,
+	p1y: number,
+	p2x: number,
+	p2y: number,
+	p3x: number,
+	p3y: number,
+	p4x: number,
+	p4y: number,
 ): boolean {
-  const d = (p2x - p1x) * (p4y - p3y) - (p2y - p1y) * (p4x - p3x);
-  if (d === 0) return false;
-  const t = ((p3x - p1x) * (p4y - p3y) - (p3y - p1y) * (p4x - p3x)) / d;
-  const u = ((p3x - p1x) * (p2y - p1y) - (p3y - p1y) * (p2x - p1x)) / d;
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+	const d = (p2x - p1x) * (p4y - p3y) - (p2y - p1y) * (p4x - p3x);
+	if (d === 0) return false;
+	const t = ((p3x - p1x) * (p4y - p3y) - (p3y - p1y) * (p4x - p3x)) / d;
+	const u = ((p3x - p1x) * (p2y - p1y) - (p3y - p1y) * (p2x - p1x)) / d;
+	return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 
 /** Rectangle ↔ line-segment overlap. True iff the segment
  *  (ax, ay) → (bx, by) intersects, is fully inside, or touches
  *  the axis-aligned rect [rx0, rx1] × [ry0, ry1]. */
 export function rectSegmentOverlap(
-  rx0: number,
-  ry0: number,
-  rx1: number,
-  ry1: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
+	rx0: number,
+	ry0: number,
+	rx1: number,
+	ry1: number,
+	ax: number,
+	ay: number,
+	bx: number,
+	by: number,
 ): boolean {
-  if (ax >= rx0 && ax <= rx1 && ay >= ry0 && ay <= ry1) return true;
-  if (bx >= rx0 && bx <= rx1 && by >= ry0 && by <= ry1) return true;
-  if (segmentsIntersect(ax, ay, bx, by, rx0, ry0, rx1, ry0)) return true;
-  if (segmentsIntersect(ax, ay, bx, by, rx1, ry0, rx1, ry1)) return true;
-  if (segmentsIntersect(ax, ay, bx, by, rx0, ry1, rx1, ry1)) return true;
-  if (segmentsIntersect(ax, ay, bx, by, rx0, ry0, rx0, ry1)) return true;
-  return false;
+	if (ax >= rx0 && ax <= rx1 && ay >= ry0 && ay <= ry1) return true;
+	if (bx >= rx0 && bx <= rx1 && by >= ry0 && by <= ry1) return true;
+	if (segmentsIntersect(ax, ay, bx, by, rx0, ry0, rx1, ry0)) return true;
+	if (segmentsIntersect(ax, ay, bx, by, rx1, ry0, rx1, ry1)) return true;
+	if (segmentsIntersect(ax, ay, bx, by, rx0, ry1, rx1, ry1)) return true;
+	if (segmentsIntersect(ax, ay, bx, by, rx0, ry0, rx0, ry1)) return true;
+	return false;
 }
 
 /** Length (in perimeter pixels) of a single fg or bg dash. 2 px
@@ -161,39 +161,39 @@ const ANT_MS = 30;
  * slides the dash-boundaries gradually through the dash, which
  * reads as smooth motion at any rate. */
 function paintAntsRect(
-  g: Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  phase: number,
+	g: Graphics,
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+	phase: number,
 ): void {
-  const perim = 2 * w + 2 * h;
-  if (perim <= 0) return;
-  const period = ANT_DASH_PX * 2;
-  for (let parity = 0; parity < 2; parity++) {
-    for (let p = 0; p < perim; p++) {
-      const inPeriod = ((p + phase) % period + period) % period;
-      const dashIdx = inPeriod < ANT_DASH_PX ? 0 : 1;
-      if (dashIdx !== parity) continue;
-      let px: number, py: number;
-      if (p < w) {
-        px = x + p;
-        py = y;
-      } else if (p < w + h) {
-        px = x + w - 1;
-        py = y + (p - w);
-      } else if (p < 2 * w + h) {
-        px = x + w - 1 - (p - w - h);
-        py = y + h - 1;
-      } else {
-        px = x;
-        py = y + h - 1 - (p - 2 * w - h);
-      }
-      g.rect(px, py, 1, 1);
-    }
-    g.fill({ color: parity === 0 ? 0xffffff : 0x000000, alpha: 0.95 });
-  }
+	const perim = 2 * w + 2 * h;
+	if (perim <= 0) return;
+	const period = ANT_DASH_PX * 2;
+	for (let parity = 0; parity < 2; parity++) {
+		for (let p = 0; p < perim; p++) {
+			const inPeriod = ((p + phase) % period + period) % period;
+			const dashIdx = inPeriod < ANT_DASH_PX ? 0 : 1;
+			if (dashIdx !== parity) continue;
+			let px: number, py: number;
+			if (p < w) {
+				px = x + p;
+				py = y;
+			} else if (p < w + h) {
+				px = x + w - 1;
+				py = y + (p - w);
+			} else if (p < 2 * w + h) {
+				px = x + w - 1 - (p - w - h);
+				py = y + h - 1;
+			} else {
+				px = x;
+				py = y + h - 1 - (p - 2 * w - h);
+			}
+			g.rect(px, py, 1, 1);
+		}
+		g.fill({ color: parity === 0 ? 0xffffff : 0x000000, alpha: 0.95 });
+	}
 }
 
 /** Paint a marching-ants marquee rectangle. Single entry point for
@@ -204,13 +204,13 @@ function paintAntsRect(
  *  zero-area rects so callers can pass raw drag deltas without
  *  guarding. */
 export function paintMarchingAntsBand(
-  g: Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
+	g: Graphics,
+	x: number,
+	y: number,
+	w: number,
+	h: number,
 ): void {
-  if (w <= 0 || h <= 0) return;
-  const phase = Math.floor(performance.now() / ANT_MS);
-  paintAntsRect(g, x, y, w, h, phase);
+	if (w <= 0 || h <= 0) return;
+	const phase = Math.floor(performance.now() / ANT_MS);
+	paintAntsRect(g, x, y, w, h, phase);
 }

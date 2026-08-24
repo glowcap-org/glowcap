@@ -24,14 +24,14 @@
 import type { Engine } from "../engine/engine.ts";
 
 export function asOneEdit(
-  engine: Engine,
-  label: string,
-  body: () => void,
+	engine: Engine,
+	label: string,
+	body: () => void,
 ): void {
-  engine.beginTransaction(label);
-  try {
-    body();
-  } finally {
-    engine.endTransaction();
-  }
+	engine.beginTransaction(label);
+	try {
+		body();
+	} finally {
+		engine.endTransaction();
+	}
 }

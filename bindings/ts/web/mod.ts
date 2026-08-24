@@ -134,16 +134,18 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 		throw new Error("pancake web: a runtime adapter is already installed");
 	}
 
-	// The module's one import is the behavior-dispatch seam
-	// (`env.pancake_behavior_trampoline`); the adapter fills the slot the
-	// import forwards to when the runtime registers its shared trampoline.
-	let trampoline:
+	// The module imports the two hosted-object callback shapes: behavior dispatch
+	// and native actor retirement. The adapter fills these late-bound slots when
+	// the runtime registers its shared trampolines.
+	let behaviorTrampoline:
 		| ((...args: number[]) => number)
 		| null = null;
+	let hostedFreeTrampoline: ((ctx: number) => void) | null = null;
 	const imports: WebAssembly.Imports = {
 		env: {
 			pancake_behavior_trampoline: (...args: number[]): number =>
-				trampoline === null ? INVALID_ARGUMENT : trampoline(...args),
+				behaviorTrampoline === null ? INVALID_ARGUMENT : behaviorTrampoline(...args),
+			pancake_hosted_free_trampoline: (ctx: number): void => hostedFreeTrampoline?.(ctx),
 		},
 	};
 
@@ -170,39 +172,53 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 	// Route the module's trampoline import through the adapter: it converts
 	// the raw i32s to the runtime's bigint vocabulary and forwards to whatever
 	// callback the runtime registered through `makeCallback`.
-	trampoline = (ctx, turn, verbPtr, verbLen, argsPtr, argsLen, outReply) =>
-		web.trampolineImport(ctx, turn, verbPtr, verbLen, argsPtr, argsLen, outReply);
+	behaviorTrampoline = (ctx, turn, verbPtr, verbLen, argsPtr, argsLen, outReply) =>
+		web.behaviorTrampolineImport(ctx, turn, verbPtr, verbLen, argsPtr, argsLen, outReply);
+	hostedFreeTrampoline = (ctx) => web.hostedFreeTrampolineImport(ctx);
 
 	registry[injected_adapter_key] = web.adapter;
-	const runtimeApi = await import("@pancake/runtime");
-	const openRuntime = async (runtimeOptions: WebRuntimeOptions = {}): Promise<Runtime> => {
-		return await runtimeApi.Runtime.open({
-			connectors: [
-				...browserConnectors(runtimeApi, options),
-				...(runtimeOptions.connectors ?? []),
-			],
-			codec: runtimeOptions.codec,
-			captpVersion: runtimeOptions.captpVersion,
-			features: runtimeOptions.features,
-			seed: runtimeOptions.seed,
-			handshakeTimeoutMs: runtimeOptions.handshakeTimeoutMs,
+	try {
+		const runtimeApi = await import("@pancake/runtime");
+		const openRuntime = async (runtimeOptions: WebRuntimeOptions = {}): Promise<Runtime> => {
+			return await runtimeApi.Runtime.open({
+				connectors: [
+					...browserConnectors(runtimeApi, options),
+					...(runtimeOptions.connectors ?? []),
+				],
+				codec: runtimeOptions.codec,
+				captpVersion: runtimeOptions.captpVersion,
+				features: runtimeOptions.features,
+				seed: runtimeOptions.seed,
+				handshakeTimeoutMs: runtimeOptions.handshakeTimeoutMs,
+			});
+		};
+		const runtime = await openRuntime({
+			codec: options.codec,
+			captpVersion: options.captpVersion,
+			features: options.features,
+			seed: options.seed,
+			handshakeTimeoutMs: options.handshakeTimeoutMs,
+			connectors: options.connectors,
 		});
-	};
-	const runtime = await openRuntime({
-		codec: options.codec,
-		captpVersion: options.captpVersion,
-		features: options.features,
-		seed: options.seed,
-		handshakeTimeoutMs: options.handshakeTimeoutMs,
-		connectors: options.connectors,
-	});
-	return Object.assign({}, runtimeApi, {
-		runtime,
-		host: runtime.host,
-		connect: runtime.connect.bind(runtime),
-		close: runtime.close.bind(runtime),
-		openRuntime,
-	});
+		return Object.assign({}, runtimeApi, {
+			runtime,
+			host: runtime.host,
+			connect: runtime.connect.bind(runtime),
+			close: runtime.close.bind(runtime),
+			openRuntime,
+		});
+	} catch (error) {
+		// A failed load must not squat the page's one adapter slot: left
+		// registered, the next attempt is refused as "already installed" and
+		// the failure that actually matters — a stale wasm's archive
+		// fingerprint, a refused Host — is never seen again. Only this
+		// attempt's own registration is withdrawn; a committed adapter
+		// belongs to the runtime and stays.
+		if (registry[injected_adapter_key] === web.adapter) {
+			delete registry[injected_adapter_key];
+		}
+		throw error;
+	}
 }
 
 function browserConnectors(

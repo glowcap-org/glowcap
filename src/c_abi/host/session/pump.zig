@@ -126,22 +126,11 @@ pub export fn pancake_host_session_take_packet(
         prefix_len.* = c.PANCAKE_HOST_OUTBOUND_PREFIX_CAP;
         return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
     }
-    const inst = instOf(session.host);
-    const reservation = shared.reserveManagedFrame(inst.allocator) catch {
-        shared.setLastError("take_packet: frame wrap allocation failed", .{});
-        return shared.PANCAKE_ERR_INTERNAL;
-    };
-    const popped = session.takeTransportOutbound() catch |err| {
-        reservation.cancel();
-        return errToCode(err);
-    };
-    const outbound = popped orelse {
-        reservation.cancel();
-        return PANCAKE_ERR_WOULD_BLOCK;
-    };
+    const popped = session.takeTransportOutbound() catch |err| return errToCode(err);
+    const outbound = popped orelse return PANCAKE_ERR_WOULD_BLOCK;
     @memcpy(prefix[0..outbound.prefix_len], outbound.prefixBytes());
     prefix_len.* = outbound.prefix_len;
-    slot.* = reservation.commit(outbound.payload);
+    slot.* = shared.managedFrame(outbound.payload);
     return PANCAKE_OK;
 }
 
@@ -167,21 +156,10 @@ pub export fn pancake_host_session_take_outbound(
         prefix_len.* = c.PANCAKE_HOST_OUTBOUND_PREFIX_CAP;
         return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
     }
-    const inst = instOf(session.host);
-    const reservation = shared.reserveManagedFrame(inst.allocator) catch {
-        shared.setLastError("take_outbound: frame wrap allocation failed", .{});
-        return shared.PANCAKE_ERR_INTERNAL;
-    };
-    const popped = session.takeStreamOutbound() catch |err| {
-        reservation.cancel();
-        return errToCode(err);
-    };
-    const outbound = popped orelse {
-        reservation.cancel();
-        return PANCAKE_ERR_WOULD_BLOCK;
-    };
+    const popped = session.takeStreamOutbound() catch |err| return errToCode(err);
+    const outbound = popped orelse return PANCAKE_ERR_WOULD_BLOCK;
     @memcpy(prefix[0..outbound.prefix_len], outbound.prefixBytes());
     prefix_len.* = outbound.prefix_len;
-    slot.* = reservation.commit(outbound.payload);
+    slot.* = shared.managedFrame(outbound.payload);
     return PANCAKE_OK;
 }

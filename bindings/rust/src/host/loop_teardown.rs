@@ -54,6 +54,7 @@ impl HostShared {
 		crate::finalizer::discard_host_sessions(self);
 		debug_assert!(self.vows.only_settled());
 		let raw = self.raw.replace(core::ptr::null_mut());
+		crate::gc::retire(self);
 		if !raw.is_null() {
 			crate::trace::detach_host(raw);
 		}

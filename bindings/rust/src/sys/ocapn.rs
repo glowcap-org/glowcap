@@ -131,7 +131,7 @@ pub struct PancakeManagedFrame {
 	pub len: usize,
 	pub shape: c_uint,
 	pub release: Option<unsafe extern "C" fn(*mut PancakeManagedFrame)>,
-	pub private_data: *mut c_void,
+	pub private_words: [usize; 8],
 }
 
 #[repr(C)]
@@ -211,7 +211,7 @@ const _: () = {
 	assert!(offset_of!(PancakeManagedFrame, len) == PANCAKE_MANAGED_FRAME_LEN_OFF);
 	assert!(offset_of!(PancakeManagedFrame, shape) == PANCAKE_MANAGED_FRAME_SHAPE_OFF);
 	assert!(offset_of!(PancakeManagedFrame, release) == PANCAKE_MANAGED_FRAME_RELEASE_OFF);
-	assert!(offset_of!(PancakeManagedFrame, private_data) == PANCAKE_MANAGED_FRAME_PRIVATE_DATA_OFF);
+	assert!(offset_of!(PancakeManagedFrame, private_words) == PANCAKE_MANAGED_FRAME_PRIVATE_WORDS_OFF);
 
 	assert!(size_of::<PancakeAllocator>() == PANCAKE_ALLOCATOR_SIZE);
 	assert!(offset_of!(PancakeAllocator, alloc) == PANCAKE_ALLOCATOR_ALLOC_OFF);

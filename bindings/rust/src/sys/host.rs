@@ -58,6 +58,37 @@ const _: () = {
 	assert!(offset_of!(PancakeCloseOptions, grace_ms) == PANCAKE_CLOSE_OPTIONS_GRACE_MS_OFF);
 };
 
+/// Versioned selective overrides for limits copied into future sessions.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeSessionLimitOptions {
+	pub abi_version: c_uint,
+	pub struct_size: usize,
+	pub max_frame_bytes: usize,
+	pub queue_cap: usize,
+	pub outbound_high_water_bytes: usize,
+	pub max_retained_sent_answer_bytes: usize,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeSessionLimitOptions>() == PANCAKE_SESSION_LIMIT_OPTIONS_SIZE);
+	assert!(offset_of!(PancakeSessionLimitOptions, abi_version) == PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF);
+	assert!(offset_of!(PancakeSessionLimitOptions, struct_size) == PANCAKE_SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF);
+	assert!(
+		offset_of!(PancakeSessionLimitOptions, max_frame_bytes) == PANCAKE_SESSION_LIMIT_OPTIONS_MAX_FRAME_BYTES_OFF
+	);
+	assert!(offset_of!(PancakeSessionLimitOptions, queue_cap) == PANCAKE_SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF);
+	assert!(
+		offset_of!(PancakeSessionLimitOptions, outbound_high_water_bytes)
+			== PANCAKE_SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF
+	);
+	assert!(
+		offset_of!(PancakeSessionLimitOptions, max_retained_sent_answer_bytes)
+			== PANCAKE_SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF
+	);
+};
+
 /// The current turn, passed to a behavior callback so it can forward, spawn,
 /// and break while handling a deliver. Valid only for that callback's
 /// duration.
@@ -99,6 +130,8 @@ pub struct PancakeHostAction {
 	pub kind: c_uint,
 	/// DIAL: the report-back handle; SETTLE/FAIL: the vow that settled.
 	pub ticket: u64,
+	/// DIAL/CANCEL_DIAL: the concrete route within the logical dial.
+	pub route_index: usize,
 	pub session: *mut PancakeHostSession,
 	/// SETTLE: the fulfilled value; zeroed otherwise.
 	pub value: PancakeArgument,
@@ -121,6 +154,7 @@ const _: () = {
 	assert!(size_of::<PancakeHostAction>() == PANCAKE_HOST_ACTION_SIZE);
 	assert!(offset_of!(PancakeHostAction, kind) == PANCAKE_HOST_ACTION_KIND_OFF);
 	assert!(offset_of!(PancakeHostAction, ticket) == PANCAKE_HOST_ACTION_TICKET_OFF);
+	assert!(offset_of!(PancakeHostAction, route_index) == PANCAKE_HOST_ACTION_ROUTE_INDEX_OFF);
 	assert!(offset_of!(PancakeHostAction, session) == PANCAKE_HOST_ACTION_SESSION_OFF);
 	assert!(offset_of!(PancakeHostAction, value) == PANCAKE_HOST_ACTION_VALUE_OFF);
 	assert!(offset_of!(PancakeHostAction, message) == PANCAKE_HOST_ACTION_MESSAGE_OFF);

@@ -7,7 +7,7 @@ decision: "Adapter continuity and Host resource honesty live above CapTP: driver
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0124]
 ---
 
 # ADR-0082 Adapter continuity and Host resource honesty
@@ -103,9 +103,9 @@ never onto the sans-io CapTP core.
   `interop/iroh_reachability` align on the executor's default policy (or import
   generated/shared values).
 - `Host.Options.limits` replaces Host-only `frame_cap`; C ABI keeps
-  `frame_cap` as the admission field mapped into limits, plus selective
-  `pancake_host_set_session_limits` (`max_frame_bytes` / `queue_cap` /
-  `outbound_high_water_bytes`).
+  `frame_cap` as the admission field mapped into limits. Selective changes use
+  the versioned `PancakeSessionLimitOptions` record from ADR-0124 rather than
+  positional integer arguments.
 - `completion.Loop.Options` grows fan-in, park-kill, and `on_park` fields;
   `on_park` carries a `ParkReason`, because the two parks are operationally
   different: `.sink` is this connection's own partner failing to drain,

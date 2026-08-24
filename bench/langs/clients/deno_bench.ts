@@ -53,14 +53,13 @@ async function runUnit(conn: Session, root: Ref): Promise<void> {
 
 // The same four verbs as runUnit, but pipelined (ADR-0007, questioner half):
 // assign/complete/status are addressed at the answer `create` will resolve to —
-// the RemotePromise it returns, passed as the send target, without awaiting it —
-// so the unit costs one round trip instead of four. Only the final status is
-// awaited, which flushes the queued batch together. The throughput unit; runUnit
-// stays sequential so the latency row keeps measuring one round trip.
+// the RemotePromise it returns, passed as the send target. assign/complete are
+// one-way deliveries; only status allocates an answer and is awaited. The unit
+// costs one round trip without leaving discarded result promises behind.
 async function runUnitPipelined(conn: Session, root: Ref): Promise<void> {
 	const create = conn.send(root, "create", ["benchmark"]);
-	conn.send(create, "assign", ["alice"]);
-	conn.send(create, "complete", []);
+	await conn.tell(create, "assign", ["alice"]);
+	await conn.tell(create, "complete", []);
 	const status = await conn.send(create, "status", []);
 	if (statusText(status) !== "done") {
 		throw new Error(`bad status: ${statusText(status)}`);
@@ -68,6 +67,31 @@ async function runUnitPipelined(conn: Session, root: Ref): Promise<void> {
 }
 
 const WARMUP = Math.min(N, 500);
+
+type HeldConnection = {
+	readonly runtime: Runtime;
+	readonly session: Session;
+	readonly serving: Promise<void>;
+	readonly closeRuntime: boolean;
+};
+
+async function openHeldConnection(reuse?: Runtime): Promise<HeldConnection> {
+	const heldRuntime = reuse ?? await Runtime.open({ providers: [tcp.provider()] });
+	try {
+		const session = await heldRuntime.connect(tcp.locator(host, port));
+		const serving = session.serve();
+		await session.fetch("root");
+		return { runtime: heldRuntime, session, serving, closeRuntime: reuse == null };
+	} catch (error) {
+		if (reuse == null) await heldRuntime.close().catch(() => {});
+		throw error;
+	}
+}
+
+async function closeHeldConnection(held: HeldConnection): Promise<void> {
+	await Promise.all([held.session.close(), held.serving]);
+	if (held.closeRuntime) await held.runtime.close();
+}
 
 async function warm(
 	conn: Session,
@@ -80,6 +104,7 @@ async function warm(
 
 async function runLatency(): Promise<void> {
 	const conn = await runtime.connect(tcp.locator(host, port));
+	const serving = conn.serve();
 	const root = await conn.fetch("root");
 	await warm(conn, root);
 	const lats: number[] = [];
@@ -88,7 +113,7 @@ async function runLatency(): Promise<void> {
 		await runUnit(conn, root);
 		lats.push(performance.now() - s);
 	}
-	conn.close();
+	await Promise.all([conn.close(), serving]);
 	lats.sort((a, b) => a - b);
 	const mean = lats.reduce((a, b) => a + b, 0) / Math.max(1, N);
 	console.log(JSON.stringify({
@@ -108,12 +133,13 @@ async function runLatency(): Promise<void> {
 
 async function runThroughput(): Promise<void> {
 	const conn = await runtime.connect(tcp.locator(host, port));
+	const serving = conn.serve();
 	const root = await conn.fetch("root");
 	await warm(conn, root, runUnitPipelined);
 	const t0 = performance.now();
 	for (let i = 0; i < N; i++) await runUnitPipelined(conn, root);
 	const total = performance.now() - t0;
-	conn.close();
+	await Promise.all([conn.close(), serving]);
 	console.log(JSON.stringify({
 		v: 1,
 		metric: "throughput",
@@ -128,22 +154,18 @@ async function runThroughput(): Promise<void> {
 }
 
 async function runConnections(): Promise<void> {
-	const warmConns: Session[] = [];
+	const warmConns: HeldConnection[] = [];
 	const warmup = Math.min(N, 5);
 	for (let i = 0; i < warmup; i++) {
-		const c = await runtime.connect(tcp.locator(host, port));
-		await c.fetch("root");
-		warmConns.push(c);
+		warmConns.push(await openHeldConnection(i === 0 ? runtime : undefined));
 	}
 	forceGc();
 	console.log(JSON.stringify({ v: 1, event: "warmed" }));
 	await sleep(600);
-	const handles: Session[] = [];
+	const handles: HeldConnection[] = [];
 	const t0 = performance.now();
 	for (let i = 0; i < N; i++) {
-		const c = await runtime.connect(tcp.locator(host, port));
-		await c.fetch("root");
-		handles.push(c);
+		handles.push(await openHeldConnection());
 	}
 	const total = performance.now() - t0;
 	console.log(JSON.stringify({
@@ -157,15 +179,16 @@ async function runConnections(): Promise<void> {
 		runtime: RUNTIME,
 	}));
 	await sleep(2500);
-	for (const c of handles) c.close();
-	for (const c of warmConns) c.close();
+	for (const held of handles) await closeHeldConnection(held);
+	for (const held of warmConns) await closeHeldConnection(held);
 }
 
 async function runCold(): Promise<void> {
 	const conn = await runtime.connect(tcp.locator(host, port));
+	const serving = conn.serve();
 	const root = await conn.fetch("root");
 	await runUnit(conn, root);
-	conn.close();
+	await Promise.all([conn.close(), serving]);
 	console.log(JSON.stringify({ v: 1, event: "cold-done", client: CLIENT }));
 }
 
@@ -212,9 +235,10 @@ async function runLocal(): Promise<void> {
 	const accepted = server[Symbol.asyncIterator]().next();
 	const loopPort = server.port;
 	const dial = await runtime.connect(tcp.locator("127.0.0.1", loopPort));
+	const dialServing = dial.serve();
 	const acceptedConn = (await accepted).value as Session;
 	acceptedConn.publish("counter", counterBehavior());
-	acceptedConn.serve().catch(() => {});
+	const acceptedServing = acceptedConn.serve();
 
 	// (a) in_lang: the binding's in-process actor dispatch.
 	const local = dial.spawn(counterBehavior());
@@ -224,8 +248,13 @@ async function runLocal(): Promise<void> {
 	const far = await dial.fetch("counter");
 	const viaHost = await measureHits(dial, far);
 
-	dial.close();
-	server.close();
+	await Promise.all([
+		dial.close(),
+		dialServing,
+		acceptedConn.close(),
+		acceptedServing,
+		server.close(),
+	]);
 
 	const inMean = inLang.reduce((a, b) => a + b, 0) / Math.max(1, N);
 	const viaMean = viaHost.reduce((a, b) => a + b, 0) / Math.max(1, N);
@@ -265,4 +294,3 @@ switch (mode) {
 		console.error(`unknown mode: ${mode}`);
 		Deno.exit(2);
 }
-Deno.exit(0);

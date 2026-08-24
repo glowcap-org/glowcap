@@ -20,15 +20,18 @@ import type { TimelineDocument } from "./timeline.ts";
 
 /** An opening view as a document stores it: three numbers, or nothing said. */
 export type StoredView =
-  | { zoom: number; center: { x: number; y: number } }
-  | undefined;
+	| { zoom: number; center: { x: number; y: number } }
+	| undefined;
 
-export type DocumentIdentityField = "dct:title" | "dct:description" | "dct:creator";
+export type DocumentIdentityField =
+	| "dct:title"
+	| "dct:description"
+	| "dct:creator";
 
 /** Undo bracketing the duration write needs. The engine owns history. */
 export type DocumentTxn = {
-  begin(label: string): void;
-  end(): void;
+	begin(label: string): void;
+	end(): void;
 };
 
 /**
@@ -39,9 +42,9 @@ export type DocumentTxn = {
  * 1:1 centered cannot both occur.
  */
 export function sameStoredView(a: StoredView, b: StoredView): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  return a.zoom === b.zoom && a.center.x === b.center.x &&
-    a.center.y === b.center.y;
+	if (a === undefined || b === undefined) return a === b;
+	return a.zoom === b.zoom && a.center.x === b.center.x &&
+		a.center.y === b.center.y;
 }
 
 /**
@@ -67,18 +70,18 @@ export function sameStoredView(a: StoredView, b: StoredView): boolean {
  * Returns whether the document changed, so the engine notifies only then.
  */
 export function writeMetadataField(
-  doc: TimelineDocument,
-  key: DocumentIdentityField,
-  text: string,
+	doc: TimelineDocument,
+	key: DocumentIdentityField,
+	text: string,
 ): boolean {
-  const next = text.trim() === "" ? "" : text;
-  const current = doc.metadata?.[key];
-  if ((current ?? "") === next) return false;
-  const metadata = { ...doc.metadata };
-  if (next === "") delete metadata[key];
-  else metadata[key] = next;
-  doc.metadata = Object.keys(metadata).length > 0 ? metadata : undefined;
-  return true;
+	const next = text.trim() === "" ? "" : text;
+	const current = doc.metadata?.[key];
+	if ((current ?? "") === next) return false;
+	const metadata = { ...doc.metadata };
+	if (next === "") delete metadata[key];
+	else metadata[key] = next;
+	doc.metadata = Object.keys(metadata).length > 0 ? metadata : undefined;
+	return true;
 }
 
 /**
@@ -93,8 +96,11 @@ export function writeMetadataField(
  * `now` is a parameter rather than read from a clock here, so the edit path
  * stays free of one and a test can say what time it is.
  */
-export function writeDocumentModified(doc: TimelineDocument, now: string): void {
-  doc.metadata = { ...doc.metadata, "dct:modified": now };
+export function writeDocumentModified(
+	doc: TimelineDocument,
+	now: string,
+): void {
+	doc.metadata = { ...doc.metadata, "dct:modified": now };
 }
 
 /**
@@ -103,7 +109,7 @@ export function writeDocumentModified(doc: TimelineDocument, now: string): void 
  * field's.
  */
 export function documentDurationFloor(doc: TimelineDocument): number {
-  return latestStatedTime(doc);
+	return latestStatedTime(doc);
 }
 
 /**
@@ -119,20 +125,20 @@ export function documentDurationFloor(doc: TimelineDocument): number {
  * transaction closes.
  */
 export function writeDocumentDuration(
-  doc: TimelineDocument,
-  clock: Clock,
-  duration: number,
-  txn: DocumentTxn,
+	doc: TimelineDocument,
+	clock: Clock,
+	duration: number,
+	txn: DocumentTxn,
 ): boolean {
-  if (!Number.isFinite(duration)) return false;
-  const floor = documentDurationFloor(doc);
-  const next = Math.max(floor, Math.max(0, duration));
-  if (next === doc.duration) return false;
-  txn.begin("Set timeline length");
-  (doc as { duration: number }).duration = next;
-  clock.setDuration(next);
-  txn.end();
-  return true;
+	if (!Number.isFinite(duration)) return false;
+	const floor = documentDurationFloor(doc);
+	const next = Math.max(floor, Math.max(0, duration));
+	if (next === doc.duration) return false;
+	txn.begin("Set timeline length");
+	(doc as { duration: number }).duration = next;
+	clock.setDuration(next);
+	txn.end();
+	return true;
 }
 
 /**
@@ -158,11 +164,14 @@ export function writeDocumentDuration(
  * Returns whether the document changed, so a still camera publishing the same
  * numbers does not notify the app.
  */
-export function writeOpeningView(doc: TimelineDocument, view: StoredView): boolean {
-  if (sameStoredView(doc.initialView, view)) return false;
-  doc.initialView = view === undefined ? undefined : {
-    zoom: view.zoom,
-    center: { x: view.center.x, y: view.center.y },
-  };
-  return true;
+export function writeOpeningView(
+	doc: TimelineDocument,
+	view: StoredView,
+): boolean {
+	if (sameStoredView(doc.initialView, view)) return false;
+	doc.initialView = view === undefined ? undefined : {
+		zoom: view.zoom,
+		center: { x: view.center.x, y: view.center.y },
+	};
+	return true;
 }

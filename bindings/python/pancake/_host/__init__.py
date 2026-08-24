@@ -177,7 +177,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # A popped DIAL no longer exists in the C action queue. Its executor is
         # therefore Host-owned until it reports success/failure or teardown
         # cancels it; caller cancellation of one drain must not strand a ticket.
-        self._dial_tasks: "dict[int, asyncio.Task]" = {}
+        self._dial_tasks: "dict[tuple[int, int], asyncio.Task]" = {}
         # Async teardown retains one join task so a second owner cannot free the
         # native Host while the first owner is still joining its DIAL tasks.
         self._release_task: "Optional[asyncio.Task]" = None

@@ -165,7 +165,7 @@ pub fn check(
             }
             for ([_][]const u8{ "SO.REUSEADDR", "SO_REUSEADDR", "0x7f00_0001" }) |needle| {
                 if (std.mem.indexOf(u8, contents, needle) != null) {
-                    try appendViolation(gpa, violations, "{s}: forbidden `{s}` — loopback bind/listen/reuseaddr lives in socket_tcp.zig", .{ path, needle });
+                    try appendViolation(gpa, violations, "{s}: forbidden `{s}` — IPv4 bind/listen/reuseaddr policy lives in socket_tcp.zig", .{ path, needle });
                 }
             }
         }
@@ -223,7 +223,14 @@ pub fn check(
         },
     };
     for (ghost_docs) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| switch (err) {
+            // tolerant: a ghost doc that no longer exists has nothing to recite.
+            error.FileNotFound => continue,
+            else => {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the resident-roster check ({s})", .{ path, @errorName(err) });
+                continue;
+            },
+        };
         defer gpa.free(contents);
         for (ghosts) |ghost| {
             if (std.mem.indexOf(u8, contents, ghost.needle) != null) {

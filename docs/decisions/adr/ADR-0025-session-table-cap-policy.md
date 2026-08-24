@@ -7,7 +7,7 @@ decision: Every partner-driven session accumulator is bounded by a configurable 
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0100]
+amended_by: [ADR-0100, ADR-0121]
 ---
 
 # ADR-0025 Session table-cap policy
@@ -139,4 +139,7 @@ tree is refused even on the paths that do not run through session validation.
   taxonomy this ADR extends;
   [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `queue_cap`;
   [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) owns the sturdyref cache's
-  non-load-bearing status.
+  non-load-bearing status;
+  [ADR-0121](ADR-0121-durable-answer-store-budget.md) adds a separate
+  cumulative byte cap for resolutions retained by sent answer rows. They are
+  durable table state, not transient outbound flow.

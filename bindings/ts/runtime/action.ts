@@ -7,8 +7,8 @@
 // fail) after the pops, so async I/O never runs while a borrowed action view
 // is live and no native callback is minted per drain. The pop-based drain is
 // also the only shape every FFI target has: the wasm32 browser adapter carries
-// exactly one callback seam (the behavior trampoline), so a hooks-buffer drain
-// could never run there.
+// only the fixed behavior and hosted-retirement callback shapes, so a hooks-
+// buffer drain could never run there.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -85,15 +85,15 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			// whenever it settles, and the follow-up kick drains what that
 			// report queued. (Lazy import: action ↔ dial would cycle through
 			// Host if required eagerly.)
-			host.startDialTask(a.ticket, async (signal) => {
+			host.startDialTask(a.ticket, a.routeIndex, async (signal) => {
 				if (signal.aborted) return;
 				const { runDialTicket } = await import("./dial.ts");
-				await runDialTicket(host, a.ticket, signal);
+				await runDialTicket(host, a.ticket, a.routeIndex, signal);
 				if (!host.released) await host.kickActions();
 			});
 		},
 		cancelDial: async (a) => {
-			await host.cancelDialTask(a.ticket);
+			await host.cancelDialTask(a.ticket, a.routeIndex);
 		},
 		flush: async (a) => {
 			const session = host.getSession(a.session);

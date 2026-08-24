@@ -62,47 +62,31 @@ export class Server extends DriverServer {
 	}
 }
 
-async function bindTcpProfileListener(
-	loop: DriverLoop,
+function configureTcpProfileListener(
+	listener: DriverListener,
 	transport: string,
-	bindHost: string,
-	port: number,
 	options: ListenOptions,
-): Promise<DriverListener> {
-	installTcpProvider(loop, options.config);
-	let listener: DriverListener | null = null;
-	try {
-		listener = await DriverListener.open(
-			loop,
-			transport,
-			addressDesignator(bindHost, port),
-			options.signal,
+): void {
+	const locator = listener.locator();
+	const boundDirect = stringHint(locator, HINT_DIRECT_ADDRESSES) ??
+		(transport === TRANSPORT_TCP ? locator.designator : null);
+	if (boundDirect == null) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			`${transport} listener locator has no ${HINT_DIRECT_ADDRESSES} hint`,
 		);
-		const locator = listener.locator();
-		const boundDirect = stringHint(locator, HINT_DIRECT_ADDRESSES) ??
-			(transport === TRANSPORT_TCP ? locator.designator : null);
-		if (boundDirect == null) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				`${transport} listener locator has no ${HINT_DIRECT_ADDRESSES} hint`,
-			);
-		}
-		const direct = dialableSocketAddress(boundDirect, options.advertisedHost);
-		if (direct !== boundDirect) {
-			listener.advertise(
-				transport === TRANSPORT_TCP ? formatPeerUri(transport, direct) : formatPeerUri(
-					transport,
-					locator.designator,
-					new Map([[HINT_DIRECT_ADDRESSES, direct]]),
-				),
-			);
-		}
-		listener.select();
-		return listener;
-	} catch (error) {
-		listener?.close();
-		throw error;
 	}
+	const direct = dialableSocketAddress(boundDirect, options.advertisedHost);
+	if (direct !== boundDirect) {
+		listener.advertise(
+			transport === TRANSPORT_TCP ? formatPeerUri(transport, direct) : formatPeerUri(
+				transport,
+				locator.designator,
+				new Map([[HINT_DIRECT_ADDRESSES, direct]]),
+			),
+		);
+	}
+	listener.select();
 }
 
 function wildcardHost(hostname: string): boolean {
@@ -141,21 +125,32 @@ async function listenProfile(
 	await ensureRuntimeReady();
 	if (!loopTierAvailable()) throw listenerLoopUnavailable();
 	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
+	let listener: DriverListener | null = null;
 	try {
 		prepared = prepareListenerLoop(options.host, seed, options.codec);
 		const loop = prepared.loop;
-		const listener = await bindTcpProfileListener(loop, transport, bindHost, port, options);
-		return new Server({
+		installTcpProvider(loop, options.config);
+		listener = await DriverListener.open(
+			loop,
+			transport,
+			addressDesignator(bindHost, port),
+			options.signal,
+		);
+		configureTcpProfileListener(listener, transport, options);
+		const server = new Server({
 			listener,
 			ownedLoop: prepared.ownsLoop ? loop : undefined,
 		});
+		listener = null;
+		return server;
 	} catch (error) {
 		const primary = error instanceof PancakeError ? error : new PancakeError(IO, String(error));
+		const failedListener = listener;
 		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
-		await retainCleanupFailures(
-			primary,
-			ownedLoop == null ? [] : [() => ownedLoop.close()],
-		);
+		const cleanups: Array<() => void | Promise<void>> = [];
+		if (failedListener != null) cleanups.push(() => failedListener.close());
+		if (ownedLoop != null) cleanups.push(() => ownedLoop.close());
+		await retainCleanupFailures(primary, cleanups);
 		throw primary;
 	}
 }

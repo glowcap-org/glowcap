@@ -15,6 +15,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { handOffNow } from "./boot.ts";
 import { Button } from "./Button.tsx";
+import { Said } from "./Said.tsx";
 
 interface Props {
 	/** What this boundary protects, in words a reader would use. */
@@ -33,9 +34,8 @@ export function CrashCard(
 	return (
 		<div className="crash" role="alert">
 			<h2>The {part} ran into a problem</h2>
-			<p>
-				{message} Your session is still open, so nothing has been lost.
-			</p>
+			<Said kind="failure">{message}</Said>
+			<p>Your session is still open, so nothing has been lost.</p>
 			<Button variant="quiet" onClick={onRetry}>Try again</Button>
 		</div>
 	);

@@ -113,6 +113,18 @@
     [cleanup (raise cleanup)]
     [else (void)]))
 
+;; Run every rollback barrier in order, retain each observable consequence on
+;; the unchanged construction failure, then raise it. A failed early cleanup
+;; must not strand an owner that follows it in the transaction.
+(define (raise-after-cleanups primary cleanups)
+  (define retained primary)
+  (for ([cleanup (in-list cleanups)])
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (later)
+                       (set! retained (retain-cleanup-failure retained later)))])
+      (cleanup)))
+  (raise retained))
+
 ;; Project the core-issued FAIL result into the promise outcome vocabulary.
 ;; No wrapper state participates: an unknown result is an ABI contract break,
 ;; not evidence that the vow was merely broken.
@@ -173,4 +185,20 @@
   (check-equal? (exn:fail:pancake-secondary-count retained) 1)
   (define twice (retain-cleanup-failure retained primary))
   (check-equal? (exn:fail:pancake-secondary-code twice) ERR-IO)
-  (check-equal? (exn:fail:pancake-secondary-count twice) 2))
+  (check-equal? (exn:fail:pancake-secondary-count twice) 2)
+
+  (define cleanup-order '())
+  (define rolled-back
+    (with-handlers ([exn:fail:pancake? values])
+      (raise-after-cleanups
+       primary
+       (list
+        (lambda ()
+          (set! cleanup-order (append cleanup-order '(listener)))
+          (raise cleanup))
+        (lambda ()
+          (set! cleanup-order (append cleanup-order '(loop)))
+          (raise cleanup))))))
+  (check-equal? cleanup-order '(listener loop))
+  (check-equal? (exn-message rolled-back) "primary")
+  (check-equal? (exn:fail:pancake-secondary-count rolled-back) 2))

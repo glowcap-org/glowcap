@@ -76,7 +76,10 @@ pub fn check(
             rest = after[end..];
             if (!std.mem.endsWith(u8, target, "_test.zig")) continue;
             var target_buf: [192]u8 = undefined;
-            const target_path = std.fmt.bufPrint(&target_buf, "test/{s}", .{target}) catch continue;
+            const target_path = std.fmt.bufPrint(&target_buf, "test/{s}", .{target}) catch {
+                try appendViolation(gpa, violations, "test/{s}: the target path overflows the wiring needle buffer; grow it", .{target});
+                continue;
+            };
             root.access(io, target_path, .{}) catch |err| try appendViolation(
                 gpa,
                 violations,

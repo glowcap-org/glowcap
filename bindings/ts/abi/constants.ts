@@ -52,6 +52,7 @@ export const CLOSE_MAX_GRACE_MS = 4294967295;
 export const CLOSE_GRACE_UNSPECIFIED = 0;
 export const CLOSE_GRACE_FINITE = 1;
 export const CLOSE_GRACE_UNBOUNDED = 2;
+export const SESSION_LIMIT_OPTIONS_ABI_VERSION = 1;
 export const DEFAULT_FRAME_CAP = 1048576;
 export const RAW_TRANSPORT_DEFAULT_FRAME_CAP = 4096;
 export const MAX_LOCAL_FORWARD_HOPS = 256;
@@ -183,22 +184,28 @@ export const FEATURE_HANDOFF = 2;
 export const FEATURE_WIRE_DELTA = 4;
 export const FEATURE_STURDYREF = 8;
 export const FEATURE_UNTAG = 16;
+export const FEATURE_MULTI_LOCATION = 32;
 export const FEATURE_MINIMUM = 0;
 export const FEATURE_BASELINE = 15;
-export const FEATURE_FULL = 31;
+export const FEATURE_FULL = 63;
 export const DEFAULT_CODEC = 1;
 export const DEFAULT_CAPTP_VERSION = 0;
 export const DEFAULT_FEATURES = 31;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
-export const TCP_ARCHIVE_FINGERPRINT = 12572358213446181387n;
-export const INPROC_ARCHIVE_FINGERPRINT = 3134583954126157534n;
-export const ONION_ARCHIVE_FINGERPRINT = 15539469206855562687n;
-export const IROH_ARCHIVE_FINGERPRINT = 8533883197891834515n;
-export const RELAY_ARCHIVE_FINGERPRINT = 3494249542534684413n;
-export const WEBRTC_ARCHIVE_FINGERPRINT = 10053934242035364750n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 233000302546376209n;
+export const HOST_ARCHIVE_FINGERPRINT = 16923421815363313427n;
+export const DRIVER_ARCHIVE_FINGERPRINT = 10263628026486659027n;
+export const TCP_ARCHIVE_FINGERPRINT = 4015132820173533945n;
+export const INPROC_ARCHIVE_FINGERPRINT = 12489090800737488640n;
+export const ONION_ARCHIVE_FINGERPRINT = 10860523811064396877n;
+export const IROH_ARCHIVE_FINGERPRINT = 919461314826187588n;
+export const RELAY_ARCHIVE_FINGERPRINT = 16522701630755266341n;
+export const WEBRTC_ARCHIVE_FINGERPRINT = 15846250066093320901n;
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
+export const HINT_ALT_LOCATORS = "alt-locators";
+export const HINT_VIA = "via";
 export const TRANSPORT_TCP = "tcp";
 export const TRANSPORT_ONION = "onion";
 export const TRANSPORT_KEYED_TCP = "keyed-tcp";
@@ -209,31 +216,33 @@ export const TRANSPORT_WEBRTC = "webrtc";
 export const TRANSPORT_WEBRTC_MAX_PACKET_BYTES = 16384;
 export const TRANSPORT_NOISE_TCP = "noise-tcp";
 export const TRANSPORT_NOISE_RELAY = "noise-relay";
+export const TRANSPORT_ID = "id";
 
 // ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
 // Struct index i of the wasm32 module's layout descriptor is row i here;
 // the descriptor's offset words for that struct name its fields, in
-// declaration order. The prefix matches the 64-bit mirror's constant
-// prefix, so `<prefix>_SIZE` / `<prefix>_<FIELD>_OFF` rebuild at wasm32
-// offsets mechanically. Field order is declaration order on every
-// target; only the offset numbers are target-specific.
+// declaration order. `nativeMirror` says whether the prefix also names
+// 64-bit FFI constants; false is vocabulary used only by the browser's
+// byte-fed embedder. Field order is declaration order on every target;
+// only the offset numbers are target-specific.
 export const WASM_LAYOUT_STRUCTS = [
-	{ prefix: "MANAGED_FRAME", fields: ["BYTES", "LEN", "SHAPE", "RELEASE", "PRIVATE_DATA"] },
-	{ prefix: "REF", fields: ["ID"] },
-	{ prefix: "ARG", fields: ["KIND", "BOOLEAN", "INTEGER", "FLOAT64", "BYTES", "BYTES_LEN", "REFERENCE", "ITEMS", "ITEMS_LEN"] },
-	{ prefix: "FRAME", fields: ["BYTES", "LEN", "SHAPE"] },
-	{ prefix: "LAST_ABORT", fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN", "ABORT_DELIVERY_ERROR_NAME", "ABORT_DELIVERY_ERROR_NAME_LEN", "SECONDARY_ERROR_NAME", "SECONDARY_ERROR_NAME_LEN", "SECONDARY_ERROR_COUNT"] },
-	{ prefix: "ALLOCATOR", fields: ["ALLOC", "FREE", "USER_DATA"] },
-	{ prefix: "HOST_ACTION", fields: ["KIND", "TICKET", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN", "RESULT"] },
-	{ prefix: "HOST_PUMP_HOOKS", fields: ["CTX", "FLUSH", "CLOSE", "NEED_GIFT_ID", "COMPLETE", "DIAL"] },
-	{ prefix: "DIAL_PLAN", fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
-	{ prefix: "PARTNER_IDENTITY", fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
-	{ prefix: "TRACE_EVENT", fields: ["KIND", "SESSION", "OUTBOUND", "PROVENANCE", "CODEC", "CAPTP_VERSION", "DESIGNATOR", "DESIGNATOR_LEN", "TRANSPORT", "TRANSPORT_LEN", "SESSION_ID", "SESSION_ID_LEN", "VERB", "VERB_LEN", "FRAME", "FRAME_LEN", "FRAME_TOTAL_LEN", "DROPPED", "DIGEST"] },
-	{ prefix: "LOCATOR_HINT_VIEW", fields: ["NAME", "NAME_LEN", "KIND", "BYTES", "BYTES_LEN", "BOOLEAN_VALUE", "INTEGER_VALUE"] },
-	{ prefix: "LOCATOR_VIEW", fields: ["ABI_VERSION", "STRUCT_SIZE", "TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINTS", "HINT_COUNT", "HINT_WIRE_FORM"] },
-	{ prefix: "CLOSE_OPTIONS", fields: ["ABI_VERSION", "STRUCT_SIZE", "PENDING", "GRACE_MODE", "GRACE_MS"] },
-	{ prefix: "FAILURE_REPORT", fields: ["ABI_VERSION", "STRUCT_SIZE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
-	{ prefix: "FAILURE_EVENT", fields: ["ABI_VERSION", "STRUCT_SIZE", "SEQUENCE", "DROPPED_BEFORE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "FLAGS", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
+	{ prefix: "MANAGED_FRAME", nativeMirror: true, fields: ["BYTES", "LEN", "SHAPE", "RELEASE", "PRIVATE_WORDS"] },
+	{ prefix: "REF", nativeMirror: true, fields: ["ID"] },
+	{ prefix: "ARG", nativeMirror: true, fields: ["KIND", "BOOLEAN", "INTEGER", "FLOAT64", "BYTES", "BYTES_LEN", "REFERENCE", "ITEMS", "ITEMS_LEN"] },
+	{ prefix: "FRAME", nativeMirror: true, fields: ["BYTES", "LEN", "SHAPE"] },
+	{ prefix: "LAST_ABORT", nativeMirror: true, fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN", "ABORT_DELIVERY_ERROR_NAME", "ABORT_DELIVERY_ERROR_NAME_LEN", "SECONDARY_ERROR_NAME", "SECONDARY_ERROR_NAME_LEN", "SECONDARY_ERROR_COUNT"] },
+	{ prefix: "ALLOCATOR", nativeMirror: true, fields: ["ALLOC", "FREE", "USER_DATA"] },
+	{ prefix: "HOST_ACTION", nativeMirror: true, fields: ["KIND", "TICKET", "ROUTE_INDEX", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN", "RESULT"] },
+	{ prefix: "HOST_PUMP_HOOKS", nativeMirror: true, fields: ["CTX", "FLUSH", "CLOSE", "NEED_GIFT_ID", "COMPLETE", "DIAL"] },
+	{ prefix: "DIAL_PLAN", nativeMirror: false, fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
+	{ prefix: "PARTNER_IDENTITY", nativeMirror: true, fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
+	{ prefix: "TRACE_EVENT", nativeMirror: true, fields: ["KIND", "SESSION", "OUTBOUND", "PROVENANCE", "CODEC", "CAPTP_VERSION", "DESIGNATOR", "DESIGNATOR_LEN", "TRANSPORT", "TRANSPORT_LEN", "SESSION_ID", "SESSION_ID_LEN", "VERB", "VERB_LEN", "FRAME", "FRAME_LEN", "FRAME_TOTAL_LEN", "DROPPED", "DIGEST"] },
+	{ prefix: "LOCATOR_HINT_VIEW", nativeMirror: true, fields: ["NAME", "NAME_LEN", "KIND", "BYTES", "BYTES_LEN", "BOOLEAN_VALUE", "INTEGER_VALUE"] },
+	{ prefix: "LOCATOR_VIEW", nativeMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINTS", "HINT_COUNT", "HINT_WIRE_FORM"] },
+	{ prefix: "CLOSE_OPTIONS", nativeMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "PENDING", "GRACE_MODE", "GRACE_MS"] },
+	{ prefix: "SESSION_LIMIT_OPTIONS", nativeMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "MAX_FRAME_BYTES", "QUEUE_CAP", "OUTBOUND_HIGH_WATER_BYTES", "MAX_RETAINED_SENT_ANSWER_BYTES"] },
+	{ prefix: "FAILURE_REPORT", nativeMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
+	{ prefix: "FAILURE_EVENT", nativeMirror: true, fields: ["ABI_VERSION", "STRUCT_SIZE", "SEQUENCE", "DROPPED_BEFORE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "FLAGS", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
 ] as const;
 
 // Layout prefixes that exist only in native archives the wasm32 module

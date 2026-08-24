@@ -12,25 +12,48 @@
 // `pump.ts`; the dial executor lives in `dial.ts`. `session.ts` owns the
 // `Session` they act on. `mod.ts` re-exports the public `Host`.
 
-import { HOST_DURABLE_ENTROPY_LEN, HOST_DURABLE_SWISS_LEN, INVALID_ARGUMENT, NOT_FOUND } from "@pancake/abi";
+import {
+	HOST_DURABLE_ENTROPY_LEN,
+	HOST_DURABLE_SWISS_LEN,
+	INVALID_ARGUMENT,
+	NOT_FOUND,
+	SESSION_LIMIT_OPTIONS_ABI_VERSION,
+} from "@pancake/abi";
 import { refStruct } from "../abi_value.ts";
 import { checkHost, PancakeError } from "../errors.ts";
 import { hostS } from "../internal/ffi/host.ts";
+import { L } from "../internal/layout.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab, outPointer } from "../internal/seam.ts";
 import { type Locator, withOwnedLocator } from "../locator.ts";
 import { asLiveRef } from "../promise.ts";
 import { Session } from "../session.ts";
-import { type BehaviorEntry, registerBehavior, trampolinePointer, unregisterBehavior } from "../trampoline.ts";
+import {
+	type BehaviorEntry,
+	hostedFreePointer,
+	type NativeBehaviorOwner,
+	registerBehavior,
+	trampolinePointer,
+	unregisterBehavior,
+} from "../trampoline.ts";
 import type { Connector } from "../transport.ts";
-import { type Argument, type Behavior, Ref } from "../value.ts";
+import { type Argument, type Behavior, type CaptpVersion, captpVersionId, Ref } from "../value.ts";
 import { HostLifecycle } from "./lifecycle.ts";
 
 // One encoder/decoder pair for the whole module: both are stateless here.
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
-export abstract class HostApplication extends HostLifecycle {
+/** Selective overrides copied into sessions minted after the call. Omitted or
+ * zero fields preserve the Host's current value. */
+export interface SessionLimitOptions {
+	readonly maxFrameBytes?: bigint | number;
+	readonly queueCap?: bigint | number;
+	readonly outboundHighWaterBytes?: bigint | number;
+	readonly maxRetainedSentAnswerBytes?: bigint | number;
+}
+
+export abstract class HostApplication extends HostLifecycle implements NativeBehaviorOwner {
 	installConnectors(connectors: readonly Connector[]): void {
 		const pending = new Map<string, Connector>();
 		for (const connector of connectors) {
@@ -66,20 +89,30 @@ export abstract class HostApplication extends HostLifecycle {
 	 * dials one itself through this host's own DIAL action and finishes when
 	 * the dial reports. The session-scoped `Session.enliven` is the narrower
 	 * verb — it never dials, and refuses a sturdyref for another peer. */
-	async enliven(sturdyref: string): Promise<Ref> {
+	async enliven(sturdyref: string, captpVersion?: CaptpVersion): Promise<Ref> {
+		const raw = this.raw;
 		const swiss = utf8Encoder.encode(sturdyref);
 		const out = new Uint8Array(8);
-		checkHost(hostS.pancake_host_enliven(
-			this._raw,
-			ab(swiss),
-			BigInt(swiss.length),
-			ab(out),
-		));
+		checkHost(
+			captpVersion === undefined
+				? hostS.pancake_host_enliven(raw, ab(swiss), BigInt(swiss.length), ab(out))
+				: hostS.pancake_host_enliven_for_version(
+					raw,
+					captpVersionId(captpVersion),
+					ab(swiss),
+					BigInt(swiss.length),
+					ab(out),
+				),
+		);
 		const vow = new DataView(out.buffer).getBigUint64(0, true);
 		this.vowMinted(vow);
-		await this.kickActions();
-		const result = await this.awaitVow(vow);
-		return asLiveRef(result, sturdyref);
+		try {
+			await this.kickActions();
+			const result = await this.awaitVow(vow);
+			return asLiveRef(result, sturdyref);
+		} finally {
+			this._gc.parkVow(vow);
+		}
 	}
 
 	/** Retain and select this Host's complete acceptable location. Later
@@ -102,18 +135,43 @@ export abstract class HostApplication extends HostLifecycle {
 		));
 	}
 
-	/** Selective session-limit knobs (ADR-0082). Pass `0n` / `0` to leave a
-	 * field unchanged. Affects peers minted after this call. */
-	setSessionLimits(
-		maxFrameBytes: bigint | number = 0,
-		queueCap: bigint | number = 0,
-		outboundHighWaterBytes: bigint | number = 0,
-	): void {
+	/** Apply selective limits to peers minted after this call. The durable
+	 * sent-answer budget is separate from transient outbound flow pressure. */
+	setSessionLimits(options: SessionLimitOptions = {}): void {
+		const maxFrameBytes = sessionLimit("maxFrameBytes", options.maxFrameBytes);
+		const queueCap = sessionLimit("queueCap", options.queueCap);
+		const outboundHighWaterBytes = sessionLimit(
+			"outboundHighWaterBytes",
+			options.outboundHighWaterBytes,
+		);
+		const maxRetainedSentAnswerBytes = sessionLimit(
+			"maxRetainedSentAnswerBytes",
+			options.maxRetainedSentAnswerBytes,
+			0xffff_ffffn,
+		);
+		const raw = new Uint8Array(L.SESSION_LIMIT_OPTIONS_SIZE);
+		const view = new DataView(raw.buffer);
+		view.setUint32(
+			L.SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF,
+			SESSION_LIMIT_OPTIONS_ABI_VERSION,
+			true,
+		);
+		L.setUsize(view, L.SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF, raw.length);
+		L.setUsize(view, L.SESSION_LIMIT_OPTIONS_MAX_FRAME_BYTES_OFF, maxFrameBytes);
+		L.setUsize(view, L.SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF, queueCap);
+		L.setUsize(
+			view,
+			L.SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF,
+			outboundHighWaterBytes,
+		);
+		L.setUsize(
+			view,
+			L.SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF,
+			maxRetainedSentAnswerBytes,
+		);
 		checkHost(hostS.pancake_host_set_session_limits(
 			this._raw,
-			BigInt(maxFrameBytes),
-			BigInt(queueCap),
-			BigInt(outboundHighWaterBytes),
+			ab(raw),
 		));
 	}
 
@@ -139,7 +197,7 @@ export abstract class HostApplication extends HostLifecycle {
 		// A giftable is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
-		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null });
+		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null }, true);
 		const bytes = utf8Encoder.encode(name);
 		try {
 			checkHost(hostS.pancake_host_publish(
@@ -148,7 +206,7 @@ export abstract class HostApplication extends HostLifecycle {
 				BigInt(bytes.length),
 				trampolinePointer(),
 				ctx,
-				NULL,
+				hostedFreePointer(),
 			));
 		} catch (err) {
 			// Nothing else drops a trampoline row, so a refused publish has to
@@ -158,8 +216,6 @@ export abstract class HostApplication extends HostLifecycle {
 		}
 		// Replacement moves discovery only. Existing capabilities and deposited
 		// gifts can still call the old actor.
-		const prior = this._giftables.get(name);
-		if (prior !== undefined) this._displacedGiftables.push(prior);
 		this._giftables.set(name, ctx);
 		this.scheduleKick();
 	}
@@ -180,7 +236,7 @@ export abstract class HostApplication extends HostLifecycle {
 				`durable entropy must be exactly ${HOST_DURABLE_ENTROPY_LEN} bytes`,
 			);
 		}
-		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null });
+		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null }, true);
 		const swiss = new Uint8Array(HOST_DURABLE_SWISS_LEN);
 		let written: number;
 		try {
@@ -190,7 +246,7 @@ export abstract class HostApplication extends HostLifecycle {
 				BigInt(entropyBytes.length),
 				trampolinePointer(),
 				ctx,
-				NULL,
+				hostedFreePointer(),
 				ab(swiss),
 				BigInt(swiss.length),
 			);
@@ -206,11 +262,21 @@ export abstract class HostApplication extends HostLifecycle {
 	}
 
 	/** Retain one callback entry for this Host's native lifetime. */
-	registerHostedBehavior(entry: BehaviorEntry): bigint {
-		const ctx = registerBehavior(entry);
+	registerHostedBehavior(entry: BehaviorEntry, nativeOwned = false): bigint {
+		const ctx = registerBehavior(entry, nativeOwned ? this : undefined);
 		this._behaviorEntries.set(ctx, entry);
 		this._finalizerState.behaviorIds.add(ctx);
 		return ctx;
+	}
+
+	/** Native `HostedActor.free`: forget the JS owner exactly when its actor's
+	 * final alias/export/gift root is gone. */
+	nativeBehaviorReleased(ctx: bigint): void {
+		this._behaviorEntries.delete(ctx);
+		this._finalizerState.behaviorIds.delete(ctx);
+		for (const [name, held] of this._giftables) {
+			if (held === ctx) this._giftables.delete(name);
+		}
 	}
 
 	/** Undo a refused callback mint before it joins Host authority. */
@@ -228,31 +294,21 @@ export abstract class HostApplication extends HostLifecycle {
 		const rc = hostS.pancake_host_remove_durable(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
-		const prior = this._giftables.get(swiss);
-		if (prior !== undefined) {
-			this._displacedGiftables.push(prior);
-			this._giftables.delete(swiss);
-		}
+		this._giftables.delete(swiss);
 		this.scheduleKick();
 		return true;
 	}
 
 	/** Remove the Host-wide alias `name` (alias-only): a later fetch misses on
 	 * every session, while issued `Ref`s and deposited gifts keep the exact
-	 * actor, whose behavior stays hosted for the Host's life. Returns false
-	 * when no such alias exists. */
+	 * actor. Its JS behavior is released with that actor's final native root.
+	 * Returns false when no such alias exists. */
 	unpublishGiftable(name: string): boolean {
 		const bytes = utf8Encoder.encode(name);
 		const rc = hostS.pancake_host_unpublish(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
-		// The alias is gone but the actor is not: its trampoline row moves to
-		// the displaced list, exactly as a replacement displaces one.
-		const prior = this._giftables.get(name);
-		if (prior !== undefined) {
-			this._displacedGiftables.push(prior);
-			this._giftables.delete(name);
-		}
+		this._giftables.delete(name);
 		this.scheduleKick();
 		return true;
 	}
@@ -343,4 +399,17 @@ export abstract class HostApplication extends HostLifecycle {
 		}
 		return found;
 	}
+}
+
+function sessionLimit(name: string, value: bigint | number | undefined, ceiling?: bigint): bigint {
+	if (value === undefined) return 0n;
+	if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
+		throw new PancakeError(INVALID_ARGUMENT, `${name} must be a non-negative safe integer or bigint`);
+	}
+	const exact = BigInt(value);
+	const max = ceiling ?? (L.ptrSize === 4 ? 0xffff_ffffn : 0xffff_ffff_ffff_ffffn);
+	if (exact < 0n || exact > max) {
+		throw new PancakeError(INVALID_ARGUMENT, `${name} exceeds this target's supported range`);
+	}
+	return exact;
 }

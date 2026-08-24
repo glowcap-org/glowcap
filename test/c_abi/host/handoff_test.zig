@@ -17,6 +17,7 @@ const argInt = harness.argInt;
 const argStr = harness.argStr;
 const argRef = harness.argRef;
 const frame_cap = harness.frame_cap;
+const key64 = harness.key_designator;
 const close_cancel = harness.close_cancel;
 const close_finish_unbounded = harness.close_finish_unbounded;
 const closeFinish = harness.closeFinish;
@@ -125,7 +126,7 @@ test "libpancake_host: the full three-party handoff through the C surface — on
     const parked = dials.items[0];
     try std.testing.expect(parked.host == recipient);
 
-    // Pending-row dial parts (ticket-only DIAL): this tcp give has only the
+    // Pending-row dial parts for this exact route: this tcp give has only the
     // signed feature offer, never a fabricated transport route hint.
     try std.testing.expectEqualStrings("tcp", parked.transport[0..parked.transport_len]);
     try std.testing.expectEqualStrings("127.0.0.1:7001", parked.designator[0..parked.designator_len]);
@@ -151,7 +152,9 @@ test "libpancake_host: the full three-party handoff through the C surface — on
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pump(&hosts, &all_pairs, &dials, &watches);
     try std.testing.expect(cd.pancake_host_session_is_open(r_to_e) != 0);
-    try expectOk(cd.pancake_host_dialed(recipient, parked.ticket, r_to_e));
+    var adopted: u8 = 0;
+    try expectOk(cd.pancake_host_dialed(recipient, parked.ticket, parked.route_index, r_to_e, &adopted));
+    try std.testing.expectEqual(@as(u8, 1), adopted);
     try pump(&hosts, &all_pairs, &dials, &watches);
 
     try std.testing.expect(redeemed.fired);
@@ -306,109 +309,17 @@ test "libpancake_host: a failed dial breaks the redeeming vow with the reason" {
 
     // The exporter is unreachable: the dial's failure breaks the vow, its
     // FAIL completion queued inside the report and drained right after.
-    try expectOk(cd.pancake_host_dial_failed(recipient, dials.items[0].ticket, "exporter unreachable", 20));
+    try expectOk(cd.pancake_host_dial_failed(
+        recipient,
+        dials.items[0].ticket,
+        dials.items[0].route_index,
+        "exporter unreachable",
+        20,
+    ));
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(redeemed.fired);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, redeemed.kind);
     try std.testing.expect(std.mem.indexOf(u8, redeemed.msg[0..redeemed.msg_len], "exporter unreachable") != null);
-}
-
-/// The reentry probe's shared state: the behavior below runs inside a served
-/// turn and records whether every top-level verb refused and every
-/// enqueueing verb succeeded.
-
-// ── Dial planner (pancake_host_plan_dial) ────────────────────────────────────
-//
-// The C wrapper over driver_core.planDial: the transport dispatch,
-// designator validation, host:port resolution, and reachability decision the
-// bindings share instead of re-expressing. The pure logic is exhaustively
-// tested in test/driver/dial_plan_test.zig; these lock the C marshalling — the
-// posture-policy mapping, the borrowed views, and the typed error code.
-
-const key64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-fn planDialC(
-    transport: []const u8,
-    designator: []const u8,
-    hint: []const u8,
-    policy: u32,
-    posture_value: u32,
-    out: *cd.PancakeDialPlan,
-) i32 {
-    return cd.pancake_host_plan_dial(
-        transport.ptr,
-        transport.len,
-        designator.ptr,
-        designator.len,
-        if (hint.len == 0) null else hint.ptr,
-        hint.len,
-        policy,
-        posture_value,
-        out,
-    );
-}
-
-test "plan_dial C: tcp resolves the designator to host:port" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("tcp", "127.0.0.1:9000", "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_HOST_PORT, plan.shape);
-    try std.testing.expectEqualStrings("127.0.0.1", plan.host.?[0..plan.host_len]);
-    try std.testing.expectEqual(@as(u16, 9000), plan.port);
-}
-
-test "plan_dial C: keyed-tcp resolves host:port off the hint, no hint is a typed refusal" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("keyed-tcp", key64, "10.0.0.5:8000", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_HOST_PORT, plan.shape);
-    try std.testing.expectEqualStrings("10.0.0.5", plan.host.?[0..plan.host_len]);
-    try std.testing.expectEqual(@as(u16, 8000), plan.port);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, planDialC("keyed-tcp", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-}
-
-test "plan_dial C: iroh redeem picks direct with a hint, configured without" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("iroh", key64, "1.2.3.4:5", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_PEER_ID, plan.shape);
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_REACH_DIRECT, plan.reach_kind);
-    try std.testing.expectEqualStrings("1.2.3.4:5", plan.addresses.?[0..plan.addresses_len]);
-    try expectOk(planDialC("iroh", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_REACH_CONFIGURED, plan.reach_kind);
-}
-
-test "plan_dial C: keyed-relay resolves to the rendezvous shape" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("keyed-relay", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_RENDEZVOUS, plan.shape);
-}
-
-test "plan_dial C: iroh connect carries the explicit posture, none is a typed refusal" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("iroh", key64, "", cd.PANCAKE_DIAL_POSTURE_EXPLICIT, 2, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_REACH_EXPLICIT, plan.reach_kind);
-    try std.testing.expectEqual(@as(u32, 2), plan.reach_value);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, planDialC("iroh", key64, "", cd.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE, 0, &plan));
-}
-
-test "plan_dial C: an unknown transport is a typed refusal" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, planDialC("x-nope", "whatever", "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-}
-
-test "plan_dial C: webrtc produces a signaling shape with any posture" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("webrtc", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_SIGNALING, plan.shape);
-}
-
-test "plan_dial C: webrtc ignores a direct-addresses hint" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try expectOk(planDialC("webrtc", key64, "1.2.3.4:5", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_SIGNALING, plan.shape);
-}
-
-test "plan_dial C: webrtc non-key designator is a typed refusal" {
-    var plan: cd.PancakeDialPlan = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, planDialC("webrtc", "not-a-key", "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
 }
 
 test "libpancake_host: host_dialed refuses a session belonging to another host" {
@@ -430,14 +341,21 @@ test "libpancake_host: host_dialed refuses a session belonging to another host" 
     // nothing about the pair says they come from the same host. Answering one
     // host's dial with another host's session would seat that connection in a
     // node that never dialed it.
+    var adopted: u8 = 0;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_dialed(stranger, 1, pair.a),
+        cd.pancake_host_dialed(stranger, 1, 0, pair.a, &adopted),
     );
 
     // The refusal is about the host, not the ticket: the same unknown ticket on
     // the session's own host is the documented no-op success.
-    try expectOk(cd.pancake_host_dialed(dialer, 1, pair.a));
+    try expectOk(cd.pancake_host_dialed(dialer, 1, 0, pair.a, &adopted));
+    try std.testing.expectEqual(@as(u8, 0), adopted);
+
+    // Cancellation acknowledgements are an untrusted C boundary too. An
+    // arbitrary route index names no running effect; it must no-op rather than
+    // reaching the Node's compact route bitset with an invalid shift.
+    try expectOk(cd.pancake_host_dial_cancelled(dialer, 1, std.math.maxInt(usize)));
 }
 
 test "libpancake_host: select-or-dial enliven rides a live session, then parks on a staged dial" {
@@ -503,8 +421,11 @@ test "libpancake_host: select-or-dial enliven rides a live session, then parks o
     const both = [_]?*cd.PancakeHost{ client, second };
     try pump(&both, &.{second_pair}, &dials, &watches);
     const ticket = dials.items[0].ticket;
+    const route_index = dials.items[0].route_index;
     dials.len = 0;
-    try expectOk(cd.pancake_host_dialed(client, ticket, dialed));
+    var adopted: u8 = 0;
+    try expectOk(cd.pancake_host_dialed(client, ticket, route_index, dialed, &adopted));
+    try std.testing.expectEqual(@as(u8, 1), adopted);
     try pump(&both, &.{ pair, second_pair }, &dials, &watches);
     _ = try parked.requireRef();
 }
@@ -542,8 +463,66 @@ test "libpancake_host: a select-or-dial enliven breaks when the embedder cannot 
 
     // Reporting the failure breaks the parked vow rather than stranding it.
     const reason = "connection refused";
-    try expectOk(cd.pancake_host_dial_failed(client, dials.items[0].ticket, reason, reason.len));
+    try expectOk(cd.pancake_host_dial_failed(
+        client,
+        dials.items[0].ticket,
+        dials.items[0].route_index,
+        reason,
+        reason.len,
+    ));
     _ = try drainActions(&hosts, &dials, &watches);
+    try std.testing.expect(parked.fired);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, parked.kind);
+}
+
+test "libpancake_host: id route bundles expose a bounded strong-route race" {
+    const client = try newHostWithFeatures(0x35, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT, c.PANCAKE_FEATURE_MULTI_LOCATION);
+    defer _ = cd.pancake_host_release(client);
+
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{client};
+
+    const route_key = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x36))).publicKey().toDesignator();
+    const sturdyref = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "ocapn://{s}.id/s/d2lkZ2V0?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
+        .{ route_key[0..], route_key[0..], route_key[0..] },
+    );
+    defer std.testing.allocator.free(sturdyref);
+
+    var vow: u64 = 0;
+    try expectOk(cd.pancake_host_enliven(client, sturdyref.ptr, sturdyref.len, &vow));
+    var parked = CapturedSettle{};
+    watches.add(client, vow, &parked);
+    _ = try drainActions(&hosts, &dials, &watches);
+
+    try std.testing.expectEqual(@as(usize, 2), dials.len);
+    try std.testing.expectEqualStrings("iroh", dials.items[0].transport[0..dials.items[0].transport_len]);
+    try std.testing.expectEqualStrings(route_key[0..], dials.items[0].designator[0..dials.items[0].designator_len]);
+    try std.testing.expectEqual(@as(usize, 0), dials.items[0].route_index);
+    try std.testing.expectEqualStrings("noise-relay", dials.items[1].transport[0..dials.items[1].transport_len]);
+    try std.testing.expectEqualStrings(route_key[0..], dials.items[1].designator[0..dials.items[1].designator_len]);
+    try std.testing.expectEqual(@as(usize, 1), dials.items[1].route_index);
+
+    try expectOk(cd.pancake_host_dial_failed(
+        client,
+        dials.items[0].ticket,
+        dials.items[0].route_index,
+        "iroh unavailable",
+        "iroh unavailable".len,
+    ));
+    try std.testing.expect(!parked.fired);
+    try expectOk(cd.pancake_host_dial_failed(
+        client,
+        dials.items[1].ticket,
+        dials.items[1].route_index,
+        "noise relay unavailable",
+        "noise relay unavailable".len,
+    ));
+    dials.len = 0;
+    _ = try drainActions(&hosts, &dials, &watches);
+    try std.testing.expectEqual(@as(usize, 0), dials.len);
     try std.testing.expect(parked.fired);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, parked.kind);
 }
@@ -559,4 +538,30 @@ test "libpancake_host: next select-or-dial enliven parses raw swiss URI bytes" {
     var action: cd.PancakeHostAction = undefined;
     try expectOk(cd.pancake_host_next_action(client, &action));
     try std.testing.expectEqual(cd.PANCAKE_HOST_ACTION_DIAL, action.kind);
+}
+
+test "libpancake_host: explicit-version enliven parses the conveying session profile" {
+    const client = try newHostWithProfile(0x37, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
+    defer _ = cd.pancake_host_release(client);
+
+    const raw = "ocapn://127.0.0.1%3A7025.tcp/s/widget%2Fpart";
+    var vow: u64 = std.math.maxInt(u64);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_enliven_for_version(client, c.PANCAKE_CAPTP_V1_0, raw, raw.len, &vow),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u64), vow);
+    try expectOk(cd.pancake_host_enliven_for_version(client, c.PANCAKE_CAPTP_NEXT, raw, raw.len, &vow));
+    try std.testing.expect(vow != std.math.maxInt(u64));
+
+    var action: cd.PancakeHostAction = undefined;
+    try expectOk(cd.pancake_host_next_action(client, &action));
+    try std.testing.expectEqual(cd.PANCAKE_HOST_ACTION_DIAL, action.kind);
+
+    var invalid_vow: u64 = std.math.maxInt(u64);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_enliven_for_version(client, std.math.maxInt(u32), raw, raw.len, &invalid_vow),
+    );
+    try std.testing.expectEqual(std.math.maxInt(u64), invalid_vow);
 }

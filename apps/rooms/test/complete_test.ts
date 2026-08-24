@@ -3,7 +3,7 @@
 // accepting one leaves in the draft. The browser proof drives the widget;
 // this file pins the grammar the widget trusts.
 
-import { acceptCompletion, completeCandidates, triggerAt } from "../web/ui/complete.ts";
+import { acceptCompletion, commandArgTrigger, completeCandidates, triggerAt } from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import { mentionsYou, PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
@@ -116,6 +116,7 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 	// A command that is not the kind that travels is not an action either, even
 	// though it is a command: /help acts on this window and says nothing here.
 	assertEquals(actionIn("/help"), null);
+	assertEquals(actionIn("/details"), null);
 });
 
 Deno.test("the list gives Enter back once a whole command needs nothing more", () => {
@@ -130,6 +131,7 @@ Deno.test("the list gives Enter back once a whole command needs nothing more", (
 		return row;
 	};
 	assertEquals(only("delete").keepsEnter, false, "a whole command that needs nothing");
+	assertEquals(only("link").keepsEnter, false, "bare /link is this room and needs nothing");
 	// Half typed, the row is still completing the name.
 	assertEquals(only("del").keepsEnter, true, "a name still being written");
 	// Written out but wanting words after it: accepting leaves the reader at the
@@ -277,4 +279,17 @@ Deno.test("what the header claims the registry holds, the registry holds", () =>
 			fail(`the header names /${named}, which no command answers to`);
 		}
 	}
+});
+
+Deno.test("/link and /join complete a listed room name as their argument", () => {
+	assertEquals(commandArgTrigger("/link", 5), null);
+	assertEquals(commandArgTrigger("/link ", 6), null);
+	assertEquals(commandArgTrigger("/link lo", 8), { kind: "room", start: 6, query: "lo", bare: true });
+	const rows = completeCandidates(commandArgTrigger("/link lo", 8)!, SOURCES);
+	assertEquals(rows[0]?.insert, "lobby ");
+	const accepted = acceptCompletion("/link lo", commandArgTrigger("/link lo", 8)!, 8, rows[0]!);
+	assertEquals(accepted.text, "/link lobby ");
+	const joinEmpty = commandArgTrigger("/join ", 6);
+	assertEquals(joinEmpty, { kind: "room", start: 6, query: "", bare: true });
+	assertEquals(commandArgTrigger("/join ocapn://peer.tcp/s/swiss", 30), null);
 });

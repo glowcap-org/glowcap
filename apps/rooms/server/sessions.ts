@@ -7,6 +7,7 @@
 
 import type { Session } from "@pancake/runtime";
 import { scheduleDisconnect } from "./presence.ts";
+import { noteTrouble } from "./journal.ts";
 
 /** Serve every session `server` accepts until it stops admitting. */
 export async function serveAccepted(server: AsyncIterable<Session>): Promise<void> {
@@ -22,12 +23,12 @@ export async function serveAccepted(server: AsyncIterable<Session>): Promise<voi
 		// side of the wire end, so a vanished member's session lingers on the
 		// picture until the room server restarts.
 		session.serve().catch((error) => {
-			console.error(`[room] session failed: ${error}`);
+			noteTrouble("a member session failed", error);
 		}).finally(() => {
 			stopClose();
 			scheduleDisconnect(session); // pre-transport serve refusal joins the same cleanup batch
 			session.close().catch((error) => {
-				console.error(`[room] session retirement failed: ${error}`);
+				noteTrouble("a member session would not retire", error);
 			});
 		});
 	}

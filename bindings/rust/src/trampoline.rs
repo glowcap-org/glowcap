@@ -171,7 +171,7 @@ fn turn_session(turn: *mut ffi::PancakeHostTurn) -> crate::Result<Option<Rc<Sess
 	let host = active_deliver_host().ok_or_else(|| {
 		Error::with_detail(
 			sys::ERR_INTERNAL,
-			"hosted callback ran outside a session feed".to_string(),
+			"hosted callback ran outside native Host progress".to_string(),
 		)
 	})?;
 	let mut ptr = core::ptr::null_mut();
@@ -360,7 +360,7 @@ pub(crate) async fn run_local_send(
 		TurnOutcome::Value(value) => Ok(value),
 		TurnOutcome::Break(message) => Err(Error::broken(message)),
 		TurnOutcome::Forward { target, verb, args } => {
-			crate::promise::send_promise(&shared, CmdTarget::Ref(target), &verb, &args).await
+			crate::promise::send_promise(&shared, CmdTarget::reference(target), &verb, &args).await
 		}
 	}
 }

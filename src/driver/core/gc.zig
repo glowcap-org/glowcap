@@ -68,11 +68,12 @@ const GcExportBatch = struct {
 };
 
 /// After an inbound deliver is dispatched, emit `op:gc-exports` for every `far`
-/// reference the deliver's args (and `resolve_me_desc`) introduced that this
-/// stateless host does not retain. When the event carries
+/// reference its application arguments introduced that this stateless host
+/// does not retain. A V1.0 resolver descriptor belongs to the answer until its
+/// callback and is released beside that callback, not by event GC. When the event carries
 /// `introduced_far_imports` — the session's own validate walk
 /// (`session.validate.IntroducedImports`), threaded here by
-/// `engine.inbound.applyDecodedOwnedFrame` instead of thrown away — that
+/// `engine.inbound.dispatchDecodedOwnedFrame` instead of thrown away — that
 /// record is reused directly rather than re-walked. Absent (a deliver
 /// surfaced by a path other than the engine's own inbound dispatch, today
 /// only a drained pipelined call redirected locally), this falls back to the
@@ -94,13 +95,6 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
     } else {
         const max_depth = peer.limits().max_nesting_depth;
         try addIntroducedFarsInArgs(&batch, deliver.args, 0, max_depth);
-    }
-
-    if (deliver.resolve_me_desc) |rmd| {
-        switch (rmd) {
-            .far => |far| try batch.add(far.import_position.int()),
-            else => {},
-        }
     }
 
     try batch.flush();
@@ -153,28 +147,42 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     };
     const aliases = event.resolveAliases();
     if (aliases.len == 0) {
+        if (peer.session_state.outboundAnswerReleaseClaimed(answer)) return;
         const positions = [_]u64{answer.int()};
         try peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } });
         return;
     }
 
     const positions = peer.allocator.alloc(u64, aliases.len + 1) catch {
-        const primary = [_]u64{answer.int()};
-        try peer.sendCopying(.{ .gc_answer = .{ .positions = &primary } });
+        if (!peer.session_state.outboundAnswerReleaseClaimed(answer)) {
+            const primary = [_]u64{answer.int()};
+            try peer.sendCopying(.{ .gc_answer = .{ .positions = &primary } });
+        }
         for (aliases) |alias| {
+            if (peer.session_state.outboundAnswerReleaseClaimed(alias)) continue;
             const one = [_]u64{alias.int()};
             try peer.sendCopying(.{ .gc_answer = .{ .positions = &one } });
         }
         return;
     };
     defer peer.allocator.free(positions);
-    positions[0] = answer.int();
-    for (aliases, positions[1..]) |alias, *position| position.* = alias.int();
-    try peer.sendCopying(.{ .gc_answer = .{ .positions = positions } });
+    var count: usize = 0;
+    if (!peer.session_state.outboundAnswerReleaseClaimed(answer)) {
+        positions[count] = answer.int();
+        count += 1;
+    }
+    for (aliases) |alias| {
+        if (peer.session_state.outboundAnswerReleaseClaimed(alias)) continue;
+        positions[count] = alias.int();
+        count += 1;
+    }
+    if (count != 0)
+        try peer.sendCopying(.{ .gc_answer = .{ .positions = positions[0..count] } });
 }
 
 /// The stateless-GC policy after one served event: a deliver gc-collects the
-/// exports it introduced, a resolve gc-collects its settled answer. The single
+/// argument exports it introduced, a resolve gc-collects its settled answer.
+/// The single
 /// home for which event kind triggers which emit, both the per-connection
 /// `BlockingSession` and the loop bridges (`driver.Bridge`) call this so the
 /// policy cannot drift between them.

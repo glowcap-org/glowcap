@@ -12,7 +12,8 @@
 ;; live in `ffi-shared.rkt`, the binding's types leaf.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"         "lib-resolve.rkt")
+         "ffi-shared.rkt"
+         "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_host_new_in*
                      pancake_host_diagnostic_id*
@@ -22,6 +23,8 @@
                      pancake_host_session_open_accepted*
                      pancake_host_reference_exporter*
                      pancake_host_session_close_progress*
+                     pancake_host_session_profile*
+                     pancake_host_session_transport_name*
                      pancake_host_session_trace_id*
                      pancake_host_session_take_outbound*
                      pancake_host_pump_drain*
@@ -30,6 +33,7 @@
                      pancake_host_session_fetch*
                      pancake_host_session_enliven*
                      pancake_host_enliven*
+                     pancake_host_enliven_for_version*
                      pancake_host_session_listen*
                      pancake_host_session_send*
                      pancake_host_vow_send*
@@ -45,6 +49,7 @@
 
 (define-ffi-definer define-host host-lib)
 
+(define-host pancake_host_archive_fingerprint (_fun -> _uint64))
 (define-host pancake_host_new_in*
   (_fun _pointer _pointer _size _size _uint32 _uint32 _uint32 _uint32 _uint32 _pointer -> _int32)
   #:c-id pancake_host_new_in)
@@ -66,7 +71,8 @@
 (define-host pancake_host_designator_from_seed (_fun _pointer _size _pointer _size -> _int32))
 (define-host pancake_host_set_advertised_locator (_fun _pointer (_or-null _PancakeLocatorView-pointer) -> _int32))
 (define-host pancake_host_remove_advertised_locator (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_set_session_limits (_fun _pointer _size _size _size -> _int32))
+(define-host pancake_host_set_session_limits
+  (_fun _pointer (_or-null _PancakeSessionLimitOptions-pointer) -> _int32))
 (define-host pancake_host_session_open_dialed_locator*
   (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
   #:c-id pancake_host_session_open_dialed_locator)
@@ -76,7 +82,7 @@
   #:c-id pancake_host_session_open_accepted)
 (define pancake_host_session_open_accepted (wrap-out1 pancake_host_session_open_accepted* _pointer #f))
 (define-host pancake_host_pending_dial*
-  (_fun _pointer _uint64 _pointer _size (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
+  (_fun _pointer _uint64 _size _pointer _size (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
   #:c-id pancake_host_pending_dial)
 (define-host pancake_host_reference_exporter*
   (_fun _pointer (_or-null _PancakeReference-pointer) _pointer -> _int32)
@@ -89,6 +95,20 @@
 (define pancake_host_session_close_progress (wrap-out1 pancake_host_session_close_progress* _uint32 0))
 (define-host pancake_host_session_release (_fun _pointer -> _int32))
 (define-host pancake_host_session_is_open (_fun _pointer -> _int32))
+(define-host pancake_host_session_profile*
+  (_fun _pointer _pointer _pointer _pointer -> _int32)
+  #:c-id pancake_host_session_profile)
+(define (pancake_host_session_profile session)
+  (call/outs (list (cons _uint32 0) (cons _uint32 0) (cons _uint32 0))
+             (lambda (out0 out1 out2)
+               (pancake_host_session_profile* session out0 out1 out2))))
+(define-host pancake_host_session_transport_name*
+  (_fun _pointer _pointer _pointer -> _int32)
+  #:c-id pancake_host_session_transport_name)
+(define (pancake_host_session_transport_name session)
+  (call/outs (list (cons _pointer #f) (cons _size 0))
+             (lambda (out0 out1)
+               (pancake_host_session_transport_name* session out0 out1))))
 (define-host pancake_host_session_trace_id*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_host_session_trace_id)
@@ -106,9 +126,9 @@
   (call/outs (list (cons _uint32 0) (cons _uint32 0))
              (lambda (out0 out1)
                (pancake_host_pump_drain* host hooks out0 out1))))
-(define-host pancake_host_dialed (_fun _pointer _uint64 _pointer -> _int32))
-(define-host pancake_host_dial_failed (_fun _pointer _uint64 _pointer _size -> _int32))
-(define-host pancake_host_dial_cancelled (_fun _pointer _uint64 -> _int32))
+(define-host pancake_host_dialed (_fun _pointer _uint64 _size _pointer _pointer -> _int32))
+(define-host pancake_host_dial_failed (_fun _pointer _uint64 _size _pointer _size -> _int32))
+(define-host pancake_host_dial_cancelled (_fun _pointer _uint64 _size -> _int32))
 (define-host pancake_host_provide_gift_id (_fun _pointer _uint64 _pointer _size -> _int32))
 (define-host pancake_host_gift_id_failed (_fun _pointer _uint64 -> _int32))
 (define-host pancake_host_session_publish*
@@ -138,6 +158,10 @@
   (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_host_enliven)
 (define pancake_host_enliven (wrap-out1 pancake_host_enliven* _uint64 0))
+(define-host pancake_host_enliven_for_version*
+  (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
+  #:c-id pancake_host_enliven_for_version)
+(define pancake_host_enliven_for_version (wrap-out1 pancake_host_enliven_for_version* _uint64 0))
 (define-host pancake_host_set_trace (_fun _pointer _fpointer _pointer -> _int32))
 (define-host pancake_host_resolver_fulfill (_fun _pointer _uint64 (_or-null _PancakeArgument-pointer) -> _int32))
 (define-host pancake_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))
@@ -155,6 +179,8 @@
   (_fun _pointer _uint64 _pointer _size _pointer _size _pointer -> _int32)
   #:c-id pancake_host_vow_send)
 (define pancake_host_vow_send (wrap-out1 pancake_host_vow_send* _uint64 0))
+(define-host pancake_host_vow_tell (_fun _pointer _uint64 _pointer _size _pointer _size -> _int32))
+(define-host pancake_host_vow_release (_fun _pointer _uint64 -> _int32))
 (define-host pancake_host_vow_index*
   (_fun _pointer _uint64 _uint64 _pointer -> _int32)
   #:c-id pancake_host_vow_index)

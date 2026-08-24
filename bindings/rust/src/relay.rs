@@ -11,6 +11,8 @@ use crate::error_slot::error_slot;
 use crate::sys::relay as ffi;
 use crate::{Context, HintValue, HintWireForm, Locator, Result};
 
+pub use crate::ListenerIdentity;
+
 error_slot!(
 	fn check_relay;
 	fn relay_last_error;
@@ -61,6 +63,17 @@ pub mod keyed {
 	pub fn locator(designator: &str, relay_url: &str) -> Locator {
 		super::profile_locator(crate::TRANSPORT_KEYED_RELAY, designator, relay_url)
 	}
+
+	/// Register the identity-addressed cleartext relay profile and accept
+	/// sessions. See [`super::noise::listen`]; only the channel differs, and
+	/// the relay path is not sealed.
+	pub async fn listen(
+		relay_url: &str,
+		register_url: &str,
+		options: super::ListenOptions<'_>,
+	) -> crate::Result<super::Server> {
+		super::listen_relay_profile(crate::TRANSPORT_KEYED_RELAY, relay_url, register_url, options).await
+	}
 }
 
 /// Noise_XK-sealed streams over the relay provider package.
@@ -69,6 +82,100 @@ pub mod noise {
 
 	pub fn locator(designator: &str, relay_url: &str) -> Locator {
 		super::profile_locator(crate::TRANSPORT_NOISE_RELAY, designator, relay_url)
+	}
+
+	/// Register this listener's durable key at the relay and accept
+	/// Noise_XK-sealed sessions. The native relay provider holds the
+	/// registration socket; the driver owns admission, handshakes, and
+	/// session lifetime. The driver's provider registry holds one relay
+	/// configuration per loop: a second listen naming the same routes rides
+	/// the installed provider, and one naming different routes is refused.
+	pub async fn listen(
+		relay_url: &str,
+		register_url: &str,
+		options: super::ListenOptions<'_>,
+	) -> crate::Result<super::Server> {
+		super::listen_relay_profile(crate::TRANSPORT_NOISE_RELAY, relay_url, register_url, options).await
+	}
+}
+
+/// Relay listener construction options. The identity is a sum rather than two
+/// optional fields, so conflicting seed and Host authority is unrepresentable.
+#[derive(Clone, Default)]
+pub struct ListenOptions<'a> {
+	pub identity: crate::ListenerIdentity,
+	/// Trust used when the registration or relay route selects WSS.
+	pub trust: Trust<'a>,
+}
+
+/// A registered relay listener, the relay sibling of [`crate::tcp::Server`].
+/// The native driver loop owns the registration socket, admission, and every
+/// accepted session; this type is only the public listener view.
+pub struct Server {
+	listener: crate::server::LoopListener,
+}
+
+impl Server {
+	/// Accept the next partner as a ready [`crate::Session`], sharing this
+	/// server's [`crate::Host`]. Must be called inside a `LocalSet` (the
+	/// handle graph is `!Send`).
+	pub async fn accept(&self) -> crate::Result<crate::Session> {
+		self.listener.accept().await
+	}
+
+	/// The canonical locator advertised by this server.
+	pub fn locator(&self) -> crate::Result<crate::Locator> {
+		self.listener.locator()
+	}
+
+	/// The canonical `ocapn://` URI advertised by this server.
+	pub fn uri(&self) -> crate::Result<String> {
+		crate::uri::format_locator_uri(&self.locator()?)
+	}
+
+	/// This server's [`crate::Host`]: one retained identity and session
+	/// directory across every accepted session.
+	pub fn host(&self) -> crate::Host {
+		self.listener.host()
+	}
+
+	/// Stop admitting partners. Sessions already returned by
+	/// [`Server::accept`] remain live.
+	pub fn close(&self) -> crate::Result<()> {
+		self.listener.close()
+	}
+}
+
+async fn listen_relay_profile(
+	transport: &'static str,
+	relay_url: &str,
+	register_url: &str,
+	options: ListenOptions<'_>,
+) -> crate::Result<Server> {
+	let config = Config {
+		relay_url,
+		register_url: Some(register_url),
+		trust: options.trust,
+	};
+	let host = options.identity.into_host()?;
+	let shared = host.shared();
+	let lp = shared.ensure_driver_loop(
+		crate::abi_constants::DRIVER_DEFAULT_HANDSHAKE_MS,
+		crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS,
+	)?;
+	install_provider_shared(&lp, config)?;
+	// The provider registers as the listener opens, so a completed open is
+	// the commit point: the relay answered and holds this peer's sockets.
+	let listener = lp.listen(transport, "").await?;
+	let opened = (|| {
+		lp.select_listener(listener)?;
+		Ok(Server {
+			listener: crate::server::LoopListener::new(std::rc::Rc::clone(&lp), listener, host),
+		})
+	})();
+	match opened {
+		Ok(server) => Ok(server),
+		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener))),
 	}
 }
 
@@ -211,6 +318,19 @@ pub fn install_provider(driver: &crate::driver_loop::DriverLoop, config: Config<
 	let installed = (|| {
 		let package = runtime.transport_provider()?;
 		driver.add_provider(package)
+	})();
+	match installed {
+		Ok(()) => runtime.close(),
+		Err(primary) => Err(crate::retain_cleanup_failure(primary, runtime.close())),
+	}
+}
+
+/// The same install against the loop-shared handle the listener path holds.
+fn install_provider_shared(lp: &std::rc::Rc<crate::driver_loop::LoopShared>, config: Config<'_>) -> Result<()> {
+	let runtime = Runtime::new(config)?;
+	let installed = (|| {
+		let package = runtime.transport_provider()?;
+		lp.add_provider(package)
 	})();
 	match installed {
 		Ok(()) => runtime.close(),

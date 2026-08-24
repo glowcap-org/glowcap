@@ -1,5 +1,6 @@
 //! Peer daemon: CapTP/iroh room presence loop for `pancake app rooms-peer`.
 const std = @import("std");
+const builtin = @import("builtin");
 const iroh = @import("iroh");
 const rooms_profile = @import("rooms_profile");
 const signals = @import("../../operability/signals.zig");
@@ -7,6 +8,8 @@ const identity_mod = @import("../../operability/identity.zig");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
 const harness = @import("harness.zig");
+const files = @import("harness/files.zig");
+const ledger = @import("harness/ledger.zig");
 const phase_mod = @import("phase.zig");
 const Flags = @import("flags.zig").Flags;
 const st = @import("state.zig");
@@ -26,15 +29,29 @@ const frame_cap = common.frame_cap;
 const timer_ms = common.timer_ms;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
 const dial_timeout_ms = common.dial_timeout_ms;
-const readFile = harness.readFile;
-const overwriteFile = harness.overwriteFile;
-const removeFile = harness.removeFile;
+const readFile = files.readFile;
+const overwriteFile = files.overwriteFile;
+const removeFile = files.removeFile;
 const writeState = harness.writeState;
 const loadOutboxOffset = harness.loadOutboxOffset;
 const clampOutboxOffset = harness.clampOutboxOffset;
-const advanceInboxWatermark = harness.advanceInboxWatermark;
+const advanceInboxWatermark = ledger.advanceInboxWatermark;
 
 const PeerState = st.PeerState;
+
+fn detachProcess() !void {
+    if (comptime builtin.link_libc) {
+        if (std.c.setsid() < 0) return error.DetachFailed;
+    } else if (comptime builtin.os.tag == .linux) {
+        if (std.os.linux.setsid() < 0) return error.DetachFailed;
+    }
+}
+
+fn processId() i32 {
+    if (comptime builtin.link_libc) return @intCast(std.c.getpid());
+    if (comptime builtin.os.tag == .linux) return @intCast(std.os.linux.getpid());
+    @compileError("rooms-peer needs a portable process id implementation for this target");
+}
 
 // --- loop maintenance -------------------------------------------------------
 
@@ -59,11 +76,11 @@ fn maintain(state: *PeerState) void {
             if (PeerState.stopRequested()) return;
             state.bridge.dialOutboundReserved(state.room_locator) catch |err| {
                 log.err(state.io, "redial failed: {s}", .{@errorName(err)});
-                state.writeStateNow("reconnecting");
+                _ = state.writeStateNow("reconnecting");
                 state.phase = .{ .down = .{ .cooldown = redial_cooldown_wakes } };
                 return;
             };
-            state.writeStateNow("reconnecting");
+            _ = state.writeStateNow("reconnecting");
             state.phase = .{ .dialing = .{ .cooldown = redial_cooldown_wakes } };
         },
         // Connect in flight: keep the countdown running so a refused connect
@@ -110,11 +127,11 @@ fn maintain(state: *PeerState) void {
 /// swallows the SIGTERM `EINTR` and re-waits, so one long sleep is signal-deaf;
 /// chunking it at the tick cadence lets the supervisor observe the shared stop
 /// latch during a reconnect backoff instead of parking past `stop`'s SIGTERM grace.
-fn sleepUntilStop(io: Io, total_ms: i64) void {
+fn sleepUntilStop(io: Io, total_ms: i64) !void {
     var slept: i64 = 0;
     while (slept < total_ms and !PeerState.stopRequested()) {
         const chunk = @min(@as(i64, @intCast(timer_ms)), total_ms - slept);
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(chunk), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(chunk), .real);
         slept += chunk;
     }
 }
@@ -123,9 +140,9 @@ fn sleepUntilStop(io: Io, total_ms: i64) void {
 
 /// Treat current inbox scrollback as already answered without stuffing
 /// replied.json (which caps and can resurface ancient ids after restart).
-fn seedRepliedBacklog(io: Io, gpa: Allocator, dir: []const u8, nick: []const u8) void {
+fn seedRepliedBacklog(io: Io, gpa: Allocator, dir: []const u8, nick: []const u8) !void {
     _ = nick;
-    advanceInboxWatermark(io, gpa, dir);
+    try advanceInboxWatermark(io, gpa, dir);
 }
 
 pub fn runPeer(init: std.process.Init, flags: Flags) !void {
@@ -138,23 +155,30 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     if (flags.dir.len == 0 or flags.nick.len == 0 or flags.locator.len == 0) return error.MissingFlags;
 
     // Detach into our own session so a reaped launcher shell cannot SIGHUP us.
-    _ = std.os.linux.setsid();
+    try detachProcess();
     signals.install();
 
-    Io.Dir.cwd().createDirPath(io, flags.dir) catch {};
+    try Io.Dir.cwd().createDirPath(io, flags.dir);
+    // The mutable PID text is informational; this held inode is the daemon's
+    // lifetime lease. Supervisors refuse to adopt an unlocked stale PID.
+    const lease = files.tryLockLeaf(io, flags.dir, "peer.pid") catch |err| {
+        log.err(io, "peer lease unavailable: {s}", .{@errorName(err)});
+        return error.PeerLeaseUnavailable;
+    };
+    defer lease.unlock();
     var pid_buf: [24]u8 = undefined;
-    const pid_text = std.fmt.bufPrint(&pid_buf, "{d}\n", .{std.os.linux.getpid()}) catch "0\n";
-    overwriteFile(io, flags.dir, "peer.pid", pid_text) catch {};
+    const pid_text = try std.fmt.bufPrint(&pid_buf, "{d}\n", .{processId()});
+    try overwriteFile(io, flags.dir, "peer.pid", pid_text);
     // Mark the existing scrollback answered once, so a restart never re-answers
     // lines from before we joined.
-    seedRepliedBacklog(io, gpa, flags.dir, flags.nick);
+    try seedRepliedBacklog(io, gpa, flags.dir, flags.nick);
 
     // Honor the persisted already-sent mark; the drain compacts only past it.
     // Never seed to EOF: that skipped undrained lines written while the peer
     // was down or wedged before tell.
-    const outbox_bytes = readFile(io, gpa, flags.dir, "outbox.jsonl") catch try gpa.dupe(u8, "");
+    const outbox_bytes = try readFile(io, gpa, flags.dir, "outbox.jsonl");
     defer gpa.free(outbox_bytes);
-    st.g_offset = clampOutboxOffset(loadOutboxOffset(io, gpa, flags.dir), outbox_bytes.len);
+    st.g_offset = clampOutboxOffset(try loadOutboxOffset(io, gpa, flags.dir), outbox_bytes.len);
 
     // Supervisor. Keep a functional iroh stack up until a stop signal. A
     // connection drop is recovered inside runStack (maintain redials in place); a
@@ -170,16 +194,16 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
         st.g_ever_joined = false;
         const dial_target = common.resolveLocator(io, gpa, flags.locator) catch |err| {
             log.err(io, "locator resolve failed: {s}; retrying", .{@errorName(err)});
-            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
-            sleepUntilStop(io, backoff_ms);
+            try writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
+            try sleepUntilStop(io, backoff_ms);
             backoff_ms = @min(backoff_ms * 2, 30_000);
             continue;
         };
         defer gpa.free(dial_target);
         const loc = model.uri.parsePeer(gpa, dial_target) catch |err| {
             log.err(io, "locator parse failed: {s}; retrying", .{@errorName(err)});
-            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
-            sleepUntilStop(io, backoff_ms);
+            try writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
+            try sleepUntilStop(io, backoff_ms);
             backoff_ms = @min(backoff_ms * 2, 30_000);
             continue;
         };
@@ -195,17 +219,24 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
             return err;
         };
         defer if (rendezvous_url) |u| gpa.free(u);
-        runStack(io, gpa, flags, loc, reachability, dial_target, rendezvous_url) catch |err| {
-            log.err(io, "iroh stack failed: {s}; rebuilding", .{@errorName(err)});
+        runStack(io, gpa, flags, loc, reachability, dial_target, rendezvous_url) catch |err| switch (err) {
+            error.PersistenceFailed => {
+                log.err(io, "rooms peer persistence failed; stopping", .{});
+                return err;
+            },
+            else => log.err(io, "iroh stack failed: {s}; rebuilding", .{@errorName(err)}),
         };
         if (PeerState.stopRequested()) break;
-        writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, dial_target, false, 0);
-        sleepUntilStop(io, backoff_ms);
+        try writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, dial_target, false, 0);
+        try sleepUntilStop(io, backoff_ms);
         backoff_ms = if (st.g_ever_joined) 500 else @min(backoff_ms * 2, 30_000);
     }
 
-    writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator, false, 0);
-    removeFile(io, flags.dir, "peer.pid");
+    try writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator, false, 0);
+    removeFile(io, flags.dir, "peer.pid") catch |err| {
+        log.err(io, "removing peer.pid during teardown failed: {s}", .{@errorName(err)});
+        return err;
+    };
 }
 
 /// Resolve the CapTP Host seed: `--identity PATH`, else `DIR/identity` (minted
@@ -222,7 +253,7 @@ fn hostSeed(io: Io, dir: []const u8, identity_flag: []const u8) ![32]u8 {
 
 /// Wait until the endpoint reports at least one direct address, or until
 /// `budget_ms` elapses.
-fn directAddrsReady(io: Io, resident: *iroh.Resident, out: []u8, budget_ms: i64) bool {
+fn directAddrsReady(io: Io, resident: *iroh.Resident, out: []u8, budget_ms: i64) !bool {
     var slept: i64 = 0;
     while (slept <= budget_ms) {
         if (resident.directAddrs(out)) |result| {
@@ -233,7 +264,7 @@ fn directAddrsReady(io: Io, resident: *iroh.Resident, out: []u8, budget_ms: i64)
         } else |_| {}
         if (slept == budget_ms) break;
         const chunk = @min(@as(i64, 50), budget_ms - slept);
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(chunk), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(chunk), .real);
         slept += chunk;
     }
     return false;
@@ -278,7 +309,7 @@ fn runStack(
     defer if (owned_addrs) |addrs| gpa.free(addrs);
     const addrs: []const u8 = if (reachability == .direct) blk: {
         var addrs_buf: [512]u8 = undefined;
-        if (!directAddrsReady(io, &resident, &addrs_buf, 5_000)) break :blk "";
+        if (!(try directAddrsReady(io, &resident, &addrs_buf, 5_000))) break :blk "";
         owned_addrs = resident.directAddrsOwned(gpa) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.SidecarFailed, error.AddressListTooLarge => {
@@ -397,15 +428,25 @@ fn runStack(
     // the maintenance timer. One bounded reactor wait replaces the former
     // sleep task, which set a flag but could not wake this poll.
     var maintain_due = std.atomic.Value(bool).init(false);
+    var loop_failure: ?anyerror = null;
     while (!PeerState.stopRequested()) {
         loop.runUntil(&maintain_due, timer_ms) catch |err| switch (err) {
             error.Timeout => {},
             else => {
-                loop.closeAndDrain() catch {};
-                return err;
+                loop_failure = err;
+                break;
             },
         };
+        if (loop_failure != null) break;
         maintain(&state);
+        if (state.persistence_failed) {
+            loop_failure = error.PersistenceFailed;
+            break;
+        }
     }
-    loop.closeAndDrain() catch {};
+    loop.closeAndDrain() catch |err| {
+        log.err(io, "rooms peer loop teardown failed: {s}", .{@errorName(err)});
+        if (loop_failure == null) loop_failure = err;
+    };
+    if (loop_failure) |err| return err;
 }

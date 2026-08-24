@@ -352,6 +352,16 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
     try std.testing.expect(!listened.fired);
     try pump(&hosts, &.{pair}, &dials, &watches);
     _ = try listened.requireRef();
+    // A listen completion is a local resolver notification, not a question
+    // position the partner knows. It can be awaited, but cannot be used as a
+    // remote pipeline target or released with op:gc-answers.
+    var impossible_pipeline: u64 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_vow_send(client, listen_vow, "ping", 4, null, 0, &impossible_pipeline),
+    );
+    try expectOk(cd.pancake_host_vow_release(client, listen_vow));
+    try pump(&hosts, &.{pair}, &dials, &watches);
 
     // The seam's own refusals: a null target or vow slot never reaches the
     // core (the InvalidReference semantics for a bad target are pinned at the

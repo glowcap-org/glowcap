@@ -58,7 +58,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
     .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
     .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits", "syrup", "capnp" }, .core = true },
-    .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{"model"}, .core = true },
+    .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{ "foundation", "model" }, .core = true },
     .{ .name = "engine", .prefix = "ocapn/engine/", .imports = &.{ "foundation", "model", "codec", "session" }, .core = true },
     .{ .name = "persistent", .prefix = "persistent/", .imports = &.{}, .core = true },
     .{ .name = "actors", .prefix = "actors/", .imports = &.{ "model", "engine" }, .core = true },
@@ -102,6 +102,10 @@ const ArchiveSpec = struct {
     /// False for an archive that links a non-Zig sidecar and so installs only
     /// behind its own sibling step (iroh), never on the default build.
     default_install: bool = true,
+    /// Included in the target-specific release bundle. This is independent of
+    /// default installation: iroh is release-packaged through its sibling
+    /// build, while the experimental WebRTC companion is not published.
+    release_install: bool = true,
 };
 const archive_table = [_]ArchiveSpec{
     .{ .artifact = "pancake_ocapn", .layer = "c_abi", .header = "pancake_ocapn.h" },
@@ -112,7 +116,7 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "pancake_host", .layer = "c_abi_host", .header = "pancake_host.h" },
     .{ .artifact = "pancake_driver", .layer = "c_abi_driver", .header = "pancake_driver.h" },
     .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .default_install = false },
-    .{ .artifact = "pancake_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "pancake_net_transport_webrtc.h", .default_install = false },
+    .{ .artifact = "pancake_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "pancake_net_transport_webrtc.h", .default_install = false, .release_install = false },
 };
 
 const shared_header_table = [_][]const u8{
@@ -214,6 +218,7 @@ pub fn build(b: *std.Build) void {
     const attach = b.option(bool, "attach", "With -Dport: demo orchestrators join an already-running server on that port instead of spawning one") orelse false;
     const rooms_diagnostics = b.option(bool, "diagnostics", "When serving the rooms web UI, mint an inspect capability and print its swiss") orelse false;
     const rooms_admin_listeners = b.option(bool, "admin-listeners", "When serving the rooms web UI, mint a listener-admin capability and print its swiss") orelse false;
+    const rooms_peering = b.option(bool, "peering", "When serving the rooms web UI, mint a directory-peering capability and print its swiss") orelse false;
     const rooms_viz = b.option(bool, "viz", "When serving the rooms web UI, serve the live timeline endpoint (default port 9300; PANCAKE_ROOMS_VIZ_PORT overrides) and mint the viz capability") orelse false;
     if (attach and pin_port == null) {
         std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
@@ -390,6 +395,18 @@ pub fn build(b: *std.Build) void {
     // snippets and their per-language checks, the Zine render, and the local
     // preview) registers as one subject from tools/build/site.zig; the
     // language-check handles come back for the `bindings` aggregate.
+
+    // ── Browser proofs: one preflight for all of them ────────────────────────
+    // Every step that drives a real headless Chromium depends on this. The
+    // devcontainer ships the browser in its image, so an absent one means the
+    // image predates that or the build is running somewhere else, and Playwright's
+    // own error names a remedy this project does not use. The script says which
+    // version to install and where the version is written; every browser step
+    // borrows that one answer rather than restating it in a header comment.
+    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{ "bash", "tools/check/playwright-preflight.sh" });
+    browser_preflight.setCwd(b.path("."));
+    browser_preflight.has_side_effects = true;
+
     const site_reg = site_build.register(.{
         .b = b,
         .target = target,
@@ -398,6 +415,7 @@ pub fn build(b: *std.Build) void {
         .model_mod = host_mods[layerIndex("model")],
         .check_step = check_step,
         .pin_port = pin_port,
+        .browser_preflight = &browser_preflight.step,
     });
     mbedtls_build.addSiteRelayExamples(
         b,
@@ -470,17 +488,6 @@ pub fn build(b: *std.Build) void {
     }
     bindings_step.dependOn(iroh_reg.abi_test_step);
 
-    // ── Browser proofs: one preflight for all of them ────────────────────────
-    // Every step that drives a real headless Chromium depends on this. The
-    // devcontainer ships the browser in its image, so an absent one means the
-    // image predates that or the build is running somewhere else, and Playwright's
-    // own error names a remedy this project does not use. The script says which
-    // version to install and where the version is written; every browser step
-    // borrows that one answer rather than restating it in a header comment.
-    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{ "bash", "tools/check/playwright-preflight.sh" });
-    browser_preflight.setCwd(b.path("."));
-    browser_preflight.has_side_effects = true;
-
     // The WebRTC DataChannel netlayer family (ADR-0089) registers as one
     // subject from tools/build/webrtc.zig: the sidecar's cargo steps, the
     // hermetic compile objects that ride `check`, the live interop and
@@ -529,8 +536,25 @@ pub fn build(b: *std.Build) void {
     // per-language rows) register from tools/build/binding_families.zig.
     binding_families_build.register(b, pin_port, iroh_abi_step);
 
-    // Release packaging registers from tools/build/release.zig.
-    release_build.register(b, target, abi_version, iroh_abi_step);
+    // Release packaging consumes the archive table directly. The stage copies
+    // only these names, so a dirty zig-out cannot leak another target or an
+    // internal artifact into a published bundle.
+    var release_static_archives: std.ArrayList([]const u8) = .empty;
+    var release_dynamic_archives: std.ArrayList([]const u8) = .empty;
+    var release_headers: std.ArrayList([]const u8) = .empty;
+    for (archive_table) |arch| {
+        if (!arch.release_install) continue;
+        if (arch.default_install) release_static_archives.append(b.allocator, arch.artifact) catch @panic("OOM");
+        release_dynamic_archives.append(b.allocator, arch.artifact) catch @panic("OOM");
+        if (arch.header) |header| release_headers.append(b.allocator, header) catch @panic("OOM");
+    }
+    for (shared_header_table) |header| release_headers.append(b.allocator, header) catch @panic("OOM");
+    release_build.register(b, target, optimize, abi_version, iroh_abi_step, .{
+        .static_archives = release_static_archives.items,
+        .dynamic_archives = release_dynamic_archives.items,
+        .headers = release_headers.items,
+        .binaries = &.{ "pancake", "rooms-peer" },
+    });
     // External conformance pressure registers from tools/build/conformance.zig,
     // bundling the upstream suite, the findings, corpus parity, and the live
     // Goblins steps into `check-external`.
@@ -571,10 +595,12 @@ pub fn build(b: *std.Build) void {
         .host_install = &host_archive.dynamic_install.step,
         .driver_install = &driver_archive.dynamic_install.step,
         .tcp_install = &tcp_archive.dynamic_install.step,
+        .relay_install = &relay_archive.dynamic_install.step,
         .pin_port = pin_port,
         .attach = attach,
         .diagnostics = rooms_diagnostics,
         .admin_listeners = rooms_admin_listeners,
+        .peering = rooms_peering,
         .viz = rooms_viz,
     });
 

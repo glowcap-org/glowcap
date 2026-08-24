@@ -17,9 +17,11 @@
 # apt layer. The iroh Rust sidecar is statically linked into the transport .so, so
 # this image needs no cargo either.
 #
-# Keep the Deno tag below in sync with .devcontainer/pins.sh (DENO_VERSION).
+# The Deno tag and the base image digest below both come from
+# .devcontainer/pins.sh. `update-pins.sh bump` rewrites them here, and
+# .devcontainer/test/env-sync.sh fails the build if either drifts from it.
 
-FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
-COPY --from=denoland/deno:bin-2.9.4 /deno /usr/local/bin/deno
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+COPY --from=denoland/deno:bin-2.9.5 /deno /usr/local/bin/deno
 ENV DENO_DIR=/deno-dir
 ENTRYPOINT ["deno"]

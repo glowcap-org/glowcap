@@ -127,13 +127,10 @@ test "handoff gives differing only in a hint entry value are unequal" {
     try std.testing.expect(model.peerLocatorsEqual(give_a.give.exporter, give_b.give.exporter));
 }
 
-test "promise references compare on answer id and pipeline path" {
-    const ops = [_]model.PipelineOp{.{ .field = "method" }};
-    const a: model.Reference = .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } };
-    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } }));
-    // Same answer, empty path ≠ non-empty path.
-    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(5) } }));
-    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(6), .path = .{ .ops = &ops } } }));
+test "promise references compare on answer id" {
+    const a: model.Reference = .{ .promise = .{ .answer_position = .from(5) } };
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(5) } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(6) } }));
 }
 
 test "argument equality recurses through lists and nested references" {
@@ -266,42 +263,6 @@ test "float64 equality follows Object.is: +0.0 is distinct from -0.0" {
 test "float64 equality compares ordinary values by magnitude" {
     try std.testing.expect(model.argumentsEqual(.{ .float64 = 3.5 }, .{ .float64 = 3.5 }));
     try std.testing.expect(!model.argumentsEqual(.{ .float64 = 3.5 }, .{ .float64 = 3.6 }));
-}
-
-test "equality bails at the depth cap on a promise/call tower instead of overflowing" {
-    // The recursion cycle under test: a promise reference carries a pipeline
-    // path, a `call` step carries arguments, and an argument can be another
-    // promise reference. The depth counter must thread through that whole
-    // cycle, dropping it at the reference arm or restarting it at the path
-    // would let a tall enough tower recurse off the native stack.
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const buildTower = struct {
-        fn build(a: std.mem.Allocator, levels: usize) !model.Reference {
-            var reference: model.Reference = .{ .promise = .{ .answer_position = .from(0) } };
-            var level: usize = 0;
-            while (level < levels) : (level += 1) {
-                const args = try a.alloc(model.Argument, 1);
-                args[0] = .{ .reference = reference };
-                const ops = try a.alloc(model.PipelineOp, 1);
-                ops[0] = .{ .call = args };
-                reference = .{ .promise = .{ .answer_position = .from(0), .path = .{ .ops = ops } } };
-            }
-            return reference;
-        }
-    }.build;
-
-    // A shallow tower is well inside the cap and compares equal to itself.
-    const shallow = try buildTower(allocator, 8);
-    try std.testing.expect(model.referencesStructurallyEqual(shallow, shallow));
-
-    // A tower past `max_equality_depth` (256) bails out as unequal — even
-    // against itself — rather than recursing one native frame per level.
-    const deep = try buildTower(allocator, 100_000);
-    try std.testing.expect(!model.referencesStructurallyEqual(deep, deep));
-    try std.testing.expect(!model.argumentsEqual(.{ .reference = deep }, .{ .reference = deep }));
 }
 
 // The borrowed-view equality and hash spine (`viewArgument*`) mirrors the owned

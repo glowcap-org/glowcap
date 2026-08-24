@@ -11,6 +11,7 @@ const actors = @import("actors");
 const host_mod = @import("../host.zig");
 const host_close = @import("close.zig");
 const pump_schedule = @import("pump/schedule.zig");
+const pending_dial_identity = @import("../pending_dial_identity.zig");
 const capability_promise = @import("../capability_promise.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -146,27 +147,12 @@ fn drainWork(self: *Host) !void {
                     if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_handle);
                     continue :work;
                 },
-                .node => if (self.node.hasAction()) {
+                .node => if (try drainNodeAction(self)) {
                     remaining -= 1;
-                    // Reserve the largest Host-side consequence, then execute through
-                    // the Node's peek/commit seam. A fulfilled settle may still need a
-                    // fallible Vat clone; if it fails, the action remains parked.
-                    try self.reserveActions(1);
-                    const action = self.node.peekAction().?;
-                    try execNodeAction(self, action);
-                    try self.node.consumePeekedAction();
                     continue :work;
                 },
-                .handoff => if (self.node.nextHandoffChange()) |dependency| {
+                .handoff => if (drainHandoffChange(self)) {
                     remaining -= 1;
-                    var waiters = self.node.handoffWaiters(dependency);
-                    while (waiters.next()) |receiver| {
-                        const session = self.sessions.get(receiver) orelse continue;
-                        if (session.isTerminating()) continue;
-                        session.served.port.peer.noteHandoffChange(dependency);
-                        markDirty(self, receiver);
-                    }
-                    self.node.consumeHandoffChange(dependency);
                     continue :work;
                 },
             }
@@ -180,6 +166,31 @@ fn drainWork(self: *Host) !void {
         try pump_schedule.queueResumeAction(self);
 }
 
+fn drainNodeAction(self: *Host) !bool {
+    if (!self.node.hasAction()) return false;
+    // Reserve the largest Host-side consequence, then execute through the
+    // Node's peek/commit seam. A fulfilled settle may still need a fallible
+    // Vat clone; if it fails, the action remains parked.
+    try self.reserveActions(1);
+    const action = self.node.peekAction().?;
+    try execNodeAction(self, action);
+    try self.node.consumePeekedAction();
+    return true;
+}
+
+fn drainHandoffChange(self: *Host) bool {
+    const dependency = self.node.nextHandoffChange() orelse return false;
+    var waiters = self.node.handoffWaiters(dependency);
+    while (waiters.next()) |receiver| {
+        const session = self.sessions.get(receiver) orelse continue;
+        if (session.isTerminating()) continue;
+        session.served.port.peer.noteHandoffChange(dependency);
+        markDirty(self, receiver);
+    }
+    self.node.consumeHandoffChange(dependency);
+    return true;
+}
+
 /// The non-blocking executor of node serve-step actions: settles and
 /// fails fire the recipient vat's listener directly (`Vat.settleFar`);
 /// dials and gift-id draws are host effects, queued for the embedder;
@@ -187,20 +198,45 @@ fn drainWork(self: *Host) !void {
 fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
     switch (action) {
         .dial => |d| {
-            // Ticket-only action: pending row owns URI + parsed parts.
+            // Attempt-only action: pending row owns URI + parsed parts.
             // Unparseable gives never reach a dial action (acceptGive fails
             // them). Pre-flight reuses an already-open Host session the Node
             // identity cache may have missed (earlier app dial, accepted
             // inbound hello). ADR-0012 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
-            const view = self.node.pendingDial(d.pending) orelse return;
-            if (try self.liveSessionForDial(view.transport, view.designator)) |existing| {
-                if (existing.sessionOpen()) {
-                    return self.node.exporterSelected(d.pending, existing.peer_handle);
+            const view = self.node.pendingDial(d.pending, d.route_index) orelse return;
+            const locator = view.locator;
+            const existing = if (view.demanded_partner_key) |key|
+                self.authenticatedSessionForKey(key)
+            else
+                try self.liveSessionForDial(locator.transport, locator.designator);
+            if (existing) |session| {
+                if (session.lifecyclePhase() == .active and session.sessionOpen() and
+                    pending_dial_identity.selectedSessionSatisfies(self, d.pending, d.route_index, session))
+                {
+                    if (!self.node.beginDialEffect(d.pending, d.route_index)) return;
+                    const adopted = self.completeSelectedExporter(
+                        d.pending,
+                        d.route_index,
+                        session,
+                    ) catch |err| {
+                        self.node.rollbackDialEffect(d.pending, d.route_index);
+                        return err;
+                    };
+                    if (!adopted)
+                        self.node.rollbackDialEffect(d.pending, d.route_index);
+                    return;
                 }
             }
-            try pump_schedule.queueHostAction(self, .{ .dial = .{ .ticket = d.pending } });
+            try pump_schedule.queueHostAction(self, .{ .dial = .{
+                .ticket = d.pending,
+                .route_index = d.route_index,
+            } });
         },
+        .cancel_dial => |d| try pump_schedule.queueHostAction(self, .{ .cancel_dial = .{
+            .ticket = d.pending,
+            .route_index = d.route_index,
+        } }),
         .flush => |peer_handle| markDirty(self, peer_handle),
         .settle => |s| {
             switch (s.dest) {
@@ -252,10 +288,6 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
         .release_capability => |raw| {
             const ref = self.capabilities.refForRaw(raw) orelse return;
             self.releaseCapabilityTerminal(ref, null);
-        },
-        .fail_session => |failure| {
-            const session = self.sessions.get(failure.peer_handle) orelse return;
-            condemnAndClose(self, session, .other, failure.reason);
         },
     }
 }

@@ -12,18 +12,21 @@ import { assertEquals } from "@std/assert";
 import { segmentCellClass } from "./tokens.ts";
 
 Deno.test("a segmented cell is a button, joined into a row", () => {
-  const classes = segmentCellClass(false).split(" ");
-  assertEquals(classes.includes("ocv-btn"), true);
-  assertEquals(classes.includes("is-segment"), true);
+	const classes = segmentCellClass(false).split(" ");
+	assertEquals(classes.includes("ocv-btn"), true);
+	assertEquals(classes.includes("is-segment"), true);
 });
 
 Deno.test("only the chosen cell carries the chosen class", () => {
-  assertEquals(segmentCellClass(false).split(" ").includes("is-active"), false);
-  assertEquals(segmentCellClass(true).split(" ").includes("is-active"), true);
+	assertEquals(
+		segmentCellClass(false).split(" ").includes("is-active"),
+		false,
+	);
+	assertEquals(segmentCellClass(true).split(" ").includes("is-active"), true);
 });
 
 Deno.test("choosing a cell changes nothing else about it", () => {
-  const unchosen = segmentCellClass(false).split(" ");
-  const chosen = segmentCellClass(true).split(" ");
-  assertEquals(chosen.filter((n) => n !== "is-active"), unchosen);
+	const unchosen = segmentCellClass(false).split(" ");
+	const chosen = segmentCellClass(true).split(" ");
+	assertEquals(chosen.filter((n) => n !== "is-active"), unchosen);
 });

@@ -187,6 +187,9 @@ pub const EagerConfig = struct {
     extra_require: ?[]const u8 = null,
     fingerprint_stem: ?[]const u8 = null,
     fingerprint_constant: ?[]const u8 = null,
+    /// Most archive modules are the load owner. Core/Host/driver keep policy
+    /// in their hand-written wrapper so runtime-proof checks can reach it.
+    check_fingerprint_at_load: bool = true,
 };
 
 pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
@@ -271,12 +274,14 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
             }
         }
     }
-    if (cfg.fingerprint_stem) |stem| {
-        try out.print(gpa, "\n(require-archive-fingerprint! '{s} pancake_{s}_archive_fingerprint {s})\n", .{
-            stem,
-            stem,
-            cfg.fingerprint_constant orelse @compileError("fingerprint constant required"),
-        });
+    if (cfg.check_fingerprint_at_load) {
+        if (cfg.fingerprint_stem) |stem| {
+            try out.print(gpa, "\n(require-archive-fingerprint! '{s} pancake_{s}_archive_fingerprint {s})\n", .{
+                stem,
+                stem,
+                cfg.fingerprint_constant orelse @compileError("fingerprint constant required"),
+            });
+        }
     }
     return out.toOwnedSlice(gpa);
 }

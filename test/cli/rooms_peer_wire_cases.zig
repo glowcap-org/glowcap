@@ -86,7 +86,7 @@ test "rooms-peer inbox persistence failure reaches process diagnostics" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
 
     cli.log.test_capture.reset();
-    wire.recordReceived(threaded.io(), failing.allocator(), "unused", "room", "tree2", "lost", "");
+    _ = wire.recordReceived(threaded.io(), failing.allocator(), "unused", "room", "tree2", "lost", "");
     const diagnostic = cli.log.test_capture.captured();
     try std.testing.expect(std.mem.indexOf(u8, diagnostic, "recording room line from \"tree2\" failed") != null);
     try std.testing.expect(std.mem.indexOf(u8, diagnostic, "OutOfMemory") != null);

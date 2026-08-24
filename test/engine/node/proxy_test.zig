@@ -40,7 +40,7 @@ test "inline handoff redemption preserves its Host promise destination" {
 
     const dial = node.nextAction().?;
     try std.testing.expect(dial == .dial);
-    try std.testing.expectEqual(Node.DialFailure.exhausted, try node.dialFailed(dial.dial.pending, "refused"));
+    try std.testing.expectEqual(Node.DialFailure.exhausted, try node.dialFailed(dial.dial.pending, 0, "refused"));
     const failed = node.nextAction().?;
     try std.testing.expect(failed == .fail);
     try std.testing.expectEqual(recipient, failed.fail.dest.deferred.recipient_peer);

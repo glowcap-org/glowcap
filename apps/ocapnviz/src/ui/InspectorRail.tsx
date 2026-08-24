@@ -18,38 +18,42 @@ import { Section } from "./Section.tsx";
 import { connectionsSectionTitle, EntityConnections, EntityDetails } from "./Sidebar.tsx";
 
 export function InspectorRail({
-  engine,
-  shown,
-  inspectorKey,
-  onSelect,
-  editor,
-  onNarrowSelection,
-  onResize,
+	engine,
+	shown,
+	inspectorKey,
+	onSelect,
+	editor,
+	onNarrowSelection,
+	onResize,
 }: {
-  engine: Engine;
-  shown: {
-    anchor: StageSelection;
-    selection: ReadonlySet<EntityRefKey> | undefined;
-  };
-  inspectorKey: string;
-  onSelect: (sel: StageSelection) => void;
-  editor: EditorBindings | undefined;
-  onNarrowSelection: (entities: ReadonlySet<EntityRefKey>) => void;
-  onResize: (
-    updater: Partial<LayoutSizes> | ((s: LayoutSizes) => LayoutSizes),
-  ) => void;
+	engine: Engine;
+	shown: {
+		anchor: StageSelection;
+		selection: ReadonlySet<EntityRefKey> | undefined;
+	};
+	inspectorKey: string;
+	onSelect: (sel: StageSelection) => void;
+	editor: EditorBindings | undefined;
+	onNarrowSelection: (entities: ReadonlySet<EntityRefKey>) => void;
+	onResize: (
+		updater: Partial<LayoutSizes> | ((s: LayoutSizes) => LayoutSizes),
+	) => void;
 }) {
-  return (
-    <aside style={rightPane} className="ocv-pane">
-      <ResizeHandle
-        axis="x"
-        edge="left"
-        label="Right panel width"
-        title="Drag or use the left and right arrow keys to resize"
-        onDelta={(d) => onResize((s) => ({ ...s, rightPaneWidth: s.rightPaneWidth - d }))}
-      />
-      {
-        /* Section title swaps: "DETAILS" when nothing is
+	return (
+		<aside style={rightPane} className="ocv-pane">
+			<ResizeHandle
+				axis="x"
+				edge="left"
+				label="Right panel width"
+				title="Drag or use the left and right arrow keys to resize"
+				onDelta={(d) =>
+					onResize((s) => ({
+						...s,
+						rightPaneWidth: s.rightPaneWidth - d,
+					}))}
+			/>
+			{
+				/* Section title swaps: "DETAILS" when nothing is
           selected (consistent with sibling sections — the pane
           reads as a labeled empty placeholder), then *replaced*
           by the entity's own heading (name + pill, rendered
@@ -66,32 +70,35 @@ export function InspectorRail({
           `inspectorView` is where the two are told apart, and a
           part that asked for itself is how a titleless empty pane
           got in. */
-      }
-      <Section {...(shown.anchor ? {} : { title: "Details" })}>
-        <div className="ocv-inspector-swap" key={`details-${inspectorKey}`}>
-          <EntityDetails
-            engine={engine}
-            anchor={shown.anchor}
-            onSelect={onSelect}
-            editor={editor}
-            entitySelection={shown.selection}
-            onNarrowSelection={onNarrowSelection}
-          />
-        </div>
-      </Section>
-      <Section title={connectionsSectionTitle(engine, shown.anchor)}>
-        <div
-          className="ocv-inspector-swap"
-          key={`connections-${inspectorKey}`}
-        >
-          <EntityConnections
-            engine={engine}
-            anchor={shown.anchor}
-            onSelect={onSelect}
-            entitySelection={shown.selection}
-          />
-        </div>
-      </Section>
-    </aside>
-  );
+			}
+			<Section {...(shown.anchor ? {} : { title: "Details" })}>
+				<div
+					className="ocv-inspector-swap"
+					key={`details-${inspectorKey}`}
+				>
+					<EntityDetails
+						engine={engine}
+						anchor={shown.anchor}
+						onSelect={onSelect}
+						editor={editor}
+						entitySelection={shown.selection}
+						onNarrowSelection={onNarrowSelection}
+					/>
+				</div>
+			</Section>
+			<Section title={connectionsSectionTitle(engine, shown.anchor)}>
+				<div
+					className="ocv-inspector-swap"
+					key={`connections-${inspectorKey}`}
+				>
+					<EntityConnections
+						engine={engine}
+						anchor={shown.anchor}
+						onSelect={onSelect}
+						entitySelection={shown.selection}
+					/>
+				</div>
+			</Section>
+		</aside>
+	);
 }

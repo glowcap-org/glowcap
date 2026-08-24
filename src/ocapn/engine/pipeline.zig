@@ -33,16 +33,17 @@ const freeMessage = model.freeMessage;
 // drain below can call the pure half by its bare name.
 const resolution_math = @import("pipeline_resolution.zig");
 const listener_drain = @import("pipeline_listeners.zig");
+const resolution_chain = @import("resolution_chain.zig");
 
 pub const rewriteDeliverTarget = resolution_math.rewriteDeliverTarget;
 pub const borrowedListenerFire = resolution_math.borrowedListenerFire;
-pub const decomposeOutboundDeliver = resolution_math.decomposeOutboundDeliver;
 pub const ListenerDrainAction = resolution_math.ListenerDrainAction;
 pub const classifyListenerDrain = resolution_math.classifyListenerDrain;
 const projectResolution = resolution_math.projectResolution;
 pub const maybeInstallInboundListener = listener_drain.maybeInstallInboundListener;
+pub const prepareAnswerListenerDrain = listener_drain.prepareAnswerListenerDrain;
 pub const fireImportedPromiseListeners = listener_drain.fireImportedPromiseListeners;
-pub const PreparedImportedFires = listener_drain.PreparedImportedFires;
+pub const PreparedListenerDrain = listener_drain.PreparedListenerDrain;
 pub const prepareImportedPromiseFires = listener_drain.prepareImportedPromiseFires;
 
 /// The answer authority behind an inbound promise target. A wire
@@ -66,6 +67,40 @@ fn pipelinedAnswer(peer: *Peer, target: anytype) ?model.AnswerName {
     };
 }
 
+/// A validated pipelined deliver with its owned message and, for a pending
+/// source answer, its exact queue seat prepared. No answer/import/resolver
+/// authority has moved while this value is live.
+pub const PreparedPipelinedCall = struct {
+    action: union(enum) {
+        queue: session.PreparedPipelinedCallQueue,
+        dispatch: resolution_chain.Outcome,
+    },
+    message: ?model.Message,
+
+    pub fn abandon(self: *PreparedPipelinedCall, peer: *Peer) void {
+        switch (self.action) {
+            .queue => |*prepared| prepared.abandon(&peer.session_state),
+            .dispatch => {},
+        }
+        if (self.message) |message| {
+            freeMessage(peer.allocator, message);
+            self.message = null;
+        }
+    }
+
+    pub fn commit(self: *PreparedPipelinedCall, peer: *Peer) !void {
+        const message = self.message orelse unreachable;
+        self.message = null;
+        switch (self.action) {
+            .queue => |*prepared| prepared.commit(message),
+            .dispatch => |outcome| {
+                peer.local_delivery_depth = 0;
+                try dispatchDrainedCall(peer, message, outcome);
+            },
+        }
+    }
+};
+
 /// Handle an inbound `op:deliver` that pipelines against an answer we owe,
 /// returning whether it was handled. A non-promise target or an unknown answer
 /// returns `false` (the caller surfaces it normally); every known answer is
@@ -86,11 +121,13 @@ fn pipelinedAnswer(peer: *Peer, target: anytype) ?model.AnswerName {
 /// The inbound classifier validates the complete borrowed deliver before this
 /// function is called. This function may therefore retain or redirect it
 /// without repeating the argument walk.
-pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool {
-    const answer = pipelinedAnswer(peer, deliver.target) orelse return false;
-
-    // Validation and any V1.0 resolver registration were completed by the
-    // inbound-deliver classifier before this mutating seam is reached.
+pub fn preparePipelinedCall(
+    peer: *Peer,
+    deliver: model.view.Deliver,
+) !?PreparedPipelinedCall {
+    const answer = pipelinedAnswer(peer, deliver.target) orelse return null;
+    const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
+    errdefer freeMessage(peer.allocator, owned);
 
     // The stored resolution is the settled/pending decision (the
     // `applySentResolve` invariant: a settled inbound answer always holds its
@@ -98,34 +135,23 @@ pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool
     // rather than reading the status flag is what keeps a call that arrives
     // while the answer's own resolve is still a queued outbound message from
     // being misrouted; it sees the real value and dispatches against it.
-    if (peer.session_state.peekResolutionNamed(answer)) |resolution| {
-        // Settled: dispatch the call right now, the same path a queued call
-        // takes on drain. The local-delivery bound is per-resolution (see
-        // `drainPipelinedCalls`), so it resets for this immediate dispatch
-        // exactly as it does for a drain.
-        const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
-        peer.local_delivery_depth = 0;
-        try dispatchDrainedCall(peer, answer, owned, resolution.*);
-        return true;
+    const target = peer.session_state.answerTargetNamed(answer) orelse unreachable;
+    if (peer.session_state.answerPayloadForTarget(target)) |payload| {
+        if (peer.session_state.answerPayloadStoredResolution(payload) != null)
+            return .{
+                .action = .{ .dispatch = resolution_chain.followAnswer(peer, target, payload) },
+                .message = owned,
+            };
     }
-
-    // Still pending: queue the call until we resolve the answer. Install the
-    // queued call's own answer first so further pipelined calls can target it (a
-    // multi-hop pipeline: A→B→C queues B on A, then C targets B's answer, C
-    // needs B's answer to exist).
-    if (deliver.answer) |call_answer| {
-        try peer.session_state.installInboundAnswer(call_answer);
-    }
-    const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
-    try peer.session_state.enqueuePipelinedCallNamed(answer, owned);
-    return true;
+    return .{
+        .action = .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer) },
+        .message = owned,
+    };
 }
 
 /// Drain calls the partner pipelined against a just-settled answer, dispatching
-/// each against the resolution (ADR-0007
-/// § Queue ownership and drain). Queued inbound targets always carry an empty path: a
-/// multi-hop pipeline is decomposed at the *sender* into single-hop frames
-/// (`Peer.send`'s decomposition), so every `desc:answer` on the wire is flat.
+/// each against the resolution (ADR-0007 § Queue ownership and drain).
+/// `desc:answer` carries one answer position, so every queued target is flat.
 /// Drain the local consequences of settlement: pipelined calls,
 /// anchored projections, then listeners — in that order (ADR-0007 § Queue
 /// ownership and drain; ADR-0050 for projections).
@@ -133,18 +159,20 @@ pub fn drainAnswerConsequencesTarget(
     peer: *Peer,
     target: session.AnswerTarget,
     payload: *session.AnswerPayload,
-    resolution: model.Resolution,
+    consequence: ?resolution_chain.Outcome,
+    prepared_listeners: *PreparedListenerDrain,
 ) !void {
-    if (peer.session_state.answerPayloadForTarget(target) == payload and
-        peer.session_state.inboundAnswerRowIdNamed(target.name) == target.row_id)
-    {
-        try drainPipelinedCalls(peer, target.name, resolution);
-        try drainProjections(peer, target.name, resolution);
-    }
-    try listener_drain.fireListenersOnAnswer(peer, target, payload, resolution);
+    std.debug.assert(peer.session_state.answerPayloadForTarget(target) == payload);
+    try drainPipelinedCalls(peer, payload, consequence);
+    try drainProjections(peer, payload, consequence);
+    prepared_listeners.commit(peer);
 }
 
-fn drainPipelinedCalls(peer: *Peer, answer: model.AnswerName, resolution: model.Resolution) !void {
+fn drainPipelinedCalls(
+    peer: *Peer,
+    payload: *session.AnswerPayload,
+    consequence: ?resolution_chain.Outcome,
+) !void {
     // `local_delivery_depth` bounds the local deliveries *one* resolution's
     // drain produces (a drained call resolving to a local export). The drain
     // fans out only across the calls queued on this answer, it never
@@ -153,9 +181,9 @@ fn drainPipelinedCalls(peer: *Peer, answer: model.AnswerName, resolution: model.
     // resets here; left as a peer-lifetime counter it would wedge a long-lived
     // peer after `max_local_deliveries` legitimate deliveries across the whole
     // connection. The cross-turn chain is application-paced, not unbounded
-    // auto-recursion, and a promise cycle is caught separately on requeue.
+    // auto-recursion, and the shared resolution walk breaks promise cycles.
     peer.local_delivery_depth = 0;
-    const calls = try peer.session_state.takePipelinedCallsNamed(answer);
+    const calls = try peer.session_state.takeAnswerPayloadCalls(payload);
     defer peer.allocator.free(calls);
 
     var index: usize = 0;
@@ -164,7 +192,7 @@ fn drainPipelinedCalls(peer: *Peer, answer: model.AnswerName, resolution: model.
     while (index < calls.len) {
         const queued = calls[index];
         index += 1;
-        try dispatchDrainedCall(peer, answer, queued, resolution);
+        try dispatchDrainedCall(peer, queued, consequence orelse unreachable);
     }
 }
 
@@ -217,14 +245,14 @@ pub fn respondToProjection(
 /// settled (ADR-0050): each one resolves its
 /// projected answer to the named field or element, re-anchors when the
 /// resolution is itself a promise, or breaks. This never grows the native
-/// stack: a projected resolve is *queued* (encode is deferred to `step`),
-/// so a chain of projections-on-projections drains iteratively, one queued
-/// message per step, and each drain settles a distinct pending answer,
-/// total work is bounded by the projections the caps admitted. The one
-/// synchronous walk, following *stored* resolutions in
-/// `anchorProjection`, is hop-bounded by `max_projection_chain`.
-fn drainProjections(peer: *Peer, answer: model.AnswerName, resolution: model.Resolution) !void {
-    const projections = try peer.session_state.takeProjectionsNamed(answer);
+/// stack: the shared stored-resolution walker returns one terminal value,
+/// pending exact incarnation, or break before this batch is touched.
+fn drainProjections(
+    peer: *Peer,
+    payload: *session.AnswerPayload,
+    consequence: ?resolution_chain.Outcome,
+) !void {
+    const projections = try peer.session_state.takeAnswerPayloadProjections(payload);
     if (projections.len == 0) return;
     defer peer.allocator.free(projections);
     var index: usize = 0;
@@ -233,44 +261,43 @@ fn drainProjections(peer: *Peer, answer: model.AnswerName, resolution: model.Res
     while (index < projections.len) {
         const projection = projections[index];
         index += 1;
-        switch (projectResolution(resolution, projection.kind)) {
-            .resolved => |projected| try resolveProjection(peer, projection, projected),
-            .reanchor => |next| try anchorProjection(peer, .fromWire(next), projection),
-        }
+        try applyProjectionOutcome(peer, projection, consequence orelse unreachable);
     }
 }
 
 /// Take ownership of `projection` and anchor it on inbound answer
-/// `source`: install on a pending answer, compute immediately from a
-/// settled answer's stored resolution (following promise-shaped
-/// resolutions hop by hop up to `max_projection_chain`), or break the
-/// projected answer when the walk dead-ends.
+/// `source`: install on its exact pending incarnation, compute from the shared
+/// stored-resolution walk, or break when that walk cannot preserve identity.
 fn anchorProjection(peer: *Peer, source: model.AnswerName, projection: session.Projection) !void {
-    var current = source;
-    var moving = projection;
-    while (true) {
-        if (!peer.session_state.hasInboundAnswerNamed(current))
-            return breakProjection(peer, moving, "projection receiver names an unknown answer");
-        // The stored resolution is itself the settled/pending decision (the
-        // `applySentResolve` invariant couples status and resolution, so peeking
-        // is equivalent to reading the flag and never rests on the `.?`). Absent
-        // means still pending, install the projection and let the answer's own
-        // resolve drain it (`drainProjections`); present means project now.
-        // Mirrors `installProjection`, `installAnswerListener`, and the
-        // inbound dispatch owned by `Peer.step`, every other settled-answer
-        // reader.
-        const resolution = peer.session_state.peekResolutionNamed(current) orelse
-            return peer.session_state.installProjectionNamed(current, moving);
-        switch (projectResolution(resolution.*, moving.kind)) {
-            .resolved => |projected| return resolveProjection(peer, moving, projected),
-            .reanchor => |next| {
-                moving.hops += 1;
-                if (moving.hops > peer.session_state.limits.max_projection_chain) {
-                    return breakProjection(peer, moving, "projection chain exceeds max_projection_chain");
-                }
-                current = .fromWire(next);
-            },
-        }
+    const target = peer.session_state.answerTargetNamed(source) orelse
+        return breakProjection(peer, projection, "projection receiver names an unknown answer");
+    if (peer.session_state.answerPayloadForTarget(target)) |payload| {
+        if (peer.session_state.answerPayloadStoredResolution(payload) != null)
+            return applyProjectionOutcome(
+                peer,
+                projection,
+                resolution_chain.followAnswer(peer, target, payload),
+            );
+    }
+    return peer.session_state.installProjectionTarget(target, projection);
+}
+
+fn applyProjectionOutcome(
+    peer: *Peer,
+    projection: session.Projection,
+    consequence: resolution_chain.Outcome,
+) !void {
+    switch (consequence) {
+        .pending => |target| try peer.session_state.installProjectionTarget(target, projection),
+        .terminal_break => |message| try breakProjection(peer, projection, message),
+        .terminal => |terminal| switch (projectResolution(terminal.resolution, projection.kind)) {
+            .resolved => |projected| try resolveProjection(peer, projection, projected),
+            .reanchor => try breakProjection(
+                peer,
+                projection,
+                resolution_chain.missing_target_message,
+            ),
+        },
     }
 }
 
@@ -281,39 +308,58 @@ fn anchorProjection(peer: *Peer, source: model.AnswerName, projection: session.P
 /// (the named boundary copy). A projected answer the application already
 /// settled is left as it is.
 fn resolveProjection(peer: *Peer, projection: session.Projection, projected: model.Resolution) !void {
-    defer session.deinitProjection(peer.allocator, projection);
-    if (!projectionStillAsked(peer, projection)) return;
-    if (peer.session_state.answerResolved(projection.answer)) return;
-    try peer.sendCopying(.{ .resolve = .{ .answer = projection.answer, .resolution = projected } });
+    try settleProjection(peer, projection, projected);
 }
 
-/// Whether the question this projection was asked is still the one at its
-/// answer position. A partner that releases the position and asks something
-/// else there gets a row with a fresh stamp, and this projection is moot:
-/// settling it would answer the new question with the old one's value.
-fn projectionStillAsked(peer: *Peer, projection: session.Projection) bool {
-    const live = peer.session_state.inboundAnswerRowId(projection.answer) orelse return false;
-    return live == projection.answer_row_id;
+fn projectionTarget(peer: *Peer, projection: session.Projection) ?session.AnswerTarget {
+    const target: session.AnswerTarget = .{
+        .name = .fromWire(projection.answer),
+        .row_id = projection.answer_row_id,
+    };
+    if (peer.session_state.inboundAnswerRowId(projection.answer)) |row_id| {
+        if (row_id == target.row_id) return target;
+    }
+    if (peer.session_state.answerPayloadForTarget(target) != null) return target;
+    return null;
 }
 
 /// Break one projection's answer (taking ownership of the projection) with
 /// a static reason.
 fn breakProjection(peer: *Peer, projection: session.Projection, reason: []const u8) !void {
-    defer session.deinitProjection(peer.allocator, projection);
-    if (!projectionStillAsked(peer, projection)) return;
-    if (peer.session_state.answerResolved(projection.answer)) return;
-    try peer.sendCopying(.{ .resolve = .{
-        .answer = projection.answer,
-        .resolution = .{ .@"break" = .{ .message = reason } },
-    } });
+    return settleProjection(peer, projection, .{ .@"break" = .{ .message = reason } });
 }
 
-/// Dispatch one drained pipelined call (owned) against `resolution`, taking
-/// ownership of `queued`. A `Far` resolution forwards the call on the wire; a
-/// `Near` delivers it locally; another promise re-queues it; every other
-/// shape (broken / sturdy / non-reference / break) drops it after propagating
-/// the break (`propagateBreakToDrainedCall`).
-fn dispatchDrainedCall(peer: *Peer, answer: model.AnswerName, queued: model.Message, resolution: model.Resolution) !void {
+/// Settle the exact question a projection created. A released answer with no
+/// accepted dependents disappears and needs no reply. If dependents were
+/// already accepted, its detached row remains the settlement target: they
+/// drain without confusing a later question that reused the wire position.
+fn settleProjection(peer: *Peer, projection: session.Projection, resolution: model.Resolution) !void {
+    defer session.deinitProjection(peer.allocator, projection);
+    const target = projectionTarget(peer, projection) orelse return;
+    if (peer.session_state.answerPayloadForTarget(target)) |payload| {
+        if (peer.session_state.answerPayloadResolution(payload) != null) return;
+    }
+    try peer.sendAnswerTargetResolutionCopying(target, resolution);
+}
+
+/// Dispatch one owned call against the shared exact-incarnation chain result.
+fn dispatchDrainedCall(
+    peer: *Peer,
+    queued: model.Message,
+    consequence: resolution_chain.Outcome,
+) !void {
+    switch (consequence) {
+        .pending => |target| return peer.session_state.enqueuePipelinedCallTarget(target, queued),
+        .terminal_break => |message| return propagateBreakToDrainedCall(
+            peer,
+            queued,
+            .{ .@"break" = .{ .message = message } },
+        ),
+        .terminal => |terminal| return dispatchTerminalCall(peer, queued, terminal.resolution),
+    }
+}
+
+fn dispatchTerminalCall(peer: *Peer, queued: model.Message, resolution: model.Resolution) !void {
     const maybe_reference: ?model.Reference = switch (resolution) {
         .fulfill => |arg| if (arg == .reference) arg.reference else null,
         .@"break" => null,
@@ -323,12 +369,11 @@ fn dispatchDrainedCall(peer: *Peer, answer: model.AnswerName, queued: model.Mess
     switch (reference) {
         .far => |far| try peer.send(rewriteDeliverTarget(peer.allocator, queued.deliver, .{ .far = far })),
         .near => |near| try deliverDrainedCallLocally(peer, queued, near),
-        // Re-queued one message at a time — the drain dispatches per call, so
-        // there is never a batch here and no container to allocate.
-        .promise => |promise| switch (answer) {
-            .wire => |wire| try peer.session_state.requeuePipelinedCall(promise.answer_position, &.{wire}, queued),
-            .virtual => try peer.session_state.requeuePipelinedCall(promise.answer_position, &.{}, queued),
-        },
+        .promise => try propagateBreakToDrainedCall(
+            peer,
+            queued,
+            .{ .@"break" = .{ .message = resolution_chain.missing_target_message } },
+        ),
         .routed, .sturdy, .broken => freeMessage(peer.allocator, queued),
     }
 }
@@ -383,9 +428,6 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
     );
     defer freeMessage(peer.allocator, rewritten);
 
-    if (rewritten.deliver.answer) |call_answer| {
-        try peer.session_state.installInboundAnswer(call_answer);
-    }
     // A V1.0 resolver-only call carries its answer in session state rather than
     // on the wire, and a queued one has to recover it here. The classifier
     // installed the virtual answer and linked it to the partner's resolver

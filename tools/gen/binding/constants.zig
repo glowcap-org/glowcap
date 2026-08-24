@@ -130,6 +130,7 @@ const constants = [_]Const{
     con("FEATURE_WIRE_DELTA", c.PANCAKE_FEATURE_WIRE_DELTA, .uint, null),
     con("FEATURE_STURDYREF", c.PANCAKE_FEATURE_STURDYREF, .uint, null),
     con("FEATURE_UNTAG", c.PANCAKE_FEATURE_UNTAG, .uint, null),
+    con("FEATURE_MULTI_LOCATION", c.PANCAKE_FEATURE_MULTI_LOCATION, .uint, null),
     con("FEATURE_MINIMUM", c.PANCAKE_FEATURE_MINIMUM, .uint, null),
     con("FEATURE_BASELINE", c.PANCAKE_FEATURE_BASELINE, .uint, null),
     con("FEATURE_FULL", c.PANCAKE_FEATURE_FULL, .uint, null),
@@ -186,6 +187,7 @@ const constants = [_]Const{
     con("CLOSE_GRACE_UNSPECIFIED", cd.PANCAKE_CLOSE_GRACE_UNSPECIFIED, .uint, null),
     con("CLOSE_GRACE_FINITE", cd.PANCAKE_CLOSE_GRACE_FINITE, .uint, null),
     con("CLOSE_GRACE_UNBOUNDED", cd.PANCAKE_CLOSE_GRACE_UNBOUNDED, .uint, null),
+    con("SESSION_LIMIT_OPTIONS_ABI_VERSION", cd.PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION, .uint, null),
     con("DRIVER_OPTIONS_ABI_VERSION", cdr.PANCAKE_DRIVER_OPTIONS_ABI_VERSION, .uint, null),
     con("DRIVER_FAILURE_ABI_VERSION", cdr.PANCAKE_DRIVER_FAILURE_ABI_VERSION, .uint, null),
     con("CARRIER_PHASE_NONE", cdr.PANCAKE_CARRIER_PHASE_NONE, .uint, null),
@@ -219,6 +221,9 @@ const constants = [_]Const{
     con("HINT_INTEGER", cdr.PANCAKE_HINT_INTEGER, .uint, null),
     con("HINTS_MAP", cdr.PANCAKE_HINTS_MAP, .uint, null),
     con("HINTS_BOOLEAN_FALSE", cdr.PANCAKE_HINTS_BOOLEAN_FALSE, .uint, null),
+    con("OCAPN_ARCHIVE_FINGERPRINT", c.PANCAKE_OCAPN_ARCHIVE_FINGERPRINT, .u64, null),
+    con("HOST_ARCHIVE_FINGERPRINT", cd.PANCAKE_HOST_ARCHIVE_FINGERPRINT, .u64, null),
+    con("DRIVER_ARCHIVE_FINGERPRINT", cdr.PANCAKE_DRIVER_ARCHIVE_FINGERPRINT, .u64, null),
     con("TCP_ARCHIVE_FINGERPRINT", ct.PANCAKE_TCP_ARCHIVE_FINGERPRINT, .u64, null),
     con("INPROC_ARCHIVE_FINGERPRINT", cn.PANCAKE_INPROC_ARCHIVE_FINGERPRINT, .u64, null),
     con("ONION_ARCHIVE_FINGERPRINT", co.PANCAKE_ONION_ARCHIVE_FINGERPRINT, .u64, null),
@@ -321,6 +326,8 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         try out.print(gpa, "pub const {s}: {s} = {d};\n", .{ k.stem, k.rust_ty.spelling(), k.value });
     }
     try out.print(gpa, "pub const HINT_DIRECT_ADDRESSES: &str = \"{s}\";\n", .{model.transport.hint_direct_addresses});
+    try out.print(gpa, "pub const HINT_ALT_LOCATORS: &str = \"{s}\";\n", .{model.transport.hint_alt_locators});
+    try out.print(gpa, "pub const HINT_VIA: &str = \"{s}\";\n", .{model.transport.hint_via});
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "pub const ");
         try writeTransportName(&out, gpa, known, '_');
@@ -360,6 +367,8 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         try out.print(gpa, "{s} = {d}\n", .{ k.stem, k.value });
     }
     try out.print(gpa, "HINT_DIRECT_ADDRESSES = \"{s}\"\n", .{model.transport.hint_direct_addresses});
+    try out.print(gpa, "HINT_ALT_LOCATORS = \"{s}\"\n", .{model.transport.hint_alt_locators});
+    try out.print(gpa, "HINT_VIA = \"{s}\"\n", .{model.transport.hint_via});
     inline for (std.enums.values(model.transport.Known)) |known| {
         try writeTransportName(&out, gpa, known, '_');
         try out.print(gpa, " = \"{s}\"\n", .{known.metadata().symbol});
@@ -388,7 +397,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         }
         try out.append(gpa, '\n');
     }
-    try out.appendSlice(gpa, "  ABI-RETURN-CODES\n  HINT-DIRECT-ADDRESSES\n");
+    try out.appendSlice(gpa, "  ABI-RETURN-CODES\n  HINT-ALT-LOCATORS\n  HINT-DIRECT-ADDRESSES\n  HINT-VIA\n");
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "  ");
         try writeTransportName(&out, gpa, known, '-');
@@ -411,6 +420,8 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa, "  ))\n");
     try out.print(gpa, "(define HINT-DIRECT-ADDRESSES \"{s}\")\n", .{model.transport.hint_direct_addresses});
+    try out.print(gpa, "(define HINT-ALT-LOCATORS \"{s}\")\n", .{model.transport.hint_alt_locators});
+    try out.print(gpa, "(define HINT-VIA \"{s}\")\n", .{model.transport.hint_via});
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "(define ");
         try writeTransportName(&out, gpa, known, '-');

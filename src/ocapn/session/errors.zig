@@ -45,6 +45,10 @@ pub const Error = error{
     QueueCapExceeded,
     /// The inbound answer table exceeded `SessionLimits.max_inbound_answers`.
     InboundAnswerCapExceeded,
+    /// Sent inbound-answer rows would retain more owned resolution bytes than
+    /// `SessionLimits.max_retained_sent_answer_bytes`. The answer store cannot
+    /// evict authority, so overflow is a loud session refusal.
+    RetainedAnswerCapExceeded,
     /// One target's listener list exceeded
     /// `SessionLimits.max_listeners_per_target`.
     ListenerCapExceeded,
@@ -52,10 +56,6 @@ pub const Error = error{
     /// `SessionLimits.max_listeners_per_target` (the same partner-driven
     /// fan-out class as listeners, bounded by the same knob, ADR-0050).
     ProjectionCapExceeded,
-    /// A promise resolved (directly or transitively) to an answer already on the
-    /// resolution chain being drained — requeueing the pipelined calls would
-    /// loop forever (ADR-0007). Surfaced loudly instead of spinning.
-    ResolutionCycle,
     /// A third-party import (ADR-0009) was re-rooted at a different host than the
     /// one it was first installed with. An import's host is fixed for its
     /// lifetime; a conflicting re-root is a loud protocol error, never a silent

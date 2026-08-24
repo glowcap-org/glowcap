@@ -13,7 +13,6 @@ import {
 	type Argument,
 	Context,
 	type ContextAllocator,
-	formatLocatorUri,
 	Host,
 	Kw,
 	PancakeError,
@@ -26,9 +25,8 @@ import {
 	VowBroken,
 } from "../../runtime/mod.ts";
 
-import { _connectIroh } from "../../iroh/impl.ts";
-
 import { assert, counterBehavior, ok } from "./support.ts";
+import { runTraceRoundtrip } from "./trace_roundtrip.ts";
 
 export async function run(managed: Runtime): Promise<void> {
 	{
@@ -95,134 +93,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("drove a published counter round-trip from a context-backed host");
 	}
 
-	// The live timeline producer: the veneer stamps and forwards the native
-	// tap's facts, one flat record per fact — session-opened with the codec the
-	// handshake actually negotiated, the same verb outbound at the client and
-	// inbound at the server, and session-closed. Endpoint labeling belongs to
-	// the consumer (ocapnviz resolves src/dst from the opens), so the records
-	// carry only the session and direction.
-	{
-		const { annotateSession, enableTrace } = await import("@pancake/runtime");
-		const events: import("@pancake/runtime").TraceEvent[] = [];
-		const traceFailure = new Error("trace sink failure must stay observer-only");
-		const uninstall = enableTrace((ev) => {
-			events.push(ev);
-			throw traceFailure;
-		}, {
-			selfLabel: "smoke",
-		});
-
-		await using traceHost = new Host();
-		traceHost.publishGiftable("greeter", (verb) => `hello ${verb}`);
-		const server = await tcp.listen("127.0.0.1", 0, { host: traceHost });
-		const port = server.port;
-		const hosted = (async () => {
-			for await (const session of server) {
-				session.serve().catch(() => {});
-				break;
-			}
-		})();
-		const session = await managed.connect(tcp.locator("127.0.0.1", port));
-		session.serve().catch(() => {});
-		const greeter = await session.fetch("greeter");
-		const reply = await session.send(greeter, "trace-me", []);
-		assert(reply === "hello trace-me", `traced call still answers, got ${String(reply)}`);
-		// The annotation channel: the application states which partner a
-		// session carries, named for the same session row the tap names.
-		annotateSession(session, { label: "greeter-server" });
-		const clientHost = session.host;
-		await session.close();
-		await hosted;
-		uninstall();
-		const traceFailures = [...traceHost.takeFailures(), ...clientHost.takeFailures()];
-		assert(traceFailures.length > 0, "trace sink failures remain observable");
-		assert(
-			traceFailures.every((failure) =>
-				failure.operation === "trace.sink" && failure.primaryName === "Error" &&
-				failure.primaryMessage === traceFailure.message && failure.scopeId > 0n
-			),
-			"trace sink failures use the central Context schema",
-		);
-
-		const opened = events.filter((ev) => ev.kind === "ocapn.session-opened");
-		assert(opened.length >= 2, "both hosts' opens reached the one sink");
-		assert(
-			opened.every((ev) => ev.codec === "syrup" && ev.a_label === "smoke"),
-			"opens carry the negotiated codec and the application's display label",
-		);
-		// And what this producer RUNS, because this schema is not pancake's alone:
-		// a consumer must not read an implementation off the fact that a record
-		// arrived, so a pancake host says so in words.
-		assert(
-			opened.every((ev) => ev.a_profile === "pancake"),
-			"an open states the implementation this producer runs",
-		);
-		// Identity and label are two facts. `a` is the host's own key designator —
-		// the name a partner knows it by, and so the only name two producers can
-		// agree on — and the label never stands in for it.
-		assert(
-			opened.every((ev) => /^[0-9a-f]{64}$/.test(ev.a ?? "")),
-			"an open's `a` endpoint is the reporting host's key designator",
-		);
-		// The OCapN Session ID is what lets a consumer merging two producers'
-		// feeds tell one session watched twice from two unrelated ones: both
-		// peers of this session derive it, so the two opens agree on it.
-		assert(
-			opened.every((ev) =>
-				ev.session_id === opened[0].session_id &&
-				/^[0-9a-f]{64}$/.test(ev.session_id ?? "")
-			),
-			"both peers of one session report the same OCapN Session ID",
-		);
-		const outbound = events.find(
-			(ev) =>
-				ev.kind === "ocapn.message-decoded" && ev.op === "trace-me" &&
-				ev.outbound === true,
-		);
-		assert(outbound !== undefined, "the client's send traced outbound");
-		const inbound = events.find(
-			(ev) =>
-				ev.kind === "ocapn.message-decoded" && ev.op === "trace-me" &&
-				ev.outbound === false,
-		);
-		assert(inbound !== undefined, "the server's deliver traced inbound");
-		assert(
-			inbound!.session !== outbound!.session,
-			"each host names its own session row",
-		);
-		// Payload: both fact sites sit at the wire boundary (inbound
-		// dispatch, the outbound drain), so both records carry the whole
-		// (sub-cap) frame with its true length and the verb inside it.
-		for (const rec of [inbound!, outbound!]) {
-			assert(
-				rec.bytes_b64 !== undefined && rec.len === atob(rec.bytes_b64).length,
-				"the record carries its whole frame with its true length",
-			);
-			assert(
-				atob(rec.bytes_b64!).includes("trace-me"),
-				"the frame bytes contain the delivered verb",
-			);
-		}
-		assert(
-			events.some((ev) => ev.kind === "ocapn.session-closed"),
-			"the close reached the sink",
-		);
-		const meta = events.find((ev) => ev.kind === "ocapn.session-meta");
-		assert(
-			meta !== undefined && meta.meta?.label === "greeter-server",
-			"the annotation reached the sink with its label",
-		);
-		assert(
-			meta!.session === outbound!.session,
-			"the annotation names the same session row the tap names",
-		);
-		let last = -1;
-		for (const ev of events) {
-			assert(ev.sim_t_ns >= last, "sim_t_ns is monotone");
-			last = ev.sim_t_ns;
-		}
-		ok("the live trace produced the timeline schema for a whole conversation");
-	}
+	await runTraceRoundtrip(managed);
 
 	// An async behavior (off-turn settlement): the worker returns a promise, the
 	// binding defers the turn's answer onto a resolver vow, and the settle
@@ -231,8 +102,26 @@ export async function run(managed: Runtime): Promise<void> {
 	// carrying the behavior's own words.
 	{
 		await using workerHost = new Host();
+		const makeGate = () => {
+			let markEntered!: () => void;
+			let resume!: () => void;
+			return {
+				entered: new Promise<void>((resolve) => markEntered = resolve),
+				blocked: new Promise<void>((resolve) => resume = resolve),
+				markEntered: () => markEntered(),
+				resume: () => resume(),
+			};
+		};
+		const gates = {
+			work: makeGate(),
+			fail: makeGate(),
+			unsupported: makeGate(),
+		};
 		workerHost.publishGiftable("worker", async (verb) => {
-			await new Promise((resolve) => setTimeout(resolve, 5));
+			const gate = gates[verb as keyof typeof gates];
+			if (gate === undefined) throw new Error(`unexpected worker verb ${verb}`);
+			gate.markEntered();
+			await gate.blocked;
 			if (verb === "fail") throw new Error("worker gave up");
 			if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
 			return "computed off-turn";
@@ -252,11 +141,17 @@ export async function run(managed: Runtime): Promise<void> {
 			const session = await managed.connect(tcp.locator("127.0.0.1", port));
 			session.serve().catch(() => {});
 			const worker = await session.fetch("worker");
-			const reply = await session.send(worker, "work", []);
+			const invoke = async (verb: keyof typeof gates): Promise<Argument> => {
+				const pending = session.send(worker, verb, []);
+				await gates[verb].entered;
+				gates[verb].resume();
+				return await pending;
+			};
+			const reply = await invoke("work");
 			assert(reply === "computed off-turn", `async behavior reply, got ${String(reply)}`);
 			let broke = "";
 			try {
-				await session.send(worker, "fail", []);
+				await invoke("fail");
 			} catch (err) {
 				broke = err instanceof Error ? err.message : String(err);
 			}
@@ -266,7 +161,7 @@ export async function run(managed: Runtime): Promise<void> {
 			);
 			broke = "";
 			try {
-				await session.send(worker, "unsupported", []);
+				await invoke("unsupported");
 			} catch (err) {
 				broke = err instanceof Error ? err.message : String(err);
 			}
@@ -495,104 +390,6 @@ export async function run(managed: Runtime): Promise<void> {
 		);
 	}
 
-	// Sturdyref enliven (ADR-0012): the requester brings a durable (peer, swissnum)
-	// to life as a live Ref through the host's dedup cache. A repeat enliven of the
-	// same swissnum short-circuits with no wire traffic (its completion is queued
-	// before the minting call returns), and the enlivened cap is sendable both
-	// times.
-	{
-		await using serverHost = new Host();
-		serverHost.publishGiftable("greeter", (verb) => {
-			assert(verb === "hello", `enliven server expected hello, got ${verb}`);
-			return new Sym("alive");
-		});
-		const server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
-		const port = server.port;
-
-		async function host(): Promise<void> {
-			for await (const session of server) {
-				session.serve().catch(() => {});
-				break;
-			}
-		}
-		const hosted = host();
-
-		async function client(): Promise<void> {
-			const locator = tcp.locator("127.0.0.1", port);
-			const session = await managed.connect(locator);
-			session.serve().catch(() => {});
-			let mismatchRefused = false;
-			try {
-				await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg");
-			} catch (err) {
-				mismatchRefused = err instanceof PancakeError && err.code === INVALID_ARGUMENT;
-			}
-			assert(mismatchRefused, "enliven accepted a sturdyref for another peer");
-			// The complete sturdyref must name this selected session's peer.
-			const sturdyref = `${formatLocatorUri(locator)}/s/Z3JlZXRlcg`;
-			const cap = await session.enliven(sturdyref);
-			const greeting = await session.send(cap, "hello", []);
-			assert(
-				greeting instanceof Sym && (greeting as Sym).value === "alive",
-				"enlivened cap answers hello",
-			);
-			// A repeat enliven hits the dedup cache: the same live capability, sendable.
-			const again = await session.enliven(sturdyref);
-			assert(cap.equals(again), "cached enliven preserves Target equality");
-			const greeting2 = await session.send(again, "hello", []);
-			assert(
-				greeting2 instanceof Sym && (greeting2 as Sym).value === "alive",
-				"cached enliven answers hello",
-			);
-			await session.close();
-		}
-
-		await Promise.all([client(), hosted]);
-		ok(
-			"a sturdyref enlivens to a live capability, and a repeat enliven hits the cache",
-		);
-	}
-
-	// Select-or-dial enliven (ADR-0098 step 4): the *host* enlivens a complete
-	// sturdyref with no session named. A peer it already dialed is selected, so
-	// this arm settles over that live session — the dial arm is the same verb
-	// with an unreached peer, driven by the host's own DIAL action.
-	{
-		await using serverHost = new Host();
-		serverHost.publishGiftable("beacon", () => new Sym("lit"));
-		const server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
-		const port = server.port;
-
-		async function host(): Promise<void> {
-			for await (const session of server) {
-				session.serve().catch(() => {});
-				break;
-			}
-		}
-		const hosted = host();
-
-		async function client(): Promise<void> {
-			const locator = tcp.locator("127.0.0.1", port);
-			const shared = new Host();
-			await using sharedRuntime = await Runtime.open({
-				providers: [tcp.provider()],
-				adoptHost: shared,
-			});
-			const session = await sharedRuntime.connect(locator);
-			session.serve().catch(() => {});
-			const cap = await shared.enliven(`${formatLocatorUri(locator)}/s/YmVhY29u`);
-			const greeting = await session.send(cap, "hello", []);
-			assert(
-				greeting instanceof Sym && (greeting as Sym).value === "lit",
-				"the select-or-dial enlivened cap answers",
-			);
-			await session.close();
-		}
-
-		await Promise.all([client(), hosted]);
-		ok("a host selects a live session to enliven a sturdyref over");
-	}
-
 	// Listen (CapTP op:listen, ADR-0095): a held capability is listened on, and
 	// the vow settles with its resolution — any value, not only a capability. A
 	// listen on an already-settled capability answers at once, proving the round
@@ -615,7 +412,15 @@ export async function run(managed: Runtime): Promise<void> {
 			const session = await managed.connect(tcp.locator("127.0.0.1", port));
 			session.serve().catch(() => {});
 			const beacon = await session.fetch("beacon");
-			const settled = await session.listen(beacon);
+			const observation = session.listen(beacon);
+			let refused = false;
+			try {
+				await session.send(observation, "ping", []);
+			} catch (error) {
+				refused = error instanceof PancakeError && error.code === INVALID_ARGUMENT;
+			}
+			assert(refused, "an op:listen observer became a remote pipeline target");
+			const settled = await observation;
 			assert(settled instanceof Ref, "the listen settles naming the capability");
 			await session.close();
 		}
@@ -623,8 +428,4 @@ export async function run(managed: Runtime): Promise<void> {
 		await Promise.all([client(), hosted]);
 		ok("a listen on a held capability settles with its resolution");
 	}
-
-	// Distributed GC (ADR-0063), opt-in: fetch results, nested send replies, and
-	// nested delivered arguments each release their one projected capability
-	// occurrence. The relay observes both directions before teardown.
 }

@@ -158,12 +158,17 @@ pub fn checkDriverRootShadow(
         const value = std.mem.trim(u8, after[eq + 1 ..], " \t;");
         // Does the core declare this name too?
         var core_decl_buf: [128]u8 = undefined;
-        if (name.len + decl.len > core_decl_buf.len) continue;
-        const core_decl = std.fmt.bufPrint(&core_decl_buf, "pub const {s} =", .{name}) catch continue;
+        const core_decl = std.fmt.bufPrint(&core_decl_buf, "pub const {s} =", .{name}) catch {
+            try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` overflows the forwarding check's needle buffer; grow it", .{ line_no, name });
+            continue;
+        };
         if (std.mem.indexOf(u8, core_src, core_decl) == null) continue;
         // It does. The driver root's value must forward it.
         var want_buf: [160]u8 = undefined;
-        const want = std.fmt.bufPrint(&want_buf, "driver_core.{s}", .{name}) catch continue;
+        const want = std.fmt.bufPrint(&want_buf, "driver_core.{s}", .{name}) catch {
+            try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` overflows the forwarding check's needle buffer; grow it", .{ line_no, name });
+            continue;
+        };
         if (std.mem.eql(u8, value, want)) continue;
         try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` shadows `driver_core.{s}` with `{s}`; every other re-export in this root forwards the core's type, so a name that does not must not reuse the core's spelling (ADR-0113 names the owning face `HostRuntime` for this reason)", .{ line_no, name, name, value });
     }
@@ -193,7 +198,10 @@ pub fn checkSingleJsonEscaper(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".zig")) continue;
-        const source = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch continue;
+        const source = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "cli/{s}: cannot be read for the CLI UX check ({s})", .{ entry.path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(source);
         if (std.mem.indexOf(u8, source, definition) == null) continue;
         try found.append(gpa, try gpa.dupe(u8, entry.path));

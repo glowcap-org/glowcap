@@ -41,7 +41,7 @@ extern "C" {
    THE ONE LOOP RULE. After any top-level pancake_host_* call returns OK,
    drain pancake_host_next_action until PANCAKE_ERR_WOULD_BLOCK, honoring each
    action: DIAL — borrow the pending view with
-   pancake_host_pending_dial(ticket), open your own channel from it,
+   pancake_host_pending_dial(ticket, route_index), open your own channel from it,
    mint the session from the same view
    (pancake_host_session_open_dialed_locator), drive
    its session open, then report pancake_host_dialed (or
@@ -186,6 +186,8 @@ typedef void (*PancakeTraceCallback)(void *ctx, const PancakeTraceEvent *event);
 #define PANCAKE_CLOSE_GRACE_FINITE 1
 /* PancakeCloseOptions.grace_mode: finish has no deadline. */
 #define PANCAKE_CLOSE_GRACE_UNBOUNDED 2
+/* PancakeSessionLimitOptions.abi_version. */
+#define PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION 1
 /* The owner still admits application work. */
 #define PANCAKE_LIFECYCLE_ACTIVE 0
 /* Admission is sealed while admitted work runs. */
@@ -220,9 +222,25 @@ typedef struct PancakeCloseOptions {
     uint32_t grace_ms;
 } PancakeCloseOptions;
 
+typedef struct PancakeSessionLimitOptions {
+    /* PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION. */
+    uint32_t abi_version;
+    /* sizeof(PancakeSessionLimitOptions). */
+    size_t struct_size;
+    /* Maximum inbound frame bytes; zero leaves the current value unchanged. */
+    size_t max_frame_bytes;
+    /* Maximum queued calls per pending answer; zero leaves the current value unchanged. */
+    size_t queue_cap;
+    /* Transient outbound byte waterline; zero leaves the current value unchanged. */
+    size_t outbound_high_water_bytes;
+    /* Durable sent-answer bytes retained after transient flow accounting; zero leaves the current value unchanged and values above UINT32_MAX are refused. */
+    size_t max_retained_sent_answer_bytes;
+} PancakeSessionLimitOptions;
+
 /* One embedder effect popped from pancake_host_next_action. kind selects the
-   live fields: DIAL carries only ticket (borrow the pending view with
-   pancake_host_pending_dial). FLUSH and CLOSE carry session;
+   live fields: DIAL carries ticket and route_index (borrow the pending view with
+   pancake_host_pending_dial). DIAL and CANCEL_DIAL also carry route_index.
+   FLUSH and CLOSE carry session;
    NEED_GIFT_ID carries ticket. SETTLE carries the settled vow id in ticket
    and the fulfilled value in value; FAIL carries the vow id in ticket and
    the typed failure code in result and the reason in message/message_len.
@@ -236,6 +254,8 @@ typedef struct PancakeHostAction {
     uint32_t kind;
     /* DIAL: the report-back handle; SETTLE/FAIL: the vow that settled. */
     uint64_t ticket;
+    /* DIAL/CANCEL_DIAL: the concrete route within ticket's logical dial; zero otherwise. */
+    size_t route_index;
     /* FLUSH/CLOSE: the session to drain or condemn; NULL otherwise. */
     PancakeHostSession *session;
     /* SETTLE: the fulfilled value; zeroed otherwise. */
@@ -274,6 +294,8 @@ typedef struct PancakeHostPumpHooks {
     PancakeHostPumpArmFn dial;
 } PancakeHostPumpHooks;
 
+/* Read the exact reflected callable and layout identity of this Host archive. */
+uint64_t pancake_host_archive_fingerprint(void);
 /* Create a byte-fed host bound to a caller-drawn 64-byte seed buffer (the host
    never draws entropy), allocating through the library allocator.
 
@@ -295,8 +317,9 @@ typedef struct PancakeHostPumpHooks {
    partner, falling back to v1.0/Syrup when needed, and runs only the intersection
    of the two offered feature sets. An absent feature hint means the baseline set,
    which excludes PANCAKE_FEATURE_UNTAG because Goblins does not implement it.
-   PANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP remains the interop floor; two
-   Pancake peers may advertise PANCAKE_FEATURE_FULL on that same wire version.
+   PANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP remains the interop floor; callers
+   may pass PANCAKE_FEATURE_FULL on that same wire version, and the hello and
+   settled session use only the v1.0-eligible subset.
    local_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);
    nonzero caps local-turn amplification per drive (ADR-0076).
    *out_host receives the handle; release with pancake_host_release. */
@@ -363,27 +386,27 @@ int32_t pancake_host_ensure_advertised_locator(PancakeHost *host, const uint8_t 
    never chosen implicitly. Existing sessions retain the signed hello snapshot
    they already sent. */
 int32_t pancake_host_remove_advertised_locator(PancakeHost *host, const uint8_t *transport, size_t transport_len);
-/* Selective session-limit knobs (ADR-0082): override max_frame_bytes, queue_cap,
-   and/or outbound_high_water_bytes on a host before minting sessions. Pass 0 for
-   a field to leave it unchanged. Already-open peers keep the limits they were
-   minted with. */
-int32_t pancake_host_set_session_limits(PancakeHost *host, size_t max_frame_bytes, size_t queue_cap, size_t outbound_high_water_bytes);
+/* Apply versioned selective session-limit overrides before minting sessions.
+   Zero fields leave the current value unchanged. Already-open peers keep the
+   limits they were minted with. `options` is borrowed and must not be NULL. */
+int32_t pancake_host_set_session_limits(PancakeHost *host, const PancakeSessionLimitOptions *options);
 /* Mint the dialing half after an embedder has opened the byte channel for
    locator. The one locator vocabulary is taken whole: the designator keys
    duplicate-dial refusal and, on a key transport, demands the partner's durable
    key; route hints carry no semantics here because the caller's dial executor
-   spent them realizing the channel. A DIAL action carries only ticket: project
-   its typed locator with pancake_host_pending_dial, open the channel it names,
-   and pass the view back here. The host retains its own dial default for the
-   locator's transport first, never displacing an advertised locator the embedder
-   explicitly selected, so a bare client host dials without publishing anything.
-   A sealed session derives its Noise ephemeral from the Host's unique
-   per-session seed under a separate KDF domain, so callers do not branch on
-   transport policy or supply per-open entropy. The keyed op:start-session is
-   signed under the host identity and encoded before this returns, so drain
-   take_outbound (a FLUSH action is queued) and drive the handshake byte-fed.
-   Host-wide aliases remain lazily discoverable through the new session.
-   *out_session is host-owned; release with pancake_host_session_release. */
+   spent them realizing the channel. A DIAL action identifies one admitted
+   (ticket, route_index) attempt: project its typed locator with
+   pancake_host_pending_dial, open the channel it names, and report that exact
+   attempt. The host retains its own dial default for the locator's transport
+   first, never displacing an advertised locator the embedder explicitly selected,
+   so a bare client host dials without publishing anything. A sealed session
+   derives its Noise ephemeral from the Host's unique per-session seed under a
+   separate KDF domain, so callers do not branch on transport policy or supply
+   per-open entropy. The keyed op:start-session is signed under the host identity
+   and encoded before this returns, so drain take_outbound (a FLUSH action is
+   queued) and drive the handshake byte-fed. Host-wide aliases remain lazily
+   discoverable through the new session. *out_session is host-owned; release with
+   pancake_host_session_release. */
 int32_t pancake_host_session_open_dialed_locator(PancakeHost *host, const PancakeLocatorView *locator, PancakeHostSession **out_session);
 /* Mint the accepting half of a connection your listener produced.
    designator_scheme is the provider's PANCAKE_DESIGNATOR_SCHEME_* declaration;
@@ -452,17 +475,18 @@ typedef struct PancakeDialPlan {
     uint32_t reach_value;
 } PancakeDialPlan;
 
-/* Project the complete in-flight locator for ticket into out_locator, using the
-   caller-owned hint_storage array. On PANCAKE_OK, *out_hint_count is the number
+/* Project one concrete in-flight route for ticket into out_locator, using the
+   caller-owned hint_storage array. route_index comes from the DIAL action and is
+   part of its report-back authority. On PANCAKE_OK, *out_hint_count is the number
    of initialized hints and the locator plus all nested byte views remain
-   Host-owned until pancake_host_dialed / pancake_host_dial_failed consumes the
-   ticket (or Host teardown); hint_storage remains caller-owned. A null
+   Host-owned until pancake_host_dialed / pancake_host_dial_failed consumes that
+   attempt (or Host teardown); hint_storage remains caller-owned. A null
    hint_storage with hint_capacity 0 is the size probe: when hints exist the call
    returns PANCAKE_ERR_BUFFER_TOO_SMALL, writes the exact required capacity to
    *out_hint_count, and leaves *out_locator untouched. The locator was parsed and
    retained once when the give was accepted; no URI is reparsed and no hint is
-   discarded. Unknown tickets return PANCAKE_ERR_INVALID_ARGUMENT. */
-int32_t pancake_host_pending_dial(PancakeHost *host, uint64_t ticket, PancakeLocatorHintView *hint_storage, size_t hint_capacity, PancakeLocatorView *out_locator, size_t *out_hint_count);
+   discarded. Unknown or stale attempts return PANCAKE_ERR_INVALID_ARGUMENT. */
+int32_t pancake_host_pending_dial(PancakeHost *host, uint64_t ticket, size_t route_index, PancakeLocatorHintView *hint_storage, size_t hint_capacity, PancakeLocatorView *out_locator, size_t *out_hint_count);
 /* Write the live session homing remote reference into *out_session, or NULL for
    a local, stale, foreign-Host, or closed-session capability. Bindings compare
    this result with the sending session after a call: the same session is an
@@ -507,6 +531,10 @@ int32_t pancake_host_session_lifecycle_state(PancakeHostSession *session, uint32
 int32_t pancake_host_session_release(PancakeHostSession *session);
 /* Nonzero once the keyed handshake has completed and the session is open. */
 int32_t pancake_host_session_is_open(PancakeHostSession *session);
+/* Read the complete profile this session settled with its partner into the three required PANCAKE_CAPTP_*, PANCAKE_CODEC_*, and PANCAKE_FEATURE_* outputs. Before the keyed handshake opens this returns PANCAKE_ERR_WOULD_BLOCK; after the CapTP session becomes terminal it returns PANCAKE_ERR_CLOSED. Failure leaves all outputs untouched. */
+int32_t pancake_host_session_profile(PancakeHostSession *session, uint32_t *out_captp_version, uint32_t *out_codec, uint32_t *out_features);
+/* Borrow the exact netlayer symbol this session was opened through. Both outputs are required and remain valid until session release. This is local connection metadata, not the partner's signed locator claim. */
+int32_t pancake_host_session_transport_name(PancakeHostSession *session, const uint8_t **out_name, size_t *out_name_len);
 /* The id the live trace names this session's rows by (PancakeTraceEvent's session), so an embedder can annotate the same session a trace consumer is watching. Stable for the session's life and never reused by this host. */
 int32_t pancake_host_session_trace_id(PancakeHostSession *session, uint64_t *out_id);
 /* Feed one inbound frame you read from your own transport (borrowed for the
@@ -568,34 +596,40 @@ int32_t pancake_host_session_take_packet(PancakeHostSession *session, PancakeMan
    PANCAKE_ERR_WOULD_BLOCK with outputs untouched. Refused inside a callback. */
 int32_t pancake_host_session_take_outbound(PancakeHostSession *session, PancakeManagedFrame *out_frame, uint8_t *out_prefix, size_t prefix_cap, size_t *out_prefix_len);
 /* Pop the next embedder action into *out_action, or return
-   PANCAKE_ERR_WOULD_BLOCK when none is pending. A DIAL carries only ticket
-   (borrow the pending view with pancake_host_pending_dial). A SETTLE's value
-   and a FAIL's message are host-owned until the NEXT pancake_host_next_action
-   call, which frees them. Deferred work may return PANCAKE_ERR_INTERNAL under
-   allocator pressure before an action is popped; no action or authority is lost,
-   and the embedder retries this same drain call when pressure subsides. See the
-   one loop rule in the header preamble. Refused inside a callback. */
+   PANCAKE_ERR_WOULD_BLOCK when none is pending. Before the pop, queued Host work
+   resumes and may invoke PancakeHostBehavior synchronously; binding runtimes must
+   install their Host delivery context around every drain. A DIAL carries ticket
+   and route_index (borrow the exact pending view with pancake_host_pending_dial).
+   A SETTLE's value and a FAIL's message are host-owned until the NEXT
+   pancake_host_next_action call, which frees them. Deferred work may return
+   PANCAKE_ERR_INTERNAL under allocator pressure before an action is popped; no
+   action or authority is lost, and the embedder retries this same drain call when
+   pressure subsides. See the one loop rule in the header preamble. Refused inside
+   a callback. */
 int32_t pancake_host_next_action(PancakeHost *host, PancakeHostAction *out_action);
 /* Opt-in convenience drain over pancake_host_next_action (ADR-0072 fifth
    amendment). Still pops through the pull-queue internally; does not replace
    it. hooks may be NULL (every action is discarded). *out_acted is 1 when any
    arm reported progress (optional, may be NULL). *out_yielded is 1 when the
    finite Host scheduler requested another embedder turn (optional, may be NULL);
-   return to the reactor before draining again. See PancakeHostPumpHooks. */
+   return to the reactor before draining again. Resuming work may invoke
+   PancakeHostBehavior synchronously before an action hook runs, so binding
+   runtimes must install their Host delivery context around this whole call. See
+   PancakeHostPumpHooks. */
 int32_t pancake_host_pump_drain(PancakeHost *host, const PancakeHostPumpHooks *hooks, uint32_t *out_acted, uint32_t *out_yielded);
-/* Report a DIAL action's success: session is an open_dialed_locator against the
-   pending dial for ticket (pancake_host_pending_dial), driven to an
-   open session. The host withdraws every give waiting on the ticket; the
-   withdraws, their settles, and their flushes pump inside this call. A stale
-   ticket is a no-op success. */
-int32_t pancake_host_dialed(PancakeHost *host, uint64_t ticket, PancakeHostSession *session);
-/* Report a DIAL action's failure: every redeem waiting on the ticket breaks
-   with reason, its FAIL completion queued inside this call. A stale ticket is a
-   no-op success. */
-int32_t pancake_host_dial_failed(PancakeHost *host, uint64_t ticket, const uint8_t *reason, size_t reason_len);
-/* Acknowledge that a CANCEL_DIAL action's physical operation has stopped and its
+/* Report a DIAL attempt's success. session is an open_dialed_locator against the
+   exact ticket/route_index view, driven open. *out_adopted is one when this route
+   won the logical dial and zero when another route already won or the attempt was
+   not running; the executor must close and release an unadopted session. A non-OK
+   return consumes neither attempt nor session. */
+int32_t pancake_host_dialed(PancakeHost *host, uint64_t ticket, size_t route_index, PancakeHostSession *session, uint8_t *out_adopted);
+/* Report one DIAL attempt's failure. Strong identity routes maintain their bounded
+   race before ordered weak fallbacks begin; waiters break only after every eligible
+   route fails. A stale or non-running attempt is a no-op success. */
+int32_t pancake_host_dial_failed(PancakeHost *host, uint64_t ticket, size_t route_index, const uint8_t *reason, size_t reason_len);
+/* Acknowledge that a CANCEL_DIAL attempt's physical operation has stopped and its
    executor state can be released. Host close remains pending until this report. */
-int32_t pancake_host_dial_cancelled(PancakeHost *host, uint64_t ticket);
+int32_t pancake_host_dial_cancelled(PancakeHost *host, uint64_t ticket, size_t route_index);
 /* Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the host
    originates the claimed handoff and this call flushes its legs, exporter
    first. A stale ticket is a no-op success. */
@@ -675,6 +709,8 @@ int32_t pancake_host_session_enliven(PancakeHostSession *session, const uint8_t 
    pancake_host_dial_failed exactly as a handoff redeem's — so a parked vow's
    id has no session and no row until it settles. Refused inside a callback. */
 int32_t pancake_host_enliven(PancakeHost *host, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
+/* The same Host-level select-or-dial enliven, parsing the sturdyref's swiss authority under the explicit PANCAKE_CAPTP_* version that defined its spelling. Use this when the sturdyref arrived over a session whose settled version differs from the Host preference. Invalid versions are refused before any authority or dial state changes. */
+int32_t pancake_host_enliven_for_version(PancakeHost *host, uint32_t captp_version, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
 /* Listen on a far capability this session holds (CapTP op:listen), minting a
    host vow whose id lands in *out_vow; the listen notification arrives as that
    vow's SETTLE or FAIL action. In 1.0, the target may be a far promise or live
@@ -703,6 +739,17 @@ int32_t pancake_host_session_tell(PancakeHostSession *session, const PancakeRefe
    (NotPipelineable); an unknown vow reports PANCAKE_ERR_NOT_FOUND. The
    empty-verb contract is pancake_host_session_send's. */
 int32_t pancake_host_vow_send(PancakeHost *host, uint64_t vow, const uint8_t *verb, size_t verb_len, const PancakeArgument *args, size_t args_len, uint64_t *out_vow);
+/* Fire-and-forget promise-pipelined send: pancake_host_vow_send with no answer
+   and no returned vow. Same target, argument, and empty-verb contract. */
+int32_t pancake_host_vow_tell(PancakeHost *host, uint64_t vow, const uint8_t *verb, size_t verb_len, const PancakeArgument *args, size_t args_len);
+/* Release one public Host vow. Settlement does not consume the handle: until
+   this call succeeds it remains a valid promise-pipeline target, including after
+   a fast peer has resolved it. Releasing a far answer emits op:gc-answer; a local
+   answer only drops its Host observer. A row already retired with its session is
+   a wire-free success. Any other non-OK return consumes nothing and is retryable.
+   Single-thread affinity applies: finalizers park the id for the owning runtime
+   loop rather than calling this directly. */
+int32_t pancake_host_vow_release(PancakeHost *host, uint64_t vow);
 /* Pipeline an op:index projection against a far host vow, minting a new vow for
    the projected element. Same local-vow and unknown-vow refusals as
    pancake_host_vow_send; an index above INT64_MAX is refused

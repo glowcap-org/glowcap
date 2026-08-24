@@ -52,12 +52,22 @@ export {
 	type Behavior,
 	type CaptpVersion,
 	type Codec,
+	FEATURE_BASELINE,
+	FEATURE_FULL,
+	FEATURE_HANDOFF,
+	FEATURE_MINIMUM,
+	FEATURE_MULTI_LOCATION,
+	FEATURE_PIPELINING,
+	FEATURE_STURDYREF,
+	FEATURE_UNTAG,
+	FEATURE_WIRE_DELTA,
 	type FeatureSet,
 	Kw,
 	PSet,
 	PStruct,
 	Reachability,
 	Ref,
+	type SessionProfile,
 	Sym,
 	Tagged,
 	tagged,
@@ -70,7 +80,7 @@ export {
 	type FailureScope,
 	takeRuntimeFailures,
 } from "./context.ts";
-export { DURABLE_SWISS_ENTROPY_BYTES, Host, type HostOptions } from "./host.ts";
+export { DURABLE_SWISS_ENTROPY_BYTES, Host, type HostOptions, type SessionLimitOptions } from "./host.ts";
 export { type CloseOptions } from "./lifecycle.ts";
 export { RemotePromise } from "./promise.ts";
 export { SignalingSendOwner } from "./signaling.ts";
@@ -128,7 +138,9 @@ export {
 	formatLocatorUri,
 	formatPeerUri,
 	formatSturdyRef,
+	HINT_ALT_LOCATORS,
 	HINT_DIRECT_ADDRESSES,
+	HINT_VIA,
 	type HintValue,
 	type HintWireForm,
 	type Locator,
@@ -136,12 +148,14 @@ export {
 	parseSturdyRef,
 	stringHint,
 	type SturdyRef,
+	TRANSPORT_ID,
 	TRANSPORT_INPROC,
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_RELAY,
 	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
 	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
 } from "./locator.ts";

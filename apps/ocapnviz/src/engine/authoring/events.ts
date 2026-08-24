@@ -16,13 +16,13 @@ import type { AuthoringContext } from "./context.ts";
  * calls this so the playable range always covers what the timeline
  * can paint. */
 export function growDurationToFit(
-  ctx: AuthoringContext,
-  event: TimelineEvent,
+	ctx: AuthoringContext,
+	event: TimelineEvent,
 ): void {
-  const need = event.kind === "message-sent" ? Math.max(event.t, event.arrivalT) : event.t;
-  if (need <= ctx.doc.duration) return;
-  (ctx.doc as { duration: number }).duration = need;
-  ctx.clock.setDuration(need);
+	const need = event.kind === "message-sent" ? Math.max(event.t, event.arrivalT) : event.t;
+	if (need <= ctx.doc.duration) return;
+	(ctx.doc as { duration: number }).duration = need;
+	ctx.clock.setDuration(need);
 }
 
 /**
@@ -42,22 +42,22 @@ export function growDurationToFit(
  * may state a window no observation mentions.
  */
 export function latestStatedTime(doc: TimelineDocument): number {
-  let latest = 0;
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    latest = Math.max(latest, ev.t);
-    if (ev.kind === "message-sent") latest = Math.max(latest, ev.arrivalT);
-  }
-  for (const group of ["peers", "sessions", "messages"] as const) {
-    for (const def of Object.values(doc.entities?.[group] ?? {})) {
-      const timing = (def as { timing?: TimeSpan }).timing;
-      if (!timing) continue;
-      const start = timing.start.value;
-      const end = start + timing.duration.value;
-      if (Number.isFinite(start)) latest = Math.max(latest, start);
-      if (Number.isFinite(end)) latest = Math.max(latest, end);
-    }
-  }
-  return latest;
+	let latest = 0;
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		latest = Math.max(latest, ev.t);
+		if (ev.kind === "message-sent") latest = Math.max(latest, ev.arrivalT);
+	}
+	for (const group of ["peers", "sessions", "messages"] as const) {
+		for (const def of Object.values(doc.entities?.[group] ?? {})) {
+			const timing = (def as { timing?: TimeSpan }).timing;
+			if (!timing) continue;
+			const start = timing.start.value;
+			const end = start + timing.duration.value;
+			if (Number.isFinite(start)) latest = Math.max(latest, start);
+			if (Number.isFinite(end)) latest = Math.max(latest, end);
+		}
+	}
+	return latest;
 }
 
 /** Post-mutation orchestration for entity-shaped authoring edits
@@ -67,20 +67,20 @@ export function latestStatedTime(doc: TimelineDocument): number {
  *  keyframe, and seeks to refresh the world. Use after any
  *  syncPeer* / syncSession* / syncMessage* helper. */
 export function commitEntityAuthoring(
-  ctx: AuthoringContext,
-  growToT?: number,
+	ctx: AuthoringContext,
+	growToT?: number,
 ): void {
-  if (growToT !== undefined && growToT > ctx.doc.duration) {
-    (ctx.doc as { duration: number }).duration = growToT;
-    ctx.clock.setDuration(growToT);
-  }
-  // Bump entities reference so downstream WeakMap caches (e.g. the
-  // Scrubber lane-bundle cache) invalidate. Entity authoring mutates
-  // `doc.entities` in place; without this swap, viewer caches keyed
-  // on identity keep painting the pre-edit shape.
-  bumpEntities(ctx);
-  ctx.recomputeLayout();
-  ctx.seekTo(ctx.clock.t);
+	if (growToT !== undefined && growToT > ctx.doc.duration) {
+		(ctx.doc as { duration: number }).duration = growToT;
+		ctx.clock.setDuration(growToT);
+	}
+	// Bump entities reference so downstream WeakMap caches (e.g. the
+	// Scrubber lane-bundle cache) invalidate. Entity authoring mutates
+	// `doc.entities` in place; without this swap, viewer caches keyed
+	// on identity keep painting the pre-edit shape.
+	bumpEntities(ctx);
+	ctx.recomputeLayout();
+	ctx.seekTo(ctx.clock.t);
 }
 
 /** Insert `event` into the primary recording source at the right sorted position,
@@ -92,40 +92,40 @@ export function commitEntityAuthoring(
  * Authoring intents mutate entity.timing / keyframes directly via
  * `commitEntityAuthoring`. */
 export function applyAuthored(
-  ctx: AuthoringContext,
-  event: TimelineEvent,
+	ctx: AuthoringContext,
+	event: TimelineEvent,
 ): void {
-  const events = primaryObservations(ctx.doc);
-  let insertAt = events.length;
-  for (let i = 0; i < events.length; i++) {
-    if (events[i]!.t > event.t) {
-      insertAt = i;
-      break;
-    }
-  }
-  events.splice(insertAt, 0, event);
-  growDurationToFit(ctx, event);
-  // New topology-changing events need a keyframe recompute so the
-  // layout has an entry for them; otherwise `layout.update` leaves
-  // them at the `applyEvent` default of (0, 0).
-  ctx.recomputeLayout();
-  ctx.seekTo(ctx.clock.t);
+	const events = primaryObservations(ctx.doc);
+	let insertAt = events.length;
+	for (let i = 0; i < events.length; i++) {
+		if (events[i]!.t > event.t) {
+			insertAt = i;
+			break;
+		}
+	}
+	events.splice(insertAt, 0, event);
+	growDurationToFit(ctx, event);
+	// New topology-changing events need a keyframe recompute so the
+	// layout has an entry for them; otherwise `layout.update` leaves
+	// them at the `applyEvent` default of (0, 0).
+	ctx.recomputeLayout();
+	ctx.seekTo(ctx.clock.t);
 }
 
 /** Drop every observation `matches` claims. Returns how many went,
  *  so a caller can tell a real removal from a no-op. */
 export function removeObservations(
-  ctx: AuthoringContext,
-  matches: (ev: TimelineEvent) => boolean,
+	ctx: AuthoringContext,
+	matches: (ev: TimelineEvent) => boolean,
 ): number {
-  const events = primaryObservations(ctx.doc);
-  let removed = 0;
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (!matches(events[i]!)) continue;
-    events.splice(i, 1);
-    removed += 1;
-  }
-  return removed;
+	const events = primaryObservations(ctx.doc);
+	let removed = 0;
+	for (let i = events.length - 1; i >= 0; i--) {
+		if (!matches(events[i]!)) continue;
+		events.splice(i, 1);
+		removed += 1;
+	}
+	return removed;
 }
 
 /** Put `event` in the observation stream at its sorted position,
@@ -143,29 +143,29 @@ export function removeObservations(
  *  character into a trajectory row's value field remounted the input
  *  and took the focus with it. */
 export function upsertObservation(
-  ctx: AuthoringContext,
-  matches: (ev: TimelineEvent) => boolean,
-  event: TimelineEvent,
+	ctx: AuthoringContext,
+	matches: (ev: TimelineEvent) => boolean,
+	event: TimelineEvent,
 ): void {
-  const existingId = primaryObservations(ctx.doc).find(matches)?.id;
-  removeObservations(ctx, matches);
-  const events = primaryObservations(ctx.doc);
-  if (existingId !== undefined) event = { ...event, id: existingId };
-  let insertAt = events.length;
-  for (let i = 0; i < events.length; i++) {
-    if (events[i]!.t > event.t) {
-      insertAt = i;
-      break;
-    }
-  }
-  events.splice(insertAt, 0, event);
+	const existingId = primaryObservations(ctx.doc).find(matches)?.id;
+	removeObservations(ctx, matches);
+	const events = primaryObservations(ctx.doc);
+	if (existingId !== undefined) event = { ...event, id: existingId };
+	let insertAt = events.length;
+	for (let i = 0; i < events.length; i++) {
+		if (events[i]!.t > event.t) {
+			insertAt = i;
+			break;
+		}
+	}
+	events.splice(insertAt, 0, event);
 }
 
 /** Swap `doc.entities` for a shallow copy so downstream WeakMap
  *  caches keyed by its reference (e.g. the Scrubber lane-bundle
  *  cache) invalidate after in-place authoring mutations. */
 export function bumpEntities(ctx: AuthoringContext): void {
-  if (ctx.doc.entities !== undefined) {
-    ctx.doc.entities = { ...ctx.doc.entities };
-  }
+	if (ctx.doc.entities !== undefined) {
+		ctx.doc.entities = { ...ctx.doc.entities };
+	}
 }

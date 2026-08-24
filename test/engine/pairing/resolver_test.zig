@@ -59,7 +59,6 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     defer pair.deinit();
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},

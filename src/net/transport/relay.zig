@@ -9,6 +9,7 @@ const model = @import("model");
 const builtin = @import("builtin");
 const address_race = @import("keyed_relay/address_race.zig");
 const blocking_frame = @import("keyed_relay/blocking_frame.zig");
+const close_machine = @import("keyed_relay/close.zig");
 const endpoint_race = @import("keyed_relay/endpoint_race.zig");
 const protocol = @import("../websocket.zig").client_protocol;
 const profile = @import("keyed_relay/profile.zig");
@@ -52,6 +53,7 @@ pub const validateConfigurationUrls = configuration.validateUrls;
 
 pub const white_box = if (builtin.is_test) struct {
     pub const FailureLedger = address_race.FailureLedger;
+    pub const drainAfterLocalClose = close_machine.drainAfterLocalClose;
     pub const pollable_address_race = endpoint_race.white_box;
 } else struct {};
 

@@ -14,6 +14,7 @@
 //! as a hostname whose port is missing.
 
 const std = @import("std");
+const socket = @import("../../socket.zig");
 
 const IpAddress = std.Io.net.IpAddress;
 const UnixAddress = std.Io.net.UnixAddress;
@@ -56,10 +57,17 @@ pub const Endpoint = union(enum) {
 
     pub const ConnectError = IpAddress.ConnectError || UnixAddress.ConnectError;
 
-    /// Open a stream to this endpoint.
+    /// Open a stream to this endpoint. The TCP arm disables Nagle: the hop
+    /// carries small sequential SOCKS and CapTP writes to the local Tor
+    /// client, and a refused option keeps the working connection because the
+    /// loss is throughput only.
     pub fn connect(self: Endpoint, io: std.Io) ConnectError!Stream {
         return switch (self) {
-            .address => |addr| IpAddress.connect(&addr, io, .{ .mode = .stream }),
+            .address => |addr| blk: {
+                const stream = try IpAddress.connect(&addr, io, .{ .mode = .stream });
+                socket.applyNodelay(stream.socket.handle) catch {}; // tolerant: throughput only
+                break :blk stream;
+            },
             .unix => |path| blk: {
                 const ua = UnixAddress.init(path) catch return error.FileNotFound;
                 break :blk UnixAddress.connect(&ua, io);

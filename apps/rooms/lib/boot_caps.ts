@@ -37,6 +37,20 @@ export const BOOT_CAPS = {
 		token: "ROOMS-DIAGNOSTICS",
 		label: "diagnostics",
 	},
+	irc: {
+		flag: "--irc",
+		env: "PANCAKE_ROOMS_IRC",
+		file: "irc",
+		token: "ROOMS-IRC",
+		label: "irc",
+	},
+	peering: {
+		flag: "--peering",
+		env: "PANCAKE_ROOMS_PEERING",
+		file: "peering",
+		token: "ROOMS-PEERING",
+		label: "peering",
+	},
 	viz: {
 		flag: "--viz",
 		env: "PANCAKE_ROOMS_VIZ",

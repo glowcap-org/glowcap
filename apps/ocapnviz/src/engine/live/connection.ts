@@ -23,13 +23,13 @@ const RECONNECT_MAX_MS = 5_000;
 export const MAX_TRACE_RECORD_BYTES = 1 << 20;
 
 export type LivePeer = {
-  close: () => void;
-  /** Settles when this exact CapTP session and its hosted inbox are gone. */
-  closed: Promise<void>;
+	close: () => void;
+	/** Settles when this exact CapTP session and its hosted inbox are gone. */
+	closed: Promise<void>;
 };
 export type LivePeerFactory = (
-  sturdyref: string,
-  onRecord: (line: string) => void,
+	sturdyref: string,
+	onRecord: (line: string) => void,
 ) => Promise<LivePeer>;
 
 let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
@@ -43,289 +43,298 @@ let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
 let vizSocketCap = "";
 
 function wasmUrl(): string {
-  const configured = (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
-    .__OCV_PANCAKE_WASM_URL;
-  return configured ?? "/pancake_host.wasm";
+	const configured = (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
+		.__OCV_PANCAKE_WASM_URL;
+	return configured ?? "/pancake_host.wasm";
 }
 
 async function browserRuntime(): Promise<BrowserRuntime> {
-  if (browserRuntimePromise !== null) return await browserRuntimePromise;
-  browserRuntimePromise = (async () => {
-    const override = (globalThis as {
-      __OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
-    }).__OCV_PANCAKE_WEB_LOADER;
-    const web = override === undefined ? await import("virtual:pancake-web") : await override();
-    // `init` is identity-sensitive by design. Keep this one options object
-    // for the page, so remounting Live mode does not attempt a second runtime.
-    return await web.init({
-      wasm: fetch(wasmUrl()),
-      wsUrl: (host, port) =>
-        vizSocketCap === "" ? `ws://${host}:${port}/` : `ws://${host}:${port}/?cap=${encodeURIComponent(vizSocketCap)}`,
-    });
-  })();
-  try {
-    return await browserRuntimePromise;
-  } catch (error) {
-    browserRuntimePromise = null;
-    throw error;
-  }
+	if (browserRuntimePromise !== null) return await browserRuntimePromise;
+	browserRuntimePromise = (async () => {
+		const override = (globalThis as {
+			__OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
+		}).__OCV_PANCAKE_WEB_LOADER;
+		const web = override === undefined ? await import("virtual:pancake-web") : await override();
+		// `init` is identity-sensitive by design. Keep this one options object
+		// for the page, so remounting Live mode does not attempt a second runtime.
+		return await web.init({
+			wasm: fetch(wasmUrl()),
+			wsUrl: (host, port) =>
+				vizSocketCap === ""
+					? `ws://${host}:${port}/`
+					: `ws://${host}:${port}/?cap=${encodeURIComponent(vizSocketCap)}`,
+		});
+	})();
+	try {
+		return await browserRuntimePromise;
+	} catch (error) {
+		browserRuntimePromise = null;
+		throw error;
+	}
 }
 
 /** The production browser peer. The socket is created by `@pancake/runtime` from
  * the sturdyref's parsed locator; this function never interprets or forwards
  * CapTP bytes. */
 export const browserPeerFactory: LivePeerFactory = async (
-  sturdyref,
-  onRecord,
+	sturdyref,
+	onRecord,
 ) => {
-  const runtime = await browserRuntime();
-  const { locator, swissnum } = runtime.parseSturdyRef(sturdyref, "v1_0");
-  vizSocketCap = new TextDecoder().decode(swissnum);
-  const session = await runtime.connect(locator);
-  const closed = session.serve();
-  // Construction may still be enlivening when the session fails. Attach a
-  // handler immediately; callers still receive the original promise below.
-  void closed.catch(() => {});
-  let closing = false;
-  try {
-    const inbox = session.spawn((verb, args) => {
-      if (
-        verb !== "record" || args.length !== 1 || typeof args[0] !== "string"
-      ) {
-        throw new Error("trace inbox expects one JSON string record");
-      }
-      const bytes = new TextEncoder().encode(args[0]).byteLength;
-      if (bytes > MAX_TRACE_RECORD_BYTES) {
-        void session.close();
-        throw new Error("trace record exceeds the viewer bound");
-      }
-      onRecord(args[0]);
-      return null;
-    });
-    const trace = await session.enliven(sturdyref);
-    await session.send(trace, "subscribe", [inbox]);
-    return {
-      closed,
-      close: () => {
-        if (closing) return;
-        closing = true;
-        void session.close();
-      },
-    };
-  } catch (error) {
-    await Promise.resolve(session.close()).catch(() => {});
-    await closed.catch(() => {});
-    throw error;
-  }
+	const runtime = await browserRuntime();
+	const { locator, swissnum } = runtime.parseSturdyRef(sturdyref, "v1_0");
+	vizSocketCap = new TextDecoder().decode(swissnum);
+	const session = await runtime.connect(locator);
+	const closed = session.serve();
+	// Construction may still be enlivening when the session fails. Attach a
+	// handler immediately; callers still receive the original promise below.
+	void closed.catch(() => {});
+	let closing = false;
+	try {
+		const inbox = session.spawn((verb, args) => {
+			if (
+				verb !== "record" || args.length !== 1 ||
+				typeof args[0] !== "string"
+			) {
+				throw new Error("trace inbox expects one JSON string record");
+			}
+			const bytes = new TextEncoder().encode(args[0]).byteLength;
+			if (bytes > MAX_TRACE_RECORD_BYTES) {
+				void session.close();
+				throw new Error("trace record exceeds the viewer bound");
+			}
+			onRecord(args[0]);
+			return null;
+		});
+		const trace = await session.enliven(sturdyref);
+		await session.send(trace, "subscribe", [inbox]);
+		return {
+			closed,
+			close: () => {
+				if (closing) return;
+				closing = true;
+				void session.close();
+			},
+		};
+	} catch (error) {
+		await Promise.resolve(session.close()).catch(() => {});
+		await closed.catch(() => {});
+		throw error;
+	}
 };
 
 export class LiveFeed {
-  #sturdyref: string;
-  #peer: LivePeer | null = null;
-  #factory: LivePeerFactory;
-  #convert = makeBaseEventConverter();
-  #subscribers = new Set<(ev: TimelineEvent) => void>();
-  #errorSubscribers = new Set<(error: EngineError) => void>();
-  /** Who hears whether this feed is connected, or null when nobody
-   * owns it any more. A feed that has been disconnected clears the
-   * slot, because `ws.onclose` fires asynchronously AFTER `close()`
-   * returns: a slot left pointing at the last owner is how a
-   * replaced feed writes `false` over its successor's `true`. */
-  #onConnectionChange: ((connected: boolean) => void) | null = null;
-  /** Highest live-tail producer `seq` applied. A reconnect's snapshot still
-   * passes through at old sequence numbers so it can reconcile current state;
-   * ordinary live records at or below this are dropped. Scoped to the
-   * producer `#epoch`: a restarted producer restarts its seq, so
-   * the window resets with the epoch (the converter separately
-   * retires the dead epoch's topology). */
-  #lastSeq = Number.NEGATIVE_INFINITY;
-  #epoch: number | undefined = undefined;
-  /** True after `disconnect()` — a deliberate close never
-   * reconnects; a dropped connection does, with capped backoff. */
-  #closedByUser = false;
-  #reconnectTimer: number | null = null;
-  #reconnectDelayMs = RECONNECT_MIN_MS;
-  #generation = 0;
-  #connecting = false;
+	#sturdyref: string;
+	#peer: LivePeer | null = null;
+	#factory: LivePeerFactory;
+	#convert = makeBaseEventConverter();
+	#subscribers = new Set<(ev: TimelineEvent) => void>();
+	#errorSubscribers = new Set<(error: EngineError) => void>();
+	/** Who hears whether this feed is connected, or null when nobody
+	 * owns it any more. A feed that has been disconnected clears the
+	 * slot, because `ws.onclose` fires asynchronously AFTER `close()`
+	 * returns: a slot left pointing at the last owner is how a
+	 * replaced feed writes `false` over its successor's `true`. */
+	#onConnectionChange: ((connected: boolean) => void) | null = null;
+	/** Highest live-tail producer `seq` applied. A reconnect's snapshot still
+	 * passes through at old sequence numbers so it can reconcile current state;
+	 * ordinary live records at or below this are dropped. Scoped to the
+	 * producer `#epoch`: a restarted producer restarts its seq, so
+	 * the window resets with the epoch (the converter separately
+	 * retires the dead epoch's topology). */
+	#lastSeq = Number.NEGATIVE_INFINITY;
+	#epoch: number | undefined = undefined;
+	/** True after `disconnect()` — a deliberate close never
+	 * reconnects; a dropped connection does, with capped backoff. */
+	#closedByUser = false;
+	#reconnectTimer: number | null = null;
+	#reconnectDelayMs = RECONNECT_MIN_MS;
+	#generation = 0;
+	#connecting = false;
 
-  constructor(
-    sturdyref: string,
-    factory: LivePeerFactory = browserPeerFactory,
-  ) {
-    this.#sturdyref = sturdyref;
-    this.#factory = factory;
-  }
+	constructor(
+		sturdyref: string,
+		factory: LivePeerFactory = browserPeerFactory,
+	) {
+		this.#sturdyref = sturdyref;
+		this.#factory = factory;
+	}
 
-  connect(): void {
-    if (this.#peer !== null || this.#connecting) return;
-    this.#closedByUser = false;
-    if (
-      !this.#sturdyref.startsWith("ocapn://") ||
-      !this.#sturdyref.includes("/s/")
-    ) {
-      this.#emitError({
-        code: "validation",
-        title: "Live capability invalid",
-        detail: `The live endpoint did not provide a sturdyref: "${this.#sturdyref}"`,
-        recovery: "Paste the complete sturdyref announced by the rooms server.",
-      });
-      return;
-    }
-    const generation = ++this.#generation;
-    this.#connecting = true;
-    void this.#factory(
-      this.#sturdyref,
-      (line) => this.#receive(generation, line),
-    ).then(
-      (peer) => {
-        this.#connecting = false;
-        if (generation !== this.#generation || this.#closedByUser) {
-          peer.close();
-          return;
-        }
-        this.#peer = peer;
-        this.#reconnectDelayMs = RECONNECT_MIN_MS;
-        this.#onConnectionChange?.(true);
-        void peer.closed.then(
-          () => this.#peerClosed(generation),
-          (cause) => this.#peerClosed(generation, cause),
-        );
-      },
-      (cause) => {
-        this.#connecting = false;
-        if (generation !== this.#generation || this.#closedByUser) return;
-        this.#onConnectionChange?.(false);
-        this.#emitError({
-          code: "internal",
-          title: "Live capability unreachable",
-          detail: cause instanceof Error ? cause.message : String(cause),
-          recovery: "Check the sturdyref and the rooms server, then wait for reconnect.",
-          cause,
-        });
-        this.#scheduleReconnect();
-      },
-    );
-  }
+	connect(): void {
+		if (this.#peer !== null || this.#connecting) return;
+		this.#closedByUser = false;
+		if (
+			!this.#sturdyref.startsWith("ocapn://") ||
+			!this.#sturdyref.includes("/s/")
+		) {
+			this.#emitError({
+				code: "validation",
+				title: "Live capability invalid",
+				detail: `The live endpoint did not provide a sturdyref: "${this.#sturdyref}"`,
+				recovery: "Paste the complete sturdyref announced by the rooms server.",
+			});
+			return;
+		}
+		const generation = ++this.#generation;
+		this.#connecting = true;
+		void this.#factory(
+			this.#sturdyref,
+			(line) => this.#receive(generation, line),
+		).then(
+			(peer) => {
+				this.#connecting = false;
+				if (generation !== this.#generation || this.#closedByUser) {
+					peer.close();
+					return;
+				}
+				this.#peer = peer;
+				this.#reconnectDelayMs = RECONNECT_MIN_MS;
+				this.#onConnectionChange?.(true);
+				void peer.closed.then(
+					() => this.#peerClosed(generation),
+					(cause) => this.#peerClosed(generation, cause),
+				);
+			},
+			(cause) => {
+				this.#connecting = false;
+				if (generation !== this.#generation || this.#closedByUser) {
+					return;
+				}
+				this.#onConnectionChange?.(false);
+				this.#emitError({
+					code: "internal",
+					title: "Live capability unreachable",
+					detail: cause instanceof Error ? cause.message : String(cause),
+					recovery: "Check the sturdyref and the rooms server, then wait for reconnect.",
+					cause,
+				});
+				this.#scheduleReconnect();
+			},
+		);
+	}
 
-  #receive(generation: number, line: string): void {
-    if (generation !== this.#generation || this.#closedByUser) return;
-    if (new TextEncoder().encode(line).byteLength > MAX_TRACE_RECORD_BYTES) {
-      return;
-    }
-    try {
-      const raw = JSON.parse(line) as BaseTimelineEvent;
-      const epoch = numberFromWire(raw.epoch);
-      if (epoch != null && epoch !== this.#epoch) {
-        this.#epoch = epoch;
-        this.#lastSeq = Number.NEGATIVE_INFINITY;
-      }
-      const seq = numberFromWire(raw.seq);
-      if (seq != null) {
-        // Replay is the endpoint's complete current snapshot, not history to
-        // deduplicate. Old sequence numbers must reach the converter so replay
-        // completion can remove observations that disappeared during outage.
-        if (raw.replay !== true && seq <= this.#lastSeq) return;
-        this.#lastSeq = Math.max(this.#lastSeq, seq);
-      }
-      const converted = this.#convert(raw);
-      for (const ev of converted) {
-        for (const sub of this.#subscribers) sub(ev);
-      }
-    } catch (error) {
-      this.#emitError({
-        code: "validation",
-        title: "Live record unreadable",
-        detail: error instanceof Error ? error.message : String(error),
-        recovery: "The feed stays connected. Later records still arrive; reload Live if the stage looks wrong.",
-        cause: error,
-      });
-    }
-  }
+	#receive(generation: number, line: string): void {
+		if (generation !== this.#generation || this.#closedByUser) return;
+		if (
+			new TextEncoder().encode(line).byteLength > MAX_TRACE_RECORD_BYTES
+		) {
+			return;
+		}
+		try {
+			const raw = JSON.parse(line) as BaseTimelineEvent;
+			const epoch = numberFromWire(raw.epoch);
+			if (epoch != null && epoch !== this.#epoch) {
+				this.#epoch = epoch;
+				this.#lastSeq = Number.NEGATIVE_INFINITY;
+			}
+			const seq = numberFromWire(raw.seq);
+			if (seq != null) {
+				// Replay is the endpoint's complete current snapshot, not history to
+				// deduplicate. Old sequence numbers must reach the converter so replay
+				// completion can remove observations that disappeared during outage.
+				if (raw.replay !== true && seq <= this.#lastSeq) return;
+				this.#lastSeq = Math.max(this.#lastSeq, seq);
+			}
+			const converted = this.#convert(raw);
+			for (const ev of converted) {
+				for (const sub of this.#subscribers) sub(ev);
+			}
+		} catch (error) {
+			this.#emitError({
+				code: "validation",
+				title: "Live record unreadable",
+				detail: error instanceof Error ? error.message : String(error),
+				recovery: "The feed stays connected. Later records still arrive; reload Live if the stage looks wrong.",
+				cause: error,
+			});
+		}
+	}
 
-  #peerClosed(generation: number, _cause?: unknown): void {
-    if (generation !== this.#generation || this.#closedByUser) return;
-    this.#peer = null;
-    this.#connecting = false;
-    this.#onConnectionChange?.(false);
-    this.#scheduleReconnect();
-  }
+	#peerClosed(generation: number, _cause?: unknown): void {
+		if (generation !== this.#generation || this.#closedByUser) return;
+		this.#peer = null;
+		this.#connecting = false;
+		this.#onConnectionChange?.(false);
+		this.#scheduleReconnect();
+	}
 
-  #scheduleReconnect(): void {
-    if (this.#closedByUser || this.#reconnectTimer !== null) return;
-    this.#reconnectTimer = setTimeout(() => {
-      this.#reconnectTimer = null;
-      this.connect();
-    }, this.#reconnectDelayMs) as unknown as number;
-    this.#reconnectDelayMs = Math.min(
-      this.#reconnectDelayMs * 2,
-      RECONNECT_MAX_MS,
-    );
-  }
+	#scheduleReconnect(): void {
+		if (this.#closedByUser || this.#reconnectTimer !== null) return;
+		this.#reconnectTimer = setTimeout(() => {
+			this.#reconnectTimer = null;
+			this.connect();
+		}, this.#reconnectDelayMs) as unknown as number;
+		this.#reconnectDelayMs = Math.min(
+			this.#reconnectDelayMs * 2,
+			RECONNECT_MAX_MS,
+		);
+	}
 
-  /** Close for good. A disconnected feed never reconnects and never
-   *  reports again: the connection slot is cleared here so the
-   *  `onclose` the browser delivers after this call reaches nobody. */
-  disconnect(): void {
-    this.#closedByUser = true;
-    this.#generation += 1;
-    this.#onConnectionChange = null;
-    if (this.#reconnectTimer !== null) {
-      clearTimeout(this.#reconnectTimer);
-      this.#reconnectTimer = null;
-    }
-    if (this.#peer !== null) {
-      this.#peer.close();
-      this.#peer = null;
-    }
-    this.#connecting = false;
-  }
+	/** Close for good. A disconnected feed never reconnects and never
+	 *  reports again: the connection slot is cleared here so the
+	 *  `onclose` the browser delivers after this call reaches nobody. */
+	disconnect(): void {
+		this.#closedByUser = true;
+		this.#generation += 1;
+		this.#onConnectionChange = null;
+		if (this.#reconnectTimer !== null) {
+			clearTimeout(this.#reconnectTimer);
+			this.#reconnectTimer = null;
+		}
+		if (this.#peer !== null) {
+			this.#peer.close();
+			this.#peer = null;
+		}
+		this.#connecting = false;
+	}
 
-  subscribe(cb: (ev: TimelineEvent) => void): () => void {
-    this.#subscribers.add(cb);
-    return () => {
-      this.#subscribers.delete(cb);
-    };
-  }
+	subscribe(cb: (ev: TimelineEvent) => void): () => void {
+		this.#subscribers.add(cb);
+		return () => {
+			this.#subscribers.delete(cb);
+		};
+	}
 
-  /**
-   * Hear whether this feed is connected. Returns an unsubscribe, the
-   * way `subscribe` does, and for the same reason one level
-   * up: the owner that registered has to be able to stop being the
-   * owner. A slot with no way out is what let a torn-down feed's late
-   * `onclose` write `false` into a live component's state after its
-   * replacement had already reported `true`.
-   *
-   * One slot, not a set: the connection is one fact about one socket
-   * and the app shows it in one place. Registering a second callback
-   * replaces the first.
-   */
-  onConnectionChange(cb: (connected: boolean) => void): () => void {
-    this.#onConnectionChange = cb;
-    return () => {
-      if (this.#onConnectionChange === cb) this.#onConnectionChange = null;
-    };
-  }
+	/**
+	 * Hear whether this feed is connected. Returns an unsubscribe, the
+	 * way `subscribe` does, and for the same reason one level
+	 * up: the owner that registered has to be able to stop being the
+	 * owner. A slot with no way out is what let a torn-down feed's late
+	 * `onclose` write `false` into a live component's state after its
+	 * replacement had already reported `true`.
+	 *
+	 * One slot, not a set: the connection is one fact about one socket
+	 * and the app shows it in one place. Registering a second callback
+	 * replaces the first.
+	 */
+	onConnectionChange(cb: (connected: boolean) => void): () => void {
+		this.#onConnectionChange = cb;
+		return () => {
+			if (this.#onConnectionChange === cb) {
+				this.#onConnectionChange = null;
+			}
+		};
+	}
 
-  /**
-   * Hear about a failure this feed cannot recover from on its own, such as an
-   * invalid sturdyref or a failed dial/enliven. Returns an
-   * unsubscribe. Subscribers registered before `connect()` hear the
-   * dial's own refusal, which is why `startLiveMode` takes the
-   * callback as an option rather than letting its caller attach one
-   * afterwards.
-   */
-  onError(cb: (error: EngineError) => void): () => void {
-    this.#errorSubscribers.add(cb);
-    return () => {
-      this.#errorSubscribers.delete(cb);
-    };
-  }
+	/**
+	 * Hear about a failure this feed cannot recover from on its own, such as an
+	 * invalid sturdyref or a failed dial/enliven. Returns an
+	 * unsubscribe. Subscribers registered before `connect()` hear the
+	 * dial's own refusal, which is why `startLiveMode` takes the
+	 * callback as an option rather than letting its caller attach one
+	 * afterwards.
+	 */
+	onError(cb: (error: EngineError) => void): () => void {
+		this.#errorSubscribers.add(cb);
+		return () => {
+			this.#errorSubscribers.delete(cb);
+		};
+	}
 
-  #emitError(error: EngineError): void {
-    if (this.#errorSubscribers.size === 0) {
-      console.error("LiveFeed:", error.detail);
-      return;
-    }
-    for (const sub of this.#errorSubscribers) sub(error);
-  }
+	#emitError(error: EngineError): void {
+		if (this.#errorSubscribers.size === 0) {
+			console.error("LiveFeed:", error.detail);
+			return;
+		}
+		for (const sub of this.#errorSubscribers) sub(error);
+	}
 }

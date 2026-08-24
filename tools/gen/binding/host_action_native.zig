@@ -122,6 +122,12 @@ fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm) !vo
             \\
             \\
         ),
+        .dial_attempt => try out.appendSlice(gpa,
+            \\    ticket: int
+            \\    route_index: int
+            \\
+            \\
+        ),
         .settle => try out.appendSlice(gpa,
             \\    ticket: int
             \\    value: object
@@ -158,6 +164,10 @@ fn emitPyDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm)
         , .{arm.variant}),
         .ticket => try out.print(gpa,
             \\        return {s}(ticket=a.ticket)
+            \\
+        , .{arm.variant}),
+        .dial_attempt => try out.print(gpa,
+            \\        return {s}(ticket=a.ticket, route_index=a.route_index)
             \\
         , .{arm.variant}),
         .settle => try out.print(gpa,
@@ -255,6 +265,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
             .session => try out.print(gpa, "        HostAction::{s} {{ session }} => handlers.{s}(session).await,\n", .{ arm.variant, method }),
             .close => try out.print(gpa, "        HostAction::{s} {{ session, result }} => handlers.{s}(session, result).await,\n", .{ arm.variant, method }),
             .ticket => try out.print(gpa, "        HostAction::{s} {{ ticket }} => handlers.{s}(ticket).await,\n", .{ arm.variant, method }),
+            .dial_attempt => try out.print(gpa, "        HostAction::{s} {{ ticket, route_index }} => handlers.{s}(ticket, route_index).await,\n", .{ arm.variant, method }),
             .settle => try out.print(gpa, "        HostAction::{s} {{ ticket, value }} => handlers.{s}(ticket, value).await,\n", .{ arm.variant, method }),
             .fail => try out.print(gpa, "        HostAction::{s} {{ ticket, result, message }} => handlers.{s}(ticket, result, message).await,\n", .{ arm.variant, method }),
         }
@@ -275,6 +286,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
             .session => ", session: usize",
             .close => ", session: usize, result: i32",
             .ticket => ", ticket: u64",
+            .dial_attempt => ", ticket: u64, route_index: usize",
             .settle => ", ticket: u64, value: Argument",
             .fail => ", ticket: u64, result: i32, message: String",
         };
@@ -299,6 +311,10 @@ fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm)
             try ha.tline(out, gpa, 2, "result: i32,");
         },
         .ticket => try ha.tline(out, gpa, 2, "ticket: u64,"),
+        .dial_attempt => {
+            try ha.tline(out, gpa, 2, "ticket: u64,");
+            try ha.tline(out, gpa, 2, "route_index: usize,");
+        },
         .settle => {
             try ha.tline(out, gpa, 2, "ticket: u64,");
             try ha.tline(out, gpa, 2, "value: Argument,");
@@ -335,6 +351,10 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Ar
             try ha.tline(out, gpa, 3, "result: raw.result,");
         },
         .ticket => unreachable,
+        .dial_attempt => {
+            try ha.tline(out, gpa, 3, "ticket: raw.ticket,");
+            try ha.tline(out, gpa, 3, "route_index: raw.route_index,");
+        },
         .settle => {
             try ha.tline(out, gpa, 3, "ticket: raw.ticket,");
             try ha.tline(out, gpa, 3, "value: unsafe { arg_from_sys(&raw.value) }?,");
@@ -440,6 +460,10 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.
         , .{arm.racket}),
         .ticket => try out.print(gpa,
             \\     (list '{s} (PancakeHostAction-ticket a))]
+            \\
+        , .{arm.racket}),
+        .dial_attempt => try out.print(gpa,
+            \\     (list '{s} (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
             \\
         , .{arm.racket}),
         .settle => try out.print(gpa,

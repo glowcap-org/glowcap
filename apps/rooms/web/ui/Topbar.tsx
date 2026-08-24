@@ -1,5 +1,7 @@
 // The header over the conversation: where you are, what kind of line it is, and
-// the controls that act on it.
+// the controls that act on it. Standing on /ops it keeps its shell duties,
+// the rail toggle and Settings, and wears the operations title instead of a
+// conversation's.
 //
 // Every word and every pressed-state here is derived from the conversation on
 // screen. The old header was written by four functions that each set some of it,
@@ -14,6 +16,7 @@ import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
 import { StandingMenu } from "./Standing.tsx";
 import { usePeer } from "./peer.ts";
+import { openModalFrom } from "./modal.ts";
 import { roomCalled } from "./text.ts";
 
 /** What the title says, and what its mark would do. */
@@ -49,8 +52,25 @@ function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 }
 
 function TopbarPane(
-	{ conv, online, away, unread, mobile, railShown, rosterShown, memberCount, settingsOpen, standing, follows }: {
+	{
+		conv,
+		ops,
+		online,
+		away,
+		unread,
+		mobile,
+		railShown,
+		rosterShown,
+		memberCount,
+		settingsOpen,
+		standing,
+		follows,
+		aboutConv,
+	}: {
 		conv: Conv | null;
+		/** Standing on /ops: the bar keeps its shell controls and wears the
+		 * operations title. */
+		ops: boolean;
 		online: boolean;
 		/** Why a direct peer has stepped away, by the shared rooms' word, or
 		 * null while they are here; always null over a room. */
@@ -66,9 +86,43 @@ function TopbarPane(
 		/** What this room follows while it has no word of its own, named for a
 		 * reader: the directory it is on. */
 		follows: string;
+		/** Whether the card about this conversation is up. */
+		aboutConv: boolean;
 	},
 ) {
 	const peer = usePeer();
+	// The rail toggle is the bar's one constant, whatever the cell shows.
+	const railToggle = (
+		<IconButton
+			id="backBtn"
+			className={unread > 0 ? "mark-btn has-unread" : "mark-btn"}
+			icon="mark"
+			label="Rooms and direct messages"
+			size={mobile ? "large" : "normal"}
+			title={railShown ? "Hide the rooms list" : "Show the rooms list"}
+			aria-pressed={railShown}
+			onClick={() => peer.showRail(true)}
+		/>
+	);
+	if (ops) {
+		return (
+			<header className="topbar">
+				{railToggle}
+				{
+					/* The plain word, in the conversation title's own chip: a
+				    conversation title carries no product logo, and the rail
+				    toggle beside this already wears the mark. */
+				}
+				<h1 id="roomTitle">
+					<span className="title-chip">
+						<span id="operationsTitle">Operations</span>
+					</span>
+				</h1>
+				<span className="spacer" />
+				{!railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}
+			</header>
+		);
+	}
 	const title = titleOf(conv);
 	const isRoom = conv?.type === "room";
 	// How many people are here now, rather than how many the room has ever seen —
@@ -90,31 +144,53 @@ function TopbarPane(
 			/>
 		)
 		: null;
+	const about = conv === null
+		? undefined
+		: conv.type === "room"
+		? "About " + roomCalled(conv.id, conv.held)
+		: "About the direct message with " + conv.id;
 	return (
 		<header className="topbar">
-			<IconButton
-				id="backBtn"
-				className={unread > 0 ? "mark-btn has-unread" : "mark-btn"}
-				icon="mark"
-				label="Rooms and direct messages"
-				size={mobile ? "large" : "normal"}
-				title={railShown ? "Hide the rooms list" : "Show the rooms list"}
-				aria-pressed={railShown}
-				onClick={() => peer.showRail(true)}
-			/>
+			{railToggle}
 			<h1 id="roomTitle">
 				<span className="title-chip">
-					<span
-						className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
-						id="roomSigil"
-						hidden={conv === null}
-						title={heldRoom
-							? "A private room: it is not listed, and only people it was handed to are here"
-							: undefined}
-					>
-						{sigil}
-					</span>
-					<span id="roomName">{title.name}</span>
+					{conv === null
+						? (
+							<>
+								<span
+									className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
+									id="roomSigil"
+									hidden
+								>
+									{sigil}
+								</span>
+								<span id="roomName">{title.name}</span>
+							</>
+						)
+						: (
+							<button
+								type="button"
+								id="roomAbout"
+								className="title-about"
+								aria-haspopup="dialog"
+								aria-expanded={aboutConv}
+								aria-controls={aboutConv ? "convcardTitle" : undefined}
+								aria-label={about}
+								title={about}
+								onClick={(event) => openModalFrom(event.currentTarget, () => peer.aboutConversation())}
+							>
+								<span
+									className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
+									id="roomSigil"
+									title={heldRoom
+										? "A private room: it is not listed, and only people it was handed to are here"
+										: undefined}
+								>
+									{sigil}
+								</span>
+								<span id="roomName">{title.name}</span>
+							</button>
+						)}
 					<IconButton
 						id="leaveBtn"
 						className="leave-x"

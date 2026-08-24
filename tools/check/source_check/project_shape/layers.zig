@@ -44,7 +44,10 @@ pub fn checkLayerOwnership(
         const name = std.mem.trimEnd(u8, span, "/");
         try named.put(name, {});
         var path_buf: [160]u8 = undefined;
-        const path = std.fmt.bufPrint(&path_buf, "src/{s}", .{name}) catch continue;
+        const path = std.fmt.bufPrint(&path_buf, "src/{s}", .{name}) catch {
+            try appendViolation(gpa, violations, "layer `{s}` overflows the ownership check path buffer; grow it", .{name});
+            continue;
+        };
         root.access(io, path, .{}) catch |err| {
             try appendViolation(gpa, violations, "{s}: Layer Ownership names `{s}` but `{s}` is not accessible ({s})", .{ rule_path, span, path, @errorName(err) });
         };
@@ -86,8 +89,14 @@ fn checkGroupingChildren(
     rule_path: []const u8,
 ) !void {
     var path_buf: [160]u8 = undefined;
-    const group_path = std.fmt.bufPrint(&path_buf, "src/{s}", .{group}) catch return;
-    var dir = root.openDir(io, group_path, .{ .iterate = true }) catch return;
+    const group_path = std.fmt.bufPrint(&path_buf, "src/{s}", .{group}) catch {
+        try appendViolation(gpa, violations, "layer group `{s}` overflows the ownership check path buffer; grow it", .{group});
+        return;
+    };
+    var dir = root.openDir(io, group_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: named in {s} but cannot be opened ({s})", .{ group_path, rule_path, @errorName(err) });
+        return;
+    };
     defer dir.close(io);
 
     var subdirs: std.ArrayList([]const u8) = .empty;
@@ -108,7 +117,10 @@ fn checkGroupingChildren(
 
     for (subdirs.items) |sub| {
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "{s}/{s}", .{ group, sub }) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "{s}/{s}", .{ group, sub }) catch {
+            try appendViolation(gpa, violations, "layer subdirectory {s}/{s} overflows the ownership check needle buffer; grow it", .{ group, sub });
+            continue;
+        };
         if (!named.contains(needle)) {
             try appendViolation(gpa, violations, "{s}: `src/{s}/{s}` has no Layer Ownership bullet", .{ rule_path, group, sub });
         }
@@ -160,7 +172,10 @@ pub fn checkTestPlacement(
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "test/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "test/{s}", .{entry.name}) catch {
+            try appendViolation(gpa, violations, "test/{s}: the directory name overflows the placement needle buffer; grow it", .{entry.name});
+            continue;
+        };
         if (!named.contains(needle)) {
             try appendViolation(gpa, violations, "{s}: `test/{s}` has no Placement bullet", .{ rule_path, entry.name });
         }

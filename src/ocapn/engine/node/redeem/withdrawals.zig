@@ -5,6 +5,7 @@ const std = @import("std");
 const model = @import("model");
 const node_mod = @import("../../node.zig");
 const actions = @import("../actions.zig");
+const gift_recipe = @import("../handoffs/gifts/recipe.zig");
 const redeem = @import("../redeem.zig");
 const peer_routes = @import("../peers/routes.zig");
 
@@ -21,6 +22,12 @@ pub const Key = struct {
 
 pub const Pending = struct {
     dest: redeem.Destination,
+    route_advice: ?*RouteAdvice = null,
+};
+
+pub const RouteAdvice = struct {
+    location: ?[]u8 = null,
+    pending: usize = 0,
 };
 
 pub const State = struct {
@@ -35,7 +42,38 @@ pub const Outcome = union(enum) {
 };
 
 pub fn deinit(self: *Node) void {
+    var rows = self.redeems.withdrawals.rows.valueIterator();
+    while (rows.next()) |pending| releaseRouteAdvice(self, pending.route_advice);
     self.redeems.withdrawals.rows.deinit(self.allocator);
+}
+
+pub fn createEmptyRouteAdvice(self: *Node) !*RouteAdvice {
+    const advice = try self.allocator.create(RouteAdvice);
+    advice.* = .{};
+    return advice;
+}
+
+pub fn createRouteAdvice(self: *Node, location: []u8) !*RouteAdvice {
+    const advice = try createEmptyRouteAdvice(self);
+    advice.location = location;
+    return advice;
+}
+
+/// Release a candidate that no successfully queued withdrawal adopted.
+pub fn finishRouteAdviceSetup(self: *Node, advice: ?*RouteAdvice) void {
+    const candidate = advice orelse return;
+    if (candidate.pending != 0) return;
+    if (candidate.location) |location| self.allocator.free(location);
+    self.allocator.destroy(candidate);
+}
+
+fn releaseRouteAdvice(self: *Node, advice: ?*RouteAdvice) void {
+    const candidate = advice orelse return;
+    std.debug.assert(candidate.pending != 0);
+    candidate.pending -= 1;
+    if (candidate.pending != 0) return;
+    if (candidate.location) |location| self.allocator.free(location);
+    self.allocator.destroy(candidate);
 }
 
 /// Queue a terminal failure carrying an owned copy of `reason`.
@@ -75,6 +113,7 @@ pub fn begin(
     exporter_peer: PeerHandle,
     dest: redeem.Destination,
     give: []const u8,
+    route_advice: ?*RouteAdvice,
 ) !void {
     const slot = self.peers.getPtr(exporter_peer) orelse
         return queueFailure(self, dest, "handoff redeem failed: exporter session is gone");
@@ -105,8 +144,9 @@ pub fn begin(
     };
     self.redeems.withdrawals.rows.putAssumeCapacity(
         .{ .peer_handle = exporter_peer, .answer = withdraw_answer },
-        .{ .dest = dest },
+        .{ .dest = dest, .route_advice = route_advice },
     );
+    if (route_advice) |advice| advice.pending += 1;
     std.debug.assert(slot.pending_withdraw_count < std.math.maxInt(u32));
     slot.pending_withdraw_count += 1;
     actions.pushReserved(self, .{ .flush = exporter_peer });
@@ -127,6 +167,10 @@ pub fn claim(self: *Node, peer_handle: PeerHandle, answer: u64, outcome: Outcome
             // route whose settlement was never published.
             try self.redeemed.ensureUnusedCapacity(self.allocator, 1);
             try actions.reserve(self, 1);
+            if (pending.route_advice) |advice| {
+                if (advice.location != null)
+                    try gift_recipe.reserveDiscoveredSlot(self, peer_handle);
+            }
             const enrolled = try peer_routes.enrollRedeemed(
                 self,
                 peer_handle,
@@ -136,6 +180,12 @@ pub fn claim(self: *Node, peer_handle: PeerHandle, answer: u64, outcome: Outcome
                 .dest = pending.dest,
                 .route_id = enrolled.routed.id,
             } });
+            if (pending.route_advice) |advice| {
+                if (advice.location) |location| {
+                    gift_recipe.putDiscoveredReserved(self, peer_handle, location);
+                    advice.location = null;
+                }
+            }
             slot.provisional_exporter = false;
         },
         .broken => |reason| {
@@ -160,6 +210,7 @@ pub fn claim(self: *Node, peer_handle: PeerHandle, answer: u64, outcome: Outcome
             );
         },
     }
+    releaseRouteAdvice(self, pending.route_advice);
     slot.pending_withdraw_count -= 1;
     std.debug.assert(rows.remove(key));
     return true;
@@ -176,6 +227,7 @@ pub fn failForPeer(self: *Node, peer_handle: PeerHandle) void {
             .dest = redeem.failureDestination(pending.dest),
             .reason = .{ .static = exporter_closed_reason },
         } });
+        releaseRouteAdvice(self, pending.route_advice);
         // Queue the infallible consequence first, then tombstone the iterator's
         // current row; removal cannot allocate or move the backing.
         self.redeems.withdrawals.rows.removeByPtr(entry.key_ptr);

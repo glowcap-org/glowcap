@@ -240,7 +240,7 @@ test "Syrup materializes hints by skipping exotic values Cap'n Proto cannot expr
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"528335'extra3'bad}>" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"528335\"extra3'bad}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
     const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
@@ -389,6 +389,25 @@ test "encodePeerLocatorRecord round-trips a direct-addresses hint for cross-proc
     try std.testing.expectEqual(@as(usize, 1), parsed.hints.entries.len);
     try std.testing.expectEqualStrings("direct-addresses", parsed.hints.entries[0].name);
     try std.testing.expectEqualStrings(addrs, parsed.hints.entries[0].value.string);
+}
+
+test "Syrup locator records enforce model invariants on encode and owned decode" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(
+        syrup.Error.UnsupportedArgument,
+        syrup.encodePeerLocatorRecord(allocator, .{
+            .transport = "tcp",
+            .designator = "",
+            .hints = model.Hints.emptyFalse(),
+        }),
+    );
+
+    const invalid_transport = "<10'ocapn-peer3'a.b1\"xf>";
+    var cursor: usize = 0;
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.readLocatorOwned(allocator, invalid_transport, &cursor),
+    );
 }
 
 test "Syrup locator hints require canonical strictly ascending keys" {

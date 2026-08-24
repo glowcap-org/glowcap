@@ -9,10 +9,10 @@
  * schema already holds.
  */
 export type ReferenceEntry = {
-  /** What the word means, in the words a person would say it in. Full
-   *  sentences: this is the thing a reader came to read. */
-  readonly says: string;
-  /** The quiet second line. Where the word shows up, or the one caveat a
-   *  reader needs before they go looking for it. */
-  readonly aside?: string;
+	/** What the word means, in the words a person would say it in. Full
+	 *  sentences: this is the thing a reader came to read. */
+	readonly says: string;
+	/** The quiet second line. Where the word shows up, or the one caveat a
+	 *  reader needs before they go looking for it. */
+	readonly aside?: string;
 };

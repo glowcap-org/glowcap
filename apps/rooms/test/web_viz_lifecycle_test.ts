@@ -325,9 +325,9 @@ function statesOnlyWhatHappened(since: StageEvent[], what: string): void {
  * to date as records arrive: the WebSocket is only the byte channel, and
  * records arrive through an inbox capability after enlivening the sturdyref
  * the server announced. */
-async function watch(port: number, sturdyref: string): Promise<Picture> {
+async function watch(sturdyref: string): Promise<Picture> {
 	const picture = new Picture();
-	await connectVizViewer(port, sturdyref, (record) => picture.apply(record as FeedRecord));
+	await connectVizViewer(sturdyref, (record) => picture.apply(record as FeedRecord));
 	return picture;
 }
 
@@ -402,7 +402,7 @@ const vizRef = scrapeVizSturdyref(web.stderr);
 let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
-	const picture = await watch(vizPort, await vizRef);
+	const picture = await watch(await vizRef);
 	// The endpoint admits only capability-presenting sockets, so each tab is
 	// seeded with the remembered viz swiss a reader would have kept.
 	const seed = vizMemorySeed(httpPort, await vizRef);
@@ -480,7 +480,7 @@ try {
 		);
 	}
 
-	const rejoined = await watch(vizPort, await vizRef);
+	const rejoined = await watch(await vizRef);
 	await settles(
 		rejoined,
 		"a viewer joining now sees the room and the direct message already there",

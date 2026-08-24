@@ -44,16 +44,16 @@ fn runUnit(conn: *driver.Session, root: driver.Capability, arena: std.mem.Alloca
 
 /// The same four verbs as `runUnit`, but pipelined (ADR-0007, questioner half):
 /// `assign`/`complete`/`status` are addressed at the *answer* `create` will
-/// resolve to — sent without awaiting it — so the whole unit costs one round trip
-/// instead of four. Only the final `status` is settled. This is the throughput
-/// unit; `runUnit` stays sequential so the latency row keeps measuring one
-/// round trip at a time.
+/// resolve to. The first two are one-way deliveries; only `status` allocates an
+/// answer and settles. The whole unit therefore costs one round trip instead
+/// of four without leaving discarded result promises behind.
 fn runUnitPipelined(conn: *driver.Session, root: driver.Capability, arena: std.mem.Allocator) !void {
     const create = try conn.send(root, "create", &.{.{ .bytes = "benchmark" }});
-    _ = try create.send("assign", &.{.{ .bytes = "alice" }});
-    _ = try create.send("complete", &.{});
+    try create.tell("assign", &.{.{ .bytes = "alice" }});
+    try create.tell("complete", &.{});
     const status_promise = try create.send("status", &.{});
     const status = try status_promise.settle(arena);
+    try create.release();
     const ok = status == .fulfilled and status.fulfilled == .bytes and
         std.mem.eql(u8, status.fulfilled.bytes, "done");
     if (!ok) return error.StatusNotDone;
@@ -253,7 +253,7 @@ fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
 
     var group: std.Io.Group = .init;
     defer group.cancel(io);
-    try group.concurrent(io, serveLocalCounter, .{server});
+    group.async(io, serveLocalCounter, .{server});
 
     var conn = try connectOne(io, allocator, local_designator);
     defer conn.deinit();

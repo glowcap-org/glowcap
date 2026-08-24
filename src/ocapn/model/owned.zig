@@ -123,7 +123,7 @@ pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.
 /// adoption so a bounded row count cannot hide variable-size reference trees.
 pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.ProjectError!usize {
     var total: usize = 0;
-    try measureReference(&total, reference, 0);
+    try measureReference(&total, reference);
     return total;
 }
 
@@ -135,10 +135,10 @@ pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!
     var total: usize = @sizeOf(model.Message);
     switch (message) {
         .deliver => |deliver| {
-            try measureReference(&total, deliver.target, 0);
+            try measureReference(&total, deliver.target);
             try addProduct(&total, deliver.args.len, @sizeOf(model.Argument));
             for (deliver.args) |arg| try measureArgument(&total, arg, 0);
-            if (deliver.resolve_me_desc) |reference| try measureReference(&total, reference, 0);
+            if (deliver.resolve_me_desc) |reference| try measureReference(&total, reference);
         },
         .resolve => |resolve| try measureResolution(&total, resolve.resolution),
         .gc_export => |gc| {
@@ -153,22 +153,22 @@ pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!
         },
         .abort => |abort| try addBytes(&total, abort.message.len),
         .listen => |listen| {
-            try measureReference(&total, listen.target, 0);
-            try measureReference(&total, listen.listener, 0);
+            try measureReference(&total, listen.target);
+            try measureReference(&total, listen.listener);
         },
         .get => |get| {
-            try measureReference(&total, get.receiver, 0);
+            try measureReference(&total, get.receiver);
             try addBytes(&total, get.field.len);
         },
         .index => |index| {
-            try measureReference(&total, index.receiver, 0);
+            try measureReference(&total, index.receiver);
             switch (index.index) {
                 .integer => {},
                 .big_integer => |big| try addBytes(&total, big.digits.len),
             }
         },
         .untag => |untag| {
-            try measureReference(&total, untag.receiver, 0);
+            try measureReference(&total, untag.receiver);
             try addBytes(&total, untag.tag.len);
         },
     }
@@ -196,7 +196,7 @@ fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.
     switch (argument) {
         .bytes => |bytes| try addBytes(total, bytes.len),
         .symbol => |symbol| try addBytes(total, symbol.len),
-        .reference => |reference| try measureReference(total, reference, depth),
+        .reference => |reference| try measureReference(total, reference),
         .@"error" => |err| try addBytes(total, err.message.len),
         .handoff => |handoff| {
             try addBytes(total, @sizeOf(model.Handoff));
@@ -228,7 +228,7 @@ fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usi
     for (items) |item| try measureArgument(total, item, depth);
 }
 
-fn measureReference(total: *usize, reference: model.Reference, depth: usize) model.view.ProjectError!void {
+fn measureReference(total: *usize, reference: model.Reference) model.view.ProjectError!void {
     switch (reference) {
         .near, .far, .routed => {},
         .broken => |broken| try addBytes(total, broken.message.len),
@@ -237,13 +237,7 @@ fn measureReference(total: *usize, reference: model.Reference, depth: usize) mod
             try measurePeerLocator(total, sturdy.peer);
             try addBytes(total, sturdy.swissnum.len);
         },
-        .promise => |promise| {
-            try addProduct(total, promise.path.ops.len, @sizeOf(model.PipelineOp));
-            for (promise.path.ops) |op| switch (op) {
-                .field => |field| try addBytes(total, field.len),
-                .call => |args| try measureArgumentSlice(total, args, depth + 1),
-            };
-        },
+        .promise => {},
     }
 }
 
@@ -332,28 +326,10 @@ pub fn freeReference(allocator: std.mem.Allocator, reference: model.Reference) v
             allocator.destroy(sturdy);
         },
         .broken => |broken| allocator.free(broken.message),
-        .promise => |promise| freePipelinePath(allocator, promise.path),
         // Position-only arms own no heap storage; a new heap-carrying arm must
         // add its release above, and this explicit list makes the omission a
         // compile error.
-        .near, .far, .routed => {},
-    }
-}
-
-fn freePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) void {
-    for (path.ops) |op| {
-        freePipelineOp(allocator, op);
-    }
-    allocator.free(path.ops);
-}
-
-/// Free one owned `PipelineOp`: a `field`'s symbol or a `call`'s argument
-/// slice. `freePipelinePath` and the view layer's path materialization both
-/// release through this single definition.
-pub fn freePipelineOp(allocator: std.mem.Allocator, op: model.PipelineOp) void {
-    switch (op) {
-        .field => |field| allocator.free(field),
-        .call => |args| freeArgumentSlice(allocator, args),
+        .near, .far, .routed, .promise => {},
     }
 }
 

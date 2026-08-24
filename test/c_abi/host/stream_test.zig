@@ -19,6 +19,7 @@ const argInt = harness.argInt;
 const argStr = harness.argStr;
 const argRef = harness.argRef;
 const frame_cap = harness.frame_cap;
+const sessionLimitOptions = harness.sessionLimitOptions;
 const close_cancel = harness.close_cancel;
 const close_finish_unbounded = harness.close_finish_unbounded;
 const closeFinish = harness.closeFinish;
@@ -271,7 +272,8 @@ test "libpancake_host: producers honor their minted outbound high-water until fr
     // This limit belongs to the session minted below, not to the Host options
     // after that point. It is large enough for an ordinary fetch producer but
     // small enough for a short burst to reach deterministically.
-    try expectOk(cd.pancake_host_set_session_limits(client, 0, 0, 1024));
+    var tight = sessionLimitOptions(0, 0, 1024, 0);
+    try expectOk(cd.pancake_host_set_session_limits(client, &tight));
 
     const designator = "127.0.0.1:7072";
     try ensureAdvertisedLocator(client, "tcp");
@@ -289,7 +291,8 @@ test "libpancake_host: producers honor their minted outbound high-water until fr
     try expectOk(cd.pancake_host_session_fetch(dialed, "first", 5, &first_vow));
     try std.testing.expect(first_vow != 0);
     // Raising the Host default now must not rewrite this live session.
-    try expectOk(cd.pancake_host_set_session_limits(client, 0, 0, 1024 * 1024));
+    var roomy = sessionLimitOptions(0, 0, 1024 * 1024, 0);
+    try expectOk(cd.pancake_host_set_session_limits(client, &roomy));
     var admitted: usize = 1;
     var refused = false;
     for (0..128) |_| {

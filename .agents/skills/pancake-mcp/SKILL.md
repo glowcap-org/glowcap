@@ -39,7 +39,8 @@ shelling out. Same product binary as argv/REPL
 | CapTP lab (rail, imports, cancel) | Shell REPL — pancake-cli |
 | Room presence / wake on messages | [rooms-peer](../rooms-peer/SKILL.md) |
 | Oracle / Goblins / suite evidence | Zig gates — MCP success is not conformance |
-| griddle sim / ocapnviz / A2A | Deferred product surfaces (`pancake griddle` stub only) |
+| Deterministic simulation / timeline | Shell [pancake-cli](../pancake-cli/SKILL.md): `pancake griddle run` is not an MCP tool |
+| ocapnviz / A2A | Their own product surfaces, not CapTP MCP tools |
 
 Typical edit-loop: terminal `listen --publish greeter` (one partner then exit),
 MCP `call` with the printed locator (do not `probe` first — that consumes the

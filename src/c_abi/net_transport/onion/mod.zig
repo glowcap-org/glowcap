@@ -14,24 +14,18 @@ const provider = @import("provider/mod.zig");
 const framed = @import("framed/mod.zig");
 const failure_projection = @import("failure.zig");
 
-pub const PANCAKE_ONION_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprintParts(
-    &.{
-        @embedFile("mod.zig"),
-        @embedFile("contract.zig"),
-        @embedFile("failure.zig"),
-        @embedFile("runtime/create.zig"),
-        @embedFile("runtime/state.zig"),
-        @embedFile("provider/attempt.zig"),
-        @embedFile("provider/mod.zig"),
-        @embedFile("framed/mod.zig"),
-    },
-    @embedFile("symbols.zig"),
-);
-
 pub const PancakeOnionNetlayer = contract.PancakeOnionNetlayer;
 pub const PancakeOnionConn = contract.PancakeOnionConn;
 pub const PancakeOnionListener = contract.PancakeOnionListener;
 pub const PancakeOnionConfig = contract.PancakeOnionConfig;
+pub const contract_layouts = [_]c.archive_contract.Layout{
+    c.archive_contract.layout("PANCAKE_ONION_CONFIG", PancakeOnionConfig),
+};
+pub const PANCAKE_ONION_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    "onion",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
+);
 pub const PANCAKE_ONION_AUTH_NONE = contract.PANCAKE_ONION_AUTH_NONE;
 pub const PANCAKE_ONION_AUTH_COOKIE = contract.PANCAKE_ONION_AUTH_COOKIE;
 pub const PANCAKE_ONION_AUTH_PASSWORD = contract.PANCAKE_ONION_AUTH_PASSWORD;

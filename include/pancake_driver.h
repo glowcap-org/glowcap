@@ -133,6 +133,8 @@ typedef struct PancakeDriverEvent {
     size_t secondary_name_len;
 } PancakeDriverEvent;
 
+/* Read the exact reflected callable and layout identity of this driver archive. */
+uint64_t pancake_driver_archive_fingerprint(void);
 /* Move a quiescent Host into a transport loop. Failure leaves Host ownership
    unchanged. Success transfers transport execution, action draining, session
    release, and terminal Host release to the loop. The loop starts with no
@@ -240,7 +242,9 @@ int32_t pancake_driver_session_lifecycle_state(PancakeDriverLoop *loop, PancakeH
    first frames can no longer outrun the objects they name. A session surfaced
    by an OPENED or ACCEPTED event holds its inbound until this call; handshake
    frames were never held, and early bytes wait unread and replay in order now.
-   Idempotent. Every binding runtime calls this from its serve path. */
+   Replaying resident bytes may invoke PancakeHostBehavior synchronously before
+   this call returns; binding runtimes must install their Host delivery context
+   first. Idempotent. */
 int32_t pancake_driver_session_serve(PancakeDriverLoop *loop, PancakeHostSession *session);
 /* Release one loop-owned session and its wire. */
 int32_t pancake_driver_session_release(PancakeDriverLoop *loop, PancakeHostSession *session);

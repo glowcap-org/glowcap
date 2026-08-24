@@ -26,11 +26,11 @@ export const NEW_DOCUMENT_DURATION_MS = 10_000;
  * in for the title until there is one.
  */
 export function newDocument(id = "untitled"): TimelineDocument {
-  return TimelineDocument.parse({
-    id,
-    duration: NEW_DOCUMENT_DURATION_MS,
-    events: [],
-  });
+	return TimelineDocument.parse({
+		id,
+		duration: NEW_DOCUMENT_DURATION_MS,
+		events: [],
+	});
 }
 
 /**
@@ -48,29 +48,29 @@ export function newDocument(id = "untitled"): TimelineDocument {
  * written without a DOM. The `now` is passed in for the same reason.
  */
 export function saveStampedDoc(
-  doc: TimelineDocument,
-  now: string,
+	doc: TimelineDocument,
+	now: string,
 ): TimelineDocument {
-  return { ...doc, metadata: { ...doc.metadata, "dct:modified": now } };
+	return { ...doc, metadata: { ...doc.metadata, "dct:modified": now } };
 }
 
 /** Serialize the current doc and trigger a browser download.
  * Filename is the doc id with a `.json` suffix (slashes scrubbed
  * so the OS doesn't reject the suggested name). */
 export function downloadDocAsJson(doc: TimelineDocument): void {
-  const json = JSON.stringify(
-    saveStampedDoc(doc, new Date().toISOString()),
-    null,
-    2,
-  );
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${doc.id.replace(/[\\/]/g, "-")}.json`;
-    a.click();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+	const json = JSON.stringify(
+		saveStampedDoc(doc, new Date().toISOString()),
+		null,
+		2,
+	);
+	const blob = new Blob([json], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	try {
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `${doc.id.replace(/[\\/]/g, "-")}.json`;
+		a.click();
+	} finally {
+		URL.revokeObjectURL(url);
+	}
 }

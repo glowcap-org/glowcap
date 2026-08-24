@@ -1,5 +1,6 @@
-//! Source hygiene rules: justified map-removal discards, path I/O copy
-//! bans, and the devcontainer's bash scripts held to their contract.
+//! Source hygiene rules: justified map-removal discards, justified
+//! discarded errors, path I/O copy bans, and the devcontainer's bash
+//! scripts held to their contract.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -99,6 +100,162 @@ fn checkRemoveDiscardsInFile(
         if (!removeDiscardLine(line)) continue;
         if (removeDiscardJustified(lines.items, i)) continue;
         try appendViolation(gpa, violations, "{s}:{d}: `_ =` discards a map removal's presence bool — assert it (`std.debug.assert(map.remove(k))`, which still runs in release) when presence is an invariant, or add an inline `// idempotent:` / `// tolerant:` justification", .{ path, i + 1 });
+    }
+}
+
+/// The discard forms this check flags, written split so its own source (and
+/// any checker that later joins the scanned trees) cannot match them.
+const discard_forms = [_][]const u8{
+    "catch " ++ "{}",
+    "catch |_| " ++ "{}",
+    "catch " ++ "return;",
+    "catch " ++ "continue;",
+    "catch " ++ "break;",
+};
+
+/// A discarded error — an empty `catch` body, or a bare `catch` that only
+/// returns, continues, or breaks — erases a failure's cause at the site that
+/// saw it. Project values give every failure an owner, so the discard is
+/// legitimate only where the loss is genuinely bounded: a diagnostic line
+/// that cannot be reported because reporting is what failed, a cosmetic
+/// interface update, a step the next wake or maintain call already retries.
+/// Such a site must say so with an inline `// best-effort:` or `// tolerant:`
+/// justification naming what is lost and why the loss is bounded — the
+/// "explicit bounded loss" discipline. The bare-return form inside a fallible
+/// function is the sharpest case, because it converts the failure into
+/// reported success; unjustified, it is indistinguishable from a bug.
+///
+/// `tools/` is in scope because a checker that discards an error skips work
+/// it claims to have done, which is a false green. Vendored packages and
+/// generated trees are not first-party and are skipped.
+pub fn checkDiscardedErrors(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    for ([_][]const u8{ "src", "cli", "apps", "examples", "tools" }) |tree| {
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for discarded-error check with {s}", .{ tree, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+            if (vendoredOrGenerated(entry.path)) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
+            defer gpa.free(path);
+            try checkDiscardedErrorsInFile(io, gpa, root, violations, path);
+        }
+    }
+}
+
+/// Trees no first-party rule governs: extracted Zig packages, npm state, and
+/// build output that may sit under a scanned root.
+fn vendoredOrGenerated(path: []const u8) bool {
+    return std.mem.indexOf(u8, path, "zig-pkg/") != null or
+        std.mem.indexOf(u8, path, "node_modules/") != null or
+        std.mem.indexOf(u8, path, ".zig-cache/") != null or
+        std.mem.indexOf(u8, path, "zig-out/") != null;
+}
+
+/// True when `line` is a code (non-comment) line carrying one of the discard
+/// forms outside string or character literals — the ban tables in this very
+/// tree hold discard-shaped needles as data, and data is not a discard.
+fn discardedErrorLine(line: []const u8) bool {
+    var raw_hit = false;
+    for (discard_forms) |form| {
+        if (std.mem.indexOf(u8, line, form) != null) raw_hit = true;
+    }
+    if (!raw_hit) return false;
+    const trimmed = std.mem.trimStart(u8, line, " \t");
+    if (std.mem.startsWith(u8, trimmed, "//")) return false;
+    if (std.mem.startsWith(u8, trimmed, "\\\\")) return false;
+    var buf: [4096]u8 = undefined;
+    if (line.len > buf.len) return true;
+    const code = blankLiterals(line, &buf);
+    for (discard_forms) |form| {
+        if (std.mem.indexOf(u8, code, form) != null) return true;
+    }
+    return false;
+}
+
+/// `line` with string and character literal contents blanked and any line
+/// comment removed, so pattern scans see only code. Quotes themselves stay,
+/// which keeps a literal from splicing into a pattern across its edges.
+fn blankLiterals(line: []const u8, buf: []u8) []const u8 {
+    const out = buf[0..line.len];
+    @memcpy(out, line);
+    var i: usize = 0;
+    while (i < out.len) {
+        const c = out[i];
+        if (c == '/' and i + 1 < out.len and out[i + 1] == '/') return out[0..i];
+        if (c == '"' or c == '\'') {
+            i += 1;
+            while (i < out.len and out[i] != c) {
+                const escaped = out[i] == '\\';
+                out[i] = ' ';
+                i += 1;
+                if (escaped and i < out.len) {
+                    out[i] = ' ';
+                    i += 1;
+                }
+            }
+            if (i < out.len) i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    return out;
+}
+
+fn hasDiscardJustification(line: []const u8) bool {
+    return std.mem.indexOf(u8, line, "best-effort:") != null or
+        std.mem.indexOf(u8, line, "tolerant:") != null;
+}
+
+/// A discard is justified by a marker on its own line or anywhere in the
+/// contiguous `//` comment block directly above it. The walk also steps over
+/// adjacent discard lines, so one block can cover a run — a pair of unwind
+/// joins is one decision, and its justification reads best written once.
+fn discardedErrorJustified(lines: []const []const u8, i: usize) bool {
+    if (hasDiscardJustification(lines[i])) return true;
+    var j = i;
+    while (j > 0) {
+        j -= 1;
+        if (discardedErrorLine(lines[j])) continue;
+        const trimmed = std.mem.trimStart(u8, lines[j], " \t");
+        if (!std.mem.startsWith(u8, trimmed, "//")) return false;
+        if (hasDiscardJustification(lines[j])) return true;
+    }
+    return false;
+}
+
+fn checkDiscardedErrorsInFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for discarded-error check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var lines: std.ArrayList([]const u8) = .empty;
+    defer lines.deinit(gpa);
+    var it = std.mem.splitScalar(u8, contents, '\n');
+    while (it.next()) |line| try lines.append(gpa, line);
+
+    for (lines.items, 0..) |line, i| {
+        if (!discardedErrorLine(line)) continue;
+        if (discardedErrorJustified(lines.items, i)) continue;
+        try appendViolation(gpa, violations, "{s}:{d}: a discarded error (`catch` with an empty body or a bare return/continue/break) needs an inline `// best-effort:` or `// tolerant:` justification naming what is lost and why the loss is bounded — or the failure needs an owner", .{ path, i + 1 });
     }
 }
 

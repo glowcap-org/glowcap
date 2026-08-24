@@ -423,6 +423,18 @@ try {
 	// connection is gone.
 	await again.click();
 	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+	// The reopened line stands on what this device kept of the first one: the
+	// remembered messages, then the divider saying where they came from.
+	await alice.tab.waitForSelector('.sys-line:has-text("Earlier messages, kept on this device")', {
+		timeout: 10_000,
+	}).catch(() => fail("the reopened direct line did not hydrate the device's kept history"));
+	await alice.tab.waitForSelector(`.bubble:has-text("${DM_TEXT}")`, { timeout: 5_000 })
+		.catch(() => fail("the kept history did not stand the first conversation's line back up"));
+	// The deleted direct file line must not rehydrate: history that outlives
+	// a withdrawal would break the promise withdraw makes everywhere else.
+	if (await alice.tab.$('.bubble:has-text("swapped one file on our direct line")') !== null) {
+		fail("a withdrawn line stood back up from the device's kept history");
+	}
 	await send(alice.tab, SECOND_TEXT);
 	await awaitBubble(bob.tab, SECOND_TEXT, "Bob");
 

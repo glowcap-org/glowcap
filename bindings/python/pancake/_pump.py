@@ -26,7 +26,7 @@ from ._errors import (
     _host_last_error,
 )
 from ._ffi_host import _host
-from ._ffi_ocapn import _byte_buf, _copy_managed_frame, _LastAbort, _ManagedFrame
+from ._ffi_ocapn import _byte_buf, _copy_managed_frame, _LastAbort
 from ._trampoline import _enter_deliver, _exit_deliver
 
 _OK = _abi.OK
@@ -228,26 +228,26 @@ async def flush_outbound(session) -> None:
     empty prefix. Binding-internal.
     """
     async with session.write_lock:
+        scratch = session.outbound_scratch
         try:
             while True:
                 if session.released:
                     return
-                mf = _ManagedFrame()
-                prefix = (ctypes.c_ubyte * _abi.HOST_OUTBOUND_PREFIX_CAP)()
-                prefix_len = ctypes.c_size_t()
                 rc = _host.pancake_host_session_take_outbound(
                     session.raw,
-                    ctypes.byref(mf),
-                    prefix,
-                    len(prefix),
-                    ctypes.byref(prefix_len),
+                    ctypes.byref(scratch.frame),
+                    scratch.prefix,
+                    len(scratch.prefix),
+                    ctypes.byref(scratch.prefix_len),
                 )
                 if rc == _WOULD_BLOCK:
                     return
                 _check_host(rc)
-                frame = _copy_managed_frame(mf)
-                if prefix_len.value:
-                    await session.transport.write(bytes(prefix[:prefix_len.value]))
+                frame = _copy_managed_frame(scratch.frame)
+                if scratch.prefix_len.value:
+                    await session.transport.write(
+                        bytes(scratch.prefix[:scratch.prefix_len.value])
+                    )
                 await session.transport.write(frame)
         except BaseException as error:
             # `take_outbound` transferred the frame and a failed/cancelled

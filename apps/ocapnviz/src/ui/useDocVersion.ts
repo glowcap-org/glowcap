@@ -29,10 +29,10 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { Engine } from "../engine/engine.ts";
 
 export function useDocVersion(engine: Engine): number {
-  const subscribe = useCallback(
-    (cb: () => void) => engine.subscribe(cb),
-    [engine],
-  );
-  const get = useCallback(() => engine.docVersion, [engine]);
-  return useSyncExternalStore(subscribe, get);
+	const subscribe = useCallback(
+		(cb: () => void) => engine.subscribe(cb),
+		[engine],
+	);
+	const get = useCallback(() => engine.docVersion, [engine]);
+	return useSyncExternalStore(subscribe, get);
 }

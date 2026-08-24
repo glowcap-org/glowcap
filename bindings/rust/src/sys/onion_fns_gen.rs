@@ -14,8 +14,7 @@ use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::onion::{PancakeOnionConfig, PancakeOnionConn};
 use super::onion::{PancakeOnionListener, PancakeOnionNetlayer};
-use crate::sys::driver::PancakeTransportProvider;
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
+use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};
 
 extern "C" {
 	pub fn pancake_onion_archive_fingerprint() -> u64;

@@ -33,15 +33,15 @@ import type { BuilderTool } from "../interactions/types.ts";
  * Build holds mutation authority. The reducer enforces this; the
  * palette and keyboard shortcuts render/route from the same list. */
 export function toolsForMode(mode: AppMode): readonly BuilderTool[] {
-  return mode === "build" ? ALL_TOOLS : OBSERVATION_TOOLS;
+	return mode === "build" ? ALL_TOOLS : OBSERVATION_TOOLS;
 }
 const OBSERVATION_TOOLS: readonly BuilderTool[] = ["select", "hand"];
 const ALL_TOOLS: readonly BuilderTool[] = [
-  "select",
-  "hand",
-  "add-peer",
-  "open-session",
-  "send-message",
+	"select",
+	"hand",
+	"add-peer",
+	"open-session",
+	"send-message",
 ];
 
 /** Provenance of the document buffer — what the Source panel says
@@ -51,74 +51,74 @@ const ALL_TOOLS: readonly BuilderTool[] = [
  * derives this from its source states; the picker only displays
  * it. */
 export type BufferSourceInfo =
-  | { kind: "builtin"; id: string; title: string; edited: boolean }
-  | { kind: "file"; name: string; edited: boolean }
-  | { kind: "recording"; edited: boolean }
-  /** Started empty here, by New. Its own kind rather than a file with no name:
-   *  the panel names the source it is playing, and a document that has never
-   *  been written has no name to give. */
-  | { kind: "new"; edited: boolean };
+	| { kind: "builtin"; id: string; title: string; edited: boolean }
+	| { kind: "file"; name: string; edited: boolean }
+	| { kind: "recording"; edited: boolean }
+	/** Started empty here, by New. Its own kind rather than a file with no name:
+	 *  the panel names the source it is playing, and a document that has never
+	 *  been written has no name to give. */
+	| { kind: "new"; edited: boolean };
 
 export type AppState = {
-  scenarioId: string;
-  /** Persists across modes; only consumed in Live. */
-  liveSturdyref: string;
-  mode: AppMode;
-  tool: BuilderTool;
-  /** Two-click tools (open-session, send-message) park the first stage NODE
-   * here while waiting for the second. A node, not a peer: a message can name
-   * an end nothing has attributed, and the two share one id namespace, so a
-   * field called `peerId` would be holding a stage id and saying otherwise.
-   * Cleared on commit, tool change, mode change, or Escape. */
-  firstPickNodeId: string | null;
-  /** When true, the bottom timeline pane tracks the panel's
-   * intrinsic content height (re-fitting on lane expand/collapse
-   * and on mode switch). Cleared the moment the user begins a
-   * manual resize drag of the pane's top edge. Toggle persists. */
-  autoSizeTimeline: boolean;
+	scenarioId: string;
+	/** Persists across modes; only consumed in Live. */
+	liveSturdyref: string;
+	mode: AppMode;
+	tool: BuilderTool;
+	/** Two-click tools (open-session, send-message) park the first stage NODE
+	 * here while waiting for the second. A node, not a peer: a message can name
+	 * an end nothing has attributed, and the two share one id namespace, so a
+	 * field called `peerId` would be holding a stage id and saying otherwise.
+	 * Cleared on commit, tool change, mode change, or Escape. */
+	firstPickNodeId: string | null;
+	/** When true, the bottom timeline pane tracks the panel's
+	 * intrinsic content height (re-fitting on lane expand/collapse
+	 * and on mode switch). Cleared the moment the user begins a
+	 * manual resize drag of the pane's top edge. Toggle persists. */
+	autoSizeTimeline: boolean;
 };
 
 export type AppAction =
-  | { type: "select-scenario"; id: string }
-  | { type: "set-live-sturdyref"; sturdyref: string }
-  | { type: "set-mode"; mode: AppMode }
-  | { type: "set-tool"; tool: BuilderTool }
-  | { type: "set-first-pick"; nodeId: string | null }
-  | { type: "set-auto-size-timeline"; value: boolean };
+	| { type: "select-scenario"; id: string }
+	| { type: "set-live-sturdyref"; sturdyref: string }
+	| { type: "set-mode"; mode: AppMode }
+	| { type: "set-tool"; tool: BuilderTool }
+	| { type: "set-first-pick"; nodeId: string | null }
+	| { type: "set-auto-size-timeline"; value: boolean };
 
 export function reducer(state: AppState, action: AppAction): AppState {
-  switch (action.type) {
-    case "select-scenario":
-      return {
-        ...state,
-        scenarioId: action.id,
-        firstPickNodeId: null,
-      };
-    case "set-live-sturdyref":
-      return { ...state, liveSturdyref: action.sturdyref };
-    case "set-mode":
-      // A tool the new mode doesn't offer resets to Select; the
-      // observation tools (Select / Hand) survive the transition.
-      return {
-        ...state,
-        mode: action.mode,
-        tool: toolsForMode(action.mode).includes(state.tool) ? state.tool : "select",
-        firstPickNodeId: null,
-      };
-    case "set-tool":
-      // A tool the current mode doesn't offer is refused here, at
-      // the one authority, so neither a keyboard shortcut nor a
-      // stray dispatch can arm an authoring tool outside Build.
-      if (!toolsForMode(state.mode).includes(action.tool)) return state;
-      // Tool change wipes in-progress two-click flow — a stale
-      // first-pick from one tool would be nonsense for another.
-      return { ...state, tool: action.tool, firstPickNodeId: null };
-    case "set-first-pick":
-      return { ...state, firstPickNodeId: action.nodeId };
-    case "set-auto-size-timeline":
-      if (state.autoSizeTimeline === action.value) return state;
-      return { ...state, autoSizeTimeline: action.value };
-  }
+	switch (action.type) {
+		case "select-scenario":
+			return {
+				...state,
+				scenarioId: action.id,
+				firstPickNodeId: null,
+			};
+		case "set-live-sturdyref":
+			return { ...state, liveSturdyref: action.sturdyref };
+		case "set-mode":
+			// A tool the new mode doesn't offer resets to Select; the
+			// observation tools (Select / Hand) survive the transition.
+			return {
+				...state,
+				mode: action.mode,
+				tool: toolsForMode(action.mode).includes(state.tool) ? state.tool : "select",
+				firstPickNodeId: null,
+			};
+		case "set-tool":
+			// A tool the current mode doesn't offer is refused here, at
+			// the one authority, so neither a keyboard shortcut nor a
+			// stray dispatch can arm an authoring tool outside Build.
+			if (!toolsForMode(state.mode).includes(action.tool)) return state;
+			// Tool change wipes in-progress two-click flow — a stale
+			// first-pick from one tool would be nonsense for another.
+			return { ...state, tool: action.tool, firstPickNodeId: null };
+		case "set-first-pick":
+			return { ...state, firstPickNodeId: action.nodeId };
+		case "set-auto-size-timeline":
+			if (state.autoSizeTimeline === action.value) return state;
+			return { ...state, autoSizeTimeline: action.value };
+	}
 }
 
 // ─────────────────────── pane size geometry ───────────────────────
@@ -159,38 +159,38 @@ export const BOTTOM_PANE_DEFAULT = 220;
 export const RESIZE_HANDLE_THICKNESS = 6;
 
 export type LayoutSizes = {
-  leftPaneWidth: number;
-  rightPaneWidth: number;
-  bottomPaneHeight: number;
+	leftPaneWidth: number;
+	rightPaneWidth: number;
+	bottomPaneHeight: number;
 };
 
 export const DEFAULT_SIZES: LayoutSizes = {
-  leftPaneWidth: LEFT_PANE_DEFAULT,
-  rightPaneWidth: RIGHT_PANE_DEFAULT,
-  bottomPaneHeight: BOTTOM_PANE_DEFAULT,
+	leftPaneWidth: LEFT_PANE_DEFAULT,
+	rightPaneWidth: RIGHT_PANE_DEFAULT,
+	bottomPaneHeight: BOTTOM_PANE_DEFAULT,
 };
 
 export const DEFAULT_VISIBILITY: StageVisibility = {
-  peers: true,
-  connections: true,
-  messages: true,
-  labels: true,
+	peers: true,
+	connections: true,
+	messages: true,
+	labels: true,
 };
 
 export function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
+	return Math.max(min, Math.min(max, n));
 }
 
 export function clampSizes(s: LayoutSizes): LayoutSizes {
-  return {
-    leftPaneWidth: clamp(s.leftPaneWidth, LEFT_PANE_MIN, LEFT_PANE_MAX),
-    rightPaneWidth: clamp(s.rightPaneWidth, RIGHT_PANE_MIN, RIGHT_PANE_MAX),
-    bottomPaneHeight: clamp(
-      s.bottomPaneHeight,
-      BOTTOM_PANE_MIN,
-      BOTTOM_PANE_MAX,
-    ),
-  };
+	return {
+		leftPaneWidth: clamp(s.leftPaneWidth, LEFT_PANE_MIN, LEFT_PANE_MAX),
+		rightPaneWidth: clamp(s.rightPaneWidth, RIGHT_PANE_MIN, RIGHT_PANE_MAX),
+		bottomPaneHeight: clamp(
+			s.bottomPaneHeight,
+			BOTTOM_PANE_MIN,
+			BOTTOM_PANE_MAX,
+		),
+	};
 }
 
 // ─────────────────────── persistence ───────────────────────
@@ -207,39 +207,39 @@ export const TIMELINE_VIEW_STORAGE_KEY = "ocapnviz:timeline-view";
  * preference: which lanes are visible, which categories are
  * drilled-down, the gutter width. Sets are serialized as arrays. */
 export type PersistedTimelineView = {
-  expandedLanes?: LaneKind[];
-  expandedCategories?: Array<Exclude<LaneKind, "ruler">>;
-  gutterWidth?: number;
+	expandedLanes?: LaneKind[];
+	expandedCategories?: Array<Exclude<LaneKind, "ruler">>;
+	gutterWidth?: number;
 };
 
 export function loadPersistedTimelineView(): PersistedTimelineView | null {
-  const storage = (globalThis as { localStorage?: Storage }).localStorage;
-  if (!storage) return null;
-  const raw = storage.getItem(TIMELINE_VIEW_STORAGE_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as PersistedTimelineView;
-    // Defensive shape check — drop malformed fields rather than
-    // letting a bad stored value crash the panel.
-    return {
-      ...(Array.isArray(parsed.expandedLanes) ? { expandedLanes: parsed.expandedLanes } : {}),
-      ...(Array.isArray(parsed.expandedCategories) ? { expandedCategories: parsed.expandedCategories } : {}),
-      ...(typeof parsed.gutterWidth === "number" ? { gutterWidth: parsed.gutterWidth } : {}),
-    };
-  } catch {
-    return null;
-  }
+	const storage = (globalThis as { localStorage?: Storage }).localStorage;
+	if (!storage) return null;
+	const raw = storage.getItem(TIMELINE_VIEW_STORAGE_KEY);
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as PersistedTimelineView;
+		// Defensive shape check — drop malformed fields rather than
+		// letting a bad stored value crash the panel.
+		return {
+			...(Array.isArray(parsed.expandedLanes) ? { expandedLanes: parsed.expandedLanes } : {}),
+			...(Array.isArray(parsed.expandedCategories) ? { expandedCategories: parsed.expandedCategories } : {}),
+			...(typeof parsed.gutterWidth === "number" ? { gutterWidth: parsed.gutterWidth } : {}),
+		};
+	} catch {
+		return null;
+	}
 }
 
 export function savePersistedTimelineView(v: PersistedTimelineView): void {
-  const storage = (globalThis as { localStorage?: Storage }).localStorage;
-  if (!storage) return;
-  try {
-    storage.setItem(TIMELINE_VIEW_STORAGE_KEY, JSON.stringify(v));
-  } catch {
-    // Quota / private-mode failures are non-fatal — view state
-    // falls back to defaults on next load.
-  }
+	const storage = (globalThis as { localStorage?: Storage }).localStorage;
+	if (!storage) return;
+	try {
+		storage.setItem(TIMELINE_VIEW_STORAGE_KEY, JSON.stringify(v));
+	} catch {
+		// Quota / private-mode failures are non-fatal — view state
+		// falls back to defaults on next load.
+	}
 }
 
 /** Live mode accepts the durable trace capability announced by rooms. */
@@ -250,13 +250,13 @@ export const DEFAULT_LIVE_STURDYREF = "";
  * Returns null when the query didn't request Live, or when we're
  * in a non-browser environment without `location` (Deno tests). */
 export function readLiveOverride(): { liveSturdyref: string } | null {
-  const loc = (globalThis as { location?: { search?: string } }).location;
-  if (!loc?.search) return null;
-  const params = new URLSearchParams(loc.search);
-  if (!params.has("live")) return null;
-  return {
-    liveSturdyref: params.get("live") || DEFAULT_LIVE_STURDYREF,
-  };
+	const loc = (globalThis as { location?: { search?: string } }).location;
+	if (!loc?.search) return null;
+	const params = new URLSearchParams(loc.search);
+	if (!params.has("live")) return null;
+	return {
+		liveSturdyref: params.get("live") || DEFAULT_LIVE_STURDYREF,
+	};
 }
 
 /** Read persisted `AppState`. Returns `null` on missing or
@@ -264,51 +264,41 @@ export function readLiveOverride(): { liveSturdyref: string } | null {
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
 export function loadPersistedAppState(): Partial<AppState> | null {
-  const storage = (globalThis as { localStorage?: Storage }).localStorage;
-  if (!storage) return null;
-  const raw = storage.getItem(APP_STATE_STORAGE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as Partial<AppState>;
-  } catch {
-    return null;
-  }
+	const storage = (globalThis as { localStorage?: Storage }).localStorage;
+	if (!storage) return null;
+	const raw = storage.getItem(APP_STATE_STORAGE_KEY);
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as Partial<AppState>;
+	} catch {
+		return null;
+	}
 }
 
 /**
  * Compose the initial reducer state. Precedence (highest first):
  *   1. `?live=<sturdyref>` query string ⇒ Live mode + capability (intent is a
  *      one-shot deep link; persisted state shouldn't override).
- *   2. localStorage-persisted previous session (with one-time
- *      migration of legacy `liveMode: boolean` → `mode: "live"`).
+ *   2. localStorage-persisted previous session.
  *   3. Hardcoded defaults.
- *
- * The legacy `liveMode: boolean` field was orthogonal to `mode` in
- * the pre-three-mode shape, allowing the half-degenerate cell
- * `mode: "build"` + `liveMode: true` (engine ignored the feed).
- * Migration collapses any stored `liveMode: true` onto
- * `mode: "live"` regardless of what `mode` was — the only
- * meaningful interpretation.
  */
 export function makeInitialAppState(): AppState {
-  const persisted = loadPersistedAppState();
-  const live = readLiveOverride();
-  const persistedMode = persisted?.mode;
-  const legacyLiveMode = (persisted as { liveMode?: boolean } | null)?.liveMode === true;
-  const initialMode: AppMode = live !== null ? "live" : legacyLiveMode ? "live" : (persistedMode ?? "play");
-  return {
-    scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
-    mode: initialMode,
-    tool: persisted?.tool ?? "select",
-    liveSturdyref: live?.liveSturdyref ??
-      persisted?.liveSturdyref ??
-      DEFAULT_LIVE_STURDYREF,
-    // Don't restore in-flight two-click state across reloads —
-    // tools are stateless across sessions.
-    firstPickNodeId: null,
-    // Default ON — first-mount fits to content the same way the
-    // legacy intrinsic-bump effect did. User opts out by dragging
-    // the resize handle, which trips the auto-disable.
-    autoSizeTimeline: persisted?.autoSizeTimeline ?? true,
-  };
+	const persisted = loadPersistedAppState();
+	const live = readLiveOverride();
+	const persistedMode = persisted?.mode;
+	const initialMode: AppMode = live !== null ? "live" : (persistedMode ?? "play");
+	return {
+		scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
+		mode: initialMode,
+		tool: persisted?.tool ?? "select",
+		liveSturdyref: live?.liveSturdyref ??
+			persisted?.liveSturdyref ??
+			DEFAULT_LIVE_STURDYREF,
+		// Don't restore in-flight two-click state across reloads —
+		// tools are stateless across sessions.
+		firstPickNodeId: null,
+		// Default ON so first mount fits to content. User opts out by dragging the
+		// resize handle, which trips the auto-disable.
+		autoSizeTimeline: persisted?.autoSizeTimeline ?? true,
+	};
 }

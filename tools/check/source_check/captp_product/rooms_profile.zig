@@ -150,7 +150,10 @@ pub fn checkRoomsPeerMinting(
 ) !void {
     const authority = "apps/rooms/lib/locator.ts";
     for (rooms_peer_dirs) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch continue;
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be opened for the rooms locator-profile check ({s})", .{ dir_path, @errorName(err) });
+            continue;
+        };
         defer dir.close(io);
         var walker = dir.iterate();
         while (walker.next(io) catch null) |entry| {
@@ -161,7 +164,10 @@ pub fn checkRoomsPeerMinting(
             // The authority is where both front doors are built, so it is the
             // one file allowed to reach the raw constructors.
             if (std.mem.eql(u8, path, authority)) continue;
-            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
+            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the rooms locator-profile check ({s})", .{ path, @errorName(err) });
+                continue;
+            };
             defer gpa.free(source);
 
             var line_no: usize = 0;
@@ -186,5 +192,34 @@ pub fn checkRoomsPeerMinting(
                 }
             }
         }
+    }
+}
+
+/// Join input may absorb only the parser's typed grammar refusal.
+///
+/// A broad catch here reports archive, Wasm, and runtime failures as malformed
+/// text, then asks the reader to retry an address that was valid. Both parser
+/// fronts share one translation so widening either catch cannot create a
+/// second error policy.
+pub fn checkRoomsBootstrapParseFailures(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const path = "apps/rooms/web/ui/net/bootstrap.ts";
+    const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot be read for the bootstrap parse-failure check ({s})", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(source);
+
+    const translation = "if (error instanceof PancakeError && error.code === INVALID_ARGUMENT) return null;\n\tthrow error;";
+    if (std.mem.count(u8, source, translation) != 1) {
+        try appendViolation(gpa, violations, "{s}: parser failures must have one typed INVALID_ARGUMENT-to-null translation that rethrows every other failure", .{path});
+    }
+    const use = "return invalidArgumentOrThrow(err);";
+    if (std.mem.count(u8, source, use) != 2) {
+        try appendViolation(gpa, violations, "{s}: directoryId and linkDirectory must both use the shared typed parse-failure translation", .{path});
     }
 }

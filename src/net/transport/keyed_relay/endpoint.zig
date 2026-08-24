@@ -4,6 +4,7 @@ const std = @import("std");
 
 const address_race = @import("address_race.zig");
 const netlayer = @import("../../netlayer.zig");
+const socket = @import("../../socket.zig");
 const carrier_failure = @import("../../carrier_failure.zig");
 const route = @import("route.zig");
 const race = @import("endpoint_race.zig");
@@ -42,10 +43,19 @@ fn failure(phase: carrier_failure.Phase, err: anyerror) DialFailure {
 /// hostname. The relay owns a bounded nonblocking race rather than delegating
 /// to `HostName.connect`: every losing socket is joined locally, so cancellation
 /// cannot escape through Zig's process-level unexpected-errno tracer.
+/// Disable Nagle on the carrier socket. CapTP frames over the relay are
+/// small and sequential, and with Nagle on, a frame written while an earlier
+/// one is unacked waits out the peer's delayed-ACK timer. Throughput-only, so
+/// a refused option keeps the working connection.
+fn tuneCarrier(stream: std.Io.net.Stream) std.Io.net.Stream {
+    socket.applyNodelay(stream.socket.handle) catch {}; // tolerant: throughput only
+    return stream;
+}
+
 pub fn connect(io: std.Io, relay: route.RelayUrl) ConnectOutcome {
     if (std.Io.net.IpAddress.parse(relay.host, relay.port)) |address| {
-        return .{ .connected = address.connect(io, .{ .mode = .stream }) catch |err|
-            return .{ .failed = failure(.connect, err) } };
+        return .{ .connected = tuneCarrier(address.connect(io, .{ .mode = .stream }) catch |err|
+            return .{ .failed = failure(.connect, err) }) };
     } else |_| {
         const host = std.Io.net.HostName.init(relay.host) catch
             return .{ .failed = .init(error.InvalidAddress) };
@@ -89,7 +99,7 @@ fn connectHost(io: std.Io, host: std.Io.net.HostName, port: u16) ConnectOutcome 
                 return .{ .failed = attempts.? };
             }
             return switch (race.connect(io, addresses[0..address_count], &attempts)) {
-                .connected => |stream| .{ .connected = stream },
+                .connected => |stream| .{ .connected = tuneCarrier(stream) },
                 .failed => |failed| .{ .failed = failed },
             };
         },

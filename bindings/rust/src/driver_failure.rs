@@ -6,7 +6,8 @@
 //! module owns the one Rust projection of that fixed C record; policy remains
 //! native.
 
-use crate::sys::driver::{self as ffi, PancakeDriverFailure, PancakeDriverLoop, PancakeTransportProvider};
+use crate::sys::driver::{self as ffi, PancakeDriverFailure, PancakeDriverLoop};
+use crate::sys::PancakeTransportProvider;
 use crate::{Error, Result};
 
 fn empty() -> PancakeDriverFailure {

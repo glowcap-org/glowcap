@@ -8,10 +8,10 @@ import { pushError } from "./error-bus.ts";
  * re-created engine doesn't leak listeners.
  */
 export function useEngineErrors(engine: Engine | null): void {
-  useEffect(() => {
-    if (!engine) return;
-    return engine.onError((error) => {
-      pushError({ error, source: "engine" });
-    });
-  }, [engine]);
+	useEffect(() => {
+		if (!engine) return;
+		return engine.onError((error) => {
+			pushError({ error, source: "engine" });
+		});
+	}, [engine]);
 }

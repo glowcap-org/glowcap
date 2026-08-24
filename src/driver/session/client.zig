@@ -21,8 +21,8 @@ const Settled = driver.Settled;
 const Capability = driver.Capability;
 const Value = driver.Value;
 const Reply = driver.Reply;
-const Identity = driver.Identity;
 const Error = driver.Error;
+const connect_mod = @import("connect.zig");
 
 /// An allocation-free eventual result scoped to the owning Session. Its core
 /// vow row is pending work from creation until settlement, including when the
@@ -38,12 +38,24 @@ pub const Promise = struct {
         return self.owner.sendToPromise(self, verb, args);
     }
 
+    /// Fire-and-forget eventual-send to this promise's answer. No result vow
+    /// or answer position is allocated.
+    pub fn tell(self: Promise, verb: []const u8, args: []const Value) !void {
+        return self.owner.tellToPromise(self, verb, args);
+    }
+
     pub fn settle(self: Promise, arena: std.mem.Allocator) !Reply {
         return self.owner.settlePromise(self, arena);
     }
 
     pub fn on(self: Promise, listener: actors.Listener) !void {
         return self.owner.observePromise(self, listener);
+    }
+
+    /// Release an unobserved promise handle and its remote answer. Copies of
+    /// this value are invalid after release; repeated release is harmless.
+    pub fn release(self: Promise) !void {
+        return self.owner.releasePromise(self);
     }
 };
 
@@ -104,9 +116,9 @@ pub const Session = struct {
         return session;
     }
 
-    /// Transfer one freshly accepted wire and one SharedRuntime lease into a
-    /// Session. The server retains admission ownership; this handle owns the
-    /// yielded wire and keeps the runtime alive independently of that server.
+    /// Transfer one freshly accepted or dialed wire and one SharedRuntime lease
+    /// into a Session. This handle keeps the runtime alive independently of the
+    /// constructor or server that created it.
     pub fn adoptRetained(
         runtime: *host_runtime.HostRuntime,
         hs: *driver_core.HostSession,
@@ -372,6 +384,20 @@ pub const Session = struct {
         return .{ .owner = self, .home = promise.home, .id = id };
     }
 
+    fn tellToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !void {
+        self.enterCall();
+        defer self.leaveCall();
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        try self.runtime.core.vowTellValues(promise.id, verb, args, scratch.allocator());
+    }
+
+    fn releasePromise(self: *Session, promise: Promise) !void {
+        self.enterCall();
+        defer self.leaveCall();
+        try self.runtime.core.vowRelease(promise.id);
+    }
+
     fn settlePromise(self: *Session, promise: Promise, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
@@ -557,67 +583,5 @@ pub const Session = struct {
     }
 };
 
-/// Dial the peer `locator` names into one owned session: build a private
-/// single-session host under `identity`, dial through whichever netlayer in
-/// `netlayers` hosts the locator's transport, and pump the keyed handshake
-/// under `opts.handshake`. The returned `*Session` is freed by
-/// `Session.deinit`; `netlayers` (and the residents behind it) must outlive
-/// it — and "outlive" means the whole session, not just the dial: the host
-/// resolves later dials against this same slice, which is how a redeem
-/// reaches an exporter, so a caller that builds the slice on a frame it then
-/// returns from hands the host a dangling transport. A netlayer whose
-/// transport reports no pollable fd is refused
-/// `Error.TransportNotPollable`: the face multiplexes its blocking waits with
-/// poll. A caller that wants to own the peer and buffers directly uses the
-/// borrowing `connectVia` / `connectUri`; a caller that wants many sessions
-/// under one identity builds a `driver.HostRuntime` and a `Server` explicitly.
-pub fn connect(
-    allocator: std.mem.Allocator,
-    netlayers: []const net.netlayer.Netlayer,
-    locator: model.PeerLocator,
-    identity: Identity,
-    opts: SessionOptions,
-) !*Session {
-    const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
-    const io = nl.io() orelse return Error.TransportNotPollable;
-
-    const shared = try allocator.create(SharedRuntime);
-    errdefer allocator.destroy(shared);
-    shared.* = SharedRuntime.init(
-        allocator,
-        try host_runtime.HostRuntime.init(allocator, io, netlayers, identity, opts),
-    );
-    errdefer shared.runtime.deinit();
-
-    const hs = try shared.runtime.connectLocator(locator, .inherit);
-
-    const session = try allocator.create(Session);
-    errdefer allocator.destroy(session);
-    try shared.runtime.claimSessionHandle(hs);
-    session.* = .{
-        .runtime = &shared.runtime,
-        .hs = hs,
-        .runtime_lease = .{ .retained = shared },
-        .allocator = allocator,
-        .deferred_release = .{
-            .session = hs,
-            .ctx = session,
-            .complete = Session.completeDeferredRelease,
-        },
-    };
-    return session;
-}
-
-/// Dial an `ocapn://` URI string in one call: parse it through the core
-/// grammar, then dial with `connect`, signing with `identity`.
-pub fn connectUriOwned(
-    allocator: std.mem.Allocator,
-    netlayers: []const net.netlayer.Netlayer,
-    uri_str: []const u8,
-    identity: Identity,
-    opts: SessionOptions,
-) !*Session {
-    const locator = try model.uri.parsePeer(allocator, uri_str);
-    defer model.freePeerLocator(allocator, locator);
-    return connect(allocator, netlayers, locator, identity, opts);
-}
+pub const connect = connect_mod.connect;
+pub const connectUriOwned = connect_mod.connectUriOwned;

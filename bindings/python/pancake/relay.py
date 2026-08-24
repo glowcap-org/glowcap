@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import ipaddress
-from typing import Never
+import secrets
+from typing import Never, Optional, TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import ctypes
@@ -27,6 +28,10 @@ from ._transport import (
     _rollback_failed_provider,
     _rollback_failed_transport,
 )
+
+if TYPE_CHECKING:
+    from ._host import Host
+    from ._server import DriverServer
 
 __all__ = [
     "RelayConfig",
@@ -139,6 +144,64 @@ class _Profile:
             {_RENDEZVOUS_RELAY_HINT: _relay_route(relay_url)},
             "map",
         )
+
+    async def listen(
+        self,
+        relay_url: str,
+        register_url: str,
+        *,
+        seed: "Optional[bytes]" = None,
+        trust_pem: "Optional[bytes]" = None,
+        host: "Optional[Host]" = None,
+    ) -> "DriverServer":
+        """Register this profile's durable key at the relay and accept sessions.
+
+        The native relay provider holds the registration socket open and the
+        driver owns admission, handshakes, and session lifetime; iterate the
+        returned server for each accepted :class:`pancake.Session`. ``seed``
+        is a 32-byte secret kept across restarts so the advertised locator
+        survives them, or ``None`` for a fresh identity shared with the Host.
+        Pass ``host`` instead of ``seed`` to share an existing Host identity
+        and loop. The driver's provider registry holds one relay configuration
+        per loop: a second listen naming the same ``relay_url`` and
+        ``register_url`` rides the installed provider, and one naming different
+        routes is refused.
+        """
+        from ._abi_value import _DEFAULT_CODEC
+        from ._server import (
+            DriverServer,
+            prepare_driver_loop,
+            _rollback_listener_construction,
+        )
+
+        if seed is not None and len(seed) != 32:
+            raise PancakeError(_c.ERR_INVALID_ARGUMENT, "listen: seed must be 32 bytes")
+        if host is not None and seed is not None:
+            raise PancakeError(
+                _c.ERR_INVALID_ARGUMENT,
+                "listen: seed and host are alternative identity sources",
+            )
+        config = RelayConfig(relay_url, register_url, trust_pem)
+        selected_seed = (
+            seed
+            if seed is not None
+            else (host.seed if host is not None else secrets.token_bytes(32))
+        )
+        selected_codec = host.codec if host is not None else _DEFAULT_CODEC
+        prepared = prepare_driver_loop(host, selected_codec, seed=selected_seed)
+        loop = prepared.loop
+        listener = None
+        try:
+            await provider(config).install(loop)
+            listener = loop.listen(self._transport, "")
+            loop.start()
+            await loop.wait_listener(listener)
+            loop.select_listener(listener)
+            return DriverServer(loop, listener, retire_loop=prepared.owns_loop)
+        except BaseException as error:
+            _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
+            raise
+
 
 
 keyed = _Profile(_c.TRANSPORT_KEYED_RELAY)

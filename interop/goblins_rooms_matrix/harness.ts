@@ -5,7 +5,7 @@
 // pins that incompatibility directly.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const WEB = new URL("../../apps/rooms/web/serve.ts", import.meta.url).pathname;
@@ -14,7 +14,17 @@ const CHAT = new URL("../../conformance/goblins-peer/racket/rooms-chat.rkt", imp
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
 const WAIT_MS = 60_000;
 const phase = Deno.args.find((arg) => arg.startsWith("--phase="))?.slice(8) ?? "full";
-if (!new Set(["rooms", "dms-a", "dms-b", "dms-goblins", "count-discrepancy"]).has(phase)) {
+if (
+	!new Set([
+		"rooms-mixed",
+		"rooms-homogeneous",
+		"rooms-split",
+		"dms-a",
+		"dms-b",
+		"dms-goblins",
+		"count-discrepancy",
+	]).has(phase)
+) {
 	throw new Error(`unknown phase ${phase}`);
 }
 
@@ -63,12 +73,23 @@ class ChatPeer {
 	readonly child: Deno.ChildProcess;
 	readonly #writer: WritableStreamDefaultWriter<Uint8Array>;
 	readonly #drains: Promise<void>[];
+	#compiledRoot: string | null;
 
 	constructor(readonly nick: string, locator: string, room: string, vizUrl: string) {
+		// Concurrent Racket processes must not replace one shared .zo while its
+		// sibling is opening it. A private compiled root keeps startup parallel
+		// and leaves the checkout untouched.
+		this.#compiledRoot = Deno.makeTempDirSync({ prefix: "pancake-rooms-racket-" });
 		this.child = new Deno.Command("racket", {
 			args: ["-y", CHAT, locator, room, nick],
 			cwd: RACKET_DIR,
-			env: { PANCAKE_ROOMS_VIZ_URL: vizUrl },
+			env: {
+				PANCAKE_ROOMS_VIZ_URL: vizUrl,
+				// The trailing empty path is Racket's `same` fallback: reuse
+				// installed package bytecode, but write checkout-local bytecode only
+				// into this peer's private first root.
+				PLTCOMPILEDROOTS: `${this.#compiledRoot}${Deno.build.os === "windows" ? ";" : ":"}`,
+			},
 			stdin: "piped",
 			stdout: "piped",
 			stderr: "piped",
@@ -155,7 +176,14 @@ class ChatPeer {
 		await this.#writer.close().catch(() => {});
 		const status = await this.child.status;
 		await Promise.all(this.#drains);
+		this.cleanupCompiled();
 		if (!status.success) throw new Error(`${this.nick} exited ${status.code}`);
+	}
+
+	cleanupCompiled(): void {
+		if (this.#compiledRoot === null) return;
+		Deno.removeSync(this.#compiledRoot, { recursive: true });
+		this.#compiledRoot = null;
 	}
 
 	kill(): void {
@@ -212,7 +240,7 @@ async function watchTimeline(sturdyref: string): Promise<{
 	close: () => Promise<void>;
 }> {
 	const records: TimelineRecord[] = [];
-	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+	const viewer = await connectVizViewer(sturdyref, (record) => {
 		records.push(record as TimelineRecord);
 	});
 	return { records, close: () => viewer.close() };
@@ -223,8 +251,10 @@ async function joinWeb(
 	port: number,
 	nick: string,
 	room: string,
+	seed: ReturnType<typeof vizMemorySeed>,
 ): Promise<WebPeer> {
 	const context = await browser.newContext({ viewport: { width: 1100, height: 760 } });
+	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const page = await context.newPage();
 	page.on("pageerror", (err) => console.error(`  [${nick} page] ${err.message}`));
 	await page.goto(`http://127.0.0.1:${port}/`);
@@ -401,14 +431,16 @@ let gobB: ChatPeer | null = null;
 let timeline: { records: TimelineRecord[]; close: () => void } | null = null;
 try {
 	const locator = await locatorAt(httpPort);
-	const vizUrl = `ws://127.0.0.1:${vizPort}/`;
-	timeline = await watchTimeline(await scrapeVizSturdyref(web.stderr));
+	const vizRef = await scrapeVizSturdyref(web.stderr);
+	const vizUrl = vizUrlOf(vizRef);
+	const vizSeed = vizMemorySeed(httpPort, vizRef);
+	timeline = await watchTimeline(vizRef);
 	gobA = new ChatPeer(GOB_A, locator, FULL, vizUrl);
 	gobB = new ChatPeer(GOB_B, locator, FULL, vizUrl);
 	await Promise.all([gobA.ready(FULL), gobB.ready(FULL)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const webA = await joinWeb(browser, httpPort, WEB_A, FULL);
-	const webB = await joinWeb(browser, httpPort, WEB_B, FULL);
+	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, vizSeed);
+	const webB = await joinWeb(browser, httpPort, WEB_B, FULL, vizSeed);
 
 	if (phase === "count-discrepancy") {
 		await browserDm(webA, gobA, "first independent receiver");
@@ -424,7 +456,7 @@ try {
 			throw new Error("Goblins reported an invalid handoff but also delivered its message");
 		}
 		gobB.assertClean();
-	} else if (phase === "rooms") {
+	} else if (phase === "rooms-mixed") {
 		for (
 			const [sender, text] of [
 				[webA, "mixed from web ada"],
@@ -433,7 +465,7 @@ try {
 				[gobB, "mixed from goblins dan"],
 			] as const
 		) await roomLine([webA, webB], [gobA, gobB], sender, text);
-
+	} else if (phase === "rooms-homogeneous") {
 		await Promise.all([moveWeb(webA, "pancake-only"), moveWeb(webB, "pancake-only")]);
 		await roomLine([webA, webB], [], webA, "pancake-only line");
 
@@ -448,25 +480,12 @@ try {
 			"enter #goblins-only",
 		);
 		await roomLine([], [gobA, gobB], gobA, "goblins-only line");
-
+	} else if (phase === "rooms-split") {
 		await Promise.all([moveWeb(webA, "mixed-a"), moveWeb(webB, "mixed-b")]);
 		await gobA.command("/enter mixed-a", /^\* you are in mixed-a$/, "enter #mixed-a");
 		await gobB.command("/enter mixed-b", /^\* you are in mixed-b$/, "enter #mixed-b");
 		await roomLine([webA], [gobA], webA, "small mixed a");
 		await roomLine([webB], [gobB], gobB, "small mixed b");
-
-		await Promise.all([moveWeb(webA, FULL), moveWeb(webB, FULL)]);
-		await gobA.command(
-			`/enter ${FULL}`,
-			new RegExp(`^\\* you are in ${FULL}$`),
-			`return to #${FULL}`,
-		);
-		await gobB.command(
-			`/enter ${FULL}`,
-			new RegExp(`^\\* you are in ${FULL}$`),
-			`return to #${FULL}`,
-		);
-		await roomLine([webA, webB], [gobA, gobB], webB, "all peers returned");
 	}
 
 	if (phase === "dms-a" || phase === "dms-b") {
@@ -529,6 +548,7 @@ try {
 	if (browser) await browser.close().catch(() => {});
 	for (const peer of [gobA, gobB]) peer?.kill();
 	for (const peer of [gobA, gobB]) if (peer) await peer.child.status.catch(() => {});
+	for (const peer of [gobA, gobB]) peer?.cleanupCompiled();
 	try {
 		web.kill();
 	} catch {

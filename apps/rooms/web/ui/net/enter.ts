@@ -10,11 +10,12 @@ import { MAX_NICK, mayPresentNameVoucher } from "../../../lib/limits.ts";
 import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
 import { type DirId, silencedFrom } from "../types.ts";
+import { listedOccupancy } from "../joining.ts";
 import { lineNotShowable, roomCalled } from "../text.ts";
 import { notifiesYou } from "../commands.ts";
 import { maybeNotify } from "../notify.ts";
 import { fetchesOnArrival } from "../media.ts";
-import { reason } from "./common.ts";
+import { reason, trouble } from "./common.ts";
 import { dirAddress, dirSession, isCurrent } from "./live.ts";
 import { tellStanding } from "./standing.ts";
 import { setRoomTyping } from "./typing.ts";
@@ -23,6 +24,26 @@ import { holdRoomFile, openAttachment, releaseHeldFile } from "./files.ts";
 import { advertisePresence } from "./reachable.ts";
 import { applyRefile, confirmRoomEcho } from "./send.ts";
 import { takePickedRoom } from "./bootstrap.ts";
+
+interface EnterRoomOptions {
+	attempt?: number;
+	held?: { key: string; room: Ref };
+	/** Subscribe this already-held reference.
+	 *
+	 * A link-join enlivens, then subscribes. Listed-ness arrives on that
+	 * subscribe; the conversation is the listed room when it does, and held
+	 * when it does not. Asking the room whether it is private first is not
+	 * this path — an older occupancy has no such method. */
+	room?: Ref;
+	publicationId?: string;
+	voucher?: Uint8Array;
+	requested?: string;
+	trusted?: boolean;
+	signal?: AbortSignal;
+	/** A room link this join already holds, so the conversation can copy it
+	 * without asking the room to mint another. */
+	link?: string;
+}
 
 // Enter `name` as `nick`: subscribe to the room, which is a capability, and keep
 // it beside every other room this session holds. Resolves with "" once we are
@@ -35,23 +56,16 @@ export async function enterRoom(
 	dir: DirId,
 	name: string,
 	nick: string,
-	attempt = 0,
-	held?: { key: string; room: Ref },
-	voucher?: Uint8Array,
-	// What the reader actually asked to be called, carried through the retries
-	// that suffix `nick`, because "the grant differs from the request" is the
-	// one honest test for a rename: comparing against the previously committed
-	// name misfires the moment somebody renames on purpose.
-	requested = nick,
-	// Whether the room this subscribes to was reached by an identity-checked
-	// path. A room entered by name comes from the directory's own reference; a
-	// link is redeemed through `enliven`, which refuses a peer-identity
-	// mismatch. Both are the real directory. A handed reference is not checked —
-	// its host is whoever handed it — so it is not trusted with the one thing
-	// that would be dangerous to give a stranger: a name voucher.
-	trusted = true,
-	signal?: AbortSignal,
+	options: EnterRoomOptions = {},
 ): Promise<string> {
+	const {
+		attempt = 0,
+		held,
+		voucher,
+		requested = nick,
+		trusted = true,
+		signal,
+	} = options;
 	if (signal?.aborted) return "";
 	const session = dirSession(dir);
 	if (session === null) {
@@ -63,9 +77,25 @@ export async function enterRoom(
 	// reference to was handed over and has no name to look up. Everything after
 	// this line is the same for both, which is why they meet here rather than in
 	// two copies of the subscribe, the nick retry, and the bookkeeping.
-	const key = held?.key ?? store.roomKey(dir, name);
+	const given = held?.room ?? options.room;
+	const publicationId = options.publicationId ??
+		(given === undefined && held === undefined ? store.enteredPublication(dir, name)?.id : undefined);
+	const shown = name === "" ? "a room" : name;
+	// A link-join does not know listed-ness until subscribe answers. Seat
+	// provisionally as held; a listed arrival moves it onto the public key
+	// before the conversation is committed.
+	let key = held?.key ??
+		(options.room !== undefined
+			? store.heldRoomKey()
+			: publicationId === undefined
+			? store.roomKey(dir, name)
+			: store.publishedRoomKey(dir, publicationId));
+	let seatedHeld = held !== undefined || options.room !== undefined;
 	try {
-		const ref = held?.room ?? await enterOrOpen(session.dir, name);
+		const ref = given ??
+			(publicationId === undefined
+				? await enterOrOpen(session.dir, name)
+				: await session.dir.enterPublication(publicationId));
 		if (signal?.aborted) return "";
 		const next = await Room.subscribe(
 			session.dir.session,
@@ -74,6 +104,10 @@ export async function enterRoom(
 			(from, on) => setRoomTyping(key, from, on),
 			voucher,
 		);
+		if (options.room !== undefined && held === undefined && listedOccupancy(next.listed, name)) {
+			key = store.roomKey(dir, name);
+			seatedHeld = false;
+		}
 		if (!isCurrent(session) || signal?.aborted) {
 			// The session was replaced while we were subscribing, so this room is
 			// already unreachable. Drop it rather than filing it under a table the
@@ -94,7 +128,7 @@ export async function enterRoom(
 			// The new membership is already committed. Cleanup of the replaced
 			// wrapper is therefore diagnostic, never grounds to report that joining
 			// failed or to remove the new room.
-			console.error("rooms: replaced membership cleanup failed:", reason(error));
+			trouble("replaced membership cleanup failed", error);
 		}
 		// Commit the nick we actually claimed. Two tabs of one browser share the
 		// persisted nick, so a collision may have suffixed it below; reflect the
@@ -121,11 +155,35 @@ export async function enterRoom(
 			session.rooms.delete(key);
 			return "";
 		}
-		enteredRoom(dir, name, requested, held?.key);
+		enteredRoom(dir, shown, requested, {
+			key: seatedHeld ? key : undefined,
+			held: seatedHeld,
+			publicationId,
+			link: options.link,
+		});
 		// What this membership was handed. Recorded after the conversation exists
 		// and from the membership that answered, so a reader's command list is the
 		// room's answer rather than this file's opinion of what rooms offer.
 		store.setGrants(key, next.canSetTopic ? new Set(["topic"]) : new Set());
+		// What the room kept of itself, stood under a log that has nothing
+		// yet. A server that keeps no history refuses the verb, and that
+		// refusal is this feature not existing there: an empty answer, never
+		// trouble.
+		if (store.getConv(key)?.history.length === 0) {
+			void next.history().then((lines) => {
+				if (lines.length === 0) return;
+				store.prependHistory(
+					key,
+					lines.map((line) => ({
+						from: line.from,
+						text: line.text,
+						mine: line.from === nick,
+						at: line.at,
+					})),
+					"Earlier messages, kept by this room",
+				);
+			}).catch(() => {/* tolerant: a server without history refuses the verb */});
+		}
 		// A membership is a connection's, and this reader's own standing is not.
 		// Said again to the room just entered, so a reconnect does not quietly walk
 		// them back in. This membership has heard nothing, whatever the one it
@@ -147,7 +205,7 @@ export async function enterRoom(
 				),
 			);
 		}
-		void pump(dir, key, name, next);
+		void pump(dir, key, shown, next);
 		return "";
 	} catch (err) {
 		if (signal?.aborted) return "";
@@ -185,7 +243,7 @@ export async function enterRoom(
 		) {
 			const minted = await session.dir.nameVoucher().catch(() => null);
 			if (minted !== null && isCurrent(session)) {
-				return await enterRoom(dir, name, nick, attempt, held, minted, requested, trusted, signal);
+				return await enterRoom(dir, name, nick, { ...options, attempt, voucher: minted, requested, trusted });
 			}
 		}
 		if (re?.code === NICK_TAKEN && attempt < 20) {
@@ -205,7 +263,13 @@ export async function enterRoom(
 			const suffix = `-${attempt + 2}`;
 			const base = nick.replace(/-\d+$/, "").slice(0, MAX_NICK - suffix.length);
 			const candidate = base + suffix;
-			return await enterRoom(dir, name, candidate, attempt + 1, held, undefined, requested, trusted, signal);
+			return await enterRoom(dir, name, candidate, {
+				...options,
+				attempt: attempt + 1,
+				voucher: undefined,
+				requested,
+				trusted,
+			});
 		}
 		if (re?.code === NICK_TAKEN) {
 			store.showJoinCard();
@@ -231,7 +295,7 @@ export async function enterRoom(
 		// front of them, so it goes there rather than sending them back to the card
 		// and taking away the rooms that are working.
 		if (store.getConv(key) !== null) {
-			store.deliver(key, store.sysItem(`Could not re-enter #${name}: ${reason(err)}`));
+			store.deliver(key, store.sysItem(`Could not re-enter #${shown}: ${reason(err)}`));
 		} else if (store.activeConv()) store.deliverActive(store.sysItem(reason(err)));
 		else store.toast("failure", reason(err));
 		return "";
@@ -245,7 +309,12 @@ export async function enterRoom(
 // default: a reconnect re-entering three rooms must not drag a reader through
 // all three, and a room entered from the rail while reading another should not
 // interrupt the one being read unless that is what the tap meant.
-function enteredRoom(dir: DirId, name: string, asked: string, held?: string): void {
+function enteredRoom(
+	dir: DirId,
+	name: string,
+	asked: string,
+	identity: { key?: string; held: boolean; publicationId?: string; link?: string },
+): void {
 	// The one moment a join is known to have worked, so it is the one place this
 	// browser writes down what to offer next time: the room, the directory it
 	// was on, and the name that was asked for. A room reached by name is worth
@@ -258,14 +327,14 @@ function enteredRoom(dir: DirId, name: string, asked: string, held?: string): vo
 	// would offer that suffix back on every future visit, including to
 	// directories where the plain name is free. What each directory actually
 	// granted is `setDirNick`, one answer per directory.
-	if (held === undefined) {
+	if (!identity.held) {
 		store.remember({
 			room: name,
 			locator: dir === store.get().homeDir ? "" : dirAddress(dir),
 			nick: asked,
 		});
 	}
-	const conv = store.ensureRoom(dir, name, held);
+	const conv = store.ensureRoom(dir, name, identity);
 	store.clearMembers(conv.key);
 	// The entering is over, so the "entering #x…" the foot was narrating is too.
 	//
@@ -294,12 +363,26 @@ function enteredRoom(dir: DirId, name: string, asked: string, held?: string): vo
 // is already how `bindings/ts/web` reads its socket. The date is written down
 // because it is checkable against the bug, and the answer is not guessable.
 async function pump(dir: DirId, key: string, name: string, room: Room): Promise<void> {
+	const seated = key;
 	const reader = room.messages.getReader();
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
-			if (done) return;
-			if (dirSession(dir)?.rooms.get(key) !== room) {
+			if (done) {
+				// A stream that ends while this membership is still the current one
+				// was ended by the room, not by a leave or a replacement — those
+				// retire the membership row first. A dead room drawn as a healthy
+				// one is the failure mode here, so the hangup says so where the
+				// reader is reading, with the way back beside it.
+				if (dirSession(dir)?.rooms.get(seated) === room) {
+					store.deliver(
+						seated,
+						store.sysItem(`The room ended this conversation. Type /join ${name} to re-enter it.`),
+					);
+				}
+				return;
+			}
+			if (dirSession(dir)?.rooms.get(seated) !== room) {
 				// This membership has been replaced or left, so a newer pump owns the
 				// conversation. Drop this stream rather than leave it locked and
 				// half-read; `for await` used to do this on return.
@@ -315,7 +398,7 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 			// room's name is a label two rooms may share, and deriving a key from
 			// it here minted a second conversation and delivered the room's lines
 			// into it.
-			const conv = store.ensureRoom(dir, name, key);
+			const conv = store.ensureRoom(dir, name, { key: seated });
 			if (presence) store.applyPresence(conv.key, presence);
 			// Presence first, because it is the room's own word about who is here and
 			// carries no text of its own. Then the same bound the room holds its
@@ -431,13 +514,13 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 		// what made the missing-iterator failure take so long to find: the room
 		// simply never spoke. Say so in the room it happened to, which is not
 		// necessarily the one being read.
-		if (dirSession(dir)?.rooms.get(key) === room) {
+		if (dirSession(dir)?.rooms.get(seated) === room) {
 			// With the way back in the same breath. The connection is still up and
 			// the room takes a re-claim on it, keeping this member's place and the
 			// references to what they have already said, so there is something to
 			// do here rather than a dead conversation and a reason for it.
 			store.deliver(
-				key,
+				seated,
 				store.sysItem(
 					`This room stopped delivering messages: ${reason(err)}. Type /join ${name} to re-enter it.`,
 				),

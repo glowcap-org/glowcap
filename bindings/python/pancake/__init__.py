@@ -67,15 +67,39 @@ from ._errors import (
     last_error,
 )
 from ._carrier_failure import CarrierFailure, CarrierPhase
-from ._value import Argument, ErrorValue, Forward, Keyword, Ref, Set, Struct, Symbol, Tagged
+from ._value import (
+    Argument,
+    ErrorValue,
+    Forward,
+    Keyword,
+    Ref,
+    Set,
+    Struct,
+    Symbol,
+    Tagged,
+)
 from ._constants import (
     HANDSHAKE_TIMEOUT_MS,
+    FEATURE_BASELINE,
+    FEATURE_FULL,
+    FEATURE_HANDOFF,
+    FEATURE_MINIMUM,
+    FEATURE_MULTI_LOCATION,
+    FEATURE_PIPELINING,
+    FEATURE_STURDYREF,
+    FEATURE_UNTAG,
+    FEATURE_WIRE_DELTA,
+    HINT_ALT_LOCATORS,
     HINT_DIRECT_ADDRESSES,
+    HINT_VIA,
+    TRANSPORT_ID,
     TRANSPORT_INPROC,
     TRANSPORT_IROH,
     TRANSPORT_KEYED_RELAY,
     TRANSPORT_KEYED_TCP,
+    TRANSPORT_NOISE_RELAY,
     TRANSPORT_NOISE_TCP,
+    TRANSPORT_ONION,
     TRANSPORT_TCP,
     TRANSPORT_WEBRTC,
 )
@@ -101,6 +125,7 @@ from ._session import (
     PartnerIdentity,
     SendRedeemingResult,
     Session,
+    SessionProfile,
 )
 from ._trampoline import Caretaker
 from ._dial import Runtime
@@ -136,6 +161,7 @@ __all__ = [
     "FailureScope",
     # Application surface
     "Session",
+    "SessionProfile",
     "SendRedeemingResult",
     "DurableProvenance",
     "PartnerIdentity",
@@ -149,6 +175,15 @@ __all__ = [
     "annotate_session",
     "enable_trace",
     "HANDSHAKE_TIMEOUT_MS",
+    "FEATURE_MINIMUM",
+    "FEATURE_BASELINE",
+    "FEATURE_PIPELINING",
+    "FEATURE_HANDOFF",
+    "FEATURE_WIRE_DELTA",
+    "FEATURE_STURDYREF",
+    "FEATURE_UNTAG",
+    "FEATURE_MULTI_LOCATION",
+    "FEATURE_FULL",
     # Locator grammar
     "Locator",
     "SturdyRef",
@@ -161,12 +196,17 @@ __all__ = [
     "encode_peer_locator",
     # Transport symbols
     "TRANSPORT_TCP",
+    "TRANSPORT_ID",
     "TRANSPORT_KEYED_TCP",
+    "TRANSPORT_ONION",
     "TRANSPORT_NOISE_TCP",
+    "TRANSPORT_NOISE_RELAY",
     "TRANSPORT_INPROC",
     "TRANSPORT_IROH",
     "TRANSPORT_KEYED_RELAY",
     "TRANSPORT_WEBRTC",
     # Locator hint keys
+    "HINT_ALT_LOCATORS",
     "HINT_DIRECT_ADDRESSES",
+    "HINT_VIA",
 ]

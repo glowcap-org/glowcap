@@ -115,9 +115,11 @@
     (lambda (act)
       ;; A dial is a connect syscall plus a whole keyed handshake:
       ;; post-lock, like every write and fire, or one slow exporter
-      ;; parks every thread sharing the host. Ticket-only: run-dial!
-      ;; borrows the pending URI.
+      ;; parks every thread sharing the host. run-dial! borrows the exact
+      ;; pending route for this attempt.
       (define ticket (cadr act))
+      (define route-index (caddr act))
+      (define attempt (cons ticket route-index))
       (define cancelled? (box #f))
       (define start (make-semaphore 0))
       (define worker
@@ -128,17 +130,19 @@
               (sync start)
               (dynamic-wind
                void
-               (lambda () (run-dial! m ticket (lambda () (unbox cancelled?))))
+               (lambda () (run-dial! m ticket route-index (lambda () (unbox cancelled?))))
                (lambda ()
                  (call-with-host/allow-released
                   m
-                  (lambda () (hash-remove! (host-dial-workers m) ticket))))))))))
-      (hash-set! (host-dial-workers m) ticket (dial-worker worker cancelled?))
+                  (lambda () (hash-remove! (host-dial-workers m) attempt))))))))))
+      (hash-set! (host-dial-workers m) attempt (dial-worker worker cancelled?))
       (values touched (cons (lambda () (semaphore-post start)) fires)))
     'cancel-dial
     (lambda (act)
       (define ticket (cadr act))
-      (define worker (hash-ref (host-dial-workers m) ticket #f))
+      (define route-index (caddr act))
+      (define attempt (cons ticket route-index))
+      (define worker (hash-ref (host-dial-workers m) attempt #f))
       (values
        touched
        (cons
@@ -149,11 +153,11 @@
             (thread-wait (dial-worker-thread worker))
             (call-with-host/allow-released
              m
-             (lambda () (hash-remove! (host-dial-workers m) ticket))))
+             (lambda () (hash-remove! (host-dial-workers m) attempt))))
           (call-with-host
            m
            (lambda ()
-             (check/host (pancake_host_dial_cancelled (host-ptr m) ticket)))))
+             (check/host (pancake_host_dial_cancelled (host-ptr m) ticket route-index)))))
         fires)))
     'need-gift-id
     (lambda (act)
@@ -196,7 +200,11 @@
 
 (define (drain-pump-actions! m)
   (let loop ([touched '()] [fires '()] [popped? #f])
-    (define-values (parked yielded?) (park-host-actions! m))
+    ;; The native drain resumes queued Host work before its first external
+    ;; action and may synchronously invoke a behavior.
+    (define-values (parked yielded?)
+      (parameterize ([current-deliver-owner m])
+        (park-host-actions! m)))
     (define any-popped? (or popped? (pair? parked)))
     (define-values (t f)
       (for/fold ([touched touched] [fires fires]) ([a (in-list parked)])

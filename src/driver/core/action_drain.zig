@@ -10,9 +10,10 @@ const Host = @import("host.zig").Host;
 const host_action = @import("host/action.zig");
 
 /// Why an embedder-facing drain returned. A finite Host quantum deliberately
-/// returns `.yielded` before asking the core for another slice; reactor-backed
-/// embedders reschedule it, while explicitly blocking fronts may loop.
-pub const DrainResult = enum { drained, yielded };
+/// returns `.yielded` before asking the core for another slice; explicitly
+/// blocking fronts may continue immediately. Outbound pressure instead needs
+/// transport progress, so every embedder must return to its readiness driver.
+pub const DrainResult = enum { drained, yielded, outbound_blocked };
 
 /// Drain every queued `HostAction` through `exec`.
 ///
@@ -20,7 +21,8 @@ pub const DrainResult = enum { drained, yielded };
 /// for gift-id draws. `exec` must provide:
 /// - `flush(peer_handle: engine.PeerHandle) !void`
 /// - `close(peer_handle: engine.PeerHandle) !void`
-/// - `dial(d: HostAction.dial) !void` — ticket only; view via `pendingDial`.
+/// - `dial(d: HostAction.dial) !void` — exact ticket and route; project its
+///   view via `pendingDial`.
 ///   On failure it must have published no external connection, or must have
 ///   rolled that connection back before returning: the ticket is requeued.
 /// - `cancelDial(d: HostAction.cancel_dial) !void` — interrupt and join the
@@ -30,6 +32,10 @@ pub const DrainResult = enum { drained, yielded };
 /// - `complete(action: HostAction) !void` — owns `.settled` / `.failed` (adopt
 ///   or `host.freeAction`; the skeleton does not free them)
 pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
+    // A new pass is the pressure-yield boundary: the embedder ran its reactor
+    // since the last one, so a previously refused resume pump gets one fresh
+    // bounded attempt (see `Host.resume_pump_refused`).
+    host.resume_pump_refused = false;
     while (try host.peekAction()) |next| {
         // Entropy is the one fallible preparation this shared executor owns.
         // Draw it while the action is still parked; a transient source failure
@@ -60,7 +66,10 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
             // This is a scheduling boundary, not an I/O arm. Return before
             // asking the Host for another finite slice so a reactor-backed
             // embedder can give its other ready work a turn.
-            .resume_work => return .yielded,
+            .resume_work => return if (host.resume_pump_refused)
+                .outbound_blocked
+            else
+                .yielded,
         }
     }
     return .drained;

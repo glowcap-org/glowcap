@@ -1,6 +1,7 @@
 //! Transport failure, terminal close, callback barrier, and retained-view scenarios.
 
 use super::support::*;
+use tokio::io::AsyncReadExt;
 
 struct PendingFlushStream {
 	flush_polled: Rc<Cell<bool>>,
@@ -550,14 +551,14 @@ async fn a_silent_partner_times_the_dial_out_rather_than_parking_it() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
-			// Accepts TCP, then holds the socket open past the dial's budget
-			// without ever sending an `op:start-session`.
+			// Accepts TCP without sending `op:start-session`, then remains open
+			// until the timed-out dialer closes its side.
 			let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let addr = listener.local_addr().unwrap();
 			let silent = tokio::task::spawn_local(async move {
-				let stream = listener.accept().await.unwrap();
-				tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-				drop(stream);
+				let (mut stream, _) = listener.accept().await.unwrap();
+				let mut bytes = [0_u8; 256];
+				while stream.read(&mut bytes).await.unwrap() != 0 {}
 			});
 
 			let error = connect_with_runtime_options(

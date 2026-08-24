@@ -12,13 +12,13 @@ const default_max_frame_bytes: usize = 1 << 20;
 pub const SessionLimits = struct {
     /// Max pipelined calls queued against a single pending answer.
     queue_cap: usize = 1024,
-    /// Max inbound answer rows held at once.
+    /// Max live or detached inbound answer obligations held at once.
     max_inbound_answers: usize = 65_536,
     /// Max listeners or stored-answer projections anchored on one target.
     max_listeners_per_target: usize = 64,
-    /// Max re-anchor hops through stored promise resolutions before a projected
-    /// answer breaks instead of spinning in a cycle.
-    max_projection_chain: usize = 64,
+    /// Max exact-incarnation hops through stored promise resolutions before a
+    /// dependent call, projection, or listener receives a terminal break.
+    max_resolution_chain: usize = 64,
     /// Max local deliveries surfaced from one resolution drain (engine-enforced).
     max_local_deliveries: usize = 4096,
     /// Max partner-introduced imports. Locally allocated exports are bounded by
@@ -27,10 +27,14 @@ pub const SessionLimits = struct {
     /// Max deposited gifts waiting in this session's gift registry.
     max_deposited_gifts: u32 = 65_536,
     /// Max requested bytes retained by deposited gifts. Kept as `u32` beside
-    /// the row cap so the cumulative byte bound costs no extra session word.
+    /// the other bounded retained counts so the resource knobs fill whole
+    /// session words without growing every Peer.
     max_deposited_gift_bytes: u32 = 1 << 24,
+    /// Max owned resolution bytes retained across sent inbound answers. This
+    /// durable table budget is separate from transient outbound flow control.
+    max_retained_sent_answer_bytes: u32 = 1 << 24,
     /// Max early withdraws parked while waiting for deposits on another session.
-    max_pending_withdraws: usize = 4_096,
+    max_pending_withdraws: u32 = 4_096,
     /// Max resolved sturdyref enlivenments cached for dedup. Overflow evicts
     /// oldest because a miss costs one bootstrap fetch, not correctness.
     max_sturdyref_cache_entries: usize = 256,

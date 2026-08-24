@@ -21,7 +21,7 @@ export interface HeldDirectory {
 	/** Where the reader stands here, whichever level is answering for it. */
 	standing: string;
 	/** What it advertises: room name to how many are in it. */
-	rooms: ReadonlyMap<string, number>;
+	rooms: ReadonlyMap<string, number | null>;
 	/** The rooms on it this tab is actually in, named as a reader would hear them. */
 	joined: readonly string[];
 	connected: boolean;
@@ -40,8 +40,8 @@ export interface CommandPowers {
 	/** Enter a room on the directory this conversation is on. */
 	joinRoom(name: string): void;
 	/** Take up a room link: redeem it and enter what it opens. The link is the
-	 * whole of the authority; `label` is only what to call the room here, since
-	 * a link carries no name. */
+	 * whole of the authority. `label` is what to call it here when the reader
+	 * said one; empty means ask the room what it is called. */
 	joinLink(link: string, label: string): void;
 	/** Leave the conversation the command was typed in. */
 	leaveHere(): void;
@@ -80,10 +80,12 @@ export interface CommandPowers {
 	 * command that names this string is refused rather than opening a line to
 	 * yourself. */
 	you(): string;
-	/** Say a link to this room back where the command was typed: durable data
+	/** Say a link to a room back where the command was typed: durable data
 	 * anybody can redeem, minted at the price of the server recording the room
-	 * for good. False when there is no room to link to. */
-	roomLink(): boolean;
+	 * for good. No name is this conversation's room. A name is a listed room
+	 * on this directory. False when there is no room, or no directory, to
+	 * link to. */
+	roomLink(name?: string): boolean;
 	/** Where this reader stands in the room the command was typed in, whichever
 	 * level is answering for it. Empty while they are here. */
 	standingHere(): string;
@@ -94,12 +96,18 @@ export interface CommandPowers {
 	granted(): ReadonlySet<string>;
 	showRoster(shown: boolean): void;
 	/** The rooms this directory is advertising, with how many are in each. */
-	liveRooms(): ReadonlyMap<string, number>;
+	liveRooms(): ReadonlyMap<string, number | null>;
 	/** Who is in this room, how each stands, and whether each is reachable
 	 * directly. */
 	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
 	/** Give this directory back: the name it granted, and everything open on it. */
 	quitDirectory(): void;
+	/** Open the card about the conversation this was typed in. */
+	aboutConversation(): void;
+	/** Hand this room's IRC seat the reader's own registered account. Fires
+	 * the ask; the room's answer — or its refusal, including a native room
+	 * refusing the verb outright — lands as a system line where they typed. */
+	ircLogin(account: string, password: string): void;
 }
 
 /** What running a command comes to.
@@ -168,6 +176,10 @@ export interface Command {
 	 * the members list leaves out, which is the opposite of a mention. Room-wide
 	 * names (`here`, `room`) follow the mention path and stay off this list. */
 	targets?: "reachable";
+	/** What the words after this command complete as, when they are not a
+	 * person. `"room"` is a listed room name, written without `#` — `/link`
+	 * and `/join` take one. Absent means nothing after the name is a room. */
+	argument?: "room";
 	/** Other spellings that reach it. IRC clients have carried some of these for
 	 * thirty years and a reader's fingers know them. */
 	aliases?: readonly string[];

@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Optional
 from .. import _constants as _abi
 from .._abi_value import _ref_to_c
 from .._errors import PancakeError, _check_host
-from .._ffi_host import _host
+from .._ffi_host import _host, _SessionLimitOptions
+from .._constants_gen import SESSION_LIMIT_OPTIONS_ABI_VERSION
 from .._ffi_ocapn import _byte_buf
 from .._trampoline import (
     _BehaviorEntry,
@@ -71,7 +72,9 @@ class _PublicationMixin(HostMixinBase):
     def _connector_for(self, transport: str) -> "Optional[Connector]":
         return self._connectors.get(transport)
 
-    async def enliven(self, sturdyref: str) -> "Ref":
+    async def enliven(
+        self, sturdyref: str, *, captp_version: "Optional[str]" = None
+    ) -> "Ref":
         """Enliven a complete sturdyref without naming a session (ADR-0098):
         the host enlivens it over a live session it already dialed to that
         peer, or dials one itself through this host's own DIAL action and
@@ -83,14 +86,29 @@ class _PublicationMixin(HostMixinBase):
         swiss = sturdyref.encode()
         buf, ptr = _byte_buf(swiss)
         out = ctypes.c_uint64()
-        _check_host(
-            _host.pancake_host_enliven(self.raw, ptr, len(swiss), ctypes.byref(out))
-        )
+        if captp_version is None:
+            code = _host.pancake_host_enliven(
+                self.raw, ptr, len(swiss), ctypes.byref(out)
+            )
+        else:
+            from .._abi_value import _captp_version_id
+
+            code = _host.pancake_host_enliven_for_version(
+                self.raw,
+                _captp_version_id(captp_version),
+                ptr,
+                len(swiss),
+                ctypes.byref(out),
+            )
+        _check_host(code)
         vow = out.value
         self.vow_minted(vow)
         settled = self.await_vow(vow)
-        await self.kick_actions()
-        return _classify_live_ref(await settled, sturdyref)
+        try:
+            await self.kick_actions()
+            return _classify_live_ref(await settled, sturdyref)
+        finally:
+            self._gc.park_vow(vow)
 
     def set_advertised_locator(self, locator) -> None:
         """Retain a validated clone of this Host's complete location."""
@@ -111,19 +129,35 @@ class _PublicationMixin(HostMixinBase):
 
     def set_session_limits(
         self,
+        *,
         max_frame_bytes: int = 0,
         queue_cap: int = 0,
         outbound_high_water_bytes: int = 0,
+        max_retained_sent_answer_bytes: int = 0,
     ) -> None:
-        """Selective session-limit knobs (ADR-0082). Pass 0 to leave a field
-        unchanged. Affects peers minted after this call."""
+        """Apply selective limits to peers minted after this call.
+
+        Zero leaves that field unchanged. The durable sent-answer budget is
+        separate from transient outbound flow pressure.
+        """
+        values = (
+            max_frame_bytes,
+            queue_cap,
+            outbound_high_water_bytes,
+            max_retained_sent_answer_bytes,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in values
+        ):
+            raise ValueError("session limits must be non-negative integers")
+        options = _SessionLimitOptions(
+            SESSION_LIMIT_OPTIONS_ABI_VERSION,
+            ctypes.sizeof(_SessionLimitOptions),
+            *values,
+        )
         _check_host(
-            _host.pancake_host_set_session_limits(
-                self.raw,
-                int(max_frame_bytes),
-                int(queue_cap),
-                int(outbound_high_water_bytes),
-            )
+            _host.pancake_host_set_session_limits(self.raw, ctypes.byref(options))
         )
 
     def designator(self) -> str:

@@ -88,8 +88,11 @@ test "supported iroh facade and nested surfaces stay exact" {
 
     try std.testing.expectEqual(@as(usize, 32), @sizeOf(iroh.Resident));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(iroh.Resident));
+    // The platform backend's four listener-address bytes consume an existing
+    // kqueue padding lane. io_uring needs one new aligned word. This is one
+    // fixed charge per loop, never a per-connection or wire-path cost.
     const expected_backend_bytes: usize = switch (builtin.os.tag) {
-        .linux => 616,
+        .linux => 624,
         else => 496,
     };
     try std.testing.expectEqual(expected_backend_bytes, @sizeOf(iroh.Backend));

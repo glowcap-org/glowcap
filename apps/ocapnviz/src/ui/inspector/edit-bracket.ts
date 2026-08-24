@@ -44,30 +44,30 @@ export type EditBracket = Pick<EditorBindings, "beginEdit" | "endEdit">;
  * reaches them in.
  */
 export function editBracket(sessionNow: () => EditBracket | undefined): {
-  begin: (label: string) => void;
-  end: () => void;
-  readonly isOpen: boolean;
+	begin: (label: string) => void;
+	end: () => void;
+	readonly isOpen: boolean;
 } {
-  let open: EditBracket | null = null;
-  const end = () => {
-    const opened = open;
-    if (opened === null) return;
-    open = null;
-    opened.endEdit();
-  };
-  return {
-    begin(label: string) {
-      if (open !== null) return;
-      const session = sessionNow();
-      if (session === undefined) return;
-      open = session;
-      session.beginEdit(label);
-    },
-    end,
-    get isOpen() {
-      return open !== null;
-    },
-  };
+	let open: EditBracket | null = null;
+	const end = () => {
+		const opened = open;
+		if (opened === null) return;
+		open = null;
+		opened.endEdit();
+	};
+	return {
+		begin(label: string) {
+			if (open !== null) return;
+			const session = sessionNow();
+			if (session === undefined) return;
+			open = session;
+			session.beginEdit(label);
+		},
+		end,
+		get isOpen() {
+			return open !== null;
+		},
+	};
 }
 
 /**
@@ -101,76 +101,76 @@ export function editBracket(sessionNow: () => EditBracket | undefined): {
  * reaches them in.
  */
 export function pendingEdit(commit: () => void): {
-  touch: () => void;
-  settle: () => void;
-  discard: () => void;
-  dispose: () => void;
-  readonly isPending: boolean;
+	touch: () => void;
+	settle: () => void;
+	discard: () => void;
+	dispose: () => void;
+	readonly isPending: boolean;
 } {
-  let waiting = false;
-  const settle = () => {
-    if (!waiting) return;
-    waiting = false;
-    commit();
-  };
-  return {
-    touch() {
-      waiting = true;
-    },
-    settle,
-    discard() {
-      waiting = false;
-    },
-    dispose: settle,
-    get isPending() {
-      return waiting;
-    },
-  };
+	let waiting = false;
+	const settle = () => {
+		if (!waiting) return;
+		waiting = false;
+		commit();
+	};
+	return {
+		touch() {
+			waiting = true;
+		},
+		settle,
+		discard() {
+			waiting = false;
+		},
+		dispose: settle,
+		get isPending() {
+			return waiting;
+		},
+	};
 }
 
 /** A `pendingEdit` that lives as long as the field holding it, and
  *  hands its draft up when that field goes away. */
 export function usePendingEdit(commit: () => void) {
-  // `commit` closes over this render's draft, so the pending edit
-  // reads it through a ref rather than being rebuilt around it — a
-  // rebuilt one would forget that an edit was waiting, and hand up a
-  // stale draft when it did fire.
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
-  const held = useRef<ReturnType<typeof pendingEdit> | null>(null);
-  if (held.current === null) {
-    held.current = pendingEdit(() => commitRef.current());
-  }
-  const edit = held.current;
-  useEffect(() => () => edit.dispose(), [edit]);
-  return edit;
+	// `commit` closes over this render's draft, so the pending edit
+	// reads it through a ref rather than being rebuilt around it — a
+	// rebuilt one would forget that an edit was waiting, and hand up a
+	// stale draft when it did fire.
+	const commitRef = useRef(commit);
+	commitRef.current = commit;
+	const held = useRef<ReturnType<typeof pendingEdit> | null>(null);
+	if (held.current === null) {
+		held.current = pendingEdit(() => commitRef.current());
+	}
+	const edit = held.current;
+	useEffect(() => () => edit.dispose(), [edit]);
+	return edit;
 }
 
 /** An `editBracket` that lives as long as the component holding it,
  *  and closes itself when that component goes away or when the editor
  *  under it changes. */
 export function useEditBracket(session: EditBracket | undefined) {
-  // One bracket for the field's whole life, reading the editor through
-  // a ref rather than being rebuilt around it — a rebuilt bracket would
-  // forget that it was open. The ref is read at `begin` and the answer
-  // held, so a later render pointing it somewhere else cannot move an
-  // open transaction.
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-  const bracket = useRef<ReturnType<typeof editBracket> | null>(null);
-  if (bracket.current === null) {
-    bracket.current = editBracket(() => sessionRef.current);
-  }
-  const held = bracket.current;
-  // Two ends a field never hears about, and one effect for both. The
-  // field going away is the first: React has already detached its
-  // handlers, so no blur is coming. The editor changing under a field
-  // that stays is the second, and it is why `session` is a dependency:
-  // leaving Build takes the editor away, and a new buffer replaces it,
-  // and either way the transaction the old one opened has to be closed
-  // on the old one while something still holds it.
-  useEffect(() => () => held.end(), [held, session]);
-  return held;
+	// One bracket for the field's whole life, reading the editor through
+	// a ref rather than being rebuilt around it — a rebuilt bracket would
+	// forget that it was open. The ref is read at `begin` and the answer
+	// held, so a later render pointing it somewhere else cannot move an
+	// open transaction.
+	const sessionRef = useRef(session);
+	sessionRef.current = session;
+	const bracket = useRef<ReturnType<typeof editBracket> | null>(null);
+	if (bracket.current === null) {
+		bracket.current = editBracket(() => sessionRef.current);
+	}
+	const held = bracket.current;
+	// Two ends a field never hears about, and one effect for both. The
+	// field going away is the first: React has already detached its
+	// handlers, so no blur is coming. The editor changing under a field
+	// that stays is the second, and it is why `session` is a dependency:
+	// leaving Build takes the editor away, and a new buffer replaces it,
+	// and either way the transaction the old one opened has to be closed
+	// on the old one while something still holds it.
+	useEffect(() => () => held.end(), [held, session]);
+	return held;
 }
 
 /** Drag brackets for a row's scrub input: open a labeled edit
@@ -178,15 +178,15 @@ export function useEditBracket(session: EditBracket | undefined) {
  * close it too if the row goes away mid-drag. Undefined session means
  * no brackets, for read-only hosts. */
 export function useScrubBracket(
-  session: EditBracket | undefined,
-  label: string,
+	session: EditBracket | undefined,
+	label: string,
 ): { onScrubStart?: () => void; onScrubEnd?: () => void } {
-  const bracket = useEditBracket(session);
-  const onScrubStart = useCallback(() => bracket.begin(label), [
-    bracket,
-    label,
-  ]);
-  const onScrubEnd = useCallback(() => bracket.end(), [bracket]);
-  if (!session) return {};
-  return { onScrubStart, onScrubEnd };
+	const bracket = useEditBracket(session);
+	const onScrubStart = useCallback(() => bracket.begin(label), [
+		bracket,
+		label,
+	]);
+	const onScrubEnd = useCallback(() => bracket.end(), [bracket]);
+	if (!session) return {};
+	return { onScrubStart, onScrubEnd };
 }

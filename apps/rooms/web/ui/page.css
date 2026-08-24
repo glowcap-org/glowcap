@@ -11,6 +11,7 @@
 @import url("members.css");
 @import url("composer.css");
 @import url("join.css");
+@import url("plane.css");
 @import url("settings.css");
 @import url("operations.css");
 @import url("bubbles.css");
@@ -27,15 +28,15 @@
    chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
    this file in page.html; what follows is only what rooms means by them. */
 :root {
-	--danger: light-dark(#b23b2e, #e07a5f);
+	--danger: #b23b2e;
 	--ok: var(--teal);
 	/* Its own colour, not the accent's. A token defined as another token cannot
 	   move when the two meanings part, and these have: amber says "this room is
 	   yours" three rows above the dot that was using it to say "something is
 	   wrong". A warning that wears the page's most ordinary colour does not read
 	   as a warning, it reads as more accent. */
-	--warn: light-dark(#9a6b00, #f0b429);
-	--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+	--warn: #9a6b00;
+	--hover: color-mix(in srgb, var(--ink) 6%, transparent);
 	/* Your own messages, the Send button, and the pill that marks a mention of
 	   you all sit on the product's filled amber, so they share one set of
 	   tokens. The pairing itself lives in ui/tokens.css; these names are what
@@ -51,14 +52,14 @@
 	   dark paper under dark on-accent ink was the broken Download state. Darken
 	   the light theme's deep bubble for cream ink; lighten the dark theme's
 	   bright bubble for cocoa ink. */
-	--mine-action-hover: light-dark(rgba(0, 0, 0, 0.14), rgba(255, 255, 255, 0.18));
+	--mine-action-hover: rgba(0, 0, 0, 0.14);
 	/* light-dark() returns a colour, so it goes around the colour and not around
 	   the whole shadow. Wrapping the whole value parses as a colour function in
 	   the wrong place, the declaration is thrown away, and every box-shadow that
 	   named these tokens quietly resolved to none. Both spellings look the same
 	   in a stylesheet and only one of them draws anything. */
-	--shadow-sm-color: light-dark(color-mix(in srgb, var(--ink) 10%, transparent), rgba(0,0,0,.4));
-	--shadow-color: light-dark(color-mix(in srgb, var(--ink) 16%, transparent), rgba(0,0,0,.5));
+	--shadow-sm-color: color-mix(in srgb, var(--ink) 10%, transparent);
+	--shadow-color: color-mix(in srgb, var(--ink) 16%, transparent);
 	--shadow-sm: 0 1px 2px var(--shadow-sm-color);
 	--shadow: 0 14px 40px var(--shadow-color);
 	/* What a field sits on, inside any card: one answer for the join form, the
@@ -67,8 +68,8 @@
 	   field to the ground tone the way it always has; light lifts it white
 	   above the near-white card, and the lift — not a darker ground — is what
 	   makes it pop, carried by the hairline and a breath of shadow. */
-	--field-fill: light-dark(#fff, var(--paper));
-	--field-lift: light-dark(0 1px 2px var(--shadow-sm-color), none);
+	--field-fill: #fff;
+	--field-lift: 0 1px 2px var(--shadow-sm-color);
 }
 /* Inline code: one chip wherever a sentence names a flag, a verb, or an
    address — the mono a step under the prose, a breath of ink behind it, and
@@ -106,6 +107,11 @@ code {
 	--avatar-8: #3a7d8c;
 	--avatar-9: #7a5c34;
 	--avatar-10: #2f6f78;
+	/* The one color IRC wears. Every bridged identity takes this instead of a
+	   ramp slot, so "same color as the IRC chip" is itself the mark: constant
+	   like the ramp above, and outside it, because a bridged person must not
+	   be mistakable for the tenth regular. */
+	--irc: #6b5fa8;
 	/* Which directory a room or a direct line belongs to. Handed out in order,
 	   one per directory this tab holds, and never derived from a name.
 
@@ -123,11 +129,11 @@ code {
 
 	   Colour is never the only channel: every row that wears one also names its
 	   directory in words. */
-	--dir-mark-1: light-dark(#145200, #6ab759);
-	--dir-mark-2: light-dark(#0269bd, #99c9ff);
-	--dir-mark-3: light-dark(#870b60, #ed81bf);
-	--dir-mark-4: light-dark(#552d9d, #af94fd);
-	--dir-mark-5: light-dark(#9546ac, #ecaffe);
+	--dir-mark-1: #145200;
+	--dir-mark-2: #0269bd;
+	--dir-mark-3: #870b60;
+	--dir-mark-4: #552d9d;
+	--dir-mark-5: #9546ac;
 	/* Icon controls have three named sizes and no caller-owned geometry. Small
 	   belongs to a row of content, normal to application chrome, and large to the
 	   touch-primary composer controls. Text inputs and title chips still share
@@ -202,14 +208,18 @@ code {
 }
 /* "Syrup" — the same warmth turned down to a dark roast. Two arms, mirroring
    ui/tokens.css: the media query answers for a reader who never touches the
-   toggle, the attribute for one who does, and the attribute wins either way. */
-@media (prefers-color-scheme: dark) {
-	html:not([data-theme="light"]) {
+   toggle, the attribute for one who does, and the attribute wins either way.
+   Guarded like the token pairs, so a browser without `light-dark()` keeps
+   light native controls on its light-locked palette. */
+@supports (color: light-dark(#000, #fff)) {
+	@media (prefers-color-scheme: dark) {
+		html:not([data-theme="light"]) {
+			color-scheme: dark;
+		}
+	}
+	html[data-theme="dark"] {
 		color-scheme: dark;
 	}
-}
-html[data-theme="dark"] {
-	color-scheme: dark;
 }
 * {
 	box-sizing: border-box;
@@ -230,5 +240,29 @@ html[data-theme="dark"] {
 		animation-duration: 0.01ms !important;
 		animation-delay: 0.01ms !important;
 		animation-iteration-count: 1 !important;
+	}
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the page keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	:root {
+		--danger: light-dark(#b23b2e, #e07a5f);
+		--warn: light-dark(#9a6b00, #f0b429);
+		--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+		--mine-action-hover: light-dark(rgba(0, 0, 0, 0.14), rgba(255, 255, 255, 0.18));
+		--shadow-sm-color: light-dark(color-mix(in srgb, var(--ink) 10%, transparent), rgba(0,0,0,.4));
+		--shadow-color: light-dark(color-mix(in srgb, var(--ink) 16%, transparent), rgba(0,0,0,.5));
+		--field-fill: light-dark(#fff, var(--paper));
+		--field-lift: light-dark(0 1px 2px var(--shadow-sm-color), none);
+	}
+	:root {
+		--dir-mark-1: light-dark(#145200, #6ab759);
+		--dir-mark-2: light-dark(#0269bd, #99c9ff);
+		--dir-mark-3: light-dark(#870b60, #ed81bf);
+		--dir-mark-4: light-dark(#552d9d, #af94fd);
+		--dir-mark-5: light-dark(#9546ac, #ecaffe);
 	}
 }

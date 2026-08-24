@@ -22,97 +22,98 @@ import { devListen } from "./vite-dev-listen.ts";
 // `optimizeDeps.include` pre-bundles the heavy deps at server start;
 // combined with `server.warmup`, the dev server boots hot.
 const pancakeHostWasm = new URL(
-  "../../zig-out/wasm/pancake_host.wasm",
-  import.meta.url,
+	"../../zig-out/wasm/pancake_host.wasm",
+	import.meta.url,
 );
 
 /** Add the canonical wasm Host without replacing Vite's `public/` directory.
  * Development serves the build artifact directly; production emits the same
  * bytes as a root asset beside the public font, favicon, and service worker. */
 function pancakeHostWasmPlugin(): Plugin {
-  return {
-    name: "pancake-host-wasm",
-    configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (
-          new URL(req.originalUrl ?? "/", "http://localhost").pathname !==
-            "/pancake_host.wasm"
-        ) {
-          next();
-          return;
-        }
-        try {
-          const bytes = await Deno.readFile(pancakeHostWasm);
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "application/wasm");
-          res.setHeader("Content-Length", String(bytes.byteLength));
-          res.end(bytes);
-        } catch (error) {
-          next(error);
-        }
-      });
-    },
-    async generateBundle() {
-      this.emitFile({
-        type: "asset",
-        fileName: "pancake_host.wasm",
-        source: await Deno.readFile(pancakeHostWasm),
-      });
-    },
-  };
+	return {
+		name: "pancake-host-wasm",
+		configureServer(server) {
+			server.middlewares.use(async (req, res, next) => {
+				if (
+					new URL(req.originalUrl ?? "/", "http://localhost")
+						.pathname !==
+						"/pancake_host.wasm"
+				) {
+					next();
+					return;
+				}
+				try {
+					const bytes = await Deno.readFile(pancakeHostWasm);
+					res.statusCode = 200;
+					res.setHeader("Content-Type", "application/wasm");
+					res.setHeader("Content-Length", String(bytes.byteLength));
+					res.end(bytes);
+				} catch (error) {
+					next(error);
+				}
+			});
+		},
+		async generateBundle() {
+			this.emitFile({
+				type: "asset",
+				fileName: "pancake_host.wasm",
+				source: await Deno.readFile(pancakeHostWasm),
+			});
+		},
+	};
 }
 
 export default defineConfig({
-  plugins: [pancakeHostWasmPlugin(), deno(), react()],
-  resolve: {
-    alias: {
-      "virtual:pancake-web": new URL(
-        "../../bindings/ts/web/mod.ts",
-        import.meta.url,
-      ).pathname,
-    },
-  },
-  server: {
-    ...devListen(Deno.env.get("OCAPNVIZ_HOST")),
-    port: 5173,
-    warmup: {
-      clientFiles: [
-        "./src/main.tsx",
-        "./src/App.tsx",
-        "./src/render/Stage.tsx",
-        "./src/engine/engine.ts",
-      ],
-    },
-    // Vite restarts itself when `vite.config.ts` changes, but in our
-    // `pixi → deno task → deno run` chain that restart loses the
-    // signal-forwarding parent and wedges the terminal — Ctrl-C
-    // reaches the wrappers, they exit, the new vite child becomes an
-    // orphan no signal can reach. Excluding the config file from the
-    // file-system watcher disables the auto-restart; edits to
-    // vite.config.ts require a manual `pixi run dev` restart, which
-    // is rare. Source-file HMR is unaffected.
-    // `.deno/` is the per-subtree npm cache — ignoring it keeps HMR
-    // quiet when ad-hoc Deno scripts (e.g. the playwright harness)
-    // materialize npm tarballs into it.
-    watch: {
-      ignored: [
-        "**/vite.config.*",
-        "**/deno.json",
-        "**/deno.lock",
-        "**/.deno/**",
-      ],
-    },
-  },
-  optimizeDeps: {
-    include: [
-      "pixi.js",
-      "pixi-viewport",
-      "miniplex",
-      "d3-force",
-      "react",
-      "react-dom/client",
-      "react/jsx-runtime",
-      "zod",
-    ],
-  },
+	plugins: [pancakeHostWasmPlugin(), deno(), react()],
+	resolve: {
+		alias: {
+			"virtual:pancake-web": new URL(
+				"../../bindings/ts/web/mod.ts",
+				import.meta.url,
+			).pathname,
+		},
+	},
+	server: {
+		...devListen(Deno.env.get("OCAPNVIZ_HOST")),
+		port: 5173,
+		warmup: {
+			clientFiles: [
+				"./src/main.tsx",
+				"./src/App.tsx",
+				"./src/render/Stage.tsx",
+				"./src/engine/engine.ts",
+			],
+		},
+		// Vite restarts itself when `vite.config.ts` changes, but in our
+		// `pixi → deno task → deno run` chain that restart loses the
+		// signal-forwarding parent and wedges the terminal — Ctrl-C
+		// reaches the wrappers, they exit, the new vite child becomes an
+		// orphan no signal can reach. Excluding the config file from the
+		// file-system watcher disables the auto-restart; edits to
+		// vite.config.ts require a manual `pixi run dev` restart, which
+		// is rare. Source-file HMR is unaffected.
+		// `.deno/` is the per-subtree npm cache — ignoring it keeps HMR
+		// quiet when ad-hoc Deno scripts (e.g. the playwright harness)
+		// materialize npm tarballs into it.
+		watch: {
+			ignored: [
+				"**/vite.config.*",
+				"**/deno.json",
+				"**/deno.lock",
+				"**/.deno/**",
+			],
+		},
+	},
+	optimizeDeps: {
+		include: [
+			"pixi.js",
+			"pixi-viewport",
+			"miniplex",
+			"d3-force",
+			"react",
+			"react-dom/client",
+			"react/jsx-runtime",
+			"zod",
+		],
+	},
 });

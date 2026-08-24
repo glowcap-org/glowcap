@@ -150,7 +150,10 @@ broken answer and a live session instead.
   settlement it does not own.
   [ADR-0095](ADR-0095-listening-on-a-received-promise.md) is the recipient half
   of that shape. `zig build goblins-relayed-give` runs the gifter half against a
-  live Goblins pair, with a Goblins recipient doing the waiting.
+  live Goblins pair, with a Goblins recipient doing the waiting;
+  `zig build goblins-listen-recipient` runs the reciprocal live half, with the
+  owning native Session waiting on Goblins' promise and calling a capability
+  nested in its later settlement.
 
 ## Notes
 

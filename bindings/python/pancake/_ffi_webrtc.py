@@ -81,7 +81,11 @@ pin_struct(_WebrtcConfig, "PANCAKE_WEBRTC_CONFIG")
 
 def _load_webrtc():
     lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    require_archive_fingerprint(lib, "webrtc", WEBRTC_ARCHIVE_FINGERPRINT)
+    require_archive_fingerprint(
+        lambda: lib.pancake_webrtc_archive_fingerprint,
+        "webrtc",
+        WEBRTC_ARCHIVE_FINGERPRINT,
+    )
     for name, (argtypes, restype) in webrtc_sigs(
         _WebrtcReadyEvent, _WebrtcConfig, _TransportProvider
     ).items():

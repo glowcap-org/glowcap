@@ -80,6 +80,7 @@ pub fn initWithSession(allocator: std.mem.Allocator, session_state: session.Sess
 /// Free every allocation still owned by the Peer, including queued carriers,
 /// Node-dependent gifts, parked withdraws, and the authoritative Session.
 pub fn deinit(self: *Peer) void {
+    std.debug.assert(self.pending_send_reservations == 0);
     clearPendingWithdraws(self);
     detachNodeServices(self);
     for (self.inbound.pending()) |*frame| frame.deinit();

@@ -11,6 +11,37 @@ const model = pancake.ocapn.model;
 const capnp = pancake.ocapn.codec.capnp;
 const wire = capnp.wire;
 
+test "a promise reference with derived data is refused instead of flattened" {
+    const allocator = std.testing.allocator;
+    const marker: u64 = 0xfedc_ba98_7654_3210;
+    var frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(marker) } },
+        .args = &.{},
+    } });
+    defer frame.deinit();
+
+    const bytes = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(bytes);
+    const words = bytes.len / @sizeOf(u64);
+    var reference_word: ?usize = null;
+    for (1..words - 3) |i| {
+        const data0 = std.mem.readInt(u64, bytes[i * 8 ..][0..8], .little);
+        const data1 = std.mem.readInt(u64, bytes[(i + 1) * 8 ..][0..8], .little);
+        if (data0 == 2 and data1 == marker) {
+            reference_word = i;
+            break;
+        }
+    }
+    const start = reference_word orelse return error.TestUnexpectedResult;
+    // Reference pointer slot 0 is the word after its two data words. Any
+    // non-null value is unsupported for the promise arm; a zero-length list
+    // pointer is sufficient to prove the decoder checks presence, not payload.
+    std.mem.writeInt(u64, bytes[(start + 2) * 8 ..][0..8], 1, .little);
+    const hostile = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    try std.testing.expectError(error.UnsupportedReference, capnp.decodeBody(hostile));
+    try std.testing.expectError(error.UnsupportedReference, capnp.decodeOwned(allocator, hostile));
+}
+
 test "Cap'n Proto rejects invalid UTF-8 String and Symbol values without allocating" {
     const invalid = &.{@as(u8, 0xff)};
     const invalid_arguments = [_]model.Argument{
@@ -193,7 +224,7 @@ test "decode rejects a multi-segment frame" {
 // pointer words, and list tags decode through bounded helpers, so a corrupted
 // frame must resolve to a typed `Error` (or a well-formed message) and never
 // trip illegal behavior (an out-of-range `@enumFromInt`, an unchecked slice).
-// This walks representative frames — every union arm, a pipeline path, a handoff
+// This walks representative frames — every union arm, a promise reference, a handoff
 // — flipping each byte to boundary values and asserting both decode paths stay
 // total. A regression here (e.g. a raw `@enumFromInt` on a wire discriminant)
 // surfaces as a panic that aborts the test binary.
@@ -201,7 +232,6 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
     const allocator = std.testing.allocator;
 
     const call_args = [_]model.Argument{.{ .string = "ping" }};
-    const path_ops = [_]model.PipelineOp{ .{ .field = "field" }, .{ .call = &call_args } };
     const give = model.HandoffGive{
         .recipient_key = &(@as([32]u8, @splat(0x01))),
         .exporter = .{ .transport = "tcp", .designator = "host" },
@@ -214,7 +244,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
     // Cover every union arm and argument kind so each errdefer in the owned
     // decode path is actually unwound by some corruption: deliver (far + every
     // arg kind, including a nested reference/error/handoff/tagged), deliver
-    // (promise with a pipeline path), deliver (sturdy target), resolve
+    // (promise target), deliver (sturdy target), resolve
     // (fulfill + break), gc-export (two parallel lists), abort, the get/index/
     // listen receiver-bearing ops, start-session, and both handoff arms.
     const messages = [_]model.Message{
@@ -240,7 +270,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
             .resolve_me_desc = .{ .near = model.NearRef.promise(3) },
         } },
         .{ .deliver = .{
-            .target = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = &path_ops } } },
+            .target = .{ .promise = .{ .answer_position = .from(1) } },
             .args = &.{},
         } },
         .{ .deliver = .{
@@ -494,15 +524,10 @@ test "a decoded frame must be exactly the length its header declares" {
 }
 
 test "a locator carrying the same hint name twice is refused" {
-    // Hints are a dictionary, so a repeated name is malformed. It matters more
-    // than tidiness: the encoder emits hint entries in model order with no
-    // uniqueness pass, so a duplicate admitted here would be re-emitted, as
-    // part of a handoff give's exporter location, into a dictionary pancake's
-    // own decoder rejects.
     const allocator = std.testing.allocator;
     const entries = [_]model.HintEntry{
-        .{ .name = "direct-addresses", .value = .{ .string = "10.0.0.1:9000" } },
-        .{ .name = "direct-addresses", .value = .{ .string = "10.0.0.2:9000" } },
+        .{ .name = "direct-addresses1", .value = .{ .string = "10.0.0.1:9000" } },
+        .{ .name = "direct-addresses2", .value = .{ .string = "10.0.0.2:9000" } },
     };
     var frame = try capnp.encodeMessage(allocator, .{ .start_session = .{
         .captp_version = .v1_0,
@@ -516,7 +541,48 @@ test "a locator carrying the same hint name twice is refused" {
     } });
     defer frame.deinit();
 
-    // Borrowed decode leaves the list lazy, so the refusal lands where the
-    // entries are actually materialized.
-    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, frame.view()));
+    const bytes = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(bytes);
+    const second = std.mem.indexOf(u8, bytes, "direct-addresses2") orelse
+        return error.TestUnexpectedResult;
+    bytes[second + "direct-addresses".len] = '1';
+    const view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
+}
+
+test "a Cap'n Proto locator cannot carry false and non-empty hints" {
+    const allocator = std.testing.allocator;
+    const entries = [_]model.HintEntry{.{
+        .name = "direct-addresses",
+        .value = .{ .string = "10.0.0.1:9000" },
+    }};
+    var frame = try capnp.encodeMessage(allocator, .{ .start_session = .{
+        .captp_version = .v1_0,
+        .session_pubkey = .{ .bytes = &(@as([32]u8, @splat(0x11))) },
+        .acceptable_location = .{
+            .transport = "tcp",
+            .designator = "127.0.0.1:9000",
+            .hints = .{ .entries = &entries },
+        },
+        .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0x22))) },
+    } });
+    defer frame.deinit();
+
+    const bytes = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(bytes);
+    const mutable_view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const message_view = try capnp.decodeMessageView(mutable_view);
+    const locator = (try message_view.reader.followStruct(message_view.body, 2)) orelse
+        return error.TestUnexpectedResult;
+    const data_word = bytes[(locator.data_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES];
+    std.mem.writeInt(u64, data_word, std.mem.readInt(u64, data_word, .little) | 1, .little);
+
+    const body = try capnp.decodeBody(mutable_view);
+    var s = pancake.ocapn.session.Session.initNegotiating(allocator);
+    defer s.deinit();
+    try std.testing.expectError(
+        pancake.ocapn.session.Error.MalformedMessage,
+        s.recordRecvView(body),
+    );
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, mutable_view));
 }

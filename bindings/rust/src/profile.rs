@@ -1,6 +1,8 @@
 //! Codec, CapTP-version, and feature negotiation projected into Rust types.
 
 use crate::sys;
+#[cfg(feature = "async")]
+use crate::{Error, Result};
 
 /// The wire codec a host's sessions speak and a TCP connection frames with. Both
 /// ends of a connection must use the same value.
@@ -11,7 +13,19 @@ pub enum Codec {
 }
 
 impl Codec {
-	#[cfg(any(feature = "async", feature = "tcp", feature = "inproc"))]
+	#[cfg(feature = "async")]
+	pub(crate) fn from_c(raw: u32) -> Result<Self> {
+		match raw {
+			sys::CODEC_SYRUP => Ok(Codec::Syrup),
+			sys::CODEC_CAPNP => Ok(Codec::Capnp),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown session codec {other}"),
+			)),
+		}
+	}
+
+	#[cfg(any(feature = "async", feature = "tcp", feature = "inproc", feature = "onion"))]
 	pub(crate) fn to_c(self) -> u32 {
 		match self {
 			Codec::Syrup => sys::CODEC_SYRUP,
@@ -42,6 +56,18 @@ pub enum CaptpVersion {
 }
 
 impl CaptpVersion {
+	#[cfg(feature = "async")]
+	pub(crate) fn from_c(raw: u32) -> Result<Self> {
+		match raw {
+			sys::CAPTP_V1_0 => Ok(CaptpVersion::V1_0),
+			sys::CAPTP_NEXT => Ok(CaptpVersion::Next),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown session CapTP version {other}"),
+			)),
+		}
+	}
+
 	pub(crate) fn to_c(self) -> u32 {
 		match self {
 			CaptpVersion::V1_0 => sys::CAPTP_V1_0,
@@ -64,6 +90,15 @@ impl Default for CaptpVersion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FeatureSet(u32);
 
+/// The profile a live session settled with its partner. `features` is the
+/// exact mutually supported set, not the Host's offer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionProfile {
+	pub captp_version: CaptpVersion,
+	pub codec: Codec,
+	pub features: FeatureSet,
+}
+
 impl FeatureSet {
 	pub const MINIMUM: FeatureSet = FeatureSet(sys::FEATURE_MINIMUM);
 	pub const BASELINE: FeatureSet = FeatureSet(sys::FEATURE_BASELINE);
@@ -72,6 +107,7 @@ impl FeatureSet {
 	pub const WIRE_DELTA: FeatureSet = FeatureSet(sys::FEATURE_WIRE_DELTA);
 	pub const STURDYREF: FeatureSet = FeatureSet(sys::FEATURE_STURDYREF);
 	pub const UNTAG: FeatureSet = FeatureSet(sys::FEATURE_UNTAG);
+	pub const MULTI_LOCATION: FeatureSet = FeatureSet(sys::FEATURE_MULTI_LOCATION);
 	pub const FULL: FeatureSet = FeatureSet(sys::FEATURE_FULL);
 
 	pub const fn from_bits(bits: u32) -> Option<FeatureSet> {

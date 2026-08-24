@@ -25,6 +25,7 @@ export interface HostOptions {
 	frameCap?: number;
 	localTurnBudget?: number;
 }
+export type { SessionLimitOptions } from "./host/application.ts";
 
 /** The CapTP host: one identity, one session directory, one routing and redeem
  * authority, shared by every session minted against it. Owns `engine.Node`

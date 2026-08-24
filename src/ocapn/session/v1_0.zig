@@ -28,6 +28,28 @@ const session = @import("mod.zig");
 
 const Session = session.Session;
 
+/// A partner resolver link whose allocations and collision checks are complete
+/// but whose capability authority has not moved. The frame's shared
+/// introduced-import transaction owns the resolver retain; this value owns the
+/// answer/link half and commits it only after the queue or event destination is
+/// also secured.
+pub const PreparedInboundResolver = struct {
+    answer: model.AnswerName,
+    resolver_import: model.ImportPosition,
+    virtual_answer: ?model.VirtualAnswer = null,
+
+    pub fn commit(self: PreparedInboundResolver, target: *Session) void {
+        if (self.virtual_answer) |virtual| {
+            commitVirtualInboundAnswer(target, virtual);
+            target.commitFreshInboundAnswerNamed(self.answer);
+        }
+        target.v1_0_inbound_resolver_link.putAssumeNoClobber(
+            self.answer,
+            self.resolver_import,
+        );
+    }
+};
+
 /// Whether this session's negotiated CapTP version is OCapN V1.0, which has no
 /// native `op:resolve` and therefore needs resolver-callback translation.
 pub fn needsV1_0Translation(self: *const Session) bool {
@@ -60,14 +82,40 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 /// committed — the import retain and the forward entry — so no half-installed
 /// resolver row survives.
 pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver_import: model.ImportPosition) !void {
-    try self.registerImport(resolver_import);
-    // The `BiMap` put is all-or-none across both directions, so a failure needs
-    // only the import retain rolled back (the one piece the map cannot own). The
-    // retain above just succeeded, so the decrement cannot underflow;
-    // `unreachable` keeps that construction loud in safe builds.
-    self.v1_0_inbound_resolver_link.put(self.allocator, answer, resolver_import) catch |err| {
-        self.imports.decrement(resolver_import, 1) catch unreachable;
-        return err;
+    try self.imports.prepareRetain(
+        self.allocator,
+        resolver_import,
+        self.limits.max_imports,
+    );
+    const prepared = try prepareInboundResolver(self, answer, resolver_import, null);
+    self.imports.retainAssumeCapacity(resolver_import);
+    prepared.commit(self);
+}
+
+/// Prepare a fresh answer-to-resolver link. `virtual_answer` is present only
+/// for the V1.0 resolver-only call shape; its answer row and cursor advance are
+/// part of the same eventual commit. Existing pairs are refused rather than
+/// evicted: either collision names authority already accepted from an earlier
+/// frame.
+pub fn prepareInboundResolver(
+    self: *Session,
+    answer: model.AnswerName,
+    resolver_import: model.ImportPosition,
+    virtual_answer: ?model.VirtualAnswer,
+) !PreparedInboundResolver {
+    if (self.v1_0_inbound_resolver_link.getByKey(answer) != null or
+        self.v1_0_inbound_resolver_link.getByValue(resolver_import) != null)
+        return session.Error.UnexpectedMessage;
+
+    if (virtual_answer) |virtual| {
+        std.debug.assert(answer == .virtual and answer.virtual == virtual);
+        try self.prepareFreshInboundAnswerNamed(answer);
+    }
+    try self.v1_0_inbound_resolver_link.ensureUnusedCapacity(self.allocator, 1);
+    return .{
+        .answer = answer,
+        .resolver_import = resolver_import,
+        .virtual_answer = virtual_answer,
     };
 }
 
@@ -88,8 +136,23 @@ pub fn answerForResolverImport(self: *const Session, resolver_import: model.Impo
 /// type is the namespace boundary: the counter can overlap every wire answer
 /// integer without aliasing one.
 pub fn allocateInboundAnswer(self: *Session) session.Error!model.VirtualAnswer {
+    const answer = try nextVirtualInboundAnswer(self);
+    commitVirtualInboundAnswer(self, answer);
+    return answer;
+}
+
+/// Preview the next virtual identity without consuming it. Prepared inbound
+/// work uses this value until its authority transaction commits.
+pub fn nextVirtualInboundAnswer(self: *const Session) session.Error!model.VirtualAnswer {
     const id = self.next_virtual_inbound_answer;
     if (id == 0) return error.VirtualAnswerSpaceExhausted;
-    self.next_virtual_inbound_answer = if (id == std.math.maxInt(u64)) 0 else id + 1;
     return .from(id);
+}
+
+fn commitVirtualInboundAnswer(self: *Session, answer: model.VirtualAnswer) void {
+    std.debug.assert(self.next_virtual_inbound_answer == answer.int());
+    self.next_virtual_inbound_answer = if (answer.int() == std.math.maxInt(u64))
+        0
+    else
+        answer.int() + 1;
 }

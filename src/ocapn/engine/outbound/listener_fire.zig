@@ -11,23 +11,21 @@ const engine = @import("../mod.zig");
 const Peer = engine.Peer;
 
 const pipeline = @import("../pipeline.zig");
+const resolution_chain = @import("../resolution_chain.zig");
 
 /// A fire payload that lives in a store: an inbound answer's stored
 /// resolution, or a handoff-imported third-party promise's stored resolution
 /// (ADR-0009). The two share the promise cell shape, keyed on distinct wire
 /// position spaces, so one lookup serves both.
-pub const StoreTarget = union(enum) {
-    answer: struct {
-        target: session.AnswerTarget,
-        payload: *session.AnswerPayload,
-    },
-    import: struct { position: model.ImportPosition, row_id: u64 },
-};
+pub const StoreTarget = resolution_chain.StoreTarget;
 
 /// Which payload a listener fire borrows at encode.
 pub const FireTarget = union(enum) {
     store: StoreTarget,
     near_object: model.ExportPosition,
+    /// A terminal break synthesized by engine routing rather than retained in a
+    /// Session store. The text is static for the carrier's whole lifetime.
+    static_break: []const u8,
 };
 
 pub const Carrier = struct {
@@ -36,6 +34,14 @@ pub const Carrier = struct {
 };
 
 pub fn deinit(carrier: Carrier, peer: *Peer) void {
+    peer.session_state.releaseImportRetain(.from(carrier.listener_position));
+    deinitEmitted(carrier, peer);
+}
+
+/// Release only the payload owner after emission. The matching listener import
+/// was already transferred into an emitted `op:gc-export` (or retired locally
+/// because the Session was terminal).
+pub fn deinitEmitted(carrier: Carrier, peer: *Peer) void {
     switch (carrier.target) {
         .store => |target| switch (target) {
             .answer => |answer| {
@@ -45,6 +51,7 @@ pub fn deinit(carrier: Carrier, peer: *Peer) void {
             .import => {},
         },
         .near_object => {},
+        .static_break => {},
     }
 }
 
@@ -62,6 +69,11 @@ pub fn borrowedMessage(peer: *Peer, carrier: Carrier, args: *[2]model.Argument) 
             const stored = resolveStoreChecked(peer, store_target) orelse return null;
             break :blk pipeline.borrowedListenerFire(carrier.listener_position, stored.*, args);
         },
+        .static_break => |message| pipeline.borrowedListenerFire(
+            carrier.listener_position,
+            .{ .@"break" = .{ .message = message } },
+            args,
+        ),
     };
 }
 
@@ -76,7 +88,7 @@ fn resolveFireStore(peer: *Peer, target: StoreTarget) ?struct {
         },
         .import => |import| {
             const row = peer.session_state.findImportedPromise(import.position) orelse return null;
-            if (row.cell.resolution) |*resolution| return .{ .row_id = row.cell.row_id, .resolution = resolution };
+            if (row.cell.resolution) |*resolution| return .{ .row_id = row.cell.row_id, .resolution = &resolution.value };
             return null;
         },
     }

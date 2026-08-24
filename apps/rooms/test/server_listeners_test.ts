@@ -15,8 +15,8 @@ import {
 	NO_SUCH_LISTENER,
 	roomErrorOf,
 } from "../lib/errors.ts";
-import { loopbackTcpDesignator } from "../lib/locator.ts";
-import { DIRECTORY } from "../lib/protocol.ts";
+import { loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
+import { ADVERTISED_LOCATION, DIRECTORY } from "../lib/protocol.ts";
 import {
 	Directory,
 	listenerDown,
@@ -43,7 +43,16 @@ import {
 	stopServer,
 	within,
 } from "./support/rooms_server.ts";
-import { TRANSPORT_KEYED_TCP } from "@pancake/runtime";
+import {
+	FEATURE_MULTI_LOCATION,
+	HINT_ALT_LOCATORS,
+	HINT_VIA,
+	parseLocator,
+	parseSturdyRef,
+	stringHint,
+	TRANSPORT_ID,
+	TRANSPORT_KEYED_TCP,
+} from "@pancake/runtime";
 import type { Ref, Session } from "@pancake/runtime";
 import { spawnOwned, stopOwned } from "./support/children.ts";
 
@@ -349,6 +358,78 @@ roomsTest("a loopback tcp listener rides up and down at runtime", async () => {
 			refused = err instanceof Error ? err.message : String(err);
 		}
 		assert(refused !== "", "a downed listener still accepted a dial");
+	} finally {
+		await stopServer(proc);
+		await Deno.remove(stateDir, { recursive: true });
+	}
+});
+
+roomsTest("route advertisement follows each caller's negotiated profile", async () => {
+	const stateDir = await Deno.makeTempDir();
+	const proc = spawnAdminServer(stateDir);
+	try {
+		const tcpLocator = loopbackTcpDesignator(await readPort(proc));
+		const session = await dial(tcpLocator);
+		session.serve().catch(() => {});
+		const taken = await takeAdmin(session, stateDir);
+		const directory = await session.fetch(DIRECTORY);
+		try {
+			const noise = await listenerUp(session, taken.cap, "noise-tcp");
+			assert(noise.id !== null && noise.locator !== null, "the noise listener did not come up");
+
+			const bundled = await session.send(directory, ADVERTISED_LOCATION, []);
+			assert(typeof bundled === "string", "advertisedLocation did not answer a locator");
+			const identity = parseLocator(bundled);
+			assert(identity.transport === TRANSPORT_ID, "the negotiated route feature did not advertise id/via");
+			const via = stringHint(identity, HINT_VIA);
+			assert(via === noise.locator, "id/via did not carry the proving Noise route");
+			assert(
+				stringHint(identity, HINT_ALT_LOCATORS)?.includes(".tcp") === true,
+				"id/via omitted the baseline TCP fallback",
+			);
+
+			const nextFloorHost = roomsHost(undefined, "next-baseline");
+			const nextFloor = await Directory.connect(tcpLocator, (address) => dial(address, nextFloorHost));
+			assert(nextFloor.session.profile.captpVersion === "next", "the next caller fell back to v1.0");
+			assert(
+				(nextFloor.session.profile.features & FEATURE_MULTI_LOCATION) === 0,
+				"the feature-limited caller negotiated multi-location",
+			);
+			assert(
+				await nextFloor.advertisedLocation() === tcpLocator,
+				"a next caller without the route feature received id/via",
+			);
+
+			const floorHost = roomsHost(undefined, "v1-syrup");
+			const floor = await Directory.connect(tcpLocator, (address) => dial(address, floorHost));
+			assert(floor.session.profile.captpVersion === "v1_0", "the compatibility caller did not settle v1.0");
+			assert(floor.session.profile.codec === "syrup", "the compatibility caller did not settle Syrup");
+			assert(
+				await floor.advertisedLocation() === tcpLocator,
+				"a v1.0 caller received pancake-next route vocabulary",
+			);
+
+			const linked = await floor.open("v1-link");
+			const sturdyref = await floor.link("v1-link", tcpLocator);
+			const swiss = parseSturdyRef(sturdyref, "v1_0").swissnum;
+			const encodedSwiss = sturdyref.match(/\/s\/([^?]+)/)?.[1];
+			const expectedSwiss = btoa(String.fromCharCode(...swiss))
+				.replaceAll("+", "-")
+				.replaceAll("/", "_")
+				.replace(/=+$/, "");
+			assert(encodedSwiss === expectedSwiss, "the v1.0 link did not use unpadded base64url swiss encoding");
+			floor.session.release(linked);
+			await floor.close();
+			await nextFloor.close();
+
+			await listenerDown(session, taken.cap, noise.id);
+			assert(
+				await session.send(directory, ADVERTISED_LOCATION, []) === tcpLocator,
+				"one remaining listener did not collapse to its concrete locator",
+			);
+		} finally {
+			session.release(directory);
+		}
 	} finally {
 		await stopServer(proc);
 		await Deno.remove(stateDir, { recursive: true });

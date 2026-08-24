@@ -403,7 +403,7 @@ fn recipientServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Even
     try IrohBridge.serve(conn_ctx, peer, event);
     const shell: *IrohBridge.Slot = @ptrCast(@alignCast(conn_ctx.?));
     const state: *RecipientState = @ptrCast(@alignCast(shell.bridge.publish_ctx.?));
-    if (state.want_intro and !state.intro_sent and shell.leg == .accept or shell.leg == .app_dial) {
+    if (state.want_intro and !state.intro_sent and (shell.leg == .accept or shell.leg == .app_dial)) {
         state.intro_sent = true;
         state.gifter_conn = shell.session;
         const vow = try state.host.fetch(shell.session, "desk");

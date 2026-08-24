@@ -35,6 +35,17 @@ pub const State = struct {
     failure_mutex: net.sync.SpinLock = .{},
     failure: ?foundation.FailureChain = null,
 
+    pub fn init(raw: net.relay.RawConnection) State {
+        return .{
+            .id = 0,
+            .raw = raw,
+            .events = .init(if (raw.hasBufferedReadWork())
+                events.PANCAKE_MULTIPLEXED_EV_READABLE
+            else
+                0),
+        };
+    }
+
     pub fn noteFailure(self: *State, later: foundation.FailureChain) void {
         self.failure_mutex.lock();
         defer self.failure_mutex.unlock();
@@ -49,21 +60,66 @@ pub const State = struct {
         return failure;
     }
 
+    /// One nonblocking application read plus the exact runtime wakes its state
+    /// transition requires. The projection performs the wakes after releasing
+    /// this connection's I/O lock; readiness ownership stays here.
+    pub const ReadOutcome = struct {
+        count: isize,
+        signal_control: bool = false,
+        signal_ready: bool = false,
+    };
+
+    pub fn tryReadLocked(self: *State, dest: []u8) ReadOutcome {
+        if (self.raw_closed or self.release_requested.load(.acquire))
+            return .{ .count = -1 };
+        const pending_before = self.raw.hasPendingWrite();
+        const count = self.raw.tryRead(dest);
+        if (count < 0 and count != events.PANCAKE_MULTIPLEXED_WOULD_BLOCK) self.noteFailure(
+            self.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
+        );
+        const pending_after = self.raw.hasPendingWrite();
+        return .{
+            .count = count,
+            // A consumed ping or close can stage its bounded response while
+            // returning WOULD_BLOCK/EOF. Rebuild the poll set immediately so
+            // POLLOUT, not the recovery timeout, owns that write.
+            .signal_control = !pending_before and pending_after,
+            // Successful application progress may leave another complete
+            // frame in the bounded reader. Preserve level-shaped readiness
+            // after the consumer claims the current event.
+            .signal_ready = count > 0 and !pending_after and
+                self.raw.hasBufferedReadWork() and
+                self.latchEvents(events.PANCAKE_MULTIPLEXED_EV_READABLE),
+        };
+    }
+
+    fn latchEvents(self: *State, published: u32) bool {
+        if (published == 0) return false;
+        const prior = self.events.fetchOr(published, .acq_rel);
+        return prior & published != published;
+    }
+
     /// Apply one poll edge under the connection's I/O lock. The caller owns
     /// the runtime wake after this returns true.
     pub fn reactLocked(self: *State, revents: c_short) bool {
         if (self.raw_closed or self.closed.load(.acquire) or
             self.release_requested.load(.acquire)) return false;
+        var newly_latched = false;
         if (revents & std.posix.POLL.OUT != 0 and self.raw.hasPendingWrite()) {
             const flushed = self.raw.flushPending();
             if (flushed == -1) {
                 self.noteFailure(self.raw.takeFailure() orelse .init(error.ConnectionLost));
                 self.closed.store(true, .release);
-                _ = self.events.fetchOr(events.PANCAKE_MULTIPLEXED_EV_CLOSED, .acq_rel);
-                return true;
+                return self.latchEvents(events.PANCAKE_MULTIPLEXED_EV_CLOSED);
             }
-            if (!self.raw.hasPendingWrite())
-                _ = self.events.fetchOr(events.PANCAKE_MULTIPLEXED_EV_WRITABLE, .acq_rel);
+            if (!self.raw.hasPendingWrite()) {
+                var flushed_events = events.PANCAKE_MULTIPLEXED_EV_WRITABLE;
+                // Control handling may already have consumed the kernel edge
+                // and left the following data frame in the bounded reader.
+                if (self.raw.hasBufferedReadWork())
+                    flushed_events |= events.PANCAKE_MULTIPLEXED_EV_READABLE;
+                newly_latched = self.latchEvents(flushed_events);
+            }
         }
         const fatal = revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0;
         const hung_up = revents & std.posix.POLL.HUP != 0;
@@ -78,9 +134,7 @@ pub const State = struct {
             self.closed.store(true, .release);
         }
         const published = pollEvents(revents);
-        if (published == 0) return false;
-        _ = self.events.fetchOr(published, .acq_rel);
-        return true;
+        return self.latchEvents(published) or newly_latched;
     }
 
     /// Poll interest while an explicit close owns the connection. Zero is

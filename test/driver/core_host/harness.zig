@@ -21,6 +21,13 @@ const stream_framing = pancake.foundation.stream_framing;
 
 pub const frame_cap = 4096;
 
+pub fn nextRouteOptions() Host.Options {
+    var options = Host.Options.withFrameCap(frame_cap);
+    options.captp_version = .next;
+    options.features = model.FeatureSet.full().forCaptpVersion(.next);
+    return options;
+}
+
 /// The gifted object, published by the exporter.
 pub const Widget = struct {
     pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Message) !model.Argument {
@@ -101,7 +108,12 @@ pub fn onionSturdyref(designator: []const u8, swissnum: []const u8) model.Sturdy
 
 /// One dial request parked for the test to execute, designator duped clear of
 /// the action queue's popped-view lifetime.
-pub const ParkedDial = struct { host: *Host, ticket: pancake.ocapn.engine.Node.PendingId, designator: []u8 };
+pub const ParkedDial = struct {
+    host: *Host,
+    ticket: pancake.ocapn.engine.Node.PendingId,
+    route_index: usize,
+    designator: []u8,
+};
 
 /// Drain every host's action queue: gift-id requests are answered inline with
 /// deterministic bytes (entropy is the embedder's job), flush notices are
@@ -111,30 +123,29 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
     var did_work = false;
     for (hosts) |host| {
         while (try host.nextAction()) |action| {
+            // `nextAction` drives dirty Host work before returning an effect.
+            // Consuming even a no-op test effect can therefore make fresh wire
+            // output visible for the next shuttle round.
+            did_work = true;
             switch (action) {
                 .flush => {},
                 .need_gift_id => |n| {
                     const gift_id = @as([32]u8, @splat(0x5a));
                     try host.provideGiftId(n.ticket, &gift_id);
-                    did_work = true;
                 },
                 .dial => |d| {
                     // Ticket-only action: pending row owns the dial view (no re-parse).
-                    // Every dial in this file targets a tcp locator with a
-                    // socket-address designator.
-                    const view = host.pendingDial(d.ticket) orelse return error.MissingPendingDial;
-                    try std.testing.expectEqualStrings("tcp", view.transport);
-                    try std.testing.expect(view.designator.len != 0);
+                    const view = host.pendingDial(d.ticket, d.route_index) orelse return error.MissingPendingDial;
+                    try std.testing.expect(view.locator.designator.len != 0);
                     try dials.append(allocator, .{
                         .host = host,
                         .ticket = d.ticket,
-                        .designator = try allocator.dupe(u8, view.designator),
+                        .route_index = d.route_index,
+                        .designator = try allocator.dupe(u8, view.locator.designator),
                     });
-                    did_work = true;
                 },
                 .cancel_dial => |d| {
-                    try host.dialCancelled(d.ticket);
-                    did_work = true;
+                    try host.dialCancelled(d.ticket, d.route_index);
                 },
                 // An unlistened vow's completion; the tests in this file that
                 // route completions drain `nextAction` by hand instead.

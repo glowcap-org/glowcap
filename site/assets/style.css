@@ -3,7 +3,7 @@
    teal that plays against it. */
 
 :root {
-  --code-bg: light-dark(#f5e6ce, #191309);
+  --code-bg: #f5e6ce;
   /* Two shadows, because one cannot serve both themes and both jobs. A shadow
      is cast in the colour of the ink, and in the dark theme the ink is cream —
      so the same declaration that puts a soft shadow under a card on paper puts
@@ -17,8 +17,8 @@
      card blooms into fog. What reads as lift under a raised surface is
      darkness, so that is what --shadow carries and --shadow-well does not. */
   --shadow: 0 1px 2px var(--shadow-near), 0 10px 26px var(--shadow-far);
-  --shadow-near: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), rgba(0, 0, 0, 0.4));
-  --shadow-far: light-dark(color-mix(in srgb, var(--ink) 8%, transparent), rgba(0, 0, 0, 0.36));
+  --shadow-near: color-mix(in srgb, var(--ink) 6%, transparent);
+  --shadow-far: color-mix(in srgb, var(--ink) 8%, transparent);
   --shadow-well: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
     0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
   --sidebar-w: 16rem;
@@ -28,18 +28,18 @@
   /* The diagrams override these two, so they need a light-theme identity of
      their own; otherwise every use carries a core colour as a literal fallback
      and the palette is restated in two more places. */
-  --dia-accent-deep: light-dark(var(--accent-deep), #eda04a);
-  --dia-teal-deep: light-dark(var(--teal-deep), #5cc3cd);
+  --dia-accent-deep: var(--accent-deep);
+  --dia-teal-deep: var(--teal-deep);
   /* Syntax colours, as tokens so the dark theme can lift them off the paper
      palette instead of restating every rule. Each one clears 4.5:1 against
      `--code-bg`, the bar for text this size: a fenced listing sets at roughly
      twelve pixels, which is body text and not large text. */
-  --syn-keyword: light-dark(#98499f, #d08ad6);
-  --syn-call: light-dark(var(--teal-deep), #5cc3cd);
-  --syn-string: light-dark(#476225, #a8c86a);
-  --syn-number: light-dark(#985313, #e8a765);
-  --syn-comment: light-dark(#736046, #8d7c60);
-  --syn-punct: light-dark(#726249, #9c8b70);
+  --syn-keyword: #98499f;
+  --syn-call: var(--teal-deep);
+  --syn-string: #476225;
+  --syn-number: #985313;
+  --syn-comment: #736046;
+  --syn-punct: #726249;
 }
 
 /* "Syrup": the same warmth taken down to a dark roast, and the palette the
@@ -48,15 +48,35 @@
 
    `data-theme` is stamped on the root element by the toggle in the header, and
    the media query catches everyone who never touches it. The attribute wins in
-   both directions so a reader can choose light on a dark desktop. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+   both directions so a reader can choose light on a dark desktop.
+
+   The whole dark theme rides the `@supports` guard on `light-dark()`: a
+   browser without the function keeps the light palette, so it must not get
+   dark diagram tokens or a dark `color-scheme` either. The toggle retires on
+   those browsers further down, beside its own rules. */
+@supports (color: light-dark(#000, #fff)) {
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      /* Dark-only, and they stay two-armed rather than folding into `light-dark()`.
+         Each is undefined in the light theme on purpose: the diagram SVGs name
+         them as `var(--dia-…, #literal)`, and several distinct pale tints share
+         one token, so giving the token a single light value would flatten three
+         different colours into one and change the light artwork. */
+      --dia-card: #33281b;
+      --dia-danger: #e07a5f;
+      --dia-green: #7fbf8c;
+      --dia-muted: #9c8b70;
+      --dia-warm-fill: #2a2016;
+      --dia-warm-rule: #4a3b26;
+      --dia-warm-stroke: #7a663f;
+      --dia-cool-fill: #1d2e2e;
+      --dia-cool-strong: #27403f;
+    }
+  }
+
+  :root[data-theme="dark"] {
     color-scheme: dark;
-    /* Dark-only, and they stay two-armed rather than folding into `light-dark()`.
-       Each is undefined in the light theme on purpose: the diagram SVGs name
-       them as `var(--dia-…, #literal)`, and several distinct pale tints share
-       one token, so giving the token a single light value would flatten three
-       different colours into one and change the light artwork. */
     --dia-card: #33281b;
     --dia-danger: #e07a5f;
     --dia-green: #7fbf8c;
@@ -67,19 +87,6 @@
     --dia-cool-fill: #1d2e2e;
     --dia-cool-strong: #27403f;
   }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --dia-card: #33281b;
-  --dia-danger: #e07a5f;
-  --dia-green: #7fbf8c;
-  --dia-muted: #9c8b70;
-  --dia-warm-fill: #2a2016;
-  --dia-warm-rule: #4a3b26;
-  --dia-warm-stroke: #7a663f;
-  --dia-cool-fill: #1d2e2e;
-  --dia-cool-strong: #27403f;
 }
 
 * {
@@ -250,6 +257,15 @@ a:focus-visible,
    in, so the icon reads as an action. Which icon that is comes straight from
    the same conditions that pick the palette, so the button cannot fall out of
    step with the page even before its script runs. */
+/* A browser without `light-dark()` keeps the light palette no matter what
+   the toggle stamps, so on those browsers the control retires rather than
+   sit in the header doing nothing. */
+@supports not (color: light-dark(#000, #fff)) {
+  .theme-toggle {
+    display: none;
+  }
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -513,4 +529,60 @@ a:focus-visible,
 
 .nav-sub a.is-current::before {
   height: 0.95em;
+}
+
+/* ── Print ───────────────────────────────────────────────────────────────────
+   A printed page is the article alone: the chrome exists to move between
+   pages, and paper has no pages to move between. Code listings wrap instead
+   of scrolling, because a scrollbar on paper is just missing text. */
+@media print {
+  .site-header,
+  .sidebar,
+  .toc,
+  .site-footer,
+  .copy-btn,
+  .docs-nav-toggle {
+    display: none !important;
+  }
+
+  .shell {
+    display: block;
+    max-width: none;
+    padding: 0;
+  }
+
+  pre,
+  pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Forced colors strip the teal wash and bar that mark the current page, so
+   the marker moves to a border the system palette keeps. */
+@media (forced-colors: active) {
+  .nav .is-current,
+  .nav-sub a.is-current {
+    border-left: 3px solid SelectedItem;
+  }
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the site keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --code-bg: light-dark(#f5e6ce, #191309);
+    --shadow-near: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), rgba(0, 0, 0, 0.4));
+    --shadow-far: light-dark(color-mix(in srgb, var(--ink) 8%, transparent), rgba(0, 0, 0, 0.36));
+    --dia-accent-deep: light-dark(var(--accent-deep), #eda04a);
+    --dia-teal-deep: light-dark(var(--teal-deep), #5cc3cd);
+    --syn-keyword: light-dark(#98499f, #d08ad6);
+    --syn-call: light-dark(var(--teal-deep), #5cc3cd);
+    --syn-string: light-dark(#476225, #a8c86a);
+    --syn-number: light-dark(#985313, #e8a765);
+    --syn-comment: light-dark(#736046, #8d7c60);
+    --syn-punct: light-dark(#726249, #9c8b70);
+  }
 }

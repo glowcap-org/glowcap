@@ -223,6 +223,7 @@ pub fn handleLine(
         }
         progress.noteVerb(verb, ctx);
         if (await_queue.isSessionVerb(verb) and tokens.len >= 2) {
+            // best-effort: name completion just misses this name.
             complete_state.rememberName(tokens[1]) catch {};
         }
         result.flash = flashForVerb(verb);
@@ -244,6 +245,8 @@ fn tipFromRecent(store: *blocks.Store) void {
         checked += 1;
         if (copy.tipForErrorDetail(store.items.items[i].body)) |tip| {
             var tbuf: [256]u8 = undefined;
+            // best-effort: a tip is decoration; drop it when it cannot render
+            // or the store refuses it.
             const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch return;
             store.appendLine(.tip, tm) catch {};
             return;

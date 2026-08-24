@@ -119,7 +119,7 @@ fn applyRelayedResolutionWithPolicy(
         model.freeResolution(self.allocator, resolution);
         return err;
     };
-    errdefer prepared_fires.abandon(self, import_position);
+    errdefer prepared_fires.abandon(self);
     // A stamp mismatch means a different promise reused this position; the
     // stale relay is moot, as with a listener-fire carrier whose stamp misses.
     if (!(try self.session_state.recordRelayedResolution(
@@ -127,11 +127,10 @@ fn applyRelayedResolutionWithPolicy(
         row_id,
         resolution,
     ))) {
-        prepared_fires.abandon(self, import_position);
+        prepared_fires.abandon(self);
         return;
     }
-    const stored = self.session_state.importedPromiseResolution(import_position) orelse unreachable;
-    prepared_fires.commit(self, import_position, row_id, stored.*);
+    prepared_fires.commit(self);
 }
 
 /// Retry one listener batch whose store committed under terminal pressure. OOM

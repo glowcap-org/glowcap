@@ -19,10 +19,10 @@
 	<nav class="cards" aria-label="Where to go next">
 		<a class="card card-lead" href="$site.page('examples').link()">
 			<span class="card-lead-mark" aria-hidden="true"></span>
-			<span>
+			<div>
 				<h2>Rooms: pancake as a chat</h2>
 				<p>Open a room, pick a member, and press Message. That introduction is the protocol this site is for.</p>
-			</span>
+			</div>
 		</a>
 		<a class="card" href="$site.page('cli').link()">
 			<h2>Talk to a live peer from your shell</h2>

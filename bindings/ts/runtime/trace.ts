@@ -12,10 +12,10 @@
  * The facts arrive through the drained seam, `pancake_host_set_trace_queue`
  * plus `pancake_host_next_trace`: the host captures each one into a fixed ring
  * and this veneer pops the ring on the same unwind that drains the action
- * queue. That is the seam a browser can reach — the wasm module declares
- * exactly one import, the behavior trampoline, so the callback seam beside it
- * has no wasm form — and using the one seam everywhere means a browser peer
- * and a native one produce the same stream through the same code.
+ * queue. That is the seam a browser can reach — the wasm module admits only
+ * its fixed behavior and hosted-retirement callbacks, so the trace callback
+ * beside them has no wasm form — and using the one seam everywhere means a
+ * browser peer and a native one produce the same stream through the same code.
  *
  * Off by default and zero-cost when off: with no sink installed no ring is
  * allocated and the core's emit sites are one null check.

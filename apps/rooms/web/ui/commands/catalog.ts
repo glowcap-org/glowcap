@@ -3,18 +3,37 @@
 // Possession is the list: a command is here because this conversation handed
 // it, not because a role check passed.
 
+import { askedJoin } from "../joining.ts";
 import type { Conv } from "../types.ts";
 import { MAX_AWAY, MAX_TOPIC, PLAIN_AWAY, ROOM_MENTIONS } from "../../../lib/limits.ts";
 import type { Command, CommandHere, CommandOutcome, CommandPowers, HeldDirectory } from "./types.ts";
 
 /** Say what a directory is advertising, the answer `/list` gives about whichever
  * directory it was asked about. */
-function sayRooms(powers: CommandPowers, whose: string, rooms: ReadonlyMap<string, number>): CommandOutcome {
+function sayRooms(powers: CommandPowers, whose: string, rooms: ReadonlyMap<string, number | null>): CommandOutcome {
 	if (rooms.size === 0) return { kind: "refused", why: `${whose} is advertising no rooms.` };
 	const said = [...rooms].sort(([a], [b]) => a.localeCompare(b))
-		.map(([name, count]) => `#${name}: ${count} ${count === 1 ? "person" : "people"}`);
+		.map(([name, count]) =>
+			count === null ? `#${name}: occupancy unknown` : `#${name}: ${count} ${count === 1 ? "person" : "people"}`
+		);
 	powers.say(said.join("\n"));
 	return { kind: "done" };
+}
+
+/** Why this nick cannot be offered the room, or null when they can.
+ *
+ * `/invite` names one person. Empty is the caller's, so the command can say
+ * `Use /invite` rather than a field's wording. */
+export function inviteWhy(who: string, you: string): string | null {
+	const nick = who.trim().replace(/^@/, "").split(/\s+/)[0] ?? "";
+	if (nick === "") return "Name who to offer this room to.";
+	if (addressesEveryone(nick)) {
+		return `@${nick} is everyone in the room; hand it to one person.`;
+	}
+	if (you !== "" && nick.toLowerCase() === you.toLowerCase()) {
+		return "You already hold this room.";
+	}
+	return null;
 }
 
 /** Whether `who` is this reader, compared the way the directory grants names. */
@@ -107,25 +126,26 @@ export const COMMANDS: readonly Command[] = [
 		name: "join",
 		kind: "tab",
 		summary: "enter a room by name, or take up a link somebody gave you",
-		usage: "/join lobby, or /join ocapn://…/s/… plans to take up a link and name it",
+		usage: "/join lobby, or /join ocapn://…/s/… to take up a link",
 		needsArgument: true,
+		argument: "room",
 		run(rest, powers) {
-			const asked = rest.trim();
 			// A link is the room's own authority and reaches a room no name can:
 			// a private one, or a public one on a directory this tab does not
 			// hold. Told apart by the swissnum path a sturdyref carries, which is
-			// what makes it a way in rather than an address.
-			if (asked.includes("/s/")) {
-				// A link says nothing about what the room is called — that is what
-				// makes it a label rather than an address — so anything written
-				// after it is the reader's own word for the room.
-				const [link, ...rest] = asked.split(/\s+/);
-				powers.joinLink(link, rest.join(" ").trim() || "a room");
-				return { kind: "done" };
+			// what makes it a way in rather than an address. This is always a
+			// destination, never the conversation the command was typed in.
+			const want = askedJoin(rest);
+			if (want === null) return { kind: "refused", why: "Use /join followed by a room name or a link." };
+			if (want.kind === "link") {
+				// Anything written after the locator is the reader's own word for
+				// the room. Nothing after it means the room should say what it is
+				// called: a `/link` locator is to that place, and `/join` of it
+				// sits there rather than under an invented name.
+				powers.joinLink(want.link, want.label);
+			} else {
+				powers.joinRoom(want.name);
 			}
-			const name = asked.replace(/^#/, "");
-			if (name === "") return { kind: "refused", why: "Use /join followed by a room name or a link." };
-			powers.joinRoom(name);
 			return { kind: "done" };
 		},
 	},
@@ -138,6 +158,28 @@ export const COMMANDS: readonly Command[] = [
 		run(_rest, powers, conv) {
 			if (conv === null) return { kind: "refused", why: "There is nothing open to leave." };
 			powers.leaveHere();
+			return { kind: "done" };
+		},
+	},
+	{
+		name: "irclogin",
+		kind: "tab",
+		summary: "log into your own IRC account, in a bridged room",
+		usage: "/irclogin account password",
+		needsArgument: true,
+		place: "room",
+		run(rest, powers) {
+			const trimmed = rest.trim();
+			const gap = trimmed.indexOf(" ");
+			if (trimmed === "" || gap === -1) {
+				return { kind: "refused", why: "Use /irclogin followed by the account and its password." };
+			}
+			const account = trimmed.slice(0, gap);
+			const password = trimmed.slice(gap + 1).trim();
+			if (password === "") {
+				return { kind: "refused", why: "Use /irclogin followed by the account and its password." };
+			}
+			powers.ircLogin(account, password);
 			return { kind: "done" };
 		},
 	},
@@ -321,6 +363,18 @@ export const COMMANDS: readonly Command[] = [
 		},
 	},
 	{
+		name: "details",
+		kind: "tab",
+		summary: "what is known about this conversation",
+		usage: "/details",
+		aliases: ["info"],
+		run(_rest, powers, conv) {
+			if (conv === null) return { kind: "refused", why: "Open a room or a direct message first." };
+			powers.aboutConversation();
+			return { kind: "done" };
+		},
+	},
+	{
 		name: "quit",
 		kind: "tab",
 		summary: "give this directory back, and everything open on it",
@@ -448,21 +502,28 @@ export const COMMANDS: readonly Command[] = [
 	},
 	{
 		name: "link",
-		// Yours because you are holding the room: a durable authority to it is
-		// asked for with the reference, the way a line's `edit` is. What comes
-		// back is data, so it travels over any channel at all — including one
-		// this application knows nothing about. The mint is the price: the
-		// server records the room durably, so the ordinary invitation is
-		// /invite, which hands the room itself and costs nothing.
+		// Yours because you are holding a room: a durable authority is asked
+		// for with the reference, the way a line's `edit` is. What comes back
+		// is data, so it travels over any channel at all — including one this
+		// application knows nothing about. The mint is the price: the server
+		// records the room durably, so the ordinary invitation is /invite,
+		// which hands the room itself and costs nothing.
+		//
+		// Bare is this conversation's room. A name is a listed room on this
+		// directory, completed from the rooms that directory is advertising.
 		kind: "tab",
-		summary: "a link to this room, for anybody you give it to",
-		usage: "/link",
+		summary: "a link to this room, or to a listed room you name",
+		usage: "/link, or /link lobby for a listed room",
 		place: "room",
-		run(_rest, powers, conv) {
+		argument: "room",
+		run(rest, powers, conv) {
 			if (conv?.type !== "room") return { kind: "refused", why: "Only a room has a link." };
-			return powers.roomLink() ? { kind: "done" } : {
+			const name = rest.trim().replace(/^#/, "");
+			return powers.roomLink(name === "" ? undefined : name) ? { kind: "done" } : {
 				kind: "refused",
-				why: "There is no room here to link to.",
+				why: name === ""
+					? "There is no room here to link to."
+					: "There is no directory here to link a room on.",
 			};
 		},
 	},
@@ -482,12 +543,8 @@ export const COMMANDS: readonly Command[] = [
 			if (conv?.type !== "room") return { kind: "refused", why: "Only a room can be handed over." };
 			const who = rest.trim().replace(/^@/, "").split(/\s+/)[0] ?? "";
 			if (who === "") return { kind: "refused", why: "Use /invite followed by who to hand it to." };
-			if (addressesEveryone(who)) {
-				return { kind: "refused", why: `@${who} is everyone in the room; hand it to one person.` };
-			}
-			if (namesYou(who, powers)) {
-				return { kind: "refused", why: "You already hold this room." };
-			}
+			const why = inviteWhy(who, powers.you());
+			if (why !== null) return { kind: "refused", why };
 			return powers.invite(who) ? { kind: "done" } : {
 				kind: "refused",
 				why: "There is no room here to hand over.",

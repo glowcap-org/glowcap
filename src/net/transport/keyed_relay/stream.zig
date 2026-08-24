@@ -3,9 +3,11 @@
 
 const std = @import("std");
 const blocking_frame = @import("blocking_frame.zig");
+const close_machine = @import("close.zig");
 const protocol = @import("../../websocket.zig").client_protocol;
 const byte_stream = @import("carrier/byte_stream.zig");
 const carrier_runtime = @import("carrier/runtime.zig");
+const ws_source = @import("ws_source.zig");
 
 const foundation = @import("foundation");
 const engine = @import("engine");
@@ -43,30 +45,7 @@ comptime {
     std.debug.assert(max_staged_application_bytes > 0);
 }
 
-const WsSource = struct {
-    rs: *RelayStream,
-
-    pub fn readSome(self: WsSource, dest: []u8) Io.Reader.Error!usize {
-        return self.rs.readSome(dest);
-    }
-    pub fn writeAll(self: WsSource, bytes: []const u8) Io.Writer.Error!void {
-        // RFC 6455 section 5.5.1 forbids data frames after either half has
-        // started the close handshake. Control replies still use writeFrame
-        // directly, so this gate applies only to application bytes.
-        if (self.rs.read_closed or self.rs.close_sent) {
-            self.rs.noteFailure(error.Closed);
-            return error.WriteFailed;
-        }
-        return self.rs.writeFrame(.binary, bytes);
-    }
-    pub fn flush(self: WsSource) Io.Writer.Error!void {
-        self.rs.source.writer.flush() catch |err| {
-            self.rs.noteSourceFailure(err);
-            return error.WriteFailed;
-        };
-    }
-};
-
+const WsSource = ws_source.Source(RelayStream);
 const ShimT = stream_shim.Shim(WsSource);
 
 /// One dialed or registered relay socket, pinned so the reader/writer
@@ -423,13 +402,13 @@ pub const RelayStream = struct {
         }
     }
 
-    fn noteFrameFailure(rs: *RelayStream, cause: FrameError) void {
+    pub fn noteFrameFailure(rs: *RelayStream, cause: FrameError) void {
         if (cause == error.ReadFailed and rs.failure == null)
             rs.noteSourceFailure(cause);
     }
 
     /// What one consumed frame means to the caller's loop.
-    const FrameStep = enum { data, handled, closed };
+    pub const FrameStep = enum { data, handled, closed };
 
     /// Read the bounded control payload for the blocking frame loop. Data
     /// payload remains in the reader and streams through `readSome`.
@@ -456,9 +435,9 @@ pub const RelayStream = struct {
     /// one arm set, so an opcode fix cannot land in one loop and miss the
     /// other. The reads block only when the caller allows it: the parked
     /// path passes a borrow from bytes it already proved buffered.
-    const ControlWrite = enum { blocking, staged };
+    pub const ControlWrite = enum { blocking, staged };
 
-    fn applyFrame(
+    pub fn applyFrame(
         rs: *RelayStream,
         header: FrameHeader,
         body: []const u8,
@@ -557,6 +536,11 @@ pub const RelayStream = struct {
         return rs.source.hasPendingWrite();
     }
 
+    /// Whether a nonblocking read can advance without another socket edge.
+    pub fn hasBufferedReadWork(rs: *const RelayStream) bool {
+        return rs.read_closed or rs.source.reader.bufferedLen() != 0;
+    }
+
     /// Advance the explicit close transaction without parking the provider
     /// reactor. Application writes reserve enough buffer for this one control
     /// frame, so staging the close cannot flush or allocate.
@@ -567,18 +551,12 @@ pub const RelayStream = struct {
         if (flushed < 0) return .failed;
         if (rs.hasPendingWrite()) return .wait_write;
 
-        if (!rs.read_closed) {
-            var unexpected: [1]u8 = undefined;
-            const count = rs.tryReadSome(&unexpected) catch |err| switch (err) {
-                error.WouldBlock => return .wait_read,
-                error.EndOfStream => 0,
-                error.ReadFailed => return .failed,
-            };
-            if (count != 0) {
-                rs.noteFailure(error.WebSocketDataAfterClose);
-                return .failed;
-            }
-        }
+        if (!rs.read_closed) switch (close_machine.drainAfterLocalClose(rs)) {
+            .closed => {},
+            .wait_read => return .wait_read,
+            .wait_write => return .wait_write,
+            .failed => return .failed,
+        };
         return switch (rs.source.tryShutdown() catch |err| {
             rs.noteSourceFailure(err);
             return .failed;

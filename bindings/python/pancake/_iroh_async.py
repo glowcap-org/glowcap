@@ -446,8 +446,6 @@ async def _dial_resolving(
         except PancakeError as e:
             if e.code != ERR_IO or not retry or attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS:
                 raise
-        except Exception:
-            raise
         attempt += 1
         await asyncio.sleep(_DISCOVERY_DIAL_RETRY_S)
 

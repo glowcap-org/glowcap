@@ -30,7 +30,10 @@ authenticates no peer and carries CapTP in the clear. For the standardized
 Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
 two independent clients (needs Deno, Tor, and outbound network).
 
-The cross-language room without a browser is `zig build demo-rooms`.
+The cross-language room without a browser is `zig build demo-rooms`. Rooms
+also meets IRC in both directions, reading a channel as a room and serving
+ordinary IRC clients from a native directory;
+[IRC on Rooms]($link.page('examples/irc')) covers both edges.
 
 # Learn the Zig API
 

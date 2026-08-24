@@ -97,8 +97,11 @@
       ;; inbound (early bytes replay in order). Idempotent on the native side.
       (set-box! (async-connection-serve-hook (session-async c))
                 (lambda ()
-                  (check/driver (pancake_driver_session_serve
-                                 (driver-loop-handle lp) ptr))))
+                  ;; Serving releases frames parked behind the handshake and
+                  ;; may invoke a hosted behavior before returning.
+                  (parameterize ([current-deliver-owner m])
+                    (check/driver (pancake_driver_session_serve
+                                   (driver-loop-handle lp) ptr)))))
       (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
       (when terminal
         (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))

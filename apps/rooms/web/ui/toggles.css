@@ -45,6 +45,12 @@
 .tabs[data-count="3"] {
 	grid-template-columns: 1fr 1fr 1fr;
 }
+.tabs[data-count="4"] {
+	grid-template-columns: 1fr 1fr 1fr 1fr;
+}
+.tabs[data-count="5"] {
+	grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+}
 .tabs-thumb {
 	position: absolute;
 	z-index: 0;
@@ -56,10 +62,7 @@
 	/* The chosen cell wears the switch's own 28% accent wash in light, where
 	   a 15% tint sat too close to the recessed track's tone; dark keeps the
 	   quieter wash that already stands apart from its deep track. */
-	background: light-dark(
-		color-mix(in srgb, var(--accent) 28%, var(--paper-raised)),
-		color-mix(in srgb, var(--accent) 15%, var(--paper-raised))
-	);
+	background: color-mix(in srgb, var(--accent) 28%, var(--paper-raised));
 	/* Tinted edge plus the same lift the composer uses, so the pill reads as a
 	   chip standing in the well. Spread on the shadow, not a border, so the
 	   thumb stays the size of the cell it covers. */
@@ -70,11 +73,28 @@
 .tabs[data-count="3"] .tabs-thumb {
 	width: calc((100% - (2 * var(--tabs-pad)) - (2 * var(--tabs-gap))) / 3);
 }
+.tabs[data-count="4"] .tabs-thumb {
+	width: calc((100% - (2 * var(--tabs-pad)) - (3 * var(--tabs-gap))) / 4);
+}
+.tabs[data-count="5"] .tabs-thumb {
+	width: calc((100% - (2 * var(--tabs-pad)) - (4 * var(--tabs-gap))) / 5);
+}
+/* No tab chosen — the operations page standing on a gate — hides the thumb
+   where a parked one would claim a cell nobody picked. */
+.tabs[data-thumb="-1"] .tabs-thumb {
+	opacity: 0;
+}
 .tabs[data-thumb="1"] .tabs-thumb {
 	transform: translateX(calc(100% + var(--tabs-gap)));
 }
 .tabs[data-thumb="2"] .tabs-thumb {
 	transform: translateX(calc(2 * (100% + var(--tabs-gap))));
+}
+.tabs[data-thumb="3"] .tabs-thumb {
+	transform: translateX(calc(3 * (100% + var(--tabs-gap))));
+}
+.tabs[data-thumb="4"] .tabs-thumb {
+	transform: translateX(calc(4 * (100% + var(--tabs-gap))));
 }
 .tab {
 	all: unset;
@@ -231,10 +251,7 @@
 .segment[aria-pressed="true"] {
 	z-index: 1;
 	border-color: var(--accent);
-	background: light-dark(
-		color-mix(in srgb, var(--accent) 28%, var(--paper-raised)),
-		color-mix(in srgb, var(--accent) 15%, var(--paper-raised))
-	);
+	background: color-mix(in srgb, var(--accent) 28%, var(--paper-raised));
 	color: color-mix(in srgb, var(--accent-ink) 70%, var(--ink));
 }
 /* A long answer is a directory named after the address it was reached by, so it
@@ -361,6 +378,32 @@
 	.switch[data-busy="true"]::after {
 		animation: none;
 	}
+
+	/* The chosen tab still moves the thumb; it just arrives without the slide. */
+	.tabs-thumb {
+		transition: none;
+	}
+}
+
+/* Forced colors strip the washes and the knob's fill, which is everything
+   these controls say their state with. The state moves to the system
+   palette's own colors, which forced colors keep. */
+@media (forced-colors: active) {
+	.switch::after {
+		background: ButtonText;
+	}
+
+	.switch[aria-checked="true"] {
+		border-color: SelectedItem;
+	}
+
+	.switch[aria-checked="true"]::after {
+		background: SelectedItem;
+	}
+
+	.tab[aria-selected="true"] {
+		border: 2px solid SelectedItem;
+	}
 }
 /* The checkbox: the yes-or-no mark, the switch's form-dwelling sibling. At
    rest it speaks the field language — the field fill and lift under a
@@ -419,4 +462,19 @@
 	font-size: var(--type-ui);
 	color: var(--ink);
 	cursor: pointer;
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the page keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	.tabs-thumb {
+		background: light-dark(color-mix(in srgb, var(--accent) 28%, var(--paper-raised)), color-mix(in srgb,
+			var(--accent) 15%, var(--paper-raised)));
+	}
+	.segment[aria-pressed="true"] {
+		background: light-dark(color-mix(in srgb, var(--accent) 28%, var(--paper-raised)), color-mix(in srgb,
+			var(--accent) 15%, var(--paper-raised)));
+	}
 }

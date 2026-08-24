@@ -7,7 +7,21 @@
 		<meta name="format-detection" content="telephone=no">
 		<title :text="$page.title.suffix(' · pancake')"></title>
 		<meta name="description" content="$page.description">
+		<!-- Link unfurls in chat and social clients read these; without them a
+		     shared page renders as a bare URL. The image and canonical URL are
+		     deliberately absent: they must be absolute, and the template does
+		     not know its deployed origin. -->
+		<meta property="og:type" content="website">
+		<meta property="og:site_name" content="pancake">
+		<meta property="og:title" content="$page.title">
+		<meta property="og:description" content="$page.description">
+		<meta name="twitter:card" content="summary">
 		<link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
+		<link rel="apple-touch-icon" href="$site.asset('pancake-icon-256.png').link()">
+		<!-- The browser chrome takes the page's own ground (tokens.css --paper),
+		     so the frame around the page stops being a stranger's white or black. -->
+		<meta name="theme-color" content="#f8e7c9" media="(prefers-color-scheme: light)">
+		<meta name="theme-color" content="#211911" media="(prefers-color-scheme: dark)">
 		<!-- Every face is named here, and that is load-bearing rather than tidy:
 		     the generator installs an asset only when a template asks for its
 		     link, and it cannot see the `url()` inside tokens.css. A face left
@@ -59,7 +73,7 @@
 			</nav>
 		</header>
 		<div class="shell">
-			<aside class="sidebar">
+			<aside class="sidebar" aria-label="Site documentation">
 				<button type="button" id="docsNavToggle" class="docs-nav-toggle" aria-expanded="false" aria-controls="docsNav">Browse documentation</button>
 				<nav class="nav" id="docsNav" aria-label="Documentation">
 					<span class="nav-heading">Understand</span>
@@ -78,6 +92,9 @@
 						<a class="$site.page('bindings/browser').isCurrent().then('is-current', '')" href="$site.page('bindings/browser').link()">In the browser</a>
 					</div>
 				<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Rooms &amp; examples</a>
+					<div class="nav-sub">
+						<a class="$site.page('examples/irc').isCurrent().then('is-current', '')" href="$site.page('examples/irc').link()">IRC on Rooms</a>
+					</div>
 					<span class="nav-heading">Explore</span>
 					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
@@ -88,6 +105,7 @@
 						<a class="$site.page('transports/noise').isCurrent().then('is-current', '')" href="$site.page('transports/noise').link()">Noise (sealed TCP / relay)</a>
 						<a class="$site.page('transports/onion').isCurrent().then('is-current', '')" href="$site.page('transports/onion').link()">onion (Tor)</a>
 						<a class="$site.page('relay').isCurrent().then('is-current', '')" href="$site.page('relay').link()">The relay</a>
+						<a class="$site.page('multihome').isCurrent().then('is-current', '')" href="$site.page('multihome').link()">Multi-home peers</a>
 					</div>
 					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
 					<span class="nav-heading">Know</span>
@@ -104,7 +122,7 @@
 			<main id="content">
 				<super>
 			</main>
-			<aside class="toc" id="toc" hidden>
+			<aside class="toc" id="toc" aria-label="Current page outline" hidden>
 				<nav aria-label="On this page">
 					<span class="nav-heading">On this page</span>
 					<div class="toc-links"></div>
@@ -251,8 +269,11 @@
 
 			// Every standalone listing gets a copy button. Blocks inside a
 			// `code-tabs` group already got one above, on the tab strip.
+			// A listing wider than its box scrolls, and a scroll region only
+			// reaches keyboard users if it can take focus.
 			for (const pre of document.querySelectorAll(".prose pre")) {
 				pre.setAttribute("translate", "no");
+				pre.tabIndex = 0;
 				if (pre.closest(".code-tabs")) continue;
 				const wrap = document.createElement("div");
 				wrap.className = "code-block";

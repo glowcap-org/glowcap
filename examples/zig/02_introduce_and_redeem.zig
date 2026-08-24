@@ -165,7 +165,8 @@ pub fn main(init: std.process.Init) !void {
     var hosts_joined = false;
     defer if (!hosts_joined) {
         done.store(true, .release);
-        // Unwind join only. The success path uses try await before the print.
+        // best-effort: unwind join only. The success path uses `try await`
+        // before the print, so the error that got us here is the one reported.
         directory_future.await(io) catch {};
         widget_future.await(io) catch {};
     };

@@ -190,6 +190,35 @@ Deno.test("relayBytes joins both close barriers before settling", async () => {
 	assertEquals(settled, true);
 });
 
+Deno.test("webSocketRelay cancellation joins pair-atomic teardown", async () => {
+	const ws = new FakeWebSocket();
+	const controller = new AbortController();
+	let finishFarRead!: (value: Uint8Array | null) => void;
+	let farClosed = false;
+	const relayed = webSocketRelay(
+		ws as unknown as WebSocket,
+		() =>
+			Promise.resolve({
+				read: () => new Promise<Uint8Array | null>((resolve) => finishFarRead = resolve),
+				write: () => Promise.resolve(),
+				close: () => {
+					farClosed = true;
+					finishFarRead(null);
+					return Promise.resolve();
+				},
+			}),
+		"dial failed",
+		{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
+		{ signal: controller.signal },
+	);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	controller.abort();
+	await relayed;
+	assertEquals(ws.closeCode, 1001);
+	assertEquals(ws.closeReason, "relay stopped");
+	assertEquals(farClosed, true);
+});
+
 Deno.test("relay webSocketChannel bounds early inbound queue", async () => {
 	const ws = new FakeWebSocket();
 	const channel = webSocketChannel(ws as unknown as WebSocket, { inboundHighWaterBytes: 10 });
@@ -276,7 +305,7 @@ Deno.test("relay webSocketChannel rejects throttled write on close", async () =>
 	throw new Error("expected closed socket to reject the pending write");
 });
 
-Deno.test("rendezvous accounts insert, error, take, and close exactly once", () => {
+Deno.test("rendezvous accounts insert, error, take, and close exactly once", async () => {
 	const rendezvous = new Rendezvous();
 	const alice = "a".repeat(64);
 	const bob = "b".repeat(64);
@@ -309,7 +338,7 @@ Deno.test("rendezvous accounts insert, error, take, and close exactly once", () 
 	second.close(); // taken entries are no longer registry-owned
 	assertEquals(rendezvous.heldCount(), 1);
 
-	rendezvous.close();
+	await rendezvous.close();
 	assertEquals(rendezvous.heldCount(), 0);
 	assertEquals(rendezvous.registered().length, 0);
 	third.close(); // close after shutdown must not underflow accounting
@@ -324,6 +353,34 @@ Deno.test("rendezvous accounts insert, error, take, and close exactly once", () 
 		throw new Error("a closed rendezvous must refuse new registrations");
 	}
 	taken.close();
+});
+
+Deno.test("rendezvous close is one physical-release barrier", async () => {
+	class DelayedCloseWebSocket extends FakeWebSocket {
+		override close(code?: number, reason?: string): void {
+			this.closeCode = code;
+			this.closeReason = reason;
+			this.readyState = WebSocket.CLOSING;
+		}
+
+		finishClose(): void {
+			super.close(this.closeCode, this.closeReason);
+		}
+	}
+	const socket = new DelayedCloseWebSocket();
+	const rendezvous = new Rendezvous();
+	if (!rendezvous.register("a".repeat(64), socket as unknown as WebSocket)) {
+		throw new Error("registration should be admitted");
+	}
+	const first = rendezvous.close();
+	assertEquals(first, rendezvous.close());
+	let settled = false;
+	void first.then(() => settled = true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(settled, false);
+	socket.finishClose();
+	await first;
+	assertEquals(settled, true);
 });
 
 Deno.test("rendezvous accepts only canonical fixed-size key designators", () => {

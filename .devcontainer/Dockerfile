@@ -1,15 +1,15 @@
 # syntax=docker/dockerfile:1.7
-# Versions and paths: pins.sh (enforced by check-env-sync.sh at container open).
+# Versions and paths: pins.sh (enforced by test/env-sync.sh at container open).
 # Gate: zig build check
 
-FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
 LABEL org.opencontainers.image.title="pancake-dev:local" \
       org.opencontainers.image.description="pancake-dev devcontainer: Zig, Goblins conformance, dogfood toolchains." \
       org.opencontainers.image.source="https://github.com/jimisaacs/pancake" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-# Paths must match pins.sh (see check-env-sync.sh).
+# Paths must match pins.sh (see test/env-sync.sh).
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     DENO_INSTALL=/usr/local \

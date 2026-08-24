@@ -27,10 +27,10 @@ import type { TimeSpan } from "./time-span.ts";
 import type { EffectiveRange } from "./range.ts";
 
 export function intrinsicOf(
-  span: TimeSpan,
-  parentIntrinsic: EffectiveRange,
+	span: TimeSpan,
+	parentIntrinsic: EffectiveRange,
 ): EffectiveRange {
-  const start = span.start.explicit ? span.start.value : parentIntrinsic.start;
-  const end = span.duration.explicit ? start + span.duration.value : parentIntrinsic.end;
-  return { start, end };
+	const start = span.start.explicit ? span.start.value : parentIntrinsic.start;
+	const end = span.duration.explicit ? start + span.duration.value : parentIntrinsic.end;
+	return { start, end };
 }

@@ -37,23 +37,23 @@ const MONO_ADVANCE_RATIO = 0.625;
  * elides a character early rather than spilling.
  */
 export function monoAdvance(fontSizePx: number): number {
-  return Math.round(fontSizePx * MONO_ADVANCE_RATIO);
+	return Math.round(fontSizePx * MONO_ADVANCE_RATIO);
 }
 
 export type LaneLabelInput = {
-  id: string;
-  startT: number;
-  label: string | undefined;
-  /** Visible-window-clipped pill edges, in plot px. */
-  pillLeft: number;
-  pillRight: number;
+	id: string;
+	startT: number;
+	label: string | undefined;
+	/** Visible-window-clipped pill edges, in plot px. */
+	pillLeft: number;
+	pillRight: number;
 };
 
 export type PlacedLabel = {
-  id: string;
-  x: number;
-  /** May be truncated with a trailing `…`. */
-  label: string;
+	id: string;
+	x: number;
+	/** May be truncated with a trailing `…`. */
+	label: string;
 };
 
 /**
@@ -71,37 +71,37 @@ export type PlacedLabel = {
  *     dropped entirely.
  */
 export function layoutLaneLabels(
-  inputs: readonly LaneLabelInput[],
-  advance: number,
-  gap: number,
-  minWidth: number,
+	inputs: readonly LaneLabelInput[],
+	advance: number,
+	gap: number,
+	minWidth: number,
 ): PlacedLabel[] {
-  // Sort by (startT, id). Mutating a copy keeps the caller's
-  // array untouched and the sort stable across runs.
-  const sorted = inputs.slice().sort((a, b) => {
-    if (a.startT !== b.startT) return a.startT - b.startT;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
-  // Output is collected back-to-front then reversed so the caller
-  // gets a paint-order-friendly left-to-right list.
-  const reversed: PlacedLabel[] = [];
-  let rightBoundary = Number.POSITIVE_INFINITY;
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const input = sorted[i]!;
-    if (!input.label) continue;
-    const leftAnchor = input.pillLeft + LABEL_INSET_PX;
-    const pillRightLimit = input.pillRight - LABEL_INSET_PX;
-    const crossLimit = rightBoundary - gap;
-    const rightLimit = Math.min(pillRightLimit, crossLimit);
-    const available = rightLimit - leftAnchor;
-    if (available < minWidth) continue;
-    const naturalWidth = input.label.length * advance;
-    const placedLabel = naturalWidth <= available ? input.label : truncateToWidth(input.label, available, advance);
-    if (placedLabel.length === 0) continue;
-    reversed.push({ id: input.id, x: leftAnchor, label: placedLabel });
-    rightBoundary = leftAnchor;
-  }
-  return reversed.reverse();
+	// Sort by (startT, id). Mutating a copy keeps the caller's
+	// array untouched and the sort stable across runs.
+	const sorted = inputs.slice().sort((a, b) => {
+		if (a.startT !== b.startT) return a.startT - b.startT;
+		return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+	});
+	// Output is collected back-to-front then reversed so the caller
+	// gets a paint-order-friendly left-to-right list.
+	const reversed: PlacedLabel[] = [];
+	let rightBoundary = Number.POSITIVE_INFINITY;
+	for (let i = sorted.length - 1; i >= 0; i--) {
+		const input = sorted[i]!;
+		if (!input.label) continue;
+		const leftAnchor = input.pillLeft + LABEL_INSET_PX;
+		const pillRightLimit = input.pillRight - LABEL_INSET_PX;
+		const crossLimit = rightBoundary - gap;
+		const rightLimit = Math.min(pillRightLimit, crossLimit);
+		const available = rightLimit - leftAnchor;
+		if (available < minWidth) continue;
+		const naturalWidth = input.label.length * advance;
+		const placedLabel = naturalWidth <= available ? input.label : truncateToWidth(input.label, available, advance);
+		if (placedLabel.length === 0) continue;
+		reversed.push({ id: input.id, x: leftAnchor, label: placedLabel });
+		rightBoundary = leftAnchor;
+	}
+	return reversed.reverse();
 }
 
 /**
@@ -115,16 +115,16 @@ export function layoutLaneLabels(
  * word ended and something else was cut.
  */
 export function truncateToWidth(
-  label: string,
-  maxWidth: number,
-  advance: number,
+	label: string,
+	maxWidth: number,
+	advance: number,
 ): string {
-  const naturalWidth = label.length * advance;
-  if (naturalWidth <= maxWidth) return label;
-  const ellipsis = "…";
-  const ellipsisWidth = advance;
-  if (ellipsisWidth > maxWidth) return "";
-  const charsAvailable = Math.floor((maxWidth - ellipsisWidth) / advance);
-  if (charsAvailable <= 0) return ellipsis;
-  return label.slice(0, charsAvailable).trimEnd() + ellipsis;
+	const naturalWidth = label.length * advance;
+	if (naturalWidth <= maxWidth) return label;
+	const ellipsis = "…";
+	const ellipsisWidth = advance;
+	if (ellipsisWidth > maxWidth) return "";
+	const charsAvailable = Math.floor((maxWidth - ellipsisWidth) / advance);
+	if (charsAvailable <= 0) return ellipsis;
+	return label.slice(0, charsAvailable).trimEnd() + ellipsis;
 }

@@ -28,6 +28,16 @@ export function reason(err: unknown): string {
  * or the thing it names refuses. Only the third is news, and it arrives while
  * the reader may be looking at the pane it draws, so it is said out loud
  * rather than left to the toggle falling off on its own. */
+/** File a failure that has no reader-facing surface of its own: the console
+ * keeps the full object for whoever is debugging with a stack in hand, and
+ * the page's trouble journal keeps the sentence an operator can actually
+ * find. Never the only copy of a failure a reader must act on — that is a
+ * toast's or the conversation's job, with this beside it. */
+export function trouble(source: string, err: unknown): void {
+	console.error(`rooms: ${source}:`, err);
+	store.noteTrouble(source, reason(err));
+}
+
 export function opsLost(cap: OpsCap, why: string): void {
 	store.toast("failure", `${OPS_CATALOG[cap].pane}: this tab no longer holds that capability. ${why}`);
 }

@@ -34,10 +34,8 @@ pub const HintList = struct {
 
     pub const VTable = struct {
         materialize: *const fn (std.mem.Allocator, HintList, model.Hints.WireForm) Error!model.Hints,
-        /// Validate dictionary key uniqueness without materializing entries.
-        /// The session runs this on the borrowed start-session path before
-        /// lookup can turn a duplicate into "first match wins" authority.
-        validate_unique_names: *const fn (HintList) ProjectError!void,
+        /// Validate dictionary shape without materializing entries.
+        validate_shape: *const fn (HintList, model.Hints.WireForm) ProjectError!void,
         /// Borrowed find-by-name: the named entry's value borrowing the frame,
         /// or null when absent. Allocation-free by contract so callers need not
         /// materialize the dict.
@@ -87,17 +85,11 @@ pub const BorrowedHints = union(enum) {
         }
     }
 
-    pub fn validateUniqueNames(self: BorrowedHints) ProjectError!void {
+    pub fn validateShape(self: BorrowedHints) ProjectError!void {
         switch (self) {
             .empty => {},
-            .projected => |h| {
-                for (h.entries, 0..) |entry, i| {
-                    for (h.entries[0..i]) |seen| {
-                        if (std.mem.eql(u8, seen.name, entry.name)) return error.MalformedView;
-                    }
-                }
-            },
-            .lazy => |l| try l.list.vtable.validate_unique_names(l.list),
+            .projected => |h| model.validateHints(h) catch return error.MalformedView,
+            .lazy => |l| try l.list.vtable.validate_shape(l.list, l.wire_form),
         }
     }
 
@@ -294,8 +286,9 @@ pub const StartSession = struct {
     /// perfectly well-formed frame naming a version we do not speak, and
     /// calling that a malformed frame both lies to the operator and puts the
     /// decision in two decoders instead of the one validator that owns it.
-    /// The owned send-side type stays non-optional — outbound, the version is
-    /// ours to choose.
+    /// The owned type shares the optional shape, but outbound the version is
+    /// ours to choose, so the encoders refuse a null they could not have
+    /// produced.
     captp_version: ?model.CaptpVersion,
     session_pubkey: []const u8,
     acceptable_location: PeerLocator,

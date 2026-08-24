@@ -151,6 +151,13 @@ pub fn outboundAnswer(self: *Session, id: model.AnswerPosition) ?AnswerView {
     return AnswerView.of(entry);
 }
 
+/// Whether an application owner, rather than stateless serve policy, owns the
+/// eventual release of this live outbound answer.
+pub fn outboundAnswerReleaseClaimed(self: *Session, id: model.AnswerPosition) bool {
+    const entry = self.outbound_answers.getPtr(id) orelse return false;
+    return entry.application_release_claimed;
+}
+
 /// Live outbound answer to Slot.
 pub fn outboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
     const cell = self.outbound_answers.getPtr(id) orelse return null;

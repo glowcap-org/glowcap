@@ -19,10 +19,10 @@ import { sessionEnds } from "../claims.ts";
 
 /** One thing arriving on stage or leaving it, at the moment it happens. */
 export type TopologyChange =
-  | { t: number; kind: "peer-in"; peerId: string }
-  | { t: number; kind: "peer-out"; peerId: string }
-  | { t: number; kind: "session-in"; sessionId: string; a: string; b: string }
-  | { t: number; kind: "session-out"; sessionId: string };
+	| { t: number; kind: "peer-in"; peerId: string }
+	| { t: number; kind: "peer-out"; peerId: string }
+	| { t: number; kind: "session-in"; sessionId: string; a: string; b: string }
+	| { t: number; kind: "session-out"; sessionId: string };
 
 export type StandingSession = { id: string; a: string; b: string };
 
@@ -46,61 +46,65 @@ export type StandingSession = { id: string; a: string; b: string };
  * the stage then animated between them at a moment nothing had changed.
  */
 export function topologyChanges(doc: TimelineDocument): TopologyChange[] {
-  const changes: TopologyChange[] = [];
-  const announcedPeers = new Set<string>();
-  const announcedSessions = new Set<string>();
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    switch (ev.kind) {
-      case "peer-joined":
-        announcedPeers.add(ev.peerId);
-        changes.push({ t: ev.t, kind: "peer-in", peerId: ev.peerId });
-        break;
-      case "peer-left":
-      case "peer-unobserved":
-        changes.push({ t: ev.t, kind: "peer-out", peerId: ev.peerId });
-        break;
-      case "session-opened":
-        announcedSessions.add(ev.sessionId);
-        changes.push({
-          t: ev.t,
-          kind: "session-in",
-          sessionId: ev.sessionId,
-          a: endpointNodeId(ev.sessionId, "a", ev.a),
-          b: endpointNodeId(ev.sessionId, "b", ev.b),
-        });
-        break;
-      case "session-closed":
-      case "session-unobserved":
-        changes.push({ t: ev.t, kind: "session-out", sessionId: ev.sessionId });
-        break;
-    }
-  }
-  for (const peerId of Object.keys(doc.entities?.peers ?? {})) {
-    if (announcedPeers.has(peerId)) continue;
-    const range = peerEffective(doc, peerId);
-    changes.push({ t: range.start, kind: "peer-in", peerId });
-    if (Number.isFinite(range.end)) {
-      changes.push({ t: range.end, kind: "peer-out", peerId });
-    }
-  }
-  for (const [sessionId, ends] of sessionEnds(doc)) {
-    if (announcedSessions.has(sessionId)) continue;
-    const range = sessionEffective(doc, sessionId);
-    changes.push({
-      t: range.start,
-      kind: "session-in",
-      sessionId,
-      a: ends.a,
-      b: ends.b,
-    });
-    if (Number.isFinite(range.end)) {
-      changes.push({ t: range.end, kind: "session-out", sessionId });
-    }
-  }
-  // By time, stably: the observations are already in order and the declared
-  // entities are read in key order, so a document sorts one way every run.
-  changes.sort((x, y) => x.t - y.t);
-  return changes;
+	const changes: TopologyChange[] = [];
+	const announcedPeers = new Set<string>();
+	const announcedSessions = new Set<string>();
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		switch (ev.kind) {
+			case "peer-joined":
+				announcedPeers.add(ev.peerId);
+				changes.push({ t: ev.t, kind: "peer-in", peerId: ev.peerId });
+				break;
+			case "peer-left":
+			case "peer-unobserved":
+				changes.push({ t: ev.t, kind: "peer-out", peerId: ev.peerId });
+				break;
+			case "session-opened":
+				announcedSessions.add(ev.sessionId);
+				changes.push({
+					t: ev.t,
+					kind: "session-in",
+					sessionId: ev.sessionId,
+					a: endpointNodeId(ev.sessionId, "a", ev.a),
+					b: endpointNodeId(ev.sessionId, "b", ev.b),
+				});
+				break;
+			case "session-closed":
+			case "session-unobserved":
+				changes.push({
+					t: ev.t,
+					kind: "session-out",
+					sessionId: ev.sessionId,
+				});
+				break;
+		}
+	}
+	for (const peerId of Object.keys(doc.entities?.peers ?? {})) {
+		if (announcedPeers.has(peerId)) continue;
+		const range = peerEffective(doc, peerId);
+		changes.push({ t: range.start, kind: "peer-in", peerId });
+		if (Number.isFinite(range.end)) {
+			changes.push({ t: range.end, kind: "peer-out", peerId });
+		}
+	}
+	for (const [sessionId, ends] of sessionEnds(doc)) {
+		if (announcedSessions.has(sessionId)) continue;
+		const range = sessionEffective(doc, sessionId);
+		changes.push({
+			t: range.start,
+			kind: "session-in",
+			sessionId,
+			a: ends.a,
+			b: ends.b,
+		});
+		if (Number.isFinite(range.end)) {
+			changes.push({ t: range.end, kind: "session-out", sessionId });
+		}
+	}
+	// By time, stably: the observations are already in order and the declared
+	// entities are read in key order, so a document sorts one way every run.
+	changes.sort((x, y) => x.t - y.t);
+	return changes;
 }
 
 /**
@@ -116,21 +120,21 @@ export function topologyChanges(doc: TimelineDocument): TopologyChange[] {
  * the authority on the second question.
  */
 function sessionsOnStageAt(
-  doc: TimelineDocument,
-  sessions: ReadonlyMap<string, { a: string; b: string }>,
-  t: number,
+	doc: TimelineDocument,
+	sessions: ReadonlyMap<string, { a: string; b: string }>,
+	t: number,
 ): StandingSession[] {
-  const out: StandingSession[] = [];
-  for (const [id, ends] of sessions) {
-    if (!containsTime(sessionEffective(doc, id), t)) continue;
-    out.push({ id, a: ends.a, b: ends.b });
-  }
-  // In id order, for the same reason the node ids are sorted before they are
-  // seeded: d3 accumulates link forces in array order, so a list in the order
-  // the sessions happened to be stated would settle one document into two
-  // pictures depending on which author added which session first.
-  out.sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
-  return out;
+	const out: StandingSession[] = [];
+	for (const [id, ends] of sessions) {
+		if (!containsTime(sessionEffective(doc, id), t)) continue;
+		out.push({ id, a: ends.a, b: ends.b });
+	}
+	// In id order, for the same reason the node ids are sorted before they are
+	// seeded: d3 accumulates link forces in array order, so a list in the order
+	// the sessions happened to be stated would settle one document into two
+	// pictures depending on which author added which session first.
+	out.sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+	return out;
 }
 
 /**
@@ -148,19 +152,19 @@ function sessionsOnStageAt(
  * `t`: a session is reached once its own arrival moment is at or before `t`.
  */
 export function linksStandingAt(
-  doc: TimelineDocument,
-  changes: readonly TopologyChange[],
-  allSessions: ReadonlyMap<string, { a: string; b: string }>,
-  t: number,
+	doc: TimelineDocument,
+	changes: readonly TopologyChange[],
+	allSessions: ReadonlyMap<string, { a: string; b: string }>,
+	t: number,
 ): StandingSession[] {
-  const reached = new Map<string, { a: string; b: string }>();
-  for (const change of changes) {
-    if (change.t > t) break;
-    if (change.kind !== "session-in") continue;
-    const ends = allSessions.get(change.sessionId);
-    if (ends !== undefined) reached.set(change.sessionId, ends);
-  }
-  return sessionsOnStageAt(doc, reached, t);
+	const reached = new Map<string, { a: string; b: string }>();
+	for (const change of changes) {
+		if (change.t > t) break;
+		if (change.kind !== "session-in") continue;
+		const ends = allSessions.get(change.sessionId);
+		if (ends !== undefined) reached.set(change.sessionId, ends);
+	}
+	return sessionsOnStageAt(doc, reached, t);
 }
 
 /**
@@ -190,26 +194,26 @@ export function linksStandingAt(
  * compared at all: while the set grew forever, no two of them were ever equal.
  */
 export function nodesStandingAt(
-  doc: TimelineDocument,
-  changes: readonly TopologyChange[],
-  links: ReadonlyArray<StandingSession>,
-  t: number,
+	doc: TimelineDocument,
+	changes: readonly TopologyChange[],
+	links: ReadonlyArray<StandingSession>,
+	t: number,
 ): string[] {
-  const nodes = new Set<string>();
-  for (const change of changes) {
-    // Reached, then standing: the same two conditions the links answer to, and
-    // for the same reason.
-    if (change.t > t) break;
-    if (change.kind !== "peer-in") continue;
-    if (containsTime(peerEffective(doc, change.peerId), t)) {
-      nodes.add(change.peerId);
-    }
-  }
-  // An end of a session standing here stands here too, whether it names a peer
-  // (in which case this is that peer, already counted) or nothing at all.
-  for (const link of links) {
-    nodes.add(link.a);
-    nodes.add(link.b);
-  }
-  return [...nodes].sort();
+	const nodes = new Set<string>();
+	for (const change of changes) {
+		// Reached, then standing: the same two conditions the links answer to, and
+		// for the same reason.
+		if (change.t > t) break;
+		if (change.kind !== "peer-in") continue;
+		if (containsTime(peerEffective(doc, change.peerId), t)) {
+			nodes.add(change.peerId);
+		}
+	}
+	// An end of a session standing here stands here too, whether it names a peer
+	// (in which case this is that peer, already counted) or nothing at all.
+	for (const link of links) {
+		nodes.add(link.a);
+		nodes.add(link.b);
+	}
+	return [...nodes].sort();
 }

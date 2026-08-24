@@ -28,6 +28,10 @@ pub mod host;
 mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
+#[cfg(any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc"))]
+mod provider;
+#[cfg(any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc"))]
+pub use provider::*;
 
 #[cfg(feature = "async")]
 mod driver_fns_gen;

@@ -98,11 +98,11 @@ test "rooms-peer peer is hidden from help and completion" {
 
 test "rooms-peer lineId is stable across rescans and distinct by offset" {
     const gpa = std.testing.allocator;
-    const a = cli.rooms_peer_harness.lineId(gpa, 0, "alice", "hi", "room", "");
+    const a = try cli.rooms_peer_ledger.lineId(gpa, 0, "alice", "hi", "room", "");
     defer gpa.free(a);
-    const b = cli.rooms_peer_harness.lineId(gpa, 0, "alice", "hi", "room", "");
+    const b = try cli.rooms_peer_ledger.lineId(gpa, 0, "alice", "hi", "room", "");
     defer gpa.free(b);
-    const c = cli.rooms_peer_harness.lineId(gpa, 10, "alice", "hi", "room", "");
+    const c = try cli.rooms_peer_ledger.lineId(gpa, 10, "alice", "hi", "room", "");
     defer gpa.free(c);
     try std.testing.expectEqualStrings(a, b);
     try std.testing.expect(!std.mem.eql(u8, a, c));
@@ -111,30 +111,30 @@ test "rooms-peer lineId is stable across rescans and distinct by offset" {
 
 test "rooms-peer lineId folds dm peer into the id" {
     const gpa = std.testing.allocator;
-    const room = cli.rooms_peer_harness.lineId(gpa, 0, "bob", "hi", "room", "");
+    const room = try cli.rooms_peer_ledger.lineId(gpa, 0, "bob", "hi", "room", "");
     defer gpa.free(room);
-    const dm = cli.rooms_peer_harness.lineId(gpa, 0, "bob", "hi", "dm", "bob");
+    const dm = try cli.rooms_peer_ledger.lineId(gpa, 0, "bob", "hi", "dm", "bob");
     defer gpa.free(dm);
     try std.testing.expect(!std.mem.eql(u8, room, dm));
 }
 
 test "parseOutboxLine room and dm shapes" {
     const gpa = std.testing.allocator;
-    const room = cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"room\",\"text\":\"hi\"}").?;
+    const room = try cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"room\",\"text\":\"hi\"}");
     defer room.deinit(gpa);
     try std.testing.expect(!room.is_dm);
     try std.testing.expectEqualStrings("hi", room.text);
     try std.testing.expectEqualStrings("", room.peer);
 
-    const dm = cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"dm\",\"peer\":\"bob\",\"text\":\"secret\"}").?;
+    const dm = try cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"dm\",\"peer\":\"bob\",\"text\":\"secret\"}");
     defer dm.deinit(gpa);
     try std.testing.expect(dm.is_dm);
     try std.testing.expectEqualStrings("secret", dm.text);
     try std.testing.expectEqualStrings("bob", dm.peer);
 
-    try std.testing.expect(cli.rooms_peer_harness.parseOutboxLine(gpa, "not-json") == null);
+    try std.testing.expectError(error.MalformedOutbox, cli.rooms_peer_harness.parseOutboxLine(gpa, "not-json"));
 
-    const bare = cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"dm\",\"text\":\"no-peer\"}").?;
+    const bare = try cli.rooms_peer_harness.parseOutboxLine(gpa, "{\"channel\":\"dm\",\"text\":\"no-peer\"}");
     defer bare.deinit(gpa);
     try std.testing.expect(bare.is_dm);
     try std.testing.expectEqualStrings("", bare.peer);
@@ -159,10 +159,10 @@ test "rooms-peer outbox.offset persists and missing means zero not EOF" {
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
     // Missing offset must not invent EOF, or undrained lines vanish on restart.
-    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
-    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 0), try cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 0), try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
     try cli.rooms_peer_harness.saveOutboxOffset(io, dir, 42);
-    try std.testing.expectEqual(@as(usize, 42), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 42), try cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
     try std.testing.expectEqual(@as(usize, 40), cli.rooms_peer_harness.clampOutboxOffset(42, 40));
 }
 
@@ -178,22 +178,22 @@ test "rooms-peer inbox.watermark hides scrollback from scanInbox" {
 
     const line1 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"old\"}\n";
     const line2 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"new\"}\n";
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", line1 ++ line2);
+    try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", line1 ++ line2);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     // No watermark: both lines visible.
-    const all = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    const all = try cli.rooms_peer_ledger.scanInbox(arena, io, dir, "alice");
     try std.testing.expectEqual(@as(usize, 2), all.items.len);
 
-    cli.rooms_peer_harness.saveInboxWatermark(io, dir, line1.len);
-    const after = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    try cli.rooms_peer_ledger.saveInboxWatermark(io, dir, line1.len);
+    const after = try cli.rooms_peer_ledger.scanInbox(arena, io, dir, "alice");
     try std.testing.expectEqual(@as(usize, 1), after.items.len);
     try std.testing.expectEqualStrings("new", after.items[0].text);
 
-    cli.rooms_peer_harness.advanceInboxWatermark(io, gpa, dir);
-    const none = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    try cli.rooms_peer_ledger.advanceInboxWatermark(io, gpa, dir);
+    const none = try cli.rooms_peer_ledger.scanInbox(arena, io, dir, "alice");
     try std.testing.expectEqual(@as(usize, 0), none.items.len);
 }
 
@@ -208,15 +208,15 @@ test "rooms-peer outbox backlog reflects undrained bytes after offset persist" {
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
     const body = "{\"channel\":\"room\",\"text\":\"a\"}\n{\"channel\":\"room\",\"text\":\"b\"}\n";
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "outbox.jsonl", body);
-    try std.testing.expectEqual(body.len, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    try cli.rooms_peer_files.overwriteFile(io, dir, "outbox.jsonl", body);
+    try std.testing.expectEqual(body.len, try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
     try cli.rooms_peer_harness.saveOutboxOffset(io, dir, body.len);
-    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 0), try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
     // Restart posture: load offset then clamp — undrained prefix remains if offset mid-file.
     try cli.rooms_peer_harness.saveOutboxOffset(io, dir, 10);
-    const loaded = cli.rooms_peer_harness.clampOutboxOffset(cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir), body.len);
+    const loaded = cli.rooms_peer_harness.clampOutboxOffset(try cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir), body.len);
     try std.testing.expectEqual(@as(usize, 10), loaded);
-    try std.testing.expectEqual(body.len - 10, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    try std.testing.expectEqual(body.len - 10, try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
 }
 
 test "rooms-peer first-contact DM queues durably for introduction" {
@@ -230,15 +230,15 @@ test "rooms-peer first-contact DM queues durably for introduction" {
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
     try cli.rooms_peer_harness.appendOutbox(io, gpa, dir, "hello", "Jim");
-    const raw = try cli.rooms_peer_harness.readFile(io, gpa, dir, "outbox.jsonl");
+    const raw = try cli.rooms_peer_files.readFile(io, gpa, dir, "outbox.jsonl");
     defer gpa.free(raw);
-    const parsed = cli.rooms_peer_harness.parseOutboxLine(gpa, std.mem.trimEnd(u8, raw, "\n")).?;
+    const parsed = try cli.rooms_peer_harness.parseOutboxLine(gpa, std.mem.trimEnd(u8, raw, "\n"));
     defer parsed.deinit(gpa);
     try std.testing.expect(parsed.is_dm);
     try std.testing.expectEqualStrings("Jim", parsed.peer);
     try std.testing.expectEqualStrings("hello", parsed.text);
-    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
-    try std.testing.expectEqual(raw.len, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 0), try cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(raw.len, try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
 }
 
 test "rooms-peer one-wake both-surfaces: DM ranks before human room" {
@@ -260,30 +260,30 @@ test "rooms-peer one-wake both-surfaces: DM ranks before human room" {
         \\{"kind":"msg","channel":"dm","author":"Jim","text":"hello","peer":"Jim"}
         \\
     ;
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", inbox);
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"fresh-eyes\",\"agentic-lead\",\"engineering-steward\"]}\n");
+    try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", inbox);
+    try cli.rooms_peer_files.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"fresh-eyes\",\"agentic-lead\",\"engineering-steward\"]}\n");
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const scanned = cli.rooms_peer_harness.scanInbox(arena, io, dir, "fresh-eyes");
+    const scanned = try cli.rooms_peer_ledger.scanInbox(arena, io, dir, "fresh-eyes");
     try std.testing.expectEqual(@as(usize, 2), scanned.items.len);
-    cli.rooms_peer_harness.sortPending(scanned.items);
+    cli.rooms_peer_ledger.sortPending(scanned.items);
     try std.testing.expectEqualStrings("dm", scanned.items[0].channel);
     try std.testing.expectEqualStrings("room", scanned.items[1].channel);
-    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(scanned.items, cli.rooms_peer_harness.loadRosterNicks(arena, io, gpa, dir)));
+    try std.testing.expect(cli.rooms_peer_ledger.humanRoomPending(scanned.items, try cli.rooms_peer_ledger.loadRosterNicks(arena, io, gpa, dir)));
 }
 
 test "rooms-peer sortPending is DM then @mention then room (one-wake order)" {
     // Hermetic stand-in for multi-surface drain: tick must surface DM before
     // room chatter so a wake that only answers DMs cannot pretend the room
     // was empty. Order is owned by harness.sortPending (verbs.zig uses it).
-    var items = [_]cli.rooms_peer_harness.Pending{
+    var items = [_]cli.rooms_peer_ledger.Pending{
         .{ .id = "c", .channel = "room", .author = "peer", .text = "chatter", .peer = "", .mention = false },
         .{ .id = "a", .channel = "dm", .author = "Jim", .text = "hi", .peer = "Jim", .mention = false },
         .{ .id = "b", .channel = "room", .author = "Jim", .text = "@you", .peer = "", .mention = true },
     };
-    cli.rooms_peer_harness.sortPending(&items);
+    cli.rooms_peer_ledger.sortPending(&items);
     try std.testing.expectEqualStrings("dm", items[0].channel);
     try std.testing.expectEqualStrings("a", items[0].id);
     try std.testing.expect(items[1].mention);
@@ -304,39 +304,39 @@ test "rooms-peer one-wake clears DM and human room together" {
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\"]}\n");
+    try cli.rooms_peer_files.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\"]}\n");
     const inbox =
         \\{"kind":"msg","channel":"room","author":"Jim","text":"general?"}
     ++ "\n" ++
         \\{"kind":"msg","channel":"dm","author":"Jim","peer":"Jim","text":"psst"}
     ++ "\n";
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", inbox);
+    try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", inbox);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const roster = cli.rooms_peer_harness.loadRosterNicks(arena, io, gpa, dir);
-    const pending = cli.rooms_peer_harness.scanInbox(arena, io, dir, "fresh-eyes");
+    const roster = try cli.rooms_peer_ledger.loadRosterNicks(arena, io, gpa, dir);
+    const pending = try cli.rooms_peer_ledger.scanInbox(arena, io, dir, "fresh-eyes");
     try std.testing.expectEqual(@as(usize, 2), pending.items.len);
-    cli.rooms_peer_harness.sortPending(pending.items);
+    cli.rooms_peer_ledger.sortPending(pending.items);
     try std.testing.expectEqualStrings("dm", pending.items[0].channel);
     try std.testing.expectEqualStrings("room", pending.items[1].channel);
-    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(pending.items, roster));
+    try std.testing.expect(cli.rooms_peer_ledger.humanRoomPending(pending.items, roster));
 
     const ids = [_][]const u8{ pending.items[0].id, pending.items[1].id };
-    _ = try cli.rooms_peer_harness.markReplied(io, gpa, dir, &ids);
+    _ = try cli.rooms_peer_ledger.markReplied(io, gpa, dir, &ids);
 
     var after_arena = std.heap.ArenaAllocator.init(gpa);
     defer after_arena.deinit();
     const after_alloc = after_arena.allocator();
-    const replied = cli.rooms_peer_harness.loadReplied(after_alloc, io, dir);
-    var remaining: std.ArrayList(cli.rooms_peer_harness.Pending) = .empty;
-    for (cli.rooms_peer_harness.scanInbox(after_alloc, io, dir, "fresh-eyes").items) |item| {
+    const replied = try cli.rooms_peer_ledger.loadReplied(after_alloc, io, dir);
+    var remaining: std.ArrayList(cli.rooms_peer_ledger.Pending) = .empty;
+    for ((try cli.rooms_peer_ledger.scanInbox(after_alloc, io, dir, "fresh-eyes")).items) |item| {
         if (replied.contains(item.id)) continue;
         try remaining.append(after_alloc, item);
     }
     try std.testing.expectEqual(@as(usize, 0), remaining.items.len);
-    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(remaining.items, roster));
+    try std.testing.expect(!cli.rooms_peer_ledger.humanRoomPending(remaining.items, roster));
 }
 
 test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
@@ -349,7 +349,7 @@ test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    const peer_line = cli.rooms_peer_harness.Pending{
+    const peer_line = cli.rooms_peer_ledger.Pending{
         .id = "1",
         .channel = "room",
         .author = "fresh-eyes",
@@ -357,7 +357,7 @@ test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
         .peer = "",
         .mention = false,
     };
-    const human_line = cli.rooms_peer_harness.Pending{
+    const human_line = cli.rooms_peer_ledger.Pending{
         .id = "2",
         .channel = "room",
         .author = "Jim",
@@ -365,19 +365,19 @@ test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
         .peer = "",
         .mention = false,
     };
-    const mixed = [_]cli.rooms_peer_harness.Pending{ peer_line, human_line };
+    const mixed = [_]cli.rooms_peer_ledger.Pending{ peer_line, human_line };
 
     // No roster → never claim human (avoids stuck_human_room false positive).
-    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(&mixed, &.{}));
+    try std.testing.expect(!cli.rooms_peer_ledger.humanRoomPending(&mixed, &.{}));
 
-    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\",\"engineering-steward\"]}\n");
+    try cli.rooms_peer_files.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\",\"engineering-steward\"]}\n");
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    const roster = cli.rooms_peer_harness.loadRosterNicks(arena_state.allocator(), io, gpa, dir);
+    const roster = try cli.rooms_peer_ledger.loadRosterNicks(arena_state.allocator(), io, gpa, dir);
     try std.testing.expectEqual(@as(usize, 3), roster.len);
-    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{peer_line}, roster));
-    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&mixed, roster));
-    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{human_line}, roster));
+    try std.testing.expect(!cli.rooms_peer_ledger.humanRoomPending(&[_]cli.rooms_peer_ledger.Pending{peer_line}, roster));
+    try std.testing.expect(cli.rooms_peer_ledger.humanRoomPending(&mixed, roster));
+    try std.testing.expect(cli.rooms_peer_ledger.humanRoomPending(&[_]cli.rooms_peer_ledger.Pending{human_line}, roster));
 }
 
 test "rooms-peer pending inbox offers survive a failed drain and clear on success" {
@@ -393,9 +393,9 @@ test "rooms-peer pending inbox offers survive a failed drain and clear on succes
         table.deinit(gpa);
     }
 
-    cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
-    cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
-    cli.rooms_peer.schedulePendingOffer(gpa, &table, "unbounded", 1);
+    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
+    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
+    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "unbounded", 1);
     try std.testing.expectEqual(@as(usize, 1), table.count());
 
     const Fail = struct {

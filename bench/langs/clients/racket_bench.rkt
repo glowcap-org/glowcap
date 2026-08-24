@@ -32,15 +32,13 @@
 
 ;; The same four verbs as run-unit, but pipelined (ADR-0007, questioner half):
 ;; assign/complete/status are addressed at the answer `create` will resolve to —
-;; the vow `session-send-promise` returns, passed as the target, without
-;; settling it — so the unit costs one round trip instead of four. Only the final
-;; status is settled (`session-await`), which flushes the queued batch. The
-;; throughput unit; run-unit stays sequential so the latency row keeps measuring
-;; one round trip.
+;; the vow `session-send-promise` returns, passed as the target. assign/complete
+;; are one-way deliveries; only status allocates an answer and is settled. The
+;; unit costs one round trip without leaving discarded result vows behind.
 (define (run-unit-pipelined c root)
   (define create (session-send-promise c root 'create #"benchmark"))
-  (session-send-promise c create 'assign #"alice")
-  (session-send-promise c create 'complete)
+  (session-tell c create 'assign #"alice")
+  (session-tell c create 'complete)
   (session-await c (session-send-promise c create 'status)))
 
 (define (assert-ok v) (unless (equal? v #"done") (error 'racket-bench "bad status ~v" v)))
@@ -89,22 +87,31 @@
 
 (define CONN-WARMUP (min N 5))
 
-(define (run-connections)
+(define (open-held-connection)
   (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (failure)
+                     (runtime-close! runtime)
+                     (raise failure))])
+    (define session (runtime-connect runtime (tcp-locator host port)))
+    (session-fetch session "root")
+    (cons runtime session)))
+
+(define (close-held-connection held)
+  (session-close! (cdr held))
+  (runtime-close! (car held)))
+
+(define (run-connections)
   (define warm
     (for/list ([_ (in-range CONN-WARMUP)])
-      (define c (runtime-connect runtime (tcp-locator host port)))
-      (session-fetch c "root")
-      c))
+      (open-held-connection)))
   (collect-garbage) (collect-garbage)
   (printf "{\"v\":1,\"event\":\"warmed\"}\n")
   (sleep 0.6)
   (define t0 (now))
   (define handles
     (for/list ([_ (in-range N)])
-      (define c (runtime-connect runtime (tcp-locator host port)))
-      (session-fetch c "root")
-      c))
+      (open-held-connection)))
   (define total (- (now) t0))
   (printf "{\"v\":1,\"metric\":\"connections\",\"client\":\"~a\",\"suite\":\"taskboard\",\"conns\":~a,\"total_ms\":~a,\"per_conn_ms\":~a,\"runtime\":\"~a\"}\n"
           CLIENT N
@@ -112,9 +119,8 @@
           (real->decimal-string (/ total (max 1 N)) 4)
           RUNTIME)
   (sleep 2.5)
-  (for ([c (in-list handles)]) (session-close! c))
-  (for ([c (in-list warm)]) (session-close! c))
-  (runtime-close! runtime))
+  (for ([held (in-list handles)]) (close-held-connection held))
+  (for ([held (in-list warm)]) (close-held-connection held)))
 
 (define (run-cold)
   (define runtime (open-runtime #:providers (list (tcp-provider))))

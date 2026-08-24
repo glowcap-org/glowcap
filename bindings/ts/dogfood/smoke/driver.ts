@@ -25,6 +25,10 @@ import { _connectIroh } from "../../iroh/impl.ts";
 import { assert, eqBytes, ok } from "./support.ts";
 
 export async function run(managed: Runtime): Promise<void> {
+	// The native TCP transport is its own composable module
+	// (`@pancake/tcp/transport`, riding libpancake_net_transport_tcp). Bind a
+	// listener, dial it, accept the peer, and shuttle one whole frame through the
+	// `pancake_tcp_*` endpoints intact. This is the Deno application path.
 	{
 		using net = new TcpNetlayer();
 		using listener = net.listen("127.0.0.1", 0);

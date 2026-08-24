@@ -192,9 +192,9 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * redeemed handoff token routes to the exporter session that hosts it,
 	 * transparently.
 	 *
-	 * The deliver is queued now; its bytes leave the wire when the returned
-	 * handle — or any send pipelined behind it — is first awaited, so a
-	 * pipelined batch travels together. */
+	 * The deliver schedules Host progress now. Synchronous dependent sends join
+	 * the same event-loop-turn batch; awaiting observes the result rather than
+	 * deciding whether the operation leaves the process. */
 	send(
 		target: Ref | RemotePromise,
 		verb: string,
@@ -265,15 +265,12 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * and none comes back, so it is the right call for a notification or a
 	 * broadcast: it costs one deliver, not a deliver plus a reply. Flushes
 	 * immediately. */
-	async tell(target: Ref, verb: string, args: Argument[] = []): Promise<void> {
+	async tell(target: Ref | RemotePromise, verb: string, args: Argument[] = []): Promise<void> {
 		this.guardOpen();
 		this.hostOwner.drainGc();
 		await dispatchTell(
 			this.hostedActors,
-			{
-				ptr: this.nativePtr,
-				kickActions: () => this.hostOwner.kickActions(),
-			},
+			this.makePromiseFactory(),
 			target,
 			verb,
 			args,

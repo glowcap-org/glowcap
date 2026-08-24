@@ -18,8 +18,9 @@ it, because each caller needs a fresh host.
 `-Ddiagnostics` on `rooms-web`, `rooms-web-iroh`, `rooms-web-tcp`, and
 `rooms-web-onion` mints an inspect capability and prints its swiss number.
 `-Dadmin-listeners` on the same steps mints the listener-admin capability the
-same way. `-Dviz` serves the live timeline endpoint (default port 9300;
-`PANCAKE_ROOMS_VIZ_PORT` overrides) and mints the viz capability.
+same way, and `-Dpeering` the directory-peering capability. `-Dviz` serves the
+live timeline endpoint (default port 9300; `PANCAKE_ROOMS_VIZ_PORT` overrides)
+and mints the viz capability.
 
 ## Adding a step
 
@@ -64,11 +65,12 @@ zig build ocapn-findings-check # reproduce the pinned op:listen, locator-hints, 
 zig build ocapn-conformance    # run portable upstream OCapN modules plus the strict abort probe against pancake (needs uv + the ocapn-conformance submodule)
 zig build fixture-gen-check    # regenerate the Syrup fixture corpus with the upstream Racket encoder and diff against the committed bytes (needs racket + syrup)
 zig build gen-capnp-fixtures   # regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
-zig build racket-test          # Racket unit tests, file by file through `tools/check/racket-test.rkt`, because a bare `racket <file>` prints FAILURE, still exits 0, and never runs `module+ test` (needs racket + goblins)
+zig build racket-test          # Racket unit tests, file by file through `raco test` (needs racket + goblins)
 zig build docs                 # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site                 # build the documentation site (Zine + autodoc) under zig-out/site/
+zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site at http://127.0.0.1:1990/pancake/ (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
-zig build release-pack         # stage the installed archives, headers, and licenses into one versioned, checksummed per-target tarball under zig-out/release/ (needs cargo)
+zig build -Doptimize=ReleaseSafe release-pack # stage optimized archives, headers, licenses, and product binaries into one versioned, checksummed per-target tarball under zig-out/release/, then prove its extracted static/shared C consumers and CLIs (needs cargo; Debug is refused)
 zig build native-tls-build     # fetch Mbed TLS 4.2.0 by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
 ```
 
@@ -196,14 +198,18 @@ zig build goblins-handoff          # three-party handoff with Goblins, pancake a
 zig build goblins-gift             # three-party handoff with Goblins, pancake as gifter (needs racket + goblins)
 zig build goblins-exporter         # three-party handoff with Goblins, pancake as exporter: a Goblins pair deposits into and withdraws from pancake's gift registry (needs racket + goblins)
 zig build goblins-relayed-give     # pancake introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
+zig build goblins-listen-recipient # a Goblins vat hands pancake an unsettled promise; owning Session.listenTo observes its later nested-capability settlement and calls that capability (needs racket + goblins)
 zig build goblins-native-pair-gift # two pancake vats and one Goblins vat: the pancake pair settles on pancake-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)
 zig build goblins-gift-hints       # the gift topology with an opaque route hint: Goblins decodes and re-encodes the mapping-shaped exporter locator byte-exactly (needs racket + goblins)
 zig build goblins-gc               # live GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)
 zig build goblins-iroh             # live Goblins over encrypted QUIC through the iroh netlayer this repository wrote for Goblins, both directions (needs cargo + racket + goblins)
 zig build goblins-rooms            # a real Goblins vat and a pancake peer hold one room, the vat on the v1.0 Syrup baseline beside the pancake member's pancake-next over Cap'n Proto (needs deno + racket + goblins)
+zig build goblins-rooms-irc        # both IRC application edges against real Goblins: fixture IRC through the bridge both ways; ordinary IRC through the front with channel traffic and an IRC-initiated DM reply (needs deno + racket + goblins)
+zig build goblins-rooms-irc-bridge # the bridge half of that proof
+zig build goblins-rooms-irc-front  # the front half of that proof
 zig build goblins-rooms-iroh       # the same room over encrypted QUIC, with the accepting side recording the endpoint key QUIC authenticated (needs cargo + deno + racket + goblins)
 zig build goblins-rooms-dm         # a browser redeems a room introduction and direct-messages a real Goblins vat off-room over cleartext TCP, the vat answers on that connection, and the vat starts a direct message of its own to a native pancake member (needs deno + racket + goblins + a Playwright Chromium)
-zig build goblins-rooms-dm-iroh    # the browser's direction over encrypted iroh QUIC; the vat's own direction is TCP-only, and docs/boundaries.md says why (needs cargo + deno + racket + goblins + a Playwright Chromium)
+zig build goblins-rooms-dm-iroh    # both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a native member's introduction (needs cargo + deno + racket + goblins + a Playwright Chromium)
 zig build goblins-rooms-matrix-iroh # heavyweight four-peer end gate: pin Goblins' cross-receiver count defect, then run room topology, every DM pair, close/reopen, and restart over iroh
 zig build goblins-relay            # a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)
 zig build bindings-goblins-interop # per-binding live keyed conversation with a real Goblins vat, every binding (needs racket + goblins + the runtimes)
@@ -305,7 +311,7 @@ bytes to a peer the tab cannot dial.
 zig build wasm-driver           # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
 zig build wasm-driver-test      # the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
 zig build wasm-abi-layout-check # the wasm32 Host's layout descriptor decodes cleanly and agrees with the abi.ts field counts (needs deno)
-zig build wasm-import-check     # the wasm32 Host's import set is exactly {env.pancake_behavior_trampoline}, the sole behavior-dispatch seam (needs deno)
+zig build wasm-import-check     # the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno)
 zig build web-peer-test         # @pancake/web holds keyed WebSocket sessions and Chromium accepts a native Noise-relay call (needs deno + Playwright; ADR-0070/0107)
 ```
 
@@ -338,6 +344,11 @@ zig build deno-keyed-relay-rendezvous     # that cold dial, the Deno binding (ne
 zig build python-keyed-relay-rendezvous   # that cold dial, the Python binding (needs deno + uv)
 zig build rust-keyed-relay-rendezvous     # that cold dial, the Rust binding (needs deno + cargo)
 zig build racket-keyed-relay-rendezvous   # that cold dial, the Racket binding (needs deno + racket)
+zig build bindings-noise-relay-listen     # each native event-loop binding registers and serves one Noise-sealed relay session (needs deno + uv + cargo + racket)
+zig build deno-noise-relay-listen         # that managed listener through Deno (needs deno)
+zig build python-noise-relay-listen       # that managed listener through Python (needs deno + uv)
+zig build rust-noise-relay-listen         # that managed listener through Rust (needs deno + cargo)
+zig build racket-noise-relay-listen       # that managed listener through Racket (needs deno + racket)
 zig build deno-native-wss-relay           # native WSS success plus exact hostname and unknown-CA refusal through Deno (needs deno)
 zig build python-native-wss-relay         # the same native archive through Python (needs deno + uv)
 zig build rust-native-wss-relay           # the same native archive through Rust's static consumer (needs deno + cargo)
@@ -361,9 +372,10 @@ zig build demo-rooms-dm-reredeem       # sendRedeeming resolves the direct expor
 zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encrypted QUIC, where the gift names the exporter's direct addresses (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the gift names the exporter by node id alone and the recipient resolves it through n0 discovery, no direct-address hints (needs cargo + deno + internet)
 zig build demo-tasks                   # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno)
+zig build tasks-app-test               # bounded task-board state, watcher, stream, and failed-join lifecycle tests (needs deno)
 zig build demo-tools                   # cross-language capability showcase: delegation, attenuation, and revocation for AI agent harnesses (needs deno)
 zig build accountability               # accountability application on pancake's own runtime over a real loopback TCP socket
-zig build accountability-three-party   # three-party accountability attribution across the handoff seam (in-memory, pure Zig)
+zig build accountability-three-party   # three-Host accountability attribution over a live loopback TCP handoff
 zig build demo-accountability          # cross-language accountability demo: Zig host with Deno and Python callers (needs deno)
 zig build rooms-client                 # run the native Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer                   # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
@@ -406,7 +418,7 @@ zig build bench-frame-view       # the borrowed frame-view path
 zig build bench-codec            # the encode and decode path
 zig build bench-dispatch-scaling # inbound dispatch ns/turn across N warmed peers (cold-cache regime) with p50/p99
 zig build bench-outbound         # the outbound engine path (send/step/takeOutbound per answered deliver) and the op:gc-answers release-storm shape
-zig build bench-peer-scaling     # per-connection memory footprint, extrapolated to 500k connections
+zig build bench-peer-scaling     # per-session memory report; add `-- --live` for authenticated socket scale (500k setup and result: docs/ladder.md)
 zig build bench-snapshot         # vat snapshot/restore (S5): O(objects), flat in object size, off by default
 zig build relay-scaling          # the reference relay's per-connection footprint and its descriptor and RAM ceiling; the relay-tier sibling of bench-peer-scaling (needs deno)
 zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke` forwarded

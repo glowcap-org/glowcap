@@ -26,9 +26,10 @@
 ;; notices a settle another session's feed fired; `keep` strongly retains
 ;; every behavior closure registered with the host (a C trampoline stays alive
 ;; only while its Racket closure does); `vows` maps a host vow id to the
-;; `session-vow` awaiting it, filled at mint under the host lock and settled by
-;; the drain's SETTLE/FAIL arms (`private/promise.rkt`), so no callback
-;; ever crosses the C boundary for a settlement; `redeem-reachability` is the
+;; weak box for the `session-vow` awaiting it, filled at mint under the host
+;; lock and settled by the drain's SETTLE/FAIL arms (`private/promise.rkt`). A
+;; dropped pending wrapper can therefore reach its release finalizer; no
+;; callback crosses the C boundary for a settlement. `redeem-reachability` is the
 ;; iroh posture a hint-less handoff give is redeemed under (starting at the
 ;; generated `IROH-REACH-REDEEM-DEFAULT`, Discovery;
 ;; `set-host-redeem-reachability!` lowers it for a relay-policy deployment);
@@ -172,7 +173,13 @@
      #f 0 #f 0))
   (record-callerless-with-fallback!
    'application-observer operation error
-   (lambda () (check (pancake_context_report_failure (host-context m) report)))))
+   (lambda ()
+     (define rc (pancake_context_report_failure (host-context m) report))
+     ;; The report cstruct is retained as the call's argument, but it carries
+     ;; only the pins' raw addresses; the sink keeps the text buffers live
+     ;; for the call.
+     (void/reference-sink operation-buffer name-buffer message-buffer)
+     (check rc))))
 
 ;; Prefer the live Context without making failure of that recorder permission
 ;; to lose either the original callerless failure or the recorder refusal.
@@ -225,6 +232,11 @@
 ;; Byte-fed close driver installed by action.rkt after its drain executor is
 ;; available. It executes core-issued effects and returns the terminal code.
 (define host-close-barrier-hook (box #f))
+
+;; Distributed-GC state exists only after gc.rkt has loaded. Its retirement
+;; hook is installed there and runs inside the Host's terminal lock after the
+;; native owner has been consumed.
+(define host-gc-retire-hook (box void))
 
 ;; Release one native session handle through its owner: the loop for a
 ;; loop-adopted host, `pancake_host_session_release` for a byte-fed one.

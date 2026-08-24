@@ -7,20 +7,19 @@
 // What each capability answers differs; how one is taken does not, so that
 // flow lives here once.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { CaptpVersion, Ref, Session } from "@pancake/runtime";
 import { parseSturdyRef, retainCleanupFailures } from "@pancake/runtime";
-import { CAPTP_VERSION } from "./protocol.ts";
 
 /** The bootstrap swiss inside a pasted operations capability.
  *
  * The operator is handed a swiss (the Host publication name) or a sturdyref
  * URI that carries that swiss. Fetching it on the directory session is what
  * taking the capability is. */
-export function pastedSwiss(pasted: string): string {
+export function pastedSwiss(pasted: string, captpVersion: CaptpVersion): string {
 	const trimmed = pasted.trim();
 	if (trimmed.includes("://")) {
 		try {
-			return new TextDecoder().decode(parseSturdyRef(trimmed, CAPTP_VERSION).swissnum);
+			return new TextDecoder().decode(parseSturdyRef(trimmed, captpVersion).swissnum);
 		} catch {
 			return trimmed;
 		}
@@ -35,7 +34,7 @@ export async function takeOperationsCap<T>(
 	pasted: string,
 	first: (cap: Ref) => Promise<T>,
 ): Promise<{ cap: Ref; taken: T }> {
-	const swiss = pastedSwiss(pasted);
+	const swiss = pastedSwiss(pasted, session.profile.captpVersion);
 	if (swiss === "") throw new Error("paste the swiss number the server printed");
 	const cap = await session.fetch(swiss);
 	try {

@@ -187,43 +187,6 @@ test "outbound operations cannot reuse a live answer position" {
     } }));
 }
 
-test "inbound deliver with a pathed promise target is refused, an empty path is not" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerExport(.from(7));
-    // A prior inbound deliver mints answer 3 that a pipelined target can name.
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(7) } },
-        .args = &.{},
-        .answer = .from(3),
-    } });
-
-    // A promise target carrying a non-empty pipeline path is refused: pancake
-    // decomposes multi-hop sends before encode, so it never receives a pathed
-    // inbound target — a path here names an inert, unvalidated payload. Both the
-    // owned and the borrowed dispatch shapes refuse it identically.
-    var ops = [_]model.PipelineOp{.{ .field = "manager" }};
-    const pathed = model.Message{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(3), .path = .{ .ops = &ops } } },
-        .args = &.{},
-        .answer = null,
-    } };
-    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(pathed));
-    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecvView(model.view.Body.fromOwned(&pathed)));
-
-    // Negative control: the same target with an empty path is not refused for the
-    // path — the refusal is specific to a non-empty path, not the promise target.
-    const flat = model.Message{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(3), .path = .{} } },
-        .args = &.{},
-        .answer = null,
-    } };
-    if (s.recordRecv(flat)) |_| {} else |err| {
-        try std.testing.expect(err != session.Error.UnexpectedMessage);
-    }
-}
-
 test "inbound deliver reusing a live answer position is UnexpectedMessage" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);

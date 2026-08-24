@@ -152,7 +152,10 @@ pub fn checkTsPackagePublishSurface(
     };
     for (packages) |pkg| {
         var member_buf: [32]u8 = undefined;
-        const member = std.fmt.bufPrint(&member_buf, "./{s}", .{pkg}) catch continue;
+        const member = std.fmt.bufPrint(&member_buf, "./{s}", .{pkg}) catch {
+            try appendViolation(gpa, violations, "package `{s}` overflows the workspace needle buffer; grow it", .{pkg});
+            continue;
+        };
         var found = false;
         for (members.items) |value| switch (value) {
             .string => |actual| if (std.mem.eql(u8, actual, member)) {
@@ -217,7 +220,10 @@ pub fn checkTsPackagePublishSurface(
 
     for (packages) |pkg| {
         var pkg_path_buf: [64]u8 = undefined;
-        const pkg_path = std.fmt.bufPrint(&pkg_path_buf, "bindings/ts/{s}", .{pkg}) catch continue;
+        const pkg_path = std.fmt.bufPrint(&pkg_path_buf, "bindings/ts/{s}", .{pkg}) catch {
+            try appendViolation(gpa, violations, "package `{s}` overflows the publish-surface path buffer; grow it", .{pkg});
+            continue;
+        };
 
         var pkg_dir = root.openDir(io, pkg_path, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for publish-surface check with {s}", .{ pkg_path, @errorName(err) });
@@ -244,7 +250,10 @@ pub fn checkTsPackagePublishSurface(
         }
 
         var deno_path_buf: [80]u8 = undefined;
-        const deno_path = std.fmt.bufPrint(&deno_path_buf, "{s}/deno.json", .{pkg_path}) catch continue;
+        const deno_path = std.fmt.bufPrint(&deno_path_buf, "{s}/deno.json", .{pkg_path}) catch {
+            try appendViolation(gpa, violations, "{s}: the manifest path overflows the publish-surface buffer; grow it", .{pkg_path});
+            continue;
+        };
         const deno_json = root.readFileAlloc(io, deno_path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ deno_path, @errorName(err) });
             continue;
@@ -301,7 +310,10 @@ pub fn checkTsPackagePublishSurface(
                 .{ deno_path, target },
             );
             var root_target_buf: [160]u8 = undefined;
-            const root_target = std.fmt.bufPrint(&root_target_buf, "{s}/{s}", .{ pkg, relative }) catch continue;
+            const root_target = std.fmt.bufPrint(&root_target_buf, "{s}/{s}", .{ pkg, relative }) catch {
+                try appendViolation(gpa, violations, "{s}/{s}: the entry path overflows the publish-surface buffer; grow it", .{ pkg, relative });
+                continue;
+            };
             if (!commandHasToken(root_check, root_target)) try appendViolation(
                 gpa,
                 violations,

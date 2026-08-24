@@ -19,6 +19,7 @@ const residents = @import("residents.zig");
 const StreamAdoptionResident = @import("stream_adoption_resident.zig").StreamAdoptionResident;
 const typed_resident = @import("typed_resident.zig");
 const frame_cap = harness.frame_cap;
+const sessionLimitOptions = harness.sessionLimitOptions;
 const default_tcp_config = harness.default_tcp_config;
 const driver_options_1s = harness.driver_options_1s;
 const driver_options_10s = harness.driver_options_10s;
@@ -88,9 +89,10 @@ test "a quiescent byte-fed Host transfers exclusively to the driver" {
     );
     try std.testing.expect(second == null);
     try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_release(host));
+    var limits = sessionLimitOptions(0, 17, 0, 0);
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_set_session_limits(host, 0, 17, 0),
+        cd.pancake_host_set_session_limits(host, &limits),
     );
 
     // Application state created before transfer remains on the same Host, and

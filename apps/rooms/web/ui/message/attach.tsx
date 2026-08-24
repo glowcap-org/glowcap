@@ -9,6 +9,7 @@ import { saveAs } from "../download.ts";
 import { usePeer } from "../peer.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
+import { Said } from "../Said.tsx";
 /** The shape a picture or a video will take, from what its sender measured.
  * Reserving it before the bytes arrive is what keeps a log of media from
  * shoving every line below it down the page as each one loads; without a
@@ -70,7 +71,7 @@ export function mediaLayouts(files: readonly AttachmentView[]): readonly MediaLa
 function TransferStatus(
 	{ file, mine, idle }: { file: AttachmentView; mine: boolean; idle: string },
 ) {
-	if (file.error !== undefined) return <span className="sub" role="alert">{file.error}</span>;
+	if (file.error !== undefined) return <Said as="span" className="sub" kind="failure">{file.error}</Said>;
 	if (file.got !== undefined) {
 		const pct = file.size > 0 ? Math.round((file.got / file.size) * 100) : 0;
 		return (
@@ -134,7 +135,7 @@ function MediaPlaceholder(
 				)
 				: file.lost === true
 				// Nothing is coming, so the tile keeps the reason and drops the ask.
-				? <span className="why" role="alert">{file.error}</span>
+				? <Said as="span" className="why" kind="failure">{file.error}</Said>
 				: (
 					<>
 						<button
@@ -147,7 +148,9 @@ function MediaPlaceholder(
 							<Icon name={failed ? "retry" : kind === "video" ? "play" : "image"} />
 							<span>{failed ? "Retry" : fileSize(file.size)}</span>
 						</button>
-						{failed && <span className="why" role="alert">{file.error}</span>}
+						{failed && file.error !== undefined && (
+							<Said as="span" className="why" kind="failure">{file.error}</Said>
+						)}
 					</>
 				)}
 		</div>

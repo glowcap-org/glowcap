@@ -54,7 +54,14 @@ pub fn checkFuzzRegressionSeeds(
 
         const harness_path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, target_file });
         defer gpa.free(harness_path);
-        const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch continue;
+        const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch |err| switch (err) {
+            // tolerant: a test tree without this file hosts no fuzz targets.
+            error.FileNotFound => continue,
+            else => {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-wiring check ({s})", .{ harness_path, @errorName(err) });
+                continue;
+            },
+        };
         defer gpa.free(harness);
 
         // A target with no regressions directory at all used to look exactly
@@ -349,7 +356,10 @@ pub fn checkFuzzTargetsAreReachable(
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
 
-        var sub = test_dir.openDir(io, entry.name, .{ .iterate = true }) catch continue;
+        var sub = test_dir.openDir(io, entry.name, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "test/{s}: cannot be opened for the fuzz-regression replay check ({s})", .{ entry.name, @errorName(err) });
+            continue;
+        };
         defer sub.close(io);
 
         var files = sub.iterate();
@@ -359,7 +369,10 @@ pub fn checkFuzzTargetsAreReachable(
 
             const path = try std.fmt.allocPrint(gpa, "test/{s}/{s}", .{ entry.name, file.name });
             defer gpa.free(path);
-            const source = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+            const source = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the fuzz-regression replay check ({s})", .{ path, @errorName(err) });
+                continue;
+            };
             defer gpa.free(source);
 
             const calls = std.mem.count(u8, source, fuzz_call);

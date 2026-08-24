@@ -105,7 +105,7 @@ pub fn settle(local: model.Preference, remote: model.Preference) Negotiated {
     ) orelse .{
         .captp_version = model.Preference.baseline.captp_version,
         .codec = model.Preference.baseline.codec,
-        .features = local.features.intersect(remote.features),
+        .features = local.features.intersect(remote.features).forCaptpVersion(model.Preference.baseline.captp_version),
     };
 }
 
@@ -131,7 +131,7 @@ pub fn negotiate(local: Offer, remote: Offer) ?Negotiated {
     return .{
         .captp_version = captp_version,
         .codec = codec,
-        .features = local.features.intersect(remote.features),
+        .features = local.features.intersect(remote.features).forCaptpVersion(captp_version),
     };
 }
 

@@ -10,6 +10,7 @@ const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
 const host_pump = @import("pump.zig");
+const pump_schedule = @import("pump/schedule.zig");
 const sessions_mod = @import("../sessions.zig");
 
 const Host = host_mod.Host;
@@ -48,18 +49,20 @@ pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) R
 /// pops owned instead: the caller adopts the payload and frees it with
 /// `Host.freeAction` (or moves it into a durable owner first).
 ///
-/// `dial` carries only the pending ticket; the dial view lives on the node
-/// pending row (`Host.pendingDial` / C `pancake_host_pending_dial`).
+/// `dial` carries the logical ticket and stable route index; the dial view
+/// lives on the node pending row (`Host.pendingDial` / C
+/// `pancake_host_pending_dial`).
 pub const HostAction = union(enum) {
-    /// Dial the exporter named by this ticket's active pending-dial view with
-    /// this host's identity, then report `exporterDialed(ticket, conn)` — or
-    /// `dialFailed(ticket, reason)` if the path refuses. A failed path may
-    /// produce another DIAL for the same ticket; the Host/Node owns that
-    /// fallback and the embedder does not select alternatives.
-    dial: struct { ticket: engine.Node.PendingId },
+    /// Dial the exporter named by this attempt's active pending-dial view with
+    /// this host's identity, then report
+    /// `exporterDialed(ticket, route_index, conn)` — or
+    /// `dialFailed(ticket, route_index, reason)` if the path refuses. A failed
+    /// path may produce another DIAL for the same ticket; the Host/Node owns
+    /// ranking and fallback while the embedder executes only exact attempts.
+    dial: struct { ticket: engine.Node.PendingId, route_index: usize },
     /// Stop one previously delivered `dial` effect. The executor interrupts
     /// and joins its physical operation, then calls `Host.dialCancelled`.
-    cancel_dial: struct { ticket: engine.Node.PendingId },
+    cancel_dial: struct { ticket: engine.Node.PendingId, route_index: usize },
     /// Outbound transport packets may be ready on this session: drain
     /// `HostSession.takeTransportOutbound` until empty and write them.
     flush: engine.PeerHandle,
@@ -124,7 +127,7 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
             self.last_action = null;
             return nextAction(self);
         }
-        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket)) return null;
+        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
         return action;
     }
     try resumeWorkForActionDrain(
@@ -147,7 +150,8 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
 /// remain first without being copied or appended behind younger rows.
 pub fn retryBorrowedAction(self: *Host) bool {
     if (self.last_action == null or self.retry_last_action) return false;
-    if (self.last_action.? == .dial) self.node.rollbackDialEffect(self.last_action.?.dial.ticket);
+    if (self.last_action.? == .dial)
+        self.node.rollbackDialEffect(self.last_action.?.dial.ticket, self.last_action.?.dial.route_index);
     self.retry_last_action = true;
     return true;
 }
@@ -186,7 +190,7 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
         self.last_action = null;
         if (action == .need_gift_id and !self.node.hasPendingGift(action.need_gift_id.ticket))
             return takeAction(self);
-        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket)) return null;
+        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
         return action;
     }
     try resumeWorkForActionDrain(
@@ -204,14 +208,12 @@ pub fn freeAdopted(self: *Host, action: HostAction) void {
 }
 
 /// Put a popped, retryable external-effect action back on the FIFO after its
-/// executor failed. These ticket-only arms are idempotent: if the first attempt
-/// committed before its tail failed, the retried ticket is stale and resumes
-/// cleanup; if it did not commit, the Node still owns the pending row. Popping
-/// left one physical slot, so this append cannot allocate.
+/// executor refused before commit. Popping left one physical slot, so this
+/// append cannot allocate.
 pub fn retryEffect(self: *Host, action: HostAction) void {
     switch (action) {
         .dial => |dial| {
-            self.node.rollbackDialEffect(dial.ticket);
+            self.node.rollbackDialEffect(dial.ticket, dial.route_index);
             self.actions.pushReserved(action);
         },
         .cancel_dial => self.actions.pushReserved(action),
@@ -224,7 +226,8 @@ pub fn retryEffect(self: *Host, action: HostAction) void {
 /// the threshold and hand out the front row, owning nothing.
 pub fn popAction(self: *Host) ?HostAction {
     const action = while (self.actions.pop(self.allocator)) |candidate| {
-        if (candidate == .dial and !self.node.beginDialEffect(candidate.dial.ticket)) continue;
+        if (candidate == .dial and
+            !self.node.beginDialEffect(candidate.dial.ticket, candidate.dial.route_index)) continue;
         if (candidate == .need_gift_id and !self.node.hasPendingGift(candidate.need_gift_id.ticket)) continue;
         break candidate;
     } else return null;
@@ -248,6 +251,13 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
     // core work is admitted. Pumping while one is parked lets a drain grow an
     // unbounded action suffix before the reactor can honor its first effect.
     if (self.actions.peek() != null) return;
+    // A refused pump stands down until the pressure could have moved (a new
+    // drain pass, or the embedder taking outbound bytes). Without this, a
+    // session whose refusal cannot clear inside this pass — its connection is
+    // closing, so no flush the pass executes can drain it — re-feeds the pass
+    // one flush wake per pump, and the drain never returns to the reactor
+    // whose completions would retire that very connection.
+    if (self.resume_pump_refused) return;
     host_pump.finishVerb(self) catch |err| switch (err) {
         error.OutOfMemory => return HostError.OutOfMemory,
         // `drainWork` requeued the dirty session and published its deduplicated
@@ -255,7 +265,18 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
         // embedder can drain the bytes that make this pressure actionable;
         // condemning every session here would turn normal flow control into a
         // Host-wide protocol failure.
-        error.OutboundBackpressure => return,
+        error.OutboundBackpressure => {
+            self.resume_pump_refused = true;
+            // Standing down preserves liveness only if the drain comes back:
+            // wake it once, deduplicated, so the retry runs at the reactor's
+            // cadence instead of never. The refused work is not lost either
+            // way — the dirty FIFO still holds it, and a reaped or drained
+            // connection is what finally moves it.
+            // best-effort: a wake that cannot reserve its slot loses only the
+            // wake; the next Host verb resumes the same dirty FIFO.
+            pump_schedule.queueResumeAction(self) catch {};
+            return;
+        },
         else => sessions_mod.condemnRemainingSessions(self, "host action cleanup failed"),
     };
 }
@@ -264,7 +285,7 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
 /// host has already promised, plus the `extra` slots this caller is about
 /// to owe. The one owner of that ceiling.
 ///
-/// The promises, and why each is a slot: every live vow settles exactly
+/// The promises, and why each is a slot: every pending vow settles exactly
 /// once, through a `settled` or `failed` action, and the fire that
 /// carries it is infallible by then. Every parked select-or-dial enliven
 /// (ADR-0098) settles the same way, under an id its caller already holds.
@@ -282,6 +303,6 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
 pub fn reserveActions(self: *Host, extra: usize) !void {
     try self.actions.reserve(
         self.allocator,
-        self.vows.count() + self.pending_enlivens.items.len + 2 * self.sessions.count() + extra,
+        self.pendingVowCount() + self.pending_enliven_count + 2 * self.sessions.count() + extra,
     );
 }

@@ -42,6 +42,7 @@ type WasmExports = {
 	pancake_wasm_free: (ptr: number, len: number) => void;
 	pancake_wasm_abi_layout: (out: number, cap: number) => number;
 	pancake_wasm_behavior_trampoline_addr: () => number;
+	pancake_wasm_hosted_free_trampoline_addr: () => number;
 } & Record<string, CallableFunction>;
 
 /** How a dial's host:port maps to the WebSocket URL that carries its bytes.
@@ -51,12 +52,12 @@ export type WsUrl = (host: string, port: number) => string;
 
 const defaultWsUrl: WsUrl = (host, port) => `ws://${host}:${port}/`;
 
-/** What `makeWebAdapter` hands back: the runtime adapter, plus the function the
- * module's `env.pancake_behavior_trampoline` import must forward to (`mod.ts`
- * wires the import's late-bound slot to it after instantiation). */
+/** What `makeWebAdapter` hands back: the runtime adapter plus the behavior and
+ * hosted-free functions the module's imports forward to (`mod.ts` wires their
+ * late-bound slots after instantiation). */
 export interface WebAdapter {
 	adapter: RuntimeAdapter;
-	trampolineImport: (
+	behaviorTrampolineImport: (
 		ctx: number,
 		turn: number,
 		verbPtr: number,
@@ -65,11 +66,12 @@ export interface WebAdapter {
 		argsLen: number,
 		outReply: number,
 	) => number;
+	hostedFreeTrampolineImport: (ctx: number) => void;
 }
 
 /** Build the runtime adapter over an instantiated wasm module. `mod.ts` owns
- * instantiation (it supplies the one `env.pancake_behavior_trampoline` import
- * that forwards to the callback registered through `makeCallback`). */
+ * instantiation and supplies the two hosted-object imports that forward to the
+ * callbacks registered through `makeCallback`. */
 export function makeWebAdapter(
 	exports: WasmExports,
 	descriptorWords: Uint32Array,
@@ -147,14 +149,15 @@ export function makeWebAdapter(
 		return slot;
 	}
 
-	// The one callback seam: the wasm module imports exactly
-	// `env.pancake_behavior_trampoline`, and `mod.ts` wires that import to this
-	// slot. `makeCallback` fills it with the runtime's shared trampoline.
+	// The two hosted-object callbacks have distinct C signatures. `mod.ts` wires
+	// the wasm imports to these slots; `makeCallback` admits only these exact
+	// definitions and fills them with the runtime's shared trampolines.
 	let behaviorTrampoline: ((...args: unknown[]) => unknown) | null = null;
+	let hostedFreeTrampoline: ((...args: unknown[]) => unknown) | null = null;
 
 	/** The import the instantiation supplies: convert the raw i32s to the
 	 * `bigint` pointer vocabulary the runtime's trampoline expects and forward. */
-	function trampolineImport(
+	function behaviorTrampolineImport(
 		ctx: number,
 		turn: number,
 		verbPtr: number,
@@ -180,6 +183,18 @@ export function makeWebAdapter(
 			return typeof rc === "number" ? rc | 0 : Number(rc);
 		} catch {
 			return INVALID_ARGUMENT;
+		}
+	}
+
+	/** Native actor retirement must not let a JavaScript exception unwind
+	 * through wasm teardown. The registered callback only releases JS-owned
+	 * bookkeeping, and a missing callback is harmless before any pointer to it
+	 * can have been handed to the Host. */
+	function hostedFreeTrampolineImport(ctx: number): void {
+		try {
+			hostedFreeTrampoline?.(BigInt(ctx >>> 0));
+		} catch {
+			// Preserve the C destructor's no-throw boundary.
 		}
 	}
 
@@ -266,23 +281,42 @@ export function makeWebAdapter(
 		},
 
 		makeCallback(def: SymbolDef, fn: (...args: unknown[]) => unknown): NativeCallback {
-			// The wasm module has exactly one callback seam, the seven-parameter
-			// behavior trampoline. Anything else (a custom-allocator context)
-			// has no wasm form and refuses loudly.
-			if (def.parameters.length !== 7 || def.result !== "i32") {
-				throw new Error(
-					"pancake wasm: the only native callback is the behavior trampoline " +
-						"(custom-allocator contexts are dlopen-only)",
-				);
+			const behaviorParameters = [
+				"pointer",
+				"pointer",
+				"pointer",
+				"usize",
+				"pointer",
+				"usize",
+				"pointer",
+			];
+			const isBehavior = def.result === "i32" &&
+				def.parameters.length === behaviorParameters.length &&
+				def.parameters.every((parameter, index) => parameter === behaviorParameters[index]);
+			if (isBehavior) {
+				behaviorTrampoline = fn;
+				return {
+					pointer: BigInt(exports.pancake_wasm_behavior_trampoline_addr() >>> 0),
+					close() {
+						behaviorTrampoline = null;
+					},
+				};
 			}
-			behaviorTrampoline = fn;
-			const pointer = BigInt(exports.pancake_wasm_behavior_trampoline_addr() >>> 0);
-			return {
-				pointer,
-				close() {
-					behaviorTrampoline = null;
-				},
-			};
+			const isHostedFree = def.result === "void" &&
+				def.parameters.length === 1 && def.parameters[0] === "pointer";
+			if (isHostedFree) {
+				hostedFreeTrampoline = fn;
+				return {
+					pointer: BigInt(exports.pancake_wasm_hosted_free_trampoline_addr() >>> 0),
+					close() {
+						hostedFreeTrampoline = null;
+					},
+				};
+			}
+			throw new Error(
+				"pancake wasm: callbacks are limited to hosted behavior and lifecycle " +
+					"trampolines (custom-allocator contexts are dlopen-only)",
+			);
 		},
 
 		pointerOf(buf: Uint8Array): bigint {
@@ -319,7 +353,7 @@ export function makeWebAdapter(
 		},
 	};
 
-	return { adapter: { ffi, net, layout }, trampolineImport };
+	return { adapter: { ffi, net, layout }, behaviorTrampolineImport, hostedFreeTrampolineImport };
 }
 
 /** Open a WebSocket carrying raw OCapN frame bytes and adapt it to the

@@ -24,16 +24,17 @@ change a deployment, read [known limitations](boundaries.md).
 | `noise-relay` | In-tree tests keep CapTP plaintext off the relay. Recurring checks cover hostname and unknown-CA refusal from every native binding, real local certificate chains, and a Chromium Wasm peer over local WSS. | No outside CapTP peer speaks this profile. Public-certificate and non-Linux evidence remain open. |
 | `onion` | Fake-daemon tests drive the blocking resident, provider lifecycle, native completion loop, and every native binding. Live checks cover two pancake peers, both Goblins directions, the portable upstream suite plus the strict abort probe, fresh-process service restoration, and Rooms with two independent clients. | Live Tor checks need Tor and outbound network, so they run on demand. No live scale run is recorded. |
 | `webrtc` | Rust sidecar tests cover inbound backpressure, partial writes, oversized-message refusal, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | Native DataChannel, browser, and signaling-mesh checks run on demand. `webrtc-loop` and `webrtc-bridge-redeem` exercise Host adoption and three-party redemption and require Cargo. |
-| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. | There is no independent C consumer; binding interoperability checks still pass through this ABI. |
+| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. `release-pack` also safely extracts its tarball off-tree, then compiles and runs an independent C consumer for each self-contained static archive and one across the packaged shared libraries. | The independent consumers prove packaging, linkage, version, and archive identity; behavioral interoperability still runs through the bindings rather than an external C implementation. |
 | Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client and in both handoff roles. | Only Deno has a live check in which Goblins dials the binding. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and fail-closed native-loop admission. | Bun's synchronous FFI cannot host the native driver or blocking transport lifecycles. No Bun-native Goblins check runs. |
 | Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are pancake-native APIs with no outside implementation to compare. |
 | Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes pancake's outbound GC or binding finalizers. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
+| Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a pancake member in one room and proves their independently settled wire profiles. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges, including channel traffic and an IRC-initiated direct-message reply. In-tree checks cover room authority, membership, introductions, and bounded IRC framing/lifetimes. | Browser direct messages and the four-peer iroh matrix remain on demand because they require Chromium or the iroh sidecar. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
-| macOS | Cross-compilation checks the library and kqueue backend. | Nothing executes on macOS in CI. |
+| macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | The full gate and external-runtime matrix remains Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by pancake. |
 
@@ -63,12 +64,15 @@ recurring evidence.
 - `zig build webrtc-sidecar-test`
 - `zig build bindings-fmt-check`
 - `zig build bindings`
+- `zig build bindings-noise-relay-listen`
 - `zig build racket-test`
 - `zig build wasm-driver-test`
 - `zig build wasm-abi-layout-check`
 - `zig build wasm-import-check`
 - `zig build web-peer-test`
 - `zig build goblins-interop`
+- `zig build goblins-rooms`
+- `zig build goblins-rooms-irc`
 - `zig build bindings-goblins-interop`
 - `zig build bindings-goblins-handoff`
 - `zig build bindings-goblins-gift`
@@ -76,6 +80,7 @@ recurring evidence.
 - `zig build goblins-gift`
 - `zig build goblins-gift-hints`
 - `zig build goblins-relayed-give`
+- `zig build goblins-listen-recipient`
 - `zig build goblins-exporter`
 - `zig build goblins-gc`
 - `zig build deno-goblins-listen`

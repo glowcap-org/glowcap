@@ -27,95 +27,95 @@ import { ModeToggle, SaveOpenControls } from "./topbar.tsx";
 type Cell = { props: { disabled?: boolean; title?: string; children: string } };
 
 function modeCells(recording: boolean): Record<string, Cell> {
-  const el = ModeToggle({ mode: "live", recording, onChange: () => {} });
-  const out: Record<string, Cell> = {};
-  for (const cell of el.props.children as Cell[]) {
-    out[cell.props.children] = cell;
-  }
-  return out;
+	const el = ModeToggle({ mode: "live", recording, onChange: () => {} });
+	const out: Record<string, Cell> = {};
+	for (const cell of el.props.children as Cell[]) {
+		out[cell.props.children] = cell;
+	}
+	return out;
 }
 
 function saveOpen(recording: boolean): Record<string, Cell> {
-  const el = SaveOpenControls({
-    recording,
-    onNew: () => {},
-    onSave: () => {},
-    onOpen: () => {},
-  });
-  const out: Record<string, Cell> = {};
-  for (
-    const button of el.props.children as {
-      props: Cell["props"] & {
-        "aria-label": string;
-      };
-    }[]
-  ) {
-    out[button.props["aria-label"]] = button as Cell;
-  }
-  return out;
+	const el = SaveOpenControls({
+		recording,
+		onNew: () => {},
+		onSave: () => {},
+		onOpen: () => {},
+	});
+	const out: Record<string, Cell> = {};
+	for (
+		const button of el.props.children as {
+			props: Cell["props"] & {
+				"aria-label": string;
+			};
+		}[]
+	) {
+		out[button.props["aria-label"]] = button as Cell;
+	}
+	return out;
 }
 
 /** The refusal has to point at the way out, or it is a dead end. */
 function namesTheWayOut(title: string | undefined): boolean {
-  return title !== undefined && title.includes("Stop") &&
-    title.includes("Discard");
+	return title !== undefined && title.includes("Stop") &&
+		title.includes("Discard");
 }
 
 Deno.test("recording holds every cell that would leave Live", () => {
-  const held = modeCells(true);
-  for (const label of ["Play", "Build"]) {
-    assertEquals(
-      held[label]!.props.disabled,
-      true,
-      `${label} still ended the recording on the way out`,
-    );
-    assert(
-      namesTheWayOut(held[label]!.props.title),
-      `${label} refused without naming the way out`,
-    );
-  }
-  // Live is where the reader already is, and re-picking it changes
-  // nothing, so holding it would be refusing a no-op.
-  assertEquals(held["Live"]!.props.disabled, false);
+	const held = modeCells(true);
+	for (const label of ["Play", "Build"]) {
+		assertEquals(
+			held[label]!.props.disabled,
+			true,
+			`${label} still ended the recording on the way out`,
+		);
+		assert(
+			namesTheWayOut(held[label]!.props.title),
+			`${label} refused without naming the way out`,
+		);
+	}
+	// Live is where the reader already is, and re-picking it changes
+	// nothing, so holding it would be refusing a no-op.
+	assertEquals(held["Live"]!.props.disabled, false);
 });
 
 Deno.test("with no capture running the toggle is untouched", () => {
-  const free = modeCells(false);
-  for (const label of ["Live", "Play", "Build"]) {
-    assertEquals(free[label]!.props.disabled, false);
-    assertEquals(
-      free[label]!.props.title,
-      undefined,
-      `${label} carried a refusal with nothing to refuse`,
-    );
-  }
+	const free = modeCells(false);
+	for (const label of ["Live", "Play", "Build"]) {
+		assertEquals(free[label]!.props.disabled, false);
+		assertEquals(
+			free[label]!.props.title,
+			undefined,
+			`${label} carried a refusal with nothing to refuse`,
+		);
+	}
 });
 
 Deno.test("recording holds both ways out of the buffer, and not Save", () => {
-  // New and Open are the same act from the buffer's point of view: each replaces
-  // it, so each would end a capture without saying so. Refusing one and not the
-  // other is the shape this file exists to catch.
-  const held = saveOpen(true);
-  for (const label of ["New", "Open"]) {
-    assertEquals(
-      held[label]!.props.disabled,
-      true,
-      `${label} still replaced the buffer and left Live mid-capture`,
-    );
-    assert(
-      namesTheWayOut(held[label]!.props.title),
-      `${label}'s refusal did not name the way out`,
-    );
-  }
-  // Save reads the document and disturbs nothing, so a capture is no
-  // reason to refuse it — and it is how a reader keeps work anyway.
-  assertEquals(held["Save"]!.props.disabled, undefined);
+	// New and Open are the same act from the buffer's point of view: each replaces
+	// it, so each would end a capture without saying so. Refusing one and not the
+	// other is the shape this file exists to catch.
+	const held = saveOpen(true);
+	for (const label of ["New", "Open"]) {
+		assertEquals(
+			held[label]!.props.disabled,
+			true,
+			`${label} still replaced the buffer and left Live mid-capture`,
+		);
+		assert(
+			namesTheWayOut(held[label]!.props.title),
+			`${label}'s refusal did not name the way out`,
+		);
+	}
+	// Save reads the document and disturbs nothing, so a capture is no
+	// reason to refuse it — and it is how a reader keeps work anyway.
+	assertEquals(held["Save"]!.props.disabled, undefined);
 
-  const free = saveOpen(false);
-  for (const label of ["New", "Open"]) {
-    assertEquals(free[label]!.props.disabled, false);
-  }
-  assert(free["Open"]!.props.title!.includes("Cmd/Ctrl+O"));
-  // New has no chord: Cmd+N is the browser's own and cannot be taken.
-  assert(!free["New"]!.props.title!.includes("Cmd/Ctrl"));
+	const free = saveOpen(false);
+	for (const label of ["New", "Open"]) {
+		assertEquals(free[label]!.props.disabled, false);
+	}
+	assert(free["Open"]!.props.title!.includes("Cmd/Ctrl+O"));
+	// New has no chord: Cmd+N is the browser's own and cannot be taken.
+	assert(!free["New"]!.props.title!.includes("Cmd/Ctrl"));
 });

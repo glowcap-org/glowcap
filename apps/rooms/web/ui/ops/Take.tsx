@@ -1,6 +1,6 @@
 // The modal that takes one operations capability.
 //
-// Flipping a toggle on in Settings → Advanced opens this form: paste the
+// Flipping a toggle on in Settings → Capabilities opens this form: paste the
 // swiss number the server printed, fetch the capability on the live directory
 // session. The toggle lands on only when the take succeeds — cancel or a
 // refused take leaves nothing held. Settings leaves without an exit while
@@ -74,7 +74,7 @@ export function OpsTakeModal(
 			aria-labelledby={titleId}
 		>
 			<form
-				className="modal-card"
+				className="modal-card card-plane"
 				onSubmit={(event) => {
 					event.preventDefault();
 					take();

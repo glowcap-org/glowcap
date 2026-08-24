@@ -161,12 +161,13 @@ fn originateGive(
         return error.NoExporterLocator;
     const give = try recipe.mint(
         self,
+        recipient,
+        recipient_peer,
         exporter_peer,
         gift_id,
         recipient_key,
         exporter_key,
         if (exporter_location.len != 0) exporter_location else claimed,
-        recipient.session_state.partnerKnownPancake(),
     );
     defer self.allocator.free(give);
     try engine.handoff_gifter.queueOriginatedGive(

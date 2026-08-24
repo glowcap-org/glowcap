@@ -59,7 +59,6 @@ async def cancelled_close_waiter_preserves_transport_coordinator() -> None:
     else:
         raise AssertionError("close waiter cancellation was not preserved")
     gc.collect()
-    await asyncio.sleep(0)
     assert not terminal.done(), "caller cancellation abandoned the coordinator"
     assert session._transport.calls == 1
 
@@ -142,7 +141,6 @@ async def cancelled_loop_close_waiter_preserves_terminal_chain() -> None:
     else:
         raise AssertionError("loop close waiter cancellation was not preserved")
     gc.collect()
-    await asyncio.sleep(0)
     assert not terminal.done(), "loop close coroutine lost its strong owner"
 
     finish.set()

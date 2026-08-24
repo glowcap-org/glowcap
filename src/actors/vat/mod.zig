@@ -591,6 +591,7 @@ pub const Vat = struct {
     pub const fulfillVow = vows_mod.fulfillVow;
     pub const breakVow = vows_mod.breakVow;
     pub const on = vows_mod.on;
+    pub const takeListener = vows_mod.takeListener;
 
     pub const snapshot = boxed.snapshot;
     /// Rewind the local actor heap to a snapshot (see `boxed.restore`).

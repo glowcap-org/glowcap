@@ -56,11 +56,11 @@ other, and the tap reports both directions of traffic, so each peer's view of
 the session is complete on its own. Forwarding both would draw one conversation
 twice, with every message doubled.
 
-**A browser cannot take a trace callback.** The wasm module declares exactly one
-import, `env.pancake_behavior_trampoline`, and `zig build wasm-import-check`
-holds that set at one. `pancake_host_set_trace` wants a C function pointer,
-which has no wasm form. The browser peers are the very peers whose DMs are
-invisible.
+**A browser cannot take a trace callback.** The wasm module declares exactly
+the behavior-dispatch and hosted-retirement imports, and `zig build
+wasm-import-check` holds that fixed set. `pancake_host_set_trace` wants a third,
+arbitrary C function pointer, which has no wasm form. The browser peers are the
+very peers whose DMs are invisible.
 
 ## Decision
 

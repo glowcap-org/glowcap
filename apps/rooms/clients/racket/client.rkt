@@ -33,7 +33,10 @@
 (define (format-rooms rooms)
   (if (null? rooms)
       "(none yet)"
-      (string-join (for/list ([r (in-list rooms)]) (format "~a (~a)" (car r) (cadr r))) ", ")))
+      (string-join
+       (for/list ([r (in-list rooms)])
+         (format "~a (~a)" (room-info-name r) (or (room-info-count r) "unknown")))
+       ", ")))
 
 ;; The friendly entry the client uses: connect, show and follow discovery (the
 ;; `list` snapshot and the `watch` change feed), then enter the room (opening it
@@ -42,8 +45,9 @@
   (define d (room-connect locator))
   (printf "[~a] rooms: ~a\n" nick (format-rooms (dir-list d)))
   (flush-output)
-  (dir-watch d (lambda (kind name count)
-                 (printf "[~a] directory: ~a ~a (~a)\n" nick kind name count)
+  (dir-watch d (lambda (kind room)
+                 (printf "[~a] directory: ~a ~a (~a)\n"
+                         nick kind (room-info-name room) (or (room-info-count room) "unknown"))
                  (flush-output)))
   (room-subscribe d
                   (enter-or-open (lambda (n) (dir-enter d n))

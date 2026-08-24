@@ -81,6 +81,16 @@ export interface Peer {
 	 * the directory that served this page; every directory this tab holds uses
 	 * that one surface. */
 	aboutDirectory(dir: DirId | null): void;
+	/** Show what is known about the conversation on screen: how this tab
+	 * reaches it, where the session stands, and the rest a reader would open
+	 * the title to check. The title and `/details` both open this. */
+	aboutConversation(): void;
+	/** Put that card away. */
+	closeAboutConversation(): void;
+	/** Open the card that holds the rest of a long refusal. */
+	showError(detail: { title: string; text: string }): void;
+	/** Put that card away. */
+	closeError(): void;
 	/** Stop holding a directory: its rooms are left, its direct lines closed, and
 	 * the name it granted given back. Offered from the card that describes it,
 	 * including the directory this page came from: leaving that one gives the
@@ -109,14 +119,30 @@ export interface Peer {
 	openHelp(): void;
 	/** Put Settings back after Help. */
 	closeHelp(): void;
-	/** Close Settings under the Operations modal, the way Help is opened. */
+	/** Bridge one IRC channel through the held gateway. Empty when it stood,
+	 * otherwise the reason it did not. */
+	joinIrc(
+		choice: {
+			network: string;
+			channel: string;
+			host: string;
+			port: number;
+			tls: boolean;
+			nick: string;
+			sasl?: { account: string; password: string };
+		},
+	): Promise<string>;
+	/** Part a bridged channel; its room leaves the directory with it. */
+	partIrc(network: string, channel: string): Promise<string>;
+	/** Flip whether this device keeps direct-message history. Turning it off
+	 * erases what was kept. */
+	setKeepHistory(keep: boolean): void;
+	/** Close Settings and stand the reader on the Operations page at /ops. */
 	openOperations(): void;
-	/** Put Settings back after Operations, on Advanced. */
-	closeOperations(): void;
-	/** Close Settings under `cap`'s take modal: flipping an Advanced toggle on
+	/** Close Settings under `cap`'s take modal: flipping an Capabilities toggle on
 	 * asks to hold that capability, and the toggle lands on only when the take
 	 * succeeds. */
-	openOpsTake(cap: OpsCap): void;
+	openOpsTake(cap: OpsCap, from?: "settings" | "ops"): void;
 	/** Put Settings back after the take modal, taken or dismissed alike. */
 	closeOpsTake(): void;
 	/** Redeem the swiss number the server printed for `cap`, the way that
@@ -140,6 +166,15 @@ export interface Peer {
 	listenerUp(transport: string, options?: Record<string, string | number>): Promise<string>;
 	/** Take a listener down by the number the list gave it, the same way. */
 	listenerDown(id: number): Promise<string>;
+	/** Publish the room behind one conversation into this directory, durably,
+	 * under `name`. The room must live on another directory this tab holds.
+	 * Empty when the publication is live, otherwise the refusal for the pane
+	 * to show. */
+	publishPeeredRoom(key: string, name: string): Promise<string>;
+	/** Revoke one publication this tab made, by the row id its publish minted.
+	 * Revocation removes the room from discovery; references already handed
+	 * out stay live. Empty when the row is gone, otherwise the refusal. */
+	revokePeeredPublication(id: number): Promise<string>;
 	/** This window's advertised direct-message locator, or null before the peer is up. */
 	selfLocator(): string | null;
 	/** The room directory this window currently reaches. */

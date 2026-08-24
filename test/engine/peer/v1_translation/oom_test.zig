@@ -11,6 +11,17 @@ const engine = pancake.ocapn.engine;
 const session = pancake.ocapn.session;
 const peer_fixture = @import("../../../support/peer_fixture.zig");
 
+fn drainCallbackPair(peer: *engine.Peer, resolver_position: u64) !void {
+    var callback = peer.takeOutbound() orelse return error.MissingResolverCallback;
+    callback.deinit();
+    var release = peer.takeOutbound() orelse return error.MissingResolverRelease;
+    defer release.deinit();
+    const body = try codec.syrup.decodeBody(release.view());
+    try std.testing.expect(body == .gc_export);
+    try std.testing.expectEqual(resolver_position, try body.gc_export.positions.at(0));
+    try std.testing.expectEqual(@as(u64, 1), try body.gc_export.deltas.at(0));
+}
+
 test "settled-answer encode OOM leaves its carrier queued and emits exactly once" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var peer = engine.testing.initRawOpenPeer(failing.allocator());
@@ -36,10 +47,9 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
             .resolution = .{ .fulfill = .{ .integer = @intCast(offset) } },
         } });
     }
-    for (0..64) |_| {
+    for (0..64) |offset| {
         try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-        var outbound = peer.takeOutbound().?;
-        outbound.deinit();
+        try drainCallbackPair(&peer, 2_000 + offset);
     }
 
     // Fail before the 65th POD carrier is consumed. The answer store still
@@ -50,16 +60,13 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
 
     failing.fail_index = std.math.maxInt(usize);
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    var outbound = peer.takeOutbound() orelse return error.MissingRetriedResolve;
-    outbound.deinit();
+    try drainCallbackPair(&peer, 2_064);
 
     // Drain the suffix and prove the retained carrier neither duplicated nor
     // displaced anything after the retry.
-    var remaining: usize = 65;
-    while (remaining != 0) : (remaining -= 1) {
+    for (65..130) |offset| {
         try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-        var next = peer.takeOutbound() orelse return error.MissingQueuedResolve;
-        next.deinit();
+        try drainCallbackPair(&peer, 2_000 + offset);
     }
     try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }
@@ -193,21 +200,163 @@ test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
 
     // The answer-table allocation succeeds; the following import-table
     // allocation fails. Neither half of the resolver-only authority may remain.
-    try std.testing.expectError(error.OutOfMemory, engine.v1_0.registerPartnerResolver(&peer, deliver));
+    try std.testing.expectError(error.OutOfMemory, engine.v1_0.preparePartnerResolver(&peer, deliver));
     try std.testing.expect(!peer.session_state.hasInboundAnswerNamed(virtual));
     try std.testing.expect(!peer.session_state.holdsImport(.from(7)));
     try std.testing.expect(peer.session_state.resolverForInboundAnswer(virtual) == null);
 
-    // Monotonic positions are not reused after rollback. A clean retry installs
-    // exactly one complete answer/resolver pair at the next virtual position.
+    // Preparation committed nothing, including the virtual-answer cursor. A
+    // clean retry therefore commits the same identity, not a skipped tombstone.
     failing.fail_index = std.math.maxInt(usize);
-    const retried = (try engine.v1_0.registerPartnerResolver(&peer, deliver)).?;
-    try std.testing.expectEqual(virtual.virtual.int() + 1, retried.int());
+    const prepared = (try engine.v1_0.preparePartnerResolver(&peer, deliver)).?;
+    const retried = prepared.virtual_answer.?;
+    prepared.commit(&peer.session_state);
+    try std.testing.expectEqual(virtual.virtual.int(), retried.int());
     try std.testing.expect(peer.session_state.hasInboundAnswerNamed(.fromVirtual(retried)));
     try std.testing.expectEqual(
         @as(?model.ImportPosition, .from(7)),
         peer.session_state.resolverForInboundAnswer(.fromVirtual(retried)),
     );
+}
+
+test "V1.0 resolver-only frame publishes no authority on allocator refusal" {
+    var saw_late_failure = false;
+    var saw_success = false;
+
+    for (0..32) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
+        defer peer.deinit();
+        try peer.session_state.registerExport(.from(7));
+
+        const first_allocation = failing.alloc_index;
+        failing.fail_index = first_allocation + offset;
+        const attempt = peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:export7+>[]f<19'desc:import-promise99+>>",
+            .shape = .byte,
+        });
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |_| {
+            saw_success = true;
+            try std.testing.expect(peer.session_state.hasInboundAnswerNamed(.fromVirtual(.from(1))));
+            try std.testing.expectEqual(
+                @as(?model.ImportPosition, .from(99)),
+                peer.session_state.resolverForInboundAnswer(.fromVirtual(.from(1))),
+            );
+            var event = peer.pollEvent() orelse return error.MissingDeliverEvent;
+            event.deinit();
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            if (offset > 2) saw_late_failure = true;
+            try std.testing.expect(peer.pollEvent() == null);
+            try std.testing.expect(!peer.session_state.hasInboundAnswerNamed(.fromVirtual(.from(1))));
+            try std.testing.expect(!peer.session_state.hasImport(.from(99)));
+            try std.testing.expect(peer.session_state.resolverForInboundAnswer(.fromVirtual(.from(1))) == null);
+            try std.testing.expectEqual(@as(u64, 1), (try peer.session_state.nextVirtualInboundAnswer()).int());
+        }
+    }
+
+    try std.testing.expect(saw_late_failure);
+    try std.testing.expect(saw_success);
+}
+
+test "V1.0 pipelined deliver commits queue imports answer and resolver together" {
+    var saw_late_failure = false;
+    var saw_success = false;
+
+    for (0..40) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
+        defer peer.deinit();
+        try peer.session_state.installInboundAnswer(.from(42));
+
+        const first_allocation = failing.alloc_index;
+        failing.fail_index = first_allocation + offset;
+        const attempt = peer.recvBorrowed(.{
+            .bytes = "<10'op:deliver<11'desc:answer42+>[<18'desc:import-object77+>]43+<19'desc:import-promise99+>>",
+            .shape = .byte,
+        });
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |_| {
+            saw_success = true;
+            try std.testing.expect(peer.pollEvent() == null);
+            try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswer(.from(42)).?.queued_calls);
+            try std.testing.expect(peer.session_state.hasInboundAnswer(.from(43)));
+            try std.testing.expect(peer.session_state.hasImport(.from(77)));
+            try std.testing.expect(peer.session_state.hasImport(.from(99)));
+            try std.testing.expectEqual(
+                @as(?model.ImportPosition, .from(99)),
+                peer.session_state.resolverForInboundAnswer(.fromWire(.from(43))),
+            );
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            if (offset > 3) saw_late_failure = true;
+            try std.testing.expect(peer.pollEvent() == null);
+            try std.testing.expectEqual(@as(usize, 0), peer.session_state.inboundAnswer(.from(42)).?.queued_calls);
+            try std.testing.expect(!peer.session_state.hasInboundAnswer(.from(43)));
+            try std.testing.expect(!peer.session_state.hasImport(.from(77)));
+            try std.testing.expect(!peer.session_state.hasImport(.from(99)));
+            try std.testing.expect(peer.session_state.resolverForInboundAnswer(.fromWire(.from(43))) == null);
+        }
+    }
+
+    try std.testing.expect(saw_late_failure);
+    try std.testing.expect(saw_success);
+}
+
+test "next pipelined deliver prepares shortening with queue authority atomically" {
+    var inbound = try codec.syrup.encodeMessageForProfile(std.testing.allocator, .next, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .args = &.{.{ .reference = .{ .near = model.NearRef.promise(77) } }},
+        .answer = .from(43),
+    } });
+    defer inbound.deinit();
+    var saw_late_failure = false;
+    var saw_success = false;
+
+    for (0..48) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = peer_fixture.openPeer(failing.allocator());
+        defer {
+            failing.fail_index = std.math.maxInt(usize);
+            peer.deinit();
+        }
+        try peer.session_state.installInboundAnswer(.from(42));
+        const baseline_exports = peer.session_state.exports.len();
+
+        failing.fail_index = failing.alloc_index + offset;
+        const attempt = peer.recvBorrowed(inbound.view());
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |_| {
+            saw_success = true;
+            try std.testing.expectEqual(
+                @as(usize, 1),
+                peer.session_state.inboundAnswer(.from(42)).?.queued_calls,
+            );
+            try std.testing.expect(peer.session_state.hasInboundAnswer(.from(43)));
+            try std.testing.expect(peer.session_state.hasImport(.from(77)));
+            try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+            var listener = peer.takeOutbound() orelse return error.MissingShorteningListener;
+            listener.deinit();
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            if (offset > 3) saw_late_failure = true;
+            try std.testing.expectEqual(
+                @as(usize, 0),
+                peer.session_state.inboundAnswer(.from(42)).?.queued_calls,
+            );
+            try std.testing.expect(!peer.session_state.hasInboundAnswer(.from(43)));
+            try std.testing.expect(!peer.session_state.hasImport(.from(77)));
+            try std.testing.expectEqual(baseline_exports, peer.session_state.exports.len());
+            try std.testing.expect(peer.pollEvent() == null);
+        }
+    }
+
+    try std.testing.expect(saw_late_failure);
+    try std.testing.expect(saw_success);
 }
 
 test "a next answered operation publishes no partial pair on OOM" {

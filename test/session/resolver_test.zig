@@ -1,8 +1,8 @@
 //! The V1.0 resolver links and the pipelining substrate: resolver-callback
 //! links record, query, and drop with gc-answers, queued calls and listeners
 //! are owned and capped loudly, third-party imports install atomically,
-//! requeue detects cycles, and shortening rewrites through chains but
-//! refuses a cycle.
+//! exact-incarnation traversal breaks cycles, and shortening rewrites through
+//! chains but refuses a cycle.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -71,6 +71,34 @@ test "v1.0 session records and queries resolver-callback links" {
     try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.fromWire(.from(100))));
     // The inverse link is queryable too, keyed by the resolver import.
     try std.testing.expectEqual(@as(?model.AnswerName, .fromWire(.from(99))), s.answerForResolverImport(.from(3)));
+}
+
+test "v1.0 inbound resolver links never evict accepted authority" {
+    var s = session.Session.initWith(std.testing.allocator, .{
+        .captp_version = .v1_0,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+
+    const first_answer = model.AnswerName.fromWire(.from(41));
+    try s.installInboundResolver(first_answer, .from(7));
+
+    try std.testing.expectError(
+        session.Error.UnexpectedMessage,
+        s.installInboundResolver(first_answer, .from(8)),
+    );
+    try std.testing.expectError(
+        session.Error.UnexpectedMessage,
+        s.installInboundResolver(.fromWire(.from(42)), .from(7)),
+    );
+
+    try std.testing.expectEqual(
+        @as(?model.ImportPosition, .from(7)),
+        s.resolverForInboundAnswer(first_answer),
+    );
+    try std.testing.expectEqual(@as(?model.AnswerName, first_answer), s.answerForResolverImport(.from(7)));
+    try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(7)));
+    try std.testing.expect(!s.hasImport(.from(8)));
 }
 
 test "nominateResolverExport installs the answer it hands back, so no caller can order it after the send" {
@@ -352,40 +380,6 @@ test "outbound gc-export releasing a third-party import drops its imported-promi
     try s.recordSend(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
     try std.testing.expect(!s.isThirdPartyImport(.from(5)));
     try std.testing.expect(s.importedPromiseResolution(.from(5)) == null);
-}
-
-test "requeue moves a pipelined call to a new target and detects cycles" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    // Two pending inbound answers: 1 (resolves to a promise on 2) and 2.
-    // Both arrive as inbound delivers to our export 1 (post-flip `.near`).
-    try s.registerExport(.from(1));
-    inline for (.{ 1, 2 }) |answer| {
-        try s.recordRecv(.{ .deliver = .{
-            .target = .{ .near = .{ .export_position = .from(1) } },
-            .args = &.{},
-            .answer = .from(answer),
-        } });
-    }
-
-    // A call pipelined against answer 1.
-    try s.enqueuePipelinedCall(.from(1), .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "call") } });
-
-    // Answer 1 resolved to promise(2): drain 1's calls and requeue onto 2, with
-    // 1 on the seen chain. 2 is not seen, so this succeeds and 2 owns the call.
-    const drained = try s.takePipelinedCalls(.from(1));
-    defer allocator.free(drained);
-    for (drained) |call| try s.requeuePipelinedCall(.from(2), &.{.from(1)}, call);
-
-    // A cycle: answer 2 resolves back to promise(1), but 1 is already on the
-    // chain, requeue fails loudly and frees the call (no leak).
-    const drained2 = try s.takePipelinedCalls(.from(2));
-    defer allocator.free(drained2);
-    for (drained2) |call| {
-        try std.testing.expectError(error.ResolutionCycle, s.requeuePipelinedCall(.from(1), &.{ .from(1), .from(2) }, call));
-    }
 }
 
 test "next session needs no v1.0 resolver translation" {

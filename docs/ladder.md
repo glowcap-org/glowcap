@@ -7,10 +7,10 @@ more ways to reach a peer.
 | Milestone | Standing |
 | --- | --- |
 | 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
-| 2. Performance at scale | In progress. Memory and latency budgets run on main-branch pushes and pull requests; 500,000 live socket sessions have not been measured. |
+| 2. Performance at scale | Met. Memory and latency budgets run on main-branch pushes and pull requests; a release-mode run held 500,000 authenticated socket sessions live. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. Four bindings dial Goblins through the C ABI. Recurring CI has Goblins dial only TypeScript. |
-| 5. Transport reachability | In progress. The first-party provider seams and routed relay cold dial ship; Windows support and macOS runtime evidence remain. |
+| 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship; Windows support and a deployed public-certificate relay proof remain. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
 the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
@@ -43,7 +43,7 @@ matrix.
 
 ## 2. Performance at scale
 
-The goal is 500,000 live sessions on one node. That is a target.
+This milestone is met. The target is 500,000 live sessions on one node.
 
 The build checks these session and Host costs; Host-wide rows say so
 explicitly:
@@ -72,15 +72,45 @@ than 3× when the answer count grows from 1,000 to 8,000. These are regression
 limits, not portable benchmark results.
 
 `zig build bench-peer-scaling -- --live` measures real loopback sockets at
-increasing connection counts. The milestone remains open until a run reaches
-500,000 and records its machine, command, memory, and timing here.
+increasing connection counts. Its server and load generator are separate
+processes, each with 32 completion-loop shards and no connection-owned thread.
+Every client has a unique signed session identity and must fetch the server's
+published capability before the barrier opens; all sessions remain open while
+RSS is sampled.
+
+On 2026-08-24, a ReleaseFast run reached 500,000 sessions on Linux
+6.17.0-1029-nvidia, aarch64, 20 logical CPUs, 121.7 GiB RAM, and 16 GiB swap.
+The server grew from 573,828 KiB to 4,548,376 KiB RSS: 3,974,548 KiB
+(3.79 GiB) incremental. The separate load process used 3,015,316 KiB
+(2.88 GiB). The signed-handshake and bootstrap-fetch barrier completed in
+15.720 seconds, or 31.4 microseconds per session when amortized across the run.
+The figure is a same-machine capacity measurement, not WAN latency.
+
+The host's connection-tracking table was capped below the target, so the run
+used an isolated user/network namespace and exempted its loopback traffic from
+connection tracking. The benchmark itself spreads the clients over 32
+listeners so one ephemeral-port range is not mistaken for session capacity:
+
+```sh
+unshare -Urn sh -eu -c '
+ip link set lo up
+nft add table inet pancake_scale
+nft "add chain inet pancake_scale prerouting { type filter hook prerouting priority raw; policy accept; }"
+nft "add chain inet pancake_scale output { type filter hook output priority raw; policy accept; }"
+nft add rule inet pancake_scale prerouting iifname lo notrack
+nft add rule inet pancake_scale output oifname lo notrack
+exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=500000
+'
+```
 
 ## 3. Hosted applications
 
 This milestone is met.
 
-The accountability application hosts a capability over a real TCP session and
-records who invoked it. The rooms, tasks, and tools applications run the same
+The accountability application hosts a capability over a real TCP session,
+records who invoked it, and proves across three owning Hosts that an introduced
+capability attributes the recipient rather than the introducer. The rooms,
+tasks, and tools applications run the same
 session API from Zig, Rust, TypeScript, Python, and Racket. Together they cover
 connection setup, hosting, calls, promises, capability passing, and handoff at
 the level an application uses them.
@@ -108,13 +138,16 @@ adopts signaled peers through a completion backend
 (`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
 give is proved by `zig build webrtc-bridge-redeem`.
 
-The remaining work is about reach and operating systems rather than another
-protocol core:
+The remaining work is about deployment evidence and operating systems rather
+than another protocol core. A native peer cold-dials a Chromium-hosted actor
+over local WSS and end-to-end Noise in the recurring gate, and every native
+binding follows a locator-carried rendezvous route. The recurring macOS job
+executes the native test suite, while the full external-runtime matrix remains
+on Linux.
 
-- run the macOS backend instead of only compiling it;
 - add a Windows completion backend;
-- let native peers find browsers and let browsers cross relay boundaries;
-- complete the live 500,000-session measurement.
+- repeat the native-to-browser relay proof at a deployed hostname with a
+  public certificate;
 
 [Known limitations](boundaries.md) explains the consequences today. The
 [roadmap](roadmap.md) owns the work needed to close them.

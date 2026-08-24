@@ -120,12 +120,12 @@ pub fn resolveLocator(io: Io, gpa: Allocator, locator: []const u8) ![]u8 {
 }
 
 /// Agent-facing JSON and usage text go to stdout; diagnostics use `log` (stderr).
-pub fn emitStdout(io: Io, bytes: []const u8) void {
-    Io.File.stdout().writeStreamingAll(io, bytes) catch {};
+pub fn emitStdout(io: Io, bytes: []const u8) error{OutputFailed}!void {
+    Io.File.stdout().writeStreamingAll(io, bytes) catch return error.OutputFailed;
 }
 
-pub fn emitStdoutFmt(io: Io, comptime fmt: []const u8, args: anytype) void {
+pub fn emitStdoutFmt(io: Io, comptime fmt: []const u8, args: anytype) error{OutputFailed}!void {
     var buf: [16384]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    emitStdout(io, msg);
+    const msg = std.fmt.bufPrint(&buf, fmt, args) catch return error.OutputFailed;
+    try emitStdout(io, msg);
 }

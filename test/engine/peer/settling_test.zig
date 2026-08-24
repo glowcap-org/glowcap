@@ -1,7 +1,7 @@
 //! Application settling listeners and the op:listen export matrix: a
 //! listener follows remote shortening, converging remote promises share one
-//! callback, OOM leaves both subscriptions retryable, and release at every
-//! seam consumes rather than rearms.
+//! callback, receive failure closes without partial convergence, and release
+//! at every seam consumes rather than rearms.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -384,7 +384,7 @@ test "a settling callback racing answer release is consumed and its imports are 
     try std.testing.expectError(session.Error.UnexpectedMessage, peer.recvBorrowed(callback.view()));
 }
 
-test "settling convergence OOM leaves both subscriptions retryable" {
+test "settling convergence OOM closes without partially shortening either subscription" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var peer = peer_fixture.openPeer(failing.allocator());
     defer peer.deinit();
@@ -428,6 +428,7 @@ test "settling convergence OOM leaves both subscriptions retryable" {
     failing.fail_index = failing.alloc_index + 1;
     try std.testing.expectError(error.OutOfMemory, peer.recvBorrowed(failed_frame.view()));
     failing.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(session.State.closed, peer.session_state.state);
 
     try std.testing.expectEqual(resolver_five, peer.session_state.outbound_resolver_link.getByValue(.{
         .application_answer = answer_five,
@@ -440,10 +441,14 @@ test "settling convergence OOM leaves both subscriptions retryable" {
         peer.session_state.shortenedPromiseTarget(.from(5)),
     );
 
-    try peer.recvBorrowed(failed_frame.view());
-    try std.testing.expect(peer.session_state.outbound_resolver_link.getByValue(.{
+    // `recvBorrowed` copied the caller's bytes into an owned carrier. That
+    // carrier is consumed even when admission fails, so replaying the caller's
+    // borrow on the same session would invent retry semantics the receive
+    // boundary cannot honor.
+    try std.testing.expectError(session.Error.SessionClosed, peer.recvBorrowed(failed_frame.view()));
+    try std.testing.expectEqual(resolver_five, peer.session_state.outbound_resolver_link.getByValue(.{
         .application_answer = answer_five,
-    }) == null);
+    }).?);
     try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
         .application_answer = answer_six,
     }).?);

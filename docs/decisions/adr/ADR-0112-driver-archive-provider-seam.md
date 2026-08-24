@@ -7,7 +7,7 @@ decision: "One driver archive, libpancake_driver, projects driver.HostRuntime to
 supersedes: []
 superseded_by: []
 amends: [ADR-0057, ADR-0059, ADR-0072, ADR-0078, ADR-0090]
-amended_by: [ADR-0113, ADR-0117]
+amended_by: [ADR-0113, ADR-0117, ADR-0123]
 ---
 
 # ADR-0112 The driver archive and the provider seam
@@ -242,9 +242,11 @@ owned by a named test. The self-wake nudge when step returns with work
 remaining (`HostRuntime.nudgeIfWorkRemains`) is proven for the pause shape a
 test can construct (a held `feed_tail` of incomplete outer-frame bytes) in
 `test/driver/host_runtime_step_test.zig`; the wake path it shares with
-cross-thread `wakeReadiness` is pinned there too. A deterministic
-construction of reader-buffered raw below the kernel's sight is not
-available from this tier's public surface.
+cross-thread `wakeReadiness` is pinned there too. The direct-C relay-provider
+scenario in `test/c_abi/relay_provider/buffered_accept_test.zig`
+deterministically holds WebSocket payload below the kernel's sight at admission
+and after a ping/control-write transition, proving level-shaped readiness is
+republished without another socket byte.
 
 ## Evidence and gate
 

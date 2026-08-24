@@ -1,7 +1,9 @@
 //! Idiomatic Rust API for pancake — an OCapN/CapTP [`Host`] whose partners
 //! you hold as a [`Session`].
 //!
-//! The raw C ABI lives in the private `sys` module; nothing in it escapes.
+//! The shared raw C ABI lives in the private `sys` module. The one deliberate
+//! exception is [`webrtc`], whose public contract is the native companion
+//! archive's multiplexed readiness and try-I/O boundary.
 //! What you use is the application surface every pancake binding speaks —
 //! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
@@ -37,6 +39,7 @@
 //! | `onion` | [`onion`] | `libpancake_net_transport_onion` | no |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
 //! | `relay` | [`relay`] | `libpancake_net_transport_relay` | no |
+//! | `webrtc` | [`webrtc`] | `libpancake_net_transport_webrtc` (dynamic) | no |
 //! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — native tokio) | no |
 //!
 //! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
@@ -68,7 +71,7 @@ mod lifecycle;
 #[cfg(feature = "async")]
 mod trace;
 #[cfg(feature = "async")]
-pub use host::{Host, HostOptions, ListenerIdentity, Resolver};
+pub use host::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
 #[cfg(feature = "async")]
 pub use lifecycle::PendingWork;
 #[cfg(feature = "async")]
@@ -144,6 +147,8 @@ pub mod driver_loop;
 pub use connector::{Connector, TransportOperationOptions};
 #[cfg(feature = "iroh")]
 pub mod iroh;
+#[cfg(feature = "webrtc")]
+pub mod webrtc;
 
 // OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
 // the grammar without the iroh companion library. One grammar, no hand-rolled
@@ -157,8 +162,9 @@ pub use uri::{
 
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
 pub use abi_constants::{
-	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP,
-	TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
+	HINT_ALT_LOCATORS, HINT_DIRECT_ADDRESSES, HINT_VIA, TRANSPORT_ID, TRANSPORT_INPROC, TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
 };
 
 mod carrier_failure;
@@ -177,14 +183,6 @@ pub(crate) use runtime_failure::{RuntimeFailureJournal, FAILURE_PAYLOAD_CAP, RUN
 pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argument, String>>;
 
 mod failure;
-#[cfg(any(
-	test,
-	feature = "tcp",
-	feature = "inproc",
-	feature = "onion",
-	feature = "iroh",
-	feature = "relay"
-))]
 pub(crate) use failure::require_archive_fingerprint;
 #[cfg(feature = "async")]
 pub(crate) use failure::{lifecycle_is_closed, retain_cleanup_failure};
@@ -200,13 +198,13 @@ pub use context::{abi_version, last_error, Context, ContextAllocator};
 #[cfg(test)]
 pub(crate) use context::{alloc_trampoline, free_trampoline};
 mod value;
-#[cfg(any(feature = "async", feature = "tcp", feature = "inproc"))]
+#[cfg(any(feature = "async", feature = "tcp", feature = "inproc", feature = "onion"))]
 pub(crate) use value::owned_from_view;
 #[cfg(feature = "async")]
 pub(crate) use value::{arg_from_sys, args_from_sys, SendArena};
 pub use value::{Argument, Ref};
 mod profile;
-pub use profile::{CaptpVersion, Codec, FeatureSet};
+pub use profile::{CaptpVersion, Codec, FeatureSet, SessionProfile};
 #[cfg(test)]
 mod tests {
 	use super::*;

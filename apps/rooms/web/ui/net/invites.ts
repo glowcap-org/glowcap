@@ -5,6 +5,8 @@
 // the privacy: there is no member list to be on and no check to pass, which
 // is why these verbs are about references rather than names.
 
+import { roomCalledAs } from "../../../lib/room_client.ts";
+import { joinedForLink } from "../joining.ts";
 import type { Ref } from "@pancake/runtime";
 import * as store from "../store.ts";
 import type { DirId } from "../types.ts";
@@ -20,7 +22,9 @@ import { enterRoom } from "./rooms.ts";
 // it holds one, and `invite` hands another to somebody the directory can reach.
 // That is the whole of the privacy — there is no member list to be on and no
 // check to pass — and it is why these three verbs are about references rather
-// than about names.
+// than about names. A handed room may still turn out to be listed: subscribe's
+// occupancy is the authority for that, and the provisional held conversation
+// is moved onto the directory's public key before it becomes visible.
 
 /** Take up an offer: enter the handed room, or redeem the link.
  *
@@ -56,19 +60,36 @@ export async function acceptInvite(id: string): Promise<string> {
 	// reference exactly once.
 	const handed = takeHandedRoom(id);
 	if (handed === null) return "that offer is no longer good";
+	// The sender's label proves nothing, so let the room say what it is called
+	// when it implements that question. Listed-ness is not asked here: subscribe
+	// carries that fact on the arriving occupancy, and enterRoom moves a listed
+	// one onto its public key before committing the conversation. Asking a
+	// method first aborts against an older or Goblins-shaped room that can seat
+	// us perfectly well without implementing pancake's convenience question.
+	let roomName = invite.label || "a room";
+	try {
+		roomName = (await roomCalledAs(session.dir.session, handed.room)) || roomName;
+	} catch {
+		// An older room, or one that is not this protocol: the offer's label is
+		// presentation only, while the reference remains the authority.
+	}
+	if (!isCurrent(session)) {
+		handed.release("session ended under the offer");
+		return `the connection to that directory ended. The offer is spent; ask ${invite.from} to offer the room again`;
+	}
 	// Untrusted: a handed room is a bearer reference from a direct line, and its
 	// host is whoever handed it — which may be a peer who spawned an object
 	// that only looks like a room. That matters for one thing, the name
 	// voucher, which enterRoom must never mint toward it (see the guard).
 	const why = await enterRoom(
 		session.id,
-		invite.label || "a room",
+		roomName,
 		nick,
-		0,
-		{ key: store.heldRoomKey(), room: handed.room },
-		undefined,
-		nick,
-		false,
+		{
+			room: handed.room,
+			requested: nick,
+			trusted: false,
+		},
 	);
 	if (why === "") return "";
 	// The reference did not seat the reader, and there is nothing here that can
@@ -98,8 +119,8 @@ export async function acceptInvite(id: string): Promise<string> {
  *
  * `nick` is what the reader would like to be called, used when the directory
  * being entered has granted them nothing yet; a directory that has granted a
- * name is answered by that grant. The label is passed rather than asked for,
- * because a private room restored from a link has none to give. */
+ * name is answered by that grant. The label is what they wrote after the
+ * locator, or empty so the room can say what it is called. */
 export async function takeRoomLink(link: string, label: string, nick: string): Promise<string> {
 	const named = linkDirectory(link);
 	if (named === null) return "that is not a room link";
@@ -141,10 +162,32 @@ async function redeemOn(dir: DirId, link: string, label: string, nick: string): 
 		return `that directory has no room by that link: ${reason(err)}`;
 	}
 	if (!isCurrent(session)) return "";
-	return await enterRoom(dir, label || "a room", store.dirNick(dir) || nick, 0, {
-		key: store.heldRoomKey(),
-		room,
-	});
+	const already = (key: string): "" => {
+		session.dir.session.release(room);
+		store.noteRoomLink(key, link);
+		notePickedRoom();
+		store.switchTo(key);
+		store.deliver(key, store.sysItem("You are already in this room."));
+		return "";
+	};
+	for (const [key, held] of session.rooms) {
+		if (held.reference.equals(room)) return already(key);
+	}
+	let name = "";
+	try {
+		name = await roomCalledAs(session.dir.session, room);
+	} catch {
+		// An older room, or a private one restored with no label, has nothing
+		// to say. Sitting in it under a placeholder is still being in it.
+	}
+	if (name === "") name = label.trim();
+	if (!isCurrent(session)) return "";
+	// Listed-ness arrives on subscribe, not from a method asked first — that
+	// method is missing on an older room and was aborting the join. Same-tab
+	// `/link` then `/join` still matches the stored locator here.
+	const here = joinedForLink(store.joinedRooms(dir), new Set(session.rooms.keys()), link, null);
+	if (here !== null) return already(here);
+	return await enterRoom(dir, name, store.dirNick(dir) || nick, { room, link });
 }
 
 /** Let an offer go.
@@ -168,5 +211,7 @@ export function declineInvite(id: string): void {
 export async function mintRoomLink(session: Live, key: string): Promise<string> {
 	const room = session.rooms.get(key);
 	if (room === undefined) throw new Error("this tab is not in that room");
-	return await room.link(dirAddress(session.id));
+	const minted = await room.link(dirAddress(session.id));
+	store.noteRoomLink(key, minted);
+	return minted;
 }

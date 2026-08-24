@@ -31,31 +31,31 @@
 
 /** What to ask, in the words the reader sees. */
 export type ConfirmRequest = {
-  /** The question, as a question. It is also the name the dialog is announced
-   *  by, so it has to make sense read on its own. */
-  title: string;
-  /** What going ahead would do, in a sentence. Where the reason lives: a reader
-   *  who is about to lose work is owed what and why, not just a warning. */
-  detail: string;
-  /** The word on the button that goes ahead — an imperative naming the act, so
-   *  that a reader who reads nothing but the button still knows what happens.
-   *  Never "OK", which is what the browser's own dialog could offer and is the
-   *  one word that says nothing. */
-  confirmLabel: string;
+	/** The question, as a question. It is also the name the dialog is announced
+	 *  by, so it has to make sense read on its own. */
+	title: string;
+	/** What going ahead would do, in a sentence. Where the reason lives: a reader
+	 *  who is about to lose work is owed what and why, not just a warning. */
+	detail: string;
+	/** The word on the button that goes ahead — an imperative naming the act, so
+	 *  that a reader who reads nothing but the button still knows what happens.
+	 *  Never "OK", which is what the browser's own dialog could offer and is the
+	 *  one word that says nothing. */
+	confirmLabel: string;
 };
 
 /** A request on screen, waiting to be answered. */
 export type PendingConfirm = ConfirmRequest & {
-  /** Answer it. Calling this twice does nothing the second time, so Escape and
-   *  a click on the same button cannot both resolve. */
-  answer: (confirmed: boolean) => void;
+	/** Answer it. Calling this twice does nothing the second time, so Escape and
+	 *  a click on the same button cannot both resolve. */
+	answer: (confirmed: boolean) => void;
 };
 
 let pending: PendingConfirm | null = null;
 const listeners = new Set<() => void>();
 
 function notify(): void {
-  for (const listener of listeners) listener();
+	for (const listener of listeners) listener();
 }
 
 /**
@@ -68,42 +68,42 @@ function notify(): void {
  * happen, and nobody is asked two questions at once.
  */
 export function requestConfirm(request: ConfirmRequest): Promise<boolean> {
-  if (pending !== null) return Promise.resolve(false);
-  return new Promise<boolean>((resolve) => {
-    const row: PendingConfirm = {
-      ...request,
-      answer(confirmed) {
-        // Identity, not a null check: this row is only the live one until it is
-        // answered, so a late second call cannot clear whatever replaced it.
-        if (pending !== row) return;
-        pending = null;
-        notify();
-        resolve(confirmed);
-      },
-    };
-    pending = row;
-    notify();
-  });
+	if (pending !== null) return Promise.resolve(false);
+	return new Promise<boolean>((resolve) => {
+		const row: PendingConfirm = {
+			...request,
+			answer(confirmed) {
+				// Identity, not a null check: this row is only the live one until it is
+				// answered, so a late second call cannot clear whatever replaced it.
+				if (pending !== row) return;
+				pending = null;
+				notify();
+				resolve(confirmed);
+			},
+		};
+		pending = row;
+		notify();
+	});
 }
 
 /** The question on screen, or null. Referentially stable while it waits, which
  *  is what lets `useSyncExternalStore` hold it. */
 export function currentConfirm(): PendingConfirm | null {
-  return pending;
+	return pending;
 }
 
 /** Subscribe to the question changing. `useSyncExternalStore`-shaped. */
 export function subscribeConfirm(onChange: () => void): () => void {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
+	listeners.add(onChange);
+	return () => {
+		listeners.delete(onChange);
+	};
 }
 
 /** Test-only. Abandons any question on screen, answering it no so a caller
  *  awaiting one cannot hang, and drops every listener. */
 export function _resetConfirmForTesting(): void {
-  pending?.answer(false);
-  pending = null;
-  listeners.clear();
+	pending?.answer(false);
+	pending = null;
+	listeners.clear();
 }

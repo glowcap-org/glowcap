@@ -30,7 +30,7 @@ pub fn handshakeComplete(self: *const Session) bool {
 /// two fields as a plain question, for the engine's pre-open checks. They ask
 /// it because signature verification and the durable-claim demand are
 /// expensive and stateful, and neither belongs to a frame the session will
-/// refuse a few steps later (`engine.inbound.applyDecodedOwnedFrame`).
+/// refuse a few steps later (`engine.inbound.dispatchDecodedOwnedFrame`).
 pub fn awaitsPartnerHello(self: *const Session) bool {
     return self.state == .negotiating and !self.handshake_remote_received;
 }

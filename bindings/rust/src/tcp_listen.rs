@@ -331,6 +331,14 @@ mod tests {
 
 				let locator = crate::parse_locator(&uri).unwrap();
 				let session = connect(&locator, ConnectOptions::default()).await.unwrap();
+				assert_eq!(session.transport_name().unwrap(), "tcp");
+				let profile = session.profile().unwrap();
+				assert_eq!(profile.captp_version, crate::CaptpVersion::V1_0);
+				assert_eq!(profile.codec, crate::Codec::Syrup);
+				assert_eq!(
+					profile.features.bits(),
+					crate::FeatureSet::FULL.bits() & !crate::FeatureSet::MULTI_LOCATION.bits()
+				);
 				let advertised = session.partner_identity().unwrap();
 				let expected = crate::encode_peer_locator(&locator).unwrap();
 				assert_eq!(advertised.locator_record, expected);

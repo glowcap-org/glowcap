@@ -25,6 +25,96 @@ export const JOIN_DEFAULT_NICK = "guest";
 /** Shape of a locator, used when this page's own address is not known yet. */
 export const JOIN_LOCATOR_SHAPE = "ocapn://designator.transport";
 
+/** Whether typed text is a room link: a sturdyref, told apart by the swissnum
+ * path it carries. The same tell `/join` uses, so the command and the join
+ * card cannot disagree about what a paste is. */
+export function looksLikeRoomLink(value: string): boolean {
+	return value.trim().includes("/s/");
+}
+
+/** The sturdyref in a `/join` argument, and any words the reader wrote after
+ * it as a label. Null when the text is not a room link.
+ *
+ * The URI is found wherever it sits, so pasting `/link`'s whole answer — the
+ * sentence and then the locator — still takes up the link rather than treating
+ * "Anybody" as the first token. Words after the locator are a label; nothing
+ * after it means the room should say what it is called. */
+export function joinLinkIn(asked: string): { link: string; label: string } | null {
+	const text = asked.trim();
+	const match = text.match(/ocapn:\/\/\S*\/s\/\S+/i);
+	if (match !== null && match.index !== undefined) {
+		const link = match[0];
+		return { link, label: text.slice(match.index + link.length).trim() };
+	}
+	if (!looksLikeRoomLink(text)) return null;
+	const [link, ...rest] = text.split(/\s+/);
+	return { link, label: rest.join(" ").trim() };
+}
+
+/** What `/join` does with its argument: take up a room link, or enter a room
+ * by name. Null when the field is empty. Never "the room I am in" — a join is
+ * a destination. */
+export type AskedJoin =
+	| { kind: "link"; link: string; label: string }
+	| { kind: "name"; name: string };
+
+export function askedJoin(asked: string): AskedJoin | null {
+	const linked = joinLinkIn(asked);
+	if (linked !== null) return { kind: "link", link: linked.link, label: linked.label };
+	const name = asked.trim().replace(/^#/, "");
+	return name === "" ? null : { kind: "name", name };
+}
+
+/** The conversation this tab is already in that a room link names, or null.
+ *
+ * A locator is a destination, not the conversation it was typed in. The same
+ * sturdyref this tab already holds is that destination. A listed room is also
+ * that destination when this tab is in it by name, because a public link is
+ * that listed room. A private room is not: two private rooms may share a
+ * label, and `/join` must not guess from the conversation it was typed in. */
+export function joinedForLink(
+	rooms: readonly { key: string; held: boolean; id: string; link?: string }[],
+	live: ReadonlySet<string>,
+	link: string,
+	listed: string | null,
+): string | null {
+	for (const conv of rooms) {
+		if (conv.link === link && live.has(conv.key)) return conv.key;
+	}
+	if (listed !== null && listed !== "") {
+		const folded = listed.toLowerCase();
+		for (const conv of rooms) {
+			if (!conv.held && conv.id.toLowerCase() === folded && live.has(conv.key)) return conv.key;
+		}
+	}
+	return null;
+}
+
+/** Whether a link-join sits in the listed room.
+ *
+ * `listed` is what the occupancy said on arrival. Unknown — an older room —
+ * is not a listed room: guessing from the name would open a public room that
+ * merely shares a private occupancy's label. */
+export function listedOccupancy(listed: boolean | undefined, name: string): boolean {
+	return listed === true && name !== "";
+}
+
+/** A room link typed into a join, and what to call the room it opens.
+ *
+ * The locator field is the natural place to paste an `ocapn://` string, and a
+ * `/link` sturdyref belongs there even though it is not a directory address.
+ * A paste into the room field is the same link in the wrong box. Null when
+ * neither field is a link, so the ordinary name-on-a-directory join applies.
+ * An empty label is not "a room": the live room still has a name, and redeem
+ * asks it. */
+export function typedRoomLink(locator: string, room: string): { link: string; label: string } | null {
+	const loc = locator.trim();
+	const name = room.trim();
+	if (looksLikeRoomLink(loc)) return { link: loc, label: name };
+	if (looksLikeRoomLink(name)) return { link: name, label: "" };
+	return null;
+}
+
 /** Empty and this page's own locator are one destination: the field that means
  * "here" stays empty, so a paste of the home locator does not become a second
  * way to say the same thing. */
@@ -169,6 +259,9 @@ function locatorAnswer(
  * directory, resolved by the caller because naming one takes the directories
  * this tab holds and this module answers without them. */
 export function joinLead(answers: JoinAnswers, where: string): string {
+	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
+		return `No account is required. ${aimedAt(answers, where)} Display names are not verified.`;
+	}
 	return `No account is required. ${aimedAt(answers, where)} A room that does not exist yet opens when ` +
 		`you enter it. Display names are not verified.`;
 }
@@ -178,11 +271,14 @@ function aimedAt(answers: JoinAnswers, where: string): string {
 	// they can see what they pressed; what this browser merely remembers is an
 	// offer, and describing an offer as though it were a destination is how the
 	// card would start sounding certain about a guess.
+	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
+		return "This is a room link. It opens the room it names. The name below is only what you will call it here.";
+	}
 	if (answers.source === "link") {
 		if (answers.room.from === "named") return `This address is for #${answers.room.value} in ${where}.`;
 		if (answers.locator.from === "named") return `This address is for ${where}. Name a room to enter there.`;
 	}
-	return "Name a room in this page's directory, or paste another directory's OCapN locator.";
+	return "Name a room in this page's directory, paste another directory's OCapN locator, or paste a room link.";
 }
 
 /** Hint in an empty locator field: this page's address, shortened so it reads

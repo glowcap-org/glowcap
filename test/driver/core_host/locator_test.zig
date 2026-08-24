@@ -137,6 +137,25 @@ test "core host advertised locator: duplicate caller hints are refused before st
     try std.testing.expect(host.advertisedLocator("tcp") == null);
 }
 
+test "core host advertised locator: excess caller hints are refused before storage" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x77)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    var names: [model.max_locator_hint_count + 1][2]u8 = undefined;
+    var hints: [model.max_locator_hint_count + 1]model.HintEntry = undefined;
+    for (&hints, 0..) |*entry, index| {
+        names[index] = .{ 'h', @intCast(index) };
+        entry.* = .{ .name = &names[index], .value = .{ .boolean = true } };
+    }
+    try std.testing.expectError(error.TooManyHints, host.setAdvertisedLocator(.{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:7093",
+        .hints = .{ .entries = &hints },
+    }));
+    try std.testing.expect(host.advertisedLocator(model.transport.tcp) == null);
+}
+
 test "core host advertised locator: explicit dial default publishes once" {
     const allocator = std.testing.allocator;
     const seed = @as([32]u8, @splat(0x73));

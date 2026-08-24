@@ -31,7 +31,7 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 		const el = document.querySelector(selector);
 		if (!(el instanceof HTMLElement) || el.getBoundingClientRect().width === 0) return null;
 
-		const ctx = document.createElement("canvas").getContext("2d");
+		const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
 		if (ctx === null) return null;
 		// A canvas keeps its previous fill when handed something it cannot parse,
 		// which would quietly measure the wrong colour. Offering the same value

@@ -8,8 +8,8 @@
 //! The separable leaves are sibling files this hub re-exports: `negotiated` (the
 //! words two peers settle on — `CodecId`, `CaptpVersion`,
 //! `FeatureSet`), `handoff` (the three-party handoff payloads), `abort`
-//! (`AbortKind`, `AbortReason`), and `transport` (locator transport symbols and
-//! the shared `direct-addresses` hint name).
+//! (`AbortKind`, `AbortReason`), `transport` (locator transport symbols and
+//! hint names), and `route_bundle` (one peer identity plus ordered dial paths).
 //!
 //! None of it carries a codec, an allocation policy, or any authority. It's just
 //! the shape. `session` is what decides whether a given message is valid, and
@@ -39,7 +39,6 @@ pub const measureReferenceOwnedBytes = owned.measureReferenceOwnedBytes;
 pub const measureMessageOwnedBytes = owned.measureMessageOwnedBytes;
 pub const measureResolutionOwnedBytes = owned.measureResolutionOwnedBytes;
 pub const freeArgumentSlice = owned.freeArgumentSlice;
-pub const freePipelineOp = owned.freePipelineOp;
 pub const freeResolution = owned.freeResolution;
 pub const materializeResolutionForStore = owned.materializeResolutionForStore;
 pub const cloneReference = owned.cloneReference;
@@ -78,9 +77,19 @@ pub const argumentIsPlainData = @import("plain.zig").argumentIsPlainData;
 pub const uri = @import("uri.zig");
 
 /// Transport symbols carried in a `PeerLocator` (`tcp`, `keyed-tcp`, …) and the
-/// shared `direct-addresses` hint name. Netlayers and `driver_core` both import
-/// these so the strings cannot drift across the I/O ban. See `transport`.
+/// shared locator hint names. Netlayers and `driver_core` both import these so
+/// the strings cannot drift across the I/O ban. See `transport`.
 pub const transport = @import("transport.zig");
+
+/// One peer identity plus ordered dial paths. Handoff fallback and ADR-0125
+/// id route-bundle locators use this owner rather than parsing URI lists at
+/// their own seams.
+pub const route_bundle = @import("route_bundle.zig");
+pub const RouteBundle = route_bundle.Owned;
+pub const RoutePath = route_bundle.Path;
+pub const parseExporterRouteBundleUri = route_bundle.fromExporterUri;
+pub const parseRouteBundleLocator = route_bundle.fromPeerLocator;
+pub const parseIdRouteBundle = route_bundle.fromIdLocator;
 
 /// The one hard ceiling on value-tree recursion depth, shared by `view`'s
 /// owned materialization and `equality`'s comparison walk so the two bounds
@@ -116,12 +125,16 @@ pub const AnswerName = position.AnswerName;
 const hint_types = @import("hints.zig");
 pub const HintValue = hint_types.HintValue;
 pub const HintEntry = hint_types.HintEntry;
+pub const max_locator_hint_count = hint_types.max_count;
 pub const firstDuplicateHintName = hint_types.firstDuplicateName;
+pub const validateHintName = hint_types.validateName;
+pub const validateHints = hint_types.validate;
 pub const Hints = hint_types.Hints;
 
 const peer_locator = @import("peer_locator.zig");
 pub const PeerLocator = peer_locator.PeerLocator;
 pub const validatePeerLocator = peer_locator.validate;
+pub const validateLocatorTransportDesignator = peer_locator.validateTransportDesignator;
 pub const validateLocatorHintAddition = peer_locator.validateHintAddition;
 pub const PeerLocatorValidationError = peer_locator.ValidationError;
 
@@ -184,33 +197,13 @@ pub const RoutedRef = struct {
     kind: RefKind = .object,
 };
 
-/// One step along a promise pipeline path.
+/// A promise allocated by an earlier operation on this session.
 ///
-/// A `call` works in both codecs. Syrup can't carry a multi-hop path on the
-/// wire, so the engine breaks it into a chain of single-hop `op:deliver`s
-/// (`engine.pipeline.decomposeOutboundDeliver`); Cap'n Proto just encodes the
-/// path as-is. A `field` is Cap'n Proto only. Syrup rejects it, because OCapN
-/// has no way to express "navigate into a field" on an `op:deliver`.
-pub const PipelineOp = union(enum) {
-    field: []const u8,
-    call: []const Argument,
-};
-
-/// A sequence of pipeline steps taken relative to a promise's eventual answer.
-/// An empty path just means the answer itself.
-pub const PipelinePath = struct {
-    ops: []const PipelineOp = &.{},
-
-    pub fn isEmpty(self: PipelinePath) bool {
-        return self.ops.len == 0;
-    }
-};
-
+/// OCapN's `desc:answer` carries exactly this position. Derived operations are
+/// ordinary `op:deliver`, `op:get`, `op:index`, or `op:untag` messages with
+/// their own answer positions; a reference never embeds an unevaluated path.
 pub const PromiseRef = struct {
     answer_position: AnswerPosition,
-    /// Optional pipeline path targeting relative to the eventual resolution.
-    /// Empty (default) means the resolution itself.
-    path: PipelinePath = .{},
 };
 
 /// A lasting handle to an object, one that can outlive the session you found it

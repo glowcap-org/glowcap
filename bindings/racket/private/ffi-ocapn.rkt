@@ -18,8 +18,12 @@
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them
 ;; together with the shared cstruct vocabulary. Out-params are fresh
 ;; caller-owned cells inside the generated wrappers.
-(require "ffi-ocapn-gen.rkt"
+(require "constants.rkt"
+         "lib-resolve.rkt"
+         "ffi-ocapn-gen.rkt"
          "ffi-shared.rkt")
+(require-archive-fingerprint!
+ 'ocapn pancake_ocapn_archive_fingerprint OCAPN-ARCHIVE-FINGERPRINT)
 ;; Re-export the shared cstruct vocabulary so a module that requires this loader
 ;; has the layouts the bound functions read and write.
 (provide (all-from-out "ffi-shared.rkt")

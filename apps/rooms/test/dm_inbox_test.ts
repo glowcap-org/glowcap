@@ -6,8 +6,9 @@
 // asked to offer the same peer through a *different* directory connection,
 // re-offers the inbox it already minted rather than publishing a second one.
 // `ui/net.ts` keys offerers by directory but creates all of them from one
-// publisher for exactly this reason. The ceiling and forget cost are pinned
-// beside it, because aliases published by every child spend one Host ledger.
+// publisher for exactly this reason. The ceiling and retirement behavior are
+// pinned beside it because aliases published by every child share one Host
+// ledger.
 
 import type { Host, Ref } from "@pancake/runtime";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
@@ -27,10 +28,15 @@ function settle(): Promise<void> {
  * records what was offered. The offerer touches nothing else on either. */
 function fakes() {
 	const published: string[] = [];
+	const unpublished: string[] = [];
 	const offered: { peer: string; name: string }[] = [];
 	const host = {
 		publishGiftable(name: string, _behavior: unknown): void {
 			published.push(name);
+		},
+		unpublishGiftable(name: string): boolean {
+			unpublished.push(name);
+			return true;
 		},
 	} as unknown as Host;
 	// Each call mints a distinct "connection": the offerer must not care which
@@ -47,7 +53,7 @@ function fakes() {
 				return Promise.resolve();
 			},
 		}) as unknown as Directory;
-	return { published, offered, host, freshDir };
+	return { published, unpublished, offered, host, freshDir };
 }
 
 Deno.test("a reconnect re-offers the same inbox instead of minting a second", async () => {
@@ -61,7 +67,7 @@ Deno.test("a reconnect re-offers the same inbox instead of minting a second", as
 
 	// The directory reconnects: a new connection, the same offerer. The inbox
 	// it minted is still published and still answers, so the offer names it
-	// again rather than spending a second permanent slot.
+	// again rather than minting a second live alias.
 	dir = freshDir();
 	offerer.offer("bob");
 	await settle();
@@ -74,20 +80,21 @@ Deno.test("a reconnect re-offers the same inbox instead of minting a second", as
 	assert(offered[1].name === offered[0].name, "the re-offer named the same inbox, not a fresh one");
 });
 
-Deno.test("forgetting a peer mints a fresh inbox, and the old name stays spent", async () => {
-	const { published, offered, host, freshDir } = fakes();
+Deno.test("forgetting a peer retires its alias and mints non-retargetable authority", async () => {
+	const { published, unpublished, offered, host, freshDir } = fakes();
 	const dir = freshDir();
 	const offerer = inboxPublisher(host).offerer({ dir: () => dir, behaviorFor: () => () => null });
 	offerer.offer("bob");
 	await settle();
 	// The peer left; the next holder of the name is somebody else and must not
-	// inherit their inbox. The old giftable stays published — nothing withdraws
-	// one — so the ledger keeps its slot spent and the new inbox costs another.
+	// inherit their inbox. The old alias is unpublished, while any already-issued
+	// capability remains attached to its exact old native actor.
 	offerer.forget("bob");
 	offerer.offer("bob");
 	await settle();
 	assert(published.length === 2, "a forgotten peer gets a fresh inbox");
 	assert(offered[1].name !== offered[0].name, "the fresh inbox has a name of its own");
+	assert(unpublished.length === 1 && unpublished[0] === offered[0].name, "the old alias was retired first");
 });
 
 Deno.test("the inbox ceiling spans every publisher lookup and directory on one Host", async () => {

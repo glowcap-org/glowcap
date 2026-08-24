@@ -30,6 +30,7 @@ const NO_GRANTS: ReadonlySet<string> = new Set();
 /** Powers that answer without acting, for running every command to see what it
  * says. Each returns the empty answer, which is what a fresh window holds. */
 const QUIET: CommandPowers = {
+	ircLogin: () => {},
 	say: () => {},
 	joinRoom: () => {},
 	joinLink: () => {},
@@ -54,6 +55,7 @@ const QUIET: CommandPowers = {
 	liveRooms: () => new Map(),
 	roster: () => [],
 	quitDirectory: () => {},
+	aboutConversation: () => {},
 };
 
 /** A plausible argument, so a command that wants one is not refused merely for
@@ -108,7 +110,7 @@ Deno.test("the reader's list is what this conversation has actually handed over"
 	// the room answers each post with a reference to the line, so a reader holds
 	// the authority for their own lines as a matter of course, with nothing
 	// conversation-wide to wait for.
-	for (const name of ["edit", "delete", "help", "me"]) {
+	for (const name of ["edit", "delete", "help", "me", "details"]) {
 		if (!names([], "room").includes(name)) fail(`/${name} works but is not among the commands /help lists`);
 	}
 	if (names([], "room").includes("topic")) fail("/topic is listed before any room has offered one");
@@ -248,4 +250,90 @@ Deno.test("a room-wide word is refused as a person to message or invite", () => 
 	}
 	if (invited !== undefined) fail("a room-wide word was handed the room");
 	if (messaged !== undefined) fail("a room-wide word was opened as a line");
+});
+
+Deno.test("/details opens the conversation card rather than writing into the log", () => {
+	let opened = false;
+	const said: string[] = [];
+	const powers: CommandPowers = {
+		...QUIET,
+		aboutConversation: () => {
+			opened = true;
+		},
+		say: (text) => {
+			said.push(text);
+		},
+	};
+	const details = known().find((command) => command.name === "details") ?? fail("there is no /details command");
+	const none = details.run("", powers, null);
+	if (none.kind !== "refused") fail("/details with nothing open did not refuse");
+	if (opened) fail("/details opened a card with nothing on screen");
+	const room = { type: "room" } as unknown as Conv;
+	const outcome = details.run("", powers, room);
+	if (outcome.kind !== "done") fail(`/details in a room did not open the card: ${outcome.kind}`);
+	if (!opened) fail("/details in a room never asked for the card");
+	if (said.length > 0) fail("/details wrote into the log instead of opening the card");
+});
+
+Deno.test("/join with a room link takes it up rather than treating it as a name", () => {
+	const took: { link: string; label: string }[] = [];
+	let named: string | undefined;
+	const powers: CommandPowers = {
+		...QUIET,
+		joinLink: (link, label) => {
+			took.push({ link, label });
+		},
+		joinRoom: (name) => {
+			named = name;
+		},
+	};
+	const join = known().find((command) => command.name === "join") ?? fail("there is no /join command");
+	const link = "ocapn://peer.tcp/s/swissnum";
+	const labeled = join.run(`${link} plans`, powers, null);
+	if (labeled.kind !== "done") fail(`/join a link did not take it up: ${labeled.kind}`);
+	if (took[0]?.link !== link || took[0].label !== "plans") {
+		fail(`/join a named link took ${JSON.stringify(took[0])}`);
+	}
+	if (named !== undefined) fail("/join a link entered a room by name");
+	const bare = join.run(link, powers, null);
+	if (bare.kind !== "done") fail(`/join a link with no label did not take it up: ${bare.kind}`);
+	if (took[1]?.link !== link || took[1].label !== "") {
+		fail(`/join a link with no label took ${JSON.stringify(took[1])}`);
+	}
+	const whole = join.run(`Anybody who holds this link can be in plans:\n  ${link}`, powers, null);
+	if (whole.kind !== "done" || took[2]?.link !== link || took[2].label !== "") {
+		fail(`/join of /link's whole answer took ${JSON.stringify(took[2])}`);
+	}
+});
+
+Deno.test("/link is this room, or a listed name it is given", () => {
+	const named: string[] = [];
+	let thisRoom = 0;
+	const powers: CommandPowers = {
+		...QUIET,
+		roomLink: (name) => {
+			if (name === undefined || name === "") {
+				thisRoom++;
+				return true;
+			}
+			named.push(name);
+			return true;
+		},
+	};
+	const link = known().find((command) => command.name === "link") ?? fail("there is no /link command");
+	const room = { type: "room" } as unknown as Conv;
+	const bare = link.run("", powers, room);
+	if (bare.kind !== "done") fail(`/link with no argument did not mint this room: ${bare.kind}`);
+	if (thisRoom !== 1 || named.length !== 0) {
+		fail(`/link with no argument did not mean this room: thisRoom=${thisRoom} named=${JSON.stringify(named)}`);
+	}
+	const hashed = link.run("#lobby", powers, room);
+	if (hashed.kind !== "done" || named[0] !== "lobby") {
+		fail(`/link #lobby did not name the listed room: ${JSON.stringify(named[0])}`);
+	}
+	const word = link.run("lobby", powers, room);
+	if (word.kind !== "done" || named[1] !== "lobby") {
+		fail(`/link lobby did not name the listed room: ${JSON.stringify(named[1])}`);
+	}
+	if (thisRoom !== 1) fail("a named /link also minted this room");
 });

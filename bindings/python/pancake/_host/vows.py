@@ -57,6 +57,10 @@ class VowTable:
         """Record a freshly minted vow so the drain can route its completion."""
         self._rows[vow] = _VowRow(track_gc)
 
+    def abandon(self, vow: int) -> None:
+        """Drop binding-side observation after the public wrapper dies."""
+        self._rows.pop(vow, None)
+
     def await_vow(self, vow: int) -> asyncio.Future:
         """Return a future for the vow's eventual outcome."""
         future = asyncio.get_running_loop().create_future()

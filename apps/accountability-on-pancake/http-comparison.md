@@ -60,6 +60,6 @@ with signed caller identity. It is not a claim that HTTP cannot support secure
 delegation or attribution.
 
 Run `zig build accountability` for the native signed-call path and
-`zig build accountability-three-party` for in-memory attribution after a
-handoff. The [application guide](README.md) describes the limits: no witness
-receipts, no cross-session duplicity detection, and no three-vat TCP run.
+`zig build accountability-three-party` for attribution after a live three-Host
+TCP handoff. The [application guide](README.md) describes the limits: no witness
+receipts and no cross-session duplicity detection.

@@ -1,12 +1,11 @@
 //! Borrowed and owned frame layouts at the C waist.
 //!
-//! Managed frames transfer their existing allocation into one preallocated
-//! release cell; no frame-byte copy is introduced at the ABI boundary.
+//! Managed frames transfer their existing allocation into opaque storage in
+//! the caller-owned descriptor; no allocation or frame-byte copy is introduced
+//! at the ABI boundary.
 
 const std = @import("std");
 const foundation = @import("foundation");
-const last_error = @import("last_error.zig");
-const result = @import("result.zig");
 
 pub const PANCAKE_FRAME_SHAPE_BYTE: u32 = 0;
 pub const PANCAKE_FRAME_SHAPE_WORD: u32 = 1;
@@ -34,74 +33,44 @@ pub const PancakeFrame = extern struct {
 
 pub const ReleaseFn = *const fn (*PancakeManagedFrame) callconv(.c) void;
 
+/// Private descriptor words reserved for pancake's owned-frame metadata. The
+/// count is target-independent so the public C declaration has one shape;
+/// comptime assertions below prove that the native `foundation.Frame` fits on
+/// each compiled target.
+pub const managed_frame_private_word_count = 8;
+
 pub const PancakeManagedFrame = extern struct {
     bytes: ?[*]u8,
     len: usize,
     shape: u32,
     release: ?ReleaseFn,
-    private_data: ?*anyopaque,
+    private_words: [managed_frame_private_word_count]usize,
 };
 
-const ManagedFramePayload = struct {
-    frame: foundation.Frame,
-    allocator: std.mem.Allocator,
-};
-
-/// Reserve before removing a frame from its source queue; commit after dequeue,
-/// or cancel on an empty queue/refusal.
-pub const ManagedFrameReservation = struct {
-    payload: *ManagedFramePayload,
-
-    pub fn cancel(self: ManagedFrameReservation) void {
-        self.payload.allocator.destroy(self.payload);
-    }
-
-    pub fn commit(self: ManagedFrameReservation, owned: foundation.Frame) PancakeManagedFrame {
-        self.payload.frame = owned;
-        return .{
-            .bytes = @constCast(self.payload.frame.bytes().ptr),
-            .len = self.payload.frame.bytes().len,
-            .shape = shapeToC(self.payload.frame.view().shape),
-            .release = releaseOwned,
-            .private_data = self.payload,
-        };
-    }
-};
-
-pub fn reserveManaged(allocator: std.mem.Allocator) !ManagedFrameReservation {
-    const payload = try allocator.create(ManagedFramePayload);
-    payload.allocator = allocator;
-    return .{ .payload = payload };
+comptime {
+    std.debug.assert(@sizeOf(foundation.Frame) <=
+        managed_frame_private_word_count * @sizeOf(usize));
+    std.debug.assert(@alignOf(foundation.Frame) <= @alignOf(usize));
 }
 
-pub fn tryManaged(allocator: std.mem.Allocator, owned: foundation.Frame) !PancakeManagedFrame {
-    const reservation = try reserveManaged(allocator);
-    return reservation.commit(owned);
+fn ownedFrame(frame: *PancakeManagedFrame) *foundation.Frame {
+    return @ptrCast(@alignCast(&frame.private_words));
 }
 
-pub fn wrapManagedInto(
-    allocator: std.mem.Allocator,
-    owned: foundation.Frame,
-    slot: *PancakeManagedFrame,
-    comptime operation: []const u8,
-) i32 {
-    slot.* = tryManaged(allocator, owned) catch {
-        var abandoned = owned;
-        abandoned.deinit();
-        last_error.set(operation ++ ": frame wrap allocation failed", .{});
-        return result.PANCAKE_ERR_INTERNAL;
-    };
-    return result.PANCAKE_OK;
+/// Move one owned frame into a self-releasing C descriptor. The caller supplies
+/// the descriptor storage; wrapping is allocation-free and infallible.
+pub fn managed(owned: foundation.Frame) PancakeManagedFrame {
+    var result = std.mem.zeroes(PancakeManagedFrame);
+    const stored = ownedFrame(&result);
+    stored.* = owned;
+    result.bytes = @constCast(stored.bytes().ptr);
+    result.len = stored.bytes().len;
+    result.shape = shapeToC(stored.view().shape);
+    result.release = releaseOwned;
+    return result;
 }
 
 fn releaseOwned(frame: *PancakeManagedFrame) callconv(.c) void {
-    const payload_ptr = frame.private_data orelse return;
-    const payload: *ManagedFramePayload = @ptrCast(@alignCast(payload_ptr));
-    const allocator = payload.allocator;
-    payload.frame.deinit();
-    allocator.destroy(payload);
-    frame.bytes = null;
-    frame.len = 0;
-    frame.release = null;
-    frame.private_data = null;
+    ownedFrame(frame).deinit();
+    frame.* = std.mem.zeroes(PancakeManagedFrame);
 }

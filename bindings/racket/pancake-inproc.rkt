@@ -197,7 +197,7 @@
    (lambda ()
      (define h (inproc-connection-handle cn))
      (unless h (error 'inproc-connection-read-frame "connection is closed"))
-     (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
+     (define mf (make-PancakeManagedFrame #f 0 0 #f (make-vector 8 0)))
      (define code (pancake_inproc_conn_read_frame h mf))
      (cond
        [(= code ERR-CLOSED) eof]
@@ -216,7 +216,12 @@
      (define h (inproc-connection-handle cn))
      (unless h (error 'inproc-connection-write-frame! "connection is closed"))
      (define buf (pin-immobile frame))
-     (check/inproc (pancake_inproc_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))))
+     (define rc (pancake_inproc_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
+     ;; The frame cstruct is retained as the call's argument, but it carries
+     ;; only `buf`'s raw address; the sink keeps the pinned payload live for
+     ;; the whole blocking write.
+     (void/reference-sink buf)
+     (check/inproc rc))))
 
 (define (inproc-connection-release! cn)
   (when (inproc-connection-handle cn)

@@ -145,6 +145,19 @@ if archive_hygiene_check_compressed "$FIX/good.tar.bz2" "$PREFIX" j; then
 else
 	bad "shell bzip2 good"
 fi
+# release-pack extracts every member rather than one binding prefix. The empty
+# prefix is the shared validator's explicit whole-archive mode: a clean archive
+# passes, while the same top-level tree containing a symlink must be refused.
+if archive_hygiene_check "$FIX/good.tar.gz" ""; then
+	pass "shell whole archive good"
+else
+	bad "shell whole archive good"
+fi
+if archive_hygiene_check "$FIX/link.tar.gz" ""; then
+	bad "shell whole archive link (should refuse)"
+else
+	pass "shell whole archive link refused"
+fi
 if [ "$HAVE_SLIP" = 1 ]; then
 	if archive_hygiene_check "$FIX/slip.tar.gz" "$PREFIX"; then
 		bad "shell slip (should refuse)"

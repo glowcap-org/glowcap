@@ -36,13 +36,13 @@ import type { TimelineDocument } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
 export type DocIndexEdge = {
-  readonly pathName: string;
-  readonly target: EntityKind;
-  readonly read: (doc: TimelineDocument) => readonly string[] | undefined;
-  readonly replace: (
-    doc: TimelineDocument,
-    next: readonly string[] | undefined,
-  ) => TimelineDocument;
+	readonly pathName: string;
+	readonly target: EntityKind;
+	readonly read: (doc: TimelineDocument) => readonly string[] | undefined;
+	readonly replace: (
+		doc: TimelineDocument,
+		next: readonly string[] | undefined,
+	) => TimelineDocument;
 };
 
 /** Build the four-way (rowOrder + 3 rowHidden variants) × three-
@@ -50,47 +50,47 @@ export type DocIndexEdge = {
  * `{ peers?, sessions?, messages? }` object; this generates 12
  * `DocIndexEdge`s with the right read/replace closures. */
 function makeRowIndexes(): DocIndexEdge[] {
-  const fields = [
-    "rowOrder",
-    "rowHidden",
-    "rowLabelHidden",
-    "rowBodyHidden",
-  ] as const;
-  const cats: ReadonlyArray<
-    { key: "peers" | "sessions" | "messages"; target: EntityKind }
-  > = [
-    { key: "peers", target: "peer" },
-    { key: "sessions", target: "session" },
-    { key: "messages", target: "message" },
-  ];
-  const out: DocIndexEdge[] = [];
-  for (const field of fields) {
-    for (const { key, target } of cats) {
-      out.push({
-        pathName: `${field}.${key}`,
-        target,
-        read: (doc) => doc[field]?.[key],
-        replace: (doc, next) => {
-          const cur = doc[field];
-          const nextField = { ...(cur ?? {}) } as Record<
-            string,
-            readonly string[] | undefined
-          >;
-          if (next === undefined || next.length === 0) {
-            delete nextField[key];
-          } else {
-            nextField[key] = [...next];
-          }
-          const hasAny = Object.keys(nextField).some((k) => nextField[k] !== undefined);
-          return {
-            ...doc,
-            [field]: hasAny ? (nextField as TimelineDocument[typeof field]) : undefined,
-          };
-        },
-      });
-    }
-  }
-  return out;
+	const fields = [
+		"rowOrder",
+		"rowHidden",
+		"rowLabelHidden",
+		"rowBodyHidden",
+	] as const;
+	const cats: ReadonlyArray<
+		{ key: "peers" | "sessions" | "messages"; target: EntityKind }
+	> = [
+		{ key: "peers", target: "peer" },
+		{ key: "sessions", target: "session" },
+		{ key: "messages", target: "message" },
+	];
+	const out: DocIndexEdge[] = [];
+	for (const field of fields) {
+		for (const { key, target } of cats) {
+			out.push({
+				pathName: `${field}.${key}`,
+				target,
+				read: (doc) => doc[field]?.[key],
+				replace: (doc, next) => {
+					const cur = doc[field];
+					const nextField = { ...(cur ?? {}) } as Record<
+						string,
+						readonly string[] | undefined
+					>;
+					if (next === undefined || next.length === 0) {
+						delete nextField[key];
+					} else {
+						nextField[key] = [...next];
+					}
+					const hasAny = Object.keys(nextField).some((k) => nextField[k] !== undefined);
+					return {
+						...doc,
+						[field]: hasAny ? (nextField as TimelineDocument[typeof field]) : undefined,
+					};
+				},
+			});
+		}
+	}
+	return out;
 }
 
 export const DOC_INDEX_EDGES: ReadonlyArray<DocIndexEdge> = makeRowIndexes();
@@ -99,7 +99,7 @@ export const DOC_INDEX_EDGES: ReadonlyArray<DocIndexEdge> = makeRowIndexes();
  *  entity kind. Used by the walker to iterate only the indexes
  *  relevant to a cascading operation. */
 export function docIndexesForTarget(
-  target: EntityKind,
+	target: EntityKind,
 ): ReadonlyArray<DocIndexEdge> {
-  return DOC_INDEX_EDGES.filter((e) => e.target === target);
+	return DOC_INDEX_EDGES.filter((e) => e.target === target);
 }

@@ -28,6 +28,10 @@ export function roomKey(dir: DirId, name: string): string {
 	return "room:" + dir + "\u0000" + name.toLowerCase();
 }
 
+export function publishedRoomKey(dir: DirId, publicationId: string): string {
+	return "room-publication:" + dir + "\u0000" + publicationId;
+}
+
 // Introductions this tab has opened, counted. A direct conversation is keyed on
 // the introduction rather than on the member's nick, which is the whole of the
 // fix for a thread that used to change hands: the nick is a claim the room
@@ -80,11 +84,21 @@ export function put(conv: Conv): void {
 	set({ convs });
 }
 
-function makeConv(type: "room", dir: DirId, id: string, held?: string): RoomConv;
+interface RoomIdentity {
+	key?: string;
+	publicationId?: string;
+	held?: boolean;
+	link?: string;
+}
+
+function makeConv(type: "room", dir: DirId, id: string, identity?: RoomIdentity): RoomConv;
 function makeConv(type: "dm", dir: DirId, id: string): DmConv;
-function makeConv(type: "room" | "dm", dir: DirId, id: string, held?: string): Conv {
+function makeConv(type: "room" | "dm", dir: DirId, id: string, identity?: RoomIdentity): Conv {
 	introductions += type === "dm" ? 1 : 0;
-	const key = type === "room" ? held ?? roomKey(dir, id) : "dm:" + introductions;
+	const key = type === "room"
+		? identity?.key ??
+			(identity?.publicationId === undefined ? roomKey(dir, id) : publishedRoomKey(dir, identity.publicationId))
+		: "dm:" + introductions;
 	const base = { id, key, dir, history: [], unread: { kind: "caught-up" } as Unread };
 	// Build only the fields the kind owns, so the union stays honest: a room gets
 	// its member set, a direct line gets its standing, and both get typing.
@@ -96,7 +110,9 @@ function makeConv(type: "room" | "dm", dir: DirId, id: string, held?: string): C
 			typers: new Set(),
 			grants: new Set(),
 			standing: null,
-			held: held !== undefined,
+			held: identity?.held === true,
+			...(identity?.publicationId === undefined ? {} : { publicationId: identity.publicationId }),
+			...(identity?.link === undefined ? {} : { link: identity.link }),
 		}
 		: { ...base, type, line: "introducing", typers: new Set() };
 	put(conv);
@@ -108,10 +124,27 @@ function makeConv(type: "room" | "dm", dir: DirId, id: string, held?: string): C
  * `key` is given for a room reached by a reference rather than by name: a
  * private room's label is not unique, so `heldRoomKey` mints its identity the
  * way an introduction mints a direct line's. */
-export function ensureRoom(dir: DirId, name: string, key?: string): RoomConv {
-	const existing = getConv(key ?? roomKey(dir, name));
-	if (existing && existing.type === "room") return existing;
-	return makeConv("room", dir, name, key);
+export function ensureRoom(dir: DirId, name: string, identity?: RoomIdentity): RoomConv {
+	const key = identity?.key ??
+		(identity?.publicationId === undefined ? roomKey(dir, name) : publishedRoomKey(dir, identity.publicationId));
+	const existing = getConv(key);
+	if (existing && existing.type === "room") {
+		if (identity?.link !== undefined && existing.link !== identity.link) {
+			const next = { ...existing, link: identity.link };
+			put(next);
+			return next;
+		}
+		return existing;
+	}
+	return makeConv("room", dir, name, identity);
+}
+
+/** Remember a room link this tab already holds, so the conversation card can
+ * copy it. Does not mint: a mint is `/link`, and looking at a room is not that. */
+export function noteRoomLink(key: string, link: string): void {
+	const conv = getConv(key);
+	if (conv?.type !== "room" || conv.link === link) return;
+	put({ ...conv, link });
 }
 
 // Rooms this tab holds a reference to, counted. A private room is not named by
@@ -164,7 +197,11 @@ export function convsOn(dir: DirId): Conv[] {
  * directory does: a room's name is its identity there, and case is not part of
  * it. */
 export function isJoinedRoom(dir: DirId, name: string): boolean {
-	return getConv(roomKey(dir, name))?.type === "room";
+	const folded = name.toLowerCase();
+	for (const conv of state.convs.values()) {
+		if (conv.type === "room" && conv.dir === dir && conv.id.toLowerCase() === folded) return true;
+	}
+	return false;
 }
 
 /** The open conversation with `peer`, if there is one.

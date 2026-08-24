@@ -15,8 +15,9 @@
 //! are a shared backend-owned pool (`BackendOptions.read_buffers`, default 256 x
 //! 16 KiB, about 4 MiB total), so an idle connection holds zero read-buffer
 //! bytes and the 500k extrapolation below is the warmed footprint plus
-//! one pool. Real socket-level RSS and syscall-rate figures under load
-//! still need a live measurement; the loop itself has shipped.
+//! one pool. The opt-in live phase complements that marginal-state figure with
+//! process RSS from real loopback sockets: every unique signed session fetches
+//! a published capability and remains open at the measurement barrier.
 //!
 //! Run `zig build bench-peer-scaling` to measure and write the report under
 //! `zig-out/bench-reports/`. The `--smoke` argument (used by `zig build check`)
@@ -24,18 +25,14 @@
 
 const std = @import("std");
 
+const live = @import("peer_scaling/live.zig");
 const report = @import("peer_scaling/report.zig");
 const pancake = @import("pancake");
-
-/// A finite handshake budget. A benchmark that hangs reports nothing; one that
-/// fails reports what broke.
-const handshake_budget: driver.Budget = .{ .ms = 30_000 };
 
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const model = pancake.ocapn.model;
-const net = pancake.net;
 
 /// A trivial published capability, so the `served` scenario's vat holds one live
 /// actor cell, the per-connection state a loop-driven host (ADR-0057) carries
@@ -248,235 +245,43 @@ pub fn gib(bytes: f64) f64 {
     return bytes / (1024.0 * 1024.0 * 1024.0);
 }
 
-const TcpBridge = driver.Bridge(net.TcpLoop);
-const live_frame_cap: usize = 4096;
-const live_greeting = "peer-scaling live";
-const live_calls_per_conn: usize = 2;
-
-const LiveGreeter = struct {
-    pub fn handle(self: *LiveGreeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = live_greeting };
-    }
-};
-
-fn livePublishGreeter(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    _ = ctx;
-    _ = try served.publish(vat, "greeter", LiveGreeter, .{});
-}
-
-fn liveRssKb(io: std.Io) u64 {
-    // Linux: VmRSS from /proc/self/status. Other platforms report 0 (unknown).
-    var file = std.Io.Dir.cwd().openFile(io, "/proc/self/status", .{}) catch return 0;
-    defer file.close(io);
-    var rbuf: [4096]u8 = undefined;
-    var reader = file.readerStreaming(io, &rbuf);
-    var scratch: [8192]u8 = undefined;
-    var len: usize = 0;
-    while (len < scratch.len) {
-        const nread = reader.interface.readSliceShort(scratch[len..]) catch break;
-        if (nread == 0) break;
-        len += nread;
-    }
-    const text = scratch[0..len];
-    const at = std.mem.indexOf(u8, text, "VmRSS:") orelse return 0;
-    var i = at + "VmRSS:".len;
-    while (i < text.len and (text[i] == ' ' or text[i] == '\t')) i += 1;
-    const start = i;
-    while (i < text.len and text[i] >= '0' and text[i] <= '9') i += 1;
-    return std.fmt.parseInt(u64, text[start..i], 10) catch 0;
-}
-
-fn liveNowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
-}
-
-fn liveRunLoop(loop: *net.TcpLoop, until_closed: usize, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = until_closed }) catch |err| {
-        out_err.* = err;
-    };
-}
-
-fn liveClientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = live_frame_cap;
-
-    const read_buf = try allocator.alloc(u8, live_frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, live_frame_cap);
-    defer allocator.free(write_buf);
-
-    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
-    defer tcp_provider.destroy(allocator);
-    const netlayers = tcp_provider.netlayers();
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    var cv = try driver.connectVia(allocator, &netlayers, &peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = .unbounded });
-    defer cv.deinit();
-
-    const greeter = try cv.fetch("greeter");
-    var i: usize = 0;
-    while (i < live_calls_per_conn) : (i += 1) {
-        var arena_state = std.heap.ArenaAllocator.init(allocator);
-        defer arena_state.deinit();
-        const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{} }, arena_state.allocator());
-        const ok = switch (settled) {
-            .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, live_greeting),
-            .broken, .give => false,
-        };
-        if (!ok) return error.WrongReply;
-    }
-}
-
-/// Phase 2: TCP loopback on `completion.Loop` + `driver.Bridge` at stepped N.
-/// Opt-in (`--live`); not under `zig build check`. Smoke + `--live` with a
-/// small `--live-max` still exercises the path; tiny N prints a stub note.
-fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, live_max: usize) !void {
-    _ = parent_io;
-    const steps_src = [_]usize{ 1_000, 10_000, 50_000, 100_000, 500_000 };
-    var steps_buf: [steps_src.len]usize = undefined;
-    var step_count: usize = 0;
-    for (steps_src) |n| {
-        if (n > live_max) break;
-        steps_buf[step_count] = n;
-        step_count += 1;
-    }
-    if (step_count == 0) {
-        // Cap below the first step: still run one small measurement so the
-        // harness stays honest under `--live-max` / smoke dry-runs.
-        steps_buf[0] = @min(live_max, if (smoke) @as(usize, 8) else @as(usize, 64));
-        if (steps_buf[0] == 0) {
-            std.debug.print("peer_scaling phase2: skipped (live-max=0)\n", .{});
-            return;
-        }
-        step_count = 1;
-        std.debug.print(
-            "peer_scaling phase2: live-max={d} below stepped schedule; measuring N={d} only\n",
-            .{ live_max, steps_buf[0] },
-        );
-    }
-    const steps = steps_buf[0..step_count];
-
-    std.debug.print(
-        "peer_scaling phase2: TCP loopback on completion.Loop + driver.Bridge (opt-in; not under check)\n",
-        .{},
-    );
-
-    for (steps) |n| {
-        var threaded = std.Io.Threaded.init(allocator, .{});
-        defer threaded.deinit();
-        const step_io = threaded.io();
-
-        var session_root: [32]u8 = undefined;
-        try step_io.randomSecure(&session_root);
-        var host = try driver.core.Host.init(allocator, @as([32]u8, @splat(0x42)), session_root, .{
-            .limits = .{ .max_frame_bytes = live_frame_cap },
-            .local_turn_budget = driver.core.default_loop_local_turn_budget,
-        });
-        defer host.deinit();
-        var loop: net.TcpLoop = undefined;
-        var bridge = TcpBridge.init(allocator, &host, step_io, &loop, .{ .publish = livePublishGreeter });
-        defer bridge.deinit();
-
-        loop = try net.TcpLoop.initWithBackendOptions(allocator, .{
-            .read_buffer_bytes = live_frame_cap,
-        }, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-            .max_conns = n + 8,
-            .listen = 0,
-        }));
-        defer loop.deinit();
-        const port = loop.port().?;
-        var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
-        const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
-        const designator = net.tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
-        try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
-
-        var loop_err: ?anyerror = null;
-        var loop_future = try step_io.concurrent(liveRunLoop, .{ &loop, n, &loop_err });
-
-        const rss_before = liveRssKb(step_io);
-        const t0 = liveNowNs(step_io);
-
-        const Future = @TypeOf(step_io.concurrent(liveClientOnce, .{ step_io, allocator, port }) catch unreachable);
-        const futures = try allocator.alloc(Future, n);
-        defer allocator.free(futures);
-        var spawned: usize = 0;
-        var first_err: ?anyerror = null;
-        for (futures) |*f| {
-            f.* = step_io.concurrent(liveClientOnce, .{ step_io, allocator, port }) catch |err| {
-                if (first_err == null) first_err = err;
-                break;
-            };
-            spawned += 1;
-        }
-        var successes: usize = 0;
-        var i: usize = 0;
-        while (i < spawned) : (i += 1) {
-            futures[i].await(step_io) catch |err| {
-                if (first_err == null) first_err = err;
-                continue;
-            };
-            successes += 1;
-        }
-
-        loop_future.await(step_io);
-        const t1 = liveNowNs(step_io);
-        const rss_after = liveRssKb(step_io);
-
-        if (loop_err) |err| return err;
-        const elapsed_ns: u64 = @intCast(@max(t1 - t0, 0));
-        const turns = successes * live_calls_per_conn;
-        const ns_per_turn: u64 = if (turns == 0) 0 else elapsed_ns / turns;
-        const rss_delta = if (rss_after >= rss_before) rss_after - rss_before else 0;
-
-        std.debug.print(
-            "peer_scaling phase2 n={d} ok={s} connected={d}/{d} rss_kb_before={d} rss_kb_after={d} rss_delta_kb={d} elapsed_ms={d} ns_per_turn={d}\n",
-            .{
-                n,
-                if (first_err == null and successes == n) "true" else "false",
-                successes,
-                n,
-                rss_before,
-                rss_after,
-                rss_delta,
-                elapsed_ns / 1_000_000,
-                ns_per_turn,
-            },
-        );
-        if (first_err) |err| return err;
-        if (successes != n) return error.LiveConnectShortfall;
-    }
-}
-
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
-    const backing = std.heap.page_allocator;
+    // Match the allocator used by the production C context and the other
+    // concurrent benches. Giving every session the page allocator turns each
+    // small protocol allocation into page-granular RSS and measures allocator
+    // fragmentation rather than Pancake's live state.
+    const backing = std.heap.smp_allocator;
 
     // `--smoke` (used by `zig build check`) runs a tiny sample and skips the
     // report write: a correctness gate proves the bench still runs without doing
-    // report work or writing artifacts. The full run (`zig build bench-peer-scaling`)
+    // report work or writing artifacts. Check also passes `--live --live-max=8`
+    // so the two-process socket barrier stays exercised cheaply. The full run
+    // (`zig build bench-peer-scaling`)
     // uses the large sample and writes the markdown and SVG report. Opt-in
-    // `--live` runs Phase 2 (TCP loopback on completion.Loop + Bridge) at
-    // stepped N; `--live-max=N` caps the largest step (default 10000). Neither
-    // live flag is part of `check`. The footprint *budget* is held by
+    // `--live` runs Phase 2 with separate completion-loop server and load
+    // processes at stepped N; `--live-max=N` caps the largest step (default
+    // 10000). The footprint *budget* is held by
     // `test/engine/footprint_budget_test.zig`; this bench is the human-facing
     // report, not the gate.
     var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next(); // program name
+    const executable = args.next() orelse return error.MissingExecutablePath;
     var smoke = false;
-    var live = false;
+    var run_live = false;
     var live_max: usize = 10_000;
+    var worker_options = live.WorkerOptions{};
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--smoke")) {
             smoke = true;
         } else if (std.mem.eql(u8, arg, "--live")) {
-            live = true;
+            run_live = true;
         } else if (std.mem.startsWith(u8, arg, "--live-max=")) {
             live_max = try std.fmt.parseInt(usize, arg["--live-max=".len..], 10);
-        }
+        } else if (!try live.parseWorkerArg(&worker_options, arg)) return error.UnknownArgument;
+    }
+    if (worker_options.active()) {
+        if (smoke or run_live or live_max != 10_000) return error.AmbiguousLiveWorker;
+        return live.runWorker(io, backing, worker_options);
     }
 
     const sample: u64 = if (smoke) 64 else 2000;
@@ -499,8 +304,8 @@ pub fn main(init: std.process.Init) !void {
         );
     }
 
-    if (live) {
-        try runLivePhase(io, backing, smoke, live_max);
+    if (run_live) {
+        try live.run(io, backing, executable, smoke, live_max);
     } else if (smoke) {
         std.debug.print("peer_scaling phase2: skipped (pass --live for TCP loopback scale measurement)\n", .{});
     }

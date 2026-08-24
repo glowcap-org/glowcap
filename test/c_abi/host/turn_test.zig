@@ -235,14 +235,31 @@ test "libpancake_host: promise pipelining — vow_send, vow_index, vow_untag, vo
     try std.testing.expect(gotten.fired);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, gotten.kind);
 
-    // A NEAR send runs its turn inside the call, so its local vow settles
-    // and retires before the caller can touch it: the projection reports the
-    // row gone, the same NOT_FOUND a settled wire vow reports.
+    // The source answer has already settled, but its public C handle still
+    // owns the answer position and remains a valid pipeline target.
+    var late_poke_vow: u64 = 0;
+    try expectOk(cd.pancake_host_vow_send(client, make_vow, "poke", 4, null, 0, &late_poke_vow));
+    var late_poke = CapturedSettle{};
+    watches.add(client, late_poke_vow, &late_poke);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(late_poke.fired);
+    try std.testing.expectEqualStrings("poked over the C surface", late_poke.text[0..late_poke.text_len]);
+
+    try expectOk(cd.pancake_host_vow_release(client, make_vow));
+    var released_vow: u64 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        cd.pancake_host_vow_send(client, make_vow, "poke", 4, null, 0, &released_vow),
+    );
+
+    // A NEAR send runs its turn inside the call. Its public Host vow remains
+    // live until release, but a local answer has no wire position to project.
     const near_widget = widget_local_ref;
     var local_vow: u64 = 0;
     try expectOk(cd.pancake_host_session_send(pair.b, &near_widget, "poke", 4, null, 0, &local_vow));
     var refused_vow: u64 = 0;
-    try std.testing.expectEqual(c.PANCAKE_ERR_NOT_FOUND, cd.pancake_host_vow_index(server, local_vow, 0, &refused_vow));
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_vow_index(server, local_vow, 0, &refused_vow));
+    try expectOk(cd.pancake_host_vow_release(server, local_vow));
 }
 
 test "libpancake_host: a baseline peer refuses outbound untag before minting its projected vow" {

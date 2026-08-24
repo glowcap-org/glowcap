@@ -13,13 +13,13 @@
  */
 
 export type EffectiveRange = {
-  start: number;
-  end: number;
+	start: number;
+	end: number;
 };
 
 export const rangeOf = (start: number, end: number): EffectiveRange => ({
-  start,
-  end,
+	start,
+	end,
 });
 
 /** Duration of a range. Always non-negative — clamps to 0 for the
@@ -38,11 +38,11 @@ export const containsTime = (r: EffectiveRange, t: number): boolean => t >= r.st
  *  the session's context. The result may be empty if the inputs
  *  don't overlap — `isEmpty` catches that. */
 export const intersect = (
-  a: EffectiveRange,
-  b: EffectiveRange,
+	a: EffectiveRange,
+	b: EffectiveRange,
 ): EffectiveRange => ({
-  start: Math.max(a.start, b.start),
-  end: Math.min(a.end, b.end),
+	start: Math.max(a.start, b.start),
+	end: Math.min(a.end, b.end),
 });
 
 /** Clamp one range to fit inside another. The "context clamp"
@@ -56,11 +56,11 @@ export const intersect = (
  *  `clampReasonFor`, the Inspector explains the collapse and the
  *  user can recover by editing the stored intent. */
 export const clampInto = (
-  inner: EffectiveRange,
-  outer: EffectiveRange,
+	inner: EffectiveRange,
+	outer: EffectiveRange,
 ): EffectiveRange => {
-  const lo = outer.start;
-  const hi = outer.end;
-  const clamp = (t: number) => t < lo ? lo : t > hi ? hi : t;
-  return { start: clamp(inner.start), end: clamp(inner.end) };
+	const lo = outer.start;
+	const hi = outer.end;
+	const clamp = (t: number) => t < lo ? lo : t > hi ? hi : t;
+	return { start: clamp(inner.start), end: clamp(inner.end) };
 };

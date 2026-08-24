@@ -16,8 +16,10 @@
 // Deno without `--allow-env` / `--allow-read` / `--allow-net` / `--allow-write`
 // / `--allow-run` degrades to the next rung instead of failing.
 
-import { ffi, injected_adapter_key } from "./runtime.ts";
+import { injected_adapter_key } from "./runtime.ts";
 import { archiveListingViolation } from "./archive_hygiene.ts";
+import { libFile } from "./surface.ts";
+import { curlTransportArgs, failArchiveSecurity, HardFailError, requireSecureReleaseUrl } from "./release_security.ts";
 
 // The host built-ins the cascade rides. Static imports (not top-level await)
 // so this module ships no top-level await — a browser bundle flattens every
@@ -101,11 +103,6 @@ function sleepSync(ms: number): boolean {
 		}
 	}
 	return false;
-}
-
-export function libFile(stem: string): string {
-	const suffix = ffi.libSuffix();
-	return suffix === "dll" ? `${stem}.dll` : `lib${stem}.${suffix}`;
 }
 
 function envGranted(variable: string): boolean {
@@ -314,32 +311,6 @@ function softFail(msg: string): void {
 	console.error(`pancake: ${msg} (soft-fail)`);
 }
 
-/** Hygiene/security failures always fail closed (never gated on STRICT). */
-class HardFailError extends Error {
-	override readonly name = "HardFailError";
-	constructor(msg: string) {
-		super(msg);
-	}
-}
-
-function hardFail(msg: string): never {
-	throw new HardFailError(msg);
-}
-
-function requireHttps(base: string): void {
-	if (base.startsWith("https://") || envTruthy("PANCAKE_ALLOW_INSECURE")) {
-		return;
-	}
-	hardFail(`refusing non-HTTPS release base URL: ${base}`);
-}
-
-function curlTlsArgs(url: string): string[] {
-	if (envTruthy("PANCAKE_ALLOW_INSECURE") && !url.startsWith("https://")) {
-		return [];
-	}
-	return ["--proto", "=https", "--tlsv1.2"];
-}
-
 function curlDownload(
 	url: string,
 	dest: string,
@@ -348,7 +319,7 @@ function curlDownload(
 ): boolean {
 	const args = [
 		"-fsSL",
-		...curlTlsArgs(url),
+		...curlTransportArgs(url, envTruthy("PANCAKE_ALLOW_INSECURE")),
 		"--max-filesize",
 		String(maxBytes),
 		"-A",
@@ -392,14 +363,14 @@ export function safeExtractPrefix(
 	});
 	if (listing.status !== 0 || listing.stdout === null) return false;
 	const violation = archiveListingViolation(listing.stdout, prefix);
-	if (violation !== null) hardFail(violation);
+	if (violation !== null) failArchiveSecurity(violation);
 	const untar = spawnSync(
 		"tar",
 		["-xzf", tarballPath, "-C", stage, "--no-same-owner", prefix],
 		{ stdio: "ignore", env: tarEnv },
 	);
 	if (untar.status !== 0) {
-		hardFail("tar extract failed");
+		failArchiveSecurity("tar extract failed");
 	}
 	return true;
 }
@@ -412,7 +383,7 @@ function fetchIntoCache(
 ): void {
 	const base = envVar("PANCAKE_RELEASE_BASE_URL") ??
 		contract.default_release_base_url;
-	requireHttps(base);
+	requireSecureReleaseUrl(base, envTruthy("PANCAKE_ALLOW_INSECURE"));
 	const userAgent = contract.user_agent;
 	const maxBytes = contract.max_tarball_bytes;
 	const maxSums = contract.max_sums_bytes;
@@ -465,7 +436,7 @@ function fetchIntoCache(
 				rmSync(tarballPath, { force: true });
 				rmSync(sumsPath, { force: true });
 			} catch { /* soft-fail */ }
-			hardFail("checksum required before extract: SHA256SUMS download failed");
+			failArchiveSecurity("checksum required before extract: SHA256SUMS download failed");
 		}
 		try {
 			const lines = readFileSync(sumsPath, "utf8").split("\n");
@@ -478,17 +449,17 @@ function fetchIntoCache(
 				}
 			}
 			if (expect === null) {
-				hardFail(`SHA256SUMS has no entry for ${tarball}`);
+				failArchiveSecurity(`SHA256SUMS has no entry for ${tarball}`);
 			}
 			const got = createHash("sha256")
 				.update(readFileSync(tarballPath))
 				.digest("hex");
 			if (got !== expect) {
-				hardFail(`SHA256 mismatch for ${tarball}`);
+				failArchiveSecurity(`SHA256 mismatch for ${tarball}`);
 			}
 		} catch (err) {
 			if (err instanceof HardFailError) throw err;
-			hardFail(`checksum required before extract: ${err}`);
+			failArchiveSecurity(`checksum required before extract: ${err}`);
 		}
 
 		const stage = join(cacheRoot, `stage.${process.pid}`);
@@ -508,7 +479,7 @@ function fetchIntoCache(
 			extractedIsDir = false;
 		}
 		if (!extractedIsDir) {
-			hardFail(`tarball missing ${extractPrefix}/`);
+			failArchiveSecurity(`tarball missing ${extractPrefix}/`);
 		}
 		try {
 			rmSync(cacheLib, { recursive: true, force: true });

@@ -44,10 +44,11 @@ proxies, three-party redemption.
   and hands the runtime a layout the marshallers read through (`runtime/internal/layout.ts`). The
   descriptor, the generated manifest in `@pancake/abi`, and the 64-bit mirror are held in lockstep
   by `zig build wasm-abi-layout-check`.
-- **One callback seam.** The module imports exactly `env.pancake_behavior_trampoline`
-  (`zig build wasm-import-check` pins it). Every wasm-hosted object dispatches through it by ctx id,
-  so `spawn` and `publish` work in the browser; a custom-allocator `Context` is the one dlopen-only
-  feature and refuses loudly.
+- **Two hosted-object callback seams.** The module imports exactly behavior dispatch and hosted
+  actor retirement (`zig build wasm-import-check` pins both). Every wasm-hosted object dispatches
+  by ctx id, and native retirement drops its JavaScript owner at the actor's last root, so alias
+  churn does not accumulate behavior rows. A custom-allocator `Context` remains dlopen-only and
+  refuses loudly.
 - **Sockets over WebSocket.** `connect` opens a WebSocket to `ws://host:port/` by default; pass
   `wsUrl` to route every dial through a byte gateway instead. The socket carries raw OCapN frames
   (the host's stream delimiter owns framing), so the accepting side is a byte bearer, never a
@@ -89,9 +90,10 @@ exports with no binding at all.
 
 Serve `pancake_host.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
 `@pancake/runtime` and `@pancake/abi`, using [`browser-bundle.json`](browser-bundle.json) as the
-bundler config. The runtime's module graph is browser-clean: the archive-resolution cascade loads its
-host built-ins dynamically and degrades away when they are absent, so a bundler ships no `node:`
-shims.
+bundler config. The config maps `@pancake/runtime/ffi` to the wasm adapter's stem-only resolver, so
+the native archive-resolution cascade is absent from the browser module graph. The only host stubs
+left cover non-browser runtime adapters a bundler may discover through their dynamic import; the
+injected web adapter never selects them.
 
 Keep the runtime free of module-level top-level `await`. `deno bundle` (esbuild) flattens every
 module's top-level await into one file, where the runtime's import graph deadlocks around one. That is

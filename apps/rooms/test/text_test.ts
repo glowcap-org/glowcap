@@ -4,7 +4,16 @@
 // exact.
 
 import { assertEquals } from "./assert.ts";
-import { dirCaptionSaid, dirConnection, dirStanding, footState, hueOf, initials } from "../web/ui/text.ts";
+import {
+	conversationReach,
+	dirCaptionSaid,
+	dirConnection,
+	dirStanding,
+	footState,
+	hueOf,
+	initials,
+	ircName,
+} from "../web/ui/text.ts";
 
 Deno.test("initials take the first letter of up to two words", () => {
 	assertEquals(initials("alice"), "A");
@@ -87,4 +96,35 @@ Deno.test("a directory's card says what it is doing beside the phase", () => {
 	});
 	assertEquals(dirConnection("connected", ""), { said: "Connected", why: "" });
 	assertEquals(dirConnection("disconnected", "not connected"), { said: "Not connected", why: "" });
+});
+
+Deno.test("a conversation card says why it copies the directory's locator", () => {
+	assertEquals(
+		conversationReach({ type: "room", held: false, id: "lobby" }).includes("not a separate address for #lobby"),
+		true,
+	);
+	assertEquals(
+		conversationReach({ type: "room", held: true, id: "secret" }).includes("live reference"),
+		true,
+	);
+	assertEquals(
+		conversationReach({ type: "room", held: true, id: "secret", link: "ocapn://peer.tcp/s/swiss" }).includes(
+			"sturdyref",
+		),
+		true,
+	);
+	assertEquals(
+		conversationReach({ type: "dm" }).includes("no room address"),
+		true,
+	);
+});
+
+Deno.test("a bridged identity is named bare and colored as IRC, exactly once", () => {
+	assertEquals(ircName("irc/alice"), "alice");
+	assertEquals(ircName("alice"), null);
+	assertEquals(ircName("irc/"), null);
+	assertEquals(ircName("IRC/alice"), null);
+	assertEquals(hueOf("irc/alice"), "var(--irc)");
+	assertEquals(hueOf("irc/bob"), "var(--irc)");
+	assertEquals(hueOf("alice").startsWith("var(--avatar-"), true);
 });

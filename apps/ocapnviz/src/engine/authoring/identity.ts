@@ -25,40 +25,40 @@ import type { AuthoringContext } from "./context.ts";
 export type RenameCategory = "peer" | "session" | "message";
 
 function renameCategoryToEntitiesKey(
-  category: RenameCategory,
+	category: RenameCategory,
 ): "peers" | "sessions" | "messages" {
-  return category === "peer" ? "peers" : category === "session" ? "sessions" : "messages";
+	return category === "peer" ? "peers" : category === "session" ? "sessions" : "messages";
 }
 
 /** Validate-only: would `rekeyEntity(ctx, category, oldId, newId)`
  *  collide? Pure read; no mutation. Inspector inline edits call
  *  this on blur to gate the dispatch. */
 export function checkRekeyCollision(
-  doc: TimelineDocument,
-  category: RenameCategory,
-  newId: string,
+	doc: TimelineDocument,
+	category: RenameCategory,
+	newId: string,
 ): EngineResult<void> {
-  const map = doc.entities?.[renameCategoryToEntitiesKey(category)];
-  if (map && Object.prototype.hasOwnProperty.call(map, newId)) {
-    return err(collisionError(category, newId));
-  }
-  // A peer and a session end nothing attributed are drawn as one node
-  // each, out of one namespace, and `endpointStageId` spells an end's
-  // name `session::side`. A peer answering to that spelling would be
-  // the same node as that end: one place in the layout, one selection,
-  // one position, where the picture holds two things. The author has
-  // every other name available, so this one is refused here beside the
-  // rest of the collision policy.
-  if (category === "peer" && parseEndpointStageId(newId) !== undefined) {
-    return err({
-      code: "collision",
-      title: "ID already in use",
-      detail: `${newId} is how a session end nothing has attributed is named, ` +
-        `so a peer cannot answer to it.`,
-      recovery: "Pick an ID that does not end in “::a” or “::b”.",
-    });
-  }
-  return ok(undefined);
+	const map = doc.entities?.[renameCategoryToEntitiesKey(category)];
+	if (map && Object.prototype.hasOwnProperty.call(map, newId)) {
+		return err(collisionError(category, newId));
+	}
+	// A peer and a session end nothing attributed are drawn as one node
+	// each, out of one namespace, and `endpointStageId` spells an end's
+	// name `session::side`. A peer answering to that spelling would be
+	// the same node as that end: one place in the layout, one selection,
+	// one position, where the picture holds two things. The author has
+	// every other name available, so this one is refused here beside the
+	// rest of the collision policy.
+	if (category === "peer" && parseEndpointStageId(newId) !== undefined) {
+		return err({
+			code: "collision",
+			title: "ID already in use",
+			detail: `${newId} is how a session end nothing has attributed is named, ` +
+				`so a peer cannot answer to it.`,
+			recovery: "Pick an ID that does not end in “::a” or “::b”.",
+		});
+	}
+	return ok(undefined);
 }
 
 /** Re-key an entity across the entire doc via `cascadeRewrite`.
@@ -66,14 +66,14 @@ export function checkRekeyCollision(
  *  `newId` is already in use. On success, seeks so the renderer
  *  picks up the new identity. */
 export function rekeyEntity(
-  ctx: AuthoringContext,
-  category: RenameCategory,
-  oldId: string,
-  newId: string,
+	ctx: AuthoringContext,
+	category: RenameCategory,
+	oldId: string,
+	newId: string,
 ): EngineResult<void> {
-  const r = cascadeRewrite(ctx.doc, category, oldId, newId);
-  if (!r.ok) return r;
-  restoreSnapshotInto(ctx.doc, takeSnapshot(r.value));
-  ctx.seekTo(ctx.clock.t);
-  return ok(undefined);
+	const r = cascadeRewrite(ctx.doc, category, oldId, newId);
+	if (!r.ok) return r;
+	restoreSnapshotInto(ctx.doc, takeSnapshot(r.value));
+	ctx.seekTo(ctx.clock.t);
+	return ok(undefined);
 }

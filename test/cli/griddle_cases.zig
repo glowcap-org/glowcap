@@ -13,6 +13,21 @@ const pancake = @import("pancake");
 
 const sim = cli.griddle_sim;
 
+test "griddle: every advertised scenario name selects one scenario" {
+    var names = std.mem.splitSequence(u8, sim.scenario_args, ", ");
+    var seen: [@typeInfo(sim.Scenario).@"enum".field_names.len]bool = @splat(false);
+    var count: usize = 0;
+    while (names.next()) |name| {
+        const scenario = sim.Scenario.fromArg(name) orelse return error.AdvertisedScenarioDoesNotParse;
+        const index: usize = @intCast(@backingInt(scenario));
+        try std.testing.expect(!seen[index]);
+        seen[index] = true;
+        count += 1;
+    }
+    try std.testing.expectEqual(@typeInfo(sim.Scenario).@"enum".field_names.len, count);
+    for (seen) |advertised| try std.testing.expect(advertised);
+}
+
 fn runTimeline(gpa: std.mem.Allocator, scenario: sim.Scenario, seed: u64) ![]u8 {
     return runWeather(gpa, scenario, seed, .{});
 }

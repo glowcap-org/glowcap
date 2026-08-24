@@ -1,14 +1,15 @@
-// What the room server holds in memory, and the small answers about it.
-//
-// One place for the shapes and the tables, so the modules acting on them —
-// files, introductions, presence, the room and directory objects — share one
-// account of what exists rather than each keeping its own. Nothing here decides
-// anything: it is the state, and the questions with one obvious answer.
+// Room-server state, admission, indexing, and reclamation.
 
-import type { Ref, Session } from "@pancake/runtime";
-import { RoomError, TOO_MANY_ROOMS } from "../lib/errors.ts";
-import { MAX_ROOMS_PER_CREATOR, PRIVATE_ROOM_KEY_BYTES } from "../lib/limits.ts";
+import { durableIdentityAuthenticated, type Ref, type Session } from "@pancake/runtime";
+import { ROOM_EXISTS, RoomError, TOO_MANY_PEERED_ROOMS, TOO_MANY_ROOMS } from "../lib/errors.ts";
+import {
+	MAX_PEERED_ROOMS,
+	MAX_PEERED_ROOMS_PER_SOURCE,
+	MAX_ROOMS_PER_CREATOR,
+	PRIVATE_ROOM_KEY_BYTES,
+} from "../lib/limits.ts";
 import type { RoomLinks } from "./state.ts";
+import { noteTrouble } from "./journal.ts";
 
 /** One subscriber: the nickname it chose and the capability to call it back on,
  * plus the connection that capability lives on (a far ref is sent over the
@@ -54,6 +55,8 @@ export const HELD_LINE_REFS = 100;
  * `open`ed room with no members yet is reclaimed if its opener disconnects
  * before subscribing. */
 export interface RoomState {
+	/** Opaque identity for this exact public-room generation. */
+	entryId: string;
 	name: string;
 	/** What `rooms` is keyed by, which is also what makes a room private.
 	 *
@@ -98,6 +101,7 @@ export function makeRoomState(
 ): RoomState {
 	const isPrivate = kept?.private === true;
 	return {
+		entryId: publicRoomId(),
 		name,
 		key: kept?.key ?? (isPrivate ? privateRoomKey() : roomKey(name)),
 		private: isPrivate,
@@ -162,6 +166,111 @@ export interface PendingUpload {
 
 export const rooms = new Map<string, RoomState>();
 
+export interface LocalRoomEntry {
+	kind: "local";
+	id: string;
+	name: string;
+	state: RoomState;
+}
+
+export interface ForeignRoomEntry {
+	kind: "foreign";
+	id: string;
+	name: string;
+	room: Ref;
+	source: Session;
+	origin: string;
+	proof: "authenticated" | "session";
+}
+
+export interface ForeignRoomReservation {
+	id: string;
+	name: string;
+	key: string;
+	source: Session;
+	origin: string;
+	proof: "authenticated" | "session";
+}
+
+/** An IRC channel the gateway bridged into this directory: entered like any
+ * room, drawn per session from the bridge's own machinery, and gone when the
+ * operator parts it. `proof` says "bridge" so a list row states plainly that
+ * presence here is the gateway's observation of another protocol. */
+export interface BridgeRoomEntry {
+	kind: "bridge";
+	id: string;
+	name: string;
+	origin: string;
+	proof: "bridge";
+	bridge: { roomBehavior(session: Session): import("@pancake/runtime").Behavior };
+}
+
+export type PublicRoomEntry = LocalRoomEntry | ForeignRoomEntry | BridgeRoomEntry;
+
+/** How many IRC channels one server bridges at most. */
+export const MAX_BRIDGED_ROOMS = 16;
+let bridgedRoomCount = 0;
+
+/** File a bridged channel under the ordinary public namespace. */
+export function registerBridgeRoom(
+	name: string,
+	origin: string,
+	bridge: { roomBehavior(session: Session): import("@pancake/runtime").Behavior },
+): BridgeRoomEntry {
+	const key = roomKey(name);
+	if (publicRoomKeyTaken(key)) throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
+	if (bridgedRoomCount >= MAX_BRIDGED_ROOMS) {
+		throw new RoomError(TOO_MANY_ROOMS, `this directory already bridges ${MAX_BRIDGED_ROOMS} channels`);
+	}
+	const entry: BridgeRoomEntry = { kind: "bridge", id: publicRoomId(), name, origin, proof: "bridge", bridge };
+	publicRooms.set(key, entry);
+	publicRoomsById.set(entry.id, entry);
+	bridgedRoomCount += 1;
+	return entry;
+}
+
+/** Drop a bridged channel from the namespace; the gateway owns the
+ * connection this frees. */
+export function forgetBridgeRoom(id: string): BridgeRoomEntry | null {
+	const entry = publicRoomsById.get(id);
+	if (entry === undefined || entry.kind !== "bridge") return null;
+	publicRoomsById.delete(id);
+	publicRooms.delete(roomKey(entry.name));
+	bridgedRoomCount -= 1;
+	return entry;
+}
+
+export function localRoomEntry(state: RoomState): LocalRoomEntry {
+	return { kind: "local", id: state.entryId, name: state.name, state };
+}
+
+/** The one case-folded public namespace used by open, enter, list, and peering. */
+export const publicRooms = new Map<string, PublicRoomEntry>();
+
+const publicRoomsById = new Map<string, PublicRoomEntry>();
+const foreignRoomReservationsById = new Map<string, ForeignRoomReservation>();
+const foreignRoomReservationByKey = new Map<string, string>();
+const foreignRoomIdsBySource = new Map<Session, Set<string>>();
+let foreignRoomCount = 0;
+
+function publicRoomId(): string {
+	let id = crypto.randomUUID();
+	while (publicRoomsById.has(id) || foreignRoomReservationsById.has(id)) id = crypto.randomUUID();
+	return id;
+}
+
+function publicRoomKeyTaken(key: string): boolean {
+	return publicRooms.has(key) || foreignRoomReservationByKey.has(key);
+}
+
+export function publicRoomNameTaken(name: string): boolean {
+	return publicRoomKeyTaken(roomKey(name));
+}
+
+export function publicRoomById(id: string): PublicRoomEntry | null {
+	return publicRoomsById.get(id) ?? null;
+}
+
 /** How many rooms each connection currently has open, so `open` can be bounded
  * per creator in O(1) rather than by scanning every room on the server. A row
  * lives exactly as long as one of the creator's rooms does. */
@@ -178,17 +287,144 @@ export function registerRoom(state: RoomState): void {
 			`this connection already has ${MAX_ROOMS_PER_CREATOR} rooms open`,
 		);
 	}
+	if (!state.private && publicRoomKeyTaken(state.key)) {
+		throw new RoomError(ROOM_EXISTS, `room "${state.name}" already exists`);
+	}
 	rooms.set(state.key, state);
+	if (!state.private) {
+		const entry = localRoomEntry(state);
+		publicRooms.set(state.key, entry);
+		publicRoomsById.set(entry.id, entry);
+	}
 	roomsPerCreator.set(state.creator, held + 1);
 }
 
 /** Drop a room and release its creator's count. The one place `rooms` loses a
  * row, so the count cannot drift from the map. */
 export function forgetRoom(state: RoomState): void {
-	if (!rooms.delete(state.key)) return;
+	if (rooms.get(state.key) !== state) return;
+	rooms.delete(state.key);
+	if (!state.private) {
+		const entry = publicRooms.get(state.key);
+		if (entry?.kind === "local" && entry.id === state.entryId) {
+			publicRooms.delete(state.key);
+			publicRoomsById.delete(entry.id);
+		}
+	}
 	const rest = (roomsPerCreator.get(state.creator) ?? 1) - 1;
 	if (rest > 0) roomsPerCreator.set(state.creator, rest);
 	else roomsPerCreator.delete(state.creator);
+}
+
+function sessionOrigin(source: Session): Pick<ForeignRoomReservation, "origin" | "proof"> {
+	const identity = source.partnerIdentity();
+	if (durableIdentityAuthenticated(identity)) {
+		return { origin: identity.designator, proof: "authenticated" };
+	}
+	return {
+		origin: [...identity.sessionKey].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+		proof: "session",
+	};
+}
+
+/** Reserve one bounded publication generation before handoff resolution. */
+export function reserveForeignRoom(name: string, source: Session): ForeignRoomReservation {
+	const key = roomKey(name);
+	if (publicRoomKeyTaken(key)) throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
+	if (foreignRoomCount >= MAX_PEERED_ROOMS) {
+		throw new RoomError(TOO_MANY_PEERED_ROOMS, `this directory already holds ${MAX_PEERED_ROOMS} peered rooms`);
+	}
+	let owned = foreignRoomIdsBySource.get(source);
+	if (owned !== undefined && owned.size >= MAX_PEERED_ROOMS_PER_SOURCE) {
+		throw new RoomError(
+			TOO_MANY_PEERED_ROOMS,
+			`this source already holds ${MAX_PEERED_ROOMS_PER_SOURCE} peered rooms here`,
+		);
+	}
+	const reservation: ForeignRoomReservation = {
+		id: publicRoomId(),
+		name,
+		key,
+		source,
+		...sessionOrigin(source),
+	};
+	if (owned === undefined) {
+		owned = new Set();
+		foreignRoomIdsBySource.set(source, owned);
+	}
+	owned.add(reservation.id);
+	foreignRoomReservationsById.set(reservation.id, reservation);
+	foreignRoomReservationByKey.set(key, reservation.id);
+	foreignRoomCount += 1;
+	return reservation;
+}
+
+/** Attach the resolved room capability to an exact live reservation. */
+export function commitForeignRoom(reservation: ForeignRoomReservation, room: Ref): ForeignRoomEntry {
+	if (foreignRoomReservationsById.get(reservation.id) !== reservation) {
+		throw new Error("room publication was revoked before its capability became ready");
+	}
+	foreignRoomReservationsById.delete(reservation.id);
+	if (foreignRoomReservationByKey.get(reservation.key) === reservation.id) {
+		foreignRoomReservationByKey.delete(reservation.key);
+	}
+	const entry: ForeignRoomEntry = {
+		kind: "foreign",
+		id: reservation.id,
+		name: reservation.name,
+		room,
+		source: reservation.source,
+		origin: reservation.origin,
+		proof: reservation.proof,
+	};
+	publicRoomsById.set(entry.id, entry);
+	publicRooms.set(reservation.key, entry);
+	return entry;
+}
+
+function releaseForeignRoomSlot(source: Session, id: string): void {
+	foreignRoomCount -= 1;
+	const owned = foreignRoomIdsBySource.get(source);
+	owned?.delete(id);
+	if (owned?.size === 0) foreignRoomIdsBySource.delete(source);
+}
+
+export function cancelForeignRoom(reservation: ForeignRoomReservation): boolean {
+	if (foreignRoomReservationsById.get(reservation.id) !== reservation) return false;
+	foreignRoomReservationsById.delete(reservation.id);
+	if (foreignRoomReservationByKey.get(reservation.key) === reservation.id) {
+		foreignRoomReservationByKey.delete(reservation.key);
+	}
+	releaseForeignRoomSlot(reservation.source, reservation.id);
+	return true;
+}
+
+/** Remove one exact generation. A stale lease cannot remove its replacement. */
+export function forgetForeignRoom(id: string): ForeignRoomEntry | null {
+	const found = publicRoomsById.get(id);
+	if (found?.kind !== "foreign") return null;
+	const entry = found;
+	publicRoomsById.delete(id);
+	const key = roomKey(entry.name);
+	if (publicRooms.get(key)?.id === id) publicRooms.delete(key);
+	releaseForeignRoomSlot(entry.source, id);
+	handBack(entry.source, entry.room, "peered room");
+	return entry;
+}
+
+export function forgetForeignRoomsFrom(source: Session): ForeignRoomEntry[] {
+	const ids = [...foreignRoomIdsBySource.get(source) ?? []];
+	const removed: ForeignRoomEntry[] = [];
+	for (const id of ids) {
+		const reservation = foreignRoomReservationsById.get(id);
+		if (reservation !== undefined) {
+			cancelForeignRoom(reservation);
+			continue;
+		}
+		const entry = forgetForeignRoom(id);
+		if (entry !== null) removed.push(entry);
+	}
+	return removed;
 }
 
 /** One introducible member.
@@ -264,7 +500,7 @@ export function handBack(session: Session, ref: Ref, what = "retained capability
 		// but a refusal is still an exact process-owned diagnostic. Session release
 		// is already wire-free after teardown, so a refusal here is never evidence
 		// that teardown harmlessly reclaimed it.
-		console.error(`[rooms] could not release ${what}:`, error);
+		noteTrouble(`could not release ${what}`, error);
 	}
 }
 

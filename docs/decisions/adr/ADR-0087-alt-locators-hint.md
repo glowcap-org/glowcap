@@ -47,10 +47,12 @@ capability semantics).
 ## Decision
 
 The exporter advertises alternative reachability as one `alt-locators` hint on
-its own locator. The value is a comma-separated list of `ocapn://` peer URIs,
-the same string-valued shape `direct-addresses` uses, so it survives the
-existing hint dict encoding, canonical ordering, URI query projection, and both
-codecs without new wire structure. The hint flows into handoff gives through
+its own locator. The value is a pipe-separated list of `ocapn://` peer URIs.
+Pipe remains structural after the outer hint value is decoded while a pipe in a
+nested URI stays percent-encoded; comma cannot serve because a nested transport
+may legitimately use it inside `direct-addresses`. The string-valued hint
+survives the existing hint dict encoding, canonical ordering, URI query
+projection, and both codecs without new wire structure. The hint flows into handoff gives through
 the verbatim exporter-location bytes the gifter already embeds
 (`src/ocapn/engine/handoff_gifter.zig`); the give schema, the signing domain,
 and the oracle corpus are untouched.

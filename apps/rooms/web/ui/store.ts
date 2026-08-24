@@ -22,6 +22,7 @@ export * from "./store/convs.ts";
 export * from "./store/items.ts";
 export * from "./store/dirs.ts";
 export * from "./store/reaching.ts";
+export * from "./store/trouble.ts";
 
 // ── Room membership and typing ────────────────────────────────────────────
 export function applyPresence(key: string, event: Presence | null): void {

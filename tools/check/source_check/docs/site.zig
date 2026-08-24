@@ -243,6 +243,9 @@ pub fn checkSiteNavParity(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
+        // The not-found page is reached by failing to reach anything else;
+        // listing it in the sidebar would advertise a dead end.
+        if (std.mem.eql(u8, entry.path, "404.smd")) continue;
 
         // Page id: the content path minus `.smd`, with a bare `index` (the home
         // page) or a trailing `/index` collapsed to its directory.

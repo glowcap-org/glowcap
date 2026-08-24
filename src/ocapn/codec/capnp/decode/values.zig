@@ -15,7 +15,6 @@ const Error = shared.Error;
 const RefTag = shared.RefTag;
 const ArgKind = shared.ArgKind;
 const ResolutionKind = shared.ResolutionKind;
-const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 const CompositeList = shared.CompositeList;
@@ -33,7 +32,7 @@ const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!
 // to the one [`syrup.decodeBody`](../../syrup/decode.zig) produces. Copies nothing:
 // scalar and reference fields read straight from the words, borrowed text/bytes
 // slice into the segment (`byteSlice`), and the unbounded sequences (`Args`,
-// `PositionList`, `PipelinePath`) are reached through inline vtable backings —
+// `PositionList`) are reached through inline vtable backings —
 // `at` re-walks the words lazily, so a nested `list` / `set` / `tagged` arm is
 // itself another backing with no per-node allocation. `toOwned` (on the
 // returned view) materializes.
@@ -47,7 +46,6 @@ const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!
 
 const neutral_args_vtable = model.view.Args.VTable{ .len = neutralArgsLen, .at = neutralArgsAt, .next = neutralArgsNext };
 const neutral_positions_vtable = model.view.PositionList.VTable{ .len = neutralPositionsLen, .at = neutralPositionsAt, .next = neutralPositionsNext };
-const neutral_path_vtable = model.view.PipelinePath.VTable{ .len = neutralPathLen, .at = neutralPathAt, .next = neutralPathNext };
 
 /// Pack a composite (struct-list) pointer field into a backing `Ctx`. A null /
 /// empty list packs a zero count; otherwise the composite tag word supplies the
@@ -129,33 +127,12 @@ fn neutralPositionsNext(ctx: model.view.PositionList.Ctx, cursor: *u64) model.vi
     return out;
 }
 
-fn neutralPathLen(ctx: model.view.PipelinePath.Ctx) model.view.ProjectError!usize {
-    return @intCast(ctx.w2);
-}
-
-fn neutralPathAt(ctx: model.view.PipelinePath.Ctx, index: usize) model.view.ProjectError!model.view.PipelineOp {
-    if (index >= ctx.w2) return error.MalformedView;
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
-    return neutralPipelineOp(reader, compositeElem(ctx, index)) catch return error.MalformedView;
-}
-
-fn neutralPathNext(ctx: model.view.PipelinePath.Ctx, cursor: *u64) model.view.ProjectError!?model.view.PipelineOp {
-    if (cursor.* >= ctx.w2) return null;
-    const out = try neutralPathAt(ctx, @intCast(cursor.*));
-    cursor.* += 1;
-    return out;
-}
-
 pub fn neutralArgsBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args {
     return model.view.Args.fromBacking(try compositeListCtx(reader, loc, i), &neutral_args_vtable);
 }
 
 pub fn neutralPositionsBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.PositionList {
     return model.view.PositionList.fromBacking(try primitiveListCtx(reader, loc, i), &neutral_positions_vtable);
-}
-
-fn neutralPathBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.PipelinePath {
-    return model.view.PipelinePath.fromBacking(try compositeListCtx(reader, loc, i), &neutral_path_vtable);
 }
 
 /// Borrow text or bytes as a slice straight into the segment, with no copy.
@@ -184,7 +161,13 @@ pub fn neutralReferenceView(reader: Reader, loc: StructLoc, comptime observe_hin
     return switch (disc) {
         .near => .{ .far = .{ .import_position = model.ImportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
         .far => .{ .near = .{ .export_position = model.ExportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
-        .promise => .{ .promise = .{ .answer_position = model.AnswerPosition.from(scalar), .path = try neutralPathBacking(reader, loc, 0) } },
+        // A promise owns no pointer fields. Rejecting a non-null slot prevents
+        // unsupported derived semantics from collapsing silently to the root
+        // `desc:answer`.
+        .promise => if (!try reader.pointerIsNull(loc, 0))
+            Error.UnsupportedReference
+        else
+            .{ .promise = .{ .answer_position = model.AnswerPosition.from(scalar) } },
         .sturdy => .{ .sturdy = .{
             .peer = try neutralPeerLocator(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, observe_hints),
             .swissnum = try borrowedData(reader, loc, 1),
@@ -220,13 +203,19 @@ fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
     return null;
 }
 
-fn capnpValidateHintNamesUnique(hl: model.view.HintList) model.view.ProjectError!void {
+fn capnpValidateHintShape(
+    hl: model.view.HintList,
+    wire_form: model.Hints.WireForm,
+) model.view.ProjectError!void {
     const count: usize = @intCast(hl.w2);
     if (count == 0) return;
+    if (count > model.max_locator_hint_count or wire_form == .boolean_false)
+        return error.MalformedView;
     const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
     var index: usize = 0;
     while (index < count) : (index += 1) {
         const entry = hintEntryAt(reader, hl, index) catch return error.MalformedView;
+        model.validateHintName(entry.name) catch return error.MalformedView;
         var prior: usize = 0;
         while (prior < index) : (prior += 1) {
             const seen = hintEntryAt(reader, hl, prior) catch return error.MalformedView;
@@ -243,6 +232,7 @@ fn capnpMaterializeHintList(
 ) model.view.Error!model.Hints {
     const count: usize = @intCast(hl.w2);
     if (count == 0) return .{ .wire_form = wire_form };
+    try capnpValidateHintShape(hl, wire_form);
     const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
     const entries = try allocator.alloc(model.HintEntry, count);
     errdefer allocator.free(entries);
@@ -250,13 +240,6 @@ fn capnpMaterializeHintList(
     errdefer for (entries[0..initialized]) |entry| model.freeHintEntry(allocator, entry);
     while (initialized < count) : (initialized += 1) {
         const borrowed = hintEntryAt(reader, hl, initialized) catch return error.MalformedView;
-        // A repeated name is malformed: hints are a dictionary. The encoder
-        // emits entries in model order with no uniqueness pass, so a duplicate
-        // admitted here would be re-emitted as a dict pancake's own decoder
-        // rejects.
-        for (entries[0..initialized]) |seen| {
-            if (std.mem.eql(u8, seen.name, borrowed.name)) return error.MalformedView;
-        }
         const name = try allocator.dupe(u8, borrowed.name);
         errdefer allocator.free(name);
         entries[initialized] = .{
@@ -269,7 +252,7 @@ fn capnpMaterializeHintList(
 
 const capnp_hint_list_vtable = model.view.HintList.VTable{
     .materialize = capnpMaterializeHintList,
-    .validate_unique_names = capnpValidateHintNamesUnique,
+    .validate_shape = capnpValidateHintShape,
     .find = capnpFindHint,
 };
 
@@ -303,6 +286,8 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc, comptime observe_hints: ?H
             .hints = .{ .empty = wire_form },
         };
     }
+    if (clist.element_count > model.max_locator_hint_count)
+        return Error.MalformedFrame;
     // The eager pass supplies an observer that owns enumeration and budget
     // spending. Ordinary borrowed projection supplies null, so the later lazy
     // walk neither repeats the enumeration nor charges twice.
@@ -330,14 +315,6 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc, comptime observe_hints: ?H
 
 pub fn neutralErrorView(reader: Reader, loc: StructLoc) Error!model.view.BreakReason {
     return .{ .message = try borrowedText(reader, loc, 0) };
-}
-
-pub fn neutralPipelineOp(reader: Reader, loc: StructLoc) Error!model.view.PipelineOp {
-    const disc = try enumFromWire(PipelineOpKind, try reader.dataWord(loc, 0));
-    return switch (disc) {
-        .field => .{ .field = try borrowedText(reader, loc, 0) },
-        .call => .{ .call = try neutralArgsBacking(reader, loc, 0) },
-    };
 }
 
 /// Project a borrowed argument with full fidelity. Nested

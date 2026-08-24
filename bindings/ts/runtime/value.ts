@@ -19,15 +19,18 @@ import {
 	FEATURE_FULL,
 	FEATURE_HANDOFF,
 	FEATURE_MINIMUM,
+	FEATURE_MULTI_LOCATION,
 	FEATURE_PIPELINING,
 	FEATURE_STURDYREF,
 	FEATURE_UNTAG,
 	FEATURE_WIRE_DELTA,
+	INTERNAL,
 	IROH_REACH_DIRECT,
 	IROH_REACH_DISCOVERY,
 	IROH_REACH_DISCOVERY_NO_RELAY,
 	IROH_REACH_LOCAL_DISCOVERY,
 } from "@pancake/abi";
+import { PancakeError } from "./errors.ts";
 
 /** Tag a string so it marshals as an OCapN symbol rather than a string. */
 export class Sym {
@@ -87,21 +90,46 @@ export type Codec = "syrup" | "capnp";
  * the pair with its partner. */
 export type CaptpVersion = "v1_0" | "next";
 
-export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref" | "untag";
+export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref" | "untag" | "multi_location";
 export type FeatureSet = "full" | "baseline" | "minimum" | number | readonly FeatureName[];
+
+/** The profile a live session settled with its partner. `features` is the exact
+ * mutually supported bit set, not the Host's offer. */
+export interface SessionProfile {
+	readonly captpVersion: CaptpVersion;
+	readonly codec: Codec;
+	readonly features: number;
+}
 
 const MAX_U32 = 0xffff_ffff;
 
-function codecFromId(codec: number): Codec {
+export function codecFromId(codec: number, source = "generated default"): Codec {
 	if (codec === CODEC_SYRUP) return "syrup";
 	if (codec === CODEC_CAPNP) return "capnp";
-	throw new TypeError(`pancake ABI generated unknown default codec ${String(codec)}`);
+	if (source === "generated default") {
+		throw new TypeError(`pancake ABI generated unknown default codec ${String(codec)}`);
+	}
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown ${source} codec ${String(codec)}`);
 }
 
-function captpVersionFromId(version: number): CaptpVersion {
+export function captpVersionFromId(version: number, source = "generated default"): CaptpVersion {
 	if (version === CAPTP_V1_0) return "v1_0";
 	if (version === CAPTP_NEXT) return "next";
-	throw new TypeError(`pancake ABI generated unknown default CapTP version ${String(version)}`);
+	if (source === "generated default") {
+		throw new TypeError(`pancake ABI generated unknown default CapTP version ${String(version)}`);
+	}
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown ${source} CapTP version ${String(version)}`);
+}
+
+export function sessionProfileFromAbi(captpVersion: number, codec: number, features: number): SessionProfile {
+	if (!Number.isInteger(features) || features < 0 || features > MAX_U32 || (features & ~FEATURE_FULL) !== 0) {
+		throw new PancakeError(INTERNAL, `pancake ABI returned unknown session feature mask ${String(features)}`);
+	}
+	return {
+		captpVersion: captpVersionFromId(captpVersion, "session"),
+		codec: codecFromId(codec, "session"),
+		features,
+	};
 }
 
 function featureSetFromMask(features: number): FeatureSet {
@@ -114,6 +142,18 @@ function featureSetFromMask(features: number): FeatureSet {
 export const DEFAULT_CODEC: Codec = codecFromId(ABI_DEFAULT_CODEC);
 export const DEFAULT_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_DEFAULT_CAPTP_VERSION);
 export const DEFAULT_FEATURES: FeatureSet = featureSetFromMask(ABI_DEFAULT_FEATURES);
+
+export {
+	FEATURE_BASELINE,
+	FEATURE_FULL,
+	FEATURE_HANDOFF,
+	FEATURE_MINIMUM,
+	FEATURE_MULTI_LOCATION,
+	FEATURE_PIPELINING,
+	FEATURE_STURDYREF,
+	FEATURE_UNTAG,
+	FEATURE_WIRE_DELTA,
+};
 
 export function codecId(codec: Codec): number {
 	switch (codec) {
@@ -170,6 +210,9 @@ export function featureMask(features: FeatureSet): number {
 				break;
 			case "untag":
 				mask |= FEATURE_UNTAG;
+				break;
+			case "multi_location":
+				mask |= FEATURE_MULTI_LOCATION;
 				break;
 			default:
 				throw new TypeError(`unknown OCapN feature ${String(feature)}`);

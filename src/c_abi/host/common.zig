@@ -103,6 +103,7 @@ pub const Instance = struct {
 pub const zero_action = PancakeHostAction{
     .kind = 0,
     .ticket = 0,
+    .route_index = 0,
     .session = null,
     .value = shared.zero_argument,
     .message = null,

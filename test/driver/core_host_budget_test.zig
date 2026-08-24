@@ -153,7 +153,7 @@ const RetryCancelExec = struct {
             self.fail_next.* = false;
             return error.CancelUnavailable;
         }
-        try self.host.dialCancelled(cancel.ticket);
+        try self.host.dialCancelled(cancel.ticket, 0);
     }
     pub fn complete(self: @This(), action: driver.core.HostAction) !void {
         self.host.freeAction(action);
@@ -258,7 +258,7 @@ test "standard host action drain retries a dial whose executor fails" {
     );
     try std.testing.expect((try host.peekAction()) == null);
 
-    try host.dialFailed(ticket, "test dial retired");
+    try host.dialFailed(ticket, 0, "test dial retired");
     const failed = (try host.takeAction()) orelse return error.MissingDialFailure;
     defer host.freeAction(failed);
     try std.testing.expect(failed == .failed);
@@ -275,7 +275,7 @@ test "standard host action drain retains a completion when publication preparati
         driver.core.DrainResult.drained,
         try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &dial_failed }),
     );
-    try host.dialFailed(ticket, "test completion");
+    try host.dialFailed(ticket, 0, "test completion");
 
     var prepare_failed = true;
     const exec = RetryPrepareExec{ .host = &host, .fail_next = &prepare_failed };
@@ -340,8 +340,8 @@ test "borrowed action refusal retries in place without reordering" {
     try std.testing.expect(first != second);
     try std.testing.expect((try host.nextAction()) == null);
 
-    try host.dialFailed(first, "test dial retired");
-    try host.dialFailed(second, "test dial retired");
+    try host.dialFailed(first, 0, "test dial retired");
+    try host.dialFailed(second, 0, "test dial retired");
     while (try host.takeAction()) |action| host.freeAction(action);
 }
 

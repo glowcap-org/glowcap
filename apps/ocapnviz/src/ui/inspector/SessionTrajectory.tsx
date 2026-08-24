@@ -18,10 +18,10 @@
 import { Fragment } from "react";
 import type { Engine } from "../../engine/engine.ts";
 import {
-  type SessionProperty,
-  sessionRowDisplay,
-  sessionTrajectoryRows,
-  type SessionValue,
+	type SessionProperty,
+	sessionRowDisplay,
+	sessionTrajectoryRows,
+	type SessionValue,
 } from "../../engine/trajectory.ts";
 import { peerLabelAt, sessionPropertyValueAt } from "../../engine/temporal/doc-resolver.ts";
 import type { EditorBindings } from "./bindings.ts";
@@ -44,21 +44,30 @@ import { OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./trajectory
  *  document with none does not offer the row rather than offering one the
  *  write would refuse. */
 export function trajectoryInsertOffers(
-  engine: Engine,
-  sessionId: string,
-  t: number,
-  properties: readonly SessionProperty[],
+	engine: Engine,
+	sessionId: string,
+	t: number,
+	properties: readonly SessionProperty[],
 ): { property: SessionProperty; value: SessionValue }[] {
-  const def = engine.doc.entities?.sessions?.[sessionId];
-  const firstPeer = Object.keys(engine.doc.entities?.peers ?? {})[0];
-  const out: { property: SessionProperty; value: SessionValue }[] = [];
-  for (const property of properties) {
-    const carried = sessionPropertyValueAt(engine.doc, sessionId, property, t);
-    const value = carried ??
-      (property === "state" ? def?.initialState ?? "open" : firstPeer === undefined ? undefined : { peer: firstPeer });
-    if (value !== undefined) out.push({ property, value });
-  }
-  return out;
+	const def = engine.doc.entities?.sessions?.[sessionId];
+	const firstPeer = Object.keys(engine.doc.entities?.peers ?? {})[0];
+	const out: { property: SessionProperty; value: SessionValue }[] = [];
+	for (const property of properties) {
+		const carried = sessionPropertyValueAt(
+			engine.doc,
+			sessionId,
+			property,
+			t,
+		);
+		const value = carried ??
+			(property === "state"
+				? def?.initialState ?? "open"
+				: firstPeer === undefined
+				? undefined
+				: { peer: firstPeer });
+		if (value !== undefined) out.push({ property, value });
+	}
+	return out;
 }
 
 /**
@@ -71,124 +80,129 @@ export function trajectoryInsertOffers(
  * over.
  */
 export function SessionMoments(
-  { engine, sessionId, properties, editor, startingAt = 1 }: {
-    engine: Engine;
-    sessionId: string;
-    properties: readonly SessionProperty[];
-    editor: EditorBindings | undefined;
-    startingAt?: number;
-  },
+	{ engine, sessionId, properties, editor, startingAt = 1 }: {
+		engine: Engine;
+		sessionId: string;
+		properties: readonly SessionProperty[];
+		editor: EditorBindings | undefined;
+		startingAt?: number;
+	},
 ) {
-  if (!editor) return null;
-  const peerIds = Object.keys(engine.doc.entities?.peers ?? {});
-  const effStart = engine.intrinsicStart("sessions", sessionId);
-  const effEnd = engine.intrinsicEnd("sessions", sessionId);
-  const def = engine.doc.entities?.sessions?.[sessionId];
-  const shown = new Set(properties);
-  const moments = sessionTrajectoryRows(engine.doc, sessionId)
-    .filter((m) => shown.has(m.property));
-  // What bounds a row is its own property's neighbours. Another property's
-  // moment at some other instant is not a constraint on this one — the tracks
-  // are read separately — and the moment beside it in ITS track is. Grouped
-  // over the whole trajectory, not over `moments`, so an end's panel bounds
-  // its rows against every attachment on that end even while showing a subset.
-  const byProperty = new Map<SessionProperty, typeof moments>();
-  for (const m of sessionTrajectoryRows(engine.doc, sessionId)) {
-    const rows = byProperty.get(m.property);
-    if (rows === undefined) byProperty.set(m.property, [m]);
-    else rows.push(m);
-  }
-  const t = Math.max(engine.clock.t, effStart);
-  const offers = trajectoryInsertOffers(engine, sessionId, t, properties);
-  return (
-    <>
-      {moments.map((moment, i) => {
-        const siblings = byProperty.get(moment.property) ?? [];
-        const at = siblings.findIndex((m) => m.eventId === moment.eventId);
-        const prevT = at <= 0 ? effStart : siblings[at - 1]!.t;
-        const nextT = at === siblings.length - 1 ? effEnd : siblings[at + 1]!.t;
-        const spec = sessionRowDisplay(moment.property, peerIds);
-        const n = startingAt + i;
-        return (
-          // Keyed on the observation that states this moment, which is the one
-          // name that survives the edits a reader makes to it. Keyed on the
-          // time, the row unmounts mid-drag and the gesture dies with the
-          // element; keyed on the keyframe's place in its track, an insert
-          // earlier in the track hands this row's fiber to a different
-          // keyframe and steals the focus out of whatever was being typed.
-          <Fragment key={moment.eventId}>
-            <OptionalTimeRow
-              label={`#${n} ${spec.noun}`}
-              below={
-                <TrajectoryValue
-                  property={spec}
-                  value={moment.value}
-                  editing
-                  editSession={editor}
-                  // A row that attaches an end offers peers, and a peer
-                  // is known by its name. Read at the playhead, like
-                  // every other name this panel shows, so a peer renamed
-                  // partway through the recording is offered under the
-                  // name it answers to at the moment being edited.
-                  nameOfPeer={(peerId) => peerLabelAt(engine.doc, peerId, engine.clock.t)}
-                  onChange={(v) =>
-                    editor.onSetSessionKeyframe(
-                      sessionId,
-                      moment.property,
-                      moment.t,
-                      v,
-                    )}
-                />
-              }
-              t={moment.t}
-              editing
-              // One intent, addressed by the observation the moment IS.
-              // Removing and re-stating it was two writes with a hole between
-              // them: `setSessionKeyframe` REPLACES at its `t`, so dropping the
-              // row on a moment of its own property deleted that moment and
-              // left the track one entry short. A move refuses that landing.
-              onMove={(newT) =>
-                editor.onMoveEvent({
-                  kind: "translate",
-                  eventId: moment.eventId,
-                  newT,
-                })}
-              onClear={() =>
-                editor.onRemoveSessionKeyframe(
-                  sessionId,
-                  moment.property,
-                  moment.t,
-                )}
-              onSetAtPlayhead={undefined}
-              min={prevT}
-              max={nextT}
-              strictMax={at < siblings.length - 1 ||
-                def?.timing?.duration.explicit === true}
-              scrubLabel={`Keyframe ${n} time`}
-              editSession={editor}
-            />
-          </Fragment>
-        );
-      })}
-      {offers.length > 0 && (
-        <Field label={`#${startingAt + moments.length}`}>
-          <TrajectoryInsert
-            properties={offers.map((o) => o.property)}
-            describe={(property) => sessionRowDisplay(property, peerIds)}
-            onInsert={(property) => {
-              const offer = offers.find((o) => o.property === property);
-              if (offer !== undefined) {
-                editor.onSetSessionKeyframe(
-                  sessionId,
-                  property,
-                  t,
-                  offer.value,
-                );
-              }
-            }}
-          />
-        </Field>
-      )}
-    </>
-  );
+	if (!editor) return null;
+	const peerIds = Object.keys(engine.doc.entities?.peers ?? {});
+	const effStart = engine.intrinsicStart("sessions", sessionId);
+	const effEnd = engine.intrinsicEnd("sessions", sessionId);
+	const def = engine.doc.entities?.sessions?.[sessionId];
+	const shown = new Set(properties);
+	const moments = sessionTrajectoryRows(engine.doc, sessionId)
+		.filter((m) => shown.has(m.property));
+	// What bounds a row is its own property's neighbours. Another property's
+	// moment at some other instant is not a constraint on this one — the tracks
+	// are read separately — and the moment beside it in ITS track is. Grouped
+	// over the whole trajectory, not over `moments`, so an end's panel bounds
+	// its rows against every attachment on that end even while showing a subset.
+	const byProperty = new Map<SessionProperty, typeof moments>();
+	for (const m of sessionTrajectoryRows(engine.doc, sessionId)) {
+		const rows = byProperty.get(m.property);
+		if (rows === undefined) byProperty.set(m.property, [m]);
+		else rows.push(m);
+	}
+	const t = Math.max(engine.clock.t, effStart);
+	const offers = trajectoryInsertOffers(engine, sessionId, t, properties);
+	return (
+		<>
+			{moments.map((moment, i) => {
+				const siblings = byProperty.get(moment.property) ?? [];
+				const at = siblings.findIndex((m) => m.eventId === moment.eventId);
+				const prevT = at <= 0 ? effStart : siblings[at - 1]!.t;
+				const nextT = at === siblings.length - 1 ? effEnd : siblings[at + 1]!.t;
+				const spec = sessionRowDisplay(moment.property, peerIds);
+				const n = startingAt + i;
+				return (
+					// Keyed on the observation that states this moment, which is the one
+					// name that survives the edits a reader makes to it. Keyed on the
+					// time, the row unmounts mid-drag and the gesture dies with the
+					// element; keyed on the keyframe's place in its track, an insert
+					// earlier in the track hands this row's fiber to a different
+					// keyframe and steals the focus out of whatever was being typed.
+					<Fragment key={moment.eventId}>
+						<OptionalTimeRow
+							label={`#${n} ${spec.noun}`}
+							below={
+								<TrajectoryValue
+									property={spec}
+									value={moment.value}
+									editing
+									editSession={editor}
+									// A row that attaches an end offers peers, and a peer
+									// is known by its name. Read at the playhead, like
+									// every other name this panel shows, so a peer renamed
+									// partway through the recording is offered under the
+									// name it answers to at the moment being edited.
+									nameOfPeer={(peerId) =>
+										peerLabelAt(
+											engine.doc,
+											peerId,
+											engine.clock.t,
+										)}
+									onChange={(v) =>
+										editor.onSetSessionKeyframe(
+											sessionId,
+											moment.property,
+											moment.t,
+											v,
+										)}
+								/>
+							}
+							t={moment.t}
+							editing
+							// One intent, addressed by the observation the moment IS.
+							// Removing and re-stating it was two writes with a hole between
+							// them: `setSessionKeyframe` REPLACES at its `t`, so dropping the
+							// row on a moment of its own property deleted that moment and
+							// left the track one entry short. A move refuses that landing.
+							onMove={(newT) =>
+								editor.onMoveEvent({
+									kind: "translate",
+									eventId: moment.eventId,
+									newT,
+								})}
+							onClear={() =>
+								editor.onRemoveSessionKeyframe(
+									sessionId,
+									moment.property,
+									moment.t,
+								)}
+							onSetAtPlayhead={undefined}
+							min={prevT}
+							max={nextT}
+							strictMax={at < siblings.length - 1 ||
+								def?.timing?.duration.explicit === true}
+							scrubLabel={`Keyframe ${n} time`}
+							editSession={editor}
+						/>
+					</Fragment>
+				);
+			})}
+			{offers.length > 0 && (
+				<Field label={`#${startingAt + moments.length}`}>
+					<TrajectoryInsert
+						properties={offers.map((o) => o.property)}
+						describe={(property) => sessionRowDisplay(property, peerIds)}
+						onInsert={(property) => {
+							const offer = offers.find((o) => o.property === property);
+							if (offer !== undefined) {
+								editor.onSetSessionKeyframe(
+									sessionId,
+									property,
+									t,
+									offer.value,
+								);
+							}
+						}}
+					/>
+				</Field>
+			)}
+		</>
+	);
 }

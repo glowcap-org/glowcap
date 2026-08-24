@@ -33,9 +33,10 @@ const lifecycle = @import("lifecycle.zig");
 
 /// Re-exported so a caller that must keep the recv-turn's introduced-import
 /// record alive across validate and apply (`validateInboundDeliverView`'s caller,
-/// `engine.inbound.applyDecodedOwnedFrame`) can name `validate.IntroducedImports`
+/// `engine.inbound.dispatchDecodedOwnedFrame`) can name `validate.IntroducedImports`
 /// without reaching past this module into `session/validate.zig` directly.
 pub const validate = @import("validate.zig");
+pub const id_route = @import("id_route.zig");
 pub const parsePreferenceHints = validate.parsePreferenceHints;
 
 /// Position-keyed wire-delta refcount tables. Exports and imports share one
@@ -119,8 +120,8 @@ pub const State = enum {
 /// `limits.zig`; aliased here so call sites keep reading `session.SessionLimits`.
 pub const SessionLimits = limits.SessionLimits;
 
-/// Which answer table an install targets. Inbound rows are partner-named and
-/// bounded by `SessionLimits.max_inbound_answers`; outbound rows are
+/// Which answer table an install targets. Inbound rows and detached accepted
+/// consequences share `SessionLimits.max_inbound_answers`; outbound rows are
 /// positions we allocate ourselves, bounded by our own sends, so they carry no
 /// cap.
 pub const AnswerDirection = answer_lifecycle.Direction;
@@ -131,12 +132,14 @@ pub const answerSlot = answers.answerSlot;
 pub const AnswerCell = answers.AnswerCell;
 pub const AnswerPayload = answers.AnswerPayload;
 pub const AnswerTarget = answers.AnswerTarget;
+pub const StoredResolution = answers.StoredResolution;
 pub const ListenerEntry = answers.ListenerEntry;
 pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
 pub const ProjectionIndex = answers.ProjectionIndex;
 pub const deinitProjection = answers.deinitProjection;
 pub const AnswerView = answers.AnswerView;
+pub const PreparedPipelinedCallQueue = pipeline.PreparedCallQueue;
 pub const InboundAnswerTable = answers.InboundAnswerTable;
 pub const OutboundAnswerTable = answers.OutboundAnswerTable;
 
@@ -151,6 +154,7 @@ pub const ImportedPromise = promise_types.ImportedPromise;
 
 /// Supported alias for the row owned by `sturdyref_cache.zig`.
 pub const SturdyrefCacheEntry = sturdyref_cache.Entry;
+pub const PreparedInboundResolver = v1_0.PreparedInboundResolver;
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -175,13 +179,16 @@ pub const Session = struct {
     /// they answer a different question. The active pair is a property of the
     /// two peers; these are properties of one peer each, and they are what
     /// answers "why is this session on the baseline". The hello advertises
-    /// `preferred`, so it has to survive the settle that overwrites the
-    /// active values — including `features`, which is why the offered set
-    /// lives here and the negotiated set lives above.
+    /// `preferred`, but the transport may lower what it actually signs; both
+    /// facts survive the settle that overwrites the active values, including
+    /// `features`.
     preferred: model.Preference,
+    /// What this side's own `op:start-session` stated on the wire, or the
+    /// baseline until that half is sent.
+    local_preference: model.Preference = model.Preference.baseline,
     /// The partner's, or the baseline before its hello has arrived. The
     /// session records the claim; the engine decides with it.
-    partner_preference: model.Preference = .{},
+    partner_preference: model.Preference = model.Preference.baseline,
     /// Whether this partner is known to be pancake before our hello states a
     /// preference, which on onion is the licence to state one at all
     /// (ADR-0118). The engine mints it at exactly two seams, and the pinned
@@ -231,9 +238,10 @@ pub const Session = struct {
     /// pipelining name has been GC'd and may already have been reused. Null in
     /// the steady state; rows are keyed by the session's monotonic row stamp.
     detached_inbound_answers: ?*answers.DetachedAnswerStore = null,
-    /// Owned bytes in resolutions retained by sent inbound-answer rows. The
-    /// Peer includes this in its existing outbound waterline until answer GC
-    /// or local promise retirement releases the row.
+    /// Owned bytes in resolutions retained by sent inbound-answer rows. This
+    /// durable store has its own Session limit; transient outbound flow
+    /// accounting ends when a settlement moves here. Answer GC, local-promise
+    /// retirement, and teardown release the exact charge.
     retained_sent_answer_bytes: usize = 0,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import position for O(1) lookup. Host designators are interned in
@@ -365,21 +373,27 @@ pub const Session = struct {
     /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
     /// on stay on `Session`.
     pub const needsV1_0Translation = v1_0.needsV1_0Translation;
+    pub const requireNegotiatedLocator = validate.requireNegotiatedLocator;
+    pub const parseNegotiatedIdLocator = validate.parseNegotiatedIdLocator;
     pub const validateHandoffGiftId = validate.validateHandoffGiftId;
     pub const validateSentResolutionValue = validate.validateSentResolutionValue;
     pub const mintOutboundResolver = v1_0.mintOutboundResolver;
     pub const installInboundResolver = v1_0.installInboundResolver;
+    pub const prepareInboundResolver = v1_0.prepareInboundResolver;
     pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
     pub const answerForResolverImport = v1_0.answerForResolverImport;
     pub const allocateInboundAnswer = v1_0.allocateInboundAnswer;
+    pub const nextVirtualInboundAnswer = v1_0.nextVirtualInboundAnswer;
     pub const answerTargetNamed = answer_notifications.answerTargetNamed;
     pub const answerPayloadForTarget = answer_notifications.payload;
+    pub const inboundAnswerObligationCount = answer_notifications.obligationCount;
     pub const beginAnswerSettlementNamed = answer_notifications.beginNamed;
     pub const beginAnswerSettlement = answer_notifications.begin;
     pub const validateAnswerSettlement = answer_notifications.validateSettlement;
     pub const retainAnswerPayload = answer_notifications.retainPayload;
     pub const releaseAnswerPayload = answer_notifications.releasePayload;
     pub const answerPayloadResolution = answer_notifications.resolution;
+    pub const answerPayloadStoredResolution = answer_notifications.storedResolution;
     pub const answerPayloadResolver = answer_notifications.resolver;
     pub const takeAnswerPayloadListeners = answer_notifications.takeListeners;
     pub const restoreAnswerPayloadListeners = answer_notifications.restoreListeners;
@@ -413,9 +427,12 @@ pub const Session = struct {
     pub const registerExport = positions.registerExport;
     pub const reserveExport = positions.reserveExport;
     pub const registerImport = positions.registerImport;
+    pub const importRequiresWireRelease = positions.importRequiresWireRelease;
 
     pub const installInboundAnswer = answer_lifecycle.installInbound;
     pub const installInboundAnswerNamed = apply.installInboundAnswerNamed;
+    pub const prepareFreshInboundAnswerNamed = answer_lifecycle.prepareFreshInboundNamed;
+    pub const commitFreshInboundAnswerNamed = answer_lifecycle.commitFreshInboundNamed;
     pub const installOutboundAnswer = answer_lifecycle.installOutbound;
 
     pub const admits = protocol.admits;
@@ -427,6 +444,8 @@ pub const Session = struct {
     pub const recordRecvView = protocol.recordRecvView;
 
     pub const validateInboundDeliverView = protocol.validateInboundDeliverView;
+    pub const prepareValidatedInboundDeliverView = protocol.prepareValidatedInboundDeliverView;
+    pub const prepareIntroducedImports = protocol.prepareIntroducedImports;
     pub const applyValidatedInboundDeliverView = protocol.applyValidatedInboundDeliverView;
     pub const recordResolverCallbackResolve = protocol.recordResolverCallbackResolve;
     pub const validateResolverCallbackResolve = protocol.validateResolverCallbackResolve;
@@ -466,6 +485,7 @@ pub const Session = struct {
     pub const inboundAnswerRowId = inspect.inboundAnswerRowId;
     pub const inboundAnswerRowIdNamed = inspect.inboundAnswerRowIdNamed;
     pub const outboundAnswer = inspect.outboundAnswer;
+    pub const outboundAnswerReleaseClaimed = inspect.outboundAnswerReleaseClaimed;
     pub const outboundAnswerSlot = inspect.outboundAnswerSlot;
 
     pub const hasExport = positions.hasExport;
@@ -488,6 +508,8 @@ pub const Session = struct {
     pub const releaseImportRetain = positions.releaseImportRetain;
 
     pub const abandonOutboundAnswer = answer_lifecycle.abandonOutbound;
+    pub const claimOutboundAnswerRelease = answer_lifecycle.claimOutboundRelease;
+    pub const releaseOutboundAnswer = answer_lifecycle.releaseOutbound;
     pub const abandonUnsharedInboundAnswer = answer_lifecycle.abandonUnsharedInbound;
     pub const abandonUnsharedInboundAnswerNamed = answer_lifecycle.abandonUnsharedInboundNamed;
     pub const releaseInboundAnswerCell = answer_lifecycle.releaseInboundCell;
@@ -515,26 +537,34 @@ pub const Session = struct {
     // Pipelined calls, listeners, and projections share one answer-consequence
     // owner; Session remains their deliberate public method index.
     pub const allocateOutboundAnswer = pipeline.allocateOutboundAnswer;
-    pub const reserveOutboundAnswers = pipeline.reserveOutboundAnswers;
     pub const enqueuePipelinedCall = pipeline.enqueuePipelinedCall;
     pub const enqueuePipelinedCallNamed = pipeline.enqueuePipelinedCallNamed;
+    pub const preparePipelinedCallNamed = pipeline.preparePipelinedCallNamed;
+    pub const preparePipelinedCallTarget = pipeline.preparePipelinedCallTarget;
+    pub const enqueuePipelinedCallTarget = pipeline.enqueuePipelinedCallTarget;
     pub const takePipelinedCalls = pipeline.takePipelinedCalls;
     pub const takePipelinedCallsNamed = pipeline.takePipelinedCallsNamed;
+    pub const takeAnswerPayloadCalls = pipeline.takePayloadCalls;
     pub const takePipelinedListeners = pipeline.takePipelinedListeners;
     pub const takePipelinedListenersNamed = pipeline.takePipelinedListenersNamed;
-    pub const requeuePipelinedCall = pipeline.requeuePipelinedCall;
     pub const installListener = pipeline.installListener;
     pub const installListenerNamed = pipeline.installListenerNamed;
+    pub const PreparedListenerBatch = pipeline.PreparedListenerBatch;
+    pub const prepareListenerBatchTarget = pipeline.prepareListenerBatchTarget;
     pub const installProjection = pipeline.installProjection;
     pub const installProjectionNamed = pipeline.installProjectionNamed;
+    pub const installProjectionTarget = pipeline.installProjectionTarget;
     pub const takeProjections = pipeline.takeProjections;
     pub const takeProjectionsNamed = pipeline.takeProjectionsNamed;
+    pub const takeAnswerPayloadProjections = pipeline.takePayloadProjections;
 
     pub const storeResolution = answers.storeResolution;
     pub const storeResolutionNamed = answers.storeResolutionNamed;
     pub const retainedSentAnswerBytes = answers.retainedSentAnswerBytes;
     pub const peekResolution = answers.peekResolution;
     pub const peekResolutionNamed = answers.peekResolutionNamed;
+    pub const peekStoredResolutionNamed = answers.peekStoredResolutionNamed;
+    pub const promiseTargetForResolution = answers.promiseTargetForResolution;
     pub const answerResolved = answers.answerResolved;
     pub const answerResolvedNamed = answers.answerResolvedNamed;
 
@@ -549,6 +579,7 @@ pub const Session = struct {
     pub const takeImportedPromiseListeners = imported_promise.takeImportedPromiseListeners;
     pub const restoreImportedPromiseListeners = imported_promise.restoreImportedPromiseListeners;
     pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
+    pub const importedPromiseStoredResolution = imported_promise.importedPromiseStoredResolution;
     pub const pendingImportedPromiseFire = imported_promise.pendingImportedPromiseFire;
     pub const importedPromiseRowId = imported_promise.importedPromiseRowId;
     pub const findImportedPromise = imported_promise.findImportedPromise;

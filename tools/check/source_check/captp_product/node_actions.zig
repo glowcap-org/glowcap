@@ -9,13 +9,13 @@ const fileContains = util.fileContains;
 
 const tags = [_][]const u8{
     "dial",
+    "cancel_dial",
     "flush",
     "settle",
     "fail",
     "retire_exporter",
     "need_gift_id",
     "release_capability",
-    "fail_session",
 };
 
 pub fn check(
@@ -35,7 +35,10 @@ pub fn check(
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/actions.zig", &.{
         "pub const Action = union(enum)",
-        "dial: struct { pending: redeem_dials.PendingId }",
+        "dial: struct {",
+        "pending: redeem_dials.PendingId",
+        "route_index: usize",
+        "cancel_dial: struct {",
         "flush: PeerHandle",
         "dest: redeem.Destination",
         "route_id: model.CapabilityRouteId",
@@ -44,8 +47,6 @@ pub fn check(
         "retire_exporter: PeerHandle",
         "need_gift_id: struct { ticket: u64 }",
         "release_capability: u64",
-        "peer_handle: PeerHandle",
-        "reason: []const u8",
         "pub fn claimTicketRange",
     });
     if (try fileContains(io, gpa, root, "src/ocapn/engine/node/actions.zig", "action_locator"))
@@ -120,19 +121,19 @@ test "missing Node action executor arm is rejected" {
     const action_src =
         \\pub const Action = union(enum) {
         \\    dial: void,
+        \\    cancel_dial: void,
         \\    flush: void,
         \\    settle: void,
         \\    fail: void,
         \\    retire_exporter: void,
         \\    need_gift_id: void,
         \\    release_capability: void,
-        \\    fail_session: void,
         \\};
     ;
     const pump_src =
         \\fn execNodeAction() void {
-        \\    .dial => {}; .flush => {}; .settle => {}; .fail => {};
-        \\    .retire_exporter => {}; .need_gift_id => {}; .release_capability => {};
+        \\    .dial => {}; .cancel_dial => {}; .flush => {}; .settle => {}; .fail => {};
+        \\    .retire_exporter => {}; .need_gift_id => {};
         \\}
     ;
     var violations: std.ArrayList([]const u8) = .empty;
@@ -142,28 +143,28 @@ test "missing Node action executor arm is rejected" {
     }
     try compare(std.testing.allocator, action_src, pump_src, &violations);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "fail_session") != null);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "release_capability") != null);
 }
 
 test "extra Node action tag is rejected" {
     const action_src =
         \\pub const Action = union(enum) {
         \\    dial: void,
+        \\    cancel_dial: void,
         \\    flush: void,
         \\    settle: void,
         \\    fail: void,
         \\    retire_exporter: void,
         \\    need_gift_id: void,
         \\    release_capability: void,
-        \\    fail_session: void,
         \\    hidden: void,
         \\};
     ;
     const pump_src =
         \\fn execNodeAction() void {
-        \\    .dial => {}; .flush => {}; .settle => {}; .fail => {};
+        \\    .dial => {}; .cancel_dial => {}; .flush => {}; .settle => {}; .fail => {};
         \\    .retire_exporter => {}; .need_gift_id => {};
-        \\    .release_capability => {}; .fail_session => {};
+        \\    .release_capability => {};
         \\}
     ;
     var violations: std.ArrayList([]const u8) = .empty;

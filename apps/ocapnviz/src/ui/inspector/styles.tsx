@@ -14,26 +14,26 @@ import { c, CONTROL, FONT, PANEL, SIZE, SPACE, WEIGHT } from "../tokens.ts";
 // "a ↔ b" and put a clipped hex string on each of two lines. `PanelHeading`
 // is the only door to these two, so a new panel cannot reintroduce that.
 const headingClamp = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  minWidth: 0,
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
+	minWidth: 0,
 } satisfies CSSProperties;
 
 const heading = {
-  fontWeight: WEIGHT.semibold,
-  fontSize: SIZE.lg,
-  color: c.text,
-  lineHeight: 1.3,
-  letterSpacing: -0.01,
-  ...headingClamp,
+	fontWeight: WEIGHT.semibold,
+	fontSize: SIZE.lg,
+	color: c.text,
+	lineHeight: 1.3,
+	letterSpacing: -0.01,
+	...headingClamp,
 } satisfies CSSProperties;
 
 const headingMono = {
-  ...heading,
-  fontFamily: FONT.mono,
-  fontSize: SIZE.base,
-  letterSpacing: 0,
+	...heading,
+	fontFamily: FONT.mono,
+	fontSize: SIZE.base,
+	letterSpacing: 0,
 } satisfies CSSProperties;
 
 /** The heading every entity panel opens with: the name of the thing the
@@ -47,19 +47,19 @@ const headingMono = {
  *  heading clips: pass the whole name even when the children are already
  *  elided. */
 export function PanelHeading(
-  { title, mono, children }: {
-    title: string;
-    mono?: boolean;
-    children: ReactNode;
-  },
+	{ title, mono, children }: {
+		title: string;
+		mono?: boolean;
+		children: ReactNode;
+	},
 ) {
-  return <div style={mono ? headingMono : heading} title={title}>{children}</div>;
+	return <div style={mono ? headingMono : heading} title={title}>{children}</div>;
 }
 
 export const placeholder = {
-  color: c.textSubtle,
-  fontSize: SIZE.sm,
-  lineHeight: 1.55,
+	color: c.textSubtle,
+	fontSize: SIZE.sm,
+	lineHeight: 1.55,
 } satisfies CSSProperties;
 
 // `minmax(0, 1fr)` on the value column, never a bare `1fr`. A bare `1fr`
@@ -90,11 +90,11 @@ export const placeholder = {
 const KEY_COL_W = 78;
 
 export const kv = {
-  display: "grid",
-  gridTemplateColumns: `${KEY_COL_W}px minmax(0, 1fr)`,
-  rowGap: SPACE.xs + 1,
-  columnGap: SPACE.md,
-  fontSize: SIZE.sm,
+	display: "grid",
+	gridTemplateColumns: `${KEY_COL_W}px minmax(0, 1fr)`,
+	rowGap: SPACE.xs + 1,
+	columnGap: SPACE.md,
+	fontSize: SIZE.sm,
 } satisfies CSSProperties;
 
 // The value half of a field row.
@@ -106,10 +106,10 @@ export const kv = {
 // in a plain block, the same span stops clipping and takes the panel's
 // right edge with it.
 export const fieldValueStyle = {
-  minWidth: 0,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "stretch",
+	minWidth: 0,
+	display: "flex",
+	flexDirection: "column",
+	alignItems: "stretch",
 } satisfies CSSProperties;
 
 // One layout line of a value, and the panel's vertical rhythm.
@@ -125,17 +125,17 @@ export const fieldValueStyle = {
 // same pixel, which is also what stops the whole panel shifting when
 // the same entity is read in Build and in Play.
 export const fieldLineStyle = {
-  minHeight: CONTROL.height,
-  display: "flex",
-  alignItems: "center",
-  minWidth: 0,
+	minHeight: CONTROL.height,
+	display: "flex",
+	alignItems: "center",
+	minWidth: 0,
 } satisfies CSSProperties;
 
 // A note under a value — the clamp hint, today. Its own block so it
 // starts a line of its own whatever the value above it was.
 export const fieldNoteStyle = {
-  marginTop: 2,
-  minWidth: 0,
+	marginTop: 2,
+	minWidth: 0,
 } satisfies CSSProperties;
 
 /** Inner box of a labeled field group — the actual recessed
@@ -150,20 +150,20 @@ export const fieldGroupBox = PANEL;
  *  Inspector — gives the panel one consistent shape: small-caps
  *  label, then recessed content block. */
 export const fieldGroup = {
-  display: "flex",
-  flexDirection: "column",
-  gap: SPACE.xs,
+	display: "flex",
+	flexDirection: "column",
+	gap: SPACE.xs,
 } satisfies CSSProperties;
 
 /** The one small-caps heading in the Inspector: a tracked, uppercase
  * eyebrow at the eyebrow size, over a block of content. Both the
  * sub-section titles and the field-group titles are this. */
 export const subSectionLabel = {
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.semibold,
-  letterSpacing: 0.6,
-  textTransform: "uppercase",
-  color: c.textSubtle,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.semibold,
+	letterSpacing: 0.6,
+	textTransform: "uppercase",
+	color: c.textSubtle,
 } satisfies CSSProperties;
 
 /** Small-caps header sitting above a `fieldGroupBox`. It IS
@@ -172,17 +172,17 @@ export const subSectionLabel = {
  * so the title lines up with the field keys under it. Two spellings of
  * that typography is how a panel comes to have two sizes of heading. */
 export const groupTitle = {
-  ...subSectionLabel,
-  paddingLeft: SPACE.xs,
+	...subSectionLabel,
+	paddingLeft: SPACE.xs,
 } satisfies CSSProperties;
 
 export const keyStyle = {
-  color: c.textSubtle,
-  fontWeight: WEIGHT.medium,
-  fontFamily: FONT.sans,
-  fontSize: SIZE.xs,
-  letterSpacing: 0.4,
-  textTransform: "uppercase",
+	color: c.textSubtle,
+	fontWeight: WEIGHT.medium,
+	fontFamily: FONT.sans,
+	fontSize: SIZE.xs,
+	letterSpacing: 0.4,
+	textTransform: "uppercase",
 } satisfies CSSProperties;
 
 // Mono renders visually larger than sans at the same px, so mono
@@ -196,17 +196,17 @@ export const keyStyle = {
 // it clips rather than pushing the panel open, which is the failure a
 // reader can at least see and hover.
 export const valueMono = {
-  color: c.text,
-  fontFamily: FONT.mono,
-  fontSize: SIZE.xs,
-  fontVariantNumeric: "tabular-nums",
-  display: "inline-block",
-  verticalAlign: "bottom",
-  maxWidth: "100%",
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+	color: c.text,
+	fontFamily: FONT.mono,
+	fontSize: SIZE.xs,
+	fontVariantNumeric: "tabular-nums",
+	display: "inline-block",
+	verticalAlign: "bottom",
+	maxWidth: "100%",
+	minWidth: 0,
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
 } satisfies CSSProperties;
 
 // A value that is a sentence rather than a token — an explanation
@@ -214,9 +214,9 @@ export const valueMono = {
 // key/value grid, so it wraps and reads as prose while mono values
 // stay tabular.
 export const valueText = {
-  color: c.textMuted,
-  fontSize: SIZE.xs,
-  lineHeight: 1.5,
+	color: c.textMuted,
+	fontSize: SIZE.xs,
+	lineHeight: 1.5,
 } satisfies CSSProperties;
 
 // A value that is a name a person chose, such as a peer's label. Sans
@@ -225,12 +225,12 @@ export const valueText = {
 // identifies it. An opaque string goes to `Identifier` instead, which
 // keeps both ends.
 export const valueName = {
-  color: c.text,
-  fontSize: SIZE.sm,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  minWidth: 0,
+	color: c.text,
+	fontSize: SIZE.sm,
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
+	minWidth: 0,
 } satisfies CSSProperties;
 
 // Inline editable inputs used by the entity panels in build mode.
@@ -243,18 +243,18 @@ export const valueName = {
 // an inset each, which is how one field sat its text 6px in, its
 // neighbour 8px, and the dropdown under them 10px.
 export const inlineHeadingInput = {
-  width: "100%",
-  fontFamily: FONT.sans,
-  fontSize: SIZE.lg,
-  fontWeight: WEIGHT.semibold,
-  letterSpacing: -0.01,
-  lineHeight: 1.3,
+	width: "100%",
+	fontFamily: FONT.sans,
+	fontSize: SIZE.lg,
+	fontWeight: WEIGHT.semibold,
+	letterSpacing: -0.01,
+	lineHeight: 1.3,
 } satisfies CSSProperties;
 
 export const inlineMonoInput = {
-  width: "100%",
-  fontFamily: FONT.mono,
-  fontSize: SIZE.sm,
+	width: "100%",
+	fontFamily: FONT.mono,
+	fontSize: SIZE.sm,
 } satisfies CSSProperties;
 
 // Inspector enum-field `<select>`. Only overrides the kv-grid
@@ -270,54 +270,54 @@ export const inlineMonoInput = {
 // rendering fault rather than as a value that did not fit. Options whose
 // text can be an opaque identifier elide it before it gets here.
 export const inlineSelectInput = {
-  fontFamily: FONT.sans,
-  fontSize: SIZE.sm,
-  width: "100%",
-  // No padding here. `.ocv-select` already sets the inset a dropdown wants,
-  // chevron room included, and an inline value beats the class — which is how
-  // a dropdown came to sit its text 6px in beside a top-bar one at 10px. Same
-  // height, different rhythm, which is what reads as inconsistent.
+	fontFamily: FONT.sans,
+	fontSize: SIZE.sm,
+	width: "100%",
+	// No padding here. `.ocv-select` already sets the inset a dropdown wants,
+	// chevron room included, and an inline value beats the class — which is how
+	// a dropdown came to sit its text 6px in beside a top-bar one at 10px. Same
+	// height, different rhythm, which is what reads as inconsistent.
 } satisfies CSSProperties;
 
 export const subSection = {
-  display: "flex",
-  flexDirection: "column",
-  gap: SPACE.sm,
+	display: "flex",
+	flexDirection: "column",
+	gap: SPACE.sm,
 } satisfies CSSProperties;
 
 export const linkRowList = {
-  display: "flex",
-  flexDirection: "column",
-  gap: SPACE.xs,
+	display: "flex",
+	flexDirection: "column",
+	gap: SPACE.xs,
 } satisfies CSSProperties;
 
 // Selection-membership badge — small uppercase tag rendered to the
 // LEFT of the row's right-side meta. The visual signal "this is
 // also in your selection" without leaning entirely on color.
 export const linkRowSelectedBadge = {
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.semibold,
-  letterSpacing: 0.6,
-  textTransform: "uppercase",
-  color: c.accent,
-  marginRight: SPACE.xs,
-  whiteSpace: "nowrap",
-  flexShrink: 0,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.semibold,
+	letterSpacing: 0.6,
+	textTransform: "uppercase",
+	color: c.accent,
+	marginRight: SPACE.xs,
+	whiteSpace: "nowrap",
+	flexShrink: 0,
 } satisfies CSSProperties;
 
 export const linkRowLeft = {
-  display: "flex",
-  alignItems: "center",
-  gap: SPACE.sm,
-  minWidth: 0,
+	display: "flex",
+	alignItems: "center",
+	gap: SPACE.sm,
+	minWidth: 0,
 } satisfies CSSProperties;
 
 export const linkRowName = {
-  fontWeight: WEIGHT.semibold,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  minWidth: 0,
+	fontWeight: WEIGHT.semibold,
+	whiteSpace: "nowrap",
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	minWidth: 0,
 } satisfies CSSProperties;
 
 /** The right-hand cell of a link row, holding whatever badge the row
@@ -330,21 +330,21 @@ export const linkRowName = {
  *  joined" set three lines tall beside a one-line name is what this
  *  cell exists to prevent. */
 export const linkRowMetaCell = {
-  display: "inline-flex",
-  alignItems: "center",
-  flexShrink: 0,
-  maxWidth: "100%",
+	display: "inline-flex",
+	alignItems: "center",
+	flexShrink: 0,
+	maxWidth: "100%",
 } satisfies CSSProperties;
 
 // The plain-text end of a link row, where a chip is not what the row
 // has to say. Same rule as a chip: one line, and the name on the left
 // gives way first.
 export const linkRowMeta = {
-  fontFamily: FONT.mono,
-  fontSize: SIZE.xs,
-  color: c.textSubtle,
-  letterSpacing: 0.02,
-  whiteSpace: "nowrap",
+	fontFamily: FONT.mono,
+	fontSize: SIZE.xs,
+	color: c.textSubtle,
+	letterSpacing: 0.02,
+	whiteSpace: "nowrap",
 } satisfies CSSProperties;
 
 // Single source of truth for the optional-time row height. Every cell
@@ -360,26 +360,26 @@ export const ROW_H = CONTROL.height;
 // that happened to carry it, which is why a time row stood taller than
 // every other read-only row in the panel.
 export const endRowStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: SPACE.xs,
-  minWidth: 0,
-  flex: 1,
+	display: "flex",
+	alignItems: "center",
+	gap: SPACE.xs,
+	minWidth: 0,
+	flex: 1,
 } satisfies CSSProperties;
 
 export function belowRowStyle(editing: boolean): CSSProperties {
-  return {
-    marginTop: editing ? SPACE.xs : 0,
-    minWidth: 0,
-  };
+	return {
+		marginTop: editing ? SPACE.xs : 0,
+		minWidth: 0,
+	};
 }
 
 // The scrub wrapper grows to consume whatever the row has left, which
 // docks the ✕ at the right edge and gives the digits a target.
 export const endRowScrubStyle = {
-  minWidth: 0,
-  height: ROW_H,
-  flex: 1,
+	minWidth: 0,
+	height: ROW_H,
+	flex: 1,
 } satisfies CSSProperties;
 
 // A worded button in one of these rows — "Insert @playhead" and its
@@ -387,9 +387,9 @@ export const endRowScrubStyle = {
 // reads at the panel's size rather than the chrome's; the box is
 // `.ocv-btn`'s.
 export const endRowButtonStyle = {
-  flex: "0 0 auto",
-  fontFamily: FONT.sans,
-  fontSize: SIZE.sm,
+	flex: "0 0 auto",
+	fontFamily: FONT.sans,
+	fontSize: SIZE.sm,
 } satisfies CSSProperties;
 
 // The ✕ / pin that ends one of these rows. Square is `.ocv-btn.is-icon`
@@ -404,5 +404,5 @@ export const endRowButtonStyle = {
 // than as something to press. The document panel's Opens-at row wears
 // the same pair for the same reason.
 export const endRowIconButtonStyle = {
-  marginLeft: "auto",
+	marginLeft: "auto",
 } satisfies CSSProperties;

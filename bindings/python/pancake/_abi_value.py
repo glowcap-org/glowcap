@@ -42,19 +42,25 @@ _ARG_ERROR = _abi.ARG_ERROR
 _FEATURE_FULL = _abi.FEATURE_FULL
 
 
-def _codec_name(codec: int) -> str:
+def _codec_name(codec: int, source: str | None = None) -> str:
     if codec == _abi.CODEC_SYRUP:
         return "syrup"
     if codec == _abi.CODEC_CAPNP:
         return "capnp"
+    if source is not None:
+        raise RuntimeError(f"pancake ABI returned unknown {source} codec {codec!r}")
     raise RuntimeError(f"pancake ABI generated unknown default codec {codec!r}")
 
 
-def _captp_version_name(version: int) -> str:
+def _captp_version_name(version: int, source: str | None = None) -> str:
     if version == _abi.CAPTP_V1_0:
         return "v1_0"
     if version == _abi.CAPTP_NEXT:
         return "next"
+    if source is not None:
+        raise RuntimeError(
+            f"pancake ABI returned unknown {source} CapTP version {version!r}"
+        )
     raise RuntimeError(
         f"pancake ABI generated unknown default CapTP version {version!r}"
     )
@@ -120,6 +126,8 @@ def _feature_mask(features) -> int:
             mask |= _abi.FEATURE_STURDYREF
         elif feature == "untag":
             mask |= _abi.FEATURE_UNTAG
+        elif feature == "multi_location":
+            mask |= _abi.FEATURE_MULTI_LOCATION
         else:
             raise ValueError(f"unknown OCapN feature {feature!r}")
     return mask

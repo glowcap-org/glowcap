@@ -1,6 +1,7 @@
 import { CLOSED, INTERNAL } from "@pancake/abi";
 import { PancakeError } from "../errors.ts";
 import { Host } from "../host.ts";
+import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
 
 function assert(value: unknown, message: string): asserts value {
 	if (!value) throw new Error(message);
@@ -46,5 +47,52 @@ Deno.test("Host vow table keeps terminal failure for late loop observers", async
 		await assertRejectsCode(host.awaitVow(7n), INTERNAL);
 	} finally {
 		await host.close();
+	}
+});
+
+Deno.test("abandoning a public promise drops its pending completion row", async () => {
+	const host = new Host();
+	try {
+		host.vowMinted(11n);
+		host.abandonVow(11n);
+		await assertRejectsCode(host.awaitVow(11n), CLOSED);
+	} finally {
+		await host.close();
+	}
+});
+
+Deno.test("promise adoption parks native release at every post-mint failure", () => {
+	for (const failing of ["mint", "attend", "schedule", "track"] as const) {
+		const failure = new Error(failing);
+		const parked: bigint[] = [];
+		const handle = {
+			ptr: null,
+			hostRaw: null,
+			hostOwner: {},
+			vowMinted: () => {
+				if (failing === "mint") throw failure;
+			},
+			attend: () => {
+				if (failing === "attend") throw failure;
+			},
+			awaitVow: () => Promise.resolve(null),
+			kickActions: () => Promise.resolve(),
+			parkVowRelease: (vow: bigint) => parked.push(vow),
+			scheduleProgress: () => {
+				if (failing === "schedule") throw failure;
+			},
+			trackVow: () => {
+				if (failing === "track") throw failure;
+			},
+		} as unknown as PromiseFactoryHandle;
+
+		let observed: unknown = null;
+		try {
+			promiseFor(handle, 19n);
+		} catch (error) {
+			observed = error;
+		}
+		assert(observed === failure, `${failing}: adoption replaced its failure`);
+		assert(parked.length === 1 && parked[0] === 19n, `${failing}: native vow was not released`);
 	}
 });

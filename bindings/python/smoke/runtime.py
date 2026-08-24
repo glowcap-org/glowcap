@@ -145,7 +145,7 @@ async def _cancelled_dial_does_not_report_failure() -> None:
     )
     dial_module.dial_exporter = blocked_dial
     try:
-        task = asyncio.create_task(dial_module.run_dial_ticket(HostStub(), 7))
+        task = asyncio.create_task(dial_module.run_dial_ticket(HostStub(), 7, 0))
         await asyncio.wait_for(started.wait(), 1)
         task.cancel()
         try:
@@ -463,5 +463,4 @@ async def _runtime_open_is_transactional() -> None:
         assert not existing_host.released, "failed open released a caller-owned driver loop"
     finally:
         existing_loop.close()
-
 

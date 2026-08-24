@@ -1,17 +1,55 @@
 // Directory-wide observers of live room and registration state.
 
-import type { Ref, Session } from "@pancake/runtime";
-import { NOTIFY } from "../lib/protocol.ts";
+import { type Argument, type Ref, type Session } from "@pancake/runtime";
+import { NOTIFY, type RoomRecordShape } from "../lib/protocol.ts";
 import { handBack } from "./registry.ts";
 
-export const watchers: { observer: Ref; session: Session }[] = [];
+/** One directory watcher per session, bounded so notification work cannot be
+ * multiplied without limit by watcher registrations. */
+export const MAX_WATCHERS = 256;
+
+export type Watcher = {
+	observer: Ref;
+	session: Session;
+	records: RoomRecordShape;
+};
+
+class WatcherTable implements Iterable<Watcher> {
+	readonly #bySession = new Map<Session, Watcher>();
+
+	get length(): number {
+		return this.#bySession.size;
+	}
+
+	push(watcher: Watcher): number {
+		if (this.#bySession.size >= MAX_WATCHERS) {
+			throw new Error(`this directory already has ${MAX_WATCHERS} watchers`);
+		}
+		this.#bySession.set(watcher.session, watcher);
+		return this.#bySession.size;
+	}
+
+	delete(session: Session): Watcher | undefined {
+		const watcher = this.#bySession.get(session);
+		if (watcher === undefined) return undefined;
+		this.#bySession.delete(session);
+		return watcher;
+	}
+
+	[Symbol.iterator](): Iterator<Watcher> {
+		return this.#bySession.values();
+	}
+}
+
+export const watchers = new WatcherTable();
 
 /** Push one delta to every watcher. A failed notification is not liveness
  * authority: session retirement owns removal, while the exact failure remains
  * observable to the process that owns this server. */
-export function notifyWatchers(event: string, name: string, count: number): void {
+export function notifyWatchers(args: Argument[], publicationArgs: Argument[] = args): void {
 	for (const watcher of [...watchers]) {
-		watcher.session.tell(watcher.observer, NOTIFY, [event, name, BigInt(count)]).catch((error) => {
+		const delivered = watcher.records === "publication" ? publicationArgs : args;
+		watcher.session.tell(watcher.observer, NOTIFY, delivered).catch((error) => {
 			if (!watcher.session.sessionOpen) {
 				dropWatchers(watcher.session);
 				return;
@@ -22,9 +60,7 @@ export function notifyWatchers(event: string, name: string, count: number): void
 }
 
 export function dropWatchers(session: Session): void {
-	for (let i = watchers.length - 1; i >= 0; i -= 1) {
-		if (watchers[i].session !== session) continue;
-		const [watcher] = watchers.splice(i, 1);
-		handBack(watcher.session, watcher.observer, "directory watcher");
-	}
+	const watcher = watchers.delete(session);
+	if (watcher === undefined) return;
+	handBack(watcher.session, watcher.observer, "directory watcher");
 }

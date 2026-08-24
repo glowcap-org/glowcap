@@ -16,6 +16,11 @@ const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 const passable = @import("validate/passable.zig");
+const locator_vocabulary = @import("validate/locator_vocabulary.zig");
+
+pub const carriesRouteVocabulary = locator_vocabulary.carriesRouteVocabulary;
+pub const requireNegotiatedLocator = locator_vocabulary.requireNegotiated;
+pub const parseNegotiatedIdLocator = locator_vocabulary.parseNegotiatedIdLocator;
 
 const Session = session.Session;
 const Error = session.Error;
@@ -86,7 +91,23 @@ fn validateStartSession(
     if (ss.captp_version != model.Preference.baseline.captp_version) {
         return Error.CaptpVersionMismatch;
     }
-    _ = try parsePreferenceHints(ss.acceptable_location.hints);
+    try locator_vocabulary.validateLocatorShape(ss.acceptable_location);
+    const preference = try parsePreferenceHintsValidated(ss.acceptable_location.hints);
+    const local_preference = switch (half) {
+        .local_sent => preference,
+        .remote_received => if (self.handshake_local_sent)
+            self.local_preference
+        else
+            self.preferred,
+    };
+    const other_preference = switch (half) {
+        .local_sent => if (self.handshake_remote_received)
+            self.partner_preference
+        else
+            model.Preference.baseline,
+        .remote_received => preference,
+    };
+    try locator_vocabulary.validateStartSession(self, local_preference, other_preference, ss.acceptable_location);
 }
 
 /// CapTP preference encoded in start-session location hints. Absent names mean
@@ -94,7 +115,11 @@ fn validateStartSession(
 /// `MalformedMessage`. Session owns this parse so hello validation, apply, and
 /// advertised-profile checks cannot drift.
 pub fn parsePreferenceHints(hints: anytype) Error!model.Preference {
-    try validateHintNamesUnique(hints);
+    try locator_vocabulary.validateHintShape(hints);
+    return parsePreferenceHintsValidated(hints);
+}
+
+fn parsePreferenceHintsValidated(hints: anytype) Error!model.Preference {
     var out = model.Preference.baseline;
     if (try preferenceHintString(hints, model.transport.hint_captp_version)) |text| {
         out.captp_version = model.CaptpVersion.fromWireString(text) orelse
@@ -117,14 +142,6 @@ fn preferenceHintString(hints: anytype, name: []const u8) Error!?[]const u8 {
         .string => |s| s,
         else => return Error.MalformedMessage,
     };
-}
-
-fn validateHintNamesUnique(hints: anytype) Error!void {
-    if (comptime @hasDecl(@TypeOf(hints), "validateUniqueNames")) {
-        hints.validateUniqueNames() catch return Error.MalformedMessage;
-        return;
-    }
-    if (model.firstDuplicateHintName(hints.entries) != null) return Error.MalformedMessage;
 }
 
 fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValue {
@@ -333,27 +350,17 @@ fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Erro
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
     if (deliver.answer) |answer| try checkInboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .received);
-    // A promise target's pipeline path is refused inbound: pancake decomposes
-    // every multi-hop pipeline into single-hop links at the *sender*
-    // (`engine.pipeline`, the flat-inbound invariant in `pipeline.zig`), and the
-    // inbound path reads only the target's `answer_position`, never the path —
-    // so a non-empty path names call arguments nothing validates and nothing
-    // dispatches. Refusing it fails closed on that ignored sub-structure rather
-    // than accepting a frame with an inert, unvalidated payload. Only Cap'n
-    // Proto can carry a path on the wire; a Syrup target is always flat.
-    if (deliver.target == .promise) {
-        const path = deliver.target.promise.path;
-        const empty = if (comptime @TypeOf(path) == model.view.PipelinePath)
-            try path.isEmpty()
-        else
-            path.isEmpty();
-        if (!empty) return Error.UnexpectedMessage;
-    }
     if (deliver.resolve_me_desc) |reference| {
-        // The partner is introducing the resolver it wants us to invoke, not
-        // referring to an import we already hold. V1.0 registration commits
-        // that introduction only after this full deliver has validated.
-        try passable.validateReference(self, reference, .received, .introduction);
+        // Next carries settlement subscriptions in `op:listen`; an inline
+        // resolver has no negotiated meaning on that profile.
+        if (self.captp_version == .next) return Error.UnexpectedMessage;
+        // The V1.0 descriptor is exactly one partner export introduced as our
+        // import. Record it in the same batch as argument introductions so cap,
+        // refcount, allocation, and commit policy cannot diverge.
+        switch (reference) {
+            .far => |far| try introduced.noteResolver(self, far),
+            else => return Error.UnexpectedMessage,
+        }
     }
     try passable.validateInboundArguments(self, deliver.args, 0, introduced);
 }

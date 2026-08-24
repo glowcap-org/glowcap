@@ -115,7 +115,7 @@ function DirectoryDialog(
 				    marking at all, so the card never asserts a distinction nothing
 				    else on screen is drawing. */
 			}
-			<div className="modal-card dircard" data-dir={mark}>
+			<div className="modal-card card-plane dircard" data-dir={mark}>
 				<div className="settings-head-row">
 					<h2 id="dircardTitle">
 						<span className="dircard-mark" aria-hidden="true">
@@ -157,7 +157,7 @@ function DirectoryDialog(
 				    everywhere. */
 				}
 				<div className="group well">
-					<p className="dircard-standing">
+					<div className="dircard-standing">
 						<span>Where you are here</span>
 						<StandingMenu
 							id="dircardStanding"
@@ -168,7 +168,7 @@ function DirectoryDialog(
 							up
 							onSay={(said) => peer.setDirStanding(dir.id, said)}
 						/>
-					</p>
+					</div>
 				</div>
 
 				{

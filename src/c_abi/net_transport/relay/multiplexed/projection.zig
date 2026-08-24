@@ -389,7 +389,7 @@ pub fn Projection(
                     failure_projection.release,
                 );
             };
-            conn.* = .{ .id = 0, .raw = raw };
+            conn.* = Connection.init(raw);
             listener.runtime.mutex.lock();
             defer listener.runtime.mutex.unlock();
             const id = listener.runtime.addConnectionLocked(conn) catch |err| {
@@ -433,15 +433,13 @@ pub fn Projection(
             };
             state.io_mutex.lock();
             runtime.mutex.unlock();
-            defer state.io_mutex.unlock();
             // A HUP publishes READABLE|CLOSED. Reads remain legal until
             // explicit release drains the final bytes and observes clean EOF.
-            if (state.raw_closed or state.release_requested.load(.acquire)) return -1;
-            const got = state.raw.tryRead(dest[0..cap]);
-            if (got < 0 and got != c.multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK) state.noteFailure(
-                state.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
-            );
-            return got;
+            const outcome = state.tryReadLocked(dest[0..cap]);
+            state.io_mutex.unlock();
+            if (outcome.signal_control) runtime.signalControl();
+            if (outcome.signal_ready) runtime.signalReady();
+            return outcome.count;
         }
 
         fn tryWrite(ctx: ?*anyopaque, conn_id: u64, bytes: ?[*]const u8, len: usize) callconv(.c) isize {

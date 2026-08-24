@@ -306,10 +306,7 @@
 	   lifts a pale one; the arms are stated apart rather than one number split
 	   the difference and read as almost nothing in the appearance most readers
 	   are in. */
-	--caption-plate: light-dark(
-		color-mix(in srgb, var(--paper) 78%, transparent),
-		color-mix(in srgb, var(--paper) 45%, transparent)
-	);
+	--caption-plate: color-mix(in srgb, var(--paper) 78%, transparent);
 	background: var(--caption-plate);
 	transition: background-color .12s ease, color .12s ease, border-color .12s ease;
 }
@@ -423,11 +420,59 @@
 	font-size: var(--type-ui);
 	font-weight: 600;
 	line-height: 1.35;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .said[data-kind="failure"] {
 	color: var(--danger);
 }
 .said[data-kind="warning"] {
+	color: var(--warn);
+}
+/* Two lines where the error appeared, and Show for the rest. The control it
+   answered keeps its place; the card is where a locator or a paragraph is read. */
+.said-more {
+	all: unset;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	width: 100%;
+	box-sizing: border-box;
+	cursor: pointer;
+	text-align: start;
+	font: inherit;
+	color: inherit;
+}
+.said-clamp {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	min-width: 0;
+	max-width: 100%;
+}
+.said-show {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	letter-spacing: .01em;
+	color: var(--teal-ink);
+}
+.said-more:hover .said-show,
+.said-more:focus-visible .said-show {
+	text-decoration: underline;
+}
+.said-more:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-chip);
+}
+.said-more[data-kind="failure"] {
+	color: var(--danger);
+}
+.said-more[data-kind="warning"] {
 	color: var(--warn);
 }
 
@@ -465,6 +510,17 @@
 #roomSigil {
 	display: inline-flex;
 	align-items: center;
+}
+/* The caption voice: the small tracked capitals a list or section is
+   labeled with. The rails' section heads, the roster's title, and a card
+   section's title outside its well all speak it — a label, not a title
+   competing with the names under it. */
+.overline {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .1em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
 }
 html,
 body {
@@ -572,4 +628,31 @@ button:focus-visible,
 		transform: translateX(-50%) !important;
 		transition-duration: 150ms !important;
 	}
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the page keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	.button[data-variant="caption"] {
+		--caption-plate: light-dark( color-mix(in srgb, var(--paper) 78%, transparent), color-mix(in srgb, var(--paper) 45%, transparent) );
+	}
+}
+
+/* The IRC mark: a small cap beside a bridged identity's name, in the one
+   color IRC wears (the same --irc the avatar chip takes), white-lettered on
+   it exactly as initials are. Not a control; it states a fact. */
+.irc-chip {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 5px 2px;
+	border-radius: 5px;
+	background: var(--irc);
+	color: #fff;
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	line-height: 1.2;
+	vertical-align: 0.12em;
 }

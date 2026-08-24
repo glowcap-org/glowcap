@@ -95,9 +95,11 @@ test "tree ocapn leaves project the sole CapTP registry" {
     }
 }
 
-test "tree has pancake griddle placeholder with status" {
+test "tree exposes the griddle runner, status, and help" {
     const griddle = cli.tree.root.findChild("griddle") orelse return error.TestUnexpectedResult;
     try std.testing.expect(!griddle.isLeaf());
+    const run = griddle.findChild("run") orelse return error.TestUnexpectedResult;
+    try std.testing.expect(run.run != null);
     const status = griddle.findChild("status") orelse return error.TestUnexpectedResult;
     try std.testing.expect(status.run != null);
     const help = griddle.findChild("help") orelse return error.TestUnexpectedResult;
@@ -194,11 +196,11 @@ test "mcp inputSchema projects front-applicable flags only" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"args\"") == null);
 }
 
-test "mcp fillParsed maps named locator and legacy args" {
+test "mcp fillParsed maps named locator and rejects undeclared fields" {
     const dial = cli.registry.find("dial").?;
     {
         const raw =
-            \\{"locator":"ocapn://127.0.0.1%3A9.tcp","repl":true}
+            \\{"locator":"ocapn://127.0.0.1%3A9.tcp"}
         ;
         const msg = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, raw, .{});
         defer msg.deinit();
@@ -207,19 +209,30 @@ test "mcp fillParsed maps named locator and legacy args" {
         defer parsed.deinit();
         try std.testing.expectEqual(@as(usize, 1), parsed.positionals.len);
         try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9.tcp", parsed.positionals[0]);
-        // --repl is argv-only; MCP fill must not accept it.
-        try std.testing.expect(!parsed.flagBool("repl"));
     }
     {
         const raw =
-            \\{"args":["ocapn://legacy.tcp"]}
+            \\{"locator":"ocapn://127.0.0.1%3A9.tcp","repl":true}
         ;
         const msg = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, raw, .{});
         defer msg.deinit();
         var parsed: cli.cmd_types.Parsed = undefined;
-        try cli.mcp_schema.fillParsed(std.testing.allocator, dial, msg.value, &parsed);
-        defer parsed.deinit();
-        try std.testing.expectEqualStrings("ocapn://legacy.tcp", parsed.positionals[0]);
+        try std.testing.expectError(
+            error.InvalidArguments,
+            cli.mcp_schema.fillParsed(std.testing.allocator, dial, msg.value, &parsed),
+        );
+    }
+    {
+        const raw =
+            \\{"args":["ocapn://undeclared.tcp"]}
+        ;
+        const msg = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, raw, .{});
+        defer msg.deinit();
+        var parsed: cli.cmd_types.Parsed = undefined;
+        try std.testing.expectError(
+            error.InvalidArguments,
+            cli.mcp_schema.fillParsed(std.testing.allocator, dial, msg.value, &parsed),
+        );
     }
 }
 
@@ -235,7 +248,7 @@ test "mcp call inputSchema exposes named locator/name/verb/args" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"required\":[\"name\",\"verb\"]") != null);
 }
 
-test "mcp fillParsed maps named call fields and legacy args bag" {
+test "mcp fillParsed maps named call fields and requires their schema" {
     const call = cli.registry.find("call").?;
     {
         const raw =
@@ -254,16 +267,15 @@ test "mcp fillParsed maps named call fields and legacy args bag" {
     }
     {
         const raw =
-            \\{"args":["ocapn://legacy.tcp","greeter","greet","world"]}
+            \\{"args":["ocapn://undeclared.tcp","greeter","greet","world"]}
         ;
         const msg = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, raw, .{});
         defer msg.deinit();
         var parsed: cli.cmd_types.Parsed = undefined;
-        try cli.mcp_schema.fillParsed(std.testing.allocator, call, msg.value, &parsed);
-        defer parsed.deinit();
-        try std.testing.expectEqual(@as(usize, 4), parsed.positionals.len);
-        try std.testing.expectEqualStrings("ocapn://legacy.tcp", parsed.positionals[0]);
-        try std.testing.expectEqualStrings("greeter", parsed.positionals[1]);
+        try std.testing.expectError(
+            error.InvalidArguments,
+            cli.mcp_schema.fillParsed(std.testing.allocator, call, msg.value, &parsed),
+        );
     }
 }
 

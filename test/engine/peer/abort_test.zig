@@ -1,7 +1,6 @@
 //! Fail-closed refusal: a protocol violation emits a typed op:abort and
 //! closes, an app-queued abort commits before closing, allocation failure
-//! cannot lose the close, and a drain-time violation fails like the inbound
-//! path.
+//! cannot lose the close, and a promise-cycle consequence stays local.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -148,7 +147,7 @@ test "a malformed inbound frame emits a malformed-frame abort and closes" {
     try std.testing.expectEqual(model.AbortKind.malformed_frame, decoded.abort.kind);
 }
 
-test "a drain-time protocol violation in step fails closed like the inbound path" {
+test "a promise cycle breaks dependent work without emitting a session abort" {
     const allocator = std.testing.allocator;
     var p1 = engine.Peer.init(allocator);
     defer p1.deinit();
@@ -181,24 +180,18 @@ test "a drain-time protocol violation in step fails closed like the inbound path
     try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
 
-    // p2 resolves answer 42 to promise(42) itself: requeueing the drained call
-    // back onto the resolving answer is a resolution cycle. The violation
-    // surfaces at drain time — inside `step`, not on the inbound boundary —
-    // and must still leave the session closed with the typed abort queued.
+    // p2 resolves answer 42 to itself. The stored-resolution walker terminates
+    // both the listener and dependent answer 43 without treating one promise
+    // graph as a peer-wide protocol failure.
     try p2.sendCopying(.{ .resolve = .{
         .answer = .from(42),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(42), .path = .{ .ops = &.{} } } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(42) } } } },
     } });
-    try std.testing.expectError(error.ResolutionCycle, p2.step());
-    try std.testing.expectEqual(session.State.closed, p2.session_state.state);
-
-    {
-        var resolve_frame = p2.takeOutbound().?;
-        resolve_frame.deinit();
-    }
-    var abort_frame = p2.takeOutbound().?;
-    defer abort_frame.deinit();
-    const decoded = try codec.syrup.decodeBody(abort_frame.view());
-    try std.testing.expect(decoded == .abort);
-    try std.testing.expectEqual(model.AbortKind.protocol_error, decoded.abort.kind);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    const wire = try peer_fixture.drainOutbound(&p2, allocator);
+    defer allocator.free(wire);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "promise resolution cycle") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "op:abort") == null);
+    try std.testing.expectEqual(session.AnswerStatus.broken, p2.session_state.inboundAnswer(.from(43)).?.status);
+    try std.testing.expectEqual(session.State.open, p2.session_state.state);
 }

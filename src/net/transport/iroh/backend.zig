@@ -530,6 +530,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
             if (ev.events & ev_connect != 0) {
                 const request_id = std.math.cast(u32, ev.subject) orelse return;
+                // tolerant: a subject that maps to no descriptor is a stale
+                // event; drop it.
                 const fd = Namespace.fdFromId(request_id) catch return;
                 const done = self.pending_dials.fetchRemove(fd) orelse return;
                 const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch |err| {

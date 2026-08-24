@@ -176,11 +176,11 @@ pub fn stageDial(
             break :blk try self.core.openDialedLocator(locator);
         },
         .pending_dial => blk: {
-            const ticket = switch (outcome) {
-                .redeem => |ticket| ticket,
+            const redeem = switch (outcome) {
+                .redeem => |value| value,
                 .operation, .listener_accept => unreachable,
             };
-            break :blk try self.core.openPendingDial(ticket) orelse {
+            break :blk try self.core.openPendingDial(redeem.ticket, redeem.route_index) orelse {
                 admission.release();
                 return;
             };
@@ -430,12 +430,16 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
                 return;
             };
         },
-        .redeem => |ticket| {
-            self.core.exporterDialed(ticket, row.session) catch |err| {
+        .redeem => |redeem| {
+            const adopted = self.core.exporterDialed(redeem.ticket, redeem.route_index, row.session) catch |err| {
                 try self.releaseWire(row.session);
-                try self.core.dialFailed(ticket, @errorName(err));
+                try self.core.dialFailed(redeem.ticket, redeem.route_index, @errorName(err));
                 return err;
             };
+            if (!adopted) {
+                try self.releaseWire(row.session);
+                return;
+            }
         },
         .listener_accept => |observation| {
             const obs = observation.observer;
@@ -469,7 +473,7 @@ fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failur
             const obs = observation.observer;
             obs.failed(obs.ctx, observation.tag, failure);
         },
-        .redeem => |ticket| try self.core.dialFailed(ticket, failure.primaryName()),
+        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.primaryName()),
         .listener_accept => |observation| {
             const obs = observation.observer;
             obs.abandoned(obs.ctx, observation.tag);

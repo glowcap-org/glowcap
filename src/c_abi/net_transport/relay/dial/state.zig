@@ -67,7 +67,7 @@ pub fn State(
                 runtime.signalReady();
                 return;
             };
-            conn.* = .{ .id = 0, .raw = raw };
+            conn.* = ConnState.init(raw);
             owned_raw = false;
             if (runtime.addConnectionLocked(conn)) |_| {
                 job.conn = conn;

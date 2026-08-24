@@ -78,6 +78,25 @@ pub fn refuseDuplicateDial(self: *const Host, transport: []const u8, partner_des
     if (try liveSessionForDial(self, transport, partner_designator) != null) return HostError.SessionPairExists;
 }
 
+/// Refuse a new dial unless the caller is trying to prove a stricter durable
+/// identity than the live concrete session currently proves. Identity-routed
+/// pending dials may share a concrete route with an unverified session; the
+/// demanded key, not the route string, is the authority the new session exists
+/// to establish.
+pub fn refuseDuplicateDialForDemand(
+    self: *const Host,
+    transport: []const u8,
+    partner_designator: []const u8,
+    demanded_partner_key: ?crypto.PeerKey,
+) HostError!void {
+    const existing = try liveSessionForDial(self, transport, partner_designator) orelse return;
+    const demanded = demanded_partner_key orelse return HostError.SessionPairExists;
+    const demanded_designator = demanded.toDesignator();
+    if (existing.served.port.peer.partnerDurableProvenance(demanded_designator[0..]) != .authenticated_transport)
+        return;
+    return HostError.SessionPairExists;
+}
+
 /// After crossed-hellos tiebreak, keep at most one non-condemned session to
 /// the same CapTP partner key (dual-accept settlement, or a dial that
 /// slipped past pre-identity refuse). Survivor choice follows the ADR-0068
@@ -162,19 +181,20 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     if (loser == other) try indexPartnerKey(self, session, partner_key.bytes, ss.acceptable_location.designator);
 }
 
-/// Index a live session under its verified partner session key. Replaces any
-/// prior row for that key (caller condemned the previous holder). Reserves
-/// its own slot: the partner key is unknown until the partner's
-/// `op:start-session` arrives, so the reservation pairs 1:1 with this insert
-/// rather than with the earlier mint (mints between start-sessions would
-/// otherwise never grow the map, and a burst of un-indexed sessions would
-/// overflow the mint reservation). Fails closed on OOM before apply.
+/// Index a live session under its verified session key and, when proved, its
+/// durable key. Both maps reserve before either publishes, so allocation
+/// failure leaves no partial identity authority.
 pub fn indexPartnerKey(self: *Host, session: *HostSession, key: [crypto.PEER_KEY_BYTES]u8, designator: []const u8) !void {
-    try self.partner_by_side.ensureUnusedCapacity(self.allocator, 1);
     const side = try engine.handoff_names.sideName(&key);
+    const durable_key = durablePeerKeyFor(session, designator);
+    try self.partner_by_side.ensureUnusedCapacity(self.allocator, 1);
+    if (durable_key != null)
+        try self.peer_by_durable.ensureUnusedCapacity(self.allocator, 1);
+
     self.partner_by_side.putAssumeCapacity(side, session.peer_handle);
+    if (durable_key) |durable|
+        self.peer_by_durable.putAssumeCapacity(durable, session.peer_handle);
     session.indexed_partner_key = key;
-    try indexDurablePeer(self, session, designator);
 }
 
 /// The authenticated durable designator this session's partner proved, or
@@ -207,22 +227,6 @@ pub fn durablePeerKeyFor(session: *const HostSession, designator: []const u8) ?[
     if (Host.durableProvenance(peer, designator) == .unauthenticated) return null;
     const key = crypto.PeerKey.fromDesignator(designator) orelse return null;
     return key.bytes;
-}
-
-/// Index this session under the durable identity its partner *proved*, if
-/// any (ADR-0097). Runs beside the side index but answers the other
-/// question; an unauthenticated claim is not indexed, so a peer that can
-/// merely open a connection and assert a name cannot occupy dial
-/// availability for it.
-/// `engine.Node.SessionSecretResolver`: the key `peer_handle`'s session signs
-/// its handoff records with (ADR-0097). The node holds one durable key and
-/// no session key material, so this is where a give learns which key names
-/// its session.
-/// The signing seed for the session being minted (ADR-0097). Under
-pub fn indexDurablePeer(self: *Host, session: *HostSession, designator: []const u8) !void {
-    const key = durablePeerKeyFor(session, designator) orelse return;
-    try self.peer_by_durable.ensureUnusedCapacity(self.allocator, 1);
-    self.peer_by_durable.putAssumeCapacity(key, session.peer_handle);
 }
 
 /// Drop this session from the partner-identity and dialed-designator indexes.
@@ -282,7 +286,7 @@ pub fn dialedSessionFor(self: *Host, transport: []const u8, designator: []const 
     self.assertOwner();
     const peer_handle = self.dialed_by_target.get(target(transport, designator)) orelse return null;
     const session = self.sessions.get(peer_handle) orelse return null;
-    if (session.lifecyclePhase() != .active and session.lifecyclePhase() != .finishing) return null;
+    if (session.lifecyclePhase() != .active) return null;
     return session;
 }
 

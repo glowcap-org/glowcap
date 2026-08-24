@@ -137,6 +137,13 @@ required-features = ["iroh"]
 name = "keyed_relay_rendezvous"
 required-features = ["relay"]
 
+# Managed noise-relay listener proof across two Rust processes. Cargo discovers
+# sources under `examples/` even when their module is feature-gated, so state
+# the archive dependency here as part of the example's build contract.
+[[example]]
+name = "noise_relay_listen"
+required-features = ["relay"]
+
 # Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-seed
 # fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.
 [[example]]

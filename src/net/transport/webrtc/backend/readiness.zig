@@ -109,12 +109,8 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             };
             _ = net.poll.wait(&pfds, timeout_ms) catch |err| return err;
 
-            const post_wake = try harvestReadiness(self);
-            const n = self.ready.drain(out);
-            if (n > 0) return n;
-            // Do not consume a wake and then immediately re-enter a backend wait.
-            if (post_wake) return 0;
-            return 0;
+            _ = try harvestReadiness(self);
+            return self.ready.drain(out);
         }
     };
 }

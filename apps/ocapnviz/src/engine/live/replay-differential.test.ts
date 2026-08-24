@@ -35,33 +35,33 @@ import { type BaseTimelineEvent } from "./record.ts";
 const DURATION_MS = 60_000;
 
 function emptyLiveDoc(): TimelineDocument {
-  return {
-    id: "live",
-    metadata: { "dct:title": "differential" },
-    duration: DURATION_MS,
-    recording: {
-      sources: [{
-        id: "live",
-        meta: { kind: "pancake-host" },
-        observations: [],
-      }],
-    },
-  };
+	return {
+		id: "live",
+		metadata: { "dct:title": "differential" },
+		duration: DURATION_MS,
+		recording: {
+			sources: [{
+				id: "live",
+				meta: { kind: "pancake-host" },
+				observations: [],
+			}],
+		},
+	};
 }
 
 function docWith(events: readonly TimelineEvent[]): TimelineDocument {
-  const doc = emptyLiveDoc();
-  primaryObservations(doc).push(...events.map((ev) => ({ ...ev })));
-  return doc;
+	const doc = emptyLiveDoc();
+	primaryObservations(doc).push(...events.map((ev) => ({ ...ev })));
+	return doc;
 }
 
 /** Run the whole stream through a producer-record converter, which is what a
  *  real feed hands the engine. */
 function convertAll(records: readonly BaseTimelineEvent[]): TimelineEvent[] {
-  const convert = makeBaseEventConverter();
-  const out: TimelineEvent[] = [];
-  for (const record of records) out.push(...convert(record));
-  return out;
+	const convert = makeBaseEventConverter();
+	const out: TimelineEvent[] = [];
+	for (const record of records) out.push(...convert(record));
+	return out;
 }
 
 /**
@@ -69,270 +69,270 @@ function convertAll(records: readonly BaseTimelineEvent[]): TimelineEvent[] {
  * before the tick that crosses their moment. The world is never reset.
  */
 function driveLive(
-  events: readonly TimelineEvent[],
-  targetT: number,
-  stepMs = 8,
+	events: readonly TimelineEvent[],
+	targetT: number,
+	stepMs = 8,
 ): Engine {
-  const engine = new Engine(emptyLiveDoc());
-  engine.enqueue({ kind: "play" });
-  const pending = [...events].sort((a, b) => a.t - b.t);
-  let i = 0;
-  while (engine.clock.t < targetT) {
-    const next = Math.min(engine.clock.t + stepMs, targetT);
-    while (i < pending.length && pending[i]!.t <= next) {
-      primaryObservations(engine.doc).push({ ...pending[i]! });
-      i++;
-    }
-    engine.tick(next - engine.clock.t);
-  }
-  return engine;
+	const engine = new Engine(emptyLiveDoc());
+	engine.enqueue({ kind: "play" });
+	const pending = [...events].sort((a, b) => a.t - b.t);
+	let i = 0;
+	while (engine.clock.t < targetT) {
+		const next = Math.min(engine.clock.t + stepMs, targetT);
+		while (i < pending.length && pending[i]!.t <= next) {
+			primaryObservations(engine.doc).push({ ...pending[i]! });
+			i++;
+		}
+		engine.tick(next - engine.clock.t);
+	}
+	return engine;
 }
 
 /** The replay arrival: a fresh engine over the whole document, seeking. */
 function driveReplay(
-  events: readonly TimelineEvent[],
-  targetT: number,
+	events: readonly TimelineEvent[],
+	targetT: number,
 ): Engine {
-  const engine = new Engine(docWith(events));
-  engine.seekTo(targetT);
-  return engine;
+	const engine = new Engine(docWith(events));
+	engine.seekTo(targetT);
+	return engine;
 }
 
 /** Positions are floats produced by the same arithmetic on both paths, so
  *  they compare exactly when the keyframes behind them agree. Rounded only
  *  far below anything a reader could see, to keep an ulp out of the diff. */
 function at(p: { x: number; y: number }): string {
-  return `${p.x.toFixed(3)},${p.y.toFixed(3)}`;
+	return `${p.x.toFixed(3)},${p.y.toFixed(3)}`;
 }
 
 /** Everything the stage draws at this moment, in a form two engines can be
  *  compared on. Sorted, so iteration order is not part of the picture. */
 function pictureOf(engine: Engine): {
-  peers: string[];
-  endpoints: string[];
-  sessions: string[];
-  messages: string[];
+	peers: string[];
+	endpoints: string[];
+	sessions: string[];
+	messages: string[];
 } {
-  const peers: string[] = [];
-  for (const e of engine.queries.peers) {
-    peers.push(
-      [
-        e.peer.id,
-        e.peer.label,
-        e.peer.profile,
-        e.peer.designator ?? "-",
-        at(e.position),
-      ].join(" "),
-    );
-  }
-  const endpoints: string[] = [];
-  for (const e of engine.queries.endpoints) {
-    endpoints.push(
-      [
-        e.endpoint.id,
-        e.endpoint.sessionId,
-        e.endpoint.side,
-        e.endpoint.designator ?? "-",
-        at(e.position),
-      ].join(" "),
-    );
-  }
-  const sessions: string[] = [];
-  for (const e of engine.queries.sessions) {
-    sessions.push(
-      [
-        e.session.id,
-        e.session.codec,
-        e.session.captpVersion,
-        e.session.state,
-        e.endpoints.a,
-        e.endpoints.b,
-      ].join(" "),
-    );
-  }
-  const messages: string[] = [];
-  for (const e of engine.queries.messagesInFlight) {
-    messages.push(
-      [
-        e.messageInFlight.id,
-        e.messageInFlight.sessionId,
-        e.messageInFlight.from,
-        e.messageInFlight.to,
-        e.messageInFlight.label ?? "-",
-        at(e.position),
-      ].join(" "),
-    );
-  }
-  return {
-    peers: peers.sort(),
-    endpoints: endpoints.sort(),
-    sessions: sessions.sort(),
-    messages: messages.sort(),
-  };
+	const peers: string[] = [];
+	for (const e of engine.queries.peers) {
+		peers.push(
+			[
+				e.peer.id,
+				e.peer.label,
+				e.peer.profile,
+				e.peer.designator ?? "-",
+				at(e.position),
+			].join(" "),
+		);
+	}
+	const endpoints: string[] = [];
+	for (const e of engine.queries.endpoints) {
+		endpoints.push(
+			[
+				e.endpoint.id,
+				e.endpoint.sessionId,
+				e.endpoint.side,
+				e.endpoint.designator ?? "-",
+				at(e.position),
+			].join(" "),
+		);
+	}
+	const sessions: string[] = [];
+	for (const e of engine.queries.sessions) {
+		sessions.push(
+			[
+				e.session.id,
+				e.session.codec,
+				e.session.captpVersion,
+				e.session.state,
+				e.endpoints.a,
+				e.endpoints.b,
+			].join(" "),
+		);
+	}
+	const messages: string[] = [];
+	for (const e of engine.queries.messagesInFlight) {
+		messages.push(
+			[
+				e.messageInFlight.id,
+				e.messageInFlight.sessionId,
+				e.messageInFlight.from,
+				e.messageInFlight.to,
+				e.messageInFlight.label ?? "-",
+				at(e.position),
+			].join(" "),
+		);
+	}
+	return {
+		peers: peers.sort(),
+		endpoints: endpoints.sort(),
+		sessions: sessions.sort(),
+		messages: messages.sort(),
+	};
 }
 
 /** Drive one stream both ways to the same moment and insist on one picture. */
 function assertSamePicture(
-  what: string,
-  events: readonly TimelineEvent[],
-  targetT: number,
+	what: string,
+	events: readonly TimelineEvent[],
+	targetT: number,
 ): void {
-  const live = pictureOf(driveLive(events, targetT));
-  const replay = pictureOf(driveReplay(events, targetT));
-  assertEquals(live, replay, `${what}: live and replay drew two pictures`);
+	const live = pictureOf(driveLive(events, targetT));
+	const replay = pictureOf(driveReplay(events, targetT));
+	assertEquals(live, replay, `${what}: live and replay drew two pictures`);
 }
 
 // ── shapes ──
 
 const open = (
-  session: string,
-  a: string,
-  b: string,
-  t_ns: number,
-  extra: Partial<BaseTimelineEvent> = {},
+	session: string,
+	a: string,
+	b: string,
+	t_ns: number,
+	extra: Partial<BaseTimelineEvent> = {},
 ): BaseTimelineEvent => ({
-  v: 1,
-  sim_t_ns: t_ns,
-  kind: "ocapn.session-opened",
-  session,
-  a,
-  b,
-  codec: "syrup",
-  ...extra,
+	v: 1,
+	sim_t_ns: t_ns,
+	kind: "ocapn.session-opened",
+	session,
+	a,
+	b,
+	codec: "syrup",
+	...extra,
 });
 
 const close = (session: string, t_ns: number): BaseTimelineEvent => ({
-  v: 1,
-  sim_t_ns: t_ns,
-  kind: "ocapn.session-closed",
-  session,
+	v: 1,
+	sim_t_ns: t_ns,
+	kind: "ocapn.session-closed",
+	session,
 });
 
 const wire = (seed: string): string => seed.repeat(64).slice(0, 64);
 
 Deno.test("differential: a session opening and closing", () => {
-  const events = convertAll([
-    open("s1", "rooms", "bob", 100_000_000),
-    close("s1", 400_000_000),
-  ]);
-  for (const t of [50, 200, 350, 500, 900]) {
-    assertSamePicture(`session lifecycle at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("s1", "rooms", "bob", 100_000_000),
+		close("s1", 400_000_000),
+	]);
+	for (const t of [50, 200, 350, 500, 900]) {
+		assertSamePicture(`session lifecycle at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: a peer that returns after leaving", () => {
-  const events = convertAll([
-    open("s1", "rooms", "bob", 100_000_000),
-    close("s1", 300_000_000),
-    open("s2", "rooms", "bob", 500_000_000),
-  ]);
-  for (const t of [200, 400, 600, 900]) {
-    assertSamePicture(`peer rejoin at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("s1", "rooms", "bob", 100_000_000),
+		close("s1", 300_000_000),
+		open("s2", "rooms", "bob", 500_000_000),
+	]);
+	for (const t of [200, 400, 600, 900]) {
+		assertSamePicture(`peer rejoin at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: an end nothing has attributed", () => {
-  const events = convertAll([
-    open("p1/s1", "rooms", "127.0.0.1:0", 100_000_000, {
-      provenance: "unauthenticated",
-      session_id: wire("a"),
-    }),
-    close("p1/s1", 500_000_000),
-  ]);
-  for (const t of [200, 400, 600, 900]) {
-    assertSamePicture(`loose end at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("p1/s1", "rooms", "127.0.0.1:0", 100_000_000, {
+			provenance: "unauthenticated",
+			session_id: wire("a"),
+		}),
+		close("p1/s1", 500_000_000),
+	]);
+	for (const t of [200, 400, 600, 900]) {
+		assertSamePicture(`loose end at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: a loose end learning who is on it", () => {
-  const events = convertAll([
-    open("p1/s1", "rooms", "127.0.0.1:0", 100_000_000, {
-      provenance: "unauthenticated",
-      session_id: wire("b"),
-    }),
-    open("p2/s1", "tab-key", "rooms", 300_000_000, {
-      session_id: wire("b"),
-    }),
-    close("p1/s1", 700_000_000),
-    close("p2/s1", 700_000_000),
-  ]);
-  for (const t of [200, 400, 600, 800]) {
-    assertSamePicture(`attribution at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("p1/s1", "rooms", "127.0.0.1:0", 100_000_000, {
+			provenance: "unauthenticated",
+			session_id: wire("b"),
+		}),
+		open("p2/s1", "tab-key", "rooms", 300_000_000, {
+			session_id: wire("b"),
+		}),
+		close("p1/s1", 700_000_000),
+		close("p2/s1", 700_000_000),
+	]);
+	for (const t of [200, 400, 600, 800]) {
+		assertSamePicture(`attribution at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: an end attributed to a peer already on stage", () => {
-  // The attribution arrives with no peer arriving beside it, so nothing about
-  // the peer or session id set changes at that moment. What changes is which
-  // node the wire ends on, and the picture has to move with it either way it
-  // is reached.
-  const events = convertAll([
-    open("p1/room", "rooms", "alice-key", 100_000_000, {
-      session_id: wire("c"),
-    }),
-    open("p2/room", "bob-key", "rooms", 150_000_000, {
-      session_id: wire("d"),
-    }),
-    open("p2/dm", "bob-key", "127.0.0.1:0", 300_000_000, {
-      provenance: "unauthenticated",
-      session_id: wire("e"),
-    }),
-    open("p1/dm", "alice-key", "bob-key", 500_000_000, {
-      session_id: wire("e"),
-    }),
-    close("p2/dm", 800_000_000),
-    close("p1/dm", 800_000_000),
-  ]);
-  for (const t of [200, 400, 600, 900]) {
-    assertSamePicture(`quiet attribution at t=${t}`, events, t);
-  }
+	// The attribution arrives with no peer arriving beside it, so nothing about
+	// the peer or session id set changes at that moment. What changes is which
+	// node the wire ends on, and the picture has to move with it either way it
+	// is reached.
+	const events = convertAll([
+		open("p1/room", "rooms", "alice-key", 100_000_000, {
+			session_id: wire("c"),
+		}),
+		open("p2/room", "bob-key", "rooms", 150_000_000, {
+			session_id: wire("d"),
+		}),
+		open("p2/dm", "bob-key", "127.0.0.1:0", 300_000_000, {
+			provenance: "unauthenticated",
+			session_id: wire("e"),
+		}),
+		open("p1/dm", "alice-key", "bob-key", 500_000_000, {
+			session_id: wire("e"),
+		}),
+		close("p2/dm", 800_000_000),
+		close("p1/dm", 800_000_000),
+	]);
+	for (const t of [200, 400, 600, 900]) {
+		assertSamePicture(`quiet attribution at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: messages in flight across the boundary", () => {
-  const events = convertAll([
-    open("s1", "alice", "bob", 100_000_000),
-    {
-      v: 1,
-      sim_t_ns: 300_000_000,
-      kind: "ocapn.message-decoded",
-      session: "s1",
-      outbound: true,
-      op: "op:deliver",
-      depart_ns: 200_000_000,
-    },
-    close("s1", 600_000_000),
-  ]);
-  for (const t of [150, 220, 260, 320, 500, 800]) {
-    assertSamePicture(`message flight at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("s1", "alice", "bob", 100_000_000),
+		{
+			v: 1,
+			sim_t_ns: 300_000_000,
+			kind: "ocapn.message-decoded",
+			session: "s1",
+			outbound: true,
+			op: "op:deliver",
+			depart_ns: 200_000_000,
+		},
+		close("s1", 600_000_000),
+	]);
+	for (const t of [150, 220, 260, 320, 500, 800]) {
+		assertSamePicture(`message flight at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: a peer named after it joined", () => {
-  const events = convertAll([
-    open("s1", "rooms", "127.0.0.1:0", 100_000_000),
-    {
-      v: 1,
-      sim_t_ns: 300_000_000,
-      kind: "ocapn.session-meta",
-      session: "s1",
-      meta: { label: "carol" },
-    },
-    close("s1", 600_000_000),
-  ]);
-  for (const t of [200, 400, 800]) {
-    assertSamePicture(`late name at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("s1", "rooms", "127.0.0.1:0", 100_000_000),
+		{
+			v: 1,
+			sim_t_ns: 300_000_000,
+			kind: "ocapn.session-meta",
+			session: "s1",
+			meta: { label: "carol" },
+		},
+		close("s1", 600_000_000),
+	]);
+	for (const t of [200, 400, 800]) {
+		assertSamePicture(`late name at t=${t}`, events, t);
+	}
 });
 
 Deno.test("differential: three peers, overlapping sessions, one epoch change", () => {
-  const events = convertAll([
-    open("s1", "rooms", "alice", 100_000_000, { epoch: 1 }),
-    open("s2", "rooms", "bob", 200_000_000, { epoch: 1 }),
-    close("s1", 400_000_000),
-    open("s3", "rooms", "carol", 500_000_000, { epoch: 1 }),
-    open("s4", "rooms", "dave", 700_000_000, { epoch: 2 }),
-  ]);
-  for (const t of [150, 300, 450, 600, 750, 1000]) {
-    assertSamePicture(`mixed topology at t=${t}`, events, t);
-  }
+	const events = convertAll([
+		open("s1", "rooms", "alice", 100_000_000, { epoch: 1 }),
+		open("s2", "rooms", "bob", 200_000_000, { epoch: 1 }),
+		close("s1", 400_000_000),
+		open("s3", "rooms", "carol", 500_000_000, { epoch: 1 }),
+		open("s4", "rooms", "dave", 700_000_000, { epoch: 2 }),
+	]);
+	for (const t of [150, 300, 450, 600, 750, 1000]) {
+		assertSamePicture(`mixed topology at t=${t}`, events, t);
+	}
 });

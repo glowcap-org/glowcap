@@ -27,7 +27,7 @@ const served_mod = @import("served.zig");
 const vocab = @import("vocab.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const directory = @import("sessions/directory.zig");
-const vows_mod = @import("vows.zig");
+const vow_release = @import("vows/release.zig");
 const handoff_mod = @import("handoff.zig");
 
 const Host = host_mod.Host;
@@ -61,16 +61,17 @@ pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession 
 /// Realize one dial effect the core admitted before its current close barrier.
 /// The ticket, not an adapter-side lifecycle exception, is the authority that
 /// permits minting its session while Host finish is sealed.
-pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId) !?*HostSession {
+pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId, route_index: usize) !?*HostSession {
     try self.refuseReentry();
     switch (self.lifecyclePhase()) {
         .active, .finishing => {},
         .terminating, .closed => return null,
     }
-    const locator = self.node.pendingDial(ticket) orelse return null;
+    const view = self.node.pendingDial(ticket, route_index) orelse return null;
+    const locator = view.locator;
     // Wire-carried locators are bare on onion, so a redeem dial never has
     // partner knowledge to record (ADR-0118).
-    return try openDialedCommitted(self, .mint, locator.transport, locator.designator, false);
+    return try openDialedCommitted(self, .mint, locator.transport, locator.designator, false, view.demanded_partner_key);
 }
 
 /// `openDialedLocator` over a peer the embedder owns and pins at a stable
@@ -91,6 +92,17 @@ pub fn openDialedOver(
     return openDialedKnowing(self, .{ .over = peer }, locator.transport, locator.designator, knows);
 }
 
+pub fn openDialedOverPending(
+    self: *Host,
+    peer: *engine.Peer,
+    view: engine.Node.PendingDialView,
+) !*HostSession {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    const locator = view.locator;
+    return openDialedCommitted(self, .{ .over = peer }, locator.transport, locator.designator, false, view.demanded_partner_key);
+}
+
 /// Shared dialed-open core: `openDialedLocator` mints a node-owned peer;
 /// `openDialedOver` adopts an embedder-owned one. Everything else is one
 /// path — crossed-hellos, role, keyed pin, hello — so the two entry
@@ -104,7 +116,7 @@ pub fn openDialedKnowing(
 ) !*HostSession {
     try self.refuseReentry();
     try self.admitApplicationOperation();
-    return openDialedCommitted(self, source, transport, partner_designator, partner_known_pancake);
+    return openDialedCommitted(self, source, transport, partner_designator, partner_known_pancake, null);
 }
 
 fn openDialedCommitted(
@@ -113,9 +125,12 @@ fn openDialedCommitted(
     transport: []const u8,
     partner_designator: []const u8,
     partner_known_pancake: bool,
+    demanded_partner_key: ?crypto.PeerKey,
 ) !*HostSession {
     const advertised = try requireAcceptableLocator(self);
-    try refuseDuplicateDial(self, transport, partner_designator);
+    const profile = try self.transportProfile(transport);
+    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
+    try refuseDuplicateDialForDemand(self, transport, partner_designator, demanded_partner_key);
     // The designator is borrowed all the way to `mintShell`, which dupes it
     // into the shell. One owner from birth: `freeSessionShell` is the only
     // free, so a refusal below can unwind the mint without this frame
@@ -127,7 +142,6 @@ fn openDialedCommitted(
     // Before the hello: the stamp reads this when it assembles the signed
     // location (ADR-0118).
     if (partner_known_pancake) session.served.port.peer.noteKnownPancakePartner();
-    const profile = try self.transportProfile(transport);
     if (profile.sealed_channel) {
         attachSealedChannel(self, session, .initiator) catch |err| {
             failOpen(self, session);
@@ -163,6 +177,8 @@ fn openDialedCommitted(
         };
         session.served.port.peer.demandPartnerDurableKey(expected);
     }
+    if (demanded_partner_key) |key|
+        session.served.port.peer.demandPartnerDurableKey(key);
 
     return helloAndEnroll(self, session, advertised);
 }
@@ -182,6 +198,8 @@ pub fn ensureAcceptAdvertisedLocator(
     accepted_local_addr: []const u8,
     transport: []const u8,
 ) !void {
+    if ((try self.transportProfile(transport)).dial_shape == .route_bundle)
+        return HostError.UnknownTransport;
     const plan = dial_plan.planAccept(scheme, server_designator, accepted_local_addr);
     var hint_buf: [1]model.HintEntry = undefined;
     const candidate: model.PeerLocator = .{
@@ -200,8 +218,9 @@ pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession 
     try self.refuseReentry();
     try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
-    const session = try mint(self, .accepted, transport);
     const profile = try self.transportProfile(transport);
+    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
+    const session = try mint(self, .accepted, transport);
     if (profile.sealed_channel) {
         attachSealedChannel(self, session, .responder) catch |err| {
             failOpen(self, session);
@@ -217,8 +236,9 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
     try self.refuseReentry();
     try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
-    const session = try mintOver(self, peer, .accepted, transport);
     const profile = try self.transportProfile(transport);
+    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
+    const session = try mintOver(self, peer, .accepted, transport);
     if (profile.sealed_channel) {
         attachSealedChannel(self, session, .responder) catch |err| {
             failOpen(self, session);
@@ -280,9 +300,9 @@ fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiato
 // power. `sessions/directory.zig` owns the bodies.
 pub const liveSessionForDial = directory.liveSessionForDial;
 pub const refuseDuplicateDial = directory.refuseDuplicateDial;
+pub const refuseDuplicateDialForDemand = directory.refuseDuplicateDialForDemand;
 pub const refuseDuplicatePartnerKey = directory.refuseDuplicatePartnerKey;
 pub const indexPartnerKey = directory.indexPartnerKey;
-pub const indexDurablePeer = directory.indexDurablePeer;
 pub const unindexSession = directory.unindexSession;
 pub const liveIndexedSession = directory.liveIndexedSession;
 pub const dialedSessionFor = directory.dialedSessionFor;
@@ -389,7 +409,7 @@ pub fn releaseSession(self: *Host, session: *HostSession) SessionReleaseError!vo
     const peer_handle = session.peer_handle;
     _ = self.capabilities.invalidatePeer(peer_handle);
     capability_promise.sessionReleased(self, peer_handle, session.served.closeReason("connection released"));
-    vows_mod.dropVowRows(self, session, session.served.closeReason("connection released"));
+    vow_release.dropSessionRows(self, session, session.served.closeReason("connection released"));
     std.debug.assert(self.sessions.remove(peer_handle));
     freeSessionShell(self, session);
     self.node.removePeer(peer_handle);
@@ -521,7 +541,7 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_handle: engine.PeerHandle
     // handoff code in `host.zig`; the wiring is theirs too.
     handoff_mod.wireNodeServices(self);
     self.node.setSessionSecretResolver(.{ .ctx = self, .resolve = resolveSessionSecret });
-    self.node.setTransportDesignatorResolver(.{ .ctx = self, .resolve = resolveTransportDesignator });
+    self.node.setTransportResolver(.{ .ctx = self, .vtable = &transport_resolver_vtable });
     session.served.port.ingress = try self.vat.openIngress();
     session.served.local_turn_budget = self.opts.local_turn_budget;
     return session;
@@ -531,6 +551,17 @@ fn resolveTransportDesignator(ctx: ?*anyopaque, transport: []const u8) ?model.tr
     const self: *Host = @ptrCast(@alignCast(ctx.?));
     return self.designatorScheme(transport) catch null;
 }
+
+fn resolveSessionTransport(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?[]const u8 {
+    const self: *Host = @ptrCast(@alignCast(ctx.?));
+    const session = self.sessions.get(peer_handle) orelse return null;
+    return session.transport;
+}
+
+const transport_resolver_vtable: engine.Node.RuntimeTransportResolver.VTable = .{
+    .designator_scheme = resolveTransportDesignator,
+    .session_transport = resolveSessionTransport,
+};
 
 pub fn enroll(self: *Host, session: *HostSession) void {
     session.served.serve_options = .{ .hook_ctx = session, .before_serve = Host.hostBeforeServe };
@@ -569,7 +600,7 @@ pub const spawnHosted = publication.spawnHosted;
 /// back the dial index key until this frees their shared block.
 pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     finishSessionOpen(self, session);
-    _ = self.session_close_timing.remove(session.peer_handle); // tolerant: only a finite explicit finish owns a timing row
+    host_close.removeSessionCloseTiming(self, session.peer_handle);
     // The export range is not given back here: `engine.Node.removePeer`
     // reclaims it from the peer that held it, so the draw and the return
     // sit on the same side of the boundary.

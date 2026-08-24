@@ -44,6 +44,8 @@ fn termExitCode(term: std.process.Child.Term) u8 {
 
 fn errLine(io: Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [512]u8 = undefined;
+    // best-effort: a diagnostic line that cannot render or reach stderr has
+    // nowhere else to go.
     const msg = std.fmt.bufPrint(&buf, "rooms-peer: " ++ fmt ++ "\n", args) catch return;
     Io.File.stderr().writeStreamingAll(io, msg) catch {};
 }

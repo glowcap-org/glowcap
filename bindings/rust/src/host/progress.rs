@@ -99,7 +99,12 @@ impl HostShared {
 			if self.raw.get().is_null() {
 				return Ok(());
 			}
-			let (parked, yielded) = crate::action::park(self)?;
+			// The native drain resumes queued Host work before its first
+			// external action and may synchronously invoke a behavior.
+			let (parked, yielded) = {
+				let _deliver = crate::trampoline::DeliverGuard::enter_host(self);
+				crate::action::park(self)?
+			};
 			if parked.is_empty() && !yielded {
 				return Ok(());
 			}
@@ -125,7 +130,7 @@ impl HostShared {
 				return Err(error);
 			}
 			if yielded {
-				tokio::task::yield_now().await;
+				tokio::task::coop::consume_budget().await;
 			}
 		}
 	}

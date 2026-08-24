@@ -74,125 +74,127 @@ import { c, SPACE } from "./tokens.ts";
 import { useDocVersion } from "./useDocVersion.ts";
 
 export function DocumentFields(
-  { engine, mode, editor, source, edited }: {
-    engine: Engine;
-    mode: AppMode;
-    /** Present only where editing is allowed, which is Build. Absent makes every
-     *  row read-only without each row having to ask what mode it is in. */
-    editor: EditBracket | undefined;
-    /** What the buffer is. Null only before the first source resolves. */
-    source: BufferSourceInfo | null;
-    /** Whether Build has changed it since. */
-    edited: boolean;
-  },
+	{ engine, mode, editor, source, edited }: {
+		engine: Engine;
+		mode: AppMode;
+		/** Present only where editing is allowed, which is Build. Absent makes every
+		 *  row read-only without each row having to ask what mode it is in. */
+		editor: EditBracket | undefined;
+		/** What the buffer is. Null only before the first source resolves. */
+		source: BufferSourceInfo | null;
+		/** Whether Build has changed it since. */
+		edited: boolean;
+	},
 ) {
-  // Every value here is read off the document, so this has to wake when the
-  // document changes. Without it the fields are controlled inputs bound to a
-  // value that never refreshes: a keystroke lands in the document and the field
-  // redraws from the old one, so typing looks like it does nothing at all.
-  useDocVersion(engine);
-  const doc = engine.doc;
-  const meta = doc.metadata;
-  const editing = editor !== undefined && mode === "build";
+	// Every value here is read off the document, so this has to wake when the
+	// document changes. Without it the fields are controlled inputs bound to a
+	// value that never refreshes: a keystroke lands in the document and the field
+	// redraws from the old one, so typing looks like it does nothing at all.
+	useDocVersion(engine);
+	const doc = engine.doc;
+	const meta = doc.metadata;
+	const editing = editor !== undefined && mode === "build";
 
-  if (!editing) {
-    // Reading: only what the document actually says. A row per absent field
-    // would be a panel of placeholders that says nothing, and a document is
-    // allowed to say nothing — every one of these is optional.
-    const said = [
-      { label: "Title", text: meta?.["dct:title"], style: valueName },
-      { label: "About", text: meta?.["dct:description"], style: prose },
-      { label: "By", text: meta?.["dct:creator"], style: valueName },
-      { label: "Created", text: meta?.["dct:created"], instant: true },
-      { label: "Modified", text: meta?.["dct:modified"], instant: true },
-    ].filter((row) => (row.text ?? "").trim() !== "");
-    return (
-      <>
-        {said.map((row) => (
-          <Field key={row.label} label={row.label}>
-            {"instant" in row && row.instant ? <Stamp at={row.text!} /> : <span style={row.style}>{row.text}</span>}
-          </Field>
-        ))}
-        <OriginRow source={source} edited={edited} />
-      </>
-    );
-  }
+	if (!editing) {
+		// Reading: only what the document actually says. A row per absent field
+		// would be a panel of placeholders that says nothing, and a document is
+		// allowed to say nothing — every one of these is optional.
+		const said = [
+			{ label: "Title", text: meta?.["dct:title"], style: valueName },
+			{ label: "About", text: meta?.["dct:description"], style: prose },
+			{ label: "By", text: meta?.["dct:creator"], style: valueName },
+			{ label: "Created", text: meta?.["dct:created"], instant: true },
+			{ label: "Modified", text: meta?.["dct:modified"], instant: true },
+		].filter((row) => (row.text ?? "").trim() !== "");
+		return (
+			<>
+				{said.map((row) => (
+					<Field key={row.label} label={row.label}>
+						{"instant" in row && row.instant
+							? <Stamp at={row.text!} />
+							: <span style={row.style}>{row.text}</span>}
+					</Field>
+				))}
+				<OriginRow source={source} edited={edited} />
+			</>
+		);
+	}
 
-  // Editing: every row, including the empty ones, because an absent field is
-  // exactly what the reader is here to fill in.
-  return (
-    <form style={formRows} {...formCommit(engine)}>
-      <Field label="Title">
-        <InlineTextField
-          value={meta?.["dct:title"] ?? ""}
-          onChange={(next) => engine.setDocumentTitle(next)}
-          ariaLabel="Document title"
-          editLabel="Set document title"
-          editSession={editor}
-          placeholder={doc.id}
-          style={grow}
-          submitOnEnter
-        />
-      </Field>
+	// Editing: every row, including the empty ones, because an absent field is
+	// exactly what the reader is here to fill in.
+	return (
+		<form style={formRows} {...formCommit(engine)}>
+			<Field label="Title">
+				<InlineTextField
+					value={meta?.["dct:title"] ?? ""}
+					onChange={(next) => engine.setDocumentTitle(next)}
+					ariaLabel="Document title"
+					editLabel="Set document title"
+					editSession={editor}
+					placeholder={doc.id}
+					style={grow}
+					submitOnEnter
+				/>
+			</Field>
 
-      <Field label="About">
-        <textarea
-          className="ocv-input is-multiline"
-          aria-label="Document description"
-          value={meta?.["dct:description"] ?? ""}
-          onChange={(ev) => engine.setDocumentDescription(ev.target.value)}
-          onFocus={() => editor?.beginEdit("Set document description")}
-          onBlur={() => editor?.endEdit()}
-          placeholder="What happens here, and why it is worth watching."
-          spellCheck
-          style={grow}
-        />
-      </Field>
+			<Field label="About">
+				<textarea
+					className="ocv-input is-multiline"
+					aria-label="Document description"
+					value={meta?.["dct:description"] ?? ""}
+					onChange={(ev) => engine.setDocumentDescription(ev.target.value)}
+					onFocus={() => editor?.beginEdit("Set document description")}
+					onBlur={() => editor?.endEdit()}
+					placeholder="What happens here, and why it is worth watching."
+					spellCheck
+					style={grow}
+				/>
+			</Field>
 
-      <Field label="By">
-        <InlineTextField
-          value={meta?.["dct:creator"] ?? ""}
-          onChange={(next) => engine.setDocumentCreator(next)}
-          ariaLabel="Document creator"
-          editLabel="Set document creator"
-          editSession={editor}
-          placeholder="Nobody named"
-          style={grow}
-          submitOnEnter
-        />
-      </Field>
+			<Field label="By">
+				<InlineTextField
+					value={meta?.["dct:creator"] ?? ""}
+					onChange={(next) => engine.setDocumentCreator(next)}
+					ariaLabel="Document creator"
+					editLabel="Set document creator"
+					editSession={editor}
+					placeholder="Nobody named"
+					style={grow}
+					submitOnEnter
+				/>
+			</Field>
 
-      <Field label="Length">
-        <TimeScrubInput
-          value={doc.duration}
-          min={engine.documentDurationFloor()}
-          max={Math.max(doc.duration, 1000) * 2}
-          onChange={(next) => engine.setDocumentDuration(next)}
-          label="Timeline length"
-          onScrubStart={() => editor?.beginEdit("Set timeline length")}
-          onScrubEnd={() => editor?.endEdit()}
-          style={grow}
-        />
-      </Field>
+			<Field label="Length">
+				<TimeScrubInput
+					value={doc.duration}
+					min={engine.documentDurationFloor()}
+					max={Math.max(doc.duration, 1000) * 2}
+					onChange={(next) => engine.setDocumentDuration(next)}
+					label="Timeline length"
+					onScrubStart={() => editor?.beginEdit("Set timeline length")}
+					onScrubEnd={() => editor?.endEdit()}
+					style={grow}
+				/>
+			</Field>
 
-      <Field label="Opens at">
-        <OpeningView engine={engine} editor={editor} />
-      </Field>
+			<Field label="Opens at">
+				<OpeningView engine={engine} editor={editor} />
+			</Field>
 
-      {meta?.["dct:created"] && (
-        <Field label="Created">
-          <Stamp at={meta["dct:created"]} />
-        </Field>
-      )}
-      {meta?.["dct:modified"] && (
-        <Field label="Modified">
-          <Stamp at={meta["dct:modified"]} />
-        </Field>
-      )}
+			{meta?.["dct:created"] && (
+				<Field label="Created">
+					<Stamp at={meta["dct:created"]} />
+				</Field>
+			)}
+			{meta?.["dct:modified"] && (
+				<Field label="Modified">
+					<Stamp at={meta["dct:modified"]} />
+				</Field>
+			)}
 
-      <OriginRow source={source} edited={edited} />
-    </form>
-  );
+			<OriginRow source={source} edited={edited} />
+		</form>
+	);
 }
 
 /**
@@ -217,32 +219,36 @@ export function DocumentFields(
  * and stamping it would move a timestamp on a document nobody changed.
  */
 function formCommit(engine: Engine): {
-  onFocus: (ev: React.FocusEvent) => void;
-  onBlur: (ev: React.FocusEvent) => void;
-  onSubmit: (ev: React.FormEvent) => void;
+	onFocus: (ev: React.FocusEvent) => void;
+	onBlur: (ev: React.FocusEvent) => void;
+	onSubmit: (ev: React.FormEvent) => void;
 } {
-  return {
-    // A form submits implicitly when Enter is pressed in a text field, and a
-    // form with nowhere to submit navigates the page. Enter here means "I am
-    // done with this field", which `submitOnEnter` handles by blurring, so the
-    // submit itself has to be refused or the panel reloads the app.
-    onSubmit(ev) {
-      ev.preventDefault();
-    },
-    onFocus(ev) {
-      // Arriving from outside the form starts a visit; moving between its own
-      // fields does not, so the version recorded is the one from the way in.
-      if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return;
-      entryVersion.set(ev.currentTarget, engine.docVersion);
-    },
-    onBlur(ev) {
-      if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return;
-      const entered = entryVersion.get(ev.currentTarget);
-      entryVersion.delete(ev.currentTarget);
-      if (entered === undefined || entered === engine.docVersion) return;
-      engine.noteDocumentModified(new Date().toISOString());
-    },
-  };
+	return {
+		// A form submits implicitly when Enter is pressed in a text field, and a
+		// form with nowhere to submit navigates the page. Enter here means "I am
+		// done with this field", which `submitOnEnter` handles by blurring, so the
+		// submit itself has to be refused or the panel reloads the app.
+		onSubmit(ev) {
+			ev.preventDefault();
+		},
+		onFocus(ev) {
+			// Arriving from outside the form starts a visit; moving between its own
+			// fields does not, so the version recorded is the one from the way in.
+			if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) {
+				return;
+			}
+			entryVersion.set(ev.currentTarget, engine.docVersion);
+		},
+		onBlur(ev) {
+			if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) {
+				return;
+			}
+			const entered = entryVersion.get(ev.currentTarget);
+			entryVersion.delete(ev.currentTarget);
+			if (entered === undefined || entered === engine.docVersion) return;
+			engine.noteDocumentModified(new Date().toISOString());
+		},
+	};
 }
 
 /**
@@ -266,33 +272,33 @@ function formCommit(engine: Engine): {
  * lifecycle chips and the Reference's transport verdicts wear.
  */
 function OriginRow(
-  { source, edited }: { source: BufferSourceInfo | null; edited: boolean },
+	{ source, edited }: { source: BufferSourceInfo | null; edited: boolean },
 ) {
-  if (!source) return null;
-  return (
-    <Field label="Origin">
-      <span style={originRow}>
-        <span style={valueName}>{sourceKindLabel(source)}</span>
-        {edited && <span style={editedBadge}>edited</span>}
-      </span>
-    </Field>
-  );
+	if (!source) return null;
+	return (
+		<Field label="Origin">
+			<span style={originRow}>
+				<span style={valueName}>{sourceKindLabel(source)}</span>
+				{edited && <span style={editedBadge}>edited</span>}
+			</span>
+		</Field>
+	);
 }
 
 /** How each kind of buffer names itself. Every arm says how the thing came to be
  *  rather than what it is, so the four read as one set of answers to one
  *  question. */
 function sourceKindLabel(source: BufferSourceInfo): string {
-  switch (source.kind) {
-    case "builtin":
-      return "Built-in example";
-    case "file":
-      return "Opened file";
-    case "new":
-      return "Started empty";
-    case "recording":
-      return "Recorded from live";
-  }
+	switch (source.kind) {
+		case "builtin":
+			return "Built-in example";
+		case "file":
+			return "Opened file";
+		case "new":
+			return "Started empty";
+		case "recording":
+			return "Recorded from live";
+	}
 }
 
 /**
@@ -315,7 +321,7 @@ function sourceKindLabel(source: BufferSourceInfo): string {
  * was cut off by the pane.
  */
 function Stamp({ at }: { at: string }) {
-  return <span style={valueMono} title={at}>{at}</span>;
+	return <span style={valueMono} title={at}>{at}</span>;
 }
 
 /** Where each open form's entry version waits. Keyed by the form element, so it
@@ -345,93 +351,93 @@ const entryVersion = new WeakMap<Element, number>();
  * has a visible consequence and this is the only place that names it.
  */
 function OpeningView(
-  { engine, editor }: { engine: Engine; editor: EditBracket | undefined },
+	{ engine, editor }: { engine: Engine; editor: EditBracket | undefined },
 ) {
-  // The settled view alone, not the whole readout: the readout's percentage
-  // changes on most frames of a zoom, and this row does not show it. Subscribing
-  // to the reference that only moves when the camera comes to rest is what keeps
-  // a zoom gesture from re-rendering the document panel sixty times a second.
-  const settled = useSyncExternalStore(
-    stageCamera.subscribe,
-    stageCamera.getSettledView,
-    stageCamera.getSettledView,
-  );
-  // Absent means "wherever a document that says nothing opens", so the row reads
-  // that rather than a special case. One form for both, which is also why there is
-  // no word for the origin: "100% at 0, 0" says it, and a reader comparing this
-  // row against the stage's own readout is comparing the same two numbers.
-  const opensAt = initialStageView(engine.doc.initialView);
-  const moved = !sameStageView(settled, opensAt);
-  return (
-    <span style={openingRow}>
-      <span style={valueMono}>
-        {`${formatStageZoom(opensAt.zoom)} at ${Math.round(opensAt.center.x)}, ${Math.round(opensAt.center.y)}`}
-      </span>
-      {editor !== undefined && (
-        <span style={openingButtons}>
-          <button
-            type="button"
-            className="ocv-btn is-icon"
-            disabled={!moved}
-            onClick={() => {
-              // `undefined` for a camera parked exactly where a document naming
-              // no view opens, so pinning there clears the field rather than
-              // writing the default down. One transaction, so it is one step to
-              // undo.
-              editor.beginEdit("Set where the document opens");
-              engine.setOpeningView(
-                sameStageView(settled, DEFAULT_STAGE_VIEW) ? undefined : settled,
-              );
-              editor.endEdit();
-            }}
-            title={moved
-              ? "Pin the stage's current zoom and position as where this document opens"
-              : "This document already opens where the stage is"}
-            aria-label="Pin the current view as where this document opens"
-          >
-            <PinGlyph />
-          </button>
-          <button
-            type="button"
-            className="ocv-btn is-icon"
-            disabled={!moved}
-            // The camera, not the document. This abandons a change that has not
-            // been pinned by taking the stage back to where the document opens,
-            // which is why it is inert at exactly the same times as the pin: with
-            // nothing pending there is nothing to pin and nothing to abandon.
-            onClick={() => stageCamera.send({ kind: "go-to", view: opensAt })}
-            title={moved
-              ? "Put the stage back where this document opens"
-              : "The stage is already where this document opens"}
-            aria-label="Put the stage back where this document opens"
-          >
-            <ClearGlyph />
-          </button>
-        </span>
-      )}
-    </span>
-  );
+	// The settled view alone, not the whole readout: the readout's percentage
+	// changes on most frames of a zoom, and this row does not show it. Subscribing
+	// to the reference that only moves when the camera comes to rest is what keeps
+	// a zoom gesture from re-rendering the document panel sixty times a second.
+	const settled = useSyncExternalStore(
+		stageCamera.subscribe,
+		stageCamera.getSettledView,
+		stageCamera.getSettledView,
+	);
+	// Absent means "wherever a document that says nothing opens", so the row reads
+	// that rather than a special case. One form for both, which is also why there is
+	// no word for the origin: "100% at 0, 0" says it, and a reader comparing this
+	// row against the stage's own readout is comparing the same two numbers.
+	const opensAt = initialStageView(engine.doc.initialView);
+	const moved = !sameStageView(settled, opensAt);
+	return (
+		<span style={openingRow}>
+			<span style={valueMono}>
+				{`${formatStageZoom(opensAt.zoom)} at ${Math.round(opensAt.center.x)}, ${Math.round(opensAt.center.y)}`}
+			</span>
+			{editor !== undefined && (
+				<span style={openingButtons}>
+					<button
+						type="button"
+						className="ocv-btn is-icon"
+						disabled={!moved}
+						onClick={() => {
+							// `undefined` for a camera parked exactly where a document naming
+							// no view opens, so pinning there clears the field rather than
+							// writing the default down. One transaction, so it is one step to
+							// undo.
+							editor.beginEdit("Set where the document opens");
+							engine.setOpeningView(
+								sameStageView(settled, DEFAULT_STAGE_VIEW) ? undefined : settled,
+							);
+							editor.endEdit();
+						}}
+						title={moved
+							? "Pin the stage's current zoom and position as where this document opens"
+							: "This document already opens where the stage is"}
+						aria-label="Pin the current view as where this document opens"
+					>
+						<PinGlyph />
+					</button>
+					<button
+						type="button"
+						className="ocv-btn is-icon"
+						disabled={!moved}
+						// The camera, not the document. This abandons a change that has not
+						// been pinned by taking the stage back to where the document opens,
+						// which is why it is inert at exactly the same times as the pin: with
+						// nothing pending there is nothing to pin and nothing to abandon.
+						onClick={() => stageCamera.send({ kind: "go-to", view: opensAt })}
+						title={moved
+							? "Put the stage back where this document opens"
+							: "The stage is already where this document opens"}
+						aria-label="Put the stage back where this document opens"
+					>
+						<ClearGlyph />
+					</button>
+				</span>
+			)}
+		</span>
+	);
 }
 
 /** The pair at the end of the row. Together rather than each pushed to the edge,
  *  so they read as two answers to one question — pin what is pending, or abandon
  *  it — and the ✕ lands where every other row's ✕ does. */
 const openingButtons = {
-  display: "flex",
-  alignItems: "center",
-  gap: 2,
-  flex: "0 0 auto",
+	display: "flex",
+	alignItems: "center",
+	gap: 2,
+	flex: "0 0 auto",
 } satisfies React.CSSProperties;
 
 /** The stored view and its button on one line, with the button pushed to the far
  *  end so it lands in the same column as the other rows' controls end. */
 const openingRow = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: SPACE.sm,
-  minWidth: 0,
-  flex: 1,
+	display: "flex",
+	alignItems: "center",
+	justifyContent: "space-between",
+	gap: SPACE.sm,
+	minWidth: 0,
+	flex: 1,
 } satisfies React.CSSProperties;
 
 /**
@@ -448,10 +454,10 @@ const openingRow = {
  * (`formCommit`), which is a property of the group rather than of any row.
  */
 const formRows = {
-  display: "grid",
-  gridTemplateColumns: "subgrid",
-  gridColumn: "1 / -1",
-  rowGap: "inherit",
+	display: "grid",
+	gridTemplateColumns: "subgrid",
+	gridColumn: "1 / -1",
+	rowGap: "inherit",
 } satisfies React.CSSProperties;
 
 const grow = { flex: 1, minWidth: 0 } satisfies React.CSSProperties;
@@ -461,26 +467,26 @@ const grow = { flex: 1, minWidth: 0 } satisfies React.CSSProperties;
  *  `valueName` would ellipsize, because a title can be clipped and still identify
  *  the thing while a paragraph cannot. */
 const prose = {
-  ...valueText,
-  whiteSpace: "pre-wrap",
-  minWidth: 0,
-  // A description is whatever the reader typed, so one pasted URL is a single
-  // word wider than the rail. `pre-wrap` breaks at spaces and a long token has
-  // none, so it needs leave to break anywhere rather than run out of the panel.
-  overflowWrap: "anywhere",
+	...valueText,
+	whiteSpace: "pre-wrap",
+	minWidth: 0,
+	// A description is whatever the reader typed, so one pasted URL is a single
+	// word wider than the rail. `pre-wrap` breaks at spaces and a long token has
+	// none, so it needs leave to break anywhere rather than run out of the panel.
+	overflowWrap: "anywhere",
 } satisfies React.CSSProperties;
 
 const originRow = {
-  display: "flex",
-  alignItems: "center",
-  gap: SPACE.sm,
-  minWidth: 0,
+	display: "flex",
+	alignItems: "center",
+	gap: SPACE.sm,
+	minWidth: 0,
 } satisfies React.CSSProperties;
 
 /** Edited, as the app's badge in its warning tones: a fork that has not been
  *  saved is something to notice rather than a fact to read past. */
 const editedBadge = {
-  ...stateChipBase,
-  background: c.warningSoft,
-  color: c.warning,
+	...stateChipBase,
+	background: c.warningSoft,
+	color: c.warning,
 } satisfies React.CSSProperties;

@@ -6,8 +6,9 @@
 //! session accounting runs on a borrowed stack message over the *stored*
 //! resolution, and `Peer.step` borrows the store back through `peekResolution`
 //! to encode. One stored resolution serves N listeners with no clone anywhere;
-//! the only allocations in the fire window are the frame encodes the wire
-//! requires plus fixed queue bookkeeping, pinned exactly below.
+//! each one-shot callback is immediately followed by the `op:gc-exports` that
+//! releases its listener import. The only allocations in the fire window are
+//! those frame encodes plus fixed queue bookkeeping, pinned exactly below.
 //!
 //! `op:gc-answers` releases the partner's pipelining position; it does not
 //! cancel a listener already accepted under `op:listen`. A queued fire owns a
@@ -86,24 +87,256 @@ test "resolving an answer with three listeners copies the resolution payload zer
     // three POD carriers (1). No payload byte is copied.
     try std.testing.expectEqual(@as(usize, 2), counter.allocs);
 
-    // Encode the three fires, each borrowing the stored resolution.
+    // Encode the three callback/release pairs, each callback borrowing the
+    // stored resolution.
     counter.allocs = 0;
     while ((try peer.step()) != .idle) {}
-    // 4: three fire frame encodes at the codec's pinned 1 each (a single
-    // exact-measured buffer that becomes the frame) plus one `outbound`
-    // growth. Zero per-listener payload clones — a reintroduced clone path
-    // would add 3+ here and fail.
-    try std.testing.expectEqual(@as(usize, 4), counter.allocs);
+    // 8: six frame encodes at the codec's pinned 1 each (callback plus listener
+    // release), and two `outbound` backing growths while publishing three
+    // atomic pairs. Zero per-listener payload clones — a reintroduced clone
+    // path would add 3+ here and fail.
+    try std.testing.expectEqual(@as(usize, 8), counter.allocs);
 
-    // Three callback frames left, one per listener. Settlement itself is
-    // session-local in next.
+    // Three callback/release pairs left, one pair per listener. Settlement
+    // itself is session-local in next.
     var frames: usize = 0;
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
         defer frame.deinit();
         frames += 1;
     }
-    try std.testing.expectEqual(@as(usize, 3), frames);
+    try std.testing.expectEqual(@as(usize, 6), frames);
+}
+
+test "a bootstrap listener fires without import accounting or wire release" {
+    const allocator = std.testing.allocator;
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = listenFrame("0"), .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try std.testing.expect(!peer.session_state.hasImport(.from(session.BOOTSTRAP_POSITION)));
+
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .integer = 7 } },
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    var callback = peer.takeOutbound() orelse return error.MissingListenerCallback;
+    defer callback.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        peer.session_state.captp_version,
+        callback.view(),
+    );
+    try std.testing.expectEqual(
+        @as(u64, session.BOOTSTRAP_POSITION),
+        body.deliver.target.near.export_position.int(),
+    );
+    try std.testing.expect(peer.takeOutbound() == null);
+    try std.testing.expect(!peer.session_state.hasImport(.from(session.BOOTSTRAP_POSITION)));
+}
+
+test "answer listener preparation restores after OOM and retries from the settlement carrier" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+    try peer.session_state.registerExport(.from(7));
+
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[]43+>",
+        .shape = .byte,
+    });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+        .reference = .{ .promise = .{ .answer_position = .from(43) } },
+    } } } });
+
+    // Detaching the source listener and creating answer 43's lazy payload both
+    // succeed; growing its listener list fails. The preparation token removes
+    // that otherwise-empty payload and the settlement carrier remains retryable.
+    failing.fail_index = failing.alloc_index + 2;
+    try std.testing.expectError(error.OutOfMemory, peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+    failing.fail_index = std.math.maxInt(usize);
+    const target_43 = peer.session_state.answerTargetNamed(.fromWire(.from(43))).?;
+    try std.testing.expect(peer.session_state.answerPayloadForTarget(target_43) == null);
+    const target = peer.session_state.answerTargetNamed(.fromWire(.from(42))).?;
+    const payload = peer.session_state.answerPayloadForTarget(target).?;
+    const restored = try peer.session_state.takeAnswerPayloadListeners(payload);
+    try std.testing.expectEqual(@as(usize, 1), restored.len);
+    peer.session_state.restoreAnswerPayloadListeners(payload, restored);
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try peer.send(.{ .resolve = .{ .answer = .from(43), .resolution = .{
+        .fulfill = .{ .bytes = try allocator.dupe(u8, "eventual") },
+    } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var callback = peer.takeOutbound().?;
+    defer callback.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        peer.session_state.captp_version,
+        callback.view(),
+    );
+    try std.testing.expectEqualStrings("eventual", (try body.deliver.args.at(1)).bytes);
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "listener promise chains borrow the terminal answer store" {
+    const allocator = std.testing.allocator;
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]7+>", .shape = .byte });
+    {
+        var event = peer.pollEvent().?;
+        event.deinit();
+    }
+    try peer.send(.{ .resolve = .{ .answer = .from(7), .resolution = .{
+        .fulfill = .{ .bytes = try allocator.dupe(u8, "terminal") },
+    } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+        .reference = .{ .promise = .{ .answer_position = .from(7) } },
+    } } } });
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var callback = peer.takeOutbound().?;
+    defer callback.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        peer.session_state.captp_version,
+        callback.view(),
+    );
+    try std.testing.expectEqualStrings("terminal", (try body.deliver.args.at(1)).bytes);
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "a late listener on a stored promise cycle receives one terminal break" {
+    const allocator = std.testing.allocator;
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[]43+>",
+        .shape = .byte,
+    });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+        .reference = .{ .promise = .{ .answer_position = .from(43) } },
+    } } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(43), .resolution = .{ .fulfill = .{
+        .reference = .{ .promise = .{ .answer_position = .from(42) } },
+    } } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    // The cycle is already durable when the listener arrives. Holding it on
+    // either settled row would leave a callback that can never fire; walking
+    // forever is equally invalid. The listener gets one explicit break.
+    try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    {
+        var event = peer.pollEvent().?;
+        event.deinit();
+    }
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    var callback = peer.takeOutbound().?;
+    defer callback.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        peer.session_state.captp_version,
+        callback.view(),
+    );
+    try std.testing.expectEqualStrings("break", (try body.deliver.args.at(0)).symbol);
+    try std.testing.expectEqualStrings(
+        "promise resolution cycle",
+        (try body.deliver.args.at(1)).symbol,
+    );
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "a late listener cannot follow a stored promise into a reused answer position" {
+    const allocator = std.testing.allocator;
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+>", .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+        .reference = .{ .promise = .{ .answer_position = .from(43) } },
+    } } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[43+]>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+>", .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(43), .resolution = .{
+        .fulfill = .{ .bytes = "replacement" },
+    } } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+
+    try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    {
+        var event = peer.pollEvent().?;
+        event.deinit();
+    }
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var callback = peer.takeOutbound().?;
+    defer callback.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        peer.session_state.captp_version,
+        callback.view(),
+    );
+    try std.testing.expectEqualStrings(
+        "promise resolution target was released",
+        (try body.deliver.args.at(1)).symbol,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, callback.bytes(), "replacement") == null);
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    try std.testing.expect(peer.sessionIsOpen());
 }
 
 test "live object export listen fires with zero payload copies" {
@@ -123,17 +356,19 @@ test "live object export listen fires with zero payload copies" {
         event.deinit();
     }
 
-    // Measured window: encode the queued POD fire carrier. No owned fulfill
-    // symbol dupe, no args spine — only the frame encode the wire requires.
+    // Measured window: encode the queued POD fire carrier and its listener
+    // release. No owned fulfill symbol dupe and no args spine.
     counter.allocs = 0;
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    // 2: fire frame encode (1) plus one `outbound` growth (1). The POD
-    // carrier queued on recv paid its own `pending_send` growth outside this
-    // window.
-    try std.testing.expectEqual(@as(usize, 2), counter.allocs);
+    // 3: callback and release frame encodes (2) plus one `outbound` growth (1).
+    // The POD carrier queued on recv paid its own `pending_send` growth outside
+    // this window.
+    try std.testing.expectEqual(@as(usize, 3), counter.allocs);
 
     var frame = peer.takeOutbound().?;
     defer frame.deinit();
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
     try std.testing.expect(peer.takeOutbound() == null);
 }
 
@@ -176,6 +411,8 @@ test "a listener accepted before answer GC still publishes exactly once" {
     while ((try peer.step()) != .idle) {}
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
     try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expect(peer.sessionIsOpen());
 
@@ -228,19 +465,33 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
         .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },
     } } });
 
-    // Only the old listener callback crosses the wire; the next-profile
-    // settlement for the replacement row is local. Its payload must remain
-    // "old", never the replacement row's "new" value.
+    // Only the old listener callback and its listener release cross the wire;
+    // the next-profile settlement for the replacement row is local. The
+    // callback payload must remain "old", never the replacement row's "new"
+    // value.
     while ((try peer.step()) != .idle) {}
     var frames: usize = 0;
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
         defer frame.deinit();
         frames += 1;
-        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "old") != null);
-        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "new") == null);
+        const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+            peer.session_state.captp_version,
+            frame.view(),
+        );
+        switch (body) {
+            .deliver => {
+                try std.testing.expectEqualStrings("old", (try body.deliver.args.at(1)).bytes);
+                try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "new") == null);
+            },
+            .gc_export => {
+                try std.testing.expectEqual(@as(u64, 9), try body.gc_export.positions.at(0));
+                try std.testing.expectEqual(@as(u64, 1), try body.gc_export.deltas.at(0));
+            },
+            else => return error.UnexpectedOutbound,
+        }
     }
-    try std.testing.expectEqual(@as(usize, 1), frames);
+    try std.testing.expectEqual(@as(usize, 2), frames);
     try std.testing.expect(peer.sessionIsOpen());
 }
 

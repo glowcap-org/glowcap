@@ -39,7 +39,7 @@ pub const runtime_failure_journal_rows: []const Ban = &.{
         .why = "the TypeScript ABI generator mirrors the C ABI's callerless-failure journal caps",
     },
     .{
-        .where = .{ .file = "bindings/ts/runtime/context.ts" },
+        .where = .{ .file = "bindings/ts/runtime/failure_journal.ts" },
         .kind = .require,
         .needles = &.{
             "remaining = DEFAULT_FAILURE_PAYLOAD_CAP",

@@ -34,7 +34,7 @@ async function assertRejects(fn: () => Promise<unknown>): Promise<unknown> {
 }
 
 import { DriverLoop, PancakeError } from "@pancake/runtime/transport";
-import { installProvider, listen, Netlayer, SERVICE_ID_LENGTH } from "../mod.ts";
+import { Connection, installProvider, listen, Netlayer, SERVICE_ID_LENGTH } from "../mod.ts";
 
 /** A real, checksum-valid version 3 id, from the pinned Goblins source. Using a
  * well-formed one matters: the transport refuses anything else before it opens a
@@ -201,6 +201,7 @@ Deno.test("onion: a dial carries a framed message over the circuit", async () =>
 	const net = new Netlayer({ socks: socks.address });
 	try {
 		const conn = await net.connect(SERVICE_ID);
+		assert(conn instanceof Connection, "the package entry preserves the raw Connection class identity");
 		// What reaches the wire is the frame inside its netstring envelope: a Syrup
 		// byte string whose length prefix the reader strips again.
 		const payload = new TextEncoder().encode(`<8'op:abort3"bye>`);

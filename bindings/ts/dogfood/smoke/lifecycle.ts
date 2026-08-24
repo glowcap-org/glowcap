@@ -14,12 +14,32 @@ import { bareLocator, Host, PancakeError, Runtime, Session, Sym } from "../../ru
 
 import { _connectIroh, IrohNetlayer, Reachability } from "../../iroh/impl.ts";
 import { NULL } from "../../runtime/internal/ffi/runtime.ts";
+import { entryFor } from "../../runtime/trampoline.ts";
 
 import { assert, ok, within } from "./support.ts";
+import { runFinishClosePolicy } from "./finish_close.ts";
 
 export async function run(managed: Runtime): Promise<void> {
+	// A rude TCP probe—connect, say nothing, hang up—is that connection's
+	// failure, not the listener's. The iterator must skip its failed handshake
+	// and keep accepting, so one port scan cannot take down a long-lived server.
 	{
 		await using probeHost = new Host();
+		// Host-wide publications hand their JS callback ownership to the native
+		// Vat. Unpublish retires the actor; the next outermost turn is the borrowed
+		// reply boundary that drops its box and invokes the shared free callback.
+		probeHost.publishGiftable("retired", () => null);
+		const publishedCtx = probeHost.giftableCtx("retired");
+		assert(
+			publishedCtx !== undefined,
+			"published giftable exposes its native callback context",
+		);
+		const retiredCtx: bigint = publishedCtx;
+		assert(
+			entryFor(retiredCtx) !== undefined,
+			"published giftable owns its JS behavior",
+		);
+		assert(probeHost.unpublishGiftable("retired"), "the live giftable alias should unpublish");
 		probeHost.publishGiftable("svc", () => new Sym("alive"));
 		const server = await tcp.listen("127.0.0.1", 0, { host: probeHost });
 		const port = server.port;
@@ -44,11 +64,16 @@ export async function run(managed: Runtime): Promise<void> {
 				reply instanceof Sym && (reply as Sym).value === "alive",
 				"the listener survived the rude probe and served the next client",
 			);
+			assert(
+				entryFor(retiredCtx) === undefined,
+				"the next native turn should release a retired giftable's JS behavior",
+			);
 			await session.close();
 		}
 		// Join both owners: the serve loop must survive the probe and the real client
 		// must complete before this scenario can release their loops.
 		await Promise.all([client(), served]);
+		ok("unpublish reclaims a TypeScript giftable behavior at the next turn boundary");
 		ok("a rude probe cannot close the listener");
 	}
 
@@ -379,114 +404,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("natural transport loss releases the same-target reconnect index");
 	}
 
-	// The finish policy (ADR-0114): close drives work admitted before its barrier
-	// to settlement within the grace budget instead of breaking it, and repeated
-	// close observes the one shared barrier rather than starting a second
-	// teardown. The pending work here is a locally initiated vow whose answer the
-	// partner releases only after close begins.
-	{
-		const listener = await listenTcp("127.0.0.1", 0);
-		const designator = tcp.addressDesignator("127.0.0.1", listener.port);
-		await using serverHost = new Host();
-		const host = new Host();
-		let enteredCall!: () => void;
-		const callEntered = new Promise<void>((resolve) => enteredCall = resolve);
-		let releaseAnswer!: () => void;
-		const answerGate = new Promise<void>((resolve) => releaseAnswer = resolve);
-		serverHost.publishGiftable("svc", () => {
-			enteredCall();
-			return answerGate.then(() => new Sym("done"));
-		});
-		const accepting = (async () =>
-			Session.establishAccepted(serverHost, {
-				transport: "tcp",
-				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
-				serverDesignator: designator,
-				channel: await listener.accept(),
-			}))();
-		const dialing = Session.establishDialedLocator(
-			host,
-			bareLocator("tcp", designator),
-			await connectTcp("127.0.0.1", listener.port),
-		);
-		const [serverSession, session] = await Promise.all([accepting, dialing]);
-		const servingServer = serverSession.serve().catch(() => {});
-		const servingClient = session.serve().catch(() => {});
-		const svc = await session.fetch("svc");
-		const reply = session.send(svc, "work", []);
-		await within(callEntered, 2_000, "the admitted call reaching the partner");
-		const first = host.close({ pending: "finish", graceMs: 5_000 });
-		const second = host.close({ pending: "finish", graceMs: 5_000 });
-		assert(first === second, "repeated close returns the one shared close barrier");
-		releaseAnswer();
-		const settled = await within(reply, 5_000, "the admitted vow settling under finish close");
-		assert(settled instanceof Sym && settled.value === "done", "finish close let the admitted vow settle");
-		await within(first, 5_000, "finish close settlement");
-		listener.close();
-		await serverHost.close();
-		await Promise.all([servingServer, servingClient]);
-		ok("a finish close settles admitted work and repeated close shares its barrier");
-	}
-
-	// A finish close whose admitted work cannot settle spends its finite grace,
-	// escalates to cancel, still reaches the release barrier, and reports the
-	// timeout (ADR-0114). The pending work is a negotiating session whose partner
-	// accepted the socket and says nothing, and a close call after the barrier
-	// completes observes the same recorded outcome.
-	{
-		const listener = await listenTcp("127.0.0.1", 0);
-		const designator = tcp.addressDesignator("127.0.0.1", listener.port);
-		const host = new Host();
-		// Accept the socket and say nothing on it, ever.
-		const silent = listener.accept();
-		const conn = await connectTcp("127.0.0.1", listener.port);
-		const negotiating = Session.establishDialedLocator(host, bareLocator("tcp", designator), conn).catch(() =>
-			null
-		);
-		let timedOut: PancakeError | null = null;
-		try {
-			await within(host.close({ pending: "finish", graceMs: 20 }), 5_000, "finite-grace finish close");
-		} catch (error) {
-			if (error instanceof PancakeError) timedOut = error;
-		}
-		assert(timedOut?.code === TIMEOUT, "a spent finish grace surfaces the typed timeout");
-		let repeated: PancakeError | null = null;
-		try {
-			await host.close();
-		} catch (error) {
-			if (error instanceof PancakeError) repeated = error;
-		}
-		assert(repeated?.code === TIMEOUT, "close after the barrier observes the recorded timeout");
-		conn.close();
-		(await silent).close();
-		await negotiating;
-		listener.close();
-		ok("a finish close that outlives its finite grace reports the typed TIMEOUT");
-	}
-
-	// The same spent-grace outcome through the loop front (ADR-0112): the pending
-	// work is a Runtime dial whose partner accepted the socket and says nothing.
-	// After close begins nothing arrives on the wire and no verb runs, so the
-	// close driver's park over `pancake_driver_step_wait_ms` is what spans the
-	// expiry, and its waking step is what escalates and reports the timeout.
-	{
-		const listener = await listenTcp("127.0.0.1", 0);
-		const runtime = await Runtime.open({ providers: [tcp.provider()] });
-		// Accept the socket and say nothing on it, ever.
-		const silent = listener.accept();
-		const negotiating = runtime.connect(tcp.locator("127.0.0.1", listener.port)).catch(() => null);
-		let timedOut: PancakeError | null = null;
-		try {
-			await within(runtime.close({ pending: "finish", graceMs: 20 }), 5_000, "loop finite-grace finish close");
-		} catch (error) {
-			if (error instanceof PancakeError) timedOut = error;
-		}
-		assert(timedOut?.code === TIMEOUT, "a spent loop finish grace surfaces the typed timeout");
-		(await silent).close();
-		await negotiating;
-		listener.close();
-		ok("a loop finish close that outlives its finite grace reports the typed TIMEOUT");
-	}
+	await runFinishClosePolicy();
 
 	// A core-issued CANCEL_DIAL interrupts and joins exactly its ticketed physical
 	// operation before acknowledging retirement.
@@ -495,7 +413,7 @@ export async function run(managed: Runtime): Promise<void> {
 		let aborted = false;
 		let markStarted!: () => void;
 		const started = new Promise<void>((resolve) => markStarted = resolve);
-		host.startDialTask(1n, (signal) =>
+		host.startDialTask(1n, 0n, (signal) =>
 			new Promise<void>((resolve) => {
 				markStarted();
 				signal.addEventListener("abort", () => {
@@ -504,7 +422,7 @@ export async function run(managed: Runtime): Promise<void> {
 				}, { once: true });
 			}));
 		await started;
-		await host.cancelDialTask(1n);
+		await host.cancelDialTask(1n, 0n);
 		assert(aborted, "CANCEL_DIAL must abort its ticketed operation");
 		await host.close();
 		ok("CANCEL_DIAL joins its ticketed dial work");
@@ -543,10 +461,4 @@ export async function run(managed: Runtime): Promise<void> {
 		listener.close();
 		ok("a silent partner times the dial out rather than parking it");
 	}
-
-	// The native TCP transport is its own composable module
-	// (`@pancake/tcp/transport`, riding libpancake_net_transport_tcp). Bind a
-	// listener, dial it, accept the peer, and shuttle one whole frame through the
-	// `pancake_tcp_*` endpoints intact. The Bun branch exited at its explicit
-	// refusal proof above, so this is the Deno application path.
 }

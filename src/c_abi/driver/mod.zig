@@ -31,6 +31,23 @@ const loop_sessions = @import("loop/sessions.zig");
 /// (the `pancake_host_*` half keeps its own inventory in `c_abi_host`).
 pub const symbols = @import("symbols.zig");
 
+pub const contract_layouts = [_]shared.archive_contract.Layout{
+    shared.archive_contract.layout("PANCAKE_DRIVER_OPTIONS", PancakeDriverOptions),
+    shared.archive_contract.layout("PANCAKE_DRIVER_FAILURE", PancakeDriverFailure),
+    shared.archive_contract.layout("PANCAKE_DRIVER_EVENT", PancakeDriverEvent),
+};
+
+/// Exact reflected callable/layout identity for the native driver archive.
+pub const PANCAKE_DRIVER_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint(
+    "driver",
+    @This(),
+    .{ shared.contract_layouts, c_abi_host.contract_layouts, contract_layouts },
+);
+
+pub export fn pancake_driver_archive_fingerprint() u64 {
+    return PANCAKE_DRIVER_ARCHIVE_FINGERPRINT;
+}
+
 // ── Shared value vocabulary (by layout, from the sibling roots) ──────────────
 
 pub const PancakeContext = shared.PancakeContext;

@@ -15,17 +15,17 @@ import type { Bound } from "./bound.ts";
 import type { TimeSpan } from "./time-span.ts";
 
 export const BoundSchema = z.object({
-  value: z.number().finite(),
-  explicit: z.boolean(),
+	value: z.number().finite(),
+	explicit: z.boolean(),
 });
 
 export const TimeSpanSchema = z.object({
-  start: BoundSchema,
-  duration: BoundSchema,
-  /** Provenance marker — see `TimeSpan.derived` in `time-span.ts`.
-   *  Serialized so a saved live recording re-derives cleanly when
-   *  loaded (projection keeps owning what it derived). */
-  derived: z.literal(true).optional(),
+	start: BoundSchema,
+	duration: BoundSchema,
+	/** Provenance marker — see `TimeSpan.derived` in `time-span.ts`.
+	 *  Serialized so a saved live recording re-derives cleanly when
+	 *  loaded (projection keeps owning what it derived). */
+	derived: z.literal(true).optional(),
 });
 
 // Compile-time agreement check — schema infer === hand-written.

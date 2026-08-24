@@ -36,15 +36,25 @@ pub const FailureReason = union(enum) {
 
 /// What the embedder must do next. Byte views are node-owned and valid until
 /// the next `Node.nextAction` call (or node teardown); copy what outlives that.
-/// `dial` carries only the pending ticket — URI and dial pieces live on the
-/// pending row (`Node.pendingDial`) so `acceptGive` owns them once.
+/// `dial` carries a pending ticket and route index — URI and dial pieces live
+/// on the pending row (`Node.pendingDial`) so `acceptGive` owns them once.
 pub const Action = union(enum) {
     /// Dial the exporter named by `pending`'s dial view with the node's
     /// retained identity, register the CapTP session, open the keyed session,
-    /// then feed `Node.exporterDialed(pending, peer_handle)` — or
-    /// `Node.dialFailed(pending, reason)` if any step refuses. Borrow via
-    /// `Node.pendingDial` until those reports consume the row.
-    dial: struct { pending: redeem_dials.PendingId },
+    /// bind any key the channel proved on that Peer, then feed
+    /// `Node.exporterDialed(pending, route_index, peer_handle)` — or
+    /// `Node.dialFailed(pending, route_index, reason)` if any step refuses.
+    /// The executor must first commit the exact dial effect; borrow its locator
+    /// via `Node.pendingDial` until a report consumes it.
+    dial: struct {
+        pending: redeem_dials.PendingId,
+        route_index: usize,
+    },
+    /// Interrupt and join a losing physical route after another route won.
+    cancel_dial: struct {
+        pending: redeem_dials.PendingId,
+        route_index: usize,
+    },
     /// Pump this CapTP session's outbound queue to the wire.
     flush: PeerHandle,
     /// Settle the returned answer or Host-owned deferred promise with the
@@ -74,14 +84,6 @@ pub const Action = union(enum) {
     /// inline-Passable transaction. This is terminal cleanup: Host consumes
     /// the retain even when its home session can no longer carry wire GC.
     release_capability: u64,
-    /// A delayed inline-Passable transaction can fail after its application
-    /// send already returned. Ask the Host to run the recipient session's
-    /// complete terminal barrier; closing only the Peer would strand vows and
-    /// admitted turns above it.
-    fail_session: struct {
-        peer_handle: PeerHandle,
-        reason: []const u8,
-    },
 };
 
 /// Inline action authority. Keeping these facts together makes reservations,
@@ -106,7 +108,7 @@ fn free(self: *Node, action: Action) void {
             .owned => |reason| self.allocator.free(reason),
             .static => {},
         },
-        .dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability, .fail_session => {},
+        .dial, .cancel_dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability => {},
     }
 }
 
@@ -196,12 +198,23 @@ pub fn consumePeekedAction(self: *Node) error{NoPendingAction}!void {
 }
 
 /// Pop borrowed: the preceding action remains valid until this call retires it.
+/// Returning a dial commits that exact attempt to the executor; stale queued
+/// attempts are discarded. Call `rollbackDialEffect` only when the executor
+/// refuses before publishing any physical work.
 pub fn nextAction(self: *Node) ?Action {
     if (self.actions.last) |last| {
         free(self, last);
         self.actions.last = null;
     }
-    const action = self.actions.queue.pop(self.allocator) orelse return null;
-    self.actions.last = action;
-    return action;
+    while (self.actions.queue.pop(self.allocator)) |action| {
+        if (action == .dial and
+            !self.beginDialEffect(action.dial.pending, action.dial.route_index))
+        {
+            free(self, action);
+            continue;
+        }
+        self.actions.last = action;
+        return action;
+    }
+    return null;
 }

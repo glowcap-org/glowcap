@@ -28,15 +28,15 @@ import asyncio
 import pathlib
 import sys
 
-from room_client import Directory, Room  # the pancake-backed clients, next to this file
+from room_client import Directory, Room, RoomInfo  # the pancake-backed clients, next to this file
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
 from rooms_cli import enter_or_open  # noqa: E402
 
 
-def _fmt_rooms(rooms: "list[tuple[str, int]]") -> str:
+def _fmt_rooms(rooms: "list[RoomInfo]") -> str:
     """Render the live room list for one line of output."""
-    return ", ".join(f"{name} ({count})" for name, count in rooms) if rooms else "(none yet)"
+    return ", ".join(f"{room.name} ({room.count if room.count is not None else 'unknown'})" for room in rooms) if rooms else "(none yet)"
 
 
 async def run_client(locator: str, room_name: str, nick: str, line: str, roster: list[str]) -> None:
@@ -45,7 +45,12 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
     # live list, both the snapshot (`list`) and the change feed (`watch`).
     live = await directory.list()
     print(f"[{nick}] rooms: {_fmt_rooms(live)}", flush=True)
-    await directory.watch(lambda kind, name, count: print(f"[{nick}] directory: {kind} {name} ({count})", flush=True))
+    await directory.watch(
+        lambda kind, room: print(
+            f"[{nick}] directory: {kind} {room.name} ({room.count if room.count is not None else 'unknown'})",
+            flush=True,
+        )
+    )
     room_ref = await enter_or_open(directory, room_name)
     room = await Room.subscribe(directory.session, room_ref, nick)
     want = set(roster)

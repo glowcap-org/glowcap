@@ -34,7 +34,7 @@
     "@deno/vite-plugin": "npm:@deno/vite-plugin@^2.0.3",
     "@pancake/abi": "../../bindings/ts/abi/constants.ts",
     "@pancake/runtime": "../../bindings/ts/runtime/mod.ts",
-    "@pancake/runtime/ffi": "../../bindings/ts/runtime/ffi.ts",
+    "@pancake/runtime/ffi": "../../bindings/ts/web/browser_ffi.ts",
     "@pancake/runtime/transport": "../../bindings/ts/runtime/transport.ts",
     "@pancake/runtime/websocket": "../../bindings/ts/runtime/websocket.ts",
     "@pancake/inproc": "../../bindings/ts/inproc/mod.ts",
@@ -67,12 +67,10 @@
     "noFallthroughCasesInSwitch": true
   },
   "fmt": {
-    "useTabs": false,
     "lineWidth": 120,
-    "indentWidth": 2,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts", "deno.json"],
+    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
     "exclude": ["dist/", "node_modules/", ".pixi/"]
   },
   "lint": {

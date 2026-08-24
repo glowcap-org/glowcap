@@ -165,7 +165,10 @@ pub fn checkCAbiResolveCases(
     // Loaders must still implement the same want_fetch / template verbs.
     const resolve_ports = shared.c_abi_binding_loaders ++ [_][]const u8{shared.operator_script};
     for (resolve_ports) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the resolve-verb check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, "releases_published") == null) {
             try appendViolation(gpa, violations, "{s}: resolve port must honor releases_published", .{path});

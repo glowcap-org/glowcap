@@ -17,6 +17,7 @@ pub const OmittedFamily = shared.symbols.OmittedFamily;
 pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_driver_archive_fingerprint" },
     .{
         .name = "pancake_driver_take_host",
         .out_params = &.{2},

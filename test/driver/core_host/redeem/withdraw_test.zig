@@ -131,16 +131,16 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
     const accepted = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7011", &.{});
-    const pending = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const pending = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const dialed = try recipient.openDialedLocator(.{
-        .transport = pending.transport,
-        .designator = pending.designator,
+        .transport = pending.locator.transport,
+        .designator = pending.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     listener.session = dialed;
     const r_to_e = Pair{ .ah = &recipient, .a = dialed, .bh = &exporter, .b = accepted };
     try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
-    try recipient.exporterDialed(parked.ticket, dialed);
+    _ = try recipient.exporterDialed(parked.ticket, 0, dialed);
     try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
 
     try std.testing.expect(listener.captured.broken);
@@ -219,15 +219,15 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
 
     const parked = dials.items[0];
     const accepted = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
-    const pending = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const pending = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const dialed = try recipient.openDialedLocator(.{
-        .transport = pending.transport,
-        .designator = pending.designator,
+        .transport = pending.locator.transport,
+        .designator = pending.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const r_to_e = Pair{ .ah = &recipient, .a = dialed, .bh = &exporter, .b = accepted };
     try pumpToQuiescence(allocator, &.{ &exporter, &recipient }, &.{r_to_e}, &dials);
-    try recipient.exporterDialed(parked.ticket, dialed);
+    _ = try recipient.exporterDialed(parked.ticket, 0, dialed);
     try pumpToQuiescence(allocator, &.{ &exporter, &recipient }, &.{r_to_e}, &dials);
 
     try std.testing.expectEqual(@as(usize, 1), exporter.node.handoffWaiterCount(g_to_e.b.peer_handle));

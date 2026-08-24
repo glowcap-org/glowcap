@@ -5,6 +5,7 @@ comptime {
     _ = @import("foundation/id_test.zig");
     _ = @import("foundation/crypto_test.zig");
     _ = @import("foundation/noise_test.zig");
+    _ = @import("foundation/sealed_test.zig");
     _ = @import("foundation/spill_test.zig");
     _ = @import("foundation/failure_chain_test.zig");
     _ = @import("codec/syrup/encode_test.zig");
@@ -49,11 +50,13 @@ comptime {
     _ = @import("c_abi/archive_contract_test.zig");
     _ = @import("c_abi/locator_adapter_test.zig");
     _ = @import("c_abi/uri_test.zig");
+    _ = @import("c_abi/designator_test.zig");
     _ = @import("c_abi/host/close_test.zig");
     _ = @import("c_abi/host/authority_test.zig");
     _ = @import("c_abi/host/verbs_test.zig");
     _ = @import("c_abi/host/values_test.zig");
     _ = @import("c_abi/host/turn_test.zig");
+    _ = @import("c_abi/host/dial_plan_test.zig");
     _ = @import("c_abi/host/handoff_test.zig");
     _ = @import("c_abi/host/stream_test.zig");
     _ = @import("c_abi/host/callback_test.zig");
@@ -65,6 +68,7 @@ comptime {
     _ = @import("c_abi/onion_loopback/conversation_test.zig");
     _ = @import("c_abi/onion_loopback/refusal_test.zig");
     _ = @import("c_abi/relay_provider_test.zig");
+    _ = @import("c_abi/relay_provider/buffered_accept_test.zig");
     _ = @import("c_abi/tcp_provider_options_test.zig");
     _ = @import("net/connection_test.zig");
     _ = @import("net/completion_contract_test.zig");
@@ -102,6 +106,8 @@ comptime {
     _ = @import("net/noise_relay_pressure_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_loop_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("net/completion_listener_test.zig");
     _ = @import("net/completion_loop_backpressure_test.zig");
     _ = @import("net/completion_loop_stream_test.zig");
     _ = @import("net/completion_loop_reclaim_test.zig");
@@ -163,6 +169,7 @@ comptime {
     _ = @import("engine/peer/abort_test.zig");
     _ = @import("engine/peer/shortening_test.zig");
     _ = @import("engine/peer/settling_test.zig");
+    _ = @import("engine/peer/listen_failure_test.zig");
     _ = @import("engine/relay_resolution_test.zig");
     _ = @import("engine/listen_on_far_test.zig");
     _ = @import("engine/resolver_export_test.zig");
@@ -191,6 +198,7 @@ comptime {
     _ = @import("engine/cross_peer/parked_admission_test.zig");
     _ = @import("engine/cross_peer/capnp_test.zig");
     _ = @import("engine/pairing/handshake_test.zig");
+    _ = @import("engine/pairing/route_vocabulary_test.zig");
     _ = @import("engine/pairing/offers_test.zig");
     _ = @import("engine/pairing/signature_test.zig");
     _ = @import("engine/pairing/resolver_test.zig");
@@ -202,6 +210,8 @@ comptime {
     _ = @import("engine/node/answer_settlement_test.zig");
     _ = @import("engine/node/gift_failure_test.zig");
     _ = @import("engine/node/dial_test.zig");
+    _ = @import("engine/node/dial/allocation_test.zig");
+    _ = @import("engine/node/dial/id_route_test.zig");
     _ = @import("engine/node/withdraw_test.zig");
     _ = @import("engine/node/enroll_test.zig");
     _ = @import("engine/node/relay_test.zig");
@@ -213,17 +223,21 @@ comptime {
     _ = @import("driver/core_host/finish_test.zig");
     _ = @import("driver/core_host/pressure_test.zig");
     _ = @import("driver/core_host/give_test.zig");
+    _ = @import("driver/core_host/give/staged_test.zig");
     _ = @import("driver/core_host/capability_projection_test.zig");
     _ = @import("driver/core_host/routing_depth_test.zig");
     _ = @import("driver/core_host/give/relayed_test.zig");
     _ = @import("driver/core_host/locator_test.zig");
     _ = @import("driver/core_host/redeem_test.zig");
+    _ = @import("driver/core_host/redeem/id_routes_test.zig");
+    _ = @import("driver/core_host/redeem/route_completion_test.zig");
     _ = @import("driver/core_host/redeem/withdraw_test.zig");
     _ = @import("driver/core_host/actors_test.zig");
     _ = @import("driver/core_host/actors/swiss_test.zig");
     _ = @import("driver/core_host/pairing_test.zig");
     _ = @import("driver/core_host/pairing/reentry_test.zig");
     _ = @import("driver/core_host/vow_test.zig");
+    _ = @import("driver/core_host/vow/allocation_test.zig");
     _ = @import("driver/core_host/admission_test.zig");
     _ = @import("driver/core_host/range_test.zig");
     _ = @import("driver/core_host/identity_test.zig");

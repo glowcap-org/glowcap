@@ -1,0 +1,140 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 760 430"
+  width="760"
+  height="430"
+  role="img"
+  aria-label="Dialing one multi-home peer. You hold ocapn://b7ke&#8230;f2q1.id. The first via route, iroh, is unreachable. The second, noise-relay, connects and its channel proves the key b7ke&#8230;f2q1, so this is the peer. The tcp alt-locator is a weak fallback: it can redeem a signed gift but never proves who answered. Routes are tried in order, and the peer's name outlives every route."
+>
+  <style>
+    text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); paint-order: stroke; stroke: var(--paper, #fff3df); stroke-width: 3.5px; stroke-linejoin: round; }
+    .title { font-size: 14px; font-weight: 700; fill: var(--ink, #3a3027); }
+    .sub { font-size: 12px; fill: var(--ink-soft, #6b5d4d); }
+    .chip { font-size: 12.5px; font-weight: 700; fill: var(--ink, #3a3027); }
+    .mono { font-family: var(--font-mono, ui-monospace, "SF Mono", "Cascadia Code", monospace); font-size: 12px; font-weight: 600; }
+    .ok { font-size: 12px; font-weight: 600; fill: var(--teal-deep, #1b5f66); }
+    .warn { font-size: 12px; font-weight: 600; fill: var(--accent-deep, #a4560c); }
+    .dead { font-size: 12px; font-weight: 600; fill: var(--dia-muted, #8a7862); }
+
+    /* Motion: one 14s loop telling the dial in order. The base styles are
+       the finished static diagram, so a reader with reduced motion, or no
+       CSS animation at all, still sees every verdict at once. */
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+    }
+    .act1 { animation: mh-act1 14s ease-in-out infinite; }
+    .act2 { animation: mh-act2 14s ease-in-out infinite; }
+    .act3 { animation: mh-act3 14s ease-in-out infinite; }
+    @keyframes mh-act1 {
+      0%, 2% { opacity: 0.3; }
+      6%, 26% { opacity: 1; }
+      32%, 100% { opacity: 0.3; }
+    }
+    @keyframes mh-act2 {
+      0%, 30% { opacity: 0.3; }
+      36%, 62% { opacity: 1; }
+      68%, 100% { opacity: 0.3; }
+    }
+    @keyframes mh-act3 {
+      0%, 66% { opacity: 0.3; }
+      72%, 94% { opacity: 1; }
+      100%, 100% { opacity: 0.3; }
+    }
+
+    .w1 { stroke-dasharray: 230; animation: mh-w1 14s ease-in-out infinite; }
+    @keyframes mh-w1 {
+      0%, 4% { stroke-dashoffset: 230; }
+      14%, 100% { stroke-dashoffset: 0; }
+    }
+    .w2 { stroke-dasharray: 430; animation: mh-w2 14s ease-in-out infinite; }
+    @keyframes mh-w2 {
+      0%, 34% { stroke-dashoffset: 430; }
+      48%, 100% { stroke-dashoffset: 0; }
+    }
+    .w3 { animation: mh-w3 14s ease-in-out infinite; }
+    @keyframes mh-w3 {
+      0%, 68% { opacity: 0; }
+      76%, 94% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+
+    .seal {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: mh-seal 14s ease-out infinite;
+    }
+    @keyframes mh-seal {
+      0%, 44% { transform: scale(0.45); opacity: 0; }
+      50% { opacity: 0.55; }
+      60%, 100% { transform: scale(1.7); opacity: 0; }
+    }
+    .keyglow { animation: mh-keyglow 14s ease-in-out infinite; }
+    @keyframes mh-keyglow {
+      0%, 48% { stroke-width: 1; }
+      54%, 64% { stroke-width: 2.6; }
+      70%, 100% { stroke-width: 1; }
+    }
+  </style>
+
+  <defs>
+    <marker id="mh-arr-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--teal, #257f88)"/>
+    </marker>
+    <marker id="mh-arr-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--accent, #c76f18)"/>
+    </marker>
+  </defs>
+
+  <!-- The dialer, holding one name for the whole peer -->
+  <rect x="24" y="176" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+  <text x="79" y="206" text-anchor="middle" class="chip">you</text>
+  <text x="24" y="252" class="mono" fill="var(--teal-deep, #1b5f66)">ocapn://b7ke&#8230;f2q1.id</text>
+  <text x="24" y="270" class="sub">one name, every route below it</text>
+
+  <!-- The peer: one identity, three doors -->
+  <rect x="520" y="48" width="220" height="340" rx="14" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+  <text x="630" y="76" text-anchor="middle" class="title">one peer</text>
+  <rect class="keyglow" x="548" y="88" width="164" height="26" rx="13" fill="var(--teal, #257f88)" fill-opacity="0.10" stroke="var(--teal, #257f88)"/>
+  <text x="630" y="105" text-anchor="middle" class="mono" fill="var(--teal-deep, #1b5f66)">key b7ke&#8230;f2q1</text>
+
+  <g class="act1">
+    <rect x="538" y="140" width="184" height="48" rx="10" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="630" y="160" text-anchor="middle" class="chip">iroh</text>
+    <text x="630" y="177" text-anchor="middle" class="sub">via, tried first</text>
+  </g>
+  <g class="act2">
+    <rect x="538" y="216" width="184" height="48" rx="10" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="630" y="236" text-anchor="middle" class="chip">noise-relay</text>
+    <text x="630" y="253" text-anchor="middle" class="ok">via, tried next</text>
+  </g>
+  <g class="act3">
+    <rect x="538" y="308" width="184" height="48" rx="10" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+    <text x="630" y="328" text-anchor="middle" class="chip">tcp</text>
+    <text x="630" y="345" text-anchor="middle" class="warn">alt-locator, weak</text>
+  </g>
+
+  <!-- Act 1: the first via route is unreachable -->
+  <g class="act1">
+    <path class="w1" d="M134 188 C 220 154, 280 144, 344 142" fill="none" stroke="var(--teal, #257f88)" stroke-width="2.2"/>
+    <path d="M352 134 L368 150 M368 134 L352 150" fill="none" stroke="var(--dia-muted, #8a7862)" stroke-width="3"/>
+    <path d="M376 142 C 430 142, 480 150, 536 160" fill="none" stroke="var(--dia-muted, #8a7862)" stroke-width="1.6" stroke-dasharray="4 4"/>
+    <text x="300" y="122" text-anchor="middle" class="dead">unreachable right now</text>
+  </g>
+
+  <!-- Act 2: the next via route answers and proves the key -->
+  <g class="act2">
+    <path class="w2" d="M134 202 C 280 208, 400 224, 530 238" fill="none" stroke="var(--teal, #257f88)" stroke-width="2.4" marker-end="url(#mh-arr-ok)"/>
+    <circle class="seal" cx="340" cy="216" r="18" fill="none" stroke="var(--teal, #257f88)" stroke-width="2"/>
+    <text x="330" y="200" text-anchor="middle" class="ok">the channel itself proves b7ke&#8230;f2q1</text>
+    <text x="330" y="244" text-anchor="middle" class="sub">so whoever answered here is the peer</text>
+  </g>
+
+  <!-- Act 3: the weak fallback carries a gift, never the identity -->
+  <g class="act3">
+    <path class="w3" d="M134 216 C 260 268, 400 296, 530 326" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#mh-arr-warn)"/>
+    <text x="300" y="310" text-anchor="middle" class="warn">weak: can redeem a signed gift</text>
+    <text x="300" y="328" text-anchor="middle" class="sub">never proves or records who answered</text>
+  </g>
+
+  <text x="24" y="416" class="sub">Routes are tried in order, and whichever channel proves the key is the peer. The name outlives every route.</text>
+</svg>

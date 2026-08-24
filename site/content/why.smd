@@ -324,7 +324,7 @@ Memory-safe languages already enforce it inside one process. An object
 reference can only be used by code it was given to, and nothing conjures a
 pointer to a private object out of thin air. Object-capability security
 treats that guarantee as the whole security model.
-[CapTP](http://erights.org/elib/distrib/captp/), a protocol design that came
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/), a protocol design that came
 out of the E language, carries the rule across a network between mutually
 suspicious programs. OCapN standardizes CapTP, under the
 [Spritely Institute](https://spritely.institute/) and a community group.

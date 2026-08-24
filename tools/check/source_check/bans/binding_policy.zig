@@ -3,6 +3,52 @@
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
+/// Native drain quantum exhaustion is scheduler progress, not a time delay.
+/// Each async binding names its runtime's continuation primitive.
+pub const runtime_progress_rows: []const Ban = &.{
+    .{
+        .where = .{ .files = &.{
+            "bindings/python/pancake/_host/progress.py",
+            "bindings/racket/private/pump.rkt",
+            "bindings/rust/src/host/progress.rs",
+            "bindings/rust/src/driver_loop.rs",
+            "bindings/ts/runtime/host/drive.ts",
+        } },
+        .kind = .forbid,
+        .needles = &.{ "asyncio.sleep(0)", "(sleep 0)", "yield_now()", "setTimeout(resolve, 0)" },
+        .check = "binding-runtime-progress",
+        .why = "binding progress follows scheduler/readiness events; zero-duration sleeps, timers, and unstructured yields make timing part of correctness",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_host/progress.py" },
+        .kind = .require,
+        .needles = &.{"loop.call_soon(resume)"},
+        .check = "binding-runtime-progress",
+        .why = "Python resumes a yielded native drain on an explicit asyncio loop callback",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/private/pump.rkt" },
+        .kind = .require,
+        .needles = &.{"(loop (call-in-nested-thread (drain-effects-resume current)))"},
+        .check = "binding-runtime-progress",
+        .why = "Racket joins yielded native work through an explicit nested-thread scheduler handoff",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/host/progress.rs" },
+        .kind = .require,
+        .needles = &.{"tokio::task::coop::consume_budget().await;"},
+        .check = "binding-runtime-progress",
+        .why = "Rust charges native drain batches to Tokio's cooperative task budget",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/runtime/host/drive.ts" },
+        .kind = .require,
+        .needles = &.{"const channel = new MessageChannel();"},
+        .check = "binding-runtime-progress",
+        .why = "TypeScript uses a real task source when scheduler.yield is unavailable instead of a zero-duration timer",
+    },
+};
+
 /// The unobserved-outcome FIFO cap is one binding-policy number shared by the
 /// three async bindings and mirrored in the bindings README. The value belongs
 /// to `tools/gen/binding/policy.zig`, not the C ABI; generated mirrors carry it
@@ -146,33 +192,6 @@ pub const pending_dial_hint_probe_rows: []const Ban = &.{
         .needles = &.{ "capacity = 8", "capacity = 4", "[capacity 4]" },
         .check = "pending-dial-hint-probe",
         .why = "pending-dial hint sizing comes from the C-reported required count, not a binding-local seed capacity",
-    },
-};
-
-/// The byte-transparent relay accepts only binary WebSocket messages. Text is a
-/// typed WebSocket payload, not opaque CapTP bytes, so Racket must not
-/// reinterpret it through UTF-8.
-pub const racket_relay_binary_rows: []const Ban = &.{
-    .{
-        .where = .{ .file = "bindings/racket/relay.rkt" },
-        .kind = .require,
-        .needles = &.{"(define msg (recv conn #:payload-type 'binary))"},
-        .check = "racket-relay-binary",
-        .why = "the Racket relay must request binary WebSocket payloads for byte transparency",
-    },
-    .{
-        .where = .{ .file = "bindings/racket/relay.rkt" },
-        .kind = .forbid,
-        .needles = &.{ "#:payload-type 'auto", "string->bytes/utf-8 msg" },
-        .check = "racket-relay-binary",
-        .why = "the Racket relay must reject text WebSocket messages instead of converting them to bytes",
-    },
-    .{
-        .where = .{ .file = "bindings/racket/test/zig-smoke/diagnostics.rkt" },
-        .kind = .require,
-        .needles = &.{"relay refuses text WebSocket messages instead of reinterpreting them"},
-        .check = "racket-relay-binary",
-        .why = "Racket smoke diagnostics pin the byte relay's text-message refusal",
     },
 };
 

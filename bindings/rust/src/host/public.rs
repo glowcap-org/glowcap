@@ -1,6 +1,7 @@
 //! Public Host construction, publication, identity, and resolver surface.
 
 use super::*;
+use crate::CaptpVersion;
 /// The CapTP Host: one identity, one actor graph, one routing and redeem
 /// authority, shared by every session minted against it. Owns `engine.Node`
 /// (router half of Goblins mycapn; Host carries the product role — ADR-0079).
@@ -28,7 +29,7 @@ pub enum ListenerIdentity {
 	Host(Host),
 }
 
-#[cfg(any(feature = "tcp", feature = "onion"))]
+#[cfg(any(feature = "tcp", feature = "onion", feature = "relay"))]
 impl ListenerIdentity {
 	pub(crate) fn into_host(self) -> Result<Host> {
 		match self {
@@ -43,7 +44,7 @@ impl ListenerIdentity {
 /// local-turn budget are mint-time; each session settles version and codec with
 /// its partner, falling back to v1.0/Syrup when needed, and runs only the
 /// intersection of the two offered feature sets. Selective session limits stay
-/// on [`Host::set_session_limits`] (ADR-0082).
+/// on [`Host::set_session_limits`] (ADR-0124).
 #[derive(Debug, Clone, Copy)]
 pub struct HostOptions {
 	pub codec: Codec,
@@ -75,6 +76,17 @@ impl HostOptions {
 			..Self::default()
 		}
 	}
+}
+
+/// Selective overrides copied into sessions minted after the call. Zero fields
+/// preserve the Host's current value; the durable sent-answer budget remains
+/// separate from transient outbound flow pressure.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionLimitOptions {
+	pub max_frame_bytes: usize,
+	pub queue_cap: usize,
+	pub outbound_high_water_bytes: usize,
+	pub max_retained_sent_answer_bytes: u32,
 }
 
 impl Host {
@@ -145,16 +157,9 @@ impl Host {
 		})
 	}
 
-	/// Selective session-limit knobs (ADR-0082). Pass `0` to leave a field
-	/// unchanged. Affects peers minted after this call.
-	pub fn set_session_limits(
-		&self,
-		max_frame_bytes: usize,
-		queue_cap: usize,
-		outbound_high_water_bytes: usize,
-	) -> Result<()> {
-		self.shared
-			.set_session_limits(max_frame_bytes, queue_cap, outbound_high_water_bytes)
+	/// Apply selective limits to peers minted after this call.
+	pub fn set_session_limits(&self, options: SessionLimitOptions) -> Result<()> {
+		self.shared.set_session_limits(options)
 	}
 
 	/// Claim every callerless failure retained by this Host's allocation
@@ -237,16 +242,36 @@ impl Host {
 	/// the dial reports. [`Session::enliven`] is the narrower verb — it never
 	/// dials, and refuses a sturdyref for another peer.
 	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
+		self.enliven_inner(sturdyref, None).await
+	}
+
+	/// Enliven a sturdyref whose swiss spelling is defined by `captp_version`,
+	/// while this Host still owns live-session selection and dialing.
+	pub async fn enliven_for_version(&self, sturdyref: &str, captp_version: CaptpVersion) -> Result<Ref> {
+		self.enliven_inner(sturdyref, Some(captp_version)).await
+	}
+
+	async fn enliven_inner(&self, sturdyref: &str, captp_version: Option<CaptpVersion>) -> Result<Ref> {
 		self.shared.guard_handle()?;
 		let mut vow: u64 = 0;
 		check_host(unsafe {
-			ffi::pancake_host_enliven(self.shared.raw(), sturdyref.as_ptr(), sturdyref.len(), &mut vow)
+			match captp_version {
+				Some(version) => ffi::pancake_host_enliven_for_version(
+					self.shared.raw(),
+					version.to_c(),
+					sturdyref.as_ptr(),
+					sturdyref.len(),
+					&mut vow,
+				),
+				None => ffi::pancake_host_enliven(self.shared.raw(), sturdyref.as_ptr(), sturdyref.len(), &mut vow),
+			}
 		})?;
 		// The vow may be parked on a dial with no session of its own, which is
 		// exactly the `None` session row the vow table already admits.
 		// Host-level enliven is owned by the durable dedup cache, not a
 		// GC-enabled arrival session (ADR-0063).
 		self.shared.vow_minted(vow, None);
+		let _release = crate::gc::VowGuard::new(&self.shared, vow);
 		let settled = self.shared.await_vow(vow);
 		self.shared.kick_actions().await?;
 		match settled.await? {

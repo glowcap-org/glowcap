@@ -56,7 +56,10 @@ pub fn checkAbiReturnShape(
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         const path = try std.fmt.allocPrint(gpa, "src/c_abi/{s}", .{entry.path});
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the layout-mirror check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
 
         const opener = "pub export fn ";
@@ -111,38 +114,63 @@ pub fn checkAbiReturnShape(
 /// transport and a session id and turned a byte of provenance into a word,
 /// while the Python mirror kept declaring the field set the library had
 /// stopped sending. It sat below its module's pin call and no gate could see
-/// it. This check reads the generator's own table and, for every struct a
-/// binding declares a mirror of, requires the pin in the same file.
+/// it. This check reads the canonical per-archive `contract_layouts`
+/// manifests directly. Their `archive_contract.layout` rows are projected
+/// into bindings; `cOnlyLayout` rows remain fingerprinted without reopening a
+/// retired binding surface. For every projected struct a binding declares a
+/// mirror of, this requires the pin in the same file.
 pub fn checkBindingStructPins(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const gen_path = "tools/gen/binding/ffi_layouts.zig";
-    const gen = root.readFileAlloc(io, gen_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for binding struct-pin check with {s}", .{ gen_path, @errorName(err) });
+    var abi_types: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (abi_types.items) |name| gpa.free(name);
+        abi_types.deinit(gpa);
+    }
+
+    var c_abi_dir = root.openDir(io, "src/c_abi", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src/c_abi: failed to open canonical layout manifests with {s}", .{@errorName(err)});
         return;
     };
-    defer gpa.free(gen);
-
-    // Each row reads `layoutOf("PANCAKE_TRACE_EVENT", cd.PancakeTraceEvent),`.
-    var abi_types: std.ArrayList([]const u8) = .empty;
-    defer abi_types.deinit(gpa);
-    var cursor: usize = 0;
-    while (std.mem.indexOfPos(u8, gen, cursor, "    layoutOf(\"")) |row| {
-        const line_end = std.mem.indexOfScalarPos(u8, gen, row, '\n') orelse gen.len;
-        const line = gen[row..line_end];
-        cursor = line_end;
-        const comma = std.mem.indexOf(u8, line, ", ") orelse continue;
-        var type_name = line[comma + 2 ..];
-        if (std.mem.indexOfScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
-        if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
-        if (type_name.len == 0) continue;
-        try abi_types.append(gpa, type_name);
+    defer c_abi_dir.close(io);
+    var walker = try c_abi_dir.walk(gpa);
+    defer walker.deinit();
+    const layout_needle = "archive_contract.layout(\"";
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const path = try std.fmt.allocPrint(gpa, "src/c_abi/{s}", .{entry.path});
+        defer gpa.free(path);
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read canonical layout manifest with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        var cursor: usize = 0;
+        while (std.mem.indexOfPos(u8, contents, cursor, layout_needle)) |row| {
+            const line_end = std.mem.indexOfScalarPos(u8, contents, row, '\n') orelse contents.len;
+            const line = contents[row..line_end];
+            cursor = line_end;
+            const comma = std.mem.indexOf(u8, line, ", ") orelse continue;
+            var type_name: []const u8 = line[comma + 2 ..];
+            if (std.mem.indexOfScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
+            type_name = std.mem.trim(u8, type_name, " \t\r");
+            if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
+            if (type_name.len == 0) continue;
+            var duplicate = false;
+            for (abi_types.items) |known| {
+                if (std.mem.eql(u8, known, type_name)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) try abi_types.append(gpa, try gpa.dupe(u8, type_name));
+        }
     }
     if (abi_types.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no `layoutOf(` rows found — the binding struct-pin check reads this table and has nothing to hold", .{gen_path});
+        try appendViolation(gpa, violations, "src/c_abi: no binding-projected `archive_contract.layout` rows found; struct mirrors have no canonical inventory", .{});
         return;
     }
 

@@ -26,6 +26,7 @@ const close = @import("close.zig");
 /// pump mechanics and direct GC emission never become embedder API.
 pub const testing = if (builtin.is_test) struct {
     pub const queueUniqueSessionAction = host_pump.testing.queueUniqueSessionAction;
+    pub const startAbnormalTermination = @import("host/close.zig").testing.startAbnormalTermination;
 
     pub fn emitStatelessAfter(peer: *@import("engine").Peer, event: *@import("engine").Event) !void {
         try gc.emitStatelessAfter(peer, event);
@@ -62,9 +63,6 @@ pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget
 // the C ABI's `libpancake_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
-/// The sealed byte channel (ADR-0107): the Noise_XK composition a sealed
-/// `HostSession` runs its wire through. Its ephemeral derives from the unique
-/// per-session signing seed; embedders supply one fresh session root per Host.
 pub const HostAction = host_action.HostAction;
 pub const VowFailure = host_action.VowFailure;
 pub const HostFailure = @import("host/failure.zig").HostFailure;

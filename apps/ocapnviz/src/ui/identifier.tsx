@@ -37,20 +37,20 @@ export { elideIdentifier, IDENTIFIER_ELIDE_ABOVE, IDENTIFIER_END_CHARS } from ".
  *  what a reader can act on, and the clamp is what the layout can rely
  *  on. */
 const identifierStyle = {
-  color: c.text,
-  fontFamily: FONT.mono,
-  fontSize: SIZE.xs,
-  fontVariantNumeric: "tabular-nums",
-  // `inline-block` so the clamp below applies in a sentence as well as in
-  // a grid cell; `bottom` alignment keeps a clipped box sitting on the
-  // line rather than hanging below it.
-  display: "inline-block",
-  verticalAlign: "bottom",
-  maxWidth: "100%",
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+	color: c.text,
+	fontFamily: FONT.mono,
+	fontSize: SIZE.xs,
+	fontVariantNumeric: "tabular-nums",
+	// `inline-block` so the clamp below applies in a sentence as well as in
+	// a grid cell; `bottom` alignment keeps a clipped box sitting on the
+	// line rather than hanging below it.
+	display: "inline-block",
+	verticalAlign: "bottom",
+	maxWidth: "100%",
+	minWidth: 0,
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
 } satisfies React.CSSProperties;
 
 /**
@@ -62,20 +62,20 @@ const identifierStyle = {
  * rather than remembered at each row.
  */
 export function Identifier(
-  { value, style }: {
-    value: string;
-    /** Layout the surrounding row needs, such as the weight a link row
-     *  gives its title cell. Typography and the clamp are this module's
-     *  and are not meant to be overridden. */
-    style?: React.CSSProperties | undefined;
-  },
+	{ value, style }: {
+		value: string;
+		/** Layout the surrounding row needs, such as the weight a link row
+		 *  gives its title cell. Typography and the clamp are this module's
+		 *  and are not meant to be overridden. */
+		style?: React.CSSProperties | undefined;
+	},
 ) {
-  return (
-    <code
-      style={style ? { ...identifierStyle, ...style } : identifierStyle}
-      title={value}
-    >
-      {elideIdentifier(value)}
-    </code>
-  );
+	return (
+		<code
+			style={style ? { ...identifierStyle, ...style } : identifierStyle}
+			title={value}
+		>
+			{elideIdentifier(value)}
+		</code>
+	);
 }

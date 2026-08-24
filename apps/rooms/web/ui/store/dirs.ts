@@ -7,6 +7,7 @@
 // what made holding two of them unspellable.
 
 import type { DirId, DirView, SessionPhase } from "../types.ts";
+import type { RoomInfo } from "../../../lib/directory_publications.ts";
 import { set, state } from "./core.ts";
 
 /** Replace one directory's view, leaving every other directory alone. */
@@ -107,22 +108,58 @@ export function isSelf(dir: DirId, name: string): boolean {
 	const nick = state.dirs.get(dir)?.nick ?? "";
 	return nick !== "" && name.toLowerCase() === nick.toLowerCase();
 }
-export function setLiveRoom(dir: DirId, name: string, count: number): void {
+function liveRoomKey(name: string): string {
+	return name.toLowerCase();
+}
+
+export function liveRoom(dir: DirId, name: string): RoomInfo | null {
+	return state.dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
+}
+
+/** The publication `name` must be entered through, or null to enter by name.
+ *
+ * Only a foreign room answers with its listing entry: entering its name with
+ * an ordinary open would mint a fresh local room wearing it, so the exact
+ * publication generation is the one way in. A local room is the opposite —
+ * it is always reachable by name, and keying its conversation by a listing
+ * entry made one room two conversations whenever the listing arrived after
+ * the first entry, with the address mirror then re-entering whichever copy
+ * the reader had just left. Every entry path asks this one question so that
+ * split cannot come back. */
+export function enteredPublication(dir: DirId, name: string): RoomInfo | null {
+	const live = liveRoom(dir, name);
+	return live !== null && live.kind === "foreign" ? live : null;
+}
+
+/** Where a bridged room's channel lives, or null for every other room. Read
+ * from the directory view a component already holds, so the rail can say it
+ * without reaching past its props; the key fold stays this module's. */
+export function bridgedOrigin(
+	view: { liveRooms: ReadonlyMap<string, RoomInfo> } | undefined,
+	name: string,
+): string | null {
+	const live = view?.liveRooms.get(liveRoomKey(name));
+	return live !== undefined && live.kind === "bridge" ? live.origin : null;
+}
+
+export function setLiveRoom(dir: DirId, room: RoomInfo): void {
 	const held = state.dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
-	liveRooms.set(name, count);
+	liveRooms.set(liveRoomKey(room.name), room);
 	patchDir(dir, { liveRooms });
 }
-export function dropLiveRoom(dir: DirId, name: string): void {
+export function dropLiveRoom(dir: DirId, room: RoomInfo): void {
 	const held = state.dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
-	liveRooms.delete(name);
+	const key = liveRoomKey(room.name);
+	if (liveRooms.get(key)?.id !== room.id) return;
+	liveRooms.delete(key);
 	patchDir(dir, { liveRooms });
 }
-export function resetLiveRooms(dir: DirId, rooms: Iterable<readonly [string, number]>): void {
-	patchDir(dir, { liveRooms: new Map(rooms) });
+export function resetLiveRooms(dir: DirId, rooms: Iterable<RoomInfo>): void {
+	patchDir(dir, { liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])) });
 }
 export function setDmable(dir: DirId, name: string, reachable: boolean): void {
 	const held = state.dirs.get(dir);

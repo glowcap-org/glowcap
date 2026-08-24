@@ -27,6 +27,34 @@ const prepareAcceptOwnershipRuntime = fixtures.prepareAcceptOwnershipRuntime;
 const frame_cap = fixtures.frame_cap;
 const opts = fixtures.opts;
 
+test "HostRuntime preserves configured and adopted feature vocabulary" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const features = model.FeatureSet.full().forCaptpVersion(.next);
+
+    var configured = opts;
+    configured.captp_version = .next;
+    configured.features = features;
+    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, configured);
+    defer runtime.deinit();
+    try std.testing.expectEqual(features, runtime.opts.features);
+    try std.testing.expectEqual(features, runtime.core.opts.features);
+
+    var core_options = driver_core.Host.Options{};
+    core_options.captp_version = .next;
+    core_options.features = features;
+    var core = test_host.init(allocator, @as([32]u8, @splat(0x51)), core_options);
+    defer core.deinit();
+    var adopted = try driver.HostRuntime.initWithCore(allocator, io, &core, &.{}, .{
+        .handshake = opts.handshake,
+        .settle = opts.settle,
+    });
+    defer adopted.deinit();
+    try std.testing.expectEqual(features, adopted.opts.features);
+}
+
 test "HostRuntime refuses duplicate provider authority independent of provider shape" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});

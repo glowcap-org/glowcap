@@ -213,18 +213,30 @@ fn gatedClaimsIn(
 
         // name -> the `const <var> = b.step("<name>"` that declares it.
         var decl_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&decl_buf, "= b.step(\"{s}\",", .{name}) catch continue;
+        const needle = std.fmt.bufPrint(&decl_buf, "= b.step(\"{s}\",", .{name}) catch {
+            try appendViolation(gpa, violations, "build.zig: step \"{s}\" overflows a wiring-check needle buffer; grow the buffer", .{name});
+            continue;
+        };
         var table_buf: [220]u8 = undefined;
-        const table_row = std.fmt.bufPrint(&table_buf, ".check_step_name = \"{s}\"", .{name}) catch continue;
+        const table_row = std.fmt.bufPrint(&table_buf, ".check_step_name = \"{s}\"", .{name}) catch {
+            try appendViolation(gpa, violations, "build.zig: step \"{s}\" overflows a wiring-check needle buffer; grow the buffer", .{name});
+            continue;
+        };
         if (std.mem.indexOf(u8, build_src, table_row) != null) continue;
         var inline_buf: [180]u8 = undefined;
-        const inline_decl = std.fmt.bufPrint(&inline_buf, "b.step(\"{s}\",", .{name}) catch continue;
+        const inline_decl = std.fmt.bufPrint(&inline_buf, "b.step(\"{s}\",", .{name}) catch {
+            try appendViolation(gpa, violations, "build.zig: step \"{s}\" overflows a wiring-check needle buffer; grow the buffer", .{name});
+            continue;
+        };
         const at = std.mem.indexOf(u8, build_src, needle) orelse {
             if (std.mem.indexOf(u8, build_src, inline_decl)) |inline_at| {
                 // Declared inline (no `const x =`); check the run step it wires.
                 if (inlineWiredRunStep(build_src, inline_at)) |run_step| {
                     var same_buf: [220]u8 = undefined;
-                    const same = std.fmt.bufPrint(&same_buf, "check_step.dependOn(&{s})", .{run_step}) catch continue;
+                    const same = std.fmt.bufPrint(&same_buf, "check_step.dependOn(&{s})", .{run_step}) catch {
+                        try appendViolation(gpa, violations, "build.zig: run step `{s}` overflows a wiring-check needle buffer; grow the buffer", .{run_step});
+                        continue;
+                    };
                     if (std.mem.indexOf(u8, build_src, same) != null) continue;
                 }
             }
@@ -251,13 +263,22 @@ fn gatedClaimsIn(
         // matters — a marker with no wiring at all — without demanding a
         // uniformity the build does not have.
         var buf: [220]u8 = undefined;
-        const by_var = std.fmt.bufPrint(&buf, "check_step.dependOn({s})", .{decl}) catch continue;
+        const by_var = std.fmt.bufPrint(&buf, "check_step.dependOn({s})", .{decl}) catch {
+            try appendViolation(gpa, violations, "build.zig: step variable `{s}` overflows a wiring-check needle buffer; grow the buffer", .{decl});
+            continue;
+        };
         if (std.mem.indexOf(u8, build_src, by_var) != null) continue;
         var buf2: [220]u8 = undefined;
-        const by_amp = std.fmt.bufPrint(&buf2, "check_step.dependOn(&{s}", .{decl}) catch continue;
+        const by_amp = std.fmt.bufPrint(&buf2, "check_step.dependOn(&{s}", .{decl}) catch {
+            try appendViolation(gpa, violations, "build.zig: step variable `{s}` overflows a wiring-check needle buffer; grow the buffer", .{decl});
+            continue;
+        };
         if (std.mem.indexOf(u8, build_src, by_amp) != null) continue;
         var buf3: [220]u8 = undefined;
-        const by_table = std.fmt.bufPrint(&buf3, ".check_step_name = \"{s}\"", .{name}) catch continue;
+        const by_table = std.fmt.bufPrint(&buf3, ".check_step_name = \"{s}\"", .{name}) catch {
+            try appendViolation(gpa, violations, "build.zig: step \"{s}\" overflows a wiring-check needle buffer; grow the buffer", .{name});
+            continue;
+        };
         if (std.mem.indexOf(u8, build_src, by_table) != null) continue;
         // Inline declaration: `b.step("N", …).dependOn(&run.step);` — find the
         // run step it wires and ask whether check wires the same one.
@@ -266,7 +287,10 @@ fn gatedClaimsIn(
         // passing for a reason unrelated to what it was asked about.
         if (inlineWiredRunStep(build_src, at)) |run_step| {
             var buf4: [220]u8 = undefined;
-            const same = std.fmt.bufPrint(&buf4, "check_step.dependOn(&{s})", .{run_step}) catch continue;
+            const same = std.fmt.bufPrint(&buf4, "check_step.dependOn(&{s})", .{run_step}) catch {
+                try appendViolation(gpa, violations, "build.zig: run step `{s}` overflows a wiring-check needle buffer; grow the buffer", .{run_step});
+                continue;
+            };
             if (std.mem.indexOf(u8, build_src, same) != null) continue;
         }
 

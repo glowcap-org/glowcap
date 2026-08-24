@@ -151,6 +151,84 @@ Deno.test("an override made under an older act does not ride back in on a new ed
 	assert(intent.current(mine, now).locator === "ocapn://chosen.iroh", "the reader's own answer was dropped");
 });
 
+Deno.test("a room link pasted into the join card is a link, not a directory", () => {
+	const link = "ocapn://peer.tcp/s/swissnum";
+	assert(joining.looksLikeRoomLink(link), "a sturdyref was not read as a room link");
+	assert(!joining.looksLikeRoomLink("ocapn://peer.tcp"), "a directory locator was read as a room link");
+	assert(!joining.looksLikeRoomLink("lobby"), "a room name was read as a room link");
+
+	const fromLocator = joining.typedRoomLink(link, "plans");
+	assert(
+		fromLocator !== null && fromLocator.link === link && fromLocator.label === "plans",
+		"a link in the locator field was not taken as one",
+	);
+	const unlabeled = joining.typedRoomLink(link, "");
+	assert(unlabeled !== null && unlabeled.label === "", "a link with no name invented a label");
+	const fromRoom = joining.typedRoomLink("", link);
+	assert(
+		fromRoom !== null && fromRoom.link === link && fromRoom.label === "",
+		"a link in the room field was not taken as one",
+	);
+	assert(
+		joining.typedRoomLink("ocapn://peer.tcp", "lobby") === null,
+		"a directory join was classified as a room link",
+	);
+
+	const pasted = joining.joinLinkIn(
+		"Anybody who holds this link can be in plans:\n  " + link,
+	);
+	assert(
+		pasted !== null && pasted.link === link && pasted.label === "",
+		"the whole /link answer was not taken as that link",
+	);
+	const namedJoin = joining.joinLinkIn(link + " plans");
+	assert(namedJoin !== null && namedJoin.label === "plans", "/join a link with a name did not keep the name");
+
+	const byName = joining.askedJoin("lobby");
+	assert(byName !== null && byName.kind === "name" && byName.name === "lobby", "/join a name was not a name");
+	const hashed = joining.askedJoin("#lobby");
+	assert(hashed !== null && hashed.kind === "name" && hashed.name === "lobby", "/join #lobby kept the hash");
+	const byLink = joining.askedJoin(link);
+	assert(byLink !== null && byLink.kind === "link" && byLink.link === link, "/join a sturdyref was not a link");
+	assert(joining.askedJoin("") === null, "an empty /join was treated as a destination");
+	assert(
+		joining.joinedForLink(
+			[{ key: "a", held: true, id: "plans", link }],
+			new Set(["a"]),
+			link,
+			null,
+		) === "a",
+		"a locator this tab already holds was not that conversation",
+	);
+	assert(
+		joining.joinedForLink(
+			[{ key: "g", held: false, id: "general" }],
+			new Set(["g"]),
+			"ocapn://peer.tcp/s/other",
+			"general",
+		) === "g",
+		"a public link to a listed room this tab is in was not that room",
+	);
+	assert(
+		joining.joinedForLink(
+			[{ key: "p", held: true, id: "general" }],
+			new Set(["p"]),
+			"ocapn://peer.tcp/s/other",
+			null,
+		) === null,
+		"/join of a private link treated a same-label conversation as the destination",
+	);
+	assert(joining.listedOccupancy(true, "general"), "a listed arrival with a name sits in that room");
+	assert(!joining.listedOccupancy(false, "general"), "an unlisted arrival is not a directory name");
+	assert(!joining.listedOccupancy(undefined, "general"), "an older room's silence is not a listed room");
+	assert(!joining.listedOccupancy(true, ""), "a listed arrival with no name has nothing to sit in");
+
+	const answers = card({ source: "press" }, {}, { seq: 1, locator: link, room: "plans" });
+	const lead = joining.joinLead(answers, "this page's directory");
+	assert(lead.includes("This is a room link"), "pasting a room link did not change what the card said it was for");
+	assert(!lead.includes("does not exist yet"), "a room link was described as opening a room that does not exist yet");
+});
+
 Deno.test("the card says what it is for once, and only an address gets to say it", () => {
 	const gate = card({ source: "link", room: named("arrivals"), locator: implied("") });
 	assert(

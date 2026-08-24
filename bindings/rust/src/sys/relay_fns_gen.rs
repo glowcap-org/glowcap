@@ -12,9 +12,9 @@
 
 use core::ffi::{c_int, c_uchar};
 
-use super::driver::PancakeTransportProvider;
 use super::ocapn::PancakeContext;
 use super::relay::{PancakeRelayConfig, PancakeRelayRuntime, PancakeRelayTrustSummary};
+use super::PancakeTransportProvider;
 
 extern "C" {
 	pub fn pancake_relay_archive_fingerprint() -> u64;

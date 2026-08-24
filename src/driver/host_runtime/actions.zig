@@ -82,8 +82,10 @@ fn pushPendingResident(resident: net.MultiplexedResident, rl: *Wire.ResidentLink
     return true;
 }
 
-/// Drain the core's action queue to quiescence: writes, redeem dials, entropy
-/// draws, closes, and unobserved completions.
+/// Drain every immediately runnable core action: writes, redeem dials, entropy
+/// draws, closes, and unobserved completions. Outbound pressure returns to the
+/// owning step so transport readiness, rather than this stack frame, retries
+/// the parked work.
 pub fn drainActions(self: *HostRuntime) !void {
     try drainActionsWith(self, .operational);
 }
@@ -91,13 +93,17 @@ pub fn drainActions(self: *HostRuntime) !void {
 pub fn drainActionsWith(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
     self.enterDriver();
     defer self.leaveDriver();
-    // The blocking front has no shared reactor turn to yield to. Preserve its
-    // to-quiescence contract while the shared drain exposes finite slices.
-    while (try driver_core.drainActions(
+    // The blocking front has no shared reactor turn to yield to, so finite
+    // scheduler slices continue here. Outbound pressure is different: the
+    // resident window can move only after this call returns to readiness.
+    while (true) switch (try driver_core.drainActions(
         self.core,
         EntropySource{ .io = self.io },
         Exec{ .runtime = self, .effect_mode = effect_mode },
-    ) == .yielded) {}
+    )) {
+        .drained, .outbound_blocked => return,
+        .yielded => {},
+    };
 }
 
 const EntropySource = struct {
@@ -136,15 +142,15 @@ const Exec = struct {
 
     pub fn dial(self: Exec, d: @FieldType(driver_core.HostAction, "dial")) !void {
         if (self.effect_mode == .cleanup_only) {
-            try self.runtime.core.dialFailed(d.ticket, "transport provider failed");
+            try self.runtime.core.dialFailed(d.ticket, d.route_index, "transport provider failed");
             return;
         }
-        try answerDial(self.runtime, d.ticket);
+        try answerDial(self.runtime, d.ticket, d.route_index);
     }
 
     pub fn cancelDial(self: Exec, d: @FieldType(driver_core.HostAction, "cancel_dial")) !void {
-        cancelRedeemDial(self.runtime, d.ticket);
-        try self.runtime.core.dialCancelled(d.ticket);
+        cancelRedeemDial(self.runtime, d.ticket, d.route_index);
+        try self.runtime.core.dialCancelled(d.ticket, d.route_index);
     }
 
     pub fn complete(self: Exec, action: driver_core.HostAction) !void {
@@ -159,20 +165,23 @@ const Exec = struct {
 
 /// Stage a redeem dial so the active pump advances its handshake and reports
 /// the result through `exporterDialed` / `dialFailed`.
-fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId) anyerror!void {
-    const pending = self.core.pendingDial(ticket) orelse return;
+fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) anyerror!void {
+    const pending = self.core.pendingDial(ticket, route_index) orelse return;
     // The pending row owns every locator slice until the ticket settles;
     // stageDial borrows the complete active route for this call.
-    Internal.stageDial(self, pending, .inherit, .{ .redeem = ticket }, .pending_dial) catch |err| {
-        try self.core.dialFailed(ticket, @errorName(err));
+    Internal.stageDial(self, pending.locator, .inherit, .{ .redeem = .{
+        .ticket = ticket,
+        .route_index = route_index,
+    } }, .pending_dial) catch |err| {
+        try self.core.dialFailed(ticket, route_index, @errorName(err));
         return;
     };
 }
 
 /// Interrupt the native redeem dial named by the core's cancellation action.
-fn cancelRedeemDial(self: *HostRuntime, ticket: engine.Node.PendingId) void {
+fn cancelRedeemDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) void {
     for (self.pending_opens.items, 0..) |row, index| switch (row.outcome) {
-        .redeem => |pending| if (pending == ticket) {
+        .redeem => |pending| if (pending.ticket == ticket and pending.route_index == route_index) {
             std.debug.assert(self.pending_opens.swapRemove(index) == row);
             var discarded = Internal.discardPendingOpen(self, row);
             if (discarded.cleanup) |cleanup| Internal.noteTerminalFailureChain(self, cleanup);

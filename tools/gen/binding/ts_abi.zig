@@ -72,6 +72,9 @@ const BigConst = struct {
 };
 
 const archive_fingerprints = [_]BigConst{
+    .{ .ts = "OCAPN_ARCHIVE_FINGERPRINT", .value = c.PANCAKE_OCAPN_ARCHIVE_FINGERPRINT },
+    .{ .ts = "HOST_ARCHIVE_FINGERPRINT", .value = cd.PANCAKE_HOST_ARCHIVE_FINGERPRINT },
+    .{ .ts = "DRIVER_ARCHIVE_FINGERPRINT", .value = cdr.PANCAKE_DRIVER_ARCHIVE_FINGERPRINT },
     .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.PANCAKE_TCP_ARCHIVE_FINGERPRINT },
     .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.PANCAKE_INPROC_ARCHIVE_FINGERPRINT },
     .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.PANCAKE_ONION_ARCHIVE_FINGERPRINT },
@@ -180,6 +183,7 @@ const constants = [_]Const{
     kd("CLOSE_GRACE_UNSPECIFIED", "PANCAKE_CLOSE_GRACE_UNSPECIFIED"),
     kd("CLOSE_GRACE_FINITE", "PANCAKE_CLOSE_GRACE_FINITE"),
     kd("CLOSE_GRACE_UNBOUNDED", "PANCAKE_CLOSE_GRACE_UNBOUNDED"),
+    kd("SESSION_LIMIT_OPTIONS_ABI_VERSION", "PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION"),
     // Frame-cap defaults: Host protocol admission and direct raw transport
     // frame-shuttle helpers intentionally keep separate memory postures.
     kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
@@ -326,6 +330,7 @@ const constants = [_]Const{
     k("FEATURE_WIRE_DELTA", "PANCAKE_FEATURE_WIRE_DELTA"),
     k("FEATURE_STURDYREF", "PANCAKE_FEATURE_STURDYREF"),
     k("FEATURE_UNTAG", "PANCAKE_FEATURE_UNTAG"),
+    k("FEATURE_MULTI_LOCATION", "PANCAKE_FEATURE_MULTI_LOCATION"),
     k("FEATURE_MINIMUM", "PANCAKE_FEATURE_MINIMUM"),
     k("FEATURE_BASELINE", "PANCAKE_FEATURE_BASELINE"),
     k("FEATURE_FULL", "PANCAKE_FEATURE_FULL"),
@@ -400,6 +405,8 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
         try out.print(gpa, "export const {s} = {d}n;\n", .{ entry.ts, entry.value });
     }
     try out.print(gpa, "export const HINT_DIRECT_ADDRESSES = \"{s}\";\n", .{model.transport.hint_direct_addresses});
+    try out.print(gpa, "export const HINT_ALT_LOCATORS = \"{s}\";\n", .{model.transport.hint_alt_locators});
+    try out.print(gpa, "export const HINT_VIA = \"{s}\";\n", .{model.transport.hint_via});
     inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "export const ");
         try writeTsTransportConstName(&out, gpa, known, "");
@@ -416,16 +423,19 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
         \\// ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
         \\// Struct index i of the wasm32 module's layout descriptor is row i here;
         \\// the descriptor's offset words for that struct name its fields, in
-        \\// declaration order. The prefix matches the 64-bit mirror's constant
-        \\// prefix, so `<prefix>_SIZE` / `<prefix>_<FIELD>_OFF` rebuild at wasm32
-        \\// offsets mechanically. Field order is declaration order on every
-        \\// target; only the offset numbers are target-specific.
+        \\// declaration order. `nativeMirror` says whether the prefix also names
+        \\// 64-bit FFI constants; false is vocabulary used only by the browser's
+        \\// byte-fed embedder. Field order is declaration order on every target;
+        \\// only the offset numbers are target-specific.
         \\export const WASM_LAYOUT_STRUCTS = [
         \\
     );
     @setEvalBranchQuota(20_000);
     inline for (wasm_manifest) |row| {
-        try out.print(gpa, "\t{{ prefix: \"{s}\", fields: [", .{row.prefix});
+        try out.print(gpa, "\t{{ prefix: \"{s}\", nativeMirror: {s}, fields: [", .{
+            row.prefix,
+            if (row.native_mirror) "true" else "false",
+        });
         inline for (@typeInfo(row.T).@"struct".field_names, 0..) |field_name, i| {
             comptime var upper: [field_name.len]u8 = undefined;
             comptime for (field_name, 0..) |ch, j| {
@@ -480,6 +490,7 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "DRIVER_OPTIONS", cdr.PancakeDriverOptions, "PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)");
     try emitLayout(&out, gpa, "DRIVER_FAILURE", cdr.PancakeDriverFailure, "PancakeDriverFailure (libpancake_driver deterministic barriers)");
     try emitLayout(&out, gpa, "CLOSE_OPTIONS", cd.PancakeCloseOptions, "PancakeCloseOptions (libpancake_host and libpancake_driver)");
+    try emitLayout(&out, gpa, "SESSION_LIMIT_OPTIONS", cd.PancakeSessionLimitOptions, "PancakeSessionLimitOptions (libpancake_host)");
     try emitLayout(&out, gpa, "DRIVER_EVENT", cdr.PancakeDriverEvent, "PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)");
     try emitLayout(&out, gpa, "TRANSPORT_OPERATION_OPTIONS", cdr.PancakeTransportOperationOptions, "PancakeTransportOperationOptions (pancake_driver_dial)");
     try emitLayout(&out, gpa, "LOCATOR_HINT_VIEW", cdr.PancakeLocatorHintView, "PancakeLocatorHintView (pancake_transport_provider.h)");

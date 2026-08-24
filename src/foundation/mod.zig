@@ -5,8 +5,11 @@
 //! SHA-256 work the handshake and handoff signatures need, `noise` for the
 //! Noise_XK state machine ADR-0107 names, and `sealed` for the sealed byte
 //! channel composed over it — down here because both stream tiers run one and
-//! neither imports the other, the same argument that homes `spill`. Nothing
-//! down here knows a thing about the message model above it.
+//! neither imports the other, the same argument that homes `spill`.
+//! `stream_framing` is the outer length-prefix syntax a byte stream wraps
+//! around each frame, and `failure_chain` is the plain first-and-consequence
+//! failure record a cleanup path retains. Nothing down here knows a thing
+//! about the message model above it.
 
 pub const id = @import("id.zig");
 pub const frame = @import("frame.zig");

@@ -26,7 +26,7 @@ export function dropListeners(): void {
 	store.setListeners(null);
 }
 
-/** The reader's drop, from the Advanced toggle: the capability goes and so
+/** The reader's drop, from the Capabilities toggle: the capability goes and so
  * does its remembered swiss — no path may drop the cap but keep the secret
  * the reader asked to give up. */
 export function dropListenersCap(): void {

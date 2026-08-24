@@ -1,4 +1,4 @@
-// The `RemotePromise` a Session send returns: lazy observation, promise
+// The `RemotePromise` a Session send returns: immediate progress, lazy observation, promise
 // pipelining target, and `index`/`untag`/`get` projection (ADR-0007 /
 // ADR-0050 / ADR-0052). Also the shared fetch/enliven mint→await→classify
 // path (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
@@ -11,7 +11,7 @@ import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
-import { checkHost, FetchFailed, PancakeError } from "./errors.ts";
+import { checkHost, FetchFailed, PancakeError, retainSecondaryFailure } from "./errors.ts";
 import { encodeArgs, refStruct } from "./abi_value.ts";
 import { type Argument, isReference, Ref } from "./value.ts";
 
@@ -26,6 +26,7 @@ export interface VowWaitHandle {
 	attend(): void;
 	awaitVow(vow: bigint): Promise<Argument>;
 	kickActions(): Promise<void>;
+	parkVowRelease(vow: bigint): void;
 }
 
 /** The fetch/enliven wait adds an open-guard and a GC drain before the mint. */
@@ -38,6 +39,9 @@ export interface MintAwaitHandle extends VowWaitHandle {
  * `index` / `untag` / `get` projections mint sibling vows through. */
 export interface PromiseFactoryHandle extends VowWaitHandle {
 	readonly hostRaw: Ptr;
+	readonly hostOwner: object;
+	trackVow(handle: object, vow: bigint): void;
+	scheduleProgress(): void;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -79,11 +83,22 @@ export async function awaitMinted(
 	vow: bigint,
 	trackGc: boolean,
 ): Promise<Argument> {
-	h.vowMinted(vow, trackGc);
-	h.attend();
-	const settled = h.awaitVow(vow);
-	await h.kickActions();
-	return await settled;
+	try {
+		h.vowMinted(vow, trackGc);
+		h.attend();
+		const settled = h.awaitVow(vow);
+		await h.kickActions();
+		const result = await settled;
+		h.parkVowRelease(vow);
+		return result;
+	} catch (failure) {
+		try {
+			h.parkVowRelease(vow);
+		} catch (cleanup) {
+			retainSecondaryFailure(failure, cleanup);
+		}
+		throw failure;
+	}
 }
 
 /** Classify a settled mint as an opaque Host capability. */
@@ -119,12 +134,13 @@ export async function fetchLike(
 	return asLiveRef(result, label);
 }
 
-/** The `RemotePromise` over a freshly minted host vow: observation kicks the
- * drain (the flush that puts the queued batch on the wire) and awaits the
- * drain-routed completion; projections mint sibling vows at the answer. */
+/** Adopt a freshly minted Host vow into one public wrapper. Registration,
+ * wrapper construction, inbound attendance, and progress scheduling either
+ * all acquire owners or park native release before the failure escapes. */
 export function promiseFor(
 	h: PromiseFactoryHandle,
 	vow: bigint,
+	pipelineable = true,
 ): RemotePromise {
 	const begin = async (): Promise<Argument> => {
 		h.attend(); // the settle's bytes arrive on the inbound loop
@@ -137,10 +153,27 @@ export function promiseFor(
 		key: string | bigint,
 	): RemotePromise => {
 		const projected = projectVow(h.hostRaw, vow, op, key);
-		h.vowMinted(projected, true);
 		return promiseFor(h, projected);
 	};
-	return RemotePromise.far(vow, begin, project);
+	try {
+		h.vowMinted(vow, true);
+		const promise = pipelineable
+			? RemotePromise.far(vow, h.hostOwner, begin, project)
+			: RemotePromise.observer(vow, begin);
+		h.attend();
+		h.scheduleProgress();
+		// Last fallible adoption step: after registration succeeds, returning
+		// the wrapper transfers the native vow to its finalizer.
+		h.trackVow(promise, vow);
+		return promise;
+	} catch (failure) {
+		try {
+			h.parkVowRelease(vow);
+		} catch (cleanup) {
+			retainSecondaryFailure(failure, cleanup);
+		}
+		throw failure;
+	}
 }
 
 /** Far-send mint→`RemotePromise`: encode args, mint the host vow
@@ -155,8 +188,7 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	const out = new Uint8Array(8);
 	checkHost(hostS.pancake_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
 	const vow = outU64(out);
-	h.vowMinted(vow, true);
-	return promiseFor(h, vow);
+	return promiseFor(h, vow, false);
 }
 
 export function sendFar(
@@ -172,7 +204,7 @@ export function sendFar(
 	if (target instanceof RemotePromise) {
 		// Promise pipelining: eventual-send to the unresolved answer. A local
 		// send's promise has no wire answer to pipeline against.
-		const sourceVow = target.farVow();
+		const sourceVow = target.farVow(h.hostOwner);
 		checkHost(hostS.pancake_host_vow_send(
 			h.hostRaw,
 			sourceVow,
@@ -194,7 +226,6 @@ export function sendFar(
 		));
 	}
 	const vow = outU64(out);
-	h.vowMinted(vow, true);
 	return promiseFor(h, vow);
 }
 
@@ -212,14 +243,15 @@ export function sendFar(
  *     session.send(task, "assign", ["alice"]);                // pipelined
  *     const status = await session.send(task, "status", []);  // settles the chain
  *
- * The send is queued when this is created, but its bytes leave the wire only
- * when this — or any send pipelined behind it — is first observed (`then` /
- * `await` / `catch` / `finally`), so a pipelined batch travels together. A
- * handle that is never observed is a fire-and-forget send; prefer
- * `Session.tell` for that. Because the settle is drain-routed and no rejection
+ * The send schedules Host progress when this is created, so an unobserved
+ * eventual-send still leaves the process. Synchronous chains enqueue before
+ * that scheduled drain runs and therefore retain batching. Prefer
+ * `Session.tell` when no answer is needed. Because the settle is drain-routed and no rejection
  * is materialized until the handle is observed, an unawaited anchor whose far
  * answer *breaks* never raises an unhandled rejection. State is a sum
- * (`far` | `local`), not a nullable vow flag.
+ * (`far` | `observer` | `local` | `failed`), not a nullable vow flag.
+ * A pipeline target belongs to the Host that minted it; another Host refuses
+ * it before interpreting the Host-local vow number.
  *
  * The projection verbs `index`/`untag`/`get` (ADR-0050/ADR-0052) pipeline an
  * element, untag, or Struct-field access *at the answer*, before it resolves:
@@ -227,7 +259,8 @@ export function sendFar(
  * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no
  * extra round trip. */
 export type PromiseState =
-	| { readonly tag: "far"; readonly vow: bigint }
+	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: object }
+	| { readonly tag: "observer"; readonly vow: bigint }
 	| { readonly tag: "local" }
 	// A send that could not be issued at all — a closed session, an argument
 	// that would not lower. It is a state rather than a thrown error because
@@ -253,8 +286,8 @@ export class RemotePromise extends Promise<Argument> {
 		begin: () => Promise<Argument>,
 		project?: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	) {
-		// The executor only captures the settlement functions; it runs no flush,
-		// so construction is side-effect-free and the send stays lazy.
+		// The executor only captures settlement functions. The factory schedules
+		// progress after construction; observation controls only result delivery.
 		let resolve!: (value: Argument | PromiseLike<Argument>) => void;
 		let reject!: (reason?: unknown) => void;
 		super((res, rej) => {
@@ -271,15 +304,21 @@ export class RemotePromise extends Promise<Argument> {
 	/** A far answer that settles a host vow (pipelinable). */
 	static far(
 		vow: bigint,
+		hostOwner: object,
 		begin: () => Promise<Argument>,
 		project: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	): RemotePromise {
-		return new RemotePromise({ tag: "far", vow }, begin, project);
+		return new RemotePromise({ tag: "far", vow, hostOwner }, begin, project);
 	}
 
 	/** A local-send handle (not pipelinable). */
 	static local(begin: () => Promise<Argument>): RemotePromise {
 		return new RemotePromise({ tag: "local" }, begin);
+	}
+
+	/** An await-only native vow whose answer is local observation state. */
+	static observer(vow: bigint, begin: () => Promise<Argument>): RemotePromise {
+		return new RemotePromise({ tag: "observer", vow }, begin);
 	}
 
 	/** A handle for a send that never left: awaiting it rejects with `error`,
@@ -295,19 +334,22 @@ export class RemotePromise extends Promise<Argument> {
 
 	/** Host vow when far; `null` when local (convenience, not the discriminant). */
 	get vow(): bigint | null {
-		return this.#state.tag === "far" ? this.#state.vow : null;
+		return this.#state.tag === "far" || this.#state.tag === "observer" ? this.#state.vow : null;
 	}
 
 	/** The host vow for pipelining, or a typed refusal when this is local. */
-	farVow(): bigint {
+	farVow(hostOwner: object): bigint {
 		// A failed handle keeps its own reason rather than reporting the
 		// generic local-send refusal, so a caller sees why the send never left.
 		if (this.#state.tag === "failed") throw this.#state.error;
 		if (this.#state.tag !== "far") {
 			throw new PancakeError(
 				INVALID_ARGUMENT,
-				"cannot pipeline against a local-send promise; await it for a Ref",
+				"this promise is await-only and has no remote pipeline target",
 			);
+		}
+		if (this.#state.hostOwner !== hostOwner) {
+			throw new PancakeError(INVALID_ARGUMENT, "this promise belongs to another Host");
 		}
 		return this.#state.vow;
 	}
@@ -321,7 +363,7 @@ export class RemotePromise extends Promise<Argument> {
 		if (this.#state.tag !== "far" || this.#project === undefined) {
 			throw new PancakeError(
 				INVALID_ARGUMENT,
-				"cannot project a local-send promise; await it for a value",
+				"this promise is await-only and cannot be projected",
 			);
 		}
 		return this.#project(op, key);

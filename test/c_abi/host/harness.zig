@@ -13,6 +13,22 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const pancake = @import("pancake");
 const model = pancake.ocapn.model;
+
+pub fn sessionLimitOptions(
+    max_frame_bytes: usize,
+    queue_cap: usize,
+    outbound_high_water_bytes: usize,
+    max_retained_sent_answer_bytes: usize,
+) cd.PancakeSessionLimitOptions {
+    return .{
+        .abi_version = cd.PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION,
+        .struct_size = @sizeOf(cd.PancakeSessionLimitOptions),
+        .max_frame_bytes = max_frame_bytes,
+        .queue_cap = queue_cap,
+        .outbound_high_water_bytes = outbound_high_water_bytes,
+        .max_retained_sent_answer_bytes = max_retained_sent_answer_bytes,
+    };
+}
 const keyed_relay = pancake.net.relay;
 const stream_framing = pancake.foundation.stream_framing;
 const c_args = @import("../../support/c_abi_args.zig");
@@ -22,6 +38,7 @@ pub const argStr = c_args.argStr;
 pub const argRef = c_args.argRef;
 
 pub const frame_cap: usize = 4096;
+pub const key_designator = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 pub const close_cancel: cd.PancakeCloseOptions = .{
     .abi_version = cd.PANCAKE_CLOSE_OPTIONS_ABI_VERSION,
@@ -225,6 +242,7 @@ pub fn takeOutbound(raw: ?*cd.PancakeHostSession, out: *c.PancakeManagedFrame) i
 pub const ParkedDial = struct {
     host: ?*cd.PancakeHost,
     ticket: u64,
+    route_index: usize,
     transport: [32]u8 = undefined,
     transport_len: usize = 0,
     designator: [64]u8 = undefined,
@@ -357,7 +375,15 @@ pub fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Wa
             return true;
         }
         pub fn dial(self: @This(), host: ?*cd.PancakeHost, action: *const cd.PancakeHostAction) !bool {
-            var parked = ParkedDial{ .host = host, .ticket = action.ticket };
+            if (action.kind == cd.PANCAKE_HOST_ACTION_CANCEL_DIAL) {
+                try expectOk(cd.pancake_host_dial_cancelled(host, action.ticket, action.route_index));
+                return true;
+            }
+            var parked = ParkedDial{
+                .host = host,
+                .ticket = action.ticket,
+                .route_index = action.route_index,
+            };
             const Capture = struct {
                 fn receive(raw: ?*anyopaque, view_ptr: ?*const cd.PancakeLocatorView) callconv(.c) i32 {
                     const out: *ParkedDial = @ptrCast(@alignCast(raw orelse return c.PANCAKE_ERR_NULL_POINTER));
@@ -385,6 +411,7 @@ pub fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Wa
             const probe_rc = cd.pancake_host_pending_dial(
                 host,
                 action.ticket,
+                action.route_index,
                 null,
                 0,
                 &view,
@@ -397,6 +424,7 @@ pub fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Wa
                 try expectOk(cd.pancake_host_pending_dial(
                     host,
                     action.ticket,
+                    action.route_index,
                     &hint_storage,
                     hint_count,
                     &view,

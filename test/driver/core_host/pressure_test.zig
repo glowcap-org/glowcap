@@ -48,6 +48,24 @@ const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
 
+const PressureActionIo = struct {
+    pub fn randomSecure(_: @This(), _: []u8) !void {
+        return error.UnexpectedEntropyRequest;
+    }
+};
+
+const PressureActionExec = struct {
+    flushes: *usize,
+
+    pub fn flush(self: @This(), _: engine.PeerHandle) !void {
+        self.flushes.* += 1;
+    }
+    pub fn close(_: @This(), _: engine.PeerHandle) !void {}
+    pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
+    pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
+    pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
+};
+
 test "core host: inbound OOM leaves a borrowed hello retryable" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
@@ -187,18 +205,38 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     try std.testing.expect(!pair.b.isTerminating());
     try std.testing.expect((try pair.b.takeOutbound()) == null);
 
-    // Popping the first wake clears its dedupe bit. The next drain retries the
-    // parked carrier, meets the same pressure, and must publish another FLUSH
-    // rather than condemning the Host or reporting an empty action queue.
-    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
-    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
+    // The first wake clears its dedupe bit. The shared drain then retries the
+    // parked carrier, meets the same pressure, and executes the replacement
+    // FLUSH before returning a distinct pressure boundary. A blocking front
+    // must not mistake that boundary for a finite scheduler yield and spin in
+    // this stack frame while only transport readiness can move the window.
+    var flushes: usize = 0;
+    const action_exec = PressureActionExec{ .flushes = &flushes };
+    try std.testing.expectEqual(
+        driver.core.DrainResult.outbound_blocked,
+        try driver.core.drainActions(&host, PressureActionIo{}, action_exec),
+    );
+    try std.testing.expectEqual(@as(usize, 2), flushes);
     try std.testing.expect(!pair.b.isTerminating());
 
     peer.outbound_budget = std.math.maxInt(usize);
-    try std.testing.expectEqual(pair.b.peer_handle, (try host.nextAction()).?.flush);
+    // Taking outbound is what marks the pressure actionable again; the empty
+    // take resets the stand-down so the next drain retries the parked carrier.
+    try std.testing.expect((try pair.b.takeOutbound()) == null);
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, PressureActionIo{}, action_exec),
+    );
+    try std.testing.expectEqual(@as(usize, 3), flushes);
     var fire = (try pair.b.takeOutbound()) orelse return error.MissingListenerFire;
     fire.deinit();
     try host.flushSession(pair.b);
+    var release = (try pair.b.takeOutbound()) orelse return error.MissingListenerRelease;
+    defer release.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBody(release.view());
+    try std.testing.expect(body == .gc_export);
+    try std.testing.expectEqual(@as(u64, 42), try body.gc_export.positions.at(0));
+    try std.testing.expectEqual(@as(u64, 1), try body.gc_export.deltas.at(0));
     try std.testing.expect((try pair.b.takeOutbound()) == null);
 }
 

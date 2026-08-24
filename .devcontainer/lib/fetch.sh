@@ -2,9 +2,19 @@
 # How an installer reaches the network, and how it decides a machine is one
 # it can install for.
 #
-# Every remote byte the image build consumes arrives through
+# Every file an installer downloads for itself comes through
 # pancake_fetch_verified and is checked against the SHA-256 pinned in
-# checksums.sh, so an installer never runs bytes it did not name in advance.
+# checksums.sh, so it never runs bytes it did not name in advance.
+#
+# Some installers do not download for themselves. They hand the work to a
+# package manager or an upstream installer that resolves and verifies against
+# its own registry, which is why there is no tarball here for checksums.sh to
+# name: npm, uv, raco, rustup, and Playwright's browser download each take a
+# version pinned in pins.sh and check the bytes their own way. Where a
+# bootstrap can be pinned, it is, so rust.sh verifies rustup-init here and lets
+# rustup's signed manifest cover the toolchain. Where an ecosystem exposes the
+# upstream checksum, the installer asserts it after the fact, as
+# racket-goblins.sh does for the Goblins revision conformance answers to.
 
 pancake_verify_sha256() {
     local file="$1"
@@ -22,7 +32,6 @@ pancake_verify_sha256() {
 }
 
 # Download a URL to a destination and verify it against a pinned SHA-256.
-# Every remote byte an installer consumes comes through here.
 pancake_fetch_verified() {
     local url="$1"
     local dest="$2"

@@ -92,3 +92,4 @@ pancake-c-abi-cache/
 # are generated state.
 apps/ocapnviz/node_modules/
 apps/ocapnviz/.vite/
+apps/ocapnviz/vite.config.ts.timestamp-*.mjs

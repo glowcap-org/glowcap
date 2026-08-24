@@ -33,22 +33,45 @@ import {
 	postStagedFiles,
 	readAttachments,
 } from "./attachment.ts";
-import { AWAY, CAPTP_VERSION, LEAVE, LINK, NOTIFY, POST, SET_TOPIC, SUBSCRIBE, TYPING } from "./protocol.ts";
+import {
+	AWAY,
+	CALLED,
+	HISTORY,
+	IRC_ACCOUNT,
+	LEAVE,
+	LINK,
+	NOTIFY,
+	POST,
+	PRIVATE,
+	SET_TOPIC,
+	SUBSCRIBE,
+	TYPING,
+} from "./protocol.ts";
 import { roomsLocator } from "./locator.ts";
 
 // Everything this client is, reached through one name. The split is where the
 // code lives; a caller still asks `room_client.ts` for the directory, a direct
 // line, or a room, and gets what it always got.
-export { Directory, readRoomEvent, type RoomEvent, type RoomInfo, signalingRoute } from "./directory.ts";
+export { Directory, signalingRoute } from "./directory.ts";
+export { readRoomEvent, type RoomEvent, type RoomInfo } from "./directory_publications.ts";
 export { DirectMessage } from "./direct_message.ts";
+export { DirectoryPeering, type DurableRoom, RoomPublication } from "./peering.ts";
 export { PostedLine } from "./posted_line.ts";
 export { type DiagnosticRow, snapshotDiagnostics, takeDiagnostics } from "./diagnostics.ts";
+export {
+	type IrcGatewayRow,
+	joinIrcChannel,
+	partIrcChannel,
+	snapshotIrcGateway,
+	takeIrcGateway,
+} from "./irc_gateway_client.ts";
 export { listenerDown, type ListenerRow, listenerUp, listListeners, takeListeners } from "./listeners.ts";
 export {
 	type Message,
 	readLineBytes,
 	readLineChange,
 	readLineId,
+	readListed,
 	readPresence,
 	readRoomFacts,
 	readTopic,
@@ -68,6 +91,23 @@ import {
 	roomRecordAt,
 } from "./room_message.ts";
 
+/** What a room calls itself, asked of a live reference — including one just
+ * enlivened from a link, before subscribe. Empty when it has no label to give. */
+export async function roomCalledAs(session: Session, room: Ref): Promise<string> {
+	const said = await ask(session, room, CALLED, [], "the room did not say what it is called");
+	return typeof said === "string" ? said.trim() : "";
+}
+
+/** Whether a live reference is to an unlisted room. A public room's link is
+ * still that public room; guessing from the name would open a listed room that
+ * merely shares a private room's label. */
+export async function roomIsPrivate(session: Session, room: Ref): Promise<boolean> {
+	const said = await ask(session, room, PRIVATE, [], "the room did not say whether it is listed");
+	if (said === true || said === "private") return true;
+	if (said === false || said === "" || said === "listed") return false;
+	throw new Error("the room did not say whether it is listed");
+}
+
 /** A membership in a chat room. Get one with `Room.subscribe` (the app's
  * `joinRoom` in `enter_room.ts` is the friendly wrapper), read `messages`, call
  * `say`, and `leave` when you are done. */
@@ -80,6 +120,11 @@ export class Room {
 	#leaving = false;
 	/** The authority to say what the room is about, when it offered one. */
 	#topic: Ref | null = null;
+	/** What subscribe's arrival said about this occupancy, when it said so. */
+	#listed: boolean | undefined;
+	#arrived = false;
+	#arrival: Promise<void>;
+	#arrive: () => void;
 
 	/** The lines the room sends you, in order, as an async stream. The stream ends
 	 * when you `leave` or the room hangs up. */
@@ -88,6 +133,15 @@ export class Room {
 	private constructor(session: Session, room: Ref) {
 		this.#session = session;
 		this.#room = room;
+		let arrive = () => {};
+		this.#arrival = new Promise((resolve) => {
+			arrive = () => {
+				if (this.#arrived) return;
+				this.#arrived = true;
+				resolve();
+			};
+		});
+		this.#arrive = arrive;
 		this.messages = new ReadableStream<Message>({
 			start: (controller) => {
 				this.#lines = controller;
@@ -120,15 +174,28 @@ export class Room {
 			}
 			const from = typeof args[0] === "string" ? args[0] : "?";
 			const text = typeof args[1] === "string" ? args[1] : "";
+			const facts = readRoomFacts(args);
+			const presence = readPresence(args);
+			if (facts?.listed !== undefined) self.#listed = facts.listed;
+			// A listed-ness notify is a fact, not a line. Capture it and keep it
+			// off the stream so the roster and the join line stay what a client
+			// reads first. Subscribe waits for this or for the roster, not for
+			// the join broadcast: that line is sent to every member and can
+			// beat listed-ness, and `/join` of a locator seats from `listed`.
+			if (facts?.listed !== undefined && text === "" && presence === undefined) {
+				self.#arrive();
+				return null;
+			}
 			self.#emit(
 				from,
 				text,
-				readPresence(args),
+				presence,
 				readAttachments(args, roomRecordAt(args)),
-				readRoomFacts(args),
+				facts,
 				readLineId(args),
 				readLineChange(args),
 			);
+			if (facts?.listed !== undefined || presence?.kind === "roster") self.#arrive();
 			return null;
 		});
 		// This local occurrence remains owned by the membership until leave or
@@ -160,6 +227,7 @@ export class Room {
 				`the room did not answer ${nick} joining`,
 			);
 			if (topic instanceof Ref) self.#topic = topic;
+			await self.#arrival;
 			return self;
 		} catch (error) {
 			self.#leaving = true;
@@ -194,7 +262,21 @@ export class Room {
 		if (typeof swiss !== "string" || swiss.length === 0) {
 			throw new Error("link() did not return a swissnum");
 		}
-		return formatSturdyRef(roomsLocator(locator), swiss, CAPTP_VERSION);
+		return formatSturdyRef(roomsLocator(locator), swiss, this.#session.profile.captpVersion);
+	}
+
+	/** What this room calls itself, or "" when it has no label to give.
+	 *
+	 * A link does not carry a name. This is how `/join` of that locator still
+	 * sits in the place that minted it rather than under an invented one. */
+	async called(): Promise<string> {
+		return await roomCalledAs(this.#session, this.#room);
+	}
+
+	/** Whether this room is unlisted. A link to a public room is still that
+	 * public room; a link to a private one is not a name on the directory. */
+	async isPrivate(): Promise<boolean> {
+		return await roomIsPrivate(this.#session, this.#room);
 	}
 
 	/** The reference this room is, for handing on.
@@ -204,6 +286,15 @@ export class Room {
 	 * handoff, and nothing is asked of the room or the directory. */
 	get reference(): Ref {
 		return this.#room;
+	}
+
+	/** Whether this occupancy is a directory name, when subscribe said so.
+	 *
+	 * Undefined against a room that did not state it — an older room, or one
+	 * that is not this protocol. `/join` of a locator seats from this rather
+	 * than asking a method first. */
+	get listed(): boolean | undefined {
+		return this.#listed;
 	}
 
 	/** Whether this membership holds the authority to say what the room is
@@ -228,6 +319,39 @@ export class Room {
 	async setTopic(text: string): Promise<void> {
 		if (this.#topic === null) throw new Error("this room did not offer a topic to set");
 		await ask(this.#session, this.#topic, SET_TOPIC, [text], "the room did not answer setting its topic");
+	}
+
+	/** What the room kept of its own conversation, oldest first, when this
+	 * server keeps history at all. A server that keeps none refuses the verb;
+	 * the caller reads that refusal as an empty answer, because it is this
+	 * feature not existing there rather than anything going wrong. */
+	async history(): Promise<{ from: string; text: string; at: number }[]> {
+		const raw = await ask(this.#session, this.#room, HISTORY, [], "the room did not answer its history");
+		if (!Array.isArray(raw)) return [];
+		const lines: { from: string; text: string; at: number }[] = [];
+		for (const row of raw) {
+			if (!Array.isArray(row)) continue;
+			const from = typeof row[0] === "string" ? row[0] : "";
+			const text = typeof row[1] === "string" ? row[1] : "";
+			const at = typeof row[2] === "bigint" ? Number(row[2]) : typeof row[2] === "number" ? row[2] : 0;
+			if (from !== "") lines.push({ from, text, at });
+		}
+		return lines;
+	}
+
+	/** Hand a bridged room's seat the reader's own registered IRC account.
+	 * The answer is the gateway's sentence about how they now appear; a room
+	 * with no IRC seat refuses the verb, which the caller shows as the
+	 * refusal it is. */
+	async ircAccount(account: string, password: string): Promise<string> {
+		const said = await ask(
+			this.#session,
+			this.#room,
+			IRC_ACCOUNT,
+			[account, password],
+			"the room did not answer the account",
+		);
+		return typeof said === "string" ? said : "";
 	}
 
 	/** Say a line to everyone in the room. */
@@ -386,6 +510,7 @@ export class Room {
 	}
 
 	#endStream(): void {
+		this.#arrive();
 		if (!this.#leaving) console.error("rooms: the room closed the connection");
 		try {
 			this.#lines.close();

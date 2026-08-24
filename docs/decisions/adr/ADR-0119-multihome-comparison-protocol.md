@@ -1,11 +1,11 @@
 ---
 id: ADR-0119
-status: proposed
+status: superseded
 date: 2026-08-17
 tags: [locators, netlayer, negotiation, handoff, pancake-next, upstream]
-decision: "Multi-homing is prototyped as a measured comparison of two shapes on one shared core: a keyed meta-netlayer transport symbol gated by linking, and a multi-location locator vocabulary gated as a named pancake-next negotiated feature. No new CapTP version is minted, no baseline byte changes, and the success criterion is upstream adoption of whichever shape the measurements favor."
+decision: "Multi-homing is prototyped as a measured comparison of two shapes on one shared core: a keyed id/via locator skin expanded through the Node pending-dial waist and gated by pancake-next route-vocabulary negotiation, and a multi-location locator vocabulary gated as a named pancake-next negotiated feature. No new CapTP version is minted, no baseline byte changes, and the success criterion is upstream adoption of whichever shape the measurements favor."
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-0125]
 amends: []
 amended_by: []
 ---
@@ -26,9 +26,11 @@ carries exactly one `exporter-location`. Under the current vocabulary, one
 program on two netlayers is two peers, and a sturdyref binds object identity
 to one of them.
 
-This cost is not hypothetical in this tree. Rooms needs cross-transport
-reach: a browser peer rides the relay while native peers speak iroh, tcp, or
-onion, and any pair without a shared transport cannot hold a direct line.
+This cost is not hypothetical in this tree. Rooms needs transport-stable room
+links and directory peering: one directory should be able to hand out a room
+hosted elsewhere without choosing one transport for every future reader. A
+browser peer may ride the relay while native peers speak iroh, tcp, or onion,
+and any pair without a shared transport cannot hold a direct line.
 The listener-administration work surfaced the same coupling one layer down:
 `listen` unconditionally selects the new listener as the Host's signed
 location, so bringing a second listener up would silently move the peer's
@@ -51,7 +53,7 @@ unimplemented:
   public key, with "transport-agnostic crypto, and parallel connection
   attempts that race and one wins".
 - [2024-05-14](../../../conformance/ocapn-spec/upstream/meeting-minutes/2024-05-14.md):
-  a "meta-netlayer" would encode multiple netlayers beneath one straddling
+  an identity layer would encode multiple netlayers beneath one straddling
   key, with its own encryption layer, and "would come later".
 - [2025-07-08](../../../conformance/ocapn-spec/upstream/meeting-minutes/2025-07-08.md):
   relays are first-class at Agoric today, and Spritely is working toward an
@@ -86,23 +88,49 @@ have one owner), and conformance as the load-bearing surface.
 
 Prototype both shapes on one shared core and let measurements choose what
 goes upstream. The shared core is plain library code with no gating
-question: the route-bundle data shape, the racing dial, and key verification
-through the sealed channel. It is expressed through two skins:
+question: the route-bundle data shape, ordered fallback scheduling, and key
+verification through transports that can prove a durable key. Full dial racing
+is not implemented by this record. The core is expressed through two skins:
 
-- **A keyed meta-netlayer transport symbol.** Its own provider archive,
-  linked or absent like every transport, so it costs nothing when unbuilt.
-  The designator is a durable public key; routes are a standardized hint
-  schema inside that one netlayer's spec surface; the sealed channel proves
-  the designator end-to-end regardless of carrier. No CapTP vocabulary
-  changes; any profile can ride it; a peer that does not ship it degrades
-  per-link exactly as a peer without onion does today.
+- **A keyed id transport symbol.** The designator is a durable public key;
+  routes are carried in the `via` hint. The present prototype admits only
+  carriers that prove the same durable key as the outer id, so it cannot claim
+  identity through a route whose key binding is not specified yet. An optional
+  `alt-locators` list carries weak handoff fallbacks: the signed gift authorizes
+  that withdrawal, but the fallback neither establishes nor caches the outer
+  identity and a sturdyref never dials it. An independently authenticated
+  channel may still prove the outer key. No baseline CapTP byte changes; `id`
+  is never opened as a physical session. The Node pending-dial waist expands it
+  to a concrete route, and a peer that did not negotiate this vocabulary sees
+  a concrete compatible route or a refusal.
 - **A multi-location locator vocabulary variant.** A named negotiated
   feature under `pancake-next`, stamped into the signed hello and refused
   unless both peers advertise it, the same machinery the pairing suite pins
   today. The feature name and its documentation carry comparison-only
   status, because no recorded upstream proposal specifies this shape; it
-  exists to be measured against the netlayer shape. Toward a baseline peer
-  or Goblins, no novel byte leaves the machine.
+  exists to be measured against the netlayer shape. It is not a same-peer
+  proof and does not currently add dial paths. Toward a baseline peer or
+  Goblins, no novel byte leaves the machine.
+
+The compatibility floor is per session, not per host. A host may prefer
+`pancake-next`, Cap'n Proto, and every linked transport for other pancake
+hosts, while the same process keeps a Goblins session on `1.0` over Syrup.
+Hello emission follows that settled session. A signed give crosses two settled
+sessions, so its exporter location lies in their intersection: the recipient
+must be able to dial it, and the exporter must admit its locator vocabulary when
+the signed give returns inside the withdrawal. If the exporter session did not
+negotiate route vocabulary, a configured baseline locator remains valid, while
+a configured `id` or multi-location locator falls back to the concrete location
+the exporter claimed on that session. A peer that negotiated
+`multi_location` may receive the `pancake/locations` vocabulary as
+comparison-only data. A peer that did not gets a single baseline locator for a
+transport it demonstrably participates in: the transport carrying its current
+session. Baseline CapTP advertises no remote outbound-provider inventory, so the
+gifter does not invent one. If no matching route exists, lowering refuses. The
+fallback is never to serialize pancake-next vocabulary and hope the recipient
+ignores it. `id` follows the same rule at the identity layer: a recipient
+without route-vocabulary negotiation is handed one concrete route or no route
+at all, never an instruction to parse `via`.
 
 No new CapTP version is minted. A version symbol gates wholesale where the
 comparison needs per-shape dials in one binary, and it is the most expensive
@@ -112,22 +140,40 @@ by `zig build check`, because branch code is code no gate is holding.
 
 Each skin must produce the same measurement: the enumerated diff of what it
 forced us to touch (records, session tables, checks, conformance scenarios,
-binding surfaces), and live evidence that a baseline peer meeting a
-multi-homed peer is uneventful. The comparison, not either proposal, is the
-artifact taken upstream through the
-[community-review](../../community-review.md) preflight. Upstream adoption
-of a multi-home shape is the success criterion; the prototypes remain
-product features (cross-transport rooms) regardless of the upstream outcome.
+binding surfaces), plus the compatibility checks that keep baseline peers from
+seeing experimental vocabulary. The comparison is evidence the maintainer must
+independently understand before writing any policy-compliant upstream proposal;
+the repository artifact is not forwarded. The
+[community-review](../../community-review.md) preflight keeps that boundary
+explicit. Upstream adoption of a multi-home shape is the success criterion; the
+prototypes remain product features (cross-transport rooms) regardless of the
+upstream outcome.
 
 ## Scope (what this does not decide)
 
 - No winner is chosen here; that is what the measurements are for.
 - The `1.0` profile, the Goblins-facing wire, and every existing transport
   symbol are unchanged; nothing here amends ADR-0108 or ADR-0118.
-- The meta-netlayer's hint schema is not final; it is a prototype surface
-  whose interop cost is one of the measurements.
-- Runtime multi-listener behavior in rooms and the Host location-selection
-  seam are named evidence, not deliverables of this record.
+- The id's `via` hint schema is not final; it is a prototype surface whose
+  interop cost is one of the measurements.
+- Rooms composes its active key-proving listeners under `via`, keeps baseline
+  listeners under `alt-locators`, and publishes durable rooms between
+  directories through that route. Listener selection remains deployment
+  policy owned above the core.
+- Session-intersection route lowering is present at the signed-give boundary:
+  a baseline exporter replaces private route vocabulary with its concrete
+  session location, an unknown recipient gets one concrete route instead of
+  `id`, and private route
+  vocabulary is stripped from baseline locators. A discovered identity route
+  becomes future give advice only after the corresponding withdrawal resolves
+  to a capability. Rooms directory peering is the product consumer.
+- Host-level `id` sturdyref enlivenment is present for the prototype: an opted-in
+  Host selects an active authenticated same-key session, including a baseline
+  session because no route syntax crosses that established channel, or stages
+  the concrete `via` routes through the Node pending-dial waist. Host parking
+  and Node dial publication commit atomically. `pancake/locations` sturdyrefs
+  remain comparison-only and are refused because the hint does not prove peer
+  identity.
 - Whether the sealed channel's Noise pattern converges with issue 208's
   eventual spec text stays a condition tracked in
   [`docs/upstream-watch.md`](../../upstream-watch.md), not a promise here.
@@ -151,17 +197,20 @@ product features (cross-transport rooms) regardless of the upstream outcome.
 
 ## Consequences
 
-- A new provider archive and layer entry for the meta-netlayer symbol, with
-  its realization policy owned by the archive per ADR-0112's provider seam.
+- The model owns route-bundle parsing and limits; Session owns `id`
+  admission policy, and Node redeem uses that shared policy before staging a
+  dial. A future provider archive or route-key binding must keep using that
+  spine rather than parsing its own route list or deciding key proof locally.
 - A registered `pancake-next` feature name for the vocabulary variant, with
   refusal-before-send toward non-advertising peers pinned beside the
   existing negotiation scenarios in `test/engine/pairing/`.
-- Conformance scenarios per skin, and baseline-unchanged proofs: the
-  Goblins interop steps stay green, and a hello toward a baseline peer stays
-  byte-identical with either prototype linked.
+- Scenarios per skin, and baseline-unchanged proofs: the Goblins interop steps
+  stay green, and a first hello toward a baseline peer does not carry the
+  experimental route vocabulary with either prototype linked.
 - The measurement lands as a declared planning document naming what each
-  skin touched, and feeds the community-review preflight before anything is
-  posted upstream.
+  skin touched, and feeds the community-review preflight before the maintainer
+  independently writes any policy-compliant upstream proposal. The repository
+  artifact itself is not posted upstream.
 - `docs/upstream-watch.md` and `docs/boundaries.md` gain the present-tense
   boundary lines in the same changes that land each skin.
 
@@ -172,9 +221,15 @@ features advertise into the signed hello, fallback retains the baseline
 profile, and an unstamped non-baseline profile is refused before it is sent.
 Each skin lands with its own scenarios under that suite and the transport
 test tree, and `zig build check` holds both behind the same aggregate as
-every other landed slice. The upstream-facing claim (a baseline peer meets a
-multi-homed peer uneventfully) is proven by the existing live interop steps
-running unchanged against a build with both prototypes present.
+every other landed slice. The compatibility claim is intentionally narrower
+than the final product goal: existing live interop steps must keep running
+unchanged against a build with both prototypes present, while focused tests pin
+first-hello silence, signed-give lowering, Host-level `id` sturdyref staging,
+and fail-closed `pancake/locations` sturdyrefs. The recurring Rooms server suite
+pins profile-gated Noise/TCP route advertisement and TCP directory peering. When
+the iroh sidecar is available, an additional scenario publishes a room from an
+iroh identity route into a destination without iroh and redeems it through the
+weak TCP fallback.
 
 ## Forward compatibility
 
@@ -182,7 +237,7 @@ If upstream adopts either shape, the surviving skin's names converge on the
 spec text and the other skin is deleted rather than maintained; the
 convergence conditions for the sealed channel (handshake pattern, prologue,
 locator shape) are the ones `docs/upstream-watch.md` already names for
-issue 208. If upstream mints a transport-agnostic vat id, the meta-netlayer
+issue 208. If upstream mints a transport-agnostic vat id, the id
 designator is positioned to become that id's carrier without a second
 migration, which is the reason identity lives in the designator and not in
 the hint schema.

@@ -58,7 +58,7 @@ pub fn routeCapability(
             const home = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
             if (home != session) try self.admitSessionOperation(home);
             try self.checkSession(home);
-            if (!home.served.port.peer.session_state.hasImport(remote.far.import_position) or
+            if (!home.served.port.peer.session_state.holdsImport(remote.far.import_position) or
                 home.served.port.peer.session_state.hostCapabilityFor(remote.far.import_position) != ref.raw())
                 return error.UnknownCapability;
             break :blk .{ .session = home, .target = .{ .far = remote.far } };

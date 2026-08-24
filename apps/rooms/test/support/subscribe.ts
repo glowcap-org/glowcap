@@ -1,8 +1,17 @@
 // Subscribe, watch, and wait helpers the rooms server tests share.
 
 import { Ref } from "@pancake/runtime";
-import type { Session } from "@pancake/runtime";
-import { DIRECTORY, ENTER, LIST, NOTIFY, OPEN, REGISTER, SUBSCRIBE, WATCH } from "../../lib/protocol.ts";
+import type { Argument, Session } from "@pancake/runtime";
+import {
+	DIRECTORY,
+	ENTER,
+	LIST_PUBLICATIONS,
+	NOTIFY,
+	OPEN,
+	REGISTER,
+	SUBSCRIBE,
+	WATCH_PUBLICATIONS,
+} from "../../lib/protocol.ts";
 import { NO_SUCH_ROOM, ROOM_EXISTS, type RoomErrorCode, roomErrorOf } from "../../lib/errors.ts";
 import { type Message, Room } from "../../lib/room_client.ts";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
@@ -36,8 +45,8 @@ export async function subscribeOnceConn(
 ): Promise<string> {
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
-	// The welcome + roster arrive as the first `notify` (a "roster" line), not as the
-	// subscribe return, so capture it off the inbox.
+	// The roster arrives as a `notify`, not as the subscribe return. Listed-ness
+	// may precede it; this helper waits for the roster tag specifically.
 	let resolveWelcome!: (w: string) => void;
 	const welcome = new Promise<string>((r) => (resolveWelcome = r));
 	const inbox = session.spawn((verb, args) => {
@@ -254,38 +263,86 @@ export async function nextMessage(room: Room, match: (message: Message) => boole
 	}
 }
 
-/** The directory's live room list as `[name, count]` pairs (counts arrive as
- * bigint), over an already-serving connection. */
-export async function listRooms(session: Session): Promise<Array<[string, number]>> {
-	const directory = await session.fetch(DIRECTORY);
-	const raw = await session.send(directory, LIST, []) as unknown[];
-	return raw.map((pair) => {
-		const p = pair as unknown[];
-		return [String(p[0]), Number(p[1])];
-	});
+export interface DirectoryRoomRecord {
+	name: string;
+	count: number | null;
+	id: string;
+	kind: "local" | "foreign";
+	origin: string;
+	proof: "local" | "authenticated" | "session";
 }
 
-/** Register a directory watcher over `session` and collect its `notify(event, name,
- * count)` deltas as `"event name count"` strings, returning the baseline
- * snapshot too. */
+export type DirectoryWatchEvent =
+	| { event: "opened" | "closed" | "count"; room: DirectoryRoomRecord }
+	| { event: "registered" | "unregistered"; name: string; count: number };
+
+function directoryRoomRecord(raw: unknown): DirectoryRoomRecord {
+	assert(Array.isArray(raw) && raw.length === 6, "directory room record must have six fields");
+	const [name, countRaw, id, kind, origin, proof] = raw;
+	assert(typeof name === "string" && name.length > 0, "directory room record must name a room");
+	assert(
+		countRaw === null || typeof countRaw === "number" || typeof countRaw === "bigint",
+		"directory room count must be natural or null",
+	);
+	const count = countRaw === null ? null : Number(countRaw);
+	assert(
+		count === null || (Number.isSafeInteger(count) && count >= 0),
+		"directory room count must be natural or null",
+	);
+	assert(typeof id === "string" && id.length > 0, "directory room record must name its publication");
+	assert(kind === "local" || kind === "foreign", "directory room record has invalid kind");
+	assert(typeof origin === "string", "directory room record has invalid origin");
+	assert(
+		proof === "local" || proof === "authenticated" || proof === "session",
+		"directory room record has invalid proof",
+	);
+	assert(
+		kind !== "local" || (count !== null && origin === "" && proof === "local"),
+		"local room record has foreign provenance",
+	);
+	assert(
+		kind !== "foreign" || (count === null && origin.length > 0 && proof !== "local"),
+		"foreign room record has local provenance",
+	);
+	return { name, count, id, kind, origin, proof };
+}
+
+/** Decode the directory's canonical room-publication snapshot. */
+export async function listRooms(session: Session): Promise<DirectoryRoomRecord[]> {
+	const directory = await session.fetch(DIRECTORY);
+	const raw = await session.send(directory, LIST_PUBLICATIONS, []) as unknown[];
+	return raw.map(directoryRoomRecord);
+}
+
+export function recordDirectoryEvent(events: DirectoryWatchEvent[], args: Argument[]): void {
+	const event = args[0];
+	if (event === "opened" || event === "closed" || event === "count") {
+		events.push({ event, room: directoryRoomRecord(args.slice(1)) });
+		return;
+	}
+	assert(event === "registered" || event === "unregistered", "directory watcher received an invalid event");
+	assert(args.length === 3 && typeof args[1] === "string", "directory member event has invalid fields");
+	const count = Number(args[2]);
+	assert(Number.isSafeInteger(count) && count >= 0, "directory member event has invalid count");
+	events.push({ event, name: args[1], count });
+}
+
+/** Register a directory watcher and retain its complete deltas and snapshot. */
 export async function watchDirectory(session: Session): Promise<{
-	events: string[];
-	snapshot: Array<[string, number]>;
+	events: DirectoryWatchEvent[];
+	snapshot: DirectoryRoomRecord[];
 }> {
 	session.serve().catch(() => {});
 	const directory = await session.fetch(DIRECTORY);
-	const events: string[] = [];
+	const events: DirectoryWatchEvent[] = [];
 	const observer = session.spawn((_verb, args) => {
-		events.push(`${args[0]} ${args[1]} ${Number(args[2])}`);
+		recordDirectoryEvent(events, args);
 		return null;
 	});
-	const raw = await session.send(directory, WATCH, [observer]) as unknown[];
+	const raw = await session.send(directory, WATCH_PUBLICATIONS, [observer]) as unknown[];
 	return {
 		events,
-		snapshot: raw.map((pair) => {
-			const p = pair as unknown[];
-			return [String(p[0]), Number(p[1])];
-		}),
+		snapshot: raw.map(directoryRoomRecord),
 	};
 }
 

@@ -112,8 +112,41 @@ const Inbox = struct {
     }
 };
 
-/// The directory's watch observer: the room list's live feed. The directory
-/// calls `notify(kind, name, count)` on it for every open/close/count change.
+const RoomInfo = struct {
+    name: []const u8,
+    count: ?i64,
+    id: []const u8,
+    kind: []const u8,
+    origin: []const u8,
+    proof: []const u8,
+};
+
+fn roomInfo(fields: []const model.Argument) ?RoomInfo {
+    if (fields.len < 6 or fields[0] != .string or fields[2] != .string or
+        fields[3] != .string or fields[4] != .string or fields[5] != .string)
+        return null;
+    const count: ?i64 = switch (fields[1]) {
+        .integer => |value| value,
+        .void => null,
+        else => return null,
+    };
+    return .{
+        .name = fields[0].string,
+        .count = count,
+        .id = fields[2].string,
+        .kind = fields[3].string,
+        .origin = fields[4].string,
+        .proof = fields[5].string,
+    };
+}
+
+fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: RoomInfo) void {
+    std.debug.print("[{s}] directory: {s} {s} (", .{ nick, event_kind, room.name });
+    if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
+    std.debug.print(")\n", .{});
+}
+
+/// The directory's watch observer: the room list's live feed.
 const Watcher = struct {
     nick: []const u8,
 
@@ -122,9 +155,7 @@ const Watcher = struct {
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
         const args = msg.args;
         const kind = if (args.len > 0 and args[0] == .string) args[0].string else "?";
-        const name = if (args.len > 1 and args[1] == .string) args[1].string else "";
-        const count = if (args.len > 2 and args[2] == .integer) args[2].integer else 0;
-        std.debug.print("[{s}] directory: {s} {s} ({d})\n", .{ self.nick, kind, name, count });
+        if (args.len > 1) if (roomInfo(args[1..])) |room| printRoomEvent(self.nick, kind, room);
         return .{ .boolean = true };
     }
 };
@@ -142,17 +173,17 @@ fn roomsSessionOpts() driver.SessionOptions {
     };
 }
 
-/// Print a `list`/`watch` snapshot — a list of `[name, count]` pairs — on one
-/// line, so discovery is visible before this client enters its room.
+/// Print a list/watch snapshot without turning unknown foreign occupancy into 0.
 fn printRooms(nick: []const u8, arg: model.Argument) void {
     std.debug.print("[{s}] rooms:", .{nick});
     var any = false;
     if (arg == .list) {
         for (arg.list) |item| {
-            if (item != .list or item.list.len < 2) continue;
-            const name = if (item.list[0] == .string) item.list[0].string else "?";
-            const count = if (item.list[1] == .integer) item.list[1].integer else 0;
-            std.debug.print(" {s} ({d})", .{ name, count });
+            if (item != .list) continue;
+            const room = roomInfo(item.list) orelse continue;
+            std.debug.print(" {s} (", .{room.name});
+            if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
+            std.debug.print(")", .{});
             any = true;
         }
     }

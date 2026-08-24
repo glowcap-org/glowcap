@@ -26,12 +26,13 @@ pub fn checkHumanDocVoice(
     for (bans.human_doc_voice_scopes) |scope| {
         var files: std.ArrayList([]const u8) = .empty;
         defer files.deinit(arena);
-        // An unopenable tree already violates through the ban rows; do not
-        // report it a second time here.
+        // tolerant: an unopenable tree already violates through the ban
+        // rows; do not report it a second time here.
         bans.collectFiles(io, arena, root, scope.where, &files) catch continue;
         for (files.items) |path| {
-            // A read failure is either an optional file or already reported
-            // by the ban rows; these line-structure checks stay silent on it.
+            // tolerant: a read failure is either an optional file or already
+            // reported by the ban rows; these line-structure checks stay
+            // silent on it.
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
             try banConnectiveArrowOutsideFences(gpa, violations, path, contents);
             if (std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd")) {
@@ -45,8 +46,10 @@ pub fn checkHumanDocVoice(
     for (em_dash_overuse_scopes) |where| {
         var files: std.ArrayList([]const u8) = .empty;
         defer files.deinit(arena);
+        // tolerant: an unopenable tree already violates through the ban rows.
         bans.collectFiles(io, arena, root, where, &files) catch continue;
         for (files.items) |path| {
+            // tolerant: a read failure already reports through the ban rows.
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
             try banHabitualEmDash(gpa, violations, path, contents);
         }
@@ -220,9 +223,11 @@ pub fn checkProseSentenceLength(
     for (em_dash_overuse_scopes) |where| {
         var files: std.ArrayList([]const u8) = .empty;
         defer files.deinit(arena);
+        // tolerant: an unopenable tree already violates through the ban rows.
         bans.collectFiles(io, arena, root, where, &files) catch continue;
         for (files.items) |path| {
             if (!std.mem.endsWith(u8, path, ".md") and !std.mem.endsWith(u8, path, ".smd")) continue;
+            // tolerant: a read failure already reports through the ban rows.
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
             try checkSentencesIn(gpa, violations, path, contents);
         }

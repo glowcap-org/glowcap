@@ -373,6 +373,7 @@
 ;; caller hears the worker's own words.
 (define rv-server (listen "127.0.0.1" 0))
 (define rv-ready (make-semaphore 0))
+(define rv-parked-ready (make-semaphore 0))
 (define rv-parked (box #f))
 (define rv-serve
   (thread
@@ -383,6 +384,7 @@
                             (lambda (method . args)
                               (define pair (host-defer-turn worker-host))
                               (set-box! rv-parked pair)
+                              (semaphore-post rv-parked-ready)
                               (void)))
      (semaphore-post rv-ready)
      (session-serve hsession))))
@@ -392,7 +394,7 @@
 
 (define rv-reply-ch (make-channel))
 (void (thread (lambda () (channel-put rv-reply-ch (session-send rv-session rv-worker 'work)))))
-(let loop () (unless (unbox rv-parked) (sleep 0.005) (loop)))
+(semaphore-wait rv-parked-ready)
 (resolver-fulfill! (unbox rv-parked) "computed off-turn")
 (expect (equal? "computed off-turn" (channel-get rv-reply-ch))
         "resolver: the deferred answer settled off-turn")
@@ -404,7 +406,7 @@
          (channel-put rv-broke-ch
                       (with-handlers ([(lambda (_) #t) (lambda (e) (exn-message e))])
                         (session-send rv-session rv-worker 'work))))))
-(let loop () (unless (unbox rv-parked) (sleep 0.005) (loop)))
+(semaphore-wait rv-parked-ready)
 (resolver-break! (unbox rv-parked) "worker gave up")
 (define rv-broke (channel-get rv-broke-ch))
 (expect (and (string? rv-broke) (regexp-match? #rx"worker gave up" rv-broke))
@@ -465,22 +467,40 @@
 (expect (equal? (sym "alive") (session-send en-session en-again 'hello)) "enliven: the cached capability answers hello")
 ;; Listen (CapTP op:listen): a held capability's resolution comes back through
 ;; the vow — a listen on an already-settled capability answers at once.
-(define en-listened (session-await en-session (session-listen en-session en-cap)))
+(define en-observation (session-listen en-session en-cap))
+(define en-observer-refusal
+  (with-handlers ([exn:fail:pancake? values])
+    (session-send en-session en-observation 'hello)
+    'no-error))
+(expect (and (exn:fail:pancake? en-observer-refusal)
+             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code en-observer-refusal)))
+        "listen: an observer vow is not a remote pipeline target")
+(define en-listened (session-await en-session en-observation))
 (expect (ref? en-listened) "listen: the vow settles naming the capability")
 
 ;; Host-level select-or-dial enliven (ADR-0098). SELECT: the sturdyref names
 ;; a peer this host already dialed, so the enliven rides `en-session` and the
 ;; capability answers there.
-(define hs-cap (host-enliven (session-host en-session) en-sturdyref))
+(define hs-cap
+  (host-enliven (session-host en-session) en-sturdyref #:captp-version 'v1_0))
 (expect (ref? hs-cap) "host-enliven: selected a live dialed session")
 (expect (equal? (sym "alive") (session-send en-session hs-cap 'hello))
-        "host-enliven: the selected capability answers")
+        "host-enliven: explicit v1.0 swiss semantics select the live authority")
 ;; DIAL: a fresh host with no session stages a dial through the action queue,
 ;; the executor opens the exporter session on its own serve thread, and the
 ;; host-scoped wait settles over it.
 (define dial-host (make-fresh-host))
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (host-enliven dial-host en-sturdyref
+                        #:captp-version 'unknown
+                        #:connector (tcp-connector))
+          #f)
+        "host-enliven: an unknown explicit version is refused")
+(expect (not (host-connector-for dial-host TRANSPORT-TCP))
+        "host-enliven: version refusal leaves connector authority unchanged")
 (define dial-cap
   (host-enliven dial-host (string-append (format-locator-uri en-locator) "/s/cG9ydGVy")
+                #:captp-version 'v1_0
                 #:connector (tcp-connector)))
 (expect (ref? dial-cap) "host-enliven: a cold sturdyref staged a dial and settled")
 (host-close! dial-host)
@@ -531,5 +551,3 @@
 (server-close! cx-server)
 
 (printf "racket zig-smoke OK: a capnp session opens and big-integer + keyword + Struct + Error args round-trip\n")
-
-

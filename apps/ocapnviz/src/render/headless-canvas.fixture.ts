@@ -22,50 +22,50 @@ const ASCENT = 0.8;
 const DESCENT = 0.2;
 
 function sizeOf(font: string): number {
-  const px = /(\d+(?:\.\d+)?)px/.exec(font);
-  return px === null ? 12 : Number(px[1]);
+	const px = /(\d+(?:\.\d+)?)px/.exec(font);
+	return px === null ? 12 : Number(px[1]);
 }
 
 function context2d(): unknown {
-  let font = "12px sans-serif";
-  return {
-    get font(): string {
-      return font;
-    },
-    set font(next: string) {
-      font = next;
-    },
-    measureText(text: string) {
-      const size = sizeOf(font);
-      const width = text.length * size * WIDTH_PER_CHAR;
-      return {
-        width,
-        actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: width,
-        actualBoundingBoxAscent: size * ASCENT,
-        actualBoundingBoxDescent: size * DESCENT,
-        fontBoundingBoxAscent: size * ASCENT,
-        fontBoundingBoxDescent: size * DESCENT,
-      };
-    },
-    fillText(): void {},
-    clearRect(): void {},
-    scale(): void {},
-    translate(): void {},
-    save(): void {},
-    restore(): void {},
-  };
+	let font = "12px sans-serif";
+	return {
+		get font(): string {
+			return font;
+		},
+		set font(next: string) {
+			font = next;
+		},
+		measureText(text: string) {
+			const size = sizeOf(font);
+			const width = text.length * size * WIDTH_PER_CHAR;
+			return {
+				width,
+				actualBoundingBoxLeft: 0,
+				actualBoundingBoxRight: width,
+				actualBoundingBoxAscent: size * ASCENT,
+				actualBoundingBoxDescent: size * DESCENT,
+				fontBoundingBoxAscent: size * ASCENT,
+				fontBoundingBoxDescent: size * DESCENT,
+			};
+		},
+		fillText(): void {},
+		clearRect(): void {},
+		scale(): void {},
+		translate(): void {},
+		save(): void {},
+		restore(): void {},
+	};
 }
 
 function canvas(width = 1, height = 1): unknown {
-  const ctx = context2d();
-  return {
-    width,
-    height,
-    getContext: (kind: string) => (kind === "2d" ? ctx : null),
-    addEventListener(): void {},
-    removeEventListener(): void {},
-  };
+	const ctx = context2d();
+	return {
+		width,
+		height,
+		getContext: (kind: string) => (kind === "2d" ? ctx : null),
+		addEventListener(): void {},
+		removeEventListener(): void {},
+	};
 }
 
 let installed = false;
@@ -80,25 +80,27 @@ let installed = false;
  * to fall through fails the moment Pixi happens to call it.
  */
 export function installHeadlessCanvas(): void {
-  if (installed) return;
-  installed = true;
-  DOMAdapter.set(
-    {
-      createCanvas: (width?: number, height?: number) => canvas(width, height),
-      createImage: () => ({}),
-      // Pixi asks the prototype whether letter spacing is supported. Nothing
-      // here spaces letters, so the answer is no.
-      getCanvasRenderingContext2D: () => ({ prototype: {} }),
-      getWebGLRenderingContext: () => ({}),
-      getNavigator: () => ({ userAgent: "deno", gpu: null }),
-      getBaseUrl: () => "http://localhost/",
-      getFontFaceSet: () => null,
-      fetch: (url: RequestInfo, options?: RequestInit) => fetch(url, options),
-      parseXML: () => {
-        throw new Error("headless canvas: nothing under test parses XML");
-      },
-      // The adapter's members are typed against DOM interfaces this stands in
-      // for, so the shape is asserted once here rather than at each member.
-    } as unknown as Parameters<typeof DOMAdapter.set>[0],
-  );
+	if (installed) return;
+	installed = true;
+	DOMAdapter.set(
+		{
+			createCanvas: (width?: number, height?: number) => canvas(width, height),
+			createImage: () => ({}),
+			// Pixi asks the prototype whether letter spacing is supported. Nothing
+			// here spaces letters, so the answer is no.
+			getCanvasRenderingContext2D: () => ({ prototype: {} }),
+			getWebGLRenderingContext: () => ({}),
+			getNavigator: () => ({ userAgent: "deno", gpu: null }),
+			getBaseUrl: () => "http://localhost/",
+			getFontFaceSet: () => null,
+			fetch: (url: RequestInfo, options?: RequestInit) => fetch(url, options),
+			parseXML: () => {
+				throw new Error(
+					"headless canvas: nothing under test parses XML",
+				);
+			},
+			// The adapter's members are typed against DOM interfaces this stands in
+			// for, so the shape is asserted once here rather than at each member.
+		} as unknown as Parameters<typeof DOMAdapter.set>[0],
+	);
 }

@@ -14,6 +14,11 @@ const v1_0 = @import("../v1_0.zig");
 
 const Peer = engine.Peer;
 
+fn validateResolverCallbackEnvelope(deliver: model.view.Deliver) session.Error!void {
+    if (deliver.answer != null or deliver.resolve_me_desc != null)
+        return session.Error.UnexpectedMessage;
+}
+
 /// The one route an inbound `op:deliver` takes. The variants are mutually
 /// exclusive by construction: resolver callbacks target resolver exports,
 /// pipelined calls target answers, and bootstrap delivers target export 0.
@@ -32,7 +37,7 @@ pub const Route = union(enum) {
     node_resolver_callback: model.ExportPosition,
     /// Pipelined against an answer we owe (ADR-0007): the call was queued or
     /// redirected during classification, so the frame surfaces nothing.
-    pipelined,
+    pipelined: pipeline.PreparedPipelinedCall,
     /// A bootstrap-protocol deliver (ADR-0006): the caller applies the action
     /// after authority records the deliver.
     bootstrap: bootstrap.Request,
@@ -41,12 +46,38 @@ pub const Route = union(enum) {
     ordinary: ?model.VirtualAnswer,
 };
 
+/// Pure route decision plus the V1.0 resolver authority prepared for the same
+/// frame. The inbound owner commits both only after the selected destination
+/// (pipeline queue or surfaced event) is secured.
+pub const Classification = struct {
+    route: Route,
+    resolver: ?session.PreparedInboundResolver = null,
+
+    /// Ordinary routes reserve their answer/import apply before retaining a
+    /// destination. Callback routes validate through specialized semantic
+    /// views in the inbound owner and need that owner's shared import preflight.
+    pub fn needsIntroducedImportPreparation(self: *const Classification) bool {
+        return switch (self.route) {
+            .resolver_callback_resolve,
+            .shortening_callback,
+            .retired_resolver_callback,
+            .node_resolver_callback,
+            => true,
+            .pipelined, .bootstrap, .ordinary => false,
+        };
+    }
+
+    pub fn abandon(self: *Classification, peer: *Peer) void {
+        if (self.route == .pipelined) self.route.pipelined.abandon(peer);
+    }
+};
+
 /// Classify an inbound `op:deliver` into one route. Probe order is part of the
 /// contract:
 ///
 /// 1. Resolver-export callbacks run first on every session profile.
 /// 2. Ordinary deliver validation runs before any route-specific mutation.
-/// 3. V1.0 resolver registration must precede pipeline retention.
+/// 3. V1.0 resolver, answer/import, and pipeline storage prepare together.
 /// 4. Pipelining precedes bootstrap so answer targets are not mistaken for
 ///    bootstrap export calls.
 /// 5. Bootstrap runs last and ordinary delivery is the fallback.
@@ -54,7 +85,7 @@ pub fn classify(
     peer: *Peer,
     deliver: model.view.Deliver,
     introduced: *session.validate.IntroducedImports,
-) !Route {
+) !Classification {
     // A resolver export settles by an `['fulfill|'break, payload]` deliver on
     // every negotiated version, so this probe carries no version gate: the
     // V1.0 resolver callback and the `op:listen` notification a listener
@@ -63,42 +94,57 @@ pub fn classify(
     // cannot key it.
     if (deliver.target.exportPosition()) |position| {
         if (peer.session_state.sourceForShorteningResolver(position)) |state| {
+            try validateResolverCallbackEnvelope(deliver);
             return switch (state) {
-                .pending => .{ .shortening_callback = position },
+                .pending => .{ .route = .{ .shortening_callback = position } },
                 .complete => session.Error.UnexpectedMessage,
             };
         }
         if (peer.session_state.isNodeSettlingResolver(position)) {
+            try validateResolverCallbackEnvelope(deliver);
             _ = try events.resolutionFromResolverCallback(deliver.args);
             try peer.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .node_resolver_callback = position };
+            return .{ .route = .{ .node_resolver_callback = position } };
         }
         if (peer.session_state.retiredResolverState(position)) |state| {
+            try validateResolverCallbackEnvelope(deliver);
             if (state == .complete) return session.Error.UnexpectedMessage;
             _ = try events.resolutionFromResolverCallback(deliver.args);
             try peer.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .retired_resolver_callback = position };
+            return .{ .route = .{ .retired_resolver_callback = position } };
         }
         if (peer.session_state.answerForResolverExport(position)) |answer| {
-            return .{ .resolver_callback_resolve = answer };
+            try validateResolverCallbackEnvelope(deliver);
+            return .{ .route = .{ .resolver_callback_resolve = answer } };
         }
     }
     // Every remaining route has ordinary deliver semantics. Validate the full
-    // target, answer, resolver descriptor, and argument tree before resolver
-    // registration or pipeline retention can mutate session authority.
+    // target, answer, resolver descriptor, and argument tree before any route
+    // prepares storage or commits session authority.
     try peer.session_state.validateInboundDeliverView(deliver, introduced);
     // A resolver-only deliver (no wire answer) has a virtual answer allocated
     // here. Carry it to the ordinary surface so a local object can reply
     // through the resolver callback.
-    var ordinary_answer: ?model.VirtualAnswer = null;
-    if (peer.session_state.needsV1_0Translation()) {
-        ordinary_answer = try v1_0.registerPartnerResolver(peer, deliver);
+    const resolver = if (peer.session_state.needsV1_0Translation())
+        try v1_0.preparePartnerResolver(peer, deliver)
+    else
+        null;
+    // Reserve the ordinary answer/import apply in the same preparation epoch.
+    // The conservative extra row covers a fresh resolver import; over-reserving
+    // when it aliases an argument or an existing import is private capacity.
+    try peer.session_state.prepareValidatedInboundDeliverView(
+        deliver,
+        introduced,
+    );
+    if (try pipeline.preparePipelinedCall(peer, deliver)) |prepared| {
+        return .{ .route = .{ .pipelined = prepared }, .resolver = resolver };
     }
-    if (try pipeline.maybeEnqueuePipelinedCall(peer, deliver)) {
-        return .pipelined;
+    const prepared_virtual_answer = if (resolver) |prepared| prepared.virtual_answer else null;
+    if (try bootstrap.pendingBootstrapAction(deliver, prepared_virtual_answer)) |action| {
+        return .{ .route = .{ .bootstrap = action }, .resolver = resolver };
     }
-    if (try bootstrap.pendingBootstrapAction(deliver, &peer.session_state)) |action| {
-        return .{ .bootstrap = action };
-    }
-    return .{ .ordinary = ordinary_answer };
+    return .{
+        .route = .{ .ordinary = if (resolver) |prepared| prepared.virtual_answer else null },
+        .resolver = resolver,
+    };
 }

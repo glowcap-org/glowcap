@@ -64,6 +64,13 @@ export function vizCapOf(sturdyref: string): string {
 	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
 }
 
+/** The endpoint address a producer or viewer may use, including the capability
+ * every socket must present. Producers replace the path with `/publish` while
+ * preserving this query. */
+export function vizUrlOf(sturdyref: string): string {
+	return vizCapUrl(`ws://127.0.0.1:${vizPortOf(sturdyref)}/`, vizCapOf(sturdyref));
+}
+
 /** The localStorage row that arms a rooms tab's publishing from first load:
  * the remembered-swiss auto-redeem is production code, and a proof seeds it
  * the way a reader who checked "Remember on this device" would have.
@@ -89,12 +96,11 @@ export function vizMemorySeed(pagePort: number, sturdyref: string): { key: strin
  * releases the session and its Host; the proofs exit explicitly, so leaving
  * a viewer open costs nothing beyond the connection. */
 export async function connectVizViewer(
-	port: number,
 	sturdyref: string,
 	apply: (record: VizRecord) => void,
 ): Promise<{ close(): Promise<void> }> {
 	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-	const socket = new WebSocket(vizCapUrl(`ws://127.0.0.1:${port}/`, vizCapOf(sturdyref)));
+	const socket = new WebSocket(vizUrlOf(sturdyref));
 	await new Promise<void>((resolve, reject) => {
 		socket.onopen = () => resolve();
 		socket.onerror = () => reject(new Error("the live timeline endpoint would not accept a viewer"));

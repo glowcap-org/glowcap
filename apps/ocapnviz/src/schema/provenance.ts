@@ -11,16 +11,16 @@ import { z } from "zod";
 
 /** IRI prefixes for JSON-LD `@context`. Not used at validation time. */
 export const NAMESPACES = {
-  prov: "http://www.w3.org/ns/prov#",
-  dct: "http://purl.org/dc/terms/",
-  ocapn: "https://pancake.dev/ns/ocapn#",
-  jgf: "https://jsongraphformat.info/v2/",
+	prov: "http://www.w3.org/ns/prov#",
+	dct: "http://purl.org/dc/terms/",
+	ocapn: "https://pancake.dev/ns/ocapn#",
+	jgf: "https://jsongraphformat.info/v2/",
 } as const;
 
 /** ISO-8601 instant (`prov:generatedAtTime`, `dct:created`, …). */
 export const Iso8601Instant = z.string().regex(
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/,
-  "must be an ISO-8601 instant (YYYY-MM-DDTHH:MM:SS[.sss]Z|±HH:MM)",
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/,
+	"must be an ISO-8601 instant (YYYY-MM-DDTHH:MM:SS[.sss]Z|±HH:MM)",
 );
 export type Iso8601Instant = z.infer<typeof Iso8601Instant>;
 
@@ -29,13 +29,13 @@ export type Iso8601Instant = z.infer<typeof Iso8601Instant>;
  * optional; an empty object means "no claim made".
  */
 export const Provenance = z.object({
-  "prov:wasGeneratedBy": z.string().optional(),
-  "prov:wasAttributedTo": z.string().optional(),
-  "prov:wasDerivedFrom": z.array(z.string()).optional(),
-  "prov:generatedAtTime": Iso8601Instant.optional(),
-  "prov:wasInformedBy": z.array(z.string()).optional(),
-  "dct:source": z.string().optional(),
-  "dct:identifier": z.string().optional(),
+	"prov:wasGeneratedBy": z.string().optional(),
+	"prov:wasAttributedTo": z.string().optional(),
+	"prov:wasDerivedFrom": z.array(z.string()).optional(),
+	"prov:generatedAtTime": Iso8601Instant.optional(),
+	"prov:wasInformedBy": z.array(z.string()).optional(),
+	"dct:source": z.string().optional(),
+	"dct:identifier": z.string().optional(),
 });
 export type Provenance = z.infer<typeof Provenance>;
 
@@ -53,10 +53,10 @@ export type Provenance = z.infer<typeof Provenance>;
  * timestamp to revert as well as the edit. Saved is also what the term means.
  */
 export const DescriptiveMetadata = z.object({
-  "dct:title": z.string().optional(),
-  "dct:description": z.string().optional(),
-  "dct:created": Iso8601Instant.optional(),
-  "dct:modified": Iso8601Instant.optional(),
-  "dct:creator": z.string().optional(),
+	"dct:title": z.string().optional(),
+	"dct:description": z.string().optional(),
+	"dct:created": Iso8601Instant.optional(),
+	"dct:modified": Iso8601Instant.optional(),
+	"dct:creator": z.string().optional(),
 });
 export type DescriptiveMetadata = z.infer<typeof DescriptiveMetadata>;

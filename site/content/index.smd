@@ -6,9 +6,9 @@
 .draft = false,
 ---
 
-Two programs pass each other references to objects and call methods across the
-network, under the same rule as local code. A peer can call only the references
-it has been handed, and it cannot construct one it was not given. That is
+The rule is the one object references already live by inside a single
+process: a peer can call only the references it has been handed, and it
+cannot construct one it was not given. That is
 [OCapN](https://github.com/ocapn/ocapn). pancake is a
 [Zig](https://ziglang.org/) library that speaks it.
 

@@ -30,59 +30,59 @@ import { c, FONT, SIZE } from "./tokens.ts";
  * happen to be written in.
  */
 export function ConfirmDialog() {
-  const pending = useSyncExternalStore(
-    subscribeConfirm,
-    currentConfirm,
-    currentConfirm,
-  );
-  const cancelRef = useRef<HTMLButtonElement | null>(null);
-  if (!pending) return null;
-  const cancel = () => pending.answer(false);
-  return (
-    <Dialog
-      // What a person has to deal with before carrying on, which is the same
-      // reading the error modal asks for.
-      role="alertdialog"
-      title={pending.title}
-      titleTone="danger"
-      autoFocusRef={cancelRef}
-      onPrimary={cancel}
-      onDismiss={cancel}
-      footer={
-        <>
-          <button
-            type="button"
-            className="ocv-btn"
-            ref={cancelRef}
-            onClick={cancel}
-          >
-            Cancel
-          </button>
-          {
-            /* Neither button is accented. `is-primary` would dress the
+	const pending = useSyncExternalStore(
+		subscribeConfirm,
+		currentConfirm,
+		currentConfirm,
+	);
+	const cancelRef = useRef<HTMLButtonElement | null>(null);
+	if (!pending) return null;
+	const cancel = () => pending.answer(false);
+	return (
+		<Dialog
+			// What a person has to deal with before carrying on, which is the same
+			// reading the error modal asks for.
+			role="alertdialog"
+			title={pending.title}
+			titleTone="danger"
+			autoFocusRef={cancelRef}
+			onPrimary={cancel}
+			onDismiss={cancel}
+			footer={
+				<>
+					<button
+						type="button"
+						className="ocv-btn"
+						ref={cancelRef}
+						onClick={cancel}
+					>
+						Cancel
+					</button>
+					{
+						/* Neither button is accented. `is-primary` would dress the
               destructive answer as the recommended one, and putting it on Cancel
               would accent a button whose whole job is to change nothing. The
               labels carry the difference, which is why `confirmLabel` names the
               act rather than agreeing with the question. */
-          }
-          <button
-            type="button"
-            className="ocv-btn"
-            onClick={() => pending.answer(true)}
-          >
-            {pending.confirmLabel}
-          </button>
-        </>
-      }
-    >
-      <div style={detail}>{pending.detail}</div>
-    </Dialog>
-  );
+					}
+					<button
+						type="button"
+						className="ocv-btn"
+						onClick={() => pending.answer(true)}
+					>
+						{pending.confirmLabel}
+					</button>
+				</>
+			}
+		>
+			<div style={detail}>{pending.detail}</div>
+		</Dialog>
+	);
 }
 
 const detail = {
-  fontSize: SIZE.base,
-  color: c.text,
-  fontFamily: FONT.sans,
-  lineHeight: 1.5,
+	fontSize: SIZE.base,
+	color: c.text,
+	fontFamily: FONT.sans,
+	lineHeight: 1.5,
 } satisfies React.CSSProperties;

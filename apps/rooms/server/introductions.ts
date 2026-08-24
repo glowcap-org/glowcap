@@ -14,7 +14,7 @@ import type { Argument } from "@pancake/runtime";
 import { designatorHostPort, durableIdentityAuthenticated, parseLocator, TRANSPORT_WEBRTC } from "@pancake/runtime";
 import { addressDesignator } from "@pancake/tcp";
 import { isUriLocator } from "../lib/locator.ts";
-import { notifyWatchers } from "./watchers.ts";
+import { notifyMember } from "./discovery.ts";
 import { MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES } from "../lib/limits.ts";
 import { NOTIFY, SIG_REJECT, VOUCHER } from "../lib/protocol.ts";
 import {
@@ -166,7 +166,7 @@ export function registerMember(
 		if (loc.transport === TRANSPORT_WEBRTC) webrtcDesignators.set(loc.designator, key);
 	}
 	session.tell(inbox, NOTIFY, ["registered", nick]).catch(() => {});
-	notifyWatchers("registered", nick, 1);
+	notifyMember("registered", nick, 1);
 	return nameCap;
 }
 
@@ -202,7 +202,7 @@ function withdrawIntroduction(key: string, intro: Introduction): void {
 	for (const [id, exchange] of [...signalExchanges]) {
 		if (exchange.targetKey === key) dropSignalExchange(id, `"${intro.nick}" is no longer registered`);
 	}
-	notifyWatchers("unregistered", intro.nick, 0);
+	notifyMember("unregistered", intro.nick, 0);
 }
 
 /** Hand back every inbox an introduction collected. */

@@ -160,7 +160,37 @@ test "queued inbound backpressure aborts instead of dropping the frame" {
     try std.testing.expect(peer.takeOutbound() == null);
 }
 
-test "queued local encode backpressure remains retryable and does not abort" {
+test "outbound admission backpressure remains retryable and does not abort" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(7));
+
+    peer.outbound_budget = 0;
+    try std.testing.expectError(error.OutboundBackpressure, peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .bytes = "retry" }},
+    } }));
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expect(peer.lastAbort() == null);
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    peer.outbound_budget = std.math.maxInt(usize);
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .bytes = "retry" }},
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var frame = peer.takeOutbound() orelse return error.MissingDeliverFrame;
+    frame.deinit();
+}
+
+test "an admitted carrier encodes across the waterline instead of deadlocking" {
+    // The waterline gates admission only (`peer/outbound/budget.zig`): once a
+    // carrier is queued, its encode must proceed even with the budget already
+    // saturated, because completion is the only way retained work drains. A
+    // transfer-side refusal here once wedged a Host forever: the saturated
+    // store refused the very encodes that would have emptied it.
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
@@ -171,15 +201,11 @@ test "queued local encode backpressure remains retryable and does not abort" {
         .args = &.{.{ .bytes = "retry" }},
     } });
     peer.outbound_budget = 0;
-    try std.testing.expectError(error.OutboundBackpressure, peer.step());
-    try std.testing.expect(peer.sessionIsOpen());
-    try std.testing.expect(peer.lastAbort() == null);
-    try std.testing.expect(peer.takeOutbound() == null);
-
-    peer.outbound_budget = std.math.maxInt(usize);
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     var frame = peer.takeOutbound() orelse return error.MissingDeliverFrame;
     frame.deinit();
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expect(peer.lastAbort() == null);
 }
 
 test "owned inbound frame moves into the surfaced event without copying its bytes" {

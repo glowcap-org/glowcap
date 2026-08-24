@@ -304,6 +304,8 @@ fn activateLink(ctx: *Ctx, text_input: *vaxis.widgets.TextInput, url: []const u8
                 try text_input.insertSliceAtCursor(url);
                 return;
             };
+            // best-effort: the opener already launched; a failed wait loses
+            // only its exit status.
             _ = child.wait(ctx.io) catch {};
         },
     }
@@ -374,5 +376,6 @@ pub fn osc52Copy(ctx: *Ctx, text: []const u8) !void {
     try msg.appendSlice(ctx.gpa, "\x1b]52;c;");
     try msg.appendSlice(ctx.gpa, b64);
     try msg.appendSlice(ctx.gpa, "\x07");
+    // best-effort: OSC 52 copy is fire-and-forget toward the terminal.
     std.Io.File.stdout().writeStreamingAll(ctx.io, msg.items) catch {};
 }

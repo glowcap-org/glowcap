@@ -48,6 +48,11 @@ const frame_cap: usize = 4096;
 const greeting = "hello over the wire";
 
 const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
+
+/// Finite waits for every dial and settle: a partner that wedges fails the
+/// bench loudly instead of parking it, which is the cli rule's posture for
+/// anything that dials. Sixty seconds dwarfs any healthy call here.
+const bench_budgets: driver.BlockingSession.Options = .{ .handshake = .{ .ms = 60_000 }, .settle = .{ .ms = 60_000 } };
 const IrohBridge = driver.Bridge(IrohLoop);
 
 /// The published actor: answers `greet` with a static greeting so the timed loop
@@ -76,7 +81,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, ident
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
+    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, bench_budgets);
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -106,7 +111,7 @@ fn clientMeasure(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, bench_budgets);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -278,7 +283,7 @@ fn loopClient(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, bench_budgets);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

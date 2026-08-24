@@ -43,8 +43,9 @@ facts, and the distinction is what this ADR is built on.
 **The hello is hint-tolerant, on every transport.** The pinned `captp.rkt`
 inbound `op:start-session` arm matches any `ocapn-node`, verifies the
 signature over the claimed location bytes hints-and-all, and stores the node
-verbatim; the location-mismatch check is commented out and the dial-back is a
-TODO. This is observed live twice: `zig build goblins-gift-hints` (a hinted
+verbatim; the location-mismatch check is commented out and the dial-back is
+left unfinished upstream. This is observed live twice: `zig build
+goblins-gift-hints` (a hinted
 hello on tcp, keyed hints-and-all through a full three-party handoff), and
 the hinted-hello probe inside `zig build goblins-onion`, where a real vat
 over real circuits accepts a hello whose signed **onion** location carries

@@ -13,31 +13,70 @@ const model = @import("model");
 const session = @import("session");
 
 const engine = @import("mod.zig");
+const id_route = session.id_route;
 const Peer = engine.Peer;
 const lower = @import("lower.zig");
 const outbound = @import("outbound.zig");
 
-/// The dialable form of a give's exporter location, an onion-only rewrite.
+pub const RecipientLocatorPolicy = struct {
+    known_pancake: bool = false,
+    route_vocabulary: bool = false,
+    /// The transport carrying this recipient's current session. A baseline
+    /// peer advertises no outbound-provider set, so this is the only transport
+    /// profile the gifter can prove it participates in. Null keeps only the
+    /// Goblins-compatible floor.
+    session_transport: ?[]const u8 = null,
+};
+
+pub const ExporterLocatorPolicy = struct {
+    /// Whether the exporter session admitted private route vocabulary.
+    route_vocabulary: bool,
+    /// The exact location the exporter claimed on this session, used when a
+    /// richer configured location cannot return inside a baseline withdrawal.
+    session_location: []const u8,
+};
+
+/// The dialable form of a give's exporter location for a recipient whose
+/// capabilities are unknown.
 /// The give must equal the exporter's hello *as the receiver sees it*: the
 /// pinned Goblins keys its withdrawal lookup by the full node value, hints
-/// included. On every transport but onion the exporter's hello is the same
-/// toward everyone — profile hints stamped at configuration ride to Goblins
-/// and pancake alike, which `zig build goblins-gift-hints` proves live — so
-/// the verbatim bytes are already the matching form and this returns null.
-/// On onion the hello is hinted only toward a known-pancake partner
-/// (ADR-0118), an unknown receiver is always answered bare, and the pinned
-/// Goblins dial arm cannot dial a hinted onion locator at all, so there the
-/// give sheds exactly the three `pancake/*` entries, keeping routing hints a
-/// receiver needs. Bytes this walker cannot read also ship verbatim,
-/// today's exact contract: both sources (our own record encode, the
-/// partner's codec-validated hello) are already validated, so the arm is
-/// unreachable rather than a policy. The one decode-and-re-encode is paid
-/// only on a give whose onion exporter stated a pancake profile; the caller
-/// owns non-null bytes.
+/// included. `id` gives lower only when its admitted bundle contains a
+/// recipient-compatible baseline route; otherwise it fails closed. Private
+/// route hints (`via`) are stripped from a baseline locator instead of leaking
+/// private vocabulary. On onion the
+/// hello is hinted only toward a known-pancake partner (ADR-0118), an unknown
+/// receiver is always answered bare, and the pinned Goblins dial arm cannot
+/// dial a hinted onion locator at all, so profile hints shed there too.
+/// Bytes this walker cannot read still ship verbatim: both sources (our own
+/// record encode, the partner's codec-validated hello) are already validated,
+/// so the arm is unreachable rather than a policy. The decode-and-re-encode
+/// is paid only when a give needs lowering or stripping; the caller owns
+/// non-null bytes.
 pub fn dialableExporterLocation(allocator: std.mem.Allocator, raw: []const u8) !?[]u8 {
+    return exporterLocationForRecipient(allocator, raw, .{});
+}
+
+fn exporterLocationForRecipient(
+    allocator: std.mem.Allocator,
+    raw: []const u8,
+    recipient: RecipientLocatorPolicy,
+) !?[]u8 {
+    if (recipient.route_vocabulary) return null;
     var cursor: usize = 0;
     const locator = codec.signed.readLocatorOwned(allocator, raw, &cursor) catch return null;
     defer model.freePeerLocator(allocator, locator);
+    if (try compatibleRoute(allocator, locator, recipient)) |route| {
+        defer model.freePeerLocator(allocator, route);
+        return try codec.signed.encodeLocatorRecord(allocator, route);
+    }
+    if (hasPrivateRouteHint(locator)) {
+        if (!routeFitsRecipient(recipient, locator.transport))
+            return error.UnsupportedArgument;
+        const stripped = try cloneLocatorForRecipient(allocator, locator, recipient);
+        defer model.freePeerLocator(allocator, stripped);
+        return try codec.signed.encodeLocatorRecord(allocator, stripped);
+    }
+    if (recipient.known_pancake) return null;
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return null;
     var stripped: usize = 0;
     for (locator.hints.entries) |entry| {
@@ -59,6 +98,103 @@ pub fn dialableExporterLocation(allocator: std.mem.Allocator, raw: []const u8) !
     });
 }
 
+fn compatibleRoute(
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+    recipient: RecipientLocatorPolicy,
+) !?model.PeerLocator {
+    if (!std.mem.eql(u8, locator.transport, model.transport.id))
+        return null;
+    var bundle = id_route.parseLocator(allocator, locator) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.UnsupportedArgument,
+    };
+    defer bundle.deinit(allocator);
+    for (bundle.paths) |path| {
+        if (!routeFitsRecipient(recipient, path.transport)) continue;
+        return try clonePathForRecipient(allocator, path, recipient);
+    }
+    return error.UnsupportedArgument;
+}
+
+fn routeFitsRecipient(recipient: RecipientLocatorPolicy, transport: []const u8) bool {
+    if (recipient.session_transport) |active|
+        return std.mem.eql(u8, active, transport);
+    return std.mem.eql(u8, transport, model.transport.tcp) or
+        std.mem.eql(u8, transport, model.transport.onion);
+}
+
+fn hasPrivateRouteHint(locator: model.PeerLocator) bool {
+    for (locator.hints.entries) |entry| {
+        if (std.mem.eql(u8, locator.transport, model.transport.id) and
+            std.mem.eql(u8, entry.name, model.transport.hint_via)) return true;
+    }
+    return false;
+}
+
+fn clonePathForRecipient(
+    allocator: std.mem.Allocator,
+    path: model.RoutePath,
+    recipient: RecipientLocatorPolicy,
+) !model.PeerLocator {
+    return cloneLocatorForRecipient(allocator, .{
+        .transport = path.transport,
+        .designator = path.designator,
+        .hints = path.hints,
+    }, recipient);
+}
+
+fn cloneLocatorForRecipient(
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+    recipient: RecipientLocatorPolicy,
+) !model.PeerLocator {
+    var kept_count: usize = 0;
+    for (locator.hints.entries) |entry| {
+        if (!recipient.known_pancake and model.transport.isProfileHintName(entry.name)) continue;
+        if (std.mem.eql(u8, locator.transport, model.transport.id) and
+            std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
+        kept_count += 1;
+    }
+    if (kept_count == locator.hints.entries.len)
+        return model.clonePeerLocator(allocator, locator);
+
+    const transport = try allocator.dupe(u8, locator.transport);
+    errdefer allocator.free(transport);
+    const designator = try allocator.dupe(u8, locator.designator);
+    errdefer allocator.free(designator);
+    if (kept_count == 0) {
+        return .{
+            .transport = transport,
+            .designator = designator,
+            .hints = model.Hints.emptyFalse(),
+        };
+    }
+    const entries = try allocator.alloc(model.HintEntry, kept_count);
+    errdefer allocator.free(entries);
+    var write: usize = 0;
+    errdefer {
+        for (entries[0..write]) |entry| model.freeHintEntry(allocator, entry);
+    }
+    for (locator.hints.entries) |entry| {
+        if (!recipient.known_pancake and model.transport.isProfileHintName(entry.name)) continue;
+        if (std.mem.eql(u8, locator.transport, model.transport.id) and
+            std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
+        const name = try allocator.dupe(u8, entry.name);
+        errdefer allocator.free(name);
+        entries[write] = .{
+            .name = name,
+            .value = try model.cloneHintValue(allocator, entry.value),
+        };
+        write += 1;
+    }
+    return .{
+        .transport = transport,
+        .designator = designator,
+        .hints = .{ .entries = entries },
+    };
+}
+
 /// Mint one signed give: derive the session and side names from the
 /// gifter–exporter session key (ADR-0097), pick the exporter-location form
 /// the recipient can use, and sign. Signed by the gifter's key on that
@@ -66,13 +202,11 @@ pub fn dialableExporterLocation(allocator: std.mem.Allocator, raw: []const u8) !
 /// proved; any other key — including the node's durable one — would not
 /// verify once sessions stop sharing a key.
 ///
-/// The location form (ADR-0118): a known-pancake recipient keeps the
-/// exporter's verbatim hello, profile hints and all, and can upgrade its
-/// redeem session from them. Everyone else gets the dialable form with the
-/// `pancake/*` entries stripped, because a Goblins recipient can neither
-/// dial a hinted onion locator nor match a give against a hello it never
-/// saw hinted — and a deferred onion exporter answers an unknown
-/// recipient's hello bare, so the stripped give equals that hello.
+/// The location form (ADR-0118/ADR-0125): a recipient that negotiated route
+/// vocabulary keeps route advice only when the exporter session admitted it
+/// too. A baseline-compatible configured location remains valid; only private
+/// route vocabulary falls back to the exporter's session location. The chosen
+/// source is then lowered again when the recipient is baseline.
 pub fn mintGive(
     allocator: std.mem.Allocator,
     secret: crypto.SecretKey,
@@ -80,23 +214,34 @@ pub fn mintGive(
     recipient_key: []const u8,
     exporter_key: []const u8,
     exporter_loc: []const u8,
-    recipient_known_pancake: bool,
+    recipient: RecipientLocatorPolicy,
+    exporter: ExporterLocatorPolicy,
 ) ![]u8 {
     const gifter_side = try engine.handoff_recipient.sideName(secret.publicKey().asBytes());
     const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
     const session_name = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
 
-    const dialable = if (recipient_known_pancake)
+    const accepted_by_exporter = source: {
+        if (exporter.route_vocabulary) break :source exporter_loc;
+        var cursor: usize = 0;
+        const locator = codec.signed.readLocatorView(exporter_loc, &cursor) catch
+            return error.UnsupportedArgument;
+        if (cursor != exporter_loc.len) return error.UnsupportedArgument;
+        const carries_routes = session.validate.carriesRouteVocabulary(locator) catch
+            return error.UnsupportedArgument;
+        break :source if (carries_routes) exporter.session_location else exporter_loc;
+    };
+    const dialable = if (recipient.route_vocabulary)
         null
     else
-        try dialableExporterLocation(allocator, exporter_loc);
+        try exporterLocationForRecipient(allocator, accepted_by_exporter, recipient);
     defer if (dialable) |owned| allocator.free(owned);
 
     return buildSignedGive(
         allocator,
         secret,
         recipient_key,
-        dialable orelse exporter_loc,
+        dialable orelse accepted_by_exporter,
         &session_name,
         &gifter_side,
         gift_id,

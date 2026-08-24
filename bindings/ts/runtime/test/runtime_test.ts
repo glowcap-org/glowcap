@@ -5,8 +5,11 @@ import { Host } from "../host.ts";
 import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
 import { Runtime } from "../runtime.ts";
 import { Context, recordCallerlessFailure, takeRuntimeFailures } from "../context.ts";
+import { PancakeError } from "../errors.ts";
+import { designatorHostPort, parseLocator } from "../locator.ts";
 import type { Session } from "../session.ts";
 import { requireArchiveFingerprint } from "../internal/ffi/runtime.ts";
+import { curlTransportArgs, HardFailError, requireSecureReleaseUrl } from "../internal/ffi/release_security.ts";
 import { deferFinalizerRetry, pendingFinalizerRetryCount } from "../finalizer_retry.ts";
 
 function assert(value: unknown, message: string): asserts value {
@@ -35,6 +38,24 @@ Deno.test("native lifecycle decoding rejects unknown states", () => {
 	assert(refused, "unknown lifecycle state was normalized into progress");
 });
 
+Deno.test("empty locator inputs refuse as grammar errors before FFI", () => {
+	for (
+		const [name, parse] of [
+			["locator", () => parseLocator("")],
+			["designator", () => designatorHostPort("")],
+		] as const
+	) {
+		let refusal: unknown = null;
+		try {
+			parse();
+		} catch (error) {
+			refusal = error;
+		}
+		assert(refusal instanceof PancakeError, `${name} did not return a typed refusal`);
+		assert(refusal.code === INVALID_ARGUMENT, `${name} empty input crossed as a non-grammar failure`);
+	}
+});
+
 Deno.test("archive fingerprints refuse stale callable surfaces before use", () => {
 	requireArchiveFingerprint(
 		{ pancake_test_archive_fingerprint: () => 0x1234n },
@@ -50,6 +71,44 @@ Deno.test("archive fingerprints refuse stale callable surfaces before use", () =
 		refused = error instanceof Error && error.message.includes("callable surface does not match");
 	}
 	assert(refused, "stale callable surface was admitted");
+});
+
+Deno.test("release downloads enforce the shared transport policy", () => {
+	requireSecureReleaseUrl("https://example.invalid/releases", false);
+	let refusal: unknown = null;
+	try {
+		requireSecureReleaseUrl("http://example.invalid/releases", false);
+	} catch (error) {
+		refusal = error;
+	}
+	assert(refusal instanceof HardFailError, "an insecure release URL did not fail closed");
+	assert(refusal.name === "HardFailError", "the archive resolver changed its failure contract");
+	requireSecureReleaseUrl("http://example.invalid/releases", true);
+	assert(
+		curlTransportArgs("https://example.invalid/archive", true).join(" ") === "--proto =https --tlsv1.2",
+		"the insecure escape weakened an HTTPS download",
+	);
+	assert(
+		curlTransportArgs("http://example.invalid/archive", true).length === 0,
+		"the explicit insecure escape retained contradictory curl TLS flags",
+	);
+});
+
+Deno.test("Host session limits carry independent transient and durable byte budgets", async () => {
+	const host = new Host();
+	host.setSessionLimits({
+		maxFrameBytes: 64 * 1024,
+		outboundHighWaterBytes: 128 * 1024,
+		maxRetainedSentAnswerBytes: 8 * 1024 * 1024,
+	});
+	let refused = false;
+	try {
+		host.setSessionLimits({ maxRetainedSentAnswerBytes: -1 });
+	} catch (error) {
+		refused = error instanceof Error && error.message.includes("non-negative");
+	}
+	assert(refused, "a negative durable-answer budget crossed the FFI boundary");
+	await host.close();
 });
 
 Deno.test("callerless failure without a surviving Context reaches the process seam", () => {

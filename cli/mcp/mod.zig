@@ -31,6 +31,8 @@ fn readMessage(gpa: std.mem.Allocator, reader: anytype) !?[]u8 {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => return null,
             error.StreamTooLong => {
+                // best-effort: a stream that cannot even skip the oversized
+                // line surfaces its failure on the next read.
                 _ = reader.interface.discardDelimiterInclusive('\n') catch {};
                 return error.MessageTooLong;
             },
@@ -227,9 +229,15 @@ fn handleToolsCall(ctx: *Ctx, id_json: []const u8, root: std.json.Value, catalog
     var tool_parsed: Parsed = undefined;
     // A server that dies on one bad or oversized call takes every other tool
     // with it, so a failure here is this request's error, not the process's.
-    schema.fillParsed(ctx.gpa, cmd, jsonGet(params, "arguments"), &tool_parsed) catch |err| {
-        try writeError(ctx.io, ctx.gpa, id_json, -32603, @errorName(err));
-        return;
+    schema.fillParsed(ctx.gpa, cmd, jsonGet(params, "arguments"), &tool_parsed) catch |err| switch (err) {
+        error.InvalidArguments => {
+            try writeError(ctx.io, ctx.gpa, id_json, -32602, "arguments do not match the tool input schema");
+            return;
+        },
+        else => {
+            try writeError(ctx.io, ctx.gpa, id_json, -32603, @errorName(err));
+            return;
+        },
     };
     defer tool_parsed.deinit();
 
@@ -335,6 +343,7 @@ const CapsWatch = struct {
                     return;
                 }
             }
+            // tolerant: an interrupted sleep only shortens the poll interval.
             std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
         }
         self.closeOnce();
@@ -396,13 +405,15 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
         .max_session_ms = max_session_ms,
     };
     var caps_future = try ctx.io.concurrent(CapsWatch.run, .{&caps});
-    var code: u8 = exit_codes.ok;
+    const code: u8 = exit_codes.ok;
+    var stopped = false;
     defer {
-        signals.requestStop();
-        caps_future.await(ctx.io);
-        if (ctx.closeOwned(.cancel)) |failure| {
-            ctx.logCloseFailure("mcp close", failure);
-            if (code == exit_codes.ok) code = ctx.mapCloseErr(failure.cause);
+        if (!stopped) {
+            signals.requestStop();
+            caps_future.await(ctx.io);
+            if (ctx.closeOwned(.cancel)) |failure| {
+                ctx.logCloseFailure("mcp close", failure);
+            }
         }
     }
 
@@ -474,6 +485,17 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
             try writeError(ctx.io, ctx.gpa, id_json, -32601, "method not found");
         }
     }
+    signals.requestStop();
+    caps_future.await(ctx.io);
+    stopped = true;
+    return finishMcp(ctx, code);
+}
+
+fn finishMcp(ctx: *Ctx, code: u8) u8 {
+    if (ctx.closeOwned(.cancel)) |failure| {
+        ctx.logCloseFailure("mcp close", failure);
+        if (code == exit_codes.ok) return ctx.mapCloseErr(failure.cause);
+    }
     return code;
 }
 
@@ -541,4 +563,17 @@ test "a notification is still answered with silence" {
     const id = try idToJson(gpa, jsonGet(parsed.value, "id"));
     defer if (id) |owned| gpa.free(owned);
     try std.testing.expect(id == null);
+}
+
+test "mcp finalization returns a close failure" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var ctx = Ctx{ .io = threaded.io(), .gpa = gpa, .environ = &environ };
+    defer ctx.deinit();
+
+    ctx.reportUnhandledFailure(.fromError(error.ConnectionLost));
+    try std.testing.expectEqual(exit_codes.dial, finishMcp(&ctx, exit_codes.ok));
 }

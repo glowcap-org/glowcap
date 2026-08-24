@@ -11,17 +11,19 @@ questions are [watched separately](upstream-watch.md).
   Windows support needs the backend behind the existing completion-loop
   contract, which is total (`validateBackend`), then live tests and release
   artifacts.
-- **macOS runtime CI.** The recurring workflow cross-compiles the kqueue path
-  but never executes it. A macOS runner closes this gap.
 - **Public-certificate relay URLs.** Local WSS with a fixture authority is
   checked. A public certificate at a real relay hostname is still unproven
   across every native execution form
   ([known limitations](boundaries.md#browser-reachability)).
 
-## Scale and release
+## Release
 
-- **A live 500,000-session measurement.** Record machine, command, memory, and
-  result in [the ladder](ladder.md).
+- **Public release evidence.** The repository is still private, and GitHub
+  Actions currently refuses to start its jobs because of the account's
+  payment/spending state. Before an invite or release, restore job execution,
+  make the prepared repository public, run the exact release commit through the
+  checks and macOS jobs, and verify the repository, badge, and run are visible
+  without authentication.
 - **Published C archives.** No versioned assets are live. Publication needs
   green packages for every target, the `releases_published` switch in
   [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json), and a
@@ -30,12 +32,6 @@ questions are [watched separately](upstream-watch.md).
 
 ## Beyond the library
 
-- **First-party failure containment.** The CLI, MCP server, rooms peer,
-  relays, examples, and applications still need the same deterministic
-  shutdown discipline as the library. Accepted tasks must be joined or
-  canceled, networking failures must reach their command or close result, and
-  optional presence, telemetry, and interface updates need explicit bounded
-  loss rather than discarded errors.
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by
   [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md).
 - **OpenTelemetry export.** Adapter-only OTLP off the Host and session event

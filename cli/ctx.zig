@@ -3,6 +3,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 const identity_mod = @import("operability/identity.zig");
 const state_lock = @import("operability/state_lock.zig");
+const xdg = @import("operability/xdg.zig");
 const relay_runtime = @import("ocapn/relay_runtime.zig");
 
 const crypto = pancake.foundation.crypto;
@@ -44,11 +45,21 @@ pub const Ctx = struct {
     rendezvous_provider: ?relay_runtime.Provider = null,
     dial_netlayers: [3]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
+    /// A refused close leaves `session` reachable for the exact retry but no
+    /// longer exposes it as an ordinary command session.
+    session_cleanup_pending: bool = false,
+    /// One sidecar whose close barrier refused while `session` is already
+    /// occupied. This fixed owner bounds cleanup debt and keeps the live
+    /// wrapper reachable until a later close crosses its release barrier.
+    pending_session: ?*Session = null,
     /// The non-argv fronts' background listener (`listen` on MCP or the
     /// REPL), or null. One per context; `close` and `deinit` stop it.
     background_listener: ?*@import("ocapn/listen_background.zig").Handle = null,
     /// Last listen locator minted in this process (owned).
     last_locator: ?[]const u8 = null,
+    /// Publishes `last_locator` to the foreground-listen worker's observer.
+    /// Replacement and release remain sequential command operations.
+    last_locator_ready: std.atomic.Value(bool) = .init(false),
     /// Exclusive identity/state lock; held while this process owns CapTP identity.
     state_guard: ?state_lock.Guard = null,
     /// Borrowed argv `std.process.Init` for leaves that need the full process handle (rooms-peer).
@@ -58,17 +69,12 @@ pub const Ctx = struct {
     /// `closeOwned`; not a second journal.
     callerless: ?FailureChain = null,
 
-    fn statePosture(self: *const Ctx) @import("operability/xdg.zig").StatePosture {
+    fn statePosture(self: *const Ctx) xdg.StatePosture {
         return if (self.front == .mcp) .mcp_local else .product;
     }
 
     pub fn resolveIdentityPath(self: *Ctx) !void {
-        self.identity_path = try identity_mod.defaultIdentityPath(self.io, &self.identity_path_buf, self.environ, self.statePosture());
-    }
-
-    /// Path used by `pancake init` (XDG state / overrides; never legacy config).
-    pub fn resolveMintIdentityPath(self: *Ctx) !void {
-        self.identity_path = try identity_mod.mintIdentityPath(&self.identity_path_buf, self.environ, self.statePosture());
+        self.identity_path = try xdg.defaultIdentityPath(&self.identity_path_buf, self.environ, self.statePosture());
     }
 
     /// Acquire the product identity/state lock once (non-blocking). Idempotent.
@@ -109,6 +115,18 @@ pub const Ctx = struct {
         }
     }
 
+    pub fn publishLocator(self: *Ctx, owned: []u8) void {
+        self.last_locator_ready.store(false, .release);
+        if (self.last_locator) |old| self.gpa.free(old);
+        self.last_locator = owned;
+        self.last_locator_ready.store(true, .release);
+    }
+
+    pub fn publishedLocator(self: *const Ctx) ?[]const u8 {
+        if (!self.last_locator_ready.load(.acquire)) return null;
+        return self.last_locator;
+    }
+
     /// Product log line for CapTP verbs. Honors the lab divert when the TUI
     /// alt-screen is active (see `operability/log.setDivert`); else stderr.
     pub fn logInfo(self: *Ctx, comptime fmt: []const u8, args: anytype) void {
@@ -129,12 +147,18 @@ pub const Ctx = struct {
         };
         var msg_buf: [512]u8 = undefined;
         const msg = log.renderBounded(&msg_buf, fmt, args);
+        // best-effort: the capture body is a secondary channel beside the
+        // stderr line above; under allocation failure it stays blank.
+        self.appendJsonFailureBody(cap, msg) catch {};
+    }
+
+    fn appendJsonFailureBody(self: *Ctx, cap: *std.ArrayList(u8), msg: []const u8) !void {
         var body: std.ArrayList(u8) = .empty;
         defer body.deinit(self.gpa);
-        body.appendSlice(self.gpa, "{\"ok\":false,\"error\":") catch return;
-        @import("argv.zig").writeJsonString(&body, self.gpa, msg) catch return;
-        body.appendSlice(self.gpa, "}\n") catch return;
-        cap.appendSlice(self.gpa, body.items) catch {};
+        try body.appendSlice(self.gpa, "{\"ok\":false,\"error\":");
+        try @import("argv.zig").writeJsonString(&body, self.gpa, msg);
+        try body.appendSlice(self.gpa, "}\n");
+        try cap.appendSlice(self.gpa, body.items);
     }
 
     /// Close only the retained CapTP session. Relay transport ownership is
@@ -145,12 +169,74 @@ pub const Ctx = struct {
         if (self.session) |s| {
             s.close(pending) catch |err| {
                 failure = .init(err);
+                self.session_cleanup_pending = true;
+                // `close` is the pre-release barrier. A refusal leaves the
+                // Session valid and therefore leaves this slot as its retry
+                // owner; deinit would discard the only reachable handle.
+                if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
+                return failure;
             };
             s.deinit();
             self.session = null;
+            self.session_cleanup_pending = false;
             if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
         }
         return failure;
+    }
+
+    fn closePendingSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+        var failure: ?FailureChain = null;
+        const session = self.pending_session orelse return null;
+        session.close(pending) catch |err| {
+            failure = .init(err);
+            if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
+            return failure;
+        };
+        session.deinit();
+        self.pending_session = null;
+        if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
+        return failure;
+    }
+
+    /// Refuse a new dial while a sidecar still owns a refused close barrier.
+    /// The check belongs before transport setup so refusal cannot create a
+    /// second cleanup owner.
+    pub fn ensureDialAllowed(self: *const Ctx) error{CleanupPending}!void {
+        if (self.session_cleanup_pending or self.pending_session != null) return error.CleanupPending;
+    }
+
+    pub fn activeSession(self: *const Ctx) ?*Session {
+        return if (self.session_cleanup_pending) null else self.session;
+    }
+
+    pub fn sessionCleanupPending(self: *const Ctx) bool {
+        return self.session_cleanup_pending or self.pending_session != null;
+    }
+
+    pub fn holdSession(self: *Ctx, session: *Session) void {
+        std.debug.assert(self.session == null);
+        std.debug.assert(!self.session_cleanup_pending);
+        self.session = session;
+    }
+
+    /// Retain the one sidecar whose close barrier refused. Admission is
+    /// checked before dialing, so a second owner here is an invariant breach,
+    /// not a recoverable allocation failure.
+    pub fn retainPendingSession(self: *Ctx, session: *Session) void {
+        if (self.pending_session != null) @panic("pending session owner already occupied");
+        self.pending_session = session;
+    }
+
+    /// Keep a refused one-shot session reachable in the retained slot when it
+    /// has no primary session; otherwise use the bounded sidecar owner.
+    pub fn retainOneShotSession(self: *Ctx, session: *Session) void {
+        if (self.session == null) {
+            if (self.pending_session != null) @panic("pending session owner already occupied");
+            self.session = session;
+            self.session_cleanup_pending = true;
+        } else {
+            self.retainPendingSession(session);
+        }
     }
 
     /// Join the context-owned relay provider. Refusal consumes nothing, so the
@@ -169,7 +255,11 @@ pub const Ctx = struct {
     /// session refusal as primary and provider retirement as a consequence.
     pub fn closeSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
         var failure = self.closeHeldSession(pending);
-        if (self.closeRelayProvider()) |cleanup| self.retainCleanup(&failure, cleanup);
+        // A refused session barrier still owns the provider needed for its
+        // retry. Retire the provider only after the session release commits.
+        if (self.session == null and self.pending_session == null) {
+            if (self.closeRelayProvider()) |cleanup| self.retainCleanup(&failure, cleanup);
+        }
         return failure;
     }
 
@@ -188,6 +278,10 @@ pub const Ctx = struct {
     pub fn closeOwned(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
         var failure = self.closeBackgroundListener();
         if (self.closeSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);
+        if (self.closePendingSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);
+        if (self.session == null and self.pending_session == null) {
+            if (self.closeRelayProvider()) |cleanup| self.retainCleanup(&failure, cleanup);
+        }
         if (self.takeCallerless()) |cleanup| self.retainCleanup(&failure, cleanup);
         return failure;
     }
@@ -232,6 +326,7 @@ pub const Ctx = struct {
     pub fn deinit(self: *Ctx) void {
         if (self.closeOwned(.cancel)) |failure| self.logCloseFailure("context cleanup", failure);
         if (self.last_locator) |loc| {
+            self.last_locator_ready.store(false, .release);
             self.gpa.free(loc);
             self.last_locator = null;
         }

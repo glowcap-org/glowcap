@@ -108,8 +108,15 @@ export function roomsAddress(locator: Locator): string {
  *
  * `seed` pins the retained OCapN identity (the iroh endpoint shares it);
  * omitted, the host takes a fresh one. */
-export function roomsHost(seed?: Uint8Array): Host {
-	return new Host(seed, { codec: CODEC, captpVersion: CAPTP_VERSION });
+export type RoomsHostPosture = "full" | "next-baseline" | "v1-syrup";
+
+export function roomsHost(seed?: Uint8Array, posture: RoomsHostPosture = "full"): Host {
+	const profile = posture === "full"
+		? { codec: CODEC, captpVersion: CAPTP_VERSION, features: "full" } as const
+		: posture === "next-baseline"
+		? { codec: CODEC, captpVersion: CAPTP_VERSION, features: "baseline" } as const
+		: { codec: "syrup", captpVersion: "v1_0", features: "baseline" } as const;
+	return new Host(seed, profile);
 }
 
 /** Listen for rooms peers on `bindHost:port`.

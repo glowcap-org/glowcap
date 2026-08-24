@@ -92,6 +92,7 @@ gate zig build iroh-sidecar-test
 gate zig build webrtc-sidecar-test
 gate zig build bindings-fmt-check
 gate zig build bindings
+gate zig build bindings-noise-relay-listen
 gate zig build racket-test
 # The browser binding's behavioral proof: two wasm32 Hosts complete a keyed
 # handshake driven from JavaScript. The wasm *build* is in `check` (via
@@ -100,14 +101,24 @@ gate zig build wasm-driver-test
 # The browser binding's layout descriptor is well formed and agrees with the
 # host `abi.ts` mirror on struct shape (needs deno).
 gate zig build wasm-abi-layout-check
-# The browser binding imports exactly the one behavior-dispatch seam
-# env.pancake_behavior_trampoline, nothing else (needs deno).
+# The browser binding imports exactly the behavior-dispatch and hosted-lifetime
+# seams, and nothing else (needs deno).
 gate zig build wasm-import-check
 # A real Chromium page registers its Wasm Host over local WSS/noise-relay; the
 # installed native CLI cold-dials, fetches and calls it, while the relay audits
 # that the CapTP canary never appeared outside the Noise channel.
 gate zig build web-peer-test
 gate zig build goblins-interop
+# The smallest outside-authority Rooms proof: a real Goblins vat and a native
+# pancake member exchange room traffic while the server records the Goblins
+# session on syrup/v1_0 and the pancake session on capnp/next. This needs no
+# browser or iroh build, so it belongs in the recurring sequence rather than
+# being hidden behind the heavyweight Rooms matrix.
+gate zig build goblins-rooms
+# Both shipped IRC edges with a real outside implementation: fixture IRC ↔
+# bridge ↔ Goblins, then ordinary IRC client ↔ front ↔ native room ↔ Goblins,
+# including a reply over the direct session the IRC side initiated.
+gate zig build goblins-rooms-irc
 # The same live-Goblins conversation, once per binding. Without these the
 # bindings are only ever proved against pancake's own checks, which cannot
 # catch a binding that drifts from the protocol. These rows cover Deno, Python,
@@ -129,6 +140,10 @@ gate zig build goblins-gift-hints
 # fire on a promise pancake introduced, rather than in an answer the recipient
 # asked for. Only a live partner can say whether it reads one there.
 gate zig build goblins-relayed-give
+# The reciprocal foreign-promise direction: Goblins hands pancake an
+# unresolved promise, then the owning Session installs listenTo before asking
+# Goblins to settle it with a callable capability nested in the value.
+gate zig build goblins-listen-recipient
 # The third handoff role: a live Goblins pair deposits into and withdraws from
 # a *pancake* gift registry, so pancake answering both verbs is proved against
 # somebody else's implementation rather than only the upstream suite.

@@ -1,5 +1,5 @@
-"""Internal: the :class:`RemotePromise` a Session send returns — lazy
-observation, promise pipelining target, and ``index``/``untag``/``get``
+"""Internal: the :class:`RemotePromise` a Session send returns — immediate
+progress, lazy result observation, promise pipelining, and ``index``/``untag``/``get``
 projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 mint→await→classify path (``_await_minted`` / ``_fetch_like``), the far-send
 mint→``_promise_for`` path (``_send_far``), and RemotePromise construction.
@@ -17,23 +17,33 @@ from typing import Optional, Union
 
 from . import _constants as _abi
 from ._abi_value import _args_to_c, _ref_to_c
-from ._errors import FetchFailed, PancakeError, _check_host
+from ._errors import FetchFailed, PancakeError, _check_host, _retain_cleanup_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf
 from ._value import Ref
 
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
+_ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
 
 async def _await_minted(session, vow: int, *, track_gc: bool):
     # The shared fetch/enliven wait: register the vow, keep the inbound
     # loop running (the completion's bytes arrive on it), kick the drain so
     # the deliver leaves now, and await the drain-routed outcome.
-    session.host.vow_minted(vow, track_gc=track_gc and session.gc_enabled)
-    session.serve()
-    settled = session.host.await_vow(vow)
-    await session.host.kick_actions()
-    return await settled
+    try:
+        session.host.vow_minted(vow, track_gc=track_gc and session.gc_enabled)
+        session.serve()
+        settled = session.host.await_vow(vow)
+        await session.host.kick_actions()
+        result = await settled
+        session.gc.park_vow(vow)
+        return result
+    except BaseException as failure:
+        try:
+            session.gc.park_vow(vow)
+        except BaseException as cleanup:
+            _retain_cleanup_failure(failure, cleanup)
+        raise
 
 
 def _classify_live_ref(result, label: str) -> Ref:
@@ -62,11 +72,9 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     return result
 
 
-def _promise_for(session, vow: int) -> RemotePromise:
-    # The RemotePromise over a freshly minted host vow: observation kicks
-    # the drain (the flush that puts the queued batch on the wire) and
-    # awaits the drain-routed completion; projections mint sibling vows at
-    # the answer.
+def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromise:
+    # Adopt a freshly minted Host vow into one public wrapper. Every fallible
+    # setup step either acquires its owner or parks native release.
     async def begin():
         session.serve()  # the settle's bytes arrive on the inbound loop
         settled = session.host.await_vow(vow)
@@ -76,21 +84,53 @@ def _promise_for(session, vow: int) -> RemotePromise:
     def project(op: str, key) -> RemotePromise:
         out = ctypes.c_uint64()
         if op == "index":
-            _check_host(_host.pancake_host_vow_index(
-                session.host.raw, vow, int(key), ctypes.byref(out),
-            ))
+            _check_host(
+                _host.pancake_host_vow_index(
+                    session.host.raw,
+                    vow,
+                    int(key),
+                    ctypes.byref(out),
+                )
+            )
         else:
             field = str(key).encode()
             fbuf, fptr = _byte_buf(field)
-            fn = _host.pancake_host_vow_get if op == "get" else _host.pancake_host_vow_untag
-            _check_host(fn(
-                session.host.raw, vow, fptr, len(field), ctypes.byref(out),
-            ))
+            fn = (
+                _host.pancake_host_vow_get
+                if op == "get"
+                else _host.pancake_host_vow_untag
+            )
+            _check_host(
+                fn(
+                    session.host.raw,
+                    vow,
+                    fptr,
+                    len(field),
+                    ctypes.byref(out),
+                )
+            )
         projected = out.value
-        session.host.vow_minted(projected, track_gc=session.gc_enabled)
         return _promise_for(session, projected)
 
-    return RemotePromise.far(vow, begin, project)
+    try:
+        session.host.vow_minted(vow, track_gc=session.gc_enabled)
+        promise = (
+            RemotePromise.far(vow, session.host, begin, project)
+            if pipelineable
+            else RemotePromise.observer(vow, begin)
+        )
+        session.serve()
+        session.host.schedule_kick()
+        # Last fallible adoption step: after this succeeds, returning the
+        # wrapper transfers the native vow to its finalizer.
+        session.gc.track_vow(promise, vow)
+        return promise
+    except BaseException as failure:
+        try:
+            session.gc.park_vow(vow)
+        except BaseException as cleanup:
+            _retain_cleanup_failure(failure, cleanup)
+        raise
 
 
 class PromiseState:
@@ -101,11 +141,17 @@ class PromiseState:
     @dataclass(frozen=True, slots=True)
     class Far:
         vow: int
+        host_owner: object
         tag: str = "far"
 
     @dataclass(frozen=True, slots=True)
     class Local:
         tag: str = "local"
+
+    @dataclass(frozen=True, slots=True)
+    class Observer:
+        vow: int
+        tag: str = "observer"
 
     @dataclass(frozen=True, slots=True)
     class Failed:
@@ -120,15 +166,24 @@ class PromiseState:
         error: BaseException
         tag: str = "failed"
 
-    Kind = Union["PromiseState.Far", "PromiseState.Local", "PromiseState.Failed"]
+    Kind = Union[
+        "PromiseState.Far",
+        "PromiseState.Local",
+        "PromiseState.Observer",
+        "PromiseState.Failed",
+    ]
 
     @staticmethod
-    def far(vow: int) -> "PromiseState.Far":
-        return PromiseState.Far(vow)
+    def far(vow: int, host_owner: object) -> "PromiseState.Far":
+        return PromiseState.Far(vow, host_owner)
 
     @staticmethod
     def local() -> "PromiseState.Local":
         return PromiseState.Local()
+
+    @staticmethod
+    def observer(vow: int) -> "PromiseState.Observer":
+        return PromiseState.Observer(vow)
 
     @staticmethod
     def failed(error: BaseException) -> "PromiseState.Failed":
@@ -151,18 +206,17 @@ class RemotePromise(asyncio.Future):
         session.send(task, "assign", ["alice"])          # pipelined at the answer
         status = await session.send(task, "status", [])  # settles the chain
 
-    The send is queued when this is created, but its bytes leave the wire only
-    when this -- or any send pipelined behind it -- is first observed: awaited,
-    or registered with a done callback, which is how ``asyncio.gather`` /
-    ``wait`` / ``shield`` observe a future, so a gathered handle settles too.
-    A pipelined batch therefore travels together. A handle that is never
-    observed is a fire-and-forget send; prefer :meth:`Session.tell` for
-    that. Because the
+    The send schedules Host progress when this is created, so an unobserved
+    eventual-send still leaves the process. Synchronous chains batch in the
+    event-loop turn before that scheduled drain runs. Because the
     settle is drain-routed and no exception is materialized until the handle is
     observed, an unobserved anchor whose far answer *breaks* stays silent. Like
     any ``asyncio.Future``, construct it within a running event loop (``send``
-    is always called from one). State is a sum (``far`` | ``local``), not a
-    nullable vow flag.
+    is always called from one). State is a sum (``far`` | ``observer`` |
+    ``local`` | ``failed``), not a nullable vow flag; an ``observer`` is an
+    await-only ``op:listen`` result with no remote answer position. A pipeline
+    target belongs to the Host that minted it; another Host refuses it before
+    interpreting the Host-local vow number.
 
     The projection verbs :meth:`index` / :meth:`untag` / :meth:`get`
     (ADR-0050/ADR-0052) pipeline an element, untag, or Struct-field access *at
@@ -171,8 +225,8 @@ class RemotePromise(asyncio.Future):
     """
 
     def __init__(self, kind: PromiseState.Kind, begin, project=None) -> None:
-        # The future is created empty -- no flush runs here, so construction is
-        # side-effect-free and the send stays lazy.
+        # The future is created empty; the owning factory schedules Host
+        # progress after the wrapper and its finalizer are installed.
         super().__init__()
         # Not `_state`: asyncio.Future owns that name for PENDING/FINISHED.
         self._kind = kind
@@ -185,12 +239,16 @@ class RemotePromise(asyncio.Future):
         self._begin_task: "Optional[asyncio.Future]" = None
 
     @classmethod
-    def far(cls, vow: int, begin, project) -> "RemotePromise":
-        return cls(PromiseState.far(vow), begin, project)
+    def far(cls, vow: int, host_owner: object, begin, project) -> "RemotePromise":
+        return cls(PromiseState.far(vow, host_owner), begin, project)
 
     @classmethod
     def local(cls, begin) -> "RemotePromise":
         return cls(PromiseState.local(), begin, None)
+
+    @classmethod
+    def observer(cls, vow: int, begin) -> "RemotePromise":
+        return cls(PromiseState.observer(vow), begin, None)
 
     @classmethod
     def failed(cls, error: BaseException) -> "RemotePromise":
@@ -206,10 +264,12 @@ class RemotePromise(asyncio.Future):
 
     @property
     def vow(self) -> Optional[int]:
-        """Host vow when far; ``None`` when local (convenience, not the discriminant)."""
-        return self._kind.vow if isinstance(self._kind, PromiseState.Far) else None
+        """Native Host vow when present (convenience, not the discriminant)."""
+        if isinstance(self._kind, (PromiseState.Far, PromiseState.Observer)):
+            return self._kind.vow
+        return None
 
-    def far_vow(self) -> int:
+    def far_vow(self, host_owner: object) -> int:
         """The host vow for pipelining, or a typed refusal when this is local."""
         # A failed handle keeps its own reason rather than reporting the
         # generic local-send refusal, so a caller sees why the send never left.
@@ -217,8 +277,13 @@ class RemotePromise(asyncio.Future):
             raise self._kind.error
         if not isinstance(self._kind, PromiseState.Far):
             raise PancakeError(
-                _ERR_UNSUPPORTED_VALUE,
-                "cannot pipeline against a local-send promise; await it for a Ref",
+                _ERR_INVALID_ARGUMENT,
+                "this promise is await-only and has no remote pipeline target",
+            )
+        if self._kind.host_owner is not host_owner:
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT,
+                "this promise belongs to another Host",
             )
         return self._kind.vow
 
@@ -229,7 +294,10 @@ class RemotePromise(asyncio.Future):
         if isinstance(self._kind, PromiseState.Failed):
             return RemotePromise.failed(self._kind.error)
         if not isinstance(self._kind, PromiseState.Far) or self._project is None:
-            raise PancakeError(_ERR_UNSUPPORTED_VALUE, "cannot project a local-send promise; await it for a value")
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT,
+                "this promise is await-only and cannot be projected",
+            )
         return self._project(op, key)
 
     def index(self, i: int) -> "RemotePromise":
@@ -251,8 +319,8 @@ class RemotePromise(asyncio.Future):
         return self._project_op("get", field)
 
     def _ensure_started(self) -> None:
-        # First observation schedules the send's flush + reply wait, exactly
-        # once, and chains its outcome onto this future. Observation is an
+        # First observation installs the reply wait exactly once and chains its
+        # outcome onto this future. Observation is an
         # ``await`` or a Future-protocol registration (``add_done_callback``,
         # below). An unobserved handle never starts ``begin``, so its answer
         # breaking never settles us.
@@ -299,12 +367,15 @@ def _listen_far(session, target) -> RemotePromise:
     plain -- a listen may settle to any value, not only a capability."""
     ref = _ref_to_c(target._live())
     out = ctypes.c_uint64()
-    _check_host(_host.pancake_host_session_listen(
-        session.raw, ctypes.byref(ref), ctypes.byref(out),
-    ))
+    _check_host(
+        _host.pancake_host_session_listen(
+            session.raw,
+            ctypes.byref(ref),
+            ctypes.byref(out),
+        )
+    )
     vow = out.value
-    session.host.vow_minted(vow, track_gc=session.gc_enabled)
-    return _promise_for(session, vow)
+    return _promise_for(session, vow, pipelineable=False)
 
 
 def _send_far(session, target, verb: str, args: list) -> RemotePromise:
@@ -320,15 +391,30 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     if isinstance(target, RemotePromise):
         # Promise pipelining: eventual-send to the unresolved answer. A
         # local send's promise has no wire answer to pipeline against.
-        source_vow = target.far_vow()
-        _check_host(_host.pancake_host_vow_send(
-            session.host.raw, source_vow, vptr, len(verb_bytes), arr, count, ctypes.byref(out),
-        ))
+        source_vow = target.far_vow(session.host)
+        _check_host(
+            _host.pancake_host_vow_send(
+                session.host.raw,
+                source_vow,
+                vptr,
+                len(verb_bytes),
+                arr,
+                count,
+                ctypes.byref(out),
+            )
+        )
     else:
         ref = _ref_to_c(target._live())
-        _check_host(_host.pancake_host_session_send(
-            session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, ctypes.byref(out),
-        ))
+        _check_host(
+            _host.pancake_host_session_send(
+                session.raw,
+                ctypes.byref(ref),
+                vptr,
+                len(verb_bytes),
+                arr,
+                count,
+                ctypes.byref(out),
+            )
+        )
     vow = out.value
-    session.host.vow_minted(vow, track_gc=session.gc_enabled)
     return _promise_for(session, vow)

@@ -15,402 +15,346 @@
 
 import { resolveGesture } from "./gesture-resolver.ts";
 import {
-  DOUBLE_CLICK_DISTANCE_PX,
-  DOUBLE_CLICK_WINDOW_MS,
-  DRAG_THRESHOLD_PX,
-  type Effect,
-  ENTITY_SURFACES,
-  type FsmForeground,
-  hitEntityRef,
-  type PointerEvent_,
-  type PointerMachineState,
-  type PointerSnapshot,
-  type ResolvedGesture,
+	DRAG_THRESHOLD_PX,
+	type Effect,
+	type FsmForeground,
+	type PointerEvent_,
+	type PointerMachineState,
+	type PointerSnapshot,
+	type ResolvedGesture,
 } from "./types.ts";
 
 // ─────────────────────── Reducer entrypoint ──────────────────────────
 
 export function pointerReducer(
-  state: PointerMachineState,
-  event: PointerEvent_,
+	state: PointerMachineState,
+	event: PointerEvent_,
 ): { state: PointerMachineState; effects: Effect[] } {
-  switch (event.kind) {
-    case "pointer-down":
-      return onPointerDown(state, event);
-    case "pointer-move":
-      return onPointerMove(state, event);
-    case "pointer-up":
-      return onPointerUp(state, event);
-    case "space-down":
-      return onSpaceDown(state);
-    case "space-up":
-      return onSpaceUp(state, event);
-    case "cancel":
-      return onCancel(state);
-    default:
-      return assertNever(event);
-  }
+	switch (event.kind) {
+		case "pointer-down":
+			return onPointerDown(event);
+		case "pointer-move":
+			return onPointerMove(state, event);
+		case "pointer-up":
+			return onPointerUp(state, event);
+		case "space-down":
+			return onSpaceDown(state);
+		case "space-up":
+			return onSpaceUp(state, event);
+		case "cancel":
+			return onCancel(state);
+		default:
+			return assertNever(event);
+	}
 }
 
 // ─────────────────────── pointer-down ────────────────────────────────
 
 function onPointerDown(
-  state: PointerMachineState,
-  event: Extract<PointerEvent_, { kind: "pointer-down" }>,
+	event: Extract<PointerEvent_, { kind: "pointer-down" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
-  // Double-click qualification (§ 2.6, § 5.3).
-  const dbl = qualifiesAsDoubleClick(state.lastUp, event);
-  if (dbl !== null) {
-    const entity = hitEntityRef(dbl.hit);
-    if (entity !== null) {
-      return {
-        state: {
-          fsm: { kind: "idle" },
-          hover: { surface: event.surface, hit: event.ctx.hit },
-          lastUp: null, // consume; prevents triple-click cascade
-        },
-        effects: [{
-          kind: "double-click",
-          entity,
-          at: event.snapshot,
-        }],
-      };
-    }
-  }
-
-  // Normal pointer-down — resolve and enter `pressed`.
-  const resolved = resolveGesture(event.ctx);
-  return {
-    state: {
-      fsm: {
-        kind: "pressed",
-        surface: event.surface,
-        resolved,
-        start: event.snapshot,
-        ctxAtDown: event.ctx,
-      },
-      hover: { surface: event.surface, hit: event.ctx.hit },
-      lastUp: null,
-    },
-    effects: [],
-  };
-}
-
-type LastUp = NonNullable<PointerMachineState["lastUp"]>;
-
-function qualifiesAsDoubleClick(
-  lastUp: PointerMachineState["lastUp"],
-  down: Extract<PointerEvent_, { kind: "pointer-down" }>,
-): { hit: LastUp["hit"] } | null {
-  if (lastUp === null) return null;
-  if (down.surface !== lastUp.surface) return null;
-  if (!ENTITY_SURFACES.has(down.surface)) return null;
-  const dt = down.snapshot.timestampMs - lastUp.snapshot.timestampMs;
-  if (dt < 0 || dt > DOUBLE_CLICK_WINDOW_MS) return null;
-  const dx = Math.abs(down.snapshot.clientX - lastUp.snapshot.clientX);
-  const dy = Math.abs(down.snapshot.clientY - lastUp.snapshot.clientY);
-  if (Math.hypot(dx, dy) > DOUBLE_CLICK_DISTANCE_PX) return null;
-  return { hit: lastUp.hit };
+	const resolved = resolveGesture(event.ctx);
+	return {
+		state: {
+			fsm: {
+				kind: "pressed",
+				surface: event.surface,
+				resolved,
+				start: event.snapshot,
+				ctxAtDown: event.ctx,
+			},
+			hover: { surface: event.surface, hit: event.ctx.hit },
+		},
+		effects: [],
+	};
 }
 
 // ─────────────────────── pointer-move ────────────────────────────────
 
 function onPointerMove(
-  state: PointerMachineState,
-  event: Extract<PointerEvent_, { kind: "pointer-move" }>,
+	state: PointerMachineState,
+	event: Extract<PointerEvent_, { kind: "pointer-move" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
-  // Hover update is independent of fsm.
-  const hover = event.hit ? { surface: event.hit.surface, hit: event.hit } : null;
+	// Hover update is independent of fsm.
+	const hover = event.hit ? { surface: event.hit.surface, hit: event.hit } : null;
 
-  switch (state.fsm.kind) {
-    case "idle":
-      return { state: { ...state, hover }, effects: [] };
-    case "pressed": {
-      const dx = event.snapshot.clientX - state.fsm.start.clientX;
-      const dy = event.snapshot.clientY - state.fsm.start.clientY;
-      const overThreshold = Math.hypot(dx, dy) > DRAG_THRESHOLD_PX;
-      if (!overThreshold) {
-        return { state: { ...state, hover }, effects: [] };
-      }
-      // Transition to dragging. The drag starts at the press and has ALREADY
-      // moved to here, so both are reported: `drag-start` at the origin, then
-      // the move that crossed the threshold.
-      //
-      // Emitting only the start loses this position, and a consumer that tracks
-      // the pointer from `drag-move` alone never hears where the drag went. That
-      // is invisible while more moves follow, and it is the whole gesture when
-      // none do: a browser coalesces pointer moves as it pleases, so a fast
-      // flick can cross the threshold and be released with exactly one move
-      // between. The marquee then committed the degenerate rect it had painted
-      // at the press and selected nothing, and because delivery timing decided
-      // it, it read as random. A pan lost its first step the same way.
-      //
-      // What this holds is that the effects a gesture produces do not depend on
-      // how the browser chose to batch it — one big move and two small ones
-      // leave the same trail.
-      return {
-        state: {
-          fsm: {
-            kind: "dragging",
-            surface: state.fsm.surface,
-            resolved: state.fsm.resolved,
-            start: state.fsm.start,
-            current: event.snapshot,
-          },
-          hover,
-          lastUp: state.lastUp,
-        },
-        effects: [
-          {
-            kind: "drag-start",
-            verb: state.fsm.resolved,
-            at: state.fsm.start,
-          },
-          {
-            kind: "drag-move",
-            verb: state.fsm.resolved,
-            at: event.snapshot,
-          },
-        ],
-      };
-    }
-    case "dragging":
-      return {
-        state: {
-          fsm: { ...state.fsm, current: event.snapshot },
-          hover,
-          lastUp: state.lastUp,
-        },
-        effects: [{
-          kind: "drag-move",
-          verb: state.fsm.resolved,
-          at: event.snapshot,
-        }],
-      };
-    case "paused-pan": {
-      // Pan delta relative to the LAST snapshot (not panOrigin).
-      const dx = event.snapshot.clientX - state.fsm.current.clientX;
-      const dy = event.snapshot.clientY - state.fsm.current.clientY;
-      return {
-        state: {
-          fsm: { ...state.fsm, current: event.snapshot },
-          hover,
-          lastUp: state.lastUp,
-        },
-        effects: [{
-          kind: "pan-step",
-          surface: state.fsm.resume.surface,
-          delta: { dx, dy },
-        }],
-      };
-    }
-    default:
-      return assertNever(state.fsm);
-  }
+	switch (state.fsm.kind) {
+		case "idle":
+			return { state: { ...state, hover }, effects: [] };
+		case "pressed": {
+			const dx = event.snapshot.clientX - state.fsm.start.clientX;
+			const dy = event.snapshot.clientY - state.fsm.start.clientY;
+			const overThreshold = Math.hypot(dx, dy) > DRAG_THRESHOLD_PX;
+			if (!overThreshold) {
+				return { state: { ...state, hover }, effects: [] };
+			}
+			// Transition to dragging. The drag starts at the press and has ALREADY
+			// moved to here, so both are reported: `drag-start` at the origin, then
+			// the move that crossed the threshold.
+			//
+			// Emitting only the start loses this position, and a consumer that tracks
+			// the pointer from `drag-move` alone never hears where the drag went. That
+			// is invisible while more moves follow, and it is the whole gesture when
+			// none do: a browser coalesces pointer moves as it pleases, so a fast
+			// flick can cross the threshold and be released with exactly one move
+			// between. The marquee then committed the degenerate rect it had painted
+			// at the press and selected nothing, and because delivery timing decided
+			// it, it read as random. A pan lost its first step the same way.
+			//
+			// What this holds is that the effects a gesture produces do not depend on
+			// how the browser chose to batch it — one big move and two small ones
+			// leave the same trail.
+			return {
+				state: {
+					fsm: {
+						kind: "dragging",
+						surface: state.fsm.surface,
+						resolved: state.fsm.resolved,
+						start: state.fsm.start,
+						current: event.snapshot,
+					},
+					hover,
+				},
+				effects: [
+					{
+						kind: "drag-start",
+						verb: state.fsm.resolved,
+						at: state.fsm.start,
+					},
+					{
+						kind: "drag-move",
+						verb: state.fsm.resolved,
+						at: event.snapshot,
+					},
+				],
+			};
+		}
+		case "dragging":
+			return {
+				state: {
+					fsm: { ...state.fsm, current: event.snapshot },
+					hover,
+				},
+				effects: [{
+					kind: "drag-move",
+					verb: state.fsm.resolved,
+					at: event.snapshot,
+				}],
+			};
+		case "paused-pan": {
+			// Pan delta relative to the LAST snapshot (not panOrigin).
+			const dx = event.snapshot.clientX - state.fsm.current.clientX;
+			const dy = event.snapshot.clientY - state.fsm.current.clientY;
+			return {
+				state: {
+					fsm: { ...state.fsm, current: event.snapshot },
+					hover,
+				},
+				effects: [{
+					kind: "pan-step",
+					surface: state.fsm.resume.surface,
+					delta: { dx, dy },
+				}],
+			};
+		}
+		default:
+			return assertNever(state.fsm);
+	}
 }
 
 // ─────────────────────── pointer-up ──────────────────────────────────
 
 function onPointerUp(
-  state: PointerMachineState,
-  event: Extract<PointerEvent_, { kind: "pointer-up" }>,
+	state: PointerMachineState,
+	event: Extract<PointerEvent_, { kind: "pointer-up" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
-  switch (state.fsm.kind) {
-    case "idle":
-      // Spurious up (no down was tracked here). Ignore; keep hover.
-      return { state, effects: [] };
-    case "pressed": {
-      // No-drag release. Re-resolve with ctxAtUp (D); emit click.
-      // Set lastUp for potential double-click qualification.
-      const reResolved = resolveGesture(event.ctxAtUp);
-      const fsm: FsmForeground = { kind: "idle" };
-      return {
-        state: {
-          fsm,
-          hover: state.hover,
-          lastUp: {
-            surface: state.fsm.surface,
-            hit: event.ctxAtUp.hit,
-            snapshot: event.snapshot,
-          },
-        },
-        effects: [{
-          kind: "click",
-          verb: reResolved,
-          hit: event.ctxAtUp.hit,
-          at: event.snapshot,
-        }],
-      };
-    }
-    case "dragging":
-      return {
-        state: {
-          fsm: { kind: "idle" },
-          hover: state.hover,
-          lastUp: null,
-        },
-        effects: [{
-          kind: "drag-end",
-          verb: state.fsm.resolved,
-          at: event.snapshot,
-        }],
-      };
-    case "paused-pan":
-      // Pointer-up always commits the drag, regardless of Space
-      // still held. Doc § 5.3 fix.
-      return {
-        state: {
-          fsm: { kind: "idle" },
-          hover: state.hover,
-          lastUp: null,
-        },
-        effects: [{
-          kind: "drag-end",
-          verb: state.fsm.resume.resolved,
-          at: event.snapshot,
-        }],
-      };
-    default:
-      return assertNever(state.fsm);
-  }
+	switch (state.fsm.kind) {
+		case "idle":
+			// Spurious up (no down was tracked here). Ignore; keep hover.
+			return { state, effects: [] };
+		case "pressed": {
+			// No-drag release. Re-resolve with ctxAtUp (D); emit click.
+			const reResolved = resolveGesture(event.ctxAtUp);
+			const fsm: FsmForeground = { kind: "idle" };
+			return {
+				state: {
+					fsm,
+					hover: state.hover,
+				},
+				effects: [{
+					kind: "click",
+					verb: reResolved,
+					hit: event.ctxAtUp.hit,
+					at: event.snapshot,
+				}],
+			};
+		}
+		case "dragging":
+			return {
+				state: {
+					fsm: { kind: "idle" },
+					hover: state.hover,
+				},
+				effects: [{
+					kind: "drag-end",
+					verb: state.fsm.resolved,
+					at: event.snapshot,
+				}],
+			};
+		case "paused-pan":
+			// Pointer-up always commits the drag, regardless of Space
+			// still held. Doc § 5.3 fix.
+			return {
+				state: {
+					fsm: { kind: "idle" },
+					hover: state.hover,
+				},
+				effects: [{
+					kind: "drag-end",
+					verb: state.fsm.resume.resolved,
+					at: event.snapshot,
+				}],
+			};
+		default:
+			return assertNever(state.fsm);
+	}
 }
 
 // ─────────────────────── space-down ──────────────────────────────────
 
 function onSpaceDown(
-  state: PointerMachineState,
+	state: PointerMachineState,
 ): { state: PointerMachineState; effects: Effect[] } {
-  switch (state.fsm.kind) {
-    case "idle":
-      // Space without active pointer: pan only takes effect on next
-      // pointer-down. No state change here.
-      return { state, effects: [] };
-    case "pressed": {
-      // Pause an in-flight press; pan begins on next pointer-move.
-      // No drag-pause yet — there was no drag in flight.
-      return {
-        state: {
-          fsm: {
-            kind: "paused-pan",
-            resume: {
-              surface: state.fsm.surface,
-              resolved: state.fsm.resolved,
-              start: state.fsm.start,
-            },
-            panOrigin: state.fsm.start,
-            current: state.fsm.start,
-          },
-          hover: state.hover,
-          lastUp: state.lastUp,
-        },
-        effects: [],
-      };
-    }
-    case "dragging":
-      return {
-        state: {
-          fsm: {
-            kind: "paused-pan",
-            resume: {
-              surface: state.fsm.surface,
-              resolved: state.fsm.resolved,
-              start: state.fsm.start,
-            },
-            panOrigin: state.fsm.current,
-            current: state.fsm.current,
-          },
-          hover: state.hover,
-          lastUp: state.lastUp,
-        },
-        effects: [{
-          kind: "drag-pause",
-          verb: state.fsm.resolved,
-          at: state.fsm.current,
-        }],
-      };
-    case "paused-pan":
-      // Already paused; no-op.
-      return { state, effects: [] };
-    default:
-      return assertNever(state.fsm);
-  }
+	switch (state.fsm.kind) {
+		case "idle":
+			// Space without active pointer: pan only takes effect on next
+			// pointer-down. No state change here.
+			return { state, effects: [] };
+		case "pressed": {
+			// Pause an in-flight press; pan begins on next pointer-move.
+			// No drag-pause yet — there was no drag in flight.
+			return {
+				state: {
+					fsm: {
+						kind: "paused-pan",
+						resume: {
+							surface: state.fsm.surface,
+							resolved: state.fsm.resolved,
+							start: state.fsm.start,
+						},
+						panOrigin: state.fsm.start,
+						current: state.fsm.start,
+					},
+					hover: state.hover,
+				},
+				effects: [],
+			};
+		}
+		case "dragging":
+			return {
+				state: {
+					fsm: {
+						kind: "paused-pan",
+						resume: {
+							surface: state.fsm.surface,
+							resolved: state.fsm.resolved,
+							start: state.fsm.start,
+						},
+						panOrigin: state.fsm.current,
+						current: state.fsm.current,
+					},
+					hover: state.hover,
+				},
+				effects: [{
+					kind: "drag-pause",
+					verb: state.fsm.resolved,
+					at: state.fsm.current,
+				}],
+			};
+		case "paused-pan":
+			// Already paused; no-op.
+			return { state, effects: [] };
+		default:
+			return assertNever(state.fsm);
+	}
 }
 
 // ─────────────────────── space-up ────────────────────────────────────
 
 function onSpaceUp(
-  state: PointerMachineState,
-  event: Extract<PointerEvent_, { kind: "space-up" }>,
+	state: PointerMachineState,
+	event: Extract<PointerEvent_, { kind: "space-up" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
-  if (state.fsm.kind !== "paused-pan") {
-    // Space released without an active pause — no-op.
-    return { state, effects: [] };
-  }
-  const paused = state.fsm;
-  if (event.pointerHeld) {
-    // Resume the drag (Figma-convert). The drag origin "carries"
-    // — the current cursor position becomes the new origin so the
-    // marquee continues without geometric distortion.
-    return {
-      state: {
-        fsm: {
-          kind: "dragging",
-          surface: paused.resume.surface,
-          resolved: paused.resume.resolved,
-          start: paused.current, // new origin = where the cursor is
-          current: paused.current,
-        },
-        hover: state.hover,
-        lastUp: state.lastUp,
-      },
-      effects: [{
-        kind: "drag-resume",
-        verb: paused.resume.resolved,
-        carriedOrigin: paused.current,
-      }],
-    };
-  }
-  // Button was already released — commit the drag as drag-end.
-  return {
-    state: {
-      fsm: { kind: "idle" },
-      hover: state.hover,
-      lastUp: null,
-    },
-    effects: [{
-      kind: "drag-end",
-      verb: paused.resume.resolved,
-      at: paused.current,
-    }],
-  };
+	if (state.fsm.kind !== "paused-pan") {
+		// Space released without an active pause — no-op.
+		return { state, effects: [] };
+	}
+	const paused = state.fsm;
+	if (event.pointerHeld) {
+		// Resume the drag (Figma-convert). The drag origin "carries"
+		// — the current cursor position becomes the new origin so the
+		// marquee continues without geometric distortion.
+		return {
+			state: {
+				fsm: {
+					kind: "dragging",
+					surface: paused.resume.surface,
+					resolved: paused.resume.resolved,
+					start: paused.current, // new origin = where the cursor is
+					current: paused.current,
+				},
+				hover: state.hover,
+			},
+			effects: [{
+				kind: "drag-resume",
+				verb: paused.resume.resolved,
+				carriedOrigin: paused.current,
+			}],
+		};
+	}
+	// Button was already released — commit the drag as drag-end.
+	return {
+		state: {
+			fsm: { kind: "idle" },
+			hover: state.hover,
+		},
+		effects: [{
+			kind: "drag-end",
+			verb: paused.resume.resolved,
+			at: paused.current,
+		}],
+	};
 }
 
 // ─────────────────────── cancel ──────────────────────────────────────
 
 function onCancel(
-  state: PointerMachineState,
+	state: PointerMachineState,
 ): { state: PointerMachineState; effects: Effect[] } {
-  switch (state.fsm.kind) {
-    case "idle":
-    case "pressed":
-      // No drag in flight; just return to idle.
-      return {
-        state: { fsm: { kind: "idle" }, hover: state.hover, lastUp: null },
-        effects: [],
-      };
-    case "dragging":
-      return {
-        state: { fsm: { kind: "idle" }, hover: state.hover, lastUp: null },
-        effects: [{ kind: "drag-cancel", verb: state.fsm.resolved }],
-      };
-    case "paused-pan":
-      return {
-        state: { fsm: { kind: "idle" }, hover: state.hover, lastUp: null },
-        effects: [{ kind: "drag-cancel", verb: state.fsm.resume.resolved }],
-      };
-    default:
-      return assertNever(state.fsm);
-  }
+	switch (state.fsm.kind) {
+		case "idle":
+		case "pressed":
+			// No drag in flight; just return to idle.
+			return {
+				state: { fsm: { kind: "idle" }, hover: state.hover },
+				effects: [],
+			};
+		case "dragging":
+			return {
+				state: { fsm: { kind: "idle" }, hover: state.hover },
+				effects: [{ kind: "drag-cancel", verb: state.fsm.resolved }],
+			};
+		case "paused-pan":
+			return {
+				state: { fsm: { kind: "idle" }, hover: state.hover },
+				effects: [{
+					kind: "drag-cancel",
+					verb: state.fsm.resume.resolved,
+				}],
+			};
+		default:
+			return assertNever(state.fsm);
+	}
 }
 
 // ─────────────────────── in-flight gesture ───────────────────────────
@@ -418,8 +362,8 @@ function onCancel(
 /** A pan, as a resolved gesture. `paused-pan` is Space panning over
  *  a gesture that is waiting, so what is in flight is the pan. */
 const PAN_IN_FLIGHT: ResolvedGesture = {
-  tier: "space-pan",
-  verb: { kind: "pan-surface" },
+	tier: "space-pan",
+	verb: { kind: "pan-surface" },
 };
 
 /**
@@ -435,19 +379,19 @@ const PAN_IN_FLIGHT: ResolvedGesture = {
  * tell those apart and will be wrong about one of them.
  */
 export function inFlightGesture(
-  state: PointerMachineState,
+	state: PointerMachineState,
 ): ResolvedGesture | null {
-  switch (state.fsm.kind) {
-    case "idle":
-      return null;
-    case "pressed":
-    case "dragging":
-      return state.fsm.resolved;
-    case "paused-pan":
-      return PAN_IN_FLIGHT;
-    default:
-      return assertNever(state.fsm);
-  }
+	switch (state.fsm.kind) {
+		case "idle":
+			return null;
+		case "pressed":
+		case "dragging":
+			return state.fsm.resolved;
+		case "paused-pan":
+			return PAN_IN_FLIGHT;
+		default:
+			return assertNever(state.fsm);
+	}
 }
 
 /**
@@ -472,25 +416,25 @@ export function inFlightGesture(
  * and it cancels however promising the state looks.
  */
 export function hasSomethingToCommit(state: PointerMachineState): boolean {
-  return state.fsm.kind === "dragging";
+	return state.fsm.kind === "dragging";
 }
 
 /** Whether `gesture` pans the surface it is running on. */
 export function isPanGesture(gesture: ResolvedGesture | null): boolean {
-  return gesture !== null &&
-    (gesture.tier === "space-pan" || gesture.tier === "hand-tool");
+	return gesture !== null &&
+		(gesture.tier === "space-pan" || gesture.tier === "hand-tool");
 }
 
 // ─────────────────────── helpers ─────────────────────────────────────
 
 /** Helper for unit tests: bump the snapshot timestamp by `dt`. */
 export function withTime(
-  snap: PointerSnapshot,
-  dt: number,
+	snap: PointerSnapshot,
+	dt: number,
 ): PointerSnapshot {
-  return { ...snap, timestampMs: snap.timestampMs + dt };
+	return { ...snap, timestampMs: snap.timestampMs + dt };
 }
 
 function assertNever(x: never): never {
-  throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
+	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

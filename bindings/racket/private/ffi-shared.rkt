@@ -98,12 +98,13 @@
 
 (define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeManagedFrame
-  ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
+  ([bytes _pointer] [len _size] [shape _uint32] [release _pointer]
+   [private-words (_array/vector _size 8)]) #:malloc-mode 'atomic-interior)
 
 (define-cstruct _PancakeReference ([id _uint64]) #:malloc-mode 'atomic-interior)
 
 ;; Mirrors `PancakeOnionConfig`, whose Zig declaration in
-;; `src/c_abi/net_transport/onion/mod.zig` documents every field. Every pointer is
+;; `src/c_abi/net_transport/onion/contract.zig` documents every field. Every pointer is
 ;; borrowed for the constructor call only, because the netlayer copies the text it
 ;; needs; `'atomic-interior` keeps the struct itself immobile for that call.
 (define-cstruct _PancakeOnionConfig
@@ -136,12 +137,12 @@
    [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeHostAction` in pancake_host.h: one embedder effect popped
 ;; from `pancake_host_next_action`. `kind` selects the live fields; a DIAL
-;; action carries only `ticket` (locator bytes come from
+;; action carries `ticket` and `route-index` (locator bytes come from
 ;; `pancake_host_pending_dial`); a SETTLE's `value` sub-structure and a
 ;; FAIL's `message` are host-owned and valid until the next
 ;; `pancake_host_next_action`, so the binding copies them out immediately.
 (define-cstruct _PancakeHostAction
-  ([kind _uint32] [ticket _uint64] [session _pointer]
+  ([kind _uint32] [ticket _uint64] [route-index _size] [session _pointer]
    [value _PancakeArgument] [message _pointer] [message-len _size]
    [result _int32]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, five
@@ -244,6 +245,8 @@
              PANCAKE-RELAY-CONFIG-SIZE PANCAKE-RELAY-CONFIG-LAYOUT)
 (pin-layout! '_PancakeRelayTrustSummary _PancakeRelayTrustSummary
              PANCAKE-RELAY-TRUST-SUMMARY-SIZE PANCAKE-RELAY-TRUST-SUMMARY-LAYOUT)
+(pin-layout! '_PancakeOnionConfig _PancakeOnionConfig
+             PANCAKE-ONION-CONFIG-SIZE PANCAKE-ONION-CONFIG-LAYOUT)
 
 ;; ── Driver-archive types (pancake_host.h) ──────────────────────────────────
 
@@ -332,6 +335,16 @@
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeCloseOptions _PancakeCloseOptions
              PANCAKE-CLOSE-OPTIONS-SIZE PANCAKE-CLOSE-OPTIONS-LAYOUT)
+
+(define-cstruct _PancakeSessionLimitOptions
+  ([abi-version _uint32] [struct-size _size]
+   [max-frame-bytes _size] [queue-cap _size]
+   [outbound-high-water-bytes _size]
+   [max-retained-sent-answer-bytes _size])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeSessionLimitOptions _PancakeSessionLimitOptions
+             PANCAKE-SESSION-LIMIT-OPTIONS-SIZE
+             PANCAKE-SESSION-LIMIT-OPTIONS-LAYOUT)
 
 ;; PancakeDriverEvent: one drained loop event. `kind` selects the live fields;
 ;; OPENED/OPEN_FAILED use `operation-id`, while ACCEPTED and listener setup use

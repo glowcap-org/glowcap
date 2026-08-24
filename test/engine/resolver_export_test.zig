@@ -14,6 +14,7 @@ const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
+const session = pancake.ocapn.session;
 
 /// Both negotiated profiles carry the listen notification, so the probe is
 /// exercised on each.
@@ -68,6 +69,31 @@ test "a deliver to a resolver export re-tags as a resolve on every profile" {
         const view = try event.view();
         try std.testing.expectEqual(answer, view.resolve.answer);
         try std.testing.expectEqualStrings("relayed", view.resolve.resolution.fulfill.bytes);
+    }
+}
+
+test "a resolver callback cannot open another answer" {
+    const allocator = std.testing.allocator;
+    for (profiles) |version| {
+        var pair = try syrupPair(allocator, version);
+        defer pair.deinit();
+
+        const resolver: u64 = 41;
+        const answer = model.AnswerPosition.from(7);
+        try grantExport(&pair.p1, &pair.p2, resolver);
+        try pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
+        try pair.p1.session_state.installOutboundAnswer(answer);
+
+        try pair.p2.sendCopying(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(resolver) },
+            .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 1 } },
+            .answer = .from(99),
+        } });
+        try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
+        try pair.p1.feedOwned(pair.p2.takeOutbound().?);
+        try std.testing.expectError(session.Error.UnexpectedMessage, pair.p1.step());
+        try std.testing.expect(!pair.p1.session_state.hasInboundAnswer(.from(99)));
+        try std.testing.expect(pair.p1.pollEvent() == null);
     }
 }
 

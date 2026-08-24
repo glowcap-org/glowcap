@@ -18,6 +18,9 @@ import { Icon, type IconName } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import * as store from "./store.ts";
 import type { ToastKind, ToastNotice } from "./types.ts";
+import { usePeer } from "./peer.ts";
+import { openModalFrom } from "./modal.ts";
+import { errorDetailTitle, needsErrorDetail } from "./error_text.ts";
 
 /** How long a notice stands before it leaves on its own. Long enough to read
  * after the eye has left the control, short enough that a run of them does not
@@ -33,14 +36,39 @@ const kindIcon: Record<ToastKind, IconName> = {
 /** The notice itself, without the stack or the timer. The catalog draws this
  * in place; the live stack wraps it with a slot that can leave. */
 export function ToastCard(
-	{ kind, text, onDismiss }: { kind: ToastKind; text: string; onDismiss?: () => void },
+	{ kind, text, onDismiss, onExpand }: {
+		kind: ToastKind;
+		text: string;
+		onDismiss?: () => void;
+		/** Take this notice off before the error card opens, so the stack is not
+		 * portaled into the card that just took its words. */
+		onExpand?: () => void;
+	},
 ) {
+	const peer = usePeer();
+	const expandable = needsErrorDetail(text);
 	return (
 		<div className="toast" data-kind={kind} role={kind === "failure" ? "alert" : "status"}>
 			<span className="toast-mark" aria-hidden="true">
 				<Icon name={kindIcon[kind]} size={16} />
 			</span>
-			<p className="toast-text">{text}</p>
+			{expandable
+				? (
+					<button
+						type="button"
+						className="toast-text toast-more"
+						aria-haspopup="dialog"
+						onClick={(event) =>
+							openModalFrom(event.currentTarget, () => {
+								onExpand?.();
+								peer.showError({ title: errorDetailTitle(kind), text });
+							})}
+					>
+						<span className="said-clamp">{text}</span>
+						<span className="said-show">Show</span>
+					</button>
+				)
+				: <p className="toast-text">{text}</p>}
 			{onDismiss !== undefined && (
 				<IconButton
 					className="toast-dismiss"
@@ -216,6 +244,7 @@ function ToastSlot(
 					kind={notice.kind}
 					text={notice.text}
 					onDismiss={() => onDismiss(notice.id)}
+					onExpand={() => store.dismissToast(notice.id)}
 				/>
 			</div>
 		</div>

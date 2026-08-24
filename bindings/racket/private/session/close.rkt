@@ -49,7 +49,9 @@
                 (pancake_host_session_close_progress
                  (session-ptr c) (monotonic-ms)))
               (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
-              (lifecycle-closed? state)
+              ;; The loop's exit is the session's release (it rides an action
+              ;; drained here), so the returned lifecycle state is not read.
+              (void state)
               ;; Drain what progress queued (this session's release rides an
               ;; action) before parking; a productive drain bumps below.
               (define effects (drain-host-actions! m))

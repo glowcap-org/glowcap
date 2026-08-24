@@ -92,8 +92,10 @@ pub fn main(init: std.process.Init) !void {
     defer vat.deinit();
 
     _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
-        .store = &store,
-        .served = &served,
+        .state = .{
+            .store = &store,
+            .served = &served,
+        },
     });
 
     try vat.serve();

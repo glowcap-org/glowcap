@@ -58,7 +58,8 @@
 ;; `#:codec`, `#:captp-version`, and `#:features` are this host's signed
 ;; profile offer. Each session settles version and codec with its partner,
 ;; falling back to v1.0/Syrup when needed, and runs only the intersection of the
-;; two offered feature sets. Omitted `#:features` means the full feature set.
+;; two offered feature sets. Omitted `#:features` selects the generated default
+;; offer; experimental multi-location routing requires explicit opt-in.
 ;; The host remembers the symbols so
 ;; `connect` can refuse explicit profile options that conflict with a shared
 ;; host's.
@@ -197,6 +198,7 @@
               (when (release-consumed? release-code)
                 (pancake_context_release (host-context m))
                 (trace-detach-host! m)
+                ((unbox host-gc-retire-hook) m)
                 (set-host-ptr! m #f)
                 (set-box! (host-released? m) #t)
                 (hash-clear! (host-vows m))
@@ -374,12 +376,15 @@
   (check-equal? failed 1))
 
 ;; Report a DIAL action's outcome. Caller holds the host lock.
-(define (host-dialed! m ticket session-ptr)
-  (check/host (pancake_host_dialed (host-ptr m) ticket session-ptr)))
+(define (host-dialed! m ticket route-index session-ptr)
+  (define adopted (malloc _uint8 'atomic-interior))
+  (ptr-set! adopted _uint8 0)
+  (check/host (pancake_host_dialed (host-ptr m) ticket route-index session-ptr adopted))
+  (not (zero? (ptr-ref adopted _uint8))))
 
-(define (host-dial-failed! m ticket reason)
+(define (host-dial-failed! m ticket route-index reason)
   (define bs (string->bytes/utf-8 reason))
-  (check/host (pancake_host_dial_failed (host-ptr m) ticket (pin-immobile bs) (bytes-length bs))))
+  (check/host (pancake_host_dial_failed (host-ptr m) ticket route-index (pin-immobile bs) (bytes-length bs))))
 
 ;; Retain and select this Host's complete acceptable location.
 (define (host-set-advertised-locator! m loc)
@@ -397,16 +402,33 @@
       (check/host (pancake_host_remove_advertised_locator
                    (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
 
-;; Selective session-limit knobs (ADR-0082). Pass 0 to leave a field unchanged.
-;; Affects peers minted after this call.
-(define (host-set-session-limits! m max-frame-bytes queue-cap [outbound-high-water-bytes 0])
+;; Selective limits copied into peers minted after this call. Zero leaves a
+;; field unchanged; durable sent answers stay separate from transient flow.
+(define (host-set-session-limits! m
+                                  #:max-frame-bytes [max-frame-bytes 0]
+                                  #:queue-cap [queue-cap 0]
+                                  #:outbound-high-water-bytes [outbound-high-water-bytes 0]
+                                  #:max-retained-sent-answer-bytes [max-retained-sent-answer-bytes 0])
+  (define size-max (sub1 (expt 2 (* 8 (ctype-sizeof _size)))))
+  (for ([name (in-list '(max-frame-bytes queue-cap outbound-high-water-bytes
+                                      max-retained-sent-answer-bytes))]
+        [value (in-list (list max-frame-bytes queue-cap outbound-high-water-bytes
+                              max-retained-sent-answer-bytes))])
+    (unless (and (exact-nonnegative-integer? value) (<= value size-max))
+      (raise-pancake 'host-set-session-limits! ERR-INVALID-ARGUMENT
+                     (format "#:~a exceeds this target's supported range" name))))
+  (when (> max-retained-sent-answer-bytes #xffffffff)
+    (raise-pancake 'host-set-session-limits! ERR-INVALID-ARGUMENT
+                   "#:max-retained-sent-answer-bytes exceeds uint32 capacity"))
+  (define options
+    (make-PancakeSessionLimitOptions
+     SESSION-LIMIT-OPTIONS-ABI-VERSION
+     (ctype-sizeof _PancakeSessionLimitOptions)
+     max-frame-bytes queue-cap outbound-high-water-bytes
+     max-retained-sent-answer-bytes))
   (call-with-host m
     (lambda ()
-      (check/host (pancake_host_set_session_limits
-                   (host-ptr m)
-                   max-frame-bytes
-                   queue-cap
-                   outbound-high-water-bytes)))))
+      (check/host (pancake_host_set_session_limits (host-ptr m) options)))))
 
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
 ;; Ed25519 identity seed — the public half of the key a host signs with

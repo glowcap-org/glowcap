@@ -7,7 +7,7 @@ decision: "The C ABI ships as composable archives linked a la carte: shared OCap
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0096, ADR-0112]
+amended_by: [ADR-0096, ADR-0112, ADR-0122, ADR-0123]
 ---
 
 # ADR-0059 Composable C ABI archives

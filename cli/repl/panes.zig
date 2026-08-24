@@ -53,6 +53,8 @@ fn printFmt(
     comptime fmt: []const u8,
     args: anytype,
 ) void {
+    // best-effort: a line the frame arena cannot format is not drawn this
+    // frame; the next frame retries from scratch.
     const line = std.fmt.allocPrint(frame, fmt, args) catch return;
     printLine(win, row, col, line, style);
 }
@@ -91,9 +93,9 @@ pub fn drawStatus(win: Window, ctx: *Ctx, frame: std.mem.Allocator, panel_label:
         const d = secret.publicKey().toDesignator();
         break :blk d[0..@min(12, d.len)];
     } else "-";
-    const sess: []const u8 = if (ctx.session != null) "open" else "none";
-    const style = if (ctx.session != null) theme.styleStatusOpen() else theme.styleStatusBar();
-    if (ctx.last_locator) |loc| {
+    const sess: []const u8 = if (ctx.activeSession() != null) "open" else "none";
+    const style = if (ctx.activeSession() != null) theme.styleStatusOpen() else theme.styleStatusBar();
+    if (ctx.publishedLocator()) |loc| {
         const show = if (loc.len > 28) loc[0..28] else loc;
         printFmt(win, 0, 1, style, frame, "◆ pancake  id={s}  session={s}  {s}", .{ id, sess, show });
     } else {
@@ -122,6 +124,7 @@ pub fn drawStage(win: Window, progress: *const teach.Progress, frame: std.mem.Al
             theme.styleStageCurrent()
         else
             theme.styleStageTodo();
+        // best-effort: stop drawing stage labels when the frame arena refuses.
         const piece = std.fmt.allocPrint(frame, "{s}{s} ", .{ mark, st.label() }) catch break;
         printLine(win, 0, col, piece, style);
         col +|= @intCast(@min(piece.len, 32));
@@ -131,11 +134,11 @@ pub fn drawStage(win: Window, progress: *const teach.Progress, frame: std.mem.Al
 
 /// Compact CapTP counts for stacked/narrow mode.
 pub fn drawTablesStrip(win: Window, ctx: *Ctx, flash: Flash, frame: std.mem.Allocator) void {
-    if (ctx.session == null) {
+    const session = ctx.activeSession() orelse {
         printLine(win, 0, 0, "CapTP  session=none  (dial …)", theme.styleMuted());
         return;
-    }
-    const st = &ctx.session.?.peer().session_state;
+    };
+    const st = &session.peer().session_state;
     const style = if (flash != .none) theme.styleFlash() else theme.styleChrome();
     if (win.height <= 1) {
         printFmt(win, 0, 0, style, frame, "CapTP  ex={d}  im={d}  an={d}/{d}", .{
@@ -169,12 +172,12 @@ pub fn drawTablesRail(
     drawBorderTitle(win, if (rail_focused) "CapTP" else copy.captp_title, title_style);
     const inner = belowTitle(win);
     if (inner.height == 0) return;
-    if (ctx.session == null) {
+    const session = ctx.activeSession() orelse {
         printLine(inner, 0, 0, "No session.", theme.styleMuted());
         if (inner.height > 1) printLine(inner, 1, 0, "dial an ocapn:// locator", theme.styleMuted());
         return;
-    }
-    const st = &ctx.session.?.peer().session_state;
+    };
+    const st = &session.peer().session_state;
     const h = @max(1, inner.height / 3);
     const h2 = @max(1, (inner.height - h) / 2);
     const h3 = inner.height -| (h + h2);
@@ -445,6 +448,7 @@ pub fn drawJumpButton(
         theme.styleButtonHover()
     else
         theme.styleButton();
+    // best-effort: an unrenderable button label is not drawn this frame.
     const text = std.fmt.allocPrint(frame, "[ {s} ]", .{btn.label}) catch return;
     if (btn.y >= win.height or btn.x >= win.width) return;
     const strip = win.child(.{
@@ -532,7 +536,7 @@ pub fn drawPromptDock(
     } else if (win.height >= 3) {
         drawBorderTitle(win, "prompt", theme.styleMuted());
     }
-    const open = ctx.session != null;
+    const open = ctx.activeSession() != null;
     const prompt: []const u8 = if (open) "pancake› " else "pancake· ";
     const prompt_style = if (open) theme.styleAccent() else theme.styleMuted();
     const has_title = (focused and win.height >= 2) or (!focused and win.height >= 3);

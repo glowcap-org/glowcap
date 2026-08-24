@@ -40,9 +40,10 @@ The three modes are three verbs against that buffer.
 | Play to Build      | Fork the buffer into a working copy. The copy keeps its own layout mode, and an authored position pins. |
 | Build to Play      | Edits are captured back into the buffer, and the source panel flags it as edited.                       |
 | anything to Live   | Connect. The stage stays blank and the buffer is untouched until Record.                                |
-| Live to Play/Build | The buffer is whatever it was, unless you recorded, in which case it is the recording.                  |
+| Live to Play/Build | When idle, disconnect and preserve the buffer. While recording, these transitions are unavailable.     |
 | Record starts      | If the buffer is non-empty and unsaved, warn before clearing it.                                        |
-| Record stops       | The buffer holds the recording. Live stays connected, and recording again clears and restarts.          |
+| Record stops       | Claim the recording as the buffer and enter Play.                                                       |
+| Record discards    | Throw away the capture and remain connected in Live.                                                    |
 
 Because the loaded document means the same thing in every mode, Play replaying a
 fixture, a live recording, and an opened file are one code path, and Build
@@ -83,16 +84,14 @@ scrubber and the event handles, and there are no transport controls.
 
 ## State
 
-`AppState` in `src/state/app-state.ts` carries `mode: AppMode` and a `liveUrl`
-that persists across modes and is read only in Live. Whether a capture is
-running is not app state: `App` holds a `recording` flag beside the buffer
-engine and passes it to `useLiveConnection`, because it lasts as long as the
-session and nothing reloads into the middle of one.
+`AppState` in `src/state/app-state.ts` carries `mode: AppMode` and a
+`liveSturdyref` that persists across modes and is read only in Live. Whether a
+capture is running is not app state: `App` holds a `recording` flag beside the
+buffer engine and passes it to `useLiveConnection`, because it lasts as long as
+the session and nothing reloads into the middle of one.
 
-Persistence keeps the same localStorage key, and `makeInitialAppState` carries a
-one-time migration that turns a stored `liveMode: true` into `mode: "live"`. The
-`?live=ws://…` query parameter still works as a shorthand that sets both the
-mode and the URL on load; deep-linking to Play or Build is not built.
+The `?live=<sturdyref>` query parameter sets both the mode and capability on
+load; deep-linking to Play or Build is not built.
 
 `useBufferEngine` backs Play and Build from the fixture, file, or recording.
 `useLiveConnection` holds the feed and, while recording, mounts a capture engine

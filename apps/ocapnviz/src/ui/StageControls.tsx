@@ -28,11 +28,11 @@
 import { useSyncExternalStore } from "react";
 import { stageCamera } from "../render/stage-camera.ts";
 import {
-  DEFAULT_STAGE_VIEW,
-  formatStageZoom,
-  MAX_STAGE_SCALE,
-  MIN_STAGE_SCALE,
-  parseStageZoom,
+	DEFAULT_STAGE_VIEW,
+	formatStageZoom,
+	MAX_STAGE_SCALE,
+	MIN_STAGE_SCALE,
+	parseStageZoom,
 } from "../render/stage-view.ts";
 import { FitGlyph, RecenterGlyph } from "./glyphs.tsx";
 import { ScrubInput } from "./Timeline/ScrubInput.tsx";
@@ -60,67 +60,67 @@ import { RADIUS, SEGMENT_CELL, segmentCellClass, SIZE, SPACE } from "./tokens.ts
  * the body and still zooms, and a tab still focuses the button and still rings.
  */
 const keepKeyboardOnStage = (event: React.PointerEvent) => {
-  event.preventDefault();
+	event.preventDefault();
 };
 
 export function StageControls() {
-  const readout = useSyncExternalStore(
-    stageCamera.subscribe,
-    stageCamera.getReadout,
-    stageCamera.getReadout,
-  );
-  return (
-    <div
-      style={bar}
-      className="ocv-segment ocv-stage-controls"
-      role="group"
-      aria-label="Stage zoom"
-    >
-      <button
-        type="button"
-        className={segmentCellClass(false)}
-        onPointerDown={keepKeyboardOnStage}
-        onClick={() => stageCamera.send({ kind: "zoom-out" })}
-        disabled={!readout.canZoomOut}
-        title="Zoom out"
-        aria-label="Zoom out"
-      >
-        &minus;
-      </button>
-      <ZoomField />
-      <button
-        type="button"
-        className={segmentCellClass(false)}
-        onPointerDown={keepKeyboardOnStage}
-        onClick={() => stageCamera.send({ kind: "zoom-in" })}
-        disabled={!readout.canZoomIn}
-        title="Zoom in"
-        aria-label="Zoom in"
-      >
-        +
-      </button>
-      <button
-        type="button"
-        className={segmentCellClass(false)}
-        onPointerDown={keepKeyboardOnStage}
-        onClick={() => stageCamera.send({ kind: "home" })}
-        title="Back to 100%"
-        aria-label="Back to 100%"
-      >
-        <RecenterGlyph />
-      </button>
-      <button
-        type="button"
-        className={segmentCellClass(false)}
-        onPointerDown={keepKeyboardOnStage}
-        onClick={() => stageCamera.send({ kind: "fit" })}
-        title="Fit everything on the stage in view"
-        aria-label="Fit everything in view"
-      >
-        <FitGlyph />
-      </button>
-    </div>
-  );
+	const readout = useSyncExternalStore(
+		stageCamera.subscribe,
+		stageCamera.getReadout,
+		stageCamera.getReadout,
+	);
+	return (
+		<div
+			style={bar}
+			className="ocv-segment ocv-stage-controls"
+			role="group"
+			aria-label="Stage zoom"
+		>
+			<button
+				type="button"
+				className={segmentCellClass(false)}
+				onPointerDown={keepKeyboardOnStage}
+				onClick={() => stageCamera.send({ kind: "zoom-out" })}
+				disabled={!readout.canZoomOut}
+				title="Zoom out"
+				aria-label="Zoom out"
+			>
+				&minus;
+			</button>
+			<ZoomField />
+			<button
+				type="button"
+				className={segmentCellClass(false)}
+				onPointerDown={keepKeyboardOnStage}
+				onClick={() => stageCamera.send({ kind: "zoom-in" })}
+				disabled={!readout.canZoomIn}
+				title="Zoom in"
+				aria-label="Zoom in"
+			>
+				+
+			</button>
+			<button
+				type="button"
+				className={segmentCellClass(false)}
+				onPointerDown={keepKeyboardOnStage}
+				onClick={() => stageCamera.send({ kind: "home" })}
+				title="Back to 100%"
+				aria-label="Back to 100%"
+			>
+				<RecenterGlyph />
+			</button>
+			<button
+				type="button"
+				className={segmentCellClass(false)}
+				onPointerDown={keepKeyboardOnStage}
+				onClick={() => stageCamera.send({ kind: "fit" })}
+				title="Fit everything on the stage in view"
+				aria-label="Fit everything in view"
+			>
+				<FitGlyph />
+			</button>
+		</div>
+	);
 }
 
 /**
@@ -148,46 +148,46 @@ export function StageControls() {
  * does not.
  */
 function ZoomField() {
-  return (
-    <ScrubInput
-      value={readStageZoom}
-      onChange={(zoom) => stageCamera.send({ kind: "zoom-to", zoom })}
-      min={MIN_STAGE_SCALE}
-      max={MAX_STAGE_SCALE}
-      format={formatStageZoom}
-      // What is shown is what is edited, and `parseStageZoom` takes the percent
-      // sign back — a reader who selects the value and retypes it usually types it.
-      formatInput={formatStageZoom}
-      parse={parseStageZoom}
-      defaultValue={DEFAULT_STAGE_VIEW.zoom}
-      label="Stage zoom"
-      className={SEGMENT_CELL}
-      style={zoomCell}
-    />
-  );
+	return (
+		<ScrubInput
+			value={readStageZoom}
+			onChange={(zoom) => stageCamera.send({ kind: "zoom-to", zoom })}
+			min={MIN_STAGE_SCALE}
+			max={MAX_STAGE_SCALE}
+			format={formatStageZoom}
+			// What is shown is what is edited, and `parseStageZoom` takes the percent
+			// sign back — a reader who selects the value and retypes it usually types it.
+			formatInput={formatStageZoom}
+			parse={parseStageZoom}
+			defaultValue={DEFAULT_STAGE_VIEW.zoom}
+			label="Stage zoom"
+			className={SEGMENT_CELL}
+			style={zoomCell}
+		/>
+	);
 }
 
 /** The camera's live scale, or 1:1 when there is no stage attached to ask. Named
  *  rather than inline so the identity is stable across renders. */
 function readStageZoom(): number {
-  return stageCamera.readView()?.zoom ?? DEFAULT_STAGE_VIEW.zoom;
+	return stageCamera.readView()?.zoom ?? DEFAULT_STAGE_VIEW.zoom;
 }
 
 const bar = {
-  position: "absolute",
-  right: SPACE.md,
-  bottom: SPACE.md,
-  zIndex: 2,
-  // The stage slot is pointer-events: none so clicks reach the canvas; these
-  // are controls, so they take them back.
-  pointerEvents: "auto",
-  // Rounded for the shadow's sake, because the cells round their own outer ends
-  // and a square shadow behind them would show at the corners. Deliberately NOT
-  // clipped: `.ocv-btn` draws its focus mark as an outline OUTSIDE the box, so
-  // `overflow: hidden` here cropped the ring down to the one edge that fell
-  // inside the container, which read as a stray line between two buttons.
-  borderRadius: RADIUS.md,
-  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+	position: "absolute",
+	right: SPACE.md,
+	bottom: SPACE.md,
+	zIndex: 2,
+	// The stage slot is pointer-events: none so clicks reach the canvas; these
+	// are controls, so they take them back.
+	pointerEvents: "auto",
+	// Rounded for the shadow's sake, because the cells round their own outer ends
+	// and a square shadow behind them would show at the corners. Deliberately NOT
+	// clipped: `.ocv-btn` draws its focus mark as an outline OUTSIDE the box, so
+	// `overflow: hidden` here cropped the ring down to the one edge that fell
+	// inside the container, which read as a stray line between two buttons.
+	borderRadius: RADIUS.md,
+	boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
 } satisfies React.CSSProperties;
 
 /** The zoom cell is the only one that changes width as it counts, and a bar that
@@ -203,8 +203,8 @@ const bar = {
  *  focus mark — comes from `.ocv-input.is-segment`, which is why there is so little
  *  here. */
 const zoomCell = {
-  width: 60,
-  fontFamily: "inherit",
-  fontSize: SIZE.base,
-  textAlign: "center",
+	width: 60,
+	fontFamily: "inherit",
+	fontSize: SIZE.base,
+	textAlign: "center",
 } satisfies React.CSSProperties;

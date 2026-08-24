@@ -100,7 +100,9 @@ pub export fn pancake_driver_session_release(
 /// this call — handshake frames were never held, and bytes that arrived early
 /// wait unread (a stream socket's kernel buffer; a resident link's bounded
 /// parking) and replay in order now. Idempotent; a session already delivering
-/// is a no-op. Every binding runtime calls this from its serve path.
+/// is a no-op. Replaying resident bytes may invoke a `PancakeHostBehavior`
+/// synchronously before this call returns; a binding must install its Host
+/// delivery context first. Every binding runtime calls this from its serve path.
 pub export fn pancake_driver_session_serve(
     raw: ?*c.PancakeDriverLoop,
     session: ?*ch.PancakeHostSession,

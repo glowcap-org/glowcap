@@ -56,6 +56,9 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
         .archive = "pancake_ocapn",
         .lib_var = "ocapn-lib",
         .definer = "define-pancake",
+        .fingerprint_stem = "ocapn",
+        .fingerprint_constant = "OCAPN-ARCHIVE-FINGERPRINT",
+        .check_fingerprint_at_load = false,
         .note =
         \\;; The raw `ffi/unsafe` table of libpancake_ocapn, the core archive. The
         \\;; hand-written sibling (`ffi-ocapn.rkt`) owns the prose and re-provides
@@ -72,6 +75,9 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
         .archive = "pancake_host",
         .lib_var = "host-lib",
         .definer = "define-host",
+        .fingerprint_stem = "host",
+        .fingerprint_constant = "HOST-ARCHIVE-FINGERPRINT",
+        .check_fingerprint_at_load = false,
         .note =
         \\;; The raw `ffi/unsafe` table of the `pancake_host_*` byte-fed host
         \\;; family, loaded from its symbol-disjoint libpancake_host archive.
@@ -100,6 +106,9 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
         .archive = "pancake_driver",
         .lib_var = "loop-lib",
         .definer = "define-driver-loop",
+        .fingerprint_stem = "driver",
+        .fingerprint_constant = "DRIVER-ARCHIVE-FINGERPRINT",
+        .check_fingerprint_at_load = false,
         .note =
         \\;; The raw `ffi/unsafe` table of the `pancake_driver_*` loop family
         \\;; (ADR-0112), exported by symbol-disjoint libpancake_driver. The

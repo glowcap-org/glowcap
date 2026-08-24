@@ -56,7 +56,7 @@ have been refused as unknown.
   settle one step at a time and total work is bounded by what the caps admitted.
   The one synchronous walk: following _stored_ resolutions that are themselves
   promises, for a late op against a settled chain: is hop-bounded by
-  `SessionLimits.max_projection_chain`, so a cyclic stored-resolution chain
+  `SessionLimits.max_resolution_chain`, so a cyclic stored-resolution chain
   breaks the projected answer instead of spinning.
 - **The initiator half is symmetric.** Sending `op:get` / `op:index` validates
   the receiver like a deliver target and installs the projected answer outbound,

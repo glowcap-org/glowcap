@@ -7,7 +7,7 @@
 //! netlayer — is handed out of band to bootstrap a session, the same format the
 //! reference suite and Goblins exchange.
 //!
-//! Parsing delegates to `std.Uri` for RFC 3986 decomposition; percent-decoding
+//! Parsing uses the allocation-free OCapN URI-shape reader; percent-decoding
 //! uses `std.Uri.percentDecodeInPlace`. OCapN-specific splits (last-dot
 //! transport, `/s/` sturdyref, query key=value pairs on percent-encoded form)
 //! live here. A V1.0 sturdyref's swiss number is unpadded base64url, matching
@@ -20,6 +20,7 @@
 
 const std = @import("std");
 const model = @import("mod.zig");
+const uri_shape = @import("uri_shape.zig");
 
 pub const Error = error{
     NotOcapnUri,
@@ -53,21 +54,10 @@ pub fn freeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) v
     allocator.free(sturdyref.swissnum);
 }
 
-/// Get the percent-encoded string from a `std.Uri.Component`. Both variants
-/// (`.raw` and `.percent_encoded`) carry the same slice type; for `.raw` the
-/// string is not percent-encoded but for our purposes (splitting on structural
-/// delimiters before per-field decode) we just need the bytes.
-fn componentBytes(component: std.Uri.Component) []const u8 {
-    return switch (component) {
-        .raw => |raw| raw,
-        .percent_encoded => |pe| pe,
-    };
-}
-
 /// Percent-decode `s` into a fresh owned allocation. Uses `std.Uri.percentDecodeInPlace`
 /// on a mutable copy.
 fn percentDecodeOwned(allocator: std.mem.Allocator, s: []const u8) Error![]u8 {
-    try validatePercentEncoding(s);
+    uri_shape.validatePercentEncoding(s) catch return error.MalformedPercentEncoding;
     const buf = try allocator.dupe(u8, s);
     errdefer allocator.free(buf);
     const decoded = std.Uri.percentDecodeInPlace(buf);
@@ -78,28 +68,11 @@ fn percentDecodeOwned(allocator: std.mem.Allocator, s: []const u8) Error![]u8 {
     return exact;
 }
 
-fn parseUri(uri_str: []const u8) Error!std.Uri {
-    try validatePercentEncoding(uri_str);
-    const uri = std.Uri.parse(uri_str) catch return Error.UriParseError;
-    if (uri.user != null or uri.password != null or uri.port != null or uri.fragment != null)
-        return error.UnsupportedUriComponent;
-    return uri;
-}
-
-fn validatePercentEncoding(bytes: []const u8) Error!void {
-    var at: usize = 0;
-    while (at < bytes.len) : (at += 1) {
-        if (bytes[at] != '%') continue;
-        if (at + 2 >= bytes.len or !isHex(bytes[at + 1]) or !isHex(bytes[at + 2]))
-            return error.MalformedPercentEncoding;
-        at += 2;
-    }
-}
-
-fn isHex(byte: u8) bool {
-    return switch (byte) {
-        '0'...'9', 'a'...'f', 'A'...'F' => true,
-        else => false,
+fn parseUri(uri_str: []const u8) Error!uri_shape.View {
+    return uri_shape.inspect(uri_str) catch |err| switch (err) {
+        error.MalformedPercentEncoding => error.MalformedPercentEncoding,
+        error.UnsupportedUriComponent => error.UnsupportedUriComponent,
+        error.UriParseError => error.UriParseError,
     };
 }
 
@@ -107,9 +80,7 @@ fn isHex(byte: u8) bool {
 /// happens on the **percent-encoded** form (so an escaped `.` in the designator
 /// is data, not a structural delimiter), then each side percent-decodes
 /// individually, the same discipline as `decodeHints`.
-fn splitNetloc(allocator: std.mem.Allocator, host_component: std.Uri.Component) Error!struct { transport: []u8, designator: []u8 } {
-    const netloc_pe = componentBytes(host_component);
-
+fn splitNetloc(allocator: std.mem.Allocator, netloc_pe: []const u8) Error!struct { transport: []u8, designator: []u8 } {
     const dot = std.mem.lastIndexOfScalar(u8, netloc_pe, '.') orelse return Error.MissingTransport;
     const designator_pe = netloc_pe[0..dot];
     const transport_pe = netloc_pe[dot + 1 ..];
@@ -124,9 +95,8 @@ fn splitNetloc(allocator: std.mem.Allocator, host_component: std.Uri.Component) 
 /// Parse query hints. Splits on the **percent-encoded** form (so an escaped `&`
 /// or `=` in a value is not treated as a delimiter), then percent-decodes each
 /// key and value individually.
-fn decodeHints(allocator: std.mem.Allocator, query: ?std.Uri.Component) Error!model.Hints {
-    const q_component = query orelse return model.Hints.emptyFalse();
-    const q = componentBytes(q_component);
+fn decodeHintBytes(allocator: std.mem.Allocator, query: ?[]const u8) Error!model.Hints {
+    const q = query orelse return model.Hints.emptyFalse();
     if (q.len == 0) return .{ .entries = &.{}, .wire_form = .map };
 
     var entries: std.ArrayList(model.HintEntry) = .empty;
@@ -137,6 +107,8 @@ fn decodeHints(allocator: std.mem.Allocator, query: ?std.Uri.Component) Error!mo
 
     var it = std.mem.splitScalar(u8, q, '&');
     while (it.next()) |segment| {
+        if (entries.items.len == model.max_locator_hint_count)
+            return Error.InvalidLocator;
         const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return Error.MalformedHint;
         const name = try percentDecodeOwned(allocator, segment[0..eq]);
         errdefer allocator.free(name);
@@ -148,20 +120,46 @@ fn decodeHints(allocator: std.mem.Allocator, query: ?std.Uri.Component) Error!mo
     return .{ .entries = try entries.toOwnedSlice(allocator), .wire_form = .map };
 }
 
+/// Materialize components already decomposed and shape-checked by the shared
+/// route-list reader. This keeps one URI parse on the route admission path.
+fn parsePeerInspected(
+    allocator: std.mem.Allocator,
+    transport_encoded: []const u8,
+    designator_encoded: []const u8,
+    query_encoded: ?[]const u8,
+) Error!model.PeerLocator {
+    const transport = try percentDecodeOwned(allocator, transport_encoded);
+    errdefer allocator.free(transport);
+    const designator = try percentDecodeOwned(allocator, designator_encoded);
+    errdefer allocator.free(designator);
+    const hints = try decodeHintBytes(allocator, query_encoded);
+    errdefer model.freeHints(allocator, hints);
+    const locator: model.PeerLocator = .{
+        .transport = transport,
+        .designator = designator,
+        .hints = hints,
+    };
+    model.validatePeerLocator(locator) catch return error.InvalidLocator;
+    return locator;
+}
+
+pub const Internal = struct {
+    pub const materializeInspectedPeer = parsePeerInspected;
+};
+
 pub fn parsePeer(allocator: std.mem.Allocator, uri_str: []const u8) Error!model.PeerLocator {
     const uri = try parseUri(uri_str);
     if (!std.mem.eql(u8, uri.scheme, scheme_str)) return Error.NotOcapnUri;
 
-    const host_component = uri.host orelse return Error.MissingTransport;
-    const nl = try splitNetloc(allocator, host_component);
+    const nl = try splitNetloc(allocator, uri.authority);
     errdefer allocator.free(nl.transport);
     errdefer allocator.free(nl.designator);
 
     // A peer URI has no path; reject if present (sturdyrefs have `/s/…`).
-    const path_pe = componentBytes(uri.path);
+    const path_pe = uri.path;
     if (path_pe.len > 0) return Error.MalformedPath;
 
-    const hints = try decodeHints(allocator, uri.query);
+    const hints = try decodeHintBytes(allocator, uri.query);
     errdefer model.freeHints(allocator, hints);
     const locator: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
     model.validatePeerLocator(locator) catch return error.InvalidLocator;
@@ -181,19 +179,18 @@ pub fn parseSturdyrefForProfile(
     const uri = try parseUri(uri_str);
     if (!std.mem.eql(u8, uri.scheme, scheme_str)) return Error.NotOcapnUri;
 
-    const host_component = uri.host orelse return Error.MissingTransport;
-    const nl = try splitNetloc(allocator, host_component);
+    const nl = try splitNetloc(allocator, uri.authority);
     errdefer allocator.free(nl.transport);
     errdefer allocator.free(nl.designator);
 
-    const path_pe = componentBytes(uri.path);
+    const path_pe = uri.path;
     if (!std.mem.startsWith(u8, path_pe, sturdyref_path_prefix)) return Error.MalformedPath;
     const swiss_pe = path_pe[sturdyref_path_prefix.len..];
 
     const swissnum = try decodeSwissNumber(allocator, profile, swiss_pe);
     errdefer allocator.free(swissnum);
 
-    const hints = try decodeHints(allocator, uri.query);
+    const hints = try decodeHintBytes(allocator, uri.query);
     errdefer model.freeHints(allocator, hints);
     const peer: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
     model.validatePeerLocator(peer) catch return error.InvalidLocator;
@@ -234,15 +231,6 @@ pub const HostPort = struct {
     port: u16,
 };
 
-/// Split a `host:port` designator — the address grammar a socket transport's
-/// locator designator carries. The split is on the **last** colon, so a
-/// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact; the
-/// brackets are stripped from the returned host, which is what a host resolver
-/// expects. The port must be a decimal `u16` and the host must be non-empty.
-/// This is the one definition of that grammar: the native TCP netlayer and the
-/// C ABI (`pancake_designator_host_port` / `pancake_locator_host_port`) both split
-/// through it, so a consumer dialing with its own sockets validates the same
-/// way the native dialer does.
 /// The first entry of a comma-separated `direct-addresses` hint, trimmed.
 /// A `keyed-tcp` hint carries the address(es) to dial; an implementation that
 /// published several picks the first. Returns a sub-slice of `hint` (empty when
@@ -252,6 +240,15 @@ pub fn firstDirectAddress(hint: []const u8) []const u8 {
     return std.mem.trim(u8, hint[0..comma], " \t");
 }
 
+/// Split a `host:port` designator — the address grammar a socket transport's
+/// locator designator carries. The split is on the **last** colon, so a
+/// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact; the
+/// brackets are stripped from the returned host, which is what a host resolver
+/// expects. The port must be a decimal `u16` and the host must be non-empty.
+/// This is the one definition of that grammar: the native TCP netlayer and the
+/// C ABI (`pancake_designator_host_port` / `pancake_locator_host_port`) both split
+/// through it, so a consumer dialing with its own sockets validates the same
+/// way the native dialer does.
 pub fn splitHostPort(designator: []const u8) Error!HostPort {
     const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
     var host = designator[0..colon];

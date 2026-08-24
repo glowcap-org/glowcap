@@ -331,14 +331,6 @@ impl std::error::Error for Error {}
 /// The crate's result type: every fallible call fails with a typed [`Error`].
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[cfg(any(
-	test,
-	feature = "tcp",
-	feature = "inproc",
-	feature = "onion",
-	feature = "iroh",
-	feature = "relay"
-))]
 pub(crate) fn require_archive_fingerprint(archive: &str, actual: u64, expected: u64) -> Result<()> {
 	if actual == expected {
 		return Ok(());

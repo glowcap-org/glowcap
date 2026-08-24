@@ -206,6 +206,7 @@ pub fn writePeerLocatorRecord(
     allocator: std.mem.Allocator,
     location: model.PeerLocator,
 ) WalkError!void {
+    model.validatePeerLocator(location) catch return Error.UnsupportedArgument;
     if (location.hints.entries.len == 0) {
         return writeLocator(sink, location);
     }

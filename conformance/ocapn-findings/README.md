@@ -186,7 +186,7 @@ locator the wire carries bare (ADR-0108, ADR-0118).
 The refusal is the dial's alone. The CapTP hello arm in `captp.rkt` matches any
 `ocapn-node`, verifies the signature over the claimed location hints-and-all,
 and stores the node verbatim; its location-mismatch check is commented out and
-its dial-back is a TODO. The hinted-hello probe inside `zig build
+its dial-back remains absent. The hinted-hello probe inside `zig build
 goblins-onion` observes this live on onion itself. A real vat accepts a hello
 whose signed onion location carries the `pancake/*` profile hints, ignores
 them, settles the baseline, and answers an echo call across the circuit.

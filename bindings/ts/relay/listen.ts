@@ -6,9 +6,9 @@
 //
 // The provider hosts one registration route per loop (the deployed
 // rendezvous protocol queues inbound legs by durable designator without a
-// channel-profile discriminator), so a second listen on a loop must ride the
-// routes the first one installed and is refused when it names different
-// ones.
+// channel-profile discriminator). Native installation is the configuration
+// authority: repeated installation accepts only the same complete route and
+// trust snapshot.
 
 import {
 	DriverListener,
@@ -24,7 +24,7 @@ import {
 	TRANSPORT_NOISE_RELAY,
 } from "@pancake/runtime/transport";
 import type { Codec, DriverLoop } from "@pancake/runtime/transport";
-import { INVALID_ARGUMENT, IO } from "@pancake/abi";
+import { IO } from "@pancake/abi";
 import { installProvider, type NativeTrust } from "./transport.ts";
 import { relayRoute } from "./route.ts";
 
@@ -45,26 +45,13 @@ export interface RelayListenOptions {
 	readonly codec?: Codec;
 }
 
-/** The routes each loop's installed relay provider serves, so a second
- * listen can ride them and one naming different routes refuses instead of
- * routing nondeterministically. */
-const installedRoutes = new WeakMap<object, { relayUrl: string; registerUrl: string }>();
-
 async function ensureRelayProvider(loop: DriverLoop, options: RelayListenOptions): Promise<void> {
 	const relayUrl = relayRoute(options.relayUrl);
-	const registerUrl = options.registerUrl;
-	const installed = installedRoutes.get(loop);
-	if (installed !== undefined) {
-		if (installed.relayUrl !== relayUrl || installed.registerUrl !== registerUrl) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"this loop's relay provider already serves different routes; relay listeners share one relay per loop",
-			);
-		}
-		return;
-	}
-	await installProvider(loop, { relayUrl, registerUrl, trust: options.trust });
-	installedRoutes.set(loop, { relayUrl, registerUrl });
+	await installProvider(loop, {
+		relayUrl,
+		registerUrl: options.registerUrl,
+		trust: options.trust,
+	});
 }
 
 async function listenProfile(
@@ -74,25 +61,29 @@ async function listenProfile(
 	await ensureRuntimeReady();
 	if (!loopTierAvailable()) throw listenerLoopUnavailable();
 	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
+	let listener: DriverListener | null = null;
 	try {
 		prepared = prepareListenerLoop(options.host, options.seed, options.codec);
 		const loop = prepared.loop;
 		await ensureRelayProvider(loop, options);
 		// The provider registers as the listener opens, so a completed open is
 		// the commit point: the relay answered and holds this peer's sockets.
-		const listener = await DriverListener.open(loop, transport, "", options.signal);
+		listener = await DriverListener.open(loop, transport, "", options.signal);
 		listener.select();
-		return new DriverServer({
+		const server = new DriverServer({
 			listener,
 			ownedLoop: prepared.ownsLoop ? loop : undefined,
 		});
+		listener = null;
+		return server;
 	} catch (error) {
 		const primary = error instanceof PancakeError ? error : new PancakeError(IO, String(error));
+		const failedListener = listener;
 		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
-		await retainCleanupFailures(
-			primary,
-			ownedLoop == null ? [] : [() => ownedLoop.close()],
-		);
+		const cleanups: Array<() => void | Promise<void>> = [];
+		if (failedListener != null) cleanups.push(() => failedListener.close());
+		if (ownedLoop != null) cleanups.push(() => ownedLoop.close());
+		await retainCleanupFailures(primary, cleanups);
 		throw primary;
 	}
 }

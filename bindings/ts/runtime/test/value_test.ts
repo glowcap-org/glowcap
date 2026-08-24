@@ -6,6 +6,7 @@ import {
 	FEATURE_BASELINE,
 	FEATURE_FULL,
 	FEATURE_HANDOFF,
+	FEATURE_MULTI_LOCATION,
 	FEATURE_PIPELINING,
 	FEATURE_UNTAG,
 } from "@pancake/abi";
@@ -53,6 +54,7 @@ Deno.test("featureMask composes known features and rejects unknown mask bits", (
 	);
 	assertEquals(featureMask(["pipelining", "handoff"]), FEATURE_PIPELINING + FEATURE_HANDOFF);
 	assertEquals(featureMask(["untag"]), FEATURE_UNTAG);
+	assertEquals(featureMask(["multi_location"]), FEATURE_MULTI_LOCATION);
 	assertThrows(() => featureMask(FEATURE_FULL + 1), "unknown OCapN feature mask");
 	assertThrows(() => featureMask(-1), "unknown OCapN feature mask");
 	assertThrows(() => featureMask(0x8000_0000), "unknown OCapN feature mask");

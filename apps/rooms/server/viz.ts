@@ -62,6 +62,20 @@ import { currentSession, formatSturdyRef, Host, Ref, Session, TRANSPORT_TCP, web
 import type { TraceEvent } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
 import { VIZ_CAP_PARAM, VIZ_PUBLISH_PATH, VIZ_REFUSED_CLOSE_CODE } from "../lib/viz_publish.ts";
+import { observeCloseFailure, observeSettledFailures, releaseRefusedCapability } from "./viz/lifecycle.ts";
+import {
+	MAX_LINE_BYTES,
+	MAX_REMOTE_PRODUCERS,
+	MAX_ROWS_PER_PRODUCER,
+	MAX_SUBSCRIBER_QUEUE,
+	MAX_SUBSCRIBER_QUEUE_BYTES,
+	MAX_SUBSCRIBERS,
+	ProducerBudget,
+} from "./viz/policy.ts";
+import { parseRecord, utf8Bytes } from "./viz/records.ts";
+import { noteTrouble } from "./journal.ts";
+
+export { parseRecord } from "./viz/records.ts";
 
 export type VizServer = {
 	sink: (ev: TraceEvent) => void;
@@ -99,25 +113,6 @@ type TraceSubscriber = {
 	draining: boolean;
 	active: boolean;
 };
-
-/** Records a producer may report before the endpoint stops believing it. A
- * peer holds one session per partner; a thousand is far past any real room and
- * still bounds what one misbehaving publisher can make this process hold. */
-const MAX_ROWS_PER_PRODUCER = 1024;
-
-/** The longest string field the endpoint will carry from a producer. Long
- * enough for a designator, a wire name, or a verb; short enough that a
- * producer cannot grow the replay state by sending one enormous label. */
-const MAX_FIELD_BYTES = 4096;
-
-/** The longest line a producer may send. A message record carries a base64
- * frame, so this is well above the producer's own payload cap. */
-const MAX_LINE_BYTES = 1 << 20;
-
-/** A subscriber is a bounded observer, not a second unbounded trace buffer. */
-const MAX_SUBSCRIBERS = 64;
-const MAX_SUBSCRIBER_QUEUE = 256;
-const MAX_SUBSCRIBER_QUEUE_BYTES = 8 << 20;
 
 /** What travels on the feed. A producer's records are protocol observations
  * (`TraceEvent`, the type the bindings emit); the endpoint adds facts about the
@@ -176,67 +171,6 @@ export function constantTimeEquals(a: string, b: string): boolean {
  * one socket and must not advance the shared dedup window. */
 const publishReadyLine = (epoch: number, sim_t_ns: number): string =>
 	JSON.stringify({ v: 1, sim_t_ns, kind: "trace.publish-ready", epoch });
-
-const KINDS = new Set([
-	"ocapn.session-opened",
-	"ocapn.message-decoded",
-	"ocapn.session-closed",
-	"ocapn.session-meta",
-]);
-
-/** Read one producer line as a timeline record, or null when it is not one.
- * Everything a producer sends is attacker-controlled until this returns: the
- * endpoint accepts only the schema's own shapes, bounded, and drops the rest
- * rather than forwarding it to a viewer. */
-export function parseRecord(line: string): TraceEvent | null {
-	if (line.length > MAX_LINE_BYTES) return null;
-	let raw: unknown;
-	try {
-		raw = JSON.parse(line);
-	} catch {
-		return null;
-	}
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-	const rec = raw as Record<string, unknown>;
-	if (rec.v !== 1) return null;
-	if (typeof rec.kind !== "string" || !KINDS.has(rec.kind)) return null;
-	// `session` is the producer's own handle for the session, which every
-	// record carries and the endpoint scopes below. It is NOT the OCapN
-	// Session ID: that is `session_id`, which only an open carries, which
-	// both ends of one session derive to the same value, and which is
-	// therefore the only one that can merge two producers' views.
-	if (typeof rec.session !== "string" || rec.session.length === 0) return null;
-	if (rec.session.length > MAX_FIELD_BYTES) return null;
-	for (
-		const field of [
-			"a",
-			// What a producer says about ITSELF: the name it would like shown,
-			// and the implementation it states it runs. Both reach a viewer, so
-			// both are bounded here like every other carried string — neither is
-			// a way to grow the replay state with one enormous value.
-			"a_label",
-			"a_profile",
-			"b",
-			"transport",
-			"session_id",
-			"provenance",
-			"codec",
-			"captp_version",
-			"op",
-			"digest",
-		]
-	) {
-		const value = rec[field];
-		if (value === undefined) continue;
-		if (typeof value !== "string" || value.length > MAX_FIELD_BYTES) return null;
-	}
-	// `seq`, `epoch` and `replay` are the endpoint's to assign; a producer that
-	// sent its own does not get to keep it.
-	delete rec.seq;
-	delete rec.epoch;
-	delete rec.replay;
-	return rec as unknown as TraceEvent;
-}
 
 /** The lines a (re)connecting viewer replays: every still-live
  * session's open and, when set, its latest annotation, in seq order,
@@ -302,8 +236,10 @@ export function startViz(port: number, swiss: string): VizServer {
 	});
 
 	const producers = new Set<Producer>();
+	const producerBudget = new ProducerBudget();
 	let nextScope = 0;
-	const newProducer = (socket: WebSocket | null): Producer => {
+	const newProducer = (socket: WebSocket | null): Producer | null => {
+		if (socket !== null && !producerBudget.admitRemote()) return null;
 		const producer: Producer = { scope: `p${nextScope++}`, rows: new Map(), socket };
 		producers.add(producer);
 		return producer;
@@ -318,7 +254,7 @@ export function startViz(port: number, swiss: string): VizServer {
 			seq,
 			epoch,
 		});
-		const bytes = new TextEncoder().encode(line).byteLength;
+		const bytes = utf8Bytes(line);
 		if (bytes > MAX_LINE_BYTES) return null;
 		for (const subscriber of subscribers) enqueue(subscriber, line, bytes);
 		return { seq, line };
@@ -333,7 +269,18 @@ export function startViz(port: number, swiss: string): VizServer {
 		if (subscriberBySession.get(subscriber.session) === subscriber) {
 			subscriberBySession.delete(subscriber.session);
 		}
-		if (closeSession) void subscriber.session.close();
+		if (closeSession) {
+			observeCloseFailure(
+				() => subscriber.session.close(),
+				(error) => noteTrouble("a viz subscriber would not retire", error),
+			);
+		} else {
+			try {
+				subscriber.session.release(subscriber.inbox);
+			} catch (error) {
+				noteTrouble("a viz subscriber capability release failed", error);
+			}
+		}
 	}
 
 	async function drain(subscriber: TraceSubscriber): Promise<void> {
@@ -354,7 +301,7 @@ export function startViz(port: number, swiss: string): VizServer {
 
 	function enqueue(subscriber: TraceSubscriber, line: string, bytes?: number): void {
 		if (!subscriber.active) return;
-		const size = bytes ?? new TextEncoder().encode(line).byteLength;
+		const size = bytes ?? utf8Bytes(line);
 		if (
 			size > MAX_LINE_BYTES ||
 			subscriber.queue.length >= MAX_SUBSCRIBER_QUEUE ||
@@ -372,6 +319,11 @@ export function startViz(port: number, swiss: string): VizServer {
 		const prior = subscriberBySession.get(session);
 		if (prior !== undefined) removeSubscriber(prior);
 		if (subscribers.size >= MAX_SUBSCRIBERS) {
+			releaseRefusedCapability(
+				session,
+				inbox,
+				(error) => noteTrouble("a refused viz subscriber capability release failed", error),
+			);
 			throw new Error("trace subscriber limit reached");
 		}
 		const subscriber: TraceSubscriber = {
@@ -397,7 +349,8 @@ export function startViz(port: number, swiss: string): VizServer {
 	 * something somebody observed. A row replaced in place, or one going
 	 * away because its producer did, is not a close and does not get one. */
 	const retire = (producer: Producer, row: Row, announce: boolean): void => {
-		producer.rows.delete(row.id);
+		if (!producer.rows.delete(row.id)) return;
+		producerBudget.retireRow();
 		if (announce) {
 			broadcast({ v: 1, sim_t_ns: 0, kind: "ocapn.session-closed", session: row.id });
 		}
@@ -411,7 +364,7 @@ export function startViz(port: number, swiss: string): VizServer {
 		if (ev.kind === "ocapn.session-opened") {
 			const existing = producer.rows.get(id);
 			if (existing !== undefined) retire(producer, existing, false);
-			if (producer.rows.size >= MAX_ROWS_PER_PRODUCER) return;
+			if (producer.rows.size >= MAX_ROWS_PER_PRODUCER || !producerBudget.retainRow()) return;
 			producer.rows.set(id, { id });
 			const stamped = broadcast(ev);
 			if (stamped !== null) liveOpens.set(id, stamped);
@@ -429,6 +382,7 @@ export function startViz(port: number, swiss: string): VizServer {
 
 	const dropProducer = (producer: Producer): void => {
 		if (!producers.delete(producer)) return;
+		if (producer.socket !== null) producerBudget.retireRemote();
 		// A viewer that reloads must not see the ghosts of a peer that left, so
 		// this producer's rows leave the replay state. What it does NOT do is
 		// announce a close for each of them. A telemetry socket dropping is a
@@ -488,6 +442,14 @@ export function startViz(port: number, swiss: string): VizServer {
 			}
 			if (publishing) {
 				const producer = newProducer(socket);
+				if (producer === null) {
+					socket.onopen = () =>
+						socket.close(
+							1013,
+							`rooms viz: producer limit ${MAX_REMOTE_PRODUCERS} reached`,
+						);
+					return response;
+				}
 				socket.onopen = () => {
 					// The admission mark: the one thing a producer ever hears.
 					try {
@@ -523,12 +485,15 @@ export function startViz(port: number, swiss: string): VizServer {
 							localAddress: tcp.addressDesignator("127.0.0.1", boundPort),
 						});
 						acceptedSessions.add(session);
-						await session.serve().catch(() => {});
-					} catch {
+						await session.serve().catch((error) => {
+							noteTrouble("a viz viewer session failed", error);
+						});
+					} catch (error) {
+						noteTrouble("a viz viewer setup failed", error);
 						try {
 							socket.close();
-						} catch {
-							// already closed
+						} catch (closeError) {
+							noteTrouble("a viz viewer socket would not close", closeError);
 						}
 					} finally {
 						viewerSockets.delete(socket);
@@ -540,7 +505,9 @@ export function startViz(port: number, swiss: string): VizServer {
 					}
 				})();
 				viewerTasks.add(task);
-				void task.finally(() => viewerTasks.delete(task));
+				void task.finally(() => viewerTasks.delete(task)).catch((error) => {
+					console.error("[rooms] viz viewer lifecycle failed:", error);
+				});
 			};
 			return response;
 		},
@@ -548,7 +515,7 @@ export function startViz(port: number, swiss: string): VizServer {
 
 	// The room server's own trace is a producer like any other, scoped like any
 	// other, so its session ids cannot collide with a peer's.
-	const local = newProducer(null);
+	const local = newProducer(null)!;
 	const ignoredTraceSessions = new Set<string>();
 	return {
 		sink: (ev) => {
@@ -573,21 +540,26 @@ export function startViz(port: number, swiss: string): VizServer {
 			closing = true;
 			controller.abort();
 			for (const producer of [...producers]) {
+				producer.rows.clear();
 				if (producer.socket !== null) {
 					try {
 						producer.socket.close();
-					} catch {
-						// already gone
+					} catch (error) {
+						console.error("[rooms] viz producer socket close failed:", error);
 					}
 				}
 			}
 			producers.clear();
+			producerBudget.clear();
+			liveOpens.clear();
+			liveMetas.clear();
+			ignoredTraceSessions.clear();
 			for (const subscriber of subscribers) removeSubscriber(subscriber);
 			for (const socket of viewerSockets) {
 				try {
 					socket.close();
-				} catch {
-					// already closed
+				} catch (error) {
+					console.error("[rooms] viz viewer socket close failed:", error);
 				}
 			}
 			viewerSockets.clear();
@@ -595,10 +567,22 @@ export function startViz(port: number, swiss: string): VizServer {
 			acceptedSessions.clear();
 			// This embedding's close lever cannot await. Keep the shared Host alive
 			// until every accepted session has stopped using it.
-			void Promise.allSettled([
-				...sessions.map((session) => session.close()),
-				...viewerTasks,
-			]).then(() => traceHost.close());
+			const shutdownOperations = [
+				...sessions.map((session, index) => ({
+					operation: `accepted viewer session ${index + 1} close`,
+					promise: Promise.resolve().then(() => session.close()),
+				})),
+				...[...viewerTasks].map((promise, index) => ({
+					operation: `viewer task ${index + 1}`,
+					promise,
+				})),
+			];
+			void observeSettledFailures(
+				shutdownOperations,
+				(operation, error) => console.error(`[rooms] viz ${operation} failed:`, error),
+			).then(() => traceHost.close()).catch((error) => {
+				console.error("[rooms] viz trace host shutdown failed:", error);
+			});
 		},
 	};
 }

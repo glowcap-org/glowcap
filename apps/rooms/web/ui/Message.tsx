@@ -9,7 +9,7 @@ import { memo, useState } from "react";
 import { canRetry, type ChatItem, isUnsent } from "./types.ts";
 import { type Group } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
-import { fmtTime, mentionsYou } from "./text.ts";
+import { fmtTime, ircName, mentionsYou } from "./text.ts";
 
 import { RichText } from "./RichText.tsx";
 
@@ -300,12 +300,18 @@ export const MessageGroup = memo(function MessageGroup(
 	},
 ) {
 	const last = group.items[group.items.length - 1];
+	const irc = ircName(group.from);
 	// The bubble already carries its author and the sidebar its arrival, so the
 	// per-line timestamp is decorative for a screen reader; it is hidden from the
 	// tree rather than read out with every line.
 	const stack = (
 		<div className="stack">
-			{!group.mine && <div className="who">{group.from}</div>}
+			{!group.mine && (
+				<div className="who">
+					{irc ?? group.from}
+					{irc !== null && <span className="irc-chip">IRC</span>}
+				</div>
+			)}
 			{group.items.map((item) => (
 				<Bubble
 					key={item.id}

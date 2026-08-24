@@ -25,18 +25,18 @@ import { z } from "zod";
 /** Generic factory — call with the value schema, get back a
  *  Keyframe<T> schema. e.g. `Keyframe(SessionState)`. */
 export function Keyframe<TValue extends z.ZodTypeAny>(
-  value: TValue,
+	value: TValue,
 ) {
-  return z.object({
-    /** Simulated time at which this keyframe's value takes effect. */
-    t: z.number().finite(),
-    value,
-  });
+	return z.object({
+		/** Simulated time at which this keyframe's value takes effect. */
+		t: z.number().finite(),
+		value,
+	});
 }
 
 export type Keyframe<T> = {
-  t: number;
-  value: T;
+	t: number;
+	value: T;
 };
 
 export type KeyframeTrack<T> = readonly Keyframe<T>[];
@@ -52,16 +52,16 @@ export type KeyframeTrack<T> = readonly Keyframe<T>[];
  *  property per entity). Bump to binary search if a real workload
  *  ever needs it. */
 export function keyframeAt<T>(
-  track: KeyframeTrack<T> | undefined,
-  t: number,
+	track: KeyframeTrack<T> | undefined,
+	t: number,
 ): T | undefined {
-  if (!track || track.length === 0) return undefined;
-  let active: Keyframe<T> | undefined;
-  for (const kf of track) {
-    if (kf.t > t) break;
-    active = kf;
-  }
-  return active?.value;
+	if (!track || track.length === 0) return undefined;
+	let active: Keyframe<T> | undefined;
+	for (const kf of track) {
+		if (kf.t > t) break;
+		active = kf;
+	}
+	return active?.value;
 }
 
 /** The keyframe the track DECLARES at exactly `t`, or undefined when
@@ -81,43 +81,43 @@ export function keyframeAt<T>(
  *  already that, and `no-op-guards.ts` states that rule once for
  *  every trajectory write. */
 export function keyframeExactlyAt<T>(
-  track: KeyframeTrack<T> | undefined,
-  t: number,
+	track: KeyframeTrack<T> | undefined,
+	t: number,
 ): Keyframe<T> | undefined {
-  return track?.find((kf) => kf.t === t);
+	return track?.find((kf) => kf.t === t);
 }
 
 /** Insert / replace a keyframe at `t`. Returns a new sorted track.
  *  If a keyframe already exists at exactly `t`, its value is
  *  replaced (last write wins). */
 export function setKeyframe<T>(
-  track: KeyframeTrack<T> | undefined,
-  t: number,
-  value: T,
+	track: KeyframeTrack<T> | undefined,
+	t: number,
+	value: T,
 ): KeyframeTrack<T> {
-  const out: Keyframe<T>[] = [];
-  let inserted = false;
-  for (const kf of track ?? []) {
-    if (kf.t === t) {
-      out.push({ t, value });
-      inserted = true;
-    } else if (!inserted && kf.t > t) {
-      out.push({ t, value });
-      out.push(kf);
-      inserted = true;
-    } else {
-      out.push(kf);
-    }
-  }
-  if (!inserted) out.push({ t, value });
-  return out;
+	const out: Keyframe<T>[] = [];
+	let inserted = false;
+	for (const kf of track ?? []) {
+		if (kf.t === t) {
+			out.push({ t, value });
+			inserted = true;
+		} else if (!inserted && kf.t > t) {
+			out.push({ t, value });
+			out.push(kf);
+			inserted = true;
+		} else {
+			out.push(kf);
+		}
+	}
+	if (!inserted) out.push({ t, value });
+	return out;
 }
 
 /** Remove the keyframe at exactly `t`. No-op when none matches. */
 export function removeKeyframe<T>(
-  track: KeyframeTrack<T> | undefined,
-  t: number,
+	track: KeyframeTrack<T> | undefined,
+	t: number,
 ): KeyframeTrack<T> {
-  if (!track) return [];
-  return track.filter((kf) => kf.t !== t);
+	if (!track) return [];
+	return track.filter((kf) => kf.t !== t);
 }

@@ -60,6 +60,13 @@ pub const dogfoods = [_]struct {
     },
 };
 
+fn dogfoodIndex(comptime step_name: []const u8) comptime_int {
+    inline for (dogfoods, 0..) |dogfood, index| {
+        if (std.mem.eql(u8, dogfood.step_name, step_name)) return index;
+    }
+    @compileError("unknown binding dogfood step: " ++ step_name);
+}
+
 pub const Registered = struct {
     bindings_step: *std.Build.Step,
     bindings_onion_step: *std.Build.Step,
@@ -102,7 +109,8 @@ pub fn register(
         "python3", "bindings/python/smoke/artifact.py",
     });
     python_artifact_smoke.step.dependOn(b.getInstallStep());
-    dogfood_runs[2].step.dependOn(&python_artifact_smoke.step);
+    const python_dogfood = dogfood_runs[dogfoodIndex("python-dogfood")];
+    python_dogfood.step.dependOn(&python_artifact_smoke.step);
     // The macOS Rust test executable resolves pancake's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
     // this step installed.
@@ -136,7 +144,7 @@ pub fn register(
             .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir),
             else => {},
         }
-        dogfood_runs[2].step.dependOn(&run.step);
+        python_dogfood.step.dependOn(&run.step);
     }
     // The Rust crate's README claims the core stands alone with no feature on;
     // this compile-only leg keeps that claim a gate instead of a sentence (the
@@ -147,14 +155,9 @@ pub fn register(
     });
     rust_core_only.step.dependOn(b.getInstallStep());
     dogfood_runs[0].step.dependOn(&rust_core_only.step);
-    // The Racket unit tests. `raco test` is not in the devcontainer image, so
-    // they run through `tools/check/racket-test.rkt`, which does the two things
-    // a bare `racket <file>` does not: it makes a failed rackunit check raise,
-    // so the exit code this step reads means something, and it runs a
-    // `(module+ test ...)` submodule, which is where a library's own tests have
-    // to live because top-level checks would run on every import. Without this
-    // step the bench apps had no check at all, which is how one of them came to
-    // pass `'bcom` where a procedure was expected and stay broken.
+    // `raco test` makes a failed rackunit check process-fatal and runs each
+    // library's `(module+ test ...)` submodule; compiler-lib in the pinned
+    // devcontainer owns that standard command.
     const racket_tests = [_][]const u8{
         "bench/goblins/metrics-test.rkt",
         "bench/goblins/apps-test.rkt",
@@ -169,13 +172,18 @@ pub fn register(
         "bindings/racket/private/driver-failure.rkt",
         "bindings/racket/private/host.rkt",
         "bindings/racket/private/lib-resolve.rkt",
+        "bindings/racket/private/promise.rkt",
         "bindings/racket/private/relay-provider.rkt",
         "bindings/racket/private/ws-transport.rkt",
     };
     const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");
+    const racket_make = execution.addSystemCommand(b, .build_tool, &.{ "raco", "make" });
+    for (racket_tests) |file| racket_make.addArg(file);
+    racket_make.step.dependOn(b.getInstallStep());
+    racket_make.has_side_effects = true;
     for (racket_tests) |file| {
-        const run = execution.addSystemCommand(b, .{ .deterministic = 10 }, &.{ "racket", "-y", "tools/check/racket-test.rkt", file });
-        run.step.dependOn(b.getInstallStep());
+        const run = execution.addSystemCommand(b, .{ .deterministic = 10 }, &.{ "raco", "test", file });
+        run.step.dependOn(&racket_make.step);
         run.has_side_effects = true;
         racket_test_step.dependOn(&run.step);
     }
@@ -415,6 +423,11 @@ pub fn registerChecks(
         "onion/test/onion_test.ts",
     });
     deno_onion_test.setCwd(b.path("bindings/ts"));
+    // The test loads the Host and driver archives as well as onion. Depending
+    // only on the onion install lets a focused run pair a freshly generated
+    // fingerprint mirror with stale core archives left in zig-out. The full
+    // install is the native artifact set this binding process consumes.
+    deno_onion_test.step.dependOn(b.getInstallStep());
     deno_onion_test.step.dependOn(onion_dynamic_install);
     bindings_fmt_check_step.dependOn(&deno_onion_test.step);
 

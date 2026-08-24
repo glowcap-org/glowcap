@@ -35,7 +35,8 @@ export { enterRoom } from "./enter.ts";
  * open. */
 export function pickRoom(dir: DirId, name: string, at?: string): void {
 	const s = store.get();
-	const key = at ?? store.roomKey(dir, name);
+	const publication = at === undefined ? store.enteredPublication(dir, name) : null;
+	const key = at ?? (publication === null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publication.id));
 	const conv = store.getConv(key);
 	const heldRoom = conv?.type === "room" && conv.held;
 	const held = dirSession(dir);
@@ -63,7 +64,8 @@ export function pickRoom(dir: DirId, name: string, at?: string): void {
  * because a room reached by a reference has no name to derive a key from, and
  * two of them may be called the same thing. */
 export function showRoom(dir: DirId, name: string, from: Source, at?: string): void {
-	const key = at ?? store.roomKey(dir, name);
+	const publication = at === undefined ? store.enteredPublication(dir, name) : null;
+	const key = at ?? (publication === null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publication.id));
 	const conv = store.getConv(key);
 	const open = conv?.type === "room";
 	const heldRoom = conv?.type === "room" && conv.held;
@@ -82,7 +84,7 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 	const knownAs = (store.dirNick(dir) || store.reachingNick()) !== "";
 	const backIn = !heldRoom && held !== null && knownAs && open && !held.rooms.has(key);
 	if (backIn) {
-		enterPickedRoom(dir, name);
+		enterPickedRoom(dir, name, conv?.type === "room" ? conv.publicationId : publication?.id);
 		return;
 	}
 	// Being in a room is something this tab knows, not something the connection
@@ -100,7 +102,7 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 	}
 	// Entering one is different: that does need a session and a name on it.
 	if (knownAs && held !== null) {
-		enterPickedRoom(dir, name);
+		enterPickedRoom(dir, name, publication?.id);
 		return;
 	}
 	// No name granted yet, so the card comes up as the gate on this room, and it
@@ -117,13 +119,13 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 	});
 }
 
-function enterPickedRoom(dir: DirId, name: string): void {
+function enterPickedRoom(dir: DirId, name: string, publicationId?: string): void {
 	notePickedRoom();
 	// To the directory the work is about, not whichever one is on screen: read
 	// from another directory's room, this line landed on that one's foot and
 	// stayed, since only the targeted completion write would ever replace it.
 	store.setDirStatus(dir, "entering #" + name + "…");
-	void enterRoom(dir, name, store.dirNick(dir) || store.reachingNick());
+	void enterRoom(dir, name, store.dirNick(dir) || store.reachingNick(), { publicationId });
 }
 
 /// A join asked for before the peer session was open. The session is fetched,
@@ -193,7 +195,11 @@ export async function openPrivateRoom(
 		if (!isCurrent(session) || signal?.aborted) return "";
 		// Making a room is asking to be in it, the same as naming a public one.
 		notePickedRoom();
-		return await enterRoom(dir, label, nick, 0, { key: store.heldRoomKey(), room }, undefined, nick, true, signal);
+		return await enterRoom(dir, label, nick, {
+			held: { key: store.heldRoomKey(), room },
+			requested: nick,
+			signal,
+		});
 	} catch (err) {
 		if (signal?.aborted) return "";
 		return reason(err);
@@ -217,6 +223,7 @@ export async function openPrivateRoom(
 export function leaveRoom(key: string): void {
 	const owner = convSession(key);
 	const room = owner?.rooms.get(key) ?? null;
+	const name = store.getConv(key)?.id ?? "";
 	owner?.rooms.delete(key);
 	// What that membership was told goes with the membership.
 	owner?.standingTold.delete(key);
@@ -226,6 +233,7 @@ export function leaveRoom(key: string): void {
 	const wasReading = store.get().activeKey === key;
 	store.forgetConv(key);
 	if (wasReading) {
+		store.closeAboutConv();
 		const next = [...store.get().convs.keys()][0];
 		if (next === undefined) store.showJoinCard();
 		else store.switchTo(next);
@@ -234,10 +242,17 @@ export function leaveRoom(key: string): void {
 	// status lets the state row fall back to its settled words.
 	store.setStatus("");
 	// A leave that fails leaves the room still holding the nick, which the next
-	// join will discover as a name already taken. Nothing here can fix it, but a
-	// silent version of it is very hard to recognise later.
+	// join will discover as a name already taken, and everyone else still sees
+	// this reader present. The conversation is already gone from this tab, so
+	// the notice goes on the page rather than into it.
 	if (room) {
-		void room.leave().catch((err) => console.error("rooms: could not leave the room:", reason(err)));
+		void room.leave().catch((err) =>
+			store.toast(
+				"failure",
+				`Leaving ${name === "" ? "the room" : "#" + name} did not complete: ${reason(err)}. ` +
+					`The room may still list you, and may hold your name for a while.`,
+			)
+		);
 	}
 }
 
@@ -278,6 +293,7 @@ export function closeDm(conv: DmConv): void {
 	// from the rail while reading something else should leave you reading it, the
 	// same as leaving a room you are not currently in.
 	if (s.activeKey !== key) return;
+	store.closeAboutConv();
 	const next = [...store.get().convs.keys()][0];
 	if (next === undefined) store.showJoinCard();
 	else store.switchTo(next);

@@ -26,6 +26,29 @@ require_literal() {
     fi
 }
 
+# A Dockerfile and a deno.json cannot source pins.sh, so a few pins are restated
+# in them. Those restatements are listed once, in lib/update-pins-companions.sh,
+# so `update-pins.sh bump` can rewrite them. This reads the same table rather
+# than repeating it, which is what keeps that list the only one: a row added
+# there is checked from the next run, with no second place to remember.
+#
+# Asking for exactly the text the bump searches for also checks the bump itself.
+# Passing one version as both the old and the new form asks each row what it
+# looks like at the version pinned right now, and that is the anchor the next
+# bump has to find.
+# shellcheck source=../lib/update-pins-deps.sh
+source "${dir}/lib/update-pins-deps.sh"
+# shellcheck source=../lib/update-pins-companions.sh
+source "${dir}/lib/update-pins-companions.sh"
+for pin_dep in ${PANCAKE_PINS_DEPS}; do
+    pin_var="$(pancake_pins_dep_var "${pin_dep}")"
+    while IFS=$'\t' read -r companion_path companion_literal _; do
+        [[ -n "${companion_path}" ]] || continue
+        require_literal "${dir}/../${companion_path}" "${companion_literal}" \
+            "${companion_path} ${pin_dep} pin"
+    done < <(pancake_pins_companions "${pin_dep}" "${!pin_var}" "${!pin_var}")
+done
+
 require_literal "${dockerfile}" "CARGO_HOME=${CARGO_HOME_IMAGE}" "Dockerfile CARGO_HOME (image build)"
 require_literal "${dockerfile}" "PLTUSERHOME=${PLTUSERHOME}" "Dockerfile PLTUSERHOME"
 require_literal "${dockerfile}" "RUSTUP_HOME=${RUSTUP_HOME}" "Dockerfile RUSTUP_HOME"
@@ -255,3 +278,31 @@ require_doc_links() {
 for devcontainer_doc in "${dir}"/*.md; do
     require_doc_links "${devcontainer_doc}"
 done
+
+# A shell file here is either run or sourced, and its committed mode says which.
+# Read the Git index rather than `test -x`: macOS bind mounts can report every
+# file executable inside the Linux container even when both Git and the host
+# filesystem record 0644. Anything under bin/, hooks/, image/, and test/ is
+# invoked, so it is 100755; lib/ and the two pin tables are sourced, so they are
+# 100644.
+git_mode() {
+    local relative="${1#"${dir}/../"}"
+    git -C "${dir}/.." ls-files --stage -- "${relative}" | awk 'NR == 1 { print $1 }'
+}
+
+while IFS= read -r shell_file; do
+    if [[ "$(git_mode "${shell_file}")" != 100755 ]]; then
+        echo "${shell_file#"${dir}/"}: invoked directly, so it must be executable" >&2
+        exit 1
+    fi
+done < <(find "${dir}/bin" "${dir}/hooks" "${dir}/image" "${dir}/test" -name '*.sh' | sort)
+
+while IFS= read -r shell_file; do
+    if [[ "$(git_mode "${shell_file}")" != 100644 ]]; then
+        echo "${shell_file#"${dir}/"}: sourced, never run, so it must not be executable" >&2
+        exit 1
+    fi
+done < <(
+    find "${dir}/lib" -name '*.sh' | sort
+    printf '%s\n' "${dir}/pins.sh" "${dir}/checksums.sh"
+)

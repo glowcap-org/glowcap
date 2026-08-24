@@ -1,14 +1,24 @@
-# PLANNED: Python has no managed relay listen helper yet.
-# The provider already accepts a registration URL. This shows the planned
-# first-call, the same shape as tcp.noise.listen.
-#
-# from pancake import relay
-# import os
-#
-# seed = os.urandom(32)
-# async with await relay.noise.listen(
-#     "wss://relay.example/relay",
-#     "wss://relay.example/register",
-#     seed=seed,
-# ) as server:
-# From here, the CapTP workflow is transport-independent.
+import os
+from pancake import Argument, relay
+
+# Register this key at the relay; Noise_XK seals every accepted CapTP stream.
+seed = os.urandom(32)  # load durable secret bytes in a real service
+async with await relay.noise.listen(
+    "wss://relay.example/relay",
+    "wss://relay.example/register",
+    seed=seed,
+) as server:
+    # From here, the CapTP workflow is transport-independent.
+    print(server.uri)  # hand this locator to partners
+
+    def greet(verb: str, args: list[Argument]) -> str:
+        if verb != "greet":
+            raise LookupError("no such method")
+        if len(args) != 1 or not isinstance(args[0], str):
+            raise TypeError("bad invocation")
+        return f"Hello, {args[0]}"
+
+    server.host.publish_giftable("greeter", greet)
+    async for accepted in server:
+        async with accepted as session:
+            await session.serve()

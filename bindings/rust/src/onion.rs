@@ -169,6 +169,7 @@ impl<'a> Config<'a> {
 		}
 	}
 
+	#[cfg(feature = "async")]
 	fn to_owned(&self) -> OwnedConfig {
 		OwnedConfig {
 			socks: self.socks.to_owned(),
@@ -184,6 +185,7 @@ impl<'a> Config<'a> {
 	}
 }
 
+#[cfg(feature = "async")]
 #[derive(Clone)]
 struct OwnedConfig {
 	socks: String,
@@ -193,6 +195,7 @@ struct OwnedConfig {
 	forward: String,
 }
 
+#[cfg(feature = "async")]
 #[derive(Clone)]
 enum OwnedAuth {
 	None,
@@ -200,6 +203,7 @@ enum OwnedAuth {
 	Password(String),
 }
 
+#[cfg(feature = "async")]
 impl OwnedConfig {
 	fn as_config(&self) -> Config<'_> {
 		Config {

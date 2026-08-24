@@ -98,16 +98,16 @@ pub fn checkUnwiredHostPluginApis(
         .{ .call_needle = ".installThirdPartyImport(", .def_path = "src/ocapn/session/promises/imported.zig" },
     };
     for (rows) |row| {
-        if (!try srcHasCallOutsideDef(io, gpa, root, row.call_needle, row.def_path)) {
+        if (!try srcHasCallOutsideDef(io, gpa, root, violations, row.call_needle, row.def_path)) {
             try appendViolation(gpa, violations, "host-plugin API `{s}` lost its production caller under src/ — Node promise proxy must keep calling it", .{row.call_needle});
         }
     }
 
     // Deleted queue spine must not reappear under production src/.
-    if (try srcHasCallOutsideDef(io, gpa, root, ".relayResolution(", "src/ocapn/engine/mod.zig")) {
+    if (try srcHasCallOutsideDef(io, gpa, root, violations, ".relayResolution(", "src/ocapn/engine/mod.zig")) {
         try appendViolation(gpa, violations, "deleted Peer.relayResolution reappeared under src/ — settle via applyRelayedResolutionGuaranteed only", .{});
     }
-    if (try srcHasCallOutsideDef(io, gpa, root, "drainRelayedResolutions(", "src/ocapn/engine/cross_peer.zig")) {
+    if (try srcHasCallOutsideDef(io, gpa, root, violations, "drainRelayedResolutions(", "src/ocapn/engine/cross_peer.zig")) {
         try appendViolation(gpa, violations, "deleted drainRelayedResolutions reappeared under src/ — settle via applyRelayedResolution only", .{});
     }
     // Relayed path moves; a public/production resolution deep-clone must not return.
@@ -139,13 +139,18 @@ pub fn checkUnwiredHostPluginApis(
         "proxy_by_listener",
         "pub const PendingDialView = redeem_dials.PendingDialView;",
         "pub const pendingDial = redeem_dials.pendingDial;",
-        "pub const stageDial = redeem_dials.stage;",
+        "pub const stageDial = dial_staging.stage;",
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
         "pub fn pendingDial",
         "by_identity",
-        "actions.claimTicketRange",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials/admission.zig", &.{
         "unparseable exporter locator",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials/staging.zig", &.{
+        "actions.claimTicketRange",
+        "pub const PreparedStage",
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/plan.zig", &.{
         "pub fn parse",
@@ -176,7 +181,7 @@ pub fn checkUnwiredHostPluginApis(
         }
     }
     // Named materialize is for the proxy fire owner only — not a free fan-out API.
-    if (try srcHasCallOutsideAllowlist(io, gpa, root, "materializeResolutionForStore(", &.{
+    if (try srcHasCallOutsideAllowlist(io, gpa, root, violations, "materializeResolutionForStore(", &.{
         "src/ocapn/engine/node/proxies/settlement.zig",
         "src/ocapn/model/owned.zig",
     })) {
@@ -235,9 +240,10 @@ pub fn checkUnwiredHostPluginApis(
         "session_not_open",
         "multi-introduce",
     });
-    // Ticket-only HostAction.dial: the pending row owns the complete locator.
+    // Route-exact HostAction.dial: the pending row owns the complete locator;
+    // the action carries only the stable key needed to select that route.
     if (try fileContains(io, gpa, root, "src/driver/core/host/pump.zig", "fn dialActionFields")) {
-        try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: dialActionFields must stay deleted — ticket-only HostAction.dial", .{});
+        try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: dialActionFields must stay deleted — HostAction.dial owns only ticket and route_index", .{});
     }
     if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "locator: []const u8")) {
         try appendViolation(gpa, violations, "src/driver/core/host/action.zig: HostAction.dial must not carry locator — use pendingDial", .{});
@@ -281,10 +287,13 @@ pub fn checkUnwiredHostPluginApis(
         "OutboundConnect",
         "pending_connects",
         "connectOutbound",
-        ".{ .redeem = d.ticket }",
+        ".{ .redeem = .{ .ticket = d.ticket, .route_index = d.route_index } }",
     });
     try expectFileContains(io, gpa, root, violations, "src/driver/bridge_connect.zig", &.{
-        "redeem: engine.Node.PendingId",
+        "pub const RedeemAttempt = struct",
+        "ticket: engine.Node.PendingId",
+        "route_index: usize",
+        "redeem: RedeemAttempt",
         "app_dial: model.PeerLocator",
         "model.clonePeerLocator(allocator, locator)",
         "model.freePeerLocator(allocator, locator)",
@@ -305,7 +314,7 @@ pub fn checkUnwiredHostPluginApis(
     });
     // Pending dial paths own typed hints as well as transport and designator;
     // one teardown spine must release the complete shape.
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/plan.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/model/route_bundle.zig", &.{
         "fn deinitPath(allocator: std.mem.Allocator, path: Path) void",
         "model.freeHints(allocator, path.hints);",
         "self.deinitPaths(allocator);",
@@ -441,6 +450,7 @@ fn srcHasCallOutsideAllowlist(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
     call_needle: []const u8,
     allow: []const []const u8,
 ) !bool {
@@ -461,7 +471,10 @@ fn srcHasCallOutsideAllowlist(
             }
         }
         if (allowed) continue;
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the C-ABI wiring check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
@@ -477,6 +490,7 @@ fn srcHasCallOutsideDef(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
     call_needle: []const u8,
     def_path: []const u8,
 ) !bool {
@@ -493,7 +507,10 @@ fn srcHasCallOutsideDef(
         if (std.mem.eql(u8, path, "src/ocapn/session/mod.zig") and
             std.mem.eql(u8, call_needle, ".installThirdPartyImport("))
             continue;
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the C-ABI wiring check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {

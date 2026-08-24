@@ -113,10 +113,6 @@ not ship a native Zig QUIC or WebRTC stack.
   beside its wires, and the completion loop arms a recv on it — and the
   settle applies there. Off-thread settles carry plain data only; a
   capability never crosses threads.
-- **The 500,000-session target has not been proved under live socket load.**
-  Checked budgets hold the warmed protocol core near 2 KiB per session, and the
-  loop checks serve many connections, but neither is a 500,000-connection run.
-  [The 1.0 ladder](ladder.md) carries the measured budgets.
 - **The simplest blocking pump serves one connection on one fiber.** Use a
   completion loop (TCP, iroh, onion, or keyed-relay outbound) for a partner that
   streams while waiting for you to drain output.
@@ -188,17 +184,36 @@ not ship a native Zig QUIC or WebRTC stack.
   binding-facing codec extension should be an extension archive or Wasm
   component registered at the codec seam, with explicit frame ownership and no
   per-frame callback into a host-language runtime.
-- **macOS is compiled but not run in CI, and Windows is not implemented.**
-  Linux is the only platform on which the full check set runs today.
+- **macOS runs the native suite, and Windows is not implemented.** The full
+  gate and external-runtime matrix remain Linux-only.
 
 ## API gaps
+
+- **The IRC adapters have IRC representation and delivery limits.** The bridge mirrors one channel into an
+  ordinary Rooms directory and is read-only unless the operator selects
+  two-way mode with TLS and SASL credentials. Two-way posts use the bridge's
+  registered nick and a visible `<nick>` prefix. IRC supplies no acknowledgement
+  for a channel message, so an ambiguous TCP failure may repeat or lose the last
+  line even though the bounded queue survives an observed write failure. The
+  client front maps only existing IRC-addressable room names. It fixes a
+  nickname for the connection because Rooms grants names per capability and no
+  atomic rename exists across several memberships. Native names outside IRC's
+  alphabet receive disclosed connection-local aliases. Lines, topics, and file
+  capabilities that cannot fit IRC are reported rather than silently truncated
+  or discarded. Foreign room publications without a member count, and native
+  room names IRC cannot address, are omitted from `LIST` with a notice instead
+  of invented fields. IRC carries neither edits nor capability-bearing file and
+  room offers. IRC is an application adapter, never a CapTP transport; there is
+  no IRC server link and no CapTP-over-IRC netlayer.
 
 - **A sturdyref enliven verifies the complete locator before wire traffic.**
   Every tier's select-or-dial enliven (`driver.HostRuntime.enliven`,
   `pancake_host_enliven`, and each binding's host-level verb) checks the
   sturdyref's peer against the session it selects or dials. An accepted
   plain-TCP session is refused by default; only the native low-level
-  `assertion_only` opt-in proceeds, and it reports that provenance.
+  `assertion_only` opt-in proceeds, and it reports that provenance. Dial
+  staging is a Node prepare/commit transaction: Host parking and completion
+  capacity are acquired before a dial action becomes observable.
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees yet. Pin a commit when consuming the package.
 
@@ -207,6 +222,12 @@ Archive discovery and packaging are documented in the
 assets are not published.
 
 ## Protocol and interop
+
+- **Locator hint count is an implementation resource bound, not an OCapN wire
+  maximum.** pancake accepts at most 32 entries in one locator hint map across
+  owned values, Syrup, Cap'n Proto, and URI parsing. URI parsing refuses the
+  33rd entry before decoding or allocating it. Unknown names within the bound
+  remain preserved and ignored unless a negotiated feature owns their meaning.
 
 - **Keyed TCP and keyed relay prove no peer.** Matching the hello's key claim
   rejects an accidental mismatch, but the cleartext channel reports
@@ -220,12 +241,43 @@ assets are not published.
   The encoding is an open upstream question
   ([watch](upstream-watch.md#ocapn-null)).
 - **Only the negotiated features are accepted.** pancake supports
-  `pipelining`, `handoff`, `wire_delta`, and `sturdyref`. Feature names from
-  older CapTP designs (streams, equality queries, a `draining` lifecycle)
-  exist in neither the pinned draft nor Goblins, so their absence here is not
-  an interop gap.
+  `pipelining`, `handoff`, `wire_delta`, `sturdyref`, `untag`, and the
+  ADR-0125 `multi_location` bit. Identity-route vocabulary is opt-in: an `id`
+  locator is refused before send or apply unless the settled session is
+  `pancake-next` with that bit. Host-level `id` sturdyrefs also require the
+  Host to opt into that same feature and then match only authenticated same-key
+  sessions or staged concrete `via` routes. Feature names from older CapTP
+  designs (streams, equality queries, a `draining` lifecycle) exist in neither
+  the pinned draft nor Goblins, so their absence here is not an interop gap.
+- **Route bundles select only at their owner.** ADR-0125 route bundles drive
+  Node handoff/redeem scheduling for `alt-locators` and `id` `via`, and
+  signed-give lowering for `id`. A give preserves route vocabulary only when both its
+  recipient and exporter sessions negotiated it; a baseline-compatible
+  override remains usable, while private vocabulary falls back to the concrete
+  location the exporter claimed on its session. The generic single-path dial planner and Host open
+  path still refuse bundle transports as physical sessions; only the Node
+  pending-dial waist resolves `id` into a concrete transport. Declared `via`
+  order ranks a two-attempt window, the first proved completion wins, and exact
+  losing route attempts are cancelled before their executor state retires. A
+  weak fallback serves only its authorizing ticket; it is cached as the
+  canonical exporter session only when the channel independently proves the bundle's durable
+  identity. Discovered route advice becomes available to later gives only
+  after one withdrawal succeeds. Rooms composes active listeners into an
+  identity route and uses the existing handoff path to publish durable rooms
+  between directories; ordinary member introductions still relay the
+  member's signed session location.
 - **Handoff signatures always use Syrup.** That signing domain does not change
   when the surrounding session uses Cap'n Proto.
+- **Pinned Goblins can reject handoffs from independent receivers.** Goblins
+  records an accepted `handoff-count` on the Gifter-Exporter session, although
+  the certificate assigns that count to the Receiver-Exporter session. Two
+  independent receivers can therefore each correctly begin at zero while the
+  second is rejected against the first receiver's retained count. Pancake keeps
+  one V1 issuance cursor for replacement sessions inside a Node, which handles
+  reconnects but cannot coordinate independent recipients. The live
+  `goblins-rooms-matrix-iroh` step reproduces the rejection; the source-level
+  mismatch is tracked in
+  [upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions).
 - **Remote equality does not cross unrelated sessions.** A proved exporter
   session gives direct and handed-off references one Host identity. Two
   independently established sessions without durable peer proof carry no
@@ -255,8 +307,10 @@ not running. `zig build zig-keyed-relay-register` proves the CLI registration
 half. The relay provider archive owns both `keyed-relay` and `noise-relay`,
 including native dial and registration through the generic driver. The
 managed browser connector carries both profiles, while the byte-fed Host owns
-Noise sealing. `zig build web-peer-test` drives that path in Chromium and has
-the native CLI call an object hosted in the page over `noise-relay`.
+Noise sealing. `zig build bindings-noise-relay-listen` has every native
+event-loop binding register, advertise, accept, and serve through its managed
+listener. `zig build web-peer-test` drives the browser path in Chromium and
+has the native CLI call an object hosted in the page over `noise-relay`.
 
 `zig build bindings-native-wss-relay` additionally runs every native binding
 against one local WSS authority. Each binding observes exact hostname and

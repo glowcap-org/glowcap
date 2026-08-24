@@ -79,8 +79,8 @@ pointers, truncated frames, and unmapped discriminants fail loud rather than
 producing a partial value.
 
 All ten `Message` arms and their shared sub-trees (`Reference`, the fourteen-arm
-recursive `Argument`, `Resolution`, `Error`, `PeerLocator`, `Handoff`, `Tagged`,
-`PipelineOp`) encode and decode view-first, exercised by round-trip and
+recursive `Argument`, `Resolution`, `Error`, `PeerLocator`, `Handoff`, and
+`Tagged`) encode and decode view-first, exercised by round-trip and
 fail-loud tests in
 [`test/codec/capnp_test.zig`](../../../test/codec/capnp_test.zig). `BrokenRef`
 is local-only and rejected on encode (`Error.UnsupportedReference`).
@@ -91,7 +91,7 @@ The codec is selectable on a live session. `decode.zig` also projects
 [`decodeBody`](../../../src/ocapn/codec/capnp/decode.zig): the shared
 codec-neutral [`model.view.Body`](../../../src/ocapn/model/view.zig) the engine
 dispatches on: directly over the frame's words, the sibling of Syrup's
-`decodeBody`. The unbounded sequences (`Args`, `PositionList`, `PipelinePath`)
+`decodeBody`. The unbounded sequences (`Args` and `PositionList`)
 are reached through the same inline vtable backings the neutral view defines,
 with the `Ctx` scalars packing each list's word layout (element-0 index, section
 sizes, count); a nested `list` / `set` / `tagged` arm is itself another backing,

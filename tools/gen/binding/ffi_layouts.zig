@@ -1,7 +1,7 @@
 //! Generates the expected struct sizes and field offsets every language
 //! binding's hand-mirrored FFI struct pins against — Rust's `#[repr(C)]`
-//! `const` assert blocks, Python's `ctypes.Structure` `_pin_layout()`, and
-//! Racket's `pin-layout!` `want-size` argument.
+//! `const` assert blocks, Python's `pancake._pin.pin_struct`, and Racket's
+//! `pin-layout!` `want-size` argument.
 //!
 //! Every binding hand-declares its own struct *shape* (`#[repr(C)]`,
 //! `ctypes.Structure`, `define-cstruct`) because each language's FFI wants a
@@ -11,10 +11,9 @@
 //! same `@sizeOf`/`@offsetOf` values from the C headers' prose, so a Zig-side
 //! field change had to be swept by hand into three unrelated files with no
 //! compiler to catch a miss. Here the numbers come straight off
-//! `@sizeOf`/`@offsetOf` on the real `c_abi` / `c_abi_host` /
-//! `c_abi_net_transport_iroh` types, so a struct change regenerates different
-//! numbers and `zig build gen-binding-ffi-layouts-check` (part of `check`)
-//! rejects a binding whose pin has gone stale.
+//! `@sizeOf`/`@offsetOf` on the real C ABI archive types, so a struct change
+//! regenerates different numbers and `zig build gen-binding-ffi-layouts-check`
+//! (part of `check`) rejects a binding whose pin has gone stale.
 //!
 //! Racket's `pin-layout!` re-derives each cstruct's field order and widths
 //! from `ctype->layout`, so what it needs is a kind list rather than an
@@ -39,6 +38,7 @@ const ct = @import("c_abi_net_transport_tcp");
 const ci = @import("c_abi_net_transport_iroh");
 const cr = @import("c_abi_net_transport_relay");
 const cw = @import("c_abi_net_transport_webrtc");
+const co = @import("c_abi_net_transport_onion");
 
 const Output = @import("output").Output;
 
@@ -139,43 +139,30 @@ fn layoutOf(comptime stem: []const u8, comptime T: type) Layout {
     return .{ .stem = stem, .size = @sizeOf(T), .fields = &frozen };
 }
 
-// The shared core structs (`c_abi`), the byte-fed host structs
-// (`c_abi_host`), and the iroh transport structs (`c_abi_net_transport_iroh`,
-// reflected cargo-free the same way `gen-header-net-transport-iroh` is).
-// Every struct here is one every binding already hand-mirrors and pins; a
-// struct not yet pinned anywhere earns no row until a binding needs it.
-const layouts = [_]Layout{
-    layoutOf("PANCAKE_REFERENCE", c.PancakeReference),
-    layoutOf("PANCAKE_ARGUMENT", c.PancakeArgument),
-    layoutOf("PANCAKE_FRAME", c.PancakeFrame),
-    layoutOf("PANCAKE_MANAGED_FRAME", c.PancakeManagedFrame),
-    layoutOf("PANCAKE_LAST_ABORT", c.PancakeLastAbort),
-    layoutOf("PANCAKE_ALLOCATOR", c.PancakeAllocator),
-    layoutOf("PANCAKE_FAILURE_REPORT", c.PancakeFailureReport),
-    layoutOf("PANCAKE_FAILURE_EVENT", c.PancakeFailureEvent),
-    layoutOf("PANCAKE_HOST_ACTION", cd.PancakeHostAction),
-    layoutOf("PANCAKE_PARTNER_IDENTITY", cd.PancakePartnerIdentity),
-    layoutOf("PANCAKE_TRACE_EVENT", cd.PancakeTraceEvent),
-    layoutOf("PANCAKE_HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks),
-    layoutOf("PANCAKE_CLOSE_OPTIONS", cd.PancakeCloseOptions),
-    layoutOf("PANCAKE_DRIVER_OPTIONS", cdr.PancakeDriverOptions),
-    layoutOf("PANCAKE_DRIVER_FAILURE", cdr.PancakeDriverFailure),
-    layoutOf("PANCAKE_DRIVER_EVENT", cdr.PancakeDriverEvent),
-    layoutOf("PANCAKE_LOCATOR_HINT_VIEW", cdr.PancakeLocatorHintView),
-    layoutOf("PANCAKE_LOCATOR_VIEW", cdr.PancakeLocatorView),
-    layoutOf("PANCAKE_TRANSPORT_PROVIDER", cdr.PancakeTransportProvider),
-    layoutOf("PANCAKE_TRANSPORT_OPERATION_OPTIONS", cdr.PancakeTransportOperationOptions),
-    layoutOf("PANCAKE_TCP_STREAM_OPTIONS", ct.PancakeTcpStreamOptions),
-    layoutOf("PANCAKE_TCP_CONFIG", ct.PancakeTcpConfig),
-    layoutOf("PANCAKE_TCP_OPERATION_OPTIONS", ct.PancakeTcpOperationOptions),
-    layoutOf("PANCAKE_RELAY_CONFIG", cr.PancakeRelayConfig),
-    layoutOf("PANCAKE_RELAY_TRUST_SUMMARY", cr.PancakeRelayTrustSummary),
-    layoutOf("PANCAKE_IROH_READY_EVENT", ci.PancakeIrohReadyEvent),
-    layoutOf("PANCAKE_WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent),
-    layoutOf("PANCAKE_WEBRTC_STRING_VIEW", cw.PancakeWebrtcStringView),
-    layoutOf("PANCAKE_WEBRTC_ICE_SERVER", cw.PancakeWebrtcIceServer),
-    layoutOf("PANCAKE_WEBRTC_CONFIG", cw.PancakeWebrtcConfig),
-    layoutOf("PANCAKE_IROH_CONFIG", ci.PancakeIrohConfig),
+// One canonical manifest drives both archive fingerprints and every generated
+// binding layout expectation. Widening a public C struct inventory therefore
+// cannot update load-time identity without also updating the mirrors.
+const contract_layouts = c.contract_layouts ++ cd.contract_layouts ++
+    cdr.contract_layouts ++ ct.contract_layouts ++ ci.contract_layouts ++
+    cr.contract_layouts ++ cw.contract_layouts ++ co.contract_layouts;
+
+const binding_layout_count = blk: {
+    var count: usize = 0;
+    for (contract_layouts) |entry| {
+        if (entry.binding_mirror) count += 1;
+    }
+    break :blk count;
+};
+
+const layouts = blk: {
+    var reflected: [binding_layout_count]Layout = undefined;
+    var index: usize = 0;
+    for (contract_layouts) |entry| {
+        if (!entry.binding_mirror) continue;
+        reflected[index] = layoutOf(entry.stem, entry.Type);
+        index += 1;
+    }
+    break :blk reflected;
 };
 
 fn generateRust(gpa: std.mem.Allocator) ![]u8 {

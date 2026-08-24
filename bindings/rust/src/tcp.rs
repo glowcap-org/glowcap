@@ -64,18 +64,21 @@ impl Config {
 /// `None` in [`crate::ConnectOptions`] inherits the provider's configured
 /// [`Config::stream`] value. Supplying `OperationOptions::default()` is an
 /// explicit all-zero override that disables keepalive for this operation.
+#[cfg(feature = "async")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct OperationOptions {
 	stream: ffi::PancakeTcpStreamOptions,
 }
 
+#[cfg(feature = "async")]
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<OperationOptions>() == ffi::PANCAKE_TCP_OPERATION_OPTIONS_SIZE);
 	assert!(offset_of!(OperationOptions, stream) == ffi::PANCAKE_TCP_OPERATION_OPTIONS_STREAM_OFF);
 };
 
+#[cfg(feature = "async")]
 impl OperationOptions {
 	/// Override the provider with an explicit keepalive policy.
 	pub fn with_keepalive(keepalive: Keepalive) -> Self {
@@ -92,6 +95,7 @@ impl OperationOptions {
 	}
 }
 
+#[cfg(feature = "async")]
 impl crate::TransportOperationOptions for OperationOptions {
 	fn transports(&self) -> &'static [&'static str] {
 		&[
@@ -222,6 +226,7 @@ pub mod noise {
 }
 
 /// Install the complete TCP provider package through the native driver.
+#[cfg(feature = "async")]
 pub(crate) fn ensure_loop_provider(lp: &crate::driver_loop::LoopShared, config: Config) -> Result<()> {
 	let netlayer = Netlayer::new(config)?;
 	lp.add_provider(netlayer.transport_provider()?)
@@ -292,8 +297,9 @@ impl<'ctx> Netlayer<'ctx> {
 
 	/// Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package. The
 	/// driver acquires its own lease during registration.
+	#[cfg(feature = "async")]
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
-		let mut package: crate::sys::driver::PancakeTransportProvider = unsafe { core::mem::zeroed() };
+		let mut package: crate::sys::PancakeTransportProvider = unsafe { core::mem::zeroed() };
 		check_tcp(unsafe { ffi::pancake_tcp_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,

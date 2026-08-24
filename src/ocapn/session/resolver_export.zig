@@ -288,6 +288,7 @@ pub fn completeRetiredResolverCallback(
             .state = .complete,
         },
     });
+    releaseRetiredResolverIfUnmentioned(self, resolver_export);
 }
 
 /// Release a retired resolver's local baseline once no partner wire mention

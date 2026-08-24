@@ -47,7 +47,7 @@ pub const InboundResolverLink = bimap.BiMap(model.AnswerName, model.ImportPositi
 /// Listen/settle cell embedded only by `ImportedPromise`.
 pub const PromiseListenCell = struct {
     listeners: answers.ListenerList = .empty,
-    resolution: ?model.Resolution = null,
+    resolution: ?answers.StoredResolution = null,
     /// Row identity for queued fire carriers. No default: registration stamps.
     row_id: u64,
 };

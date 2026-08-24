@@ -150,14 +150,21 @@
   (define key-bs (as-bytes service-key))
   (define forward-bs (as-bytes forward))
   (define (ptr bs) (if (zero? (bytes-length bs)) #f (pin-immobile bs)))
+  (define pins
+    (list (ptr socks-bs) (ptr control-bs) (ptr secret-bs)
+          (ptr key-bs) (ptr forward-bs)))
   (define cfg
-    (make-PancakeOnionConfig (ptr socks-bs) (bytes-length socks-bs)
-                             (ptr control-bs) (bytes-length control-bs)
+    (make-PancakeOnionConfig (car pins) (bytes-length socks-bs)
+                             (cadr pins) (bytes-length control-bs)
                              auth-kind
-                             (ptr secret-bs) (bytes-length secret-bs)
-                             (ptr key-bs) (bytes-length key-bs)
-                             (ptr forward-bs) (bytes-length forward-bs)))
+                             (caddr pins) (bytes-length secret-bs)
+                             (cadddr pins) (bytes-length key-bs)
+                             (list-ref pins 4) (bytes-length forward-bs)))
   (define-values (rc h) (pancake_onion_netlayer_new cfg))
+  ;; The config cstruct is retained as the call's argument, but it carries
+  ;; only the pins' raw addresses; the sink keeps every pinned buffer live
+  ;; for the whole blocking constructor.
+  (void/reference-sink pins)
   (check/onion rc)
   h)
 
@@ -321,7 +328,9 @@
 
 ;; Dial an onion service through the same package composition as `listen-onion`.
 ;; The full provider configuration is accepted so a caller-owned Host can reuse
-;; the exact Tor authority its listener already installed.
+;; the exact Tor authority its listener already installed. Without `#:host`
+;; the minted loop belongs to the returned session's Host, so
+;; `(host-close! (session-host s))` is what retires it.
 (define (connect-onion partner
                        #:socks socks
                        #:control [control #f]
@@ -354,7 +363,7 @@
                              #:service-key service-key
                              #:forward forward)
     (driver-loop-start! lp)
-    (loop-connect-session lp partner (not shared-host))))
+    (loop-connect-session lp partner)))
 
 (define (onion-netlayer-release! nl)
   (native-parent-release!
@@ -521,7 +530,7 @@
    (lambda ()
      (define h (onion-connection-handle cn))
      (unless h (error 'onion-connection-read-frame "connection is closed"))
-     (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
+     (define mf (make-PancakeManagedFrame #f 0 0 #f (make-vector 8 0)))
      (define code (pancake_onion_conn_read_frame h mf))
      (cond
        [(= code ERR-CLOSED) eof]
@@ -540,8 +549,13 @@
      (define h (onion-connection-handle cn))
      (unless h (error 'onion-connection-write-frame! "connection is closed"))
      (define buf (pin-immobile frame))
-     (check/onion (pancake_onion_conn_write_frame
-                   h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))))
+     (define rc (pancake_onion_conn_write_frame
+                 h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
+     ;; The frame cstruct is retained as the call's argument, but it carries
+     ;; only `buf`'s raw address; the sink keeps the pinned payload live for
+     ;; the whole blocking write.
+     (void/reference-sink buf)
+     (check/onion rc))))
 
 (define (onion-connection-release! cn)
   (when (onion-connection-handle cn)

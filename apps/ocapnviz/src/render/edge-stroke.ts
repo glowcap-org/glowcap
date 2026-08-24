@@ -74,10 +74,10 @@ const ROUND_TIP = "round" as const;
  * stand in for a `Graphics` this suite cannot construct, so which pieces of a
  * dashed line are stroked round is ordinary testable bookkeeping. */
 export interface CurveCanvas {
-  moveTo(x: number, y: number): unknown;
-  lineTo(x: number, y: number): unknown;
-  quadraticCurveTo(cx: number, cy: number, x: number, y: number): unknown;
-  stroke(style: StrokeStyle): unknown;
+	moveTo(x: number, y: number): unknown;
+	lineTo(x: number, y: number): unknown;
+	quadraticCurveTo(cx: number, cy: number, x: number, y: number): unknown;
+	stroke(style: StrokeStyle): unknown;
 }
 
 /** Stroke a Bezier curve as one continuous path. Degenerate curves
@@ -85,18 +85,18 @@ export interface CurveCanvas {
  * straight line — Pixi's quadratic primitive handles that fine but
  * a moveTo+lineTo is one less segment to process. */
 export function strokeCurve(
-  g: CurveCanvas,
-  curve: SessionCurve,
-  style: { color: number; width: number; alpha: number },
+	g: CurveCanvas,
+	curve: SessionCurve,
+	style: { color: number; width: number; alpha: number },
 ): void {
-  g.moveTo(curve.ax, curve.ay);
-  g.quadraticCurveTo(curve.cx, curve.cy, curve.bx, curve.by);
-  g.stroke({
-    color: style.color,
-    width: style.width,
-    alpha: style.alpha,
-    cap: ROUND_TIP,
-  });
+	g.moveTo(curve.ax, curve.ay);
+	g.quadraticCurveTo(curve.cx, curve.cy, curve.bx, curve.by);
+	g.stroke({
+		color: style.color,
+		width: style.width,
+		alpha: style.alpha,
+		cap: ROUND_TIP,
+	});
 }
 
 /** Sample count for Bezier → polyline walks (dashes and hit tests). */
@@ -117,86 +117,90 @@ export const CURVE_STROKE_SAMPLES = 24;
  * chain, so the first and last dash are stroked in a second pass.
  */
 export function strokeDashedCurve(
-  g: CurveCanvas,
-  curve: SessionCurve,
-  pattern: readonly [number, number],
-  style: { color: number; width: number; alpha: number },
+	g: CurveCanvas,
+	curve: SessionCurve,
+	pattern: readonly [number, number],
+	style: { color: number; width: number; alpha: number },
 ): void {
-  const samples = CURVE_STROKE_SAMPLES;
-  // Walk in cumulative arc length so the dash phase is uniform
-  // (uniform-t sampling would bunch dashes near the apex on
-  // strongly curved arcs).
-  /** Each dash as a flat run of points, `[x, y, x, y, …]`. */
-  const dashes: number[][] = [];
-  let dash: number[] | null = null;
-  let dashLen = 0;
-  let lastX = curve.ax;
-  let lastY = curve.ay;
-  let on = true;
-  let remaining = pattern[0];
-  const closeDash = () => {
-    if (dash !== null && dash.length >= 4) dashes.push(dash);
-    dash = null;
-    dashLen = 0;
-  };
-  for (let i = 1; i <= samples; i++) {
-    const t = i / samples;
-    const p = bezierAt(curve, t);
-    const segDx = p.x - lastX;
-    const segDy = p.y - lastY;
-    let segLen = Math.hypot(segDx, segDy);
-    if (segLen === 0) continue;
-    const sx = segDx / segLen;
-    const sy = segDy / segLen;
-    while (segLen > 0) {
-      const take = Math.min(segLen, remaining);
-      const nextX = lastX + sx * take;
-      const nextY = lastY + sy * take;
-      if (on) {
-        if (dash === null) dash = [lastX, lastY];
-        dash.push(nextX, nextY);
-        dashLen += take;
-      }
-      lastX = nextX;
-      lastY = nextY;
-      segLen -= take;
-      remaining -= take;
-      if (remaining <= 0) {
-        if (on) closeDash();
-        on = !on;
-        remaining = on ? pattern[0] : pattern[1];
-      }
-    }
-  }
-  // A dash the curve cut short. Shorter than the line is wide, a round tip on it
-  // is a dot rather than the end of a line, so the line ends at the dash before
-  // it — which is where a reader would say it ends anyway.
-  if (dash !== null && dashLen < style.width && dashes.length > 0) {
-    dash = null;
-  }
-  closeDash();
-  if (dashes.length === 0) return;
-  const trace = (points: number[]) => {
-    g.moveTo(points[0]!, points[1]!);
-    for (let i = 2; i < points.length; i += 2) {
-      g.lineTo(points[i]!, points[i + 1]!);
-    }
-  };
-  // The middle, flat. Nothing to stroke when the line is one or two dashes, which
-  // are both tips.
-  if (dashes.length > 2) {
-    for (let i = 1; i < dashes.length - 1; i++) trace(dashes[i]!);
-    g.stroke({ color: style.color, width: style.width, alpha: style.alpha });
-  }
-  // The tips, round.
-  trace(dashes[0]!);
-  if (dashes.length > 1) trace(dashes[dashes.length - 1]!);
-  g.stroke({
-    color: style.color,
-    width: style.width,
-    alpha: style.alpha,
-    cap: ROUND_TIP,
-  });
+	const samples = CURVE_STROKE_SAMPLES;
+	// Walk in cumulative arc length so the dash phase is uniform
+	// (uniform-t sampling would bunch dashes near the apex on
+	// strongly curved arcs).
+	/** Each dash as a flat run of points, `[x, y, x, y, …]`. */
+	const dashes: number[][] = [];
+	let dash: number[] | null = null;
+	let dashLen = 0;
+	let lastX = curve.ax;
+	let lastY = curve.ay;
+	let on = true;
+	let remaining = pattern[0];
+	const closeDash = () => {
+		if (dash !== null && dash.length >= 4) dashes.push(dash);
+		dash = null;
+		dashLen = 0;
+	};
+	for (let i = 1; i <= samples; i++) {
+		const t = i / samples;
+		const p = bezierAt(curve, t);
+		const segDx = p.x - lastX;
+		const segDy = p.y - lastY;
+		let segLen = Math.hypot(segDx, segDy);
+		if (segLen === 0) continue;
+		const sx = segDx / segLen;
+		const sy = segDy / segLen;
+		while (segLen > 0) {
+			const take = Math.min(segLen, remaining);
+			const nextX = lastX + sx * take;
+			const nextY = lastY + sy * take;
+			if (on) {
+				if (dash === null) dash = [lastX, lastY];
+				dash.push(nextX, nextY);
+				dashLen += take;
+			}
+			lastX = nextX;
+			lastY = nextY;
+			segLen -= take;
+			remaining -= take;
+			if (remaining <= 0) {
+				if (on) closeDash();
+				on = !on;
+				remaining = on ? pattern[0] : pattern[1];
+			}
+		}
+	}
+	// A dash the curve cut short. Shorter than the line is wide, a round tip on it
+	// is a dot rather than the end of a line, so the line ends at the dash before
+	// it — which is where a reader would say it ends anyway.
+	if (dash !== null && dashLen < style.width && dashes.length > 0) {
+		dash = null;
+	}
+	closeDash();
+	if (dashes.length === 0) return;
+	const trace = (points: number[]) => {
+		g.moveTo(points[0]!, points[1]!);
+		for (let i = 2; i < points.length; i += 2) {
+			g.lineTo(points[i]!, points[i + 1]!);
+		}
+	};
+	// The middle, flat. Nothing to stroke when the line is one or two dashes, which
+	// are both tips.
+	if (dashes.length > 2) {
+		for (let i = 1; i < dashes.length - 1; i++) trace(dashes[i]!);
+		g.stroke({
+			color: style.color,
+			width: style.width,
+			alpha: style.alpha,
+		});
+	}
+	// The tips, round.
+	trace(dashes[0]!);
+	if (dashes.length > 1) trace(dashes[dashes.length - 1]!);
+	g.stroke({
+		color: style.color,
+		width: style.width,
+		alpha: style.alpha,
+		cap: ROUND_TIP,
+	});
 }
 
 /** The part of a `Container` the edge label uses.
@@ -205,7 +209,7 @@ export function strokeDashedCurve(
  * be tested without a Pixi scene, and a real `Container` still satisfies it
  * structurally. */
 export interface Positionable {
-  position: { set(x: number, y: number): unknown };
+	position: { set(x: number, y: number): unknown };
 }
 
 /**
@@ -232,35 +236,35 @@ export interface Positionable {
  * midpoint, so it reads back no lane and keeps the plain apex it always had.
  */
 export function positionEdgeLabel(
-  label: Positionable,
-  curve: SessionCurve,
+	label: Positionable,
+	curve: SessionCurve,
 ): void {
-  const apex = bezierAt(curve, 0.5);
-  const tan = bezierTangent(curve, 0.5);
-  // Perpendicular to tangent; flip so y points up. The label sits
-  // outside the curve's bulge so it doesn't crowd the stroke.
-  let px = -tan.dy;
-  let py = tan.dx;
-  if (py > 0) {
-    px = -px;
-    py = -py;
-  }
-  const bowX = curve.cx - (curve.ax + curve.bx) / 2;
-  const bowY = curve.cy - (curve.ay + curve.by) / 2;
-  const bow = Math.hypot(bowX, bowY);
-  let alongX = 0;
-  let alongY = 0;
-  if (bow > 0) {
-    const lane = bow / (2 * SESSION_BUNDLE_SPACING);
-    const chord = Math.hypot(curve.bx - curve.ax, curve.by - curve.ay);
-    const want = lane * EDGE_LABEL_LANE_STRIDE;
-    const reach = chord * EDGE_LABEL_REACH_FRACTION;
-    const walk = want <= reach ? want : reach + (want - reach) * EDGE_LABEL_REACH_CREEP;
-    alongX = (-bowY / bow) * walk;
-    alongY = (bowX / bow) * walk;
-  }
-  label.position.set(
-    apex.x + px * EDGE_LABEL_OFFSET + alongX,
-    apex.y + py * EDGE_LABEL_OFFSET + alongY,
-  );
+	const apex = bezierAt(curve, 0.5);
+	const tan = bezierTangent(curve, 0.5);
+	// Perpendicular to tangent; flip so y points up. The label sits
+	// outside the curve's bulge so it doesn't crowd the stroke.
+	let px = -tan.dy;
+	let py = tan.dx;
+	if (py > 0) {
+		px = -px;
+		py = -py;
+	}
+	const bowX = curve.cx - (curve.ax + curve.bx) / 2;
+	const bowY = curve.cy - (curve.ay + curve.by) / 2;
+	const bow = Math.hypot(bowX, bowY);
+	let alongX = 0;
+	let alongY = 0;
+	if (bow > 0) {
+		const lane = bow / (2 * SESSION_BUNDLE_SPACING);
+		const chord = Math.hypot(curve.bx - curve.ax, curve.by - curve.ay);
+		const want = lane * EDGE_LABEL_LANE_STRIDE;
+		const reach = chord * EDGE_LABEL_REACH_FRACTION;
+		const walk = want <= reach ? want : reach + (want - reach) * EDGE_LABEL_REACH_CREEP;
+		alongX = (-bowY / bow) * walk;
+		alongY = (bowX / bow) * walk;
+	}
+	label.position.set(
+		apex.x + px * EDGE_LABEL_OFFSET + alongX,
+		apex.y + py * EDGE_LABEL_OFFSET + alongY,
+	);
 }

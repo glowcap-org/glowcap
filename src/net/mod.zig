@@ -227,7 +227,10 @@ else
 /// `completion.Loop(net.Backend, CustomDialResolver)` without re-declaring the
 /// per-OS backend selection. The OCapN conformance harness does exactly that
 /// (`conformance/ocapn-conformance/pancake_peer.zig`), binding a locator whose
-/// address lives in the locator hints. An empty struct off the supported platforms.
+/// address lives in the locator hints. `Backend.initWithListenerIp4` selects a
+/// native listener interface before the value is moved into `TcpLoop`; the
+/// ordinary constructor deliberately defaults to loopback. An empty struct off
+/// the supported platforms.
 pub const Backend = if (@import("builtin").os.tag == .linux)
     uring.Backend
 else if (@import("builtin").os.tag.isDarwin())

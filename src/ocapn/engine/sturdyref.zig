@@ -102,9 +102,6 @@ pub fn prepareEnliven(
     const prepared = try fetch.prepareFetchSwissnum(allocator, session, swissnum);
     errdefer model.freeMessage(allocator, prepared.message);
     errdefer if (prepared.resolver_export) |position| session.releaseUnsharedExport(position);
-    // The prepare also retained the well-known bootstrap import; a failed
-    // enliven unwinds that too, so nothing this call took survives it.
-    errdefer session.releaseImportRetain(.from(session_mod.BOOTSTRAP_POSITION));
     try session.notePendingEnliven(swissnum, prepared.answer_position);
     return .{ .fresh = prepared };
 }

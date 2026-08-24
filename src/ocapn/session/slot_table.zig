@@ -106,10 +106,21 @@ const SlotTable = struct {
     pub fn retain(self: *SlotTable, allocator: std.mem.Allocator, position: u64, cell_if_new: Slot) !void {
         const gop = try self.rows.getOrPut(allocator, position);
         if (gop.found_existing) {
-            gop.value_ptr.count += 1;
+            gop.value_ptr.count = std.math.add(u64, gop.value_ptr.count, 1) catch
+                return Error.GcUnderflow;
         } else {
             gop.value_ptr.* = .{ .cell = cell_if_new, .count = 1 };
         }
+    }
+
+    /// Retain after capacity and refcount overflow were checked separately.
+    pub fn retainAssumeCapacity(self: *SlotTable, position: u64, cell_if_new: Slot) void {
+        if (self.rows.getPtr(position)) |entry| {
+            std.debug.assert(entry.count != std.math.maxInt(u64));
+            entry.count += 1;
+            return;
+        }
+        self.rows.putAssumeCapacity(position, .{ .cell = cell_if_new, .count = 1 });
     }
 
     /// Decrement `position` by `delta`, removing the row at zero. Underflow, or
@@ -248,7 +259,7 @@ pub const ImportTable = struct {
     pub const Id = model.ImportPosition;
     /// Adding a new import row can hit the partner-import cap; everything else
     /// an import table does (decrement, lookup) shares `SlotTable`'s errors.
-    pub const RetainError = std.mem.Allocator.Error || error{ImportCapExceeded};
+    pub const RetainError = std.mem.Allocator.Error || SlotTable.Error || error{ImportCapExceeded};
     pub const empty: ImportTable = .{};
 
     pub fn deinit(self: *ImportTable, allocator: std.mem.Allocator) void {
@@ -267,12 +278,10 @@ pub const ImportTable = struct {
         return if (id == 0) null else .from(id);
     }
 
-    /// Record the route id `position` was enrolled under. A row that is not held
-    /// records nothing: an id outliving its row is the staleness this table
-    /// keeps the ids to avoid, so the caller mints a fresh one next time
-    /// rather than reading one back for a capability that is gone.
+    /// Record the route id for one import the Session has already proved held.
+    /// The permanently held bootstrap import has no slot row but uses this same
+    /// identity map, so ordinary and bootstrap routes share one O(1) memo.
     pub fn noteRouteId(self: *ImportTable, allocator: std.mem.Allocator, position: Id, route_id: model.CapabilityRouteId) !void {
-        if (!self.slots.contains(position.int())) return;
         const map = try self.identityMap(allocator);
         const gop = try map.getOrPut(allocator, position.int());
         if (!gop.found_existing) gop.value_ptr.* = .{};
@@ -308,15 +317,21 @@ pub const ImportTable = struct {
         return .{ .ref = identity.host_ref, .lifted_retains = identity.lifted_retains };
     }
 
-    /// Attach `host_ref` to this live import. A vanished row fails loudly rather
-    /// than returning a Host handle with no lifecycle authority behind it.
-    pub fn noteHostRef(self: *ImportTable, allocator: std.mem.Allocator, position: Id, host_ref: u64) !void {
-        if (!self.slots.contains(position.int())) return error.UnknownImport;
+    /// Attach `host_ref` to an import the Session has already proved held.
+    /// `wire_retains` is one for an introduced import and zero for bootstrap,
+    /// whose authority is permanent for the session and never wire-GCed.
+    pub fn noteHostRef(
+        self: *ImportTable,
+        allocator: std.mem.Allocator,
+        position: Id,
+        host_ref: u64,
+        wire_retains: u64,
+    ) !void {
         const map = try self.identityMap(allocator);
         const gop = try map.getOrPut(allocator, position.int());
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.host_ref = host_ref;
-        gop.value_ptr.lifted_retains = 1;
+        gop.value_ptr.lifted_retains = wire_retains;
     }
 
     /// Claim one more wire retain for an already-canonical Host identity.
@@ -383,6 +398,46 @@ pub const ImportTable = struct {
             return error.ImportCapExceeded;
         }
         return self.slots.retain(allocator, position.int(), .{ .remote_value = position.int() });
+    }
+
+    /// Reserve one retain without changing authority. A fresh partner-chosen
+    /// position is cap-checked here; an existing row is checked for wire-delta
+    /// overflow. `retainAssumeCapacity` is then infallible at commit.
+    pub fn prepareRetain(
+        self: *ImportTable,
+        allocator: std.mem.Allocator,
+        position: Id,
+        max: usize,
+    ) RetainError!void {
+        if (self.slots.contains(position.int())) {
+            if (self.slots.count(position.int()) == std.math.maxInt(u64))
+                return error.GcUnderflow;
+            return;
+        }
+        if (self.slots.len() >= max) return error.ImportCapExceeded;
+        try self.slots.rows.ensureUnusedCapacity(allocator, 1);
+    }
+
+    /// Reserve rows for a validated batch of distinct new imports. The
+    /// validation walk has already enforced `max_imports`; this function owns
+    /// only the backing allocation needed to make the later mention-by-mention
+    /// retain pass infallible.
+    pub fn ensureUnusedCapacity(
+        self: *ImportTable,
+        allocator: std.mem.Allocator,
+        additional: usize,
+    ) !void {
+        const count32 = std.math.cast(u32, additional) orelse return error.OutOfMemory;
+        try self.slots.rows.ensureUnusedCapacity(allocator, count32);
+    }
+
+    /// Commit one retain after `prepareRetain` and before any intervening
+    /// insertion into this table.
+    pub fn retainAssumeCapacity(self: *ImportTable, position: Id) void {
+        self.slots.retainAssumeCapacity(
+            position.int(),
+            .{ .remote_value = position.int() },
+        );
     }
 
     pub fn decrement(self: *ImportTable, position: Id, delta: u64) SlotTable.Error!void {

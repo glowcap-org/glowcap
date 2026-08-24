@@ -303,14 +303,17 @@ pub const SealedChannel = struct {
                     break :blk try self.unitLen(&header);
                 },
             };
-            const take = @min(unit_len - self.staged.len, bytes.len);
+            // A parked suffix may hold whole units beyond this one, so the
+            // staged prefix can already be at or past `unit_len`; saturate
+            // rather than assume the unit still needs caller bytes.
+            const take = @min(unit_len -| self.staged.len, bytes.len);
 
             // A staged unit has already consumed bytes from an earlier call,
             // but none from this one. Reserve every allocation the completed
             // unit can need before committing this call's suffix, so OOM keeps
             // the exact caller slice retryable.
             try self.staged.ensureUnusedCapacityPrecise(gpa, take);
-            if (self.staged.len + take == unit_len) {
+            if (self.staged.len + take >= unit_len) {
                 try self.ensurePlainCapacityForUnitLen(gpa, unit_len);
             }
             self.staged.absorbBytesAssumeCapacity(bytes[0..take]);

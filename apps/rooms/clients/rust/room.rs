@@ -98,19 +98,18 @@ impl Directory {
 		room_ref(arg, "enter")
 	}
 
-	/// The live rooms — the ones with people in them — as `(name, count)`.
-	pub async fn list(&self) -> Result<Vec<(String, i64)>, String> {
+	/// The directory's exact live local and foreign room publications.
+	pub async fn list(&self) -> Result<Vec<RoomInfo>, String> {
 		let arg = self.session.send(&self.directory, "list", &[]).await.map_err(reason)?;
 		Ok(parse_rooms(&arg))
 	}
 
 	/// Follow the live room list: spawn an observer the directory calls back with
 	/// each change, register it, and return the current snapshot as a baseline.
-	/// `on_event(kind, name, count)` then fires on every open/close/count change
-	/// (`kind` is `"opened"`, `"closed"`, or `"count"`).
-	pub async fn watch<F>(&self, on_event: F) -> Result<Vec<(String, i64)>, String>
+	/// `on_event(kind, room)` receives the exact publication record.
+	pub async fn watch<F>(&self, on_event: F) -> Result<Vec<RoomInfo>, String>
 	where
-		F: Fn(String, String, i64) + 'static,
+		F: Fn(String, RoomInfo) + 'static,
 	{
 		let observer = self
 			.session
@@ -119,9 +118,9 @@ impl Directory {
 					return Err(format!("watch inbox has no method {verb}"));
 				}
 				let kind = as_str(args.first());
-				let name = as_str(args.get(1));
-				let count = args.get(2).and_then(Argument::as_i64).unwrap_or(0);
-				on_event(kind, name, count);
+				if let Some(room) = parse_room(args.get(1..).unwrap_or(&[])) {
+					on_event(kind, room);
+				}
 				Ok(Argument::Void)
 			})
 			.map_err(|e| format!("spawn watch inbox: {e:?}"))?;
@@ -134,15 +133,40 @@ impl Directory {
 	}
 }
 
-/// Parse the wire shape of `list`/`watch` — a list of `[name, count]` pairs —
-/// into `(name, count)` tuples.
-fn parse_rooms(arg: &Argument) -> Vec<(String, i64)> {
+#[derive(Clone, Debug)]
+pub struct RoomInfo {
+	pub name: String,
+	pub count: Option<i64>,
+	pub id: String,
+	pub kind: String,
+	pub origin: String,
+	pub proof: String,
+}
+
+fn parse_room(fields: &[Argument]) -> Option<RoomInfo> {
+	if fields.len() < 6 {
+		return None;
+	}
+	let count = if fields[1].is_void() {
+		None
+	} else {
+		Some(fields[1].as_i64()?)
+	};
+	Some(RoomInfo {
+		name: fields[0].as_str()?.to_string(),
+		count,
+		id: fields[2].as_str()?.to_string(),
+		kind: fields[3].as_str()?.to_string(),
+		origin: fields[4].as_str()?.to_string(),
+		proof: fields[5].as_str()?.to_string(),
+	})
+}
+
+fn parse_rooms(arg: &Argument) -> Vec<RoomInfo> {
 	let mut out = Vec::new();
 	for item in arg.as_list().unwrap_or(&[]) {
-		if let Some(pair) = item.as_list() {
-			if pair.len() >= 2 {
-				out.push((as_str(Some(&pair[0])), pair[1].as_i64().unwrap_or(0)));
-			}
+		if let Some(room) = item.as_list().and_then(parse_room) {
+			out.push(room);
 		}
 	}
 	out

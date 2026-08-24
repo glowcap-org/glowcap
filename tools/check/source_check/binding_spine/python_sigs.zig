@@ -56,7 +56,10 @@ pub fn checkPythonSigsFactoryArity(
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.basename, ".py")) continue;
             if (std.mem.eql(u8, entry.basename, "_sigs_gen.py")) continue;
-            const src = dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch continue;
+            const src = dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "bindings/python/{s}: cannot be read for the signature-spine check ({s})", .{ entry.path, @errorName(err) });
+                continue;
+            };
             defer gpa.free(src);
             var scan: usize = 0;
             while (std.mem.indexOfPos(u8, src, scan, name)) |site| {

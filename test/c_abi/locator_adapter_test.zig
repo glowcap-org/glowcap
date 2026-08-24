@@ -87,3 +87,16 @@ test "locator adapters validate the ABI header before sizing scratch storage" {
         c.locator_adapter.BorrowedLocator.init(fixed.allocator(), &invalid, &model_stack),
     );
 }
+
+test "locator adapters reject excess hints before allocating spill storage" {
+    var hint_views: [model.max_locator_hint_count + 1]c.PancakeLocatorHintView = undefined;
+    const view = locatorView(&hint_views);
+    var empty_storage: [0]u8 = .{};
+    var fixed = std.heap.FixedBufferAllocator.init(&empty_storage);
+    var model_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
+
+    try std.testing.expectError(
+        error.InvalidLocatorView,
+        c.locator_adapter.BorrowedLocator.init(fixed.allocator(), &view, &model_stack),
+    );
+}

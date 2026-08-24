@@ -157,12 +157,14 @@ test "C feature mask names every model feature exactly once" {
     const baseline = pancake.ocapn.model.FeatureSet.baseline();
     const minimum = pancake.ocapn.model.FeatureSet.minimum();
     try expectConst(c.PANCAKE_FEATURE_UNTAG, cabi.PANCAKE_FEATURE_UNTAG);
+    try expectConst(c.PANCAKE_FEATURE_MULTI_LOCATION, cabi.PANCAKE_FEATURE_MULTI_LOCATION);
     try expectConst(c.PANCAKE_FEATURE_BASELINE, cabi.PANCAKE_FEATURE_BASELINE);
     try expectConst(c.PANCAKE_FEATURE_FULL, cabi.PANCAKE_FEATURE_FULL);
     try std.testing.expectEqual(cabi.PANCAKE_FEATURE_FULL, cabi.featureSetToC(full));
     try std.testing.expectEqual(cabi.PANCAKE_FEATURE_MINIMUM, cabi.featureSetToC(minimum));
     try std.testing.expectEqual(full, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_FULL).?);
     try std.testing.expect(!baseline.untag);
+    try std.testing.expect(!pancake.ocapn.model.Preference.default_offer.features.multi_location);
     try std.testing.expectEqual(cabi.PANCAKE_FEATURE_BASELINE, cabi.featureSetToC(baseline));
     try std.testing.expectEqual(minimum, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_MINIMUM).?);
     const unused_feature_bits = ~cabi.PANCAKE_FEATURE_FULL;

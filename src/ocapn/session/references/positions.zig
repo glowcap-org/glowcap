@@ -11,6 +11,7 @@
 //! no allocation, copy, lookup, or traversal beyond the table operation each
 //! method already performed.
 
+const std = @import("std");
 const model = @import("model");
 
 const session = @import("../mod.zig");
@@ -79,7 +80,17 @@ pub fn reserveExport(self: *Session, id: model.ExportPosition) !void {
 /// `SessionLimits.max_imports`; an already-held id increments its wire-delta
 /// count so the later `op:gc-exports` releases the same total delta.
 pub fn registerImport(self: *Session, id: model.ImportPosition) !void {
+    if (id.int() == BOOTSTRAP_POSITION) return;
     try self.imports.retain(self.allocator, id, self.limits.max_imports);
+}
+
+/// Whether releasing one owned reference to `id` requires an outbound
+/// `op:gc-exports` delta. The partner bootstrap is permanently addressable and
+/// never enters the import table; every other owned import has a wire retain.
+pub fn importRequiresWireRelease(self: *const Session, id: model.ImportPosition) bool {
+    if (id.int() == BOOTSTRAP_POSITION) return false;
+    std.debug.assert(self.imports.contains(id));
+    return true;
 }
 
 pub fn hasExport(self: *const Session, id: model.ExportPosition) bool {
@@ -145,6 +156,7 @@ pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
 
 /// Roll back one `registerImport` retain that never became observable.
 pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
+    if (id.int() == BOOTSTRAP_POSITION) return;
     self.imports.decrement(id, 1) catch unreachable;
 }
 
@@ -154,6 +166,7 @@ pub fn foreignRouteIdFor(self: *const Session, position: model.ImportPosition) ?
 }
 
 pub fn noteForeignRouteId(self: *Session, position: model.ImportPosition, route_id: model.CapabilityRouteId) !void {
+    if (!self.holdsImport(position)) return Error.InvalidReference;
     return self.imports.noteRouteId(self.allocator, position, route_id);
 }
 
@@ -170,10 +183,17 @@ pub fn hostImportIdentity(self: *const Session, position: model.ImportPosition) 
     return self.imports.hostIdentityOf(position);
 }
 
-/// Attach one Host capability id to the live import row. Session retains only
-/// the scalar identity; Host owns its meaning and lifetime.
+/// Attach one Host capability id to held import authority. Ordinary imports
+/// claim one wire retain; bootstrap is permanently held and claims none.
+/// Session retains only scalar identity; Host owns its meaning and lifetime.
 pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !void {
-    return self.imports.noteHostRef(self.allocator, position, ref);
+    if (!self.holdsImport(position)) return Error.InvalidReference;
+    return self.imports.noteHostRef(
+        self.allocator,
+        position,
+        ref,
+        @intFromBool(position.int() != BOOTSTRAP_POSITION),
+    );
 }
 
 pub fn claimHostCapabilityRetain(self: *Session, position: model.ImportPosition, ref: u64) !void {

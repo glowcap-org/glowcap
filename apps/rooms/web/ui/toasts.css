@@ -88,6 +88,29 @@
 	font-size: var(--type-ui);
 	font-weight: 600;
 	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+.toast-more {
+	all: unset;
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	cursor: pointer;
+	text-align: start;
+	font: inherit;
+	color: inherit;
+}
+.toast-more:hover .said-show,
+.toast-more:focus-visible .said-show {
+	text-decoration: underline;
+}
+.toast-more:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-chip);
 }
 .toast-dismiss {
 	flex: none;

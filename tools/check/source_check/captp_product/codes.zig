@@ -94,9 +94,15 @@ pub fn checkHostErrorCodeMap(
         members += 1;
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "error.{s},", .{name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "error.{s},", .{name}) catch {
+            try appendViolation(gpa, violations, "exit-code member `{s}` overflows the needle buffer; grow it", .{name});
+            continue;
+        };
         var alt_buf: [128]u8 = undefined;
-        const alt = std.fmt.bufPrint(&alt_buf, "error.{s} ", .{name}) catch continue;
+        const alt = std.fmt.bufPrint(&alt_buf, "error.{s} ", .{name}) catch {
+            try appendViolation(gpa, violations, "exit-code member `{s}` overflows the needle buffer; grow it", .{name});
+            continue;
+        };
         if (std.mem.indexOf(u8, switch_body, needle) != null) continue;
         if (std.mem.indexOf(u8, switch_body, alt) != null) continue;
         if (std.mem.indexOf(u8, classify_body, needle) != null) continue;

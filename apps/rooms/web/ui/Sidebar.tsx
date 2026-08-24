@@ -18,11 +18,20 @@
 // as a third heading with nothing under it. What it never does is move a row: it
 // hides and shows, and the order underneath is the reader's.
 
+import { Link } from "react-router";
 import { memo, useEffect, useMemo, useState } from "react";
 import { usePeer } from "./peer.ts";
 import { implied, named } from "./intent.ts";
 import { destination, type JoinAnswers } from "./joining.ts";
-import { type Conv, type DirId, dirId, type DirView, type Invitation, type SessionPhase } from "./types.ts";
+import {
+	type Conv,
+	type DirId,
+	dirId,
+	type DirView,
+	type Invitation,
+	liveRoomNames,
+	type SessionPhase,
+} from "./types.ts";
 import { DmRows } from "./sidebar/dms.tsx";
 import { YourRooms } from "./sidebar/rooms.tsx";
 import { RailFilter } from "./sidebar/Filter.tsx";
@@ -47,6 +56,7 @@ import { RailSection } from "./sidebar/Section.tsx";
 import type { AddField } from "./sidebar/NamePanel.tsx";
 function SidebarPane(
 	{
+		cardUp,
 		convs,
 		dirs,
 		homeDir,
@@ -61,6 +71,10 @@ function SidebarPane(
 		invites,
 		settingsOpen,
 	}: {
+		/** The join card is the workarea: no conversation open and nothing
+		 * else standing in the content cell. App owns what that cell shows,
+		 * so App says. */
+		cardUp: boolean;
 		convs: ReadonlyMap<string, Conv>;
 		/** Every directory this tab holds, in the order it opened them. */
 		dirs: ReadonlyMap<DirId, DirView>;
@@ -74,10 +88,10 @@ function SidebarPane(
 		 * one the open conversation is on, or the first this tab holds while the
 		 * join card is up. Null before any has been reached. */
 		acting: DirId | null;
-		/** The join card's answers. With no conversation open the card is the
-		 * workarea, and the rail's room field is then a second view of the same
-		 * form rather than a form of its own, so it reads the one resolved
-		 * answer rather than the state behind it. */
+		/** The join card's answers. While the card is the workarea the rail's
+		 * room field is a second view of the same form rather than a form of
+		 * its own, so it reads the one resolved answer rather than the state
+		 * behind it. */
 		join: JoinAnswers;
 		railShown: boolean;
 		mobile: boolean;
@@ -126,7 +140,10 @@ function SidebarPane(
 	// on a directory has one reading: the next room named here goes there. That
 	// is the same reading `showRoom` files as an implied locator when a room it
 	// cannot open puts the card up, so the two surfaces still agree.
-	const linked = activeKey === null;
+	// Whether the join card is the workarea, which is when this rail's field
+	// is a second view of it. Not re-derived from the selection: with /ops
+	// standing in the cell nothing is selected and the card is still not up.
+	const linked = cardUp;
 	const aimed = linked
 		? destination(join.locator.value, peer.directoryId(join.locator.value.trim()), dirs, homeDir, "this directory")
 		// The same classification, asked of a directory already in hand rather
@@ -152,7 +169,7 @@ function SidebarPane(
 	// this tab can see, so the name is spelled the way its directory granted it,
 	// filtered to those a directory says are reachable and never including the
 	// reader, who cannot be written to.
-	const roomOffers = [...(dirs.get(here)?.liveRooms.keys() ?? [])];
+	const roomOffers = liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
 	const dmOffers = (() => {
 		const names = new Map<string, string>();
 		for (const conv of convs.values()) {
@@ -276,7 +293,9 @@ function SidebarPane(
 					aria-pressed={railShown}
 					onClick={() => peer.showRail(false)}
 				/>
-				<Wordmark />
+				<Link className="wordmark-link" to="/" aria-label="The front page">
+					<Wordmark />
+				</Link>
 				{railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}
 			</div>
 			<div className="sidebar-body">

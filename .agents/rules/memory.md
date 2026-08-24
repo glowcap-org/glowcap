@@ -47,13 +47,10 @@ wrong.
 - `Peer.feedOwned(Frame)` transfers ownership for queued dispatch, consuming the
   frame on every outcome. `Peer.recvBorrowed(FrameView)` dispatches during the
   call and retains no wire borrow.
-- `engine.pipeline.decomposeOutboundDeliver` repartitions a multi-hop pipelined
-  deliver by _moving_ each path step's payload into its own message, freeing only
-  the emptied `path.ops` backing slice. It copies no payload. The one allocation
-  is the `[]Message` chain container, and the drain side allocates no container
-  at all: a drained pipelined call whose target resolved to _another_ promise
-  moves one message at a time into `Session.requeuePipelinedCall`, which appends
-  it directly and frees it on refusal.
+- Promise-chain drain allocates no chain container: one bounded,
+  allocation-free exact-incarnation walk finds the terminal or pending target,
+  then each queued call moves directly to that target or its terminal
+  consequence.
 - `Peer.emitAbortForError` handles an inbound refusal, including the inbound
   dispatch arm of `step`, by committing a fresh outbound `op:abort` through
   `Peer.commitAbortOutbound`, bypassing `recordSend`, because a session being
@@ -173,7 +170,13 @@ pointing it at nothing.
 - **Sent-resolve store** — `Session.applySentResolve`. The resolution _moves_
   into the answer row (a consume contract) and the encoder reads it back through
   `peekResolution`, which is what makes a move safe where a borrow would dangle.
-  Zero copies, pinned by `test/engine/resolve_alloc_budget_test.zig`.
+  Before mutation, `ResolutionStorePlan` admits replacement delta against an
+  independent durable byte cap; GC, promise retirement, and teardown release
+  it. `PancakeSessionLimitOptions` and every binding's named counterpart expose
+  that cap independently from transient outbound pressure. Zero copies and no
+  added Peer footprint, pinned by
+  `test/engine/resolve_alloc_budget_test.zig` and
+  `test/engine/node/answer_settlement_test.zig`.
 - **Listener fire carriers** — `engine.Outbound.listener_fire`,
   `Session.store_stamp_counter`. POD carriers over the stored resolution or a
   live export's near fulfill; zero payload copies. Queue-time retains pin the
@@ -582,7 +585,9 @@ name stays here.
 - **Binding outbound flush copy** — TypeScript, Python, and Racket copy
   managed-frame bytes and release before the async write; Rust holds the frame
   across it. Language and lifetime forced: no change without a hold-across-await
-  proof.
+  proof. The C descriptor keeps its native `Frame` owner inline and allocates
+  nothing; each copying binding reuses one descriptor/prefix scratch set per
+  serialized Session drain, so only the named payload copy remains per frame.
 - **TypeScript native-connection write copy** — `AsyncFfiWriteQueue` snapshots a
   caller-owned frame before off-thread TCP, inproc, or onion FFI can borrow it.
   No single frame or admitted set may cross the connection's frame-scale byte

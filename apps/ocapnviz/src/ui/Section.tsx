@@ -1,27 +1,27 @@
 import { c, FONT, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 const wrap = {
-  display: "flex",
-  flexDirection: "column",
+	display: "flex",
+	flexDirection: "column",
 } satisfies React.CSSProperties;
 
 const title = {
-  fontFamily: FONT.sans,
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.semibold,
-  letterSpacing: 0.6,
-  textTransform: "uppercase",
-  color: c.textSubtle,
-  paddingInline: SPACE.md,
-  paddingTop: SPACE.md,
-  paddingBottom: SPACE.sm,
-  // A row so a section can put one control at the far end of its own heading.
-  // With nothing there this is a row of one, which lays out as the block it
-  // replaced.
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: SPACE.sm,
+	fontFamily: FONT.sans,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.semibold,
+	letterSpacing: 0.6,
+	textTransform: "uppercase",
+	color: c.textSubtle,
+	paddingInline: SPACE.md,
+	paddingTop: SPACE.md,
+	paddingBottom: SPACE.sm,
+	// A row so a section can put one control at the far end of its own heading.
+	// With nothing there this is a row of one, which lays out as the block it
+	// replaced.
+	display: "flex",
+	alignItems: "center",
+	justifyContent: "space-between",
+	gap: SPACE.sm,
 } satisfies React.CSSProperties;
 
 /**
@@ -39,22 +39,22 @@ const title = {
  * with the font and the control height, and this way there are none.
  */
 const titleAction = {
-  height: 0,
-  display: "flex",
-  alignItems: "center",
+	height: 0,
+	display: "flex",
+	alignItems: "center",
 } satisfies React.CSSProperties;
 
 const body = {
-  display: "flex",
-  flexDirection: "column",
-  gap: SPACE.md,
-  paddingInline: SPACE.md,
-  paddingBottom: SPACE.md,
-  // Let flex children shrink below their intrinsic content width.
-  // Without this, a wide child (e.g. a <select> sized to its widest
-  // <option>) refuses to compress and the parent pane develops a
-  // horizontal scroll seam at narrow widths.
-  minWidth: 0,
+	display: "flex",
+	flexDirection: "column",
+	gap: SPACE.md,
+	paddingInline: SPACE.md,
+	paddingBottom: SPACE.md,
+	// Let flex children shrink below their intrinsic content width.
+	// Without this, a wide child (e.g. a <select> sized to its widest
+	// <option>) refuses to compress and the parent pane develops a
+	// horizontal scroll seam at narrow widths.
+	minWidth: 0,
 } satisfies React.CSSProperties;
 
 /** Body padding when the title is absent — the title's own
@@ -62,8 +62,8 @@ const body = {
  *  untitled sections need to take that over themselves to keep
  *  the same vertical rhythm as their titled siblings. */
 const untitledBody = {
-  ...body,
-  paddingTop: SPACE.md,
+	...body,
+	paddingTop: SPACE.md,
 } satisfies React.CSSProperties;
 
 /**
@@ -84,23 +84,23 @@ const untitledBody = {
  * content it was a footnote to.
  */
 export function Section(
-  { title: heading, action, children }: {
-    title?: string;
-    /** Expected to be one icon button. Anything taller than the heading's line
-     *  will hang into its padding rather than push the heading down. */
-    action?: React.ReactNode;
-    children: React.ReactNode;
-  },
+	{ title: heading, action, children }: {
+		title?: string;
+		/** Expected to be one icon button. Anything taller than the heading's line
+		 *  will hang into its padding rather than push the heading down. */
+		action?: React.ReactNode;
+		children: React.ReactNode;
+	},
 ) {
-  return (
-    <section style={wrap}>
-      {heading && (
-        <div style={title}>
-          <span>{heading}</span>
-          {action !== undefined && action !== null && <span style={titleAction}>{action}</span>}
-        </div>
-      )}
-      <div style={heading ? body : untitledBody}>{children}</div>
-    </section>
-  );
+	return (
+		<section style={wrap}>
+			{heading && (
+				<div style={title}>
+					<span>{heading}</span>
+					{action !== undefined && action !== null && <span style={titleAction}>{action}</span>}
+				</div>
+			)}
+			<div style={heading ? body : untitledBody}>{children}</div>
+		</section>
+	);
 }

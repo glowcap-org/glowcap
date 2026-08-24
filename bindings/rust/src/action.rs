@@ -86,9 +86,9 @@ fn retain_detached_failure(host: &HostShared, context: &str, error: Error) {
 }
 
 impl HostActionHandlers for Handlers<'_> {
-	async fn dial(&self, ticket: u64) -> Result<()> {
-		let spawned = self.host.spawn_dial_task(ticket, move |host| async move {
-			if let Err(error) = run_dial_ticket(&host, ticket).await {
+	async fn dial(&self, ticket: u64, route_index: usize) -> Result<()> {
+		let spawned = self.host.spawn_dial_task(ticket, route_index, move |host| async move {
+			if let Err(error) = run_dial_ticket(&host, ticket, route_index).await {
 				retain_detached_failure(&host, "dial terminal report failed", error);
 				return;
 			}
@@ -107,13 +107,13 @@ impl HostActionHandlers for Handlers<'_> {
 			Ok(false) => {
 				let reason = b"dial executor unavailable";
 				check_host(unsafe {
-					ffi::pancake_host_dial_failed(self.host.raw(), ticket, reason.as_ptr(), reason.len())
+					ffi::pancake_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				})
 			}
 			Err(primary) => {
 				let reason = primary.to_string();
 				let report = check_host(unsafe {
-					ffi::pancake_host_dial_failed(self.host.raw(), ticket, reason.as_ptr(), reason.len())
+					ffi::pancake_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				});
 				match report {
 					Ok(()) => Ok(()),
@@ -181,8 +181,8 @@ impl HostActionHandlers for Handlers<'_> {
 		Ok(())
 	}
 
-	async fn cancel_dial(&self, ticket: u64) -> Result<()> {
-		self.host.cancel_dial_task(ticket).await
+	async fn cancel_dial(&self, ticket: u64, route_index: usize) -> Result<()> {
+		self.host.cancel_dial_task(ticket, route_index).await
 	}
 }
 

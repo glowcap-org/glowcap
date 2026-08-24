@@ -1,0 +1,22 @@
+---
+.title = "Page not found",
+.description = "The address you followed does not name a page here.",
+.date = .date("2026-08-24T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+The address you followed does not name a page on this site. The link may be
+stale, or the page may have moved.
+
+The sidebar lists every page. The likeliest destinations:
+
+- [Start building]($link.page('start')) is the first call, in every language.
+- [Why OCapN]($link.page('why')) is the ideas, held against the protocols you
+  already run.
+- [Concepts]($link.page('concepts')) explains the machinery one level down.
+- [Choosing a transport]($link.page('transports/choosing')) is the deployment
+  decision table.
+
+If a link on this site brought you here, that is a defect worth reporting:
+[open an issue](https://github.com/jimisaacs/pancake/issues).

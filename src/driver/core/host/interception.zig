@@ -216,6 +216,10 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
         value: *const value_mod.Value,
 
         fn recipient(context: *@This(), relay: *engine.Node.RelayRecipient) void {
+            // Every refusal below is best-effort toward this one recipient:
+            // until `adopt` clears it, the recipient's reserved terminal break
+            // stays armed, and the fire walk delivers that break to any
+            // recipient left unadopted. The other recipients are unaffected.
             const recipient_session = context.host.sessions.get(relay.peerHandle()) orelse return;
             var recipient_arena = std.heap.ArenaAllocator.init(context.host.allocator);
             defer recipient_arena.deinit();
@@ -225,21 +229,21 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
                 context.host,
                 allocator,
                 &values,
-            ) catch return;
+            ) catch return; // best-effort: the armed terminal break fires instead
             defer capability_lower.releaseUntransferredCapabilityRetains(context.host, retained);
             var prepared = capability_lower.prepareValues(
                 context.host,
                 recipient_session,
                 allocator,
                 &values,
-            ) catch return;
+            ) catch return; // best-effort: the armed terminal break fires instead
             defer prepared.deinit();
             const leases = capability_lower.beginOutboundStagingLeases(
                 context.host,
                 allocator,
                 prepared.values,
                 retained,
-            ) catch return;
+            ) catch return; // best-effort: the armed terminal break fires instead
             const adopted = relay.adopt(.{ .fulfill = prepared.values[0] });
             capability_lower.finishOutboundStagingLeases(context.host, retained, leases);
             if (adopted) _ = prepared.commit();

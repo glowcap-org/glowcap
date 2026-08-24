@@ -197,7 +197,12 @@ class _VerbsMixin:
             via = None
         return SendRedeemingResult(reply, via)
 
-    async def tell(self, target: Ref, verb: str, args: "Optional[list]" = None) -> None:
+    async def tell(
+        self,
+        target: "Ref | RemotePromise",
+        verb: str,
+        args: "Optional[list]" = None,
+    ) -> None:
         """Fire-and-forget eventual-send without allocating an answer.
 
         The one-way deliver is flushed before return and any exact wire failure

@@ -4,6 +4,7 @@ import { ensureRuntimeReady, Runtime } from "../runtime/mod.ts";
 import { ok, runtime } from "./smoke/support.ts";
 import * as shared from "./smoke/shared.ts";
 import * as bunRefusals from "./smoke/bun_refusals.ts";
+import * as enliven from "./smoke/enliven.ts";
 import * as roundtrip from "./smoke/roundtrip.ts";
 import * as pipeline from "./smoke/pipeline.ts";
 import * as lifecycle from "./smoke/lifecycle.ts";
@@ -27,6 +28,7 @@ if (runtime === "bun") {
 
 await using managed = await Runtime.open({ providers: [tcp.provider()] });
 await roundtrip.run(managed);
+await enliven.run(managed);
 await pipeline.run(managed);
 await lifecycle.run(managed);
 await driver.run(managed);

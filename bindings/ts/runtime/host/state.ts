@@ -94,6 +94,7 @@ export abstract class HostState {
 	abstract recordBackgroundFailure(failure: unknown): void;
 	abstract vowMinted(vow: bigint, trackGc?: boolean): void;
 	abstract awaitVow(vow: bigint): Promise<Argument>;
+	abstract abandonVow(vow: bigint): void;
 	protected readonly _context: Context;
 	protected readonly _diagnosticId: bigint;
 	/** The host's retained durable identity seed. Each read returns a copy. */
@@ -132,7 +133,7 @@ export abstract class HostState {
 	// DIAL actions are asynchronous after the C queue has consumed them. Retain
 	// their executors until they report a terminal result; otherwise a detached
 	// promise can disappear while its ticket and half-open channel remain live.
-	protected readonly _dialTasks = new Map<bigint, {
+	protected readonly _dialTasks = new Map<string, {
 		readonly controller: AbortController;
 		readonly promise: Promise<void>;
 	}>();
@@ -148,10 +149,10 @@ export abstract class HostState {
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	protected readonly _parkedReleases: Array<() => void> = [];
-	// Trampoline ctx ids of this host's giftables, by published name. The registry
-	// is process-global, not host-scoped, so nothing drops these when the host dies
-	// — `release()` frees them, or they leak one row per giftable per Host
-	// generation. Keyed by name so `Session.publishedRef` can find the ctx.
+	// Trampoline ctx ids of this host's live giftable aliases, by published name.
+	// Native actor retirement drops their strong behavior ownership; Host release
+	// is the final catch-all. Keyed by name so `Session.publishedRef` can find the
+	// ctx.
 	protected readonly _giftables = new Map<string, bigint>();
 	// Every Session.spawn/publish trampoline on this Host. Actors live in the
 	// Host Vat and remain callable through sibling Ports after the Port that
@@ -161,9 +162,6 @@ export abstract class HostState {
 	// may contain a behavior that captures this Host; that cycle is local and
 	// therefore collectable.
 	protected readonly _behaviorEntries = new Map<bigint, BehaviorEntry>();
-	// Ctx ids a re-publish displaced. Existing capabilities and gifts still reach
-	// the old Host-Vat actor, so its behavior stays registered until `release()`.
-	protected readonly _displacedGiftables: bigint[] = [];
 	// The native loop that owns this Host's handle, when this wrapper was
 	// adopted over a loop's host (ADR-0112). In that mode the C loop is the
 	// action drain — the kick verbs nudge a loop step instead of running the
@@ -287,7 +285,8 @@ export abstract class HostState {
 					host.scheduleKick();
 				},
 				recordFailure: (failure) => host.recordBackgroundFailure(failure),
-				scheduleDrain: (run) => setTimeout(run, 0),
+				abandonVow: (vow) => host.abandonVow(vow),
+				scheduleDrain: (run) => queueMicrotask(run),
 			});
 		} catch (err) {
 			unregisterHostFinalizer(this);
@@ -386,32 +385,35 @@ export abstract class HostState {
 
 	/** Run one popped DIAL executor under this Host's terminal lifetime. The
 	 * signal owns transport cancellation; retention alone is not ownership. */
-	startDialTask(ticket: bigint, run: (signal: AbortSignal) => Promise<void>): void {
-		if (this._raw === NULL) return;
+	startDialTask(ticket: bigint, routeIndex: bigint, run: (signal: AbortSignal) => Promise<void>): Promise<void> {
+		if (this._raw === NULL) return Promise.resolve();
 		const controller = new AbortController();
 		// Defer invocation until after the task is registered. A callback that
 		// synchronously releases this Host can therefore never create untracked
 		// work between `run` entering and the map insertion below.
+		const key = `${ticket}:${routeIndex}`;
 		const retained = Promise.resolve().then(() => {
 			if (controller.signal.aborted) return;
 			return run(controller.signal);
 		}).catch((error) => this.recordBackgroundFailure(error))
 			.finally(() => {
-				if (this._dialTasks.get(ticket)?.promise === retained) this._dialTasks.delete(ticket);
+				if (this._dialTasks.get(key)?.promise === retained) this._dialTasks.delete(key);
 			});
-		this._dialTasks.set(ticket, { controller, promise: retained });
+		this._dialTasks.set(key, { controller, promise: retained });
+		return retained;
 	}
 
 	/** Execute one core-issued dial cancellation and acknowledge physical
 	 * retirement only after its task can no longer touch the Host. */
-	async cancelDialTask(ticket: bigint): Promise<void> {
-		const task = this._dialTasks.get(ticket);
+	async cancelDialTask(ticket: bigint, routeIndex: bigint): Promise<void> {
+		const key = `${ticket}:${routeIndex}`;
+		const task = this._dialTasks.get(key);
 		if (task != null) {
 			task.controller.abort();
 			await task.promise;
 		}
 		if (this._raw !== NULL) {
-			checkHost(hostS.pancake_host_dial_cancelled(this._raw, ticket));
+			checkHost(hostS.pancake_host_dial_cancelled(this._raw, ticket, routeIndex));
 			// Retiring a pending dial is close-relevant pending work.
 			this.signalCloseActivity();
 		}

@@ -6,7 +6,10 @@ notes can cite one directly.
 
 The [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
 are the main source. Diagrams marked `[goblins-canonical]` show behavior from a
-live Spritely Goblins peer where the draft has not caught up.
+live Spritely Goblins peer where the draft has not caught up. Diagrams marked
+`[pancake-next]` show pancake's negotiated prototype vocabulary
+([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)); the
+pinned draft does not specify it, and a baseline session never sees it.
 
 ## Conventions
 
@@ -30,3 +33,4 @@ change. A diagram that disagrees with the session is a bug.
 | [05-gc.md](05-gc.md)                                           | GC-1 … GC-4 | Export refcount lifecycle, `op:gc-exports` wire-deltas, the GC race, `op:gc-answers`                                  |
 | [06-handoffs.md](06-handoffs.md)                               | HO-1 … HO-8 | Three-party handoff roles, certificates, per-role validation, replay protection, deposit/withdraw ordering            |
 | [07-sturdyrefs-and-locators.md](07-sturdyrefs-and-locators.md) | ST-1 … ST-3 | Sturdyref anatomy, enlivenment, equality-driven dedup                                                                 |
+| [08-multihome-routes.md](08-multihome-routes.md)               | MH-1 … MH-5 | `[pancake-next]` `id` locator anatomy, route-vocabulary negotiation, signed-give lowering, ordered dials, `id` sturdyrefs |

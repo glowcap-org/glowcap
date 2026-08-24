@@ -31,7 +31,7 @@
 	   glyphs vanish into. This ground stays dark in both appearances. */
 	padding: 10px;
 	border-radius: var(--radius-card);
-	background: light-dark(var(--ink), var(--paper));
+	background: var(--ink);
 	color: #fff;
 }
 .kitchen-plate-accent {
@@ -150,4 +150,14 @@
 .kitchen-tile {
 	width: 100%;
 	max-width: 220px;
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the page keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	.kitchen-plate-dark {
+		background: light-dark(var(--ink), var(--paper));
+	}
 }

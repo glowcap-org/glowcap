@@ -1,12 +1,13 @@
 // Internal state and lifecycle owner for the public Session facade. Cross-file
 // `export` is module visibility; runtime/mod.ts does not expose this base.
 
-import { CLOSED, HANDSHAKE_TIMEOUT_MS, INVALID_ARGUMENT, OK, TIMEOUT } from "@pancake/abi";
+import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@pancake/abi";
 import { type AbortDetail, checkHost, PancakeError } from "../errors.ts";
 import type { Host } from "../host.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab } from "../internal/seam.ts";
+import { L } from "../internal/layout.ts";
 import { type CloseOptions, encodeCloseOptions, lifecycleClosed, monotonicNowMs } from "../lifecycle.ts";
 import type { MintAwaitHandle, PromiseFactoryHandle } from "../promise.ts";
 import {
@@ -19,18 +20,8 @@ import {
 import type { Channel, LoopChannel, Session } from "../session.ts";
 import { traceDrainHost } from "../trace.ts";
 import { insideTurn } from "../trampoline.ts";
-
-function withHandshakeBound(handshake: Promise<void>, ms: number | null): Promise<void> {
-	if (!ms) return handshake;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const bound = new Promise<never>((_resolve, reject) => {
-		timer = setTimeout(
-			() => reject(new PancakeError(TIMEOUT, `the partner did not finish the OCapN handshake within ${ms}ms`)),
-			ms,
-		);
-	});
-	return Promise.race([handshake, bound]).finally(() => clearTimeout(timer));
-}
+import type { SessionProfile } from "../value.ts";
+import { readSessionProfile, readSessionTransportName } from "./metadata.ts";
 
 function isLoopChannel(transport: Channel): transport is LoopChannel {
 	return (transport as { driverLoop?: unknown }).driverLoop != null;
@@ -66,6 +57,11 @@ export abstract class SessionLifecycle {
 	// the feed-failure choreography, and teardown; chaining each flush behind
 	// the last keeps every frame whole and in submission order.
 	#writing: Promise<void> = Promise.resolve();
+	readonly #outboundScratch = {
+		managedFrame: new Uint8Array(L.MANAGED_FRAME_SIZE),
+		prefix: new Uint8Array(HOST_OUTBOUND_PREFIX_CAP),
+		prefixLen: new Uint8Array(8),
+	};
 	// Live accessors into the private fields above — what `pump.ts` drives.
 	readonly #pump: PumpHandle;
 	// Opaque Host capability id -> trampoline ctx id for objects this session
@@ -121,6 +117,7 @@ export abstract class SessionLifecycle {
 			set writing(p: Promise<void>) {
 				s.#writing = p;
 			},
+			outboundScratch: s.#outboundScratch,
 			read: () => s.#transport.read(),
 			write: (data) => s.#transport.write(data),
 			drainParkedReleases: () => s.#host.drainParkedReleases(),
@@ -146,6 +143,7 @@ export abstract class SessionLifecycle {
 			attend: () => s.#attendInbound(),
 			awaitVow: (vow) => s.#host.awaitVow(vow),
 			kickActions: () => s.#host.kickActions(),
+			parkVowRelease: (vow) => s.#host.parkVowRelease(vow),
 		};
 	}
 
@@ -157,9 +155,15 @@ export abstract class SessionLifecycle {
 			attend: () => s.#attendInbound(),
 			awaitVow: (vow) => s.#host.awaitVow(vow),
 			kickActions: () => s.#host.kickActions(),
+			parkVowRelease: (vow) => s.#host.parkVowRelease(vow),
 			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
+			trackVow: (handle, vow) => s.#host.trackVow(handle, vow),
+			scheduleProgress: () => s.#host.scheduleKick(),
 			get hostRaw() {
 				return s.#host.raw;
+			},
+			get hostOwner() {
+				return s.#host;
 			},
 			get ptr() {
 				return s.#ptr;
@@ -193,6 +197,19 @@ export abstract class SessionLifecycle {
 			hostS.pancake_host_session_is_open(this.#ptr) === 1;
 	}
 
+	/** The version, codec, and feature set this live session settled with its
+	 * partner. No Host preference is inferred at this layer. */
+	get profile(): SessionProfile {
+		this.guardOpen();
+		return readSessionProfile(this.#ptr);
+	}
+
+	/** The exact netlayer symbol this connection was opened through. */
+	get transportName(): string {
+		this.guardOpen();
+		return readSessionTransportName(this.#ptr);
+	}
+
 	// Drive the freshly opened connection's keyed handshake to an open session,
 	// abandoning the connection on any failure (release + transport close) so a
 	// rude partner costs one dial or one accept, never the caller. The read/feed
@@ -207,7 +224,7 @@ export abstract class SessionLifecycle {
 	// read.
 	protected async establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<this> {
 		try {
-			await withHandshakeBound(runHandshake(this.#pump), handshakeTimeoutMs);
+			await runHandshake(this.#pump, handshakeTimeoutMs);
 			return this;
 		} catch (err) {
 			await this.closeTransport();

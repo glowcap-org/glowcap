@@ -137,7 +137,7 @@ fn addBrowserProof(
     proof: BrowserProof,
     answerer_install: *std.Build.Step,
 ) void {
-    const run = execution.addSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-all", proof.script });
+    const run = execution.addSystemCommand(ctx.b, .{ .browser_proof = 120 }, &.{ "deno", "run", "--allow-all", proof.script });
     const cache = execution.addSystemCommand(ctx.b, .build_tool, &.{ "deno", "cache", proof.script });
     run.step.dependOn(&cache.step);
     run.setCwd(ctx.b.path("."));
@@ -175,7 +175,7 @@ pub fn register(ctx: Context) Registered {
     const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and phase-1 probe binary (ADR-0089; needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
-    const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{
         "deno", "run", "--allow-all", "transports/webrtc/test/datachannel_roundtrip_test.ts",
     });
     const webrtc_datachannel_cache = execution.addSystemCommand(b, .build_tool, &.{

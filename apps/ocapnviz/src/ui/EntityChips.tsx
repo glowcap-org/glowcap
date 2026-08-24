@@ -8,75 +8,75 @@
 
 import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../schema/topology.ts";
 import {
-  ATTRIBUTION_STANDING,
-  type AttributionStanding,
-  type EndpointAttribution,
-  UNATTRIBUTED_WORD,
+	ATTRIBUTION_STANDING,
+	type AttributionStanding,
+	type EndpointAttribution,
+	UNATTRIBUTED_WORD,
 } from "../schema/session-end.ts";
 import { CAPTP_VERSION_COLORS, colorForProfile, lineStyleForCodec, PROFILE_FALLBACK_COLOR } from "../render/palette.ts";
 import type { PeerActivity } from "../render/types.ts";
 import { c, FONT, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 const chip = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: SPACE.sm,
-  paddingInline: SPACE.sm,
-  paddingBlock: 4,
-  borderRadius: RADIUS.pill,
-  background: c.surfaceMuted,
-  border: `1px solid ${c.border}`,
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.semibold,
-  letterSpacing: 0.6,
-  textTransform: "uppercase",
-  color: c.textMuted,
-  width: "fit-content",
-  maxWidth: "100%",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+	display: "inline-flex",
+	alignItems: "center",
+	gap: SPACE.sm,
+	paddingInline: SPACE.sm,
+	paddingBlock: 4,
+	borderRadius: RADIUS.pill,
+	background: c.surfaceMuted,
+	border: `1px solid ${c.border}`,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.semibold,
+	letterSpacing: 0.6,
+	textTransform: "uppercase",
+	color: c.textMuted,
+	width: "fit-content",
+	maxWidth: "100%",
+	whiteSpace: "nowrap",
+	overflow: "hidden",
+	textOverflow: "ellipsis",
 } satisfies React.CSSProperties;
 
 export function PeerKindLabel({ profile }: { profile: PeerProfile }) {
-  return (
-    <div style={chip}>
-      <PeerSwatch profile={profile} />
-      Peer node
-    </div>
-  );
+	return (
+		<div style={chip}>
+			<PeerSwatch profile={profile} />
+			Peer node
+		</div>
+	);
 }
 
 export function SessionKindLabel(
-  { codec, captpVersion }: { codec: Codec; captpVersion: CaptpVersion },
+	{ codec, captpVersion }: { codec: Codec; captpVersion: CaptpVersion },
 ) {
-  return (
-    <div style={chip}>
-      <SessionSwatch codec={codec} captpVersion={captpVersion} />
-      Session edge
-    </div>
-  );
+	return (
+		<div style={chip}>
+			<SessionSwatch codec={codec} captpVersion={captpVersion} />
+			Session edge
+		</div>
+	);
 }
 
 /** An end of a session that nothing has attributed. Named for what it is
  *  rather than for what it lacks: the stage draws it where a peer would go,
  *  and the reader's question is which kind of node they have selected. */
 export function EndpointKindLabel() {
-  return (
-    <div style={chip}>
-      <EndpointSwatch />
-      Session end
-    </div>
-  );
+	return (
+		<div style={chip}>
+			<EndpointSwatch />
+			Session end
+		</div>
+	);
 }
 
 export function MessageKindLabel() {
-  return (
-    <div style={chip}>
-      <MessageSwatch />
-      Message in flight
-    </div>
-  );
+	return (
+		<div style={chip}>
+			<MessageSwatch />
+			Message in flight
+		</div>
+	);
 }
 
 /** The solid square the stage draws for a node a peer is on. Filled, with a
@@ -88,25 +88,25 @@ export function MessageKindLabel() {
  *  swatch takes the profile's color, and the legend holds color constant so
  *  the row it belongs to teaches fill rather than hue. */
 export function peerBodySwatchStyle(
-  fill: string,
-  size = 12,
+	fill: string,
+	size = 12,
 ): React.CSSProperties {
-  return {
-    width: size,
-    height: size,
-    borderRadius: RADIUS.sm,
-    background: fill,
-    boxShadow: `inset 0 0 0 1px ${c.borderStrong}`,
-    flexShrink: 0,
-  };
+	return {
+		width: size,
+		height: size,
+		borderRadius: RADIUS.sm,
+		background: fill,
+		boxShadow: `inset 0 0 0 1px ${c.borderStrong}`,
+		flexShrink: 0,
+	};
 }
 
 export function PeerSwatch({ profile, size = 12 }: {
-  profile: PeerProfile;
-  size?: number;
+	profile: PeerProfile;
+	size?: number;
 }) {
-  const fill = hex(colorForProfile(profile) || PROFILE_FALLBACK_COLOR);
-  return <span style={peerBodySwatchStyle(fill, size)} />;
+	const fill = hex(colorForProfile(profile) || PROFILE_FALLBACK_COLOR);
+	return <span style={peerBodySwatchStyle(fill, size)} />;
 }
 
 /** The color a node body wears when nothing about it says which
@@ -124,49 +124,49 @@ export const NEUTRAL_BODY_COLOR = hex(PROFILE_FALLBACK_COLOR);
  *  and a legend that drifted from the thing it explains teaches the wrong
  *  shape. */
 export function endpointSwatchStyle(size = 12): React.CSSProperties {
-  return {
-    width: size,
-    height: size,
-    borderRadius: RADIUS.sm,
-    background: `${hex(PROFILE_FALLBACK_COLOR)}38`,
-    border: `1px dashed ${c.borderStrong}`,
-    boxSizing: "border-box",
-    flexShrink: 0,
-  };
+	return {
+		width: size,
+		height: size,
+		borderRadius: RADIUS.sm,
+		background: `${hex(PROFILE_FALLBACK_COLOR)}38`,
+		border: `1px dashed ${c.borderStrong}`,
+		boxSizing: "border-box",
+		flexShrink: 0,
+	};
 }
 
 export function EndpointSwatch({ size = 12 }: { size?: number }) {
-  return <span style={endpointSwatchStyle(size)} />;
+	return <span style={endpointSwatchStyle(size)} />;
 }
 
 export function SessionSwatch(
-  { codec, captpVersion }: { codec: Codec; captpVersion: CaptpVersion },
+	{ codec, captpVersion }: { codec: Codec; captpVersion: CaptpVersion },
 ) {
-  const color = hex(CAPTP_VERSION_COLORS[captpVersion]);
-  return (
-    <span
-      style={{
-        width: 16,
-        height: 0,
-        borderTop: `2px ${lineStyleForCodec(codec)} ${color}`,
-        flexShrink: 0,
-      }}
-    />
-  );
+	const color = hex(CAPTP_VERSION_COLORS[captpVersion]);
+	return (
+		<span
+			style={{
+				width: 16,
+				height: 0,
+				borderTop: `2px ${lineStyleForCodec(codec)} ${color}`,
+				flexShrink: 0,
+			}}
+		/>
+	);
 }
 
 export function MessageSwatch({ size = 10 }: { size?: number }) {
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: c.danger,
-        flexShrink: 0,
-      }}
-    />
-  );
+	return (
+		<span
+			style={{
+				width: size,
+				height: size,
+				borderRadius: "50%",
+				background: c.danger,
+				flexShrink: 0,
+			}}
+		/>
+	);
 }
 
 // Every status badge in the app: session state, lifecycle, activity,
@@ -185,22 +185,22 @@ export function MessageSwatch({ size = 10 }: { size?: number }) {
  *  because the Reference's transport verdicts are the same badge said about a
  *  netlayer instead of about an entity, and two spellings of one box drift. */
 export const stateChipBase = {
-  display: "inline-flex",
-  alignItems: "center",
-  paddingInline: SPACE.sm,
-  paddingBlock: 1,
-  borderRadius: RADIUS.sm,
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.semibold,
-  fontFamily: FONT.sans,
-  letterSpacing: 0.4,
-  textTransform: "uppercase",
-  width: "fit-content",
-  maxWidth: "100%",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  flexShrink: 0,
+	display: "inline-flex",
+	alignItems: "center",
+	paddingInline: SPACE.sm,
+	paddingBlock: 1,
+	borderRadius: RADIUS.sm,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.semibold,
+	fontFamily: FONT.sans,
+	letterSpacing: 0.4,
+	textTransform: "uppercase",
+	width: "fit-content",
+	maxWidth: "100%",
+	whiteSpace: "nowrap",
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	flexShrink: 0,
 } satisfies React.CSSProperties;
 
 /** Lifecycle status of an entity at the current playhead.
@@ -224,50 +224,54 @@ export type LifecycleStatus = "active" | "before" | "after" | "off-stage";
  *  reads naturally for each kind without callers post-processing
  *  a generic string. */
 export function LifecycleChip(
-  { status, entity }: {
-    status: LifecycleStatus;
-    entity: "peer" | "session" | "message";
-  },
+	{ status, entity }: {
+		status: LifecycleStatus;
+		entity: "peer" | "session" | "message";
+	},
 ) {
-  const [bg, fg, label] = lifecycleVisual(status, entity);
-  return <span style={{ ...stateChipBase, background: bg, color: fg }}>{label}</span>;
+	const [bg, fg, label] = lifecycleVisual(status, entity);
+	return (
+		<span style={{ ...stateChipBase, background: bg, color: fg }}>
+			{label}
+		</span>
+	);
 }
 
 function lifecycleVisual(
-  status: LifecycleStatus,
-  entity: "peer" | "session" | "message",
+	status: LifecycleStatus,
+	entity: "peer" | "session" | "message",
 ): [bg: string, fg: string, label: string] {
-  // Entity-specific vocabulary so the inspector reads naturally
-  // without callers composing strings. Peer / session "active"
-  // states are normally rendered as activity / state chips
-  // (richer info than a plain lifecycle word); the labels here
-  // are for the message inspector and the defensive "off stage"
-  // case on any kind.
-  const labels: Record<
-    "peer" | "session" | "message",
-    Record<LifecycleStatus, string>
-  > = {
-    peer: {
-      active: "active",
-      before: "not yet joined",
-      after: "left",
-      "off-stage": "off stage",
-    },
-    session: {
-      active: "active",
-      before: "not yet open",
-      after: "closed",
-      "off-stage": "off stage",
-    },
-    message: {
-      active: "in flight",
-      before: "not yet sent",
-      after: "delivered",
-      "off-stage": "off stage",
-    },
-  };
-  const [bg, fg] = status === "active" ? [c.positiveSoft, c.positive] : [c.surfaceMuted, c.textSubtle];
-  return [bg, fg, labels[entity][status]];
+	// Entity-specific vocabulary so the inspector reads naturally
+	// without callers composing strings. Peer / session "active"
+	// states are normally rendered as activity / state chips
+	// (richer info than a plain lifecycle word); the labels here
+	// are for the message inspector and the defensive "off stage"
+	// case on any kind.
+	const labels: Record<
+		"peer" | "session" | "message",
+		Record<LifecycleStatus, string>
+	> = {
+		peer: {
+			active: "active",
+			before: "not yet joined",
+			after: "left",
+			"off-stage": "off stage",
+		},
+		session: {
+			active: "active",
+			before: "not yet open",
+			after: "closed",
+			"off-stage": "off stage",
+		},
+		message: {
+			active: "in flight",
+			before: "not yet sent",
+			after: "delivered",
+			"off-stage": "off stage",
+		},
+	};
+	const [bg, fg] = status === "active" ? [c.positiveSoft, c.positive] : [c.surfaceMuted, c.textSubtle];
+	return [bg, fg, labels[entity][status]];
 }
 
 /** What backed one end's claim to be who it says it is, or that nothing did.
@@ -281,14 +285,14 @@ function lifecycleVisual(
  * gives the word. The Reference's attribution rows wear the same styles, so a
  * chip on the stage and the row that explains it are the same color. */
 export function AttributionChip(
-  { attribution }: { attribution: EndpointAttribution | undefined },
+	{ attribution }: { attribution: EndpointAttribution | undefined },
 ) {
-  const label = attribution ?? UNATTRIBUTED_WORD;
-  return (
-    <span style={attributionChipStyle(attribution)} title={label}>
-      {label}
-    </span>
-  );
+	const label = attribution ?? UNATTRIBUTED_WORD;
+	return (
+		<span style={attributionChipStyle(attribution)} title={label}>
+			{label}
+		</span>
+	);
 }
 
 /** The chip an attribution wears, absence included.
@@ -297,12 +301,16 @@ export function AttributionChip(
  * live state of the network rather than an error, but it is the one a reader
  * must not miss. */
 export function attributionChipStyle(
-  attribution: EndpointAttribution | undefined,
+	attribution: EndpointAttribution | undefined,
 ): React.CSSProperties {
-  if (attribution === undefined) {
-    return { ...stateChipBase, background: c.warningSoft, color: c.warning };
-  }
-  return attributionStandingStyle(ATTRIBUTION_STANDING[attribution]);
+	if (attribution === undefined) {
+		return {
+			...stateChipBase,
+			background: c.warningSoft,
+			color: c.warning,
+		};
+	}
+	return attributionStandingStyle(ATTRIBUTION_STANDING[attribution]);
 }
 
 /** The badge one kind of evidence wears.
@@ -314,50 +322,54 @@ export function attributionChipStyle(
  * gives anything it cannot vouch for, because drawing it like a proof would be
  * the picture claiming something nothing measured. */
 export function attributionStandingStyle(
-  standing: AttributionStanding,
+	standing: AttributionStanding,
 ): React.CSSProperties {
-  switch (standing) {
-    case "checked":
-      return {
-        ...stateChipBase,
-        background: c.positiveSoft,
-        color: c.positive,
-      };
-    case "stated":
-      return {
-        ...stateChipBase,
-        background: c.surfaceMuted,
-        color: c.textMuted,
-      };
-    case "inferred":
-      return {
-        ...stateChipBase,
-        background: c.surface,
-        color: c.textSubtle,
-        border: `1px dashed ${c.border}`,
-        fontWeight: WEIGHT.regular,
-        textTransform: "none",
-        letterSpacing: 0,
-      };
-  }
+	switch (standing) {
+		case "checked":
+			return {
+				...stateChipBase,
+				background: c.positiveSoft,
+				color: c.positive,
+			};
+		case "stated":
+			return {
+				...stateChipBase,
+				background: c.surfaceMuted,
+				color: c.textMuted,
+			};
+		case "inferred":
+			return {
+				...stateChipBase,
+				background: c.surface,
+				color: c.textSubtle,
+				border: `1px dashed ${c.border}`,
+				fontWeight: WEIGHT.regular,
+				textTransform: "none",
+				letterSpacing: 0,
+			};
+	}
 }
 
 /** Traffic-light coloring for session state. */
 export function StateChip({ state }: { state: SessionState }) {
-  const [bg, fg] = stateColors(state);
-  return <span style={{ ...stateChipBase, background: bg, color: fg }}>{state}</span>;
+	const [bg, fg] = stateColors(state);
+	return (
+		<span style={{ ...stateChipBase, background: bg, color: fg }}>
+			{state}
+		</span>
+	);
 }
 
 function stateColors(state: SessionState): [bg: string, fg: string] {
-  switch (state) {
-    case "open":
-      return [c.positiveSoft, c.positive];
-    case "negotiating":
-    case "draining":
-      return [c.warningSoft, c.warning];
-    case "closed":
-      return [c.surfaceMuted, c.textSubtle];
-  }
+	switch (state) {
+		case "open":
+			return [c.positiveSoft, c.positive];
+		case "negotiating":
+		case "draining":
+			return [c.warningSoft, c.warning];
+		case "closed":
+			return [c.surfaceMuted, c.textSubtle];
+	}
 }
 
 /** Sidebar version of the on-canvas activity badge. Same color
@@ -365,57 +377,57 @@ function stateColors(state: SessionState): [bg: string, fg: string] {
  * dots side by side for "both" so the duplication itself signals
  * the dual state. */
 export function ActivityChip({ activity }: { activity: PeerActivity }) {
-  const [bg, fg, label] = activityVisual(activity);
-  return (
-    <span style={{ ...stateChipBase, background: bg, color: fg, gap: 6 }}>
-      <ActivityDots activity={activity} />
-      {label}
-    </span>
-  );
+	const [bg, fg, label] = activityVisual(activity);
+	return (
+		<span style={{ ...stateChipBase, background: bg, color: fg, gap: 6 }}>
+			<ActivityDots activity={activity} />
+			{label}
+		</span>
+	);
 }
 
 function ActivityDots({ activity }: { activity: PeerActivity }) {
-  if (activity === "both") {
-    return (
-      <span style={{ display: "inline-flex", gap: 2 }}>
-        <Dot color={c.danger} />
-        <Dot color={c.positive} />
-      </span>
-    );
-  }
-  const color = activity === "sending" ? c.danger : activity === "receiving" ? c.positive : c.textSubtle;
-  return <Dot color={color} />;
+	if (activity === "both") {
+		return (
+			<span style={{ display: "inline-flex", gap: 2 }}>
+				<Dot color={c.danger} />
+				<Dot color={c.positive} />
+			</span>
+		);
+	}
+	const color = activity === "sending" ? c.danger : activity === "receiving" ? c.positive : c.textSubtle;
+	return <Dot color={color} />;
 }
 
 function Dot({ color }: { color: string }) {
-  return (
-    <span
-      style={{
-        width: 6,
-        height: 6,
-        borderRadius: "50%",
-        background: color,
-        flexShrink: 0,
-      }}
-    />
-  );
+	return (
+		<span
+			style={{
+				width: 6,
+				height: 6,
+				borderRadius: "50%",
+				background: color,
+				flexShrink: 0,
+			}}
+		/>
+	);
 }
 
 function activityVisual(
-  activity: PeerActivity,
+	activity: PeerActivity,
 ): [bg: string, fg: string, label: string] {
-  switch (activity) {
-    case "sending":
-      return [c.dangerSoft, c.danger, "sending"];
-    case "receiving":
-      return [c.positiveSoft, c.positive, "receiving"];
-    case "both":
-      return [c.surfaceMuted, c.textMuted, "sending + receiving"];
-    case "idle":
-      return [c.surfaceMuted, c.textSubtle, "idle"];
-  }
+	switch (activity) {
+		case "sending":
+			return [c.dangerSoft, c.danger, "sending"];
+		case "receiving":
+			return [c.positiveSoft, c.positive, "receiving"];
+		case "both":
+			return [c.surfaceMuted, c.textMuted, "sending + receiving"];
+		case "idle":
+			return [c.surfaceMuted, c.textSubtle, "idle"];
+	}
 }
 
 function hex(color: number): string {
-  return `#${color.toString(16).padStart(6, "0")}`;
+	return `#${color.toString(16).padStart(6, "0")}`;
 }

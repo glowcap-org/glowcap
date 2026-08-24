@@ -79,6 +79,7 @@ fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool), shared: *const Shar
     while (!flag.load(.acquire)) {
         if (shared.failed.load(.seq_cst)) return shared.takeErr() orelse error.ObserverFailed;
         if (expired(io, d)) return error.WaitTimedOut;
+        // tolerant: an interrupted poll sleep only rechecks the flag sooner.
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
     if (shared.failed.load(.seq_cst)) return shared.takeErr() orelse error.ObserverFailed;
@@ -91,6 +92,8 @@ fn runLoopUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool)) !void {
 
 fn pokeListener(io: std.Io, port: u16) void {
     if (port == 0) return;
+    // best-effort: the poke exists only to unblock a parked accept; a refused
+    // dial means nothing is parked there any more.
     const address = std.Io.net.IpAddress.parse("127.0.0.1", port) catch return;
     var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
     stream.close(io);
@@ -390,7 +393,8 @@ pub fn main(init: std.process.Init) !void {
             shared.done.store(true, .release);
             pokeListener(io, loop.port().?);
             pokeListener(io, shared.exporter_port.load(.acquire));
-            // Unwind join only. The success path uses try await before print.
+            // best-effort: unwind join only. The success path uses `try await`
+            // before printing, so the error that got us here is the one reported.
             loop_future.await(io) catch {};
             exporter_future.await(io) catch {};
         }
@@ -436,7 +440,8 @@ pub fn main(init: std.process.Init) !void {
         if (!recipient_joined) {
             shared.done.store(true, .release);
             pokeListener(io, r_loop.port().?);
-            // Unwind join only. The success path uses try await before print.
+            // best-effort: unwind join only. The success path uses `try await`
+            // before printing, so the error that got us here is the one reported.
             r_future.await(io) catch {};
         }
     }

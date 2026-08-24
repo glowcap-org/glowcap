@@ -63,3 +63,10 @@ Each binding presents the same calls in its own style:
 The protocol and Deno server live under [`deno/`](deno/). The other directories
 contain matching Python, Racket, Rust, and Zig clients; [`demo.ts`](demo.ts)
 coordinates the cross-language run.
+
+The bounded board state, latest-snapshot stream, watcher retirement, and failed
+join cleanup run under the main check and can be exercised alone:
+
+```sh
+zig build tasks-app-test
+```

@@ -37,6 +37,7 @@ const surfaces = [_]Surface{
     .{ .path = "src/ocapn/model/mod.zig", .modules = &.{
         "equality",
         "owned",
+        "route_bundle",
         "transport",
         "uri",
         "view",
@@ -51,6 +52,7 @@ const surfaces = [_]Surface{
         "syrup",
     } },
     .{ .path = "src/ocapn/session/mod.zig", .modules = &.{
+        "id_route",
         "inspect",
         "slot",
         "validate",

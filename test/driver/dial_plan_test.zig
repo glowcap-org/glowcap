@@ -112,6 +112,7 @@ test "planDial iroh connect: no posture is ReachabilityRequired" {
 test "planDial: an unknown transport is a typed refusal" {
     try std.testing.expectError(error.UnknownTransport, planDial("x-made-up", "whatever", "", .redeem));
     try std.testing.expectError(error.UnknownTransport, planDial(transport.inproc, "token", "", .redeem));
+    try std.testing.expectError(error.UnknownTransport, planDial(transport.id, key_designator, "", .redeem));
 }
 
 test "planAccept tcp: signs the accepted address, no hint" {

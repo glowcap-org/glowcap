@@ -51,16 +51,12 @@
 	align-items: center;
 	min-width: 0;
 }
-/* The room's name is a title, and the mark beside it is the one control that
-   acts on it. That is the grammar this interface already uses for a chip whose
-   mark takes it away — the composer's attached files — and the header now reads
-   the same way: pressing the name does nothing, because a name is not a thing
-   you press, and leaving the room is the mark's job alone.
-
-   The mark keeps its place whether or not it is showing, so the title never
-   shifts under the pointer, and it stays quiet until a pointer is over the
-   heading, so a header at rest is a name rather than a name and a way to lose
-   it. */
+/* The room's name is a title, and the way to ask about it. Pressing the name
+   opens what this tab knows about the conversation — how it is reached, where
+   the session stands. Leaving is still the mark beside it, and that mark keeps
+   its place whether or not it is showing, so the title never shifts under the
+   pointer. It stays quiet until a pointer is over the heading, so a header at
+   rest is a name rather than a name and a way to lose it. */
 .topbar .title-chip {
 	display: inline-flex;
 	align-items: center;
@@ -81,6 +77,28 @@
 }
 .topbar .title-chip:has(.avatar-chip) {
 	gap: var(--avatar-gap);
+}
+.topbar .title-about {
+	all: unset;
+	display: inline-flex;
+	align-items: center;
+	gap: inherit;
+	min-width: 0;
+	max-width: 100%;
+	height: 100%;
+	padding: 0 8px;
+	cursor: pointer;
+	border-radius: var(--radius-chip);
+	color: inherit;
+	font: inherit;
+	letter-spacing: inherit;
+}
+.topbar .title-about:hover {
+	background: var(--hover);
+}
+.topbar .title-about:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
 }
 .topbar .leave-x {
 	flex: none;
@@ -116,6 +134,12 @@
 	min-height: 0;
 	display: grid;
 	grid-template-columns: minmax(0,1fr) var(--rail-w);
+	/* One bounded row. Left implicit, the row auto-sizes to its content, and a
+	   column taller than the app — the operations surface on a phone — grows
+	   the row past the locked page instead of scrolling inside it. The stream
+	   never showed this because its log is absolutely positioned and adds no
+	   height. */
+	grid-template-rows: minmax(0, 1fr);
 }
 .content.no-members {
 	grid-template-columns: minmax(0,1fr);

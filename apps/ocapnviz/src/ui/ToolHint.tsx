@@ -32,65 +32,65 @@ import type { BuilderTool } from "../state/app-state.ts";
 import { c, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 export function ToolHint(
-  { tool, armedNodeLabel, spaceHeld }: {
-    tool: BuilderTool;
-    /** Display label of the armed node (peer or loose end) when in
-     *  the two-click ARMED state for open-session / send-message;
-     *  null when unarmed or when the tool has no two-click flow. */
-    armedNodeLabel: string | null;
-    /** Whether the spacebar is currently held — overrides the
-     *  tool's normal gesture cue with the pan announcement. */
-    spaceHeld: boolean;
-  },
+	{ tool, armedNodeLabel, spaceHeld }: {
+		tool: BuilderTool;
+		/** Display label of the armed node (peer or loose end) when in
+		 *  the two-click ARMED state for open-session / send-message;
+		 *  null when unarmed or when the tool has no two-click flow. */
+		armedNodeLabel: string | null;
+		/** Whether the spacebar is currently held — overrides the
+		 *  tool's normal gesture cue with the pan announcement. */
+		spaceHeld: boolean;
+	},
 ) {
-  if (spaceHeld) {
-    return <div style={banner} aria-hidden>Pan — release space to resume</div>;
-  }
-  let message: React.ReactNode = null;
-  if (tool === "open-session") {
-    message = armedNodeLabel === null ? "Open session — click the first node" : (
-      <>
-        Open session — click a second node <span style={accent}>(from {armedNodeLabel})</span>
-      </>
-    );
-  } else if (tool === "send-message") {
-    message = armedNodeLabel === null ? "Send message — click the sender" : (
-      <>
-        Send message — click the receiver <span style={accent}>(from {armedNodeLabel})</span>
-      </>
-    );
-  } else if (tool === "add-peer") {
-    message = "Add peer — click empty canvas";
-  } else {
-    return null;
-  }
-  return <div style={banner} aria-hidden>{message}</div>;
+	if (spaceHeld) {
+		return <div style={banner} aria-hidden>Pan — release space to resume</div>;
+	}
+	let message: React.ReactNode = null;
+	if (tool === "open-session") {
+		message = armedNodeLabel === null ? "Open session — click the first node" : (
+			<>
+				Open session — click a second node <span style={accent}>(from {armedNodeLabel})</span>
+			</>
+		);
+	} else if (tool === "send-message") {
+		message = armedNodeLabel === null ? "Send message — click the sender" : (
+			<>
+				Send message — click the receiver <span style={accent}>(from {armedNodeLabel})</span>
+			</>
+		);
+	} else if (tool === "add-peer") {
+		message = "Add peer — click empty canvas";
+	} else {
+		return null;
+	}
+	return <div style={banner} aria-hidden>{message}</div>;
 }
 
 const banner = {
-  position: "absolute",
-  top: 12,
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 2,
-  pointerEvents: "none",
-  background: c.surface,
-  color: c.textMuted,
-  border: `1px solid ${c.border}`,
-  borderRadius: RADIUS.pill,
-  paddingInline: SPACE.md,
-  paddingBlock: SPACE.sm,
-  fontSize: SIZE.xs,
-  fontWeight: WEIGHT.medium,
-  letterSpacing: 0.4,
-  textTransform: "uppercase",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-  whiteSpace: "nowrap",
+	position: "absolute",
+	top: 12,
+	left: "50%",
+	transform: "translateX(-50%)",
+	zIndex: 2,
+	pointerEvents: "none",
+	background: c.surface,
+	color: c.textMuted,
+	border: `1px solid ${c.border}`,
+	borderRadius: RADIUS.pill,
+	paddingInline: SPACE.md,
+	paddingBlock: SPACE.sm,
+	fontSize: SIZE.xs,
+	fontWeight: WEIGHT.medium,
+	letterSpacing: 0.4,
+	textTransform: "uppercase",
+	boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+	whiteSpace: "nowrap",
 } satisfies React.CSSProperties;
 
 const accent = {
-  color: c.accent,
-  fontWeight: WEIGHT.semibold,
-  textTransform: "none",
-  letterSpacing: 0,
+	color: c.accent,
+	fontWeight: WEIGHT.semibold,
+	textTransform: "none",
+	letterSpacing: 0,
 } satisfies React.CSSProperties;

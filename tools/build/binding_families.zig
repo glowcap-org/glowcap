@@ -358,6 +358,38 @@ const keyed_relay_rendezvous_clients = [_]BindingClientRow{
     },
 };
 
+// The managed noise-relay listen half: each binding's `noise` listen helper
+// registers a durable key at the reference relay and serves an accepted
+// Noise_XK-sealed session, dialed by one fixed known-good Deno client. The
+// shared harness stands up the relay and dials the listener's printed
+// locator; a red run points at the listener's binding.
+const noise_relay_listen_clients = [_]BindingClientRow{
+    .{
+        .step_name = "deno-noise-relay-listen",
+        .description = "Noise-relay managed-listen proof: the Deno binding registers, advertises, and serves a sealed session (needs deno)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/noise_relay_listen/harness.ts", "--", "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/noise_relay_listen/deno_listener.ts" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "python-noise-relay-listen",
+        .description = "Noise-relay managed-listen proof: the Python binding registers, advertises, and serves a sealed session (needs deno + uv)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/noise_relay_listen/harness.ts", "--", "uv", "run", "--project", "bindings/python", "--locked", "python3", "bindings/proofs/noise_relay_listen/python_listener.py" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "racket-noise-relay-listen",
+        .description = "Noise-relay managed-listen proof: the Racket binding registers, advertises, and serves a sealed session (needs deno + racket)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/noise_relay_listen/harness.ts", "--", "racket", "-y", "bindings/proofs/noise_relay_listen/racket_listener.rkt" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "rust-noise-relay-listen",
+        .description = "Noise-relay managed-listen proof: the Rust binding registers, advertises, and serves a sealed session (needs deno + cargo)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/noise_relay_listen/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "relay", "--example", "noise_relay_listen", "--" },
+        .posture = .{ .deterministic = 30 },
+    },
+};
+
 // The same rendezvous conversation over the native WSS provider in every
 // binding. The shared harness supplies one copied test CA and makes each
 // client prove wrong-host and unknown-CA projection before the successful
@@ -467,6 +499,12 @@ const binding_families = [_]BindingFamily{
         .aggregate_desc = "Per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the native CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)",
         .needs_iroh_abi = false,
         .rows = &keyed_relay_rendezvous_clients,
+    },
+    .{
+        .aggregate_name = "bindings-noise-relay-listen",
+        .aggregate_desc = "Per-binding managed noise-relay listen proof: each binding registers a durable key at the reference relay, advertises its locator, and serves a sealed session dialed by one fixed client (needs deno + the runtimes)",
+        .needs_iroh_abi = false,
+        .rows = &noise_relay_listen_clients,
     },
     .{
         .aggregate_name = "bindings-native-wss-relay",

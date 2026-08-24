@@ -18,9 +18,12 @@ else.
 
 Open `http://localhost:8000`, pick a room and a nickname, then open another tab.
 The join card also accepts another directory's OCapN locator, so one page can
-hold rooms on several directories. Entering a room that does not exist creates
-it. You can post messages, direct messages, and files. Rooms and messages live
-in memory: restarting the server drops history.
+hold rooms on several directories. A room link from `/link` belongs in that same
+field, or in `/join`: it is a sturdyref, and taking it up opens the room it
+names — a public link sits in that listed room, a private one in that occupancy.
+`/link` with no argument is this room; `/link lobby` is a listed name. Entering a
+room that does not exist creates it. You can post messages, direct messages, and
+files. Rooms and messages live in memory: restarting the server drops history.
 
 [Developing and operating Rooms](developing.md) covers the rail, Settings,
 operator capabilities (`--diagnostics`, `--admin-listeners`, `--viz`), and the
@@ -96,6 +99,22 @@ Alice ◀──introduction────── room
 Alice ═════ direct ═══════▶ Bob
 ```
 
+A server started with `--history` keeps each listed room's last lines and
+answers them to members who join later, under a divider naming the room as
+the keeper. Retention is that stated policy and nothing more: private rooms
+never record, and direct messages are kept only in the reader's own browser.
+
+A server started with `--peering` publishes a separate capability that can add
+durable rooms from another directory. Each publication has its own revocation
+lease; removing it from discovery does not revoke room references already
+handed out. When the source has several listeners, its durable room link uses
+one identity route: key-proving iroh and Noise paths are preferred, with onion
+or baseline sockets retained only as handoff fallbacks. Servers without the
+flag publish no peering authority. The browser makes the capability a pane:
+take it from the Capabilities toggles in Settings, and the Operations page at
+`/ops` gains a Peering pane that publishes a room this tab has joined on
+another directory and revokes what this tab published.
+
 This three-party handoff is a central OCapN feature. The browser turns it into a
 click: select a member, then keep chatting even after either person leaves the
 room. A browser tab or native process can also open a new direct line through
@@ -114,6 +133,21 @@ browser server-reachable while Noise keeps the DM encrypted end to end,
 including when a native rooms-peer introduces the browser.
 
 ## Other ways to run it
+
+An IRC channel can be read as an ordinary Rooms room, and an ordinary IRC
+client can enter rooms that already exist on a native directory:
+
+```sh
+zig build rooms-irc-bridge                                 # libera/#ocapn as a room
+zig build rooms-irc-front -- --directory=127.0.0.1:9099    # IRC clients on :6667
+```
+
+IRC members appear as `irc/<nick>` on every front. The bridge stays read-only
+until a registered nick opts into two-way mode, and each front connection
+holds exactly the capabilities it acquired. The [IRC README](irc/README.md)
+carries the full flag surface, the deployment postures, the bounds, and the
+evidence, including the live Goblins compositions behind
+`zig build goblins-rooms-irc`.
 
 The cross-language tour has an iroh form too, and it needs `cargo` for the same
 transport sidecar:
@@ -178,7 +212,7 @@ The endpoint refuses any socket that does not present that capability, reader
 and writer alike; the sturdyref carries it, and the same swiss number prints as
 a `ROOMS-VIZ` line beside the other operator capabilities. A browser tab
 publishes its own sessions only while it holds that swiss, from the Protocol
-visualizer toggle in Settings under Advanced.
+visualizer toggle in Settings under Capabilities.
 
 Start the viewer with `cd apps/ocapnviz && bash dev.sh`. More detail is in
 [Developing and operating Rooms](developing.md).

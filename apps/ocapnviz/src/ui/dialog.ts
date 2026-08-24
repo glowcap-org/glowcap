@@ -21,43 +21,43 @@
  *  focused button already activates on Enter, and Tab already moves through
  *  the controls everywhere except the two ends. */
 export type DialogKeyIntent =
-  | { kind: "primary" }
-  | { kind: "dismiss" }
-  /** Tab ran off an end of the dialog; put focus back at the other end. */
-  | { kind: "wrap-focus"; to: "first" | "last" }
-  | null;
+	| { kind: "primary" }
+	| { kind: "dismiss" }
+	/** Tab ran off an end of the dialog; put focus back at the other end. */
+	| { kind: "wrap-focus"; to: "first" | "last" }
+	| null;
 
 export type DialogFocusState = {
-  /** Focus sits on the first focusable control in the dialog. */
-  atFirst: boolean;
-  /** Focus sits on the last one. */
-  atLast: boolean;
-  /** The focused element acts on Enter by itself — a button, a link, a
-   *  submit input. Enter must not then ALSO fire the default action, or
-   *  pressing it on "Copy detail" would copy and dismiss at once. */
-  focusActivates: boolean;
-  /** The dialog has somewhere to go when dismissed. An error the app cannot
-   *  continue past has not: Escape on it would leave a broken screen with no
-   *  dialog explaining it, so Escape does nothing there and the dialog says
-   *  so with the only button it offers. */
-  dismissible: boolean;
+	/** Focus sits on the first focusable control in the dialog. */
+	atFirst: boolean;
+	/** Focus sits on the last one. */
+	atLast: boolean;
+	/** The focused element acts on Enter by itself — a button, a link, a
+	 *  submit input. Enter must not then ALSO fire the default action, or
+	 *  pressing it on "Copy detail" would copy and dismiss at once. */
+	focusActivates: boolean;
+	/** The dialog has somewhere to go when dismissed. An error the app cannot
+	 *  continue past has not: Escape on it would leave a broken screen with no
+	 *  dialog explaining it, so Escape does nothing there and the dialog says
+	 *  so with the only button it offers. */
+	dismissible: boolean;
 };
 
 export function dialogKeyIntent(
-  ev: { key: string; shiftKey: boolean },
-  at: DialogFocusState,
+	ev: { key: string; shiftKey: boolean },
+	at: DialogFocusState,
 ): DialogKeyIntent {
-  if (ev.key === "Escape") return at.dismissible ? { kind: "dismiss" } : null;
-  if (ev.key === "Enter") {
-    return at.focusActivates ? null : { kind: "primary" };
-  }
-  if (ev.key !== "Tab") return null;
-  // The wrap is the whole trap: Tab off the last control goes to the first,
-  // Shift-Tab off the first goes to the last, and focus never reaches the
-  // page behind the dialog.
-  if (!ev.shiftKey && at.atLast) return { kind: "wrap-focus", to: "first" };
-  if (ev.shiftKey && at.atFirst) return { kind: "wrap-focus", to: "last" };
-  return null;
+	if (ev.key === "Escape") return at.dismissible ? { kind: "dismiss" } : null;
+	if (ev.key === "Enter") {
+		return at.focusActivates ? null : { kind: "primary" };
+	}
+	if (ev.key !== "Tab") return null;
+	// The wrap is the whole trap: Tab off the last control goes to the first,
+	// Shift-Tab off the first goes to the last, and focus never reaches the
+	// page behind the dialog.
+	if (!ev.shiftKey && at.atLast) return { kind: "wrap-focus", to: "first" };
+	if (ev.shiftKey && at.atFirst) return { kind: "wrap-focus", to: "last" };
+	return null;
 }
 
 /** The elements a dialog's Tab cycle runs over, in document order.
@@ -67,4 +67,4 @@ export function dialogKeyIntent(
  * whatever a future dialog puts inside it — including elements that should
  * not be in the cycle. Widen it when a dialog grows a control, not before. */
 export const DIALOG_FOCUSABLE_SELECTOR = "button:not([disabled]), [href], input:not([disabled]), " +
-  "select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+	"select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";

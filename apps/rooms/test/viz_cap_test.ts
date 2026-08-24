@@ -32,7 +32,15 @@ import { spawnOwned } from "./support/children.ts";
 const CAP = "ab".repeat(32);
 
 const openRecord = (session: string): string =>
-	JSON.stringify({ v: 1, sim_t_ns: 1, kind: "ocapn.session-opened", session, a: "mallory", b: "room" });
+	JSON.stringify({
+		v: 1,
+		sim_t_ns: 1,
+		kind: "ocapn.session-opened",
+		session,
+		a: "mallory",
+		b: "room",
+		transport: "tcp",
+	});
 
 function opened(socket: WebSocket): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -65,7 +73,7 @@ Deno.test("a write without the capability is refused before a single record land
 	const port = await viz.ready;
 	try {
 		const seen: Record<string, unknown>[] = [];
-		const viewer = await connectVizViewer(port, await viz.sturdyref, (record) => seen.push(record));
+		const viewer = await connectVizViewer(await viz.sturdyref, (record) => seen.push(record));
 		const intruder = new WebSocket(`ws://127.0.0.1:${port}/publish`);
 		const refusal = closed(intruder);
 		await opened(intruder);

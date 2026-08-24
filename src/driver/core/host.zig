@@ -54,9 +54,13 @@ const host_pump = @import("host/pump.zig");
 const host_trace = @import("host/trace.zig");
 const enliven_mod = @import("enliven.zig");
 const vows_mod = @import("vows.zig");
+const vow_settlement = @import("vows/settlement.zig");
+const vow_release = @import("vows/release.zig");
+const vow_resolvers = @import("vows/resolvers.zig");
 const sessions_mod = @import("sessions.zig");
 const handoff_mod = @import("handoff.zig");
 const capability_promise = @import("capability_promise.zig");
+const capability_promise_row = @import("capability_promise/row.zig");
 const trace = @import("trace.zig");
 const publish_mod = @import("publish.zig");
 const host_close = @import("host/close.zig");
@@ -130,7 +134,7 @@ pub const Host = struct {
     capabilities: capability.Registry = .{},
     /// Inline handoff promises. Rows exist only while redemption is pending or
     /// while their opaque capability identity remains live.
-    capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise.Row) = .empty,
+    capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise_row.Row) = .empty,
     next_capability_promise: u64 = 1,
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime; zero is never issued.
@@ -194,17 +198,22 @@ pub const Host = struct {
     /// any later FIFO row; keeping the retry here preserves action order and
     /// payload ownership without a second queue representation.
     retry_last_action: bool = false,
+    /// Rows in `vows` whose producer can still settle. Kept at the row
+    /// lifecycle boundary so action reservation and close admission stay O(1)
+    /// even when an embedder retains many completed public handles. `u32`
+    /// occupies the alignment gap before `trace_sink`; publication refuses at
+    /// its bound instead of enlarging every Host.
+    pending_vow_count: u32 = 0,
     /// The live trace tap (`trace.zig`), or null. Installed by the embedder
     /// through `setTrace` / the C `pancake_host_set_trace`; with none every
     /// emit site is one null check.
     trace_sink: ?trace.Sink = null,
 
-    /// Host vow id to its heap row (the row's address is the retire
-    /// listener's stable ctx; the map may rehash). A row lives exactly until
-    /// its vow settles: the reserve/commit transaction installs the listener, the
-    /// fire removes and frees the row, and a later verb on the id refuses
-    /// `NoSuchVow` — so the map is bounded by unsettled vows, not by every
-    /// vow ever minted.
+    /// Host vow id to its heap row (the row's address is the settlement
+    /// listener's stable ctx; the map may rehash). In-process listeners consume
+    /// their rows at settlement. Embedder-facing rows retain the answer position
+    /// through settlement and retire on explicit release, preserving promise
+    /// pipelining until the public handle itself dies.
     vows: std.AutoHashMapUnmanaged(u64, *VowRow) = .{},
     next_vow: u64 = 1,
     /// Host resolver id → its session-less vow row and the vat resolver it
@@ -217,11 +226,12 @@ pub const Host = struct {
     /// ADR-0098). Each row holds the vow id minted for the caller *before*
     /// any session exists, so the outcome reaches an embedder that only
     /// drains actions; the sturdyref is owned here because it must outlive the
-    /// call that asked. A flat list, scanned when a dial settles: it is
-    /// bounded by the application's own outstanding select-or-dial enlivens,
-    /// and several may legitimately ride one ticket (the node joins dials by
-    /// identity), so a map keyed by ticket would hold lists anyway.
-    pending_enlivens: std.ArrayListUnmanaged(enliven_mod.PendingEnliven) = .empty,
+    /// call that asked. The ticket index makes settlement proportional to the
+    /// callers sharing that dial; each group stores its first row inline.
+    pending_enlivens: enliven_mod.PendingEnlivenMap = .empty,
+    /// Total parked rows; the map's own count is ticket groups. Keeping this
+    /// scalar makes action reservation and close admission O(1).
+    pending_enliven_count: usize = 0,
     /// Encode worklist: sessions with enqueued-but-unencoded outbound (a
     /// nested verb's send, a settle listener's reply). The top-level verb's
     /// unwind drives each one (`Served.driveFed`) and may then queue a
@@ -233,6 +243,15 @@ pub const Host = struct {
     /// This is distinct from per-session flush deduplication because Node work
     /// may remain with no session that can represent its wake.
     resume_action_pending: bool = false,
+    /// The action-drain resume pump refused with outbound backpressure and has
+    /// not seen the pressure become actionable since. While set, the drain's
+    /// per-action resume pump stands down, so one unfulfillable refusal cannot
+    /// re-feed the same drain pass forever: the pass runs out of actions and
+    /// returns, which is what lets the embedder reach the write, poll, or
+    /// close that actually moves the pressure. Reset at every drain-pass
+    /// entry and wherever the embedder takes outbound bytes; a refusal that
+    /// truly persists re-latches after one bounded retry per reset.
+    resume_pump_refused: bool = false,
     /// Next internal work class to inspect. Persisted across finite quanta so a
     /// continuously runnable session cannot starve Node effects or handoff
     /// notifications merely because every resumed slice restarted at lane 0.
@@ -392,6 +411,7 @@ pub const Host = struct {
     pub const openDialedLocator = sessions_mod.openDialedLocator;
     pub const openPendingDial = sessions_mod.openPendingDial;
     pub const openDialedOver = sessions_mod.openDialedOver;
+    pub const openDialedOverPending = sessions_mod.openDialedOverPending;
     const openDialedKnowing = sessions_mod.openDialedKnowing;
     pub const ensureAcceptAdvertisedLocator = sessions_mod.ensureAcceptAdvertisedLocator;
     pub const openAcceptedAdvertised = sessions_mod.openAcceptedAdvertised;
@@ -402,7 +422,6 @@ pub const Host = struct {
     const indexPartnerKey = sessions_mod.indexPartnerKey;
     const nextSessionSeed = sessions_mod.nextSessionSeed;
     const resolveSessionSecret = sessions_mod.resolveSessionSecret;
-    const indexDurablePeer = sessions_mod.indexDurablePeer;
     pub const unindexSession = sessions_mod.unindexSession;
     const liveIndexedSession = sessions_mod.liveIndexedSession;
     pub const dialedSessionFor = sessions_mod.dialedSessionFor;
@@ -424,19 +443,22 @@ pub const Host = struct {
     const freeSessionShell = sessions_mod.freeSessionShell;
     const failOpen = sessions_mod.failOpen;
 
-    /// Host vows and resolver pairs (`vows.zig`): the read side every
-    /// asynchronous verb returns, and the settle machinery behind it.
-    const VowRow = vows_mod.VowRow;
+    /// Host vows and resolver pairs: `vows.zig` owns their operations;
+    /// `vows/settlement.zig` owns their terminal transition.
+    const VowRow = vow_settlement.VowRow;
     const ResolverIndexEntry = vows_mod.ResolverIndexEntry;
     pub const vowOn = vows_mod.vowOn;
     pub const vowSession = vows_mod.vowSession;
-    pub const deferTurn = vows_mod.deferTurn;
-    pub const resolverFulfill = vows_mod.resolverFulfill;
-    pub const resolverBreak = vows_mod.resolverBreak;
+    pub const pendingVowCount = vows_mod.pendingVowCount;
+    pub const vowRelease = vow_release.release;
+    pub const deferTurn = vow_resolvers.deferTurn;
+    pub const resolverFulfill = vow_resolvers.fulfill;
+    pub const resolverBreak = vow_resolvers.breakVow;
     pub const vowSend = vows_mod.vowSend;
     pub const queueVowSend = vows_mod.queueVowSend;
     pub const vowSendValues = vows_mod.vowSendValues;
     pub const queueVowSendValues = vows_mod.queueVowSendValues;
+    pub const vowTellValues = vows_mod.vowTellValues;
     pub const vowIndex = vows_mod.vowIndex;
     pub const vowUntag = vows_mod.vowUntag;
     pub const vowGet = vows_mod.vowGet;
@@ -448,7 +470,7 @@ pub const Host = struct {
     pub const attachDeferredVow = vows_mod.attachDeferredVow;
     const commitVow = vows_mod.commitVow;
     pub const commitVowWithListener = vows_mod.commitVowWithListener;
-    pub const fireVow = vows_mod.fireVow;
+    pub const fireVow = vow_settlement.fireVow;
 
     /// Publication (`publish.zig`): the giftable and durable name registries
     /// and the resolver a fetch consults.
@@ -476,6 +498,7 @@ pub const Host = struct {
     /// embedder's dial-ticket seam, and the give verbs.
     pub const pendingDial = handoff_mod.pendingDial;
     pub const exporterDialed = handoff_mod.exporterDialed;
+    pub const completeSelectedExporter = handoff_mod.completeSelectedExporter;
     pub const dialFailed = handoff_mod.dialFailed;
     pub const dialCancelled = handoff_mod.dialCancelled;
     pub const provideGiftId = handoff_mod.provideGiftId;
@@ -488,7 +511,9 @@ pub const Host = struct {
     pub const enliven = enliven_mod.enliven;
     pub const enlivenSessionUri = enliven_mod.enlivenSessionUri;
     pub const enlivenSelectOrDial = enliven_mod.enlivenSelectOrDial;
+    pub const authenticatedSessionForKey = enliven_mod.authenticatedSessionForKey;
     pub const enlivenUri = enliven_mod.enlivenUri;
+    pub const enlivenUriForVersion = enliven_mod.enlivenUriForVersion;
     pub const enlivenWithPolicy = enliven_mod.enlivenWithPolicy;
     const matchSturdyrefPeer = enliven_mod.matchSturdyrefPeer;
     const freeParkedEnliven = enliven_mod.freeParkedEnliven;

@@ -32,12 +32,33 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
         /// step is the up-front capacity reserve, so a failure leaves the map
         /// exactly as it was — no half-installed pair survives.
         pub fn put(self: *Self, allocator: std.mem.Allocator, k: K, v: V) !void {
-            try self.forward.ensureUnusedCapacity(allocator, 1);
-            try self.reverse.ensureUnusedCapacity(allocator, 1);
+            try self.ensureUnusedCapacity(allocator, 1);
             // Evict a stale pair sharing the new key or the new value, taking
             // its opposite row with it, before the infallible insert below.
             if (self.forward.fetchRemove(k)) |old| std.debug.assert(self.reverse.remove(old.value));
             if (self.reverse.fetchRemove(v)) |old| std.debug.assert(self.forward.remove(old.value));
+            self.forward.putAssumeCapacity(k, v);
+            self.reverse.putAssumeCapacity(v, k);
+        }
+
+        /// Reserve both directions for `additional` fresh pairs. A caller that
+        /// has separately established key/value freshness can then commit with
+        /// `putAssumeNoClobber` after its other fallible preparation succeeds.
+        pub fn ensureUnusedCapacity(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            additional: u32,
+        ) !void {
+            try self.forward.ensureUnusedCapacity(allocator, additional);
+            try self.reverse.ensureUnusedCapacity(allocator, additional);
+        }
+
+        /// Install one fresh pair without allocation or eviction. This is the
+        /// transactional insertion shape for authority links: replacing either
+        /// side would silently transfer an existing capability obligation.
+        pub fn putAssumeNoClobber(self: *Self, k: K, v: V) void {
+            std.debug.assert(!self.forward.contains(k));
+            std.debug.assert(!self.reverse.contains(v));
             self.forward.putAssumeCapacity(k, v);
             self.reverse.putAssumeCapacity(v, k);
         }
@@ -48,6 +69,11 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
 
         pub fn getByValue(self: *const Self, v: V) ?K {
             return self.reverse.get(v);
+        }
+
+        pub fn len(self: *const Self) usize {
+            std.debug.assert(self.forward.count() == self.reverse.count());
+            return self.forward.count();
         }
 
         /// Remove the pair keyed by `k` (both directions); returns whether one

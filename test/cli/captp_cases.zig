@@ -118,7 +118,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     // No concurrency wrapper on purpose: the MCP spelling returns as soon as
     // the socket is bound, which is the whole point of the slice.
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&host, &listen_parsed));
-    const uri = host.last_locator.?;
+    const uri = host.publishedLocator().?;
 
     var client = makeCtx(io, gpa, &environ, 82);
     defer client.deinit();
@@ -260,7 +260,7 @@ test "listen publish greeter once then cowsay round-trips through cli.ocapn" {
 fn waitListenLocator(host: *Ctx, host_future: anytype, io: std.Io) ![]const u8 {
     var spins: usize = 0;
     while (true) : (spins += 1) {
-        if (host.last_locator) |loc| return loc;
+        if (host.publishedLocator()) |loc| return loc;
         if (spins > 50_000) {
             cli.signals.requestStop();
             _ = host_future.await(io) catch {};

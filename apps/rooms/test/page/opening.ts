@@ -7,7 +7,6 @@
 
 import type { Browser, Page } from "playwright";
 import { fail } from "./harness.ts";
-import { railQuestions } from "./filter_form.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import * as linked from "./linked.ts";
 
@@ -142,6 +141,46 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			fail("a page whose bundle did not load shows a reader nothing at all");
 		}
 		await dark.close();
+	}
+
+	// The Wasm peer can lose a race with the server building its asset. Hold
+	// that asset down past the slow-start mark: the opening screen must carry
+	// the newest real failure, keep the half-built interface covered, and then
+	// recover by itself when the same URL starts serving the module. This also
+	// proves that a rejected @pancake/web attempt is not cached forever.
+	{
+		const delayed = await browser.newContext();
+		const recovering = await delayed.newPage();
+		let rebuilding = true;
+		let attempts = 0;
+		await recovering.route("**/pancake_host.wasm", async (route) => {
+			attempts++;
+			if (rebuilding) {
+				await route.fulfill({
+					status: 503,
+					contentType: "text/plain",
+					body: "rooms: pancake_host.wasm is still building\n",
+				});
+				return;
+			}
+			await route.continue();
+		});
+		await recovering.goto(`http://127.0.0.1:${httpPort}/`);
+		await recovering.waitForSelector(".boot-why", { state: "visible", timeout: 15_000 })
+			.catch(() => fail("a slow Wasm runtime left the opening screen saying only that it was opening"));
+		const why = (await recovering.locator(".boot-why").textContent())?.trim() ?? "";
+		if (why === "") fail("the slow-runtime detail hid the failure it was retrying");
+		if (await recovering.locator("#joinBtn").isVisible()) {
+			fail("the join interface appeared before its Wasm runtime existed");
+		}
+
+		rebuilding = false;
+		await recovering.waitForSelector("#joinBtn", { timeout: 20_000 })
+			.catch(() => fail("the page did not recover after its Wasm runtime became available"));
+		await recovering.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
+			.catch(() => fail("the recovered runtime left the opening screen over the page"));
+		if (attempts < 2) fail("the page never retried the unavailable Wasm runtime");
+		await delayed.close();
 	}
 
 	// The dialog opens on Locators and keeps the knobs on Advanced.
@@ -320,6 +359,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		return {
 			standing: sink?.querySelector(".rwhere-how") != null,
 			said: sink?.querySelector(".said") != null,
+			longWhy: sink?.querySelector("#kitchenLongWhy") != null,
 			toast: sink?.querySelector(".toast") != null,
 			crash: sink?.querySelector(".crash") != null,
 			// The controls that carry a choice, all three of them. A control drawn
@@ -330,7 +370,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 				.filter((control) => sink?.querySelector("." + control) == null),
 		};
 	});
-	if (!catalog.standing || !catalog.said || !catalog.toast || !catalog.crash) {
+	if (!catalog.standing || !catalog.said || !catalog.longWhy || !catalog.toast || !catalog.crash) {
 		fail("the parts catalog is missing an answer treatment");
 	}
 	if (catalog.chosen.length > 0) {
@@ -397,11 +437,14 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await tab.click("#settingsTab");
 	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
+	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.keyboard.press("ArrowLeft");
 	await tab.waitForFunction(() =>
 		document.activeElement?.id === "overviewTab" &&
 		document.getElementById("overviewTab")?.getAttribute("tabindex") === "0" &&
 		document.getElementById("settingsTab")?.getAttribute("tabindex") === "-1"
 	).catch(() => fail("the Settings tabs did not move selection and focus together"));
+	await tab.keyboard.press("ArrowRight");
 	await tab.keyboard.press("ArrowRight");
 	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 
@@ -495,87 +538,6 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		line,
 		{ timeout: 30_000 },
 	).catch(() => fail("the sent line never came back from the room over the capability stream"));
-
-	// ── One directory draws the rail it always drew ──────────────────────
-	// Everything about several directories — the line on a row saying which
-	// directory it is on, the color it wears — arrives only when there is more
-	// than one to tell apart. With one, a reader must get exactly what they got
-	// before any of it existed, and this is the moment to say so: this tab holds
-	// the directory that served the page and nothing else, and it will hold a
-	// second one two scenes from now.
-	//
-	// Asserted as an exact inventory rather than as "nothing looks new", because
-	// the ways to break this are all additive: a box around some of the rows, a
-	// heading over them, a second field, a row naming the only directory there
-	// is. Each of those draws a rail that reads fine and is not this one.
-	const alone = await tab.evaluate(() => ({
-		lists: {
-			rooms: document.getElementById("roomList")?.tagName ?? "",
-			dms: document.getElementById("dmList")?.tagName ?? "",
-		},
-		boxes: document.querySelectorAll("#roomList > :not(li), #dmList > :not(li)").length,
-		named: document.querySelectorAll("#roomList .rwhere, #dmList .rwhere").length,
-		// A row says how its directory is doing when there is something to say,
-		// whether this tab holds one directory or several. Counted here because a
-		// connected directory has nothing to say and this one is connected: the
-		// line arrives with the news and goes with it, so a rail that carries one
-		// now is a rail that would carry it for the life of the tab.
-		standings: document.querySelectorAll("#roomList .rwhere-how, #dmList .rwhere-how").length,
-		colored: document.querySelectorAll("#roomList li[data-dir], #dmList li[data-dir]").length,
-		heads: document.querySelectorAll(".section-head").length,
-		filters: document.querySelectorAll(".rail-filter").length,
-		fields: document.querySelectorAll(".newroom").length,
-		status: document.querySelectorAll("#status").length,
-	}));
-	const extra = [
-		alone.lists.rooms !== "UL" && `the rooms list is a ${alone.lists.rooms} rather than the list it was`,
-		alone.lists.dms !== "UL" && `the direct list is a ${alone.lists.dms} rather than the list it was`,
-		alone.boxes !== 0 && `${alone.boxes} boxes stand between the rail's lists and their rows`,
-		alone.named !== 0 && `${alone.named} rows name the only directory there is`,
-		alone.standings !== 0 && `${alone.standings} rows report a standing for a directory that is connected`,
-		alone.colored !== 0 && `${alone.colored} rows wear a directory's color with nothing to tell apart`,
-		alone.heads !== 2 && `the rail has ${alone.heads} section headings rather than its two`,
-		// The one piece of chrome the rail has gained since this inventory was
-		// written, counted here deliberately rather than left out of it. One
-		// control, on the rooms heading, because how much of the rail a reader
-		// is looking at is one question and not one per list. Two would be the
-		// scoping this control does not have, and none would mean a reader on
-		// one directory had lost a way to narrow a long list of rooms.
-		alone.filters !== 1 && `the rail holds ${alone.filters} filter controls rather than one for both lists`,
-		alone.fields !== 2 && `the rail holds ${alone.fields} name fields rather than one per list`,
-		alone.status !== 1 && `the rail's foot reports ${alone.status} states rather than one`,
-	].filter((said) => said !== false);
-	if (extra.length > 0) {
-		fail(`one directory does not draw the rail it always drew: ${extra.join("; ")}`);
-	}
-
-	// The filter asks the same questions whatever this tab holds. A tab on one
-	// directory is still asked which directory, for the same reason a tab in one
-	// room is still asked for a name: a question with one answer today is a
-	// question all the same, and a control that dropped it would change shape
-	// under a reader as they joined things. What a reader gets from the answer
-	// is a different matter and not this control's to decide for them.
-	await tab.click("#railFilter");
-	await tab.waitForSelector("#railFilterPanel", { timeout: 5_000 })
-		.catch(() => fail("the rail's filter opened nothing while this tab held one directory"));
-	const asked = await tab.evaluate(() =>
-		[...document.querySelectorAll("#railFilterPanel .filter-ask")].map((ask) => ({
-			label: ask.querySelector(".filter-label")?.textContent?.trim() ?? "",
-			choices: ask.querySelectorAll(".filter-choice").length,
-		}))
-	);
-	const directory = asked.find((ask) => ask.label === "Directory");
-	if (asked.length !== railQuestions.length) {
-		fail(
-			`with one directory held the rail's filter asks ${JSON.stringify(asked.map((ask) => ask.label))} ` +
-				`rather than ${JSON.stringify(railQuestions)}`,
-		);
-	} else if (directory === undefined || directory.choices !== 1) {
-		fail(`with one directory held the filter offers ${JSON.stringify(directory)} to filter by`);
-	}
-	await tab.keyboard.press("Escape");
-	await tab.waitForSelector("#railFilterPanel", { state: "detached", timeout: 5_000 })
-		.catch(() => fail("Escape did not put the rail's filter panel away"));
 
 	// And now that this directory has granted a name, the same row answers the
 	// question that name raises. It is a registration this directory can refuse,

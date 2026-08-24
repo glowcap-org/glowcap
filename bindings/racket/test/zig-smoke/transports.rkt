@@ -110,8 +110,7 @@
       (define-values (rc id)
         (pancake_host_session_fetch (session-ptr c) (pin-immobile nb) (bytes-length nb)))
       (check/host rc)
-      (define fresh (session-vow c id 'pending '() #f))
-      (register-vow! m fresh)
+      (define fresh (adopt-minted-vow! m c id #f #f))
       ;; The drain parks the fetch deliver on the connection's pending-writes
       ;; FIFO; `with-host-drain` runs the write once the lock releases, like
       ;; every drain.
@@ -146,6 +145,12 @@
           "transport: the scripted fetch fulfilled")
   (define counter-ref (cdr (session-vow-state fetched)))
   (expect (ref? counter-ref) "transport: fetched a capability")
+  ;; Explicitly retire the consumed fetch question and serve its deterministic
+  ;; GC frame before the next scripted leg. A finalizer is not an ordering
+  ;; primitive, and this harness intentionally reads one whole frame at a time.
+  (release-vow! fetched)
+  (feed-next! server-session server-read)
+  (feed-next! client-session client-read)
   (define vow (session-far-send client-session counter-ref 'add '(5) #t))
   (drain-host! chost)                    ; the deliver leaves
   (feed-next! server-session server-read)   ; the served turn runs, the resolve leaves
@@ -153,7 +158,9 @@
   (define settled (session-vow-state vow))
   (session-close! client-session)
   (session-close! server-session)
-  (and (pair? settled) (eq? 'ok (car settled)) (cdr settled)))
+  (if (and (pair? settled) (eq? 'ok (car settled)))
+      (cdr settled)
+      settled))
 
 ;; libpancake_net_transport_inproc: the socket-free netlayer. A listener binds a
 ;; string designator; a dialer names it. The listener adds only a wake descriptor
@@ -177,7 +184,9 @@
    (lambda (f) (inproc-connection-write-frame! inproc-client f))
    (lambda () (inproc-connection-read-frame inproc-server))
    (lambda (f) (inproc-connection-write-frame! inproc-server f))))
-(expect (equal? 15 inproc-total) "inproc: counter.add(5) round-tripped to 15 over the socket-free netlayer")
+(expect (equal? 15 inproc-total)
+        (format "inproc: counter.add(5) expected 15 over the socket-free netlayer, got ~a"
+                inproc-total))
 (inproc-netlayer-release! inproc-nl)
 ;; Netlayer release owns its borrowed children; their explicit releases remain
 ;; idempotent and must never touch the backend that is now gone.
@@ -342,6 +351,25 @@
 
 (printf "racket zig-smoke OK: high-level onion listening uses the generic driver server\n")
 
+;; The dial half of the same composition: `connect-onion` composes the
+;; provider, admits the dial through the generic loop, and projects the
+;; provider's connect failure as the typed refusal. The SOCKS endpoint is the
+;; absent path, so the provider's dial fails at once and nothing here waits on
+;; a real Tor.
+(let ()
+  (define-values (control _socks _seen stop!) (start-fake-tor))
+  (define failure
+    (with-handlers ([exn:fail:pancake? values])
+      (connect-onion (onion-locator onion-service-id)
+                     #:socks absent-socks
+                     #:control control)
+      'connected))
+  (expect (exn:fail:pancake? failure)
+          "onion connect: an unreachable SOCKS endpoint is a typed dial refusal")
+  (stop!))
+
+(printf "racket zig-smoke OK: connect-onion admits its dial and reports the typed refusal\n")
+
 ;; Closing a listener before its resident setup starts cancels the pending
 ;; native operation and settles the Racket event; it must not leave a waiter
 ;; parked forever or call the driver's close path a second time.
@@ -484,4 +512,3 @@
             (onion-netlayer-connect nl "not-an-onion-address") #f)
           "onion: a malformed designator is refused before dialing")
   (onion-netlayer-release! nl))
-

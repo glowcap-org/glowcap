@@ -140,8 +140,8 @@ zig build goblins-iroh       # live Goblins over iroh (repo adapter; needs cargo
 Set up the submodules once with `bash conformance/bootstrap-submodules.sh`.
 The suite needs `uv`, and the live peer needs Racket with the Goblins
 collection; the devcontainer has both.
-[`docs/community-review.md`](docs/community-review.md) lists every interop
-check and what each one does and does not prove.
+[`docs/community-review.md`](docs/community-review.md) maps the OCapN and
+Goblins evidence and says what each listed check does and does not prove.
 
 <p align="center">
   <img src="site/assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
@@ -186,6 +186,6 @@ The [protocol diagrams](docs/protocol-diagrams/README.md) and
 
 ## License
 
-Pancake-authored work is licensed under [Apache-2.0](LICENSE-APACHE). The copied Zig test runner is
-MIT-only; [third-party notices](LICENSE-THIRD-PARTY) record its scope and
-license. Contributions are accepted under pancake's Apache-2.0 terms.
+Pancake-authored work is licensed under [Apache-2.0](LICENSE-APACHE). Third-party files keep their
+original terms; [third-party notices](LICENSE-THIRD-PARTY) record their scope
+and licenses. Contributions are accepted under pancake's Apache-2.0 terms.

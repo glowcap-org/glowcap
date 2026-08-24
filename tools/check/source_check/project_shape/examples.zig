@@ -47,7 +47,10 @@ pub fn checkExampleIndex(
         // chapter or helper.
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch {
+            try appendViolation(gpa, violations, "examples/zig/{s}: the file name overflows the inventory needle buffer; grow it", .{entry.name});
+            continue;
+        };
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index for `{s}`", .{entry.name});
         }
@@ -68,7 +71,10 @@ pub fn checkExampleIndex(
         if (!std.mem.endsWith(u8, entry.name, ".c")) continue;
 
         var needle_buf: [128]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "c/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "c/{s}", .{entry.name}) catch {
+            try appendViolation(gpa, violations, "examples/c/{s}: the file name overflows the inventory needle buffer; grow it", .{entry.name});
+            continue;
+        };
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index for `{s}`", .{entry.name});
         }

@@ -13,7 +13,7 @@ import type { Argument } from "@pancake/runtime";
 import type { Attachment } from "./attachment.ts";
 import type { Presence } from "./limits.ts";
 import { MAX_NICK, MAX_TOPIC } from "./limits.ts";
-import { AWAY, EDITED, LINE, LINE_BYTES, REFILED, TOPIC, WITHDRAWN } from "./protocol.ts";
+import { AWAY, EDITED, LINE, LINE_BYTES, LISTED, REFILED, TOPIC, UNLISTED, WITHDRAWN } from "./protocol.ts";
 
 /** One line in the room. `system` is true for the room's own announcements (a
  * member joining, your welcome); otherwise `from` is the member who said it.
@@ -80,6 +80,8 @@ export interface RoomFacts {
 	topic?: string;
 	/** See `readLineBytes`. */
 	lineBytes?: number;
+	/** See `readListed`. Whether this occupancy is a name on the directory. */
+	listed?: boolean;
 }
 
 /** Everything a room said about itself on one line, or nothing.
@@ -90,8 +92,27 @@ export interface RoomFacts {
 export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
 	const topic = readTopic(args);
 	const lineBytes = readLineBytes(args);
-	if (topic === undefined && lineBytes === undefined) return undefined;
-	return { ...(topic === undefined ? {} : { topic }), ...(lineBytes === undefined ? {} : { lineBytes }) };
+	const listed = readListed(args);
+	if (topic === undefined && lineBytes === undefined && listed === undefined) return undefined;
+	return {
+		...(topic === undefined ? {} : { topic }),
+		...(lineBytes === undefined ? {} : { lineBytes }),
+		...(listed === undefined ? {} : { listed }),
+	};
+}
+
+/** Whether this occupancy is a directory name, if the room said so, as
+ * `notify(from, text, "listed")` or `"unlisted"`.
+ *
+ * A sturdyref does not carry this, and the name it answers with does not
+ * either: a public room and a private one may share a label. Subscribe is
+ * when the occupancy can say, so `/join` of a locator seats from this rather
+ * than asking a method that an older room does not have. Unknown to a client
+ * that predates the tags, which skips them. */
+export function readListed(args: Argument[]): boolean | undefined {
+	if (args[2] === LISTED) return true;
+	if (args[2] === UNLISTED) return false;
+	return undefined;
 }
 
 /** Read the structured presence a room line carries after its display text:

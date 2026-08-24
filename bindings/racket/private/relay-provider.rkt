@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Native relay-provider composition for the generic driver loop.
 
-(require (only-in ffi/unsafe ctype-sizeof)
+(require (only-in ffi/unsafe ctype-sizeof void/reference-sink)
          net/url
          racket/lazy-require
          racket/string
@@ -139,6 +139,10 @@
      (if trust-pem RELAY-TRUST-COPIED-PEM RELAY-TRUST-SYSTEM)
      trust-ptr (if trust-pem (bytes-length trust-pem) 0)))
   (define-values (rc raw) (pancake_relay_runtime_new config))
+  ;; The config cstruct is retained as the call's argument, but it carries
+  ;; only the pins' raw addresses; the sink keeps the URL and PEM buffers
+  ;; live for the whole constructor.
+  (void/reference-sink relay-ptr register-ptr trust-ptr)
   (check-with rc (lambda () (read-last-error pancake_relay_last_error)))
   (define summary (make-PancakeRelayTrustSummary 0 0 0))
   (check-with (pancake_relay_runtime_trust_summary raw summary)

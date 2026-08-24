@@ -131,7 +131,6 @@ impl LoopShared {
 	/// native-facing state can retire only after a later consuming attempt.
 	fn defer_failed_release(self: &Rc<Self>, host: Rc<HostShared>, mut failure: Error) {
 		let retry = try_spawn_local_handle(async {
-			tokio::task::yield_now().await;
 			crate::finalizer::drain();
 		});
 		if retry.is_none() {
@@ -144,9 +143,9 @@ impl LoopShared {
 		self.released.set(true);
 		crate::finalizer::park_failed_driver(raw, context, Rc::clone(&host), failure.clone());
 		host.fail_close(failure);
-		// Callback reentry is the ordinary transient refusal. One yielded retry
-		// reaches the next safe boundary without spinning; if no LocalSet exists,
-		// the process queue remains the durable owner until another boundary.
+		// A spawned task cannot run inside the callback that queued it. If no
+		// LocalSet exists, the process queue remains the durable owner until
+		// another safe boundary.
 	}
 
 	/// Create the loop over a fresh host (identity and session-key root drawn
@@ -474,6 +473,10 @@ impl LoopShared {
 			return Ok(());
 		}
 		self.guard_handle()?;
+		// Serving releases application frames parked behind the handshake and
+		// may invoke a hosted behavior before the native call returns.
+		let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
+		let _deliver = host.as_ref().map(DeliverGuard::enter_host);
 		self.driver.session_serve(session)?;
 		self.schedule_step();
 		Ok(())

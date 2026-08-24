@@ -9,7 +9,7 @@
 
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type { AttachmentView, Conv, DirId, DirView, SessionPhase } from "./types.ts";
+import type { AttachmentView, Conv, DirId, DirView, LiveRooms, SessionPhase } from "./types.ts";
 import type { JoinAnswers } from "./joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";
@@ -50,7 +50,7 @@ export function Stream(
 		/** The kept files of a file line being changed, when the change is to one.
 		 * Present turns the composer into a view of that line's files. */
 		draftKeeping: readonly AttachmentView[] | undefined;
-		liveRooms: ReadonlyMap<string, number>;
+		liveRooms: LiveRooms;
 		reachable: ReadonlySet<string>;
 		/** Every join-card field with the evidence behind it, resolved from the
 		 * act the reader arrived by. */

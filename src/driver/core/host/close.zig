@@ -8,8 +8,10 @@
 //! close, advance time, and observe the resulting state.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const model = @import("model");
+const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
 const close_mod = @import("../close.zig");
@@ -75,8 +77,11 @@ fn startTermination(self: *Host, abort_kind: model.AbortKind, timed_out: bool) v
     // was delivered, so its cancellation command can reuse that reserved
     // capacity without making terminal close fallible.
     var cancellations = self.node.requestDialCancellations();
-    while (cancellations.next()) |ticket|
-        self.actions.pushReserved(.{ .cancel_dial = .{ .ticket = ticket } });
+    while (cancellations.next()) |cancellation|
+        self.actions.pushReserved(.{ .cancel_dial = .{
+            .ticket = cancellation.pending,
+            .route_index = cancellation.route_index,
+        } });
     self.node.cancelPendingGifts();
 }
 
@@ -197,6 +202,31 @@ fn nextSessionCloseDeadline(self: *const Host) ?i64 {
     return self.next_session_close_deadline_ms;
 }
 
+fn refreshSessionCloseDeadline(self: *Host) void {
+    self.next_session_close_deadline_ms = null;
+    var timings = self.session_close_timing.valueIterator();
+    while (timings.next()) |timing| switch (timing.*) {
+        .deadline_ms => |deadline| noteSessionCloseDeadline(self, deadline),
+        .timed_out => {},
+    };
+}
+
+fn removedDeadline(self: *Host, timing: SessionCloseTiming) void {
+    const deadline = switch (timing) {
+        .deadline_ms => |deadline| deadline,
+        .timed_out => return,
+    };
+    if (self.next_session_close_deadline_ms == deadline)
+        refreshSessionCloseDeadline(self);
+}
+
+/// Drop any close timing when its session shell dies, keeping the nearest
+/// timer cache derived from the remaining authoritative rows.
+pub fn removeSessionCloseTiming(self: *Host, peer_handle: engine.PeerHandle) void {
+    const removed = self.session_close_timing.fetchRemove(peer_handle) orelse return;
+    removedDeadline(self, removed.value);
+}
+
 /// Milliseconds until the nearest finite Host or session close deadline.
 /// `-1` means no timer can advance close; zero means progress is due now.
 /// Keeping the selection and clamp here lets every adapter project the same
@@ -278,8 +308,10 @@ pub fn sessionCloseActionDelivered(self: *const Host, session: *const HostSessio
 /// row with its sticky result and keeps it through release.
 pub fn markSessionTerminating(self: *Host, session: *HostSession) void {
     if (self.session_close_timing.get(session.peer_handle)) |timing| {
-        if (timing == .deadline_ms)
-            std.debug.assert(self.session_close_timing.remove(session.peer_handle));
+        if (timing == .deadline_ms) {
+            const removed = self.session_close_timing.fetchRemove(session.peer_handle) orelse unreachable;
+            removedDeadline(self, removed.value);
+        }
     }
     session.control.phase = .terminating;
     self.finishSessionOpen(session);
@@ -297,8 +329,8 @@ pub fn advanceCloseLifecycle(self: *Host) bool {
     if (phase == .finishing) {
         const pending_flush = self.pending_flush.peek() != null;
         if (self.pending_operations != 0 or
-            self.vows.count() != 0 or
-            self.pending_enlivens.items.len != 0 or
+            self.pendingVowCount() != 0 or
+            self.pending_enliven_count != 0 or
             self.node.pendingDialCount() != 0 or
             self.node.pendingGiftEffects() != 0 or
             self.actions.peek() != null or
@@ -315,8 +347,7 @@ pub fn advanceCloseLifecycle(self: *Host) bool {
     if (!terminal.sessions_started) {
         terminal.sessions_started = true;
         started_terminal = true;
-        if (terminal.abort_kind == .normal_shutdown)
-            enliven_mod.cancelParkedEnlivens(self, "host closing");
+        enliven_mod.cancelParkedEnlivens(self, "host closing");
         var sessions = self.sessions.valueIterator();
         while (sessions.next()) |session|
             host_pump.condemnAndClose(self, session.*, terminal.abort_kind, "host closing");
@@ -325,6 +356,7 @@ pub fn advanceCloseLifecycle(self: *Host) bool {
     if (self.actions.peek() == null and
         !self.retry_last_action and
         !pending_flush and
+        self.pending_enliven_count == 0 and
         self.node.pendingDialCount() == 0)
     {
         const timed_out = terminal.timed_out;
@@ -332,3 +364,9 @@ pub fn advanceCloseLifecycle(self: *Host) bool {
     }
     return started_terminal;
 }
+
+pub const testing = if (builtin.is_test) struct {
+    pub fn startAbnormalTermination(self: *Host) void {
+        startTermination(self, .other, false);
+    }
+} else struct {};

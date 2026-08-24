@@ -10,26 +10,27 @@
 // dial each other at all.
 
 import { formatSturdyRef, Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
-import type { Argument, Session } from "@pancake/runtime";
+import type { Session } from "@pancake/runtime";
 import { type RoomsDial, roomsLocator } from "./locator.ts";
-import { MAX_NICK, MAX_ROOM } from "./limits.ts";
 import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
-	CAPTP_VERSION,
+	ADVERTISED_LOCATION,
 	DIRECTORY,
 	ENTER,
+	ENTER_PUBLICATION,
 	INTRODUCE,
 	LINK,
-	LIST,
+	LIST_PUBLICATIONS,
 	NOTIFY,
 	OFFER_INBOX,
 	OPEN,
 	REGISTER,
 	VOUCHER,
-	WATCH,
+	WATCH_PUBLICATIONS,
 } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import { DirectorySignaling } from "./directory_signal.ts";
+import { parseRooms, readRoomEvent, type RoomEvent, type RoomInfo } from "./directory_publications.ts";
 
 // How long `register` waits for the directory's `notify("registered")` before it
 // rejects. A registration whose ack never lands (the server's `registerMember`
@@ -40,68 +41,6 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
 // directory has asked them for one. Bounded, because the peer may never answer.
 const INTRODUCIBLE_TIMEOUT_MS = 10_000;
-
-/** One live room in the directory: its name and how many people are in it. */
-export interface RoomInfo {
-	name: string;
-	count: number;
-}
-
-/** A change to the directory's live state, pushed to a `watch` observer. Some
- * changes are about rooms: a room `opened` when its first member arrived,
- * `closed` when its last left, or changed its member `count`. For those, `name`
- * is the room and `count` is how many are in it. Other changes are about people:
- * a member became `registered` or `unregistered` for direct messages, and there
- * `name` is the member's nick and `count` is 1 or 0. Both kinds arrive on one
- * observer, so switch on `kind` to tell them apart. */
-export interface RoomEvent {
-	kind: "opened" | "closed" | "count" | "registered" | "unregistered";
-	name: string;
-	count: number;
-}
-
-const ROOM_EVENT_KINDS: readonly string[] = ["opened", "closed", "count", "registered", "unregistered"];
-
-/** One change a directory pushes to a watcher, or null when what arrived is not
- * one.
- *
- * A directory is whatever answered the address somebody typed, and this is the
- * feed it keeps open: every event names something and counts something, and both
- * were taken as given. A kind nobody knows fell through to the room list, a name
- * longer than one may be was kept for as long as the tab held that directory,
- * and a count that is not a count was drawn as it stood. Read the way a
- * malformed cap already is: it said nothing. */
-export function readRoomEvent(args: Argument[]): RoomEvent | null {
-	const kind = args[0];
-	const name = args[1];
-	if (typeof kind !== "string" || !ROOM_EVENT_KINDS.includes(kind)) return null;
-	if (typeof name !== "string") return null;
-	// A member event names a member and a room event names a room. Each is held
-	// to its own ceiling, since they are two different things wearing one field.
-	const about = kind === "registered" || kind === "unregistered" ? MAX_NICK : MAX_ROOM;
-	if (name.length === 0 || name.length > about) return null;
-	const count = Number(args[2] ?? 0);
-	if (!Number.isSafeInteger(count) || count < 0) return null;
-	return { kind: kind as RoomEvent["kind"], name, count };
-}
-
-/** Parse the wire shape of `list`/`watch` — a list of `[name, count]` pairs,
- * counts arriving as `bigint` — into `RoomInfo`s. */
-function parseRooms(raw: Argument): RoomInfo[] {
-	if (!Array.isArray(raw)) return [];
-	const out: RoomInfo[] = [];
-	for (const item of raw) {
-		if (!Array.isArray(item) || item.length < 2) continue;
-		// Held to what the feed's own events are held to, since this is the same
-		// list arriving in one piece rather than a change at a time. Read rather
-		// than coerced: `String` of whatever a directory sent turns an unnamed
-		// thing into the word for it, and `Number` of it turns a missing count
-		// into one nobody can draw.
-		const named = readRoomEvent(["count", item[0], item[1]]);
-		if (named !== null) out.push({ name: named.name, count: named.count });
-	}
-	return out;
-}
 
 // ── Which directory a redeem rides (ADR-0089) ──────────────────────────────
 //
@@ -265,6 +204,17 @@ export class Directory {
 		) as Promise<Ref>;
 	}
 
+	/** Return the exact generation advertised by this wrapper's rich discovery verbs. */
+	enterPublication(id: string): Promise<Ref> {
+		return ask(
+			this.session,
+			this.#directory,
+			ENTER_PUBLICATION,
+			[id],
+			"the directory did not answer entering that room publication",
+		) as Promise<Ref>;
+	}
+
 	/** The stable room sturdyref this directory minted. The peer half comes from
 	 * the locator the caller actually used, preserving its authenticated route
 	 * and current reachability hints; the server answers only the opaque swiss
@@ -280,14 +230,35 @@ export class Directory {
 		if (typeof swiss !== "string" || swiss.length === 0) {
 			throw new Error(`link("${name}") did not return a swissnum`);
 		}
-		return formatSturdyRef(roomsLocator(locator), swiss, CAPTP_VERSION);
+		return formatSturdyRef(roomsLocator(locator), swiss, this.session.profile.captpVersion);
 	}
 
 	/** The live rooms right now, the ones with people in them. */
 	async list(): Promise<RoomInfo[]> {
 		return parseRooms(
-			await ask(this.session, this.#directory, LIST, [], "the directory did not answer its room list"),
+			await ask(
+				this.session,
+				this.#directory,
+				LIST_PUBLICATIONS,
+				[],
+				"the directory did not answer its room list",
+			),
 		);
+	}
+
+	/** Ask the server that owns its listeners how durable links should reach it. */
+	async advertisedLocation(): Promise<string> {
+		const location = await ask(
+			this.session,
+			this.#directory,
+			ADVERTISED_LOCATION,
+			[],
+			"the directory did not answer its advertised location",
+		);
+		if (typeof location !== "string" || location.length === 0) {
+			throw new Error("advertisedLocation did not return a locator");
+		}
+		return location;
 	}
 
 	/** Follow the live room list: spawn an observer the directory calls back with
@@ -304,7 +275,7 @@ export class Directory {
 			const raw = await ask(
 				this.session,
 				this.#directory,
-				WATCH,
+				WATCH_PUBLICATIONS,
 				[observer],
 				"the directory did not answer watching its rooms",
 			);

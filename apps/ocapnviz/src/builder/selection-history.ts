@@ -12,15 +12,8 @@ import type React from "react";
 import type { Engine } from "../engine/engine.ts";
 import { findNode } from "../engine/world.ts";
 import { authoredPins } from "../engine/event-helpers.ts";
-import { observationsOf } from "../engine/temporal/recording-access.ts";
-import type { TimelineDocument } from "../engine/timeline.ts";
 import { selectionPhrase, tallyByKind } from "../ui/inspector/selection-summary.ts";
-import {
-  type EntityRefKey,
-  parseEntityKey,
-  type SelectionAction,
-  type SelectionDocSnapshot,
-} from "../interactions/types.ts";
+import { type EntityRefKey, parseEntityKey, type SelectionAction } from "../interactions/types.ts";
 import { nodeKindOf } from "../schema/session-end.ts";
 import { asOneEdit } from "./as-one-edit.ts";
 
@@ -37,20 +30,23 @@ import { asOneEdit } from "./as-one-edit.ts";
  * transaction that would close on no change.
  */
 export function clearAllPins(engine: Engine): void {
-  const pins = authoredPins(engine.doc);
-  if (pins.size === 0) return;
-  asOneEdit(engine, "Unpin all", () => {
-    for (const nodeId of pins.keys()) {
-      if (nodeKindOf(nodeId) === "endpoint") {
-        engine.dispatch({
-          kind: "clear-endpoint-position",
-          endpointId: nodeId,
-        });
-      } else {
-        engine.dispatch({ kind: "clear-peer-position", peerId: nodeId });
-      }
-    }
-  });
+	const pins = authoredPins(engine.doc);
+	if (pins.size === 0) return;
+	asOneEdit(engine, "Unpin all", () => {
+		for (const nodeId of pins.keys()) {
+			if (nodeKindOf(nodeId) === "endpoint") {
+				engine.dispatch({
+					kind: "clear-endpoint-position",
+					endpointId: nodeId,
+				});
+			} else {
+				engine.dispatch({
+					kind: "clear-peer-position",
+					peerId: nodeId,
+				});
+			}
+		}
+	});
 }
 
 /**
@@ -73,61 +69,50 @@ export function clearAllPins(engine: Engine): void {
  * over a selection of sessions go on scrubbing time.
  */
 export function nudgeSelection(
-  engine: Engine,
-  selection: ReadonlySet<EntityRefKey>,
-  delta: { dx: number; dy: number },
+	engine: Engine,
+	selection: ReadonlySet<EntityRefKey>,
+	delta: { dx: number; dy: number },
 ): boolean {
-  const moving: {
-    key: EntityRefKey;
-    kind: "peer" | "endpoint";
-    id: string;
-    to: { x: number; y: number };
-  }[] = [];
-  for (const key of selection) {
-    const { kind, id } = parseEntityKey(key);
-    if (kind !== "peer" && kind !== "endpoint") continue;
-    const from = findNode(engine.world, id)?.position;
-    if (from === undefined) continue;
-    moving.push({
-      key,
-      kind,
-      id,
-      to: { x: from.x + delta.dx, y: from.y + delta.dy },
-    });
-  }
-  if (moving.length === 0) return false;
-  const moved = new Set<EntityRefKey>(moving.map((m) => m.key));
-  asOneEdit(engine, `Nudge ${selectionPhrase(tallyByKind(moved))}`, () => {
-    engine.repositionNodes(
-      moving.map((m) => ({
-        kind: m.kind,
-        id: m.id,
-        position: m.to,
-      })),
-    );
-  });
-  return true;
-}
-
-/** What the selection store needs to know about the document it is
- *  selecting in. The store holds no engine import, so this is where a
- *  real document is read into the shape its actions carry. */
-export function selectionDocOf(doc: TimelineDocument): SelectionDocSnapshot {
-  return {
-    observations: observationsOf(doc),
-    duration: doc.duration,
-    entities: doc.entities,
-  };
+	const moving: {
+		key: EntityRefKey;
+		kind: "peer" | "endpoint";
+		id: string;
+		to: { x: number; y: number };
+	}[] = [];
+	for (const key of selection) {
+		const { kind, id } = parseEntityKey(key);
+		if (kind !== "peer" && kind !== "endpoint") continue;
+		const from = findNode(engine.world, id)?.position;
+		if (from === undefined) continue;
+		moving.push({
+			key,
+			kind,
+			id,
+			to: { x: from.x + delta.dx, y: from.y + delta.dy },
+		});
+	}
+	if (moving.length === 0) return false;
+	const moved = new Set<EntityRefKey>(moving.map((m) => m.key));
+	asOneEdit(engine, `Nudge ${selectionPhrase(tallyByKind(moved))}`, () => {
+		engine.repositionNodes(
+			moving.map((m) => ({
+				kind: m.kind,
+				id: m.id,
+				position: m.to,
+			})),
+		);
+	});
+	return true;
 }
 
 function reconcileSelection(
-  engine: Engine,
-  dispatchSelection: React.Dispatch<SelectionAction>,
+	engine: Engine,
+	dispatchSelection: React.Dispatch<SelectionAction>,
 ): void {
-  dispatchSelection({
-    kind: "reconcile-with-doc",
-    doc: selectionDocOf(engine.doc),
-  });
+	dispatchSelection({
+		kind: "reconcile-with-doc",
+		entities: engine.doc.entities,
+	});
 }
 
 /**
@@ -141,22 +126,22 @@ function reconcileSelection(
  * reaching for the engine on its own.
  */
 export function undoWithSelection(
-  engine: Engine,
-  dispatchSelection: React.Dispatch<SelectionAction>,
+	engine: Engine,
+	dispatchSelection: React.Dispatch<SelectionAction>,
 ): void {
-  engine.undo();
-  reconcileSelection(engine, dispatchSelection);
+	engine.undo();
+	reconcileSelection(engine, dispatchSelection);
 }
 
 /** Take history forward, and walk the selection with it. The mirror of
  *  `undoWithSelection`: redo moves ids under the selection exactly as undo
  *  does, so it takes the same pair of steps. */
 export function redoWithSelection(
-  engine: Engine,
-  dispatchSelection: React.Dispatch<SelectionAction>,
+	engine: Engine,
+	dispatchSelection: React.Dispatch<SelectionAction>,
 ): void {
-  engine.redo();
-  reconcileSelection(engine, dispatchSelection);
+	engine.redo();
+	reconcileSelection(engine, dispatchSelection);
 }
 
 /**
@@ -176,11 +161,11 @@ export function redoWithSelection(
  * `undoAllWithSelection` below.
  */
 export function discardAllEdits(
-  engine: Engine,
-  dispatchSelection: React.Dispatch<SelectionAction>,
+	engine: Engine,
+	dispatchSelection: React.Dispatch<SelectionAction>,
 ): void {
-  engine.discardAllEdits();
-  reconcileSelection(engine, dispatchSelection);
+	engine.discardAllEdits();
+	reconcileSelection(engine, dispatchSelection);
 }
 
 /**
@@ -199,9 +184,9 @@ export function discardAllEdits(
  * only the fields a `DocSnapshot` carries.
  */
 export function undoAllWithSelection(
-  engine: Engine,
-  dispatchSelection: React.Dispatch<SelectionAction>,
+	engine: Engine,
+	dispatchSelection: React.Dispatch<SelectionAction>,
 ): void {
-  engine.undoAll();
-  reconcileSelection(engine, dispatchSelection);
+	engine.undoAll();
+	reconcileSelection(engine, dispatchSelection);
 }

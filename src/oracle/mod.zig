@@ -98,7 +98,6 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "scenario=driven_deliver_resolve\n");
 
-    try pair.p1.session_state.registerImport(.from(0));
     try pair.p1.sendCopying(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(0) } },
         .args = &.{.{ .bytes = "ping" }},
@@ -202,32 +201,19 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     } });
     _ = try pair.p2.step();
     try out.appendSlice(allocator, "p2=sent:resolve:answer=42\n");
-    {
-        const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedOwned(frame);
-    }
-    _ = try pair.p2.step();
-    {
-        const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedOwned(frame);
-    }
-
-    _ = try pair.p1.step();
-    if (pair.p1.pollEvent()) |event_value| {
+    try scenario_support.shuttleFrames(&pair.p2, &pair.p1);
+    while (pair.p1.pollEvent()) |event_value| {
         var event = event_value;
         defer event.deinit();
-        try appendTraceLine(allocator, &out, "p1=event:{s}\n", .{@tagName(event.kind())});
-    }
-    _ = try pair.p1.step();
-    if (pair.p1.pollEvent()) |event_value| {
-        var event = event_value;
-        defer event.deinit();
-        const view = try event.view();
-        try appendTraceLine(allocator, &out, "p1=event:{s}:listener={d}:fulfill={s}\n", .{
-            @tagName(event.kind()),
-            view.deliver.target.near.export_position.int(),
-            (try view.deliver.args.at(1)).bytes,
-        });
+        if (event.kind() == .deliver) {
+            const view = try event.view();
+            try appendTraceLine(allocator, &out, "p1=event:deliver:listener={d}:fulfill={s}\n", .{
+                view.deliver.target.near.export_position.int(),
+                (try view.deliver.args.at(1)).bytes,
+            });
+        } else {
+            try appendTraceLine(allocator, &out, "p1=event:{s}\n", .{@tagName(event.kind())});
+        }
     }
     try out.appendSlice(allocator, "\n");
 

@@ -23,6 +23,7 @@ pub const scanStream = decode.scanStream;
 pub const self_delimiting = true;
 pub const decodeOwned = decode.decodeOwned;
 pub const readLocatorOwned = decode.readLocatorOwned;
+pub const readLocatorView = decode.readLocatorView;
 pub const decodeSignedHandoffGiveOwned = decode.decodeSignedHandoffGiveOwned;
 pub const spanSignedHandoffGive = decode.spanSignedHandoffGive;
 

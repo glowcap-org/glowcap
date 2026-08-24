@@ -92,7 +92,6 @@ pub const index_big_integer: u64 = 1;
 pub const index_negative: u64 = 2;
 
 pub const ResolutionKind = enum(u16) { fulfill = 0, @"break" = 1 };
-pub const PipelineOpKind = enum(u16) { field = 0, call = 1 };
 pub const HandoffKind = enum(u16) { give = 0, receive = 1 };
 
 /// A `model.HintValue` entry's discriminant, carried in a hint-entry element's

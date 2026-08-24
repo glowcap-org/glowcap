@@ -24,12 +24,14 @@ def ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView, _Failu
     u16 = ctypes.c_uint16
     u8 = ctypes.c_uint8
     u32 = ctypes.c_uint32
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     i64 = ctypes.c_int64
     size_p = ctypes.POINTER(size)
     u16_p = ctypes.POINTER(u16)
     u32_p = ctypes.POINTER(u32)
     return {
+        "pancake_ocapn_archive_fingerprint": ([], u64),
         "pancake_abi_version": ([u32_p, u32_p, u32_p], None),
         "pancake_last_error": ([P, size], size),
         "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], i32),
@@ -80,6 +82,7 @@ def driver_sigs(
     _PartnerIdentity,
     _TraceCallback,
     _CloseOptions,
+    _SessionLimitOptions,
 ):
     """``libpancake_host`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
@@ -93,6 +96,7 @@ def driver_sigs(
     u32_p = ctypes.POINTER(u32)
     u64_p = ctypes.POINTER(u64)
     return {
+        "pancake_host_archive_fingerprint": ([], u64),
         "pancake_host_new_in": ([P, P, size, size, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
         "pancake_host_diagnostic_id": ([P, u64_p], i32),
         "pancake_host_close": ([P, ctypes.POINTER(_CloseOptions), i64], i32),
@@ -102,23 +106,25 @@ def driver_sigs(
         "pancake_host_designator_from_seed": ([P, size, P, size], i32),
         "pancake_host_set_advertised_locator": ([P, ctypes.POINTER(_LocatorView)], i32),
         "pancake_host_remove_advertised_locator": ([P, P, size], i32),
-        "pancake_host_set_session_limits": ([P, size, size, size], i32),
+        "pancake_host_set_session_limits": ([P, ctypes.POINTER(_SessionLimitOptions)], i32),
         "pancake_host_session_open_dialed_locator": ([P, ctypes.POINTER(_LocatorView), ctypes.POINTER(P)], i32),
         "pancake_host_session_open_accepted": ([P, P, size, u32, P, size, P, size, ctypes.POINTER(P)], i32),
-        "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_LocatorHintView), size, ctypes.POINTER(_LocatorView), size_p], i32),
+        "pancake_host_pending_dial": ([P, u64, size, ctypes.POINTER(_LocatorHintView), size, ctypes.POINTER(_LocatorView), size_p], i32),
         "pancake_host_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
         "pancake_host_session_close": ([P, ctypes.POINTER(_CloseOptions), i64], i32),
         "pancake_host_session_close_progress": ([P, i64, u32_p], i32),
         "pancake_host_session_release": ([P], i32),
         "pancake_host_session_is_open": ([P], i32),
+        "pancake_host_session_profile": ([P, u32_p, u32_p, u32_p], i32),
+        "pancake_host_session_transport_name": ([P, ctypes.POINTER(P), size_p], i32),
         "pancake_host_session_trace_id": ([P, u64_p], i32),
         "pancake_host_session_feed_bytes": ([P, P, size], i32),
         "pancake_host_session_resume_feed": ([P], i32),
         "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
         "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p, u32_p], i32),
-        "pancake_host_dialed": ([P, u64, P], i32),
-        "pancake_host_dial_failed": ([P, u64, P, size], i32),
-        "pancake_host_dial_cancelled": ([P, u64], i32),
+        "pancake_host_dialed": ([P, u64, size, P, P], i32),
+        "pancake_host_dial_failed": ([P, u64, size, P, size], i32),
+        "pancake_host_dial_cancelled": ([P, u64, size], i32),
         "pancake_host_provide_gift_id": ([P, u64, P, size], i32),
         "pancake_host_gift_id_failed": ([P, u64], i32),
         "pancake_host_session_publish": ([P, P, size, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
@@ -130,6 +136,7 @@ def driver_sigs(
         "pancake_host_session_fetch": ([P, P, size, u64_p], i32),
         "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_enliven": ([P, P, size, u64_p], i32),
+        "pancake_host_enliven_for_version": ([P, u32, P, size, u64_p], i32),
         "pancake_host_set_trace": ([P, _TraceCallback, P], i32),
         "pancake_host_resolver_fulfill": ([P, u64, ctypes.POINTER(_Argument)], i32),
         "pancake_host_resolver_break": ([P, u64, P, size], i32),
@@ -137,6 +144,8 @@ def driver_sigs(
         "pancake_host_session_send": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size, u64_p], i32),
         "pancake_host_session_tell": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size], i32),
         "pancake_host_vow_send": ([P, u64, P, size, ctypes.POINTER(_Argument), size, u64_p], i32),
+        "pancake_host_vow_tell": ([P, u64, P, size, ctypes.POINTER(_Argument), size], i32),
+        "pancake_host_vow_release": ([P, u64], i32),
         "pancake_host_vow_index": ([P, u64, u64, u64_p], i32),
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
         "pancake_host_vow_get": ([P, u64, P, size, u64_p], i32),
@@ -177,6 +186,7 @@ def loop_sigs(
     u32_p = ctypes.POINTER(u32)
     u64_p = ctypes.POINTER(u64)
     return {
+        "pancake_driver_archive_fingerprint": ([], u64),
         "pancake_driver_take_host": ([P, ctypes.POINTER(_DriverOptions), ctypes.POINTER(P)], i32),
         "pancake_driver_close": ([P, ctypes.POINTER(_CloseOptions)], i32),
         "pancake_driver_retire": ([P], i32),

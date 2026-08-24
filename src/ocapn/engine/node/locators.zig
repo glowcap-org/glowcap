@@ -45,6 +45,7 @@ pub fn retainAdvertisedLocator(self: *Node, locator: model.PeerLocator) !void {
 /// Retain `locator` as a fallback without displacing an existing selection.
 /// If no route is selected, this first fallback becomes the selection.
 pub fn ensureAdvertisedLocator(self: *Node, locator: model.PeerLocator) !void {
+    try model.validatePeerLocator(locator);
     if (self.locators.by_transport.get(locator.transport)) |stored| {
         if (self.locators.selected_transport == null)
             self.locators.selected_transport = stored.transport;
@@ -91,6 +92,7 @@ pub fn acceptableLocator(self: *const Node) ?model.PeerLocator {
 /// Deep-copy a snapshot before mutating the Catalog and return the canonical
 /// retained key. Allocation failure preserves the previous row and selection.
 fn retainCanonical(self: *Node, locator: model.PeerLocator) ![]const u8 {
+    try model.validatePeerLocator(locator);
     const owned = try model.view.PeerLocator.fromOwned(&locator).toOwned(self.allocator);
     errdefer model.freePeerLocator(self.allocator, owned);
 

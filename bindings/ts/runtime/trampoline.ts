@@ -2,8 +2,9 @@
 // hosted object — a `Session.spawn`/`publish` actor, a caretaker or
 // attenuator proxy, a host-wide giftable — registers here and shares a single
 // process-lifetime `PancakeHostBehavior` whose ctx is the entry's registry id
-// packed as a pointer-sized integer (free = NULL: the registry owns the JS
-// side, so there is nothing for the library to free). Settlements never cross
+// packed as a pointer-sized integer. Host-wide publications also pass the one
+// shared context-free callback, so the native Vat retires their JS ownership
+// with their last actor root. Settlements never cross
 // the C boundary as callbacks; they ride the action queue (SETTLE/FAIL).
 //
 // Reply discipline: the vat copies `out_reply`'s payload the instant the
@@ -26,50 +27,20 @@ import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
 import { type Argument, type Behavior, Forward, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
+import { type BehaviorEntry, entryFor, releaseNativeBehavior } from "./behavior_registry.ts";
 
-/** One hosted object's behavior and Host-local reference resolver. The
- * resolver lets a `Forward` chain, such as a caretaker over an attenuator,
- * compose in process. A giftable has no resolver until a session projects it
- * and records that Host identity in the shared hosted index. */
-export interface BehaviorEntry {
-	run: Behavior;
-	/** Resolve a local Host capability id to its entry, or null when the entry
-	 * has not joined the Host's local-composition index. */
-	resolveLocal: ((refId: bigint) => BehaviorEntry | undefined) | null;
-}
+export {
+	type BehaviorEntry,
+	entryFor,
+	type NativeBehaviorOwner,
+	registerBehavior,
+	unregisterBehavior,
+} from "./behavior_registry.ts";
 
 // One encoder/decoder pair for every turn: both are stateless here, and the
 // trampoline is the binding's hottest path.
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
-
-// The process-global callback lookup is weak. Each live Host strongly owns its
-// entries, so a behavior that closes over that Host remains a collectable
-// Host-local cycle instead of becoming a process-global root. The C callback
-// has free = NULL; Host.close removes rows deterministically when teardown
-// begins, before native storage waits for admitted workers to stop.
-const registry = new Map<bigint, WeakRef<BehaviorEntry>>();
-let nextId = 1n;
-
-/** Register a hosted object's behavior, returning the ctx id to pass as the
- * trampoline's ctx pointer. */
-export function registerBehavior(entry: BehaviorEntry): bigint {
-	const id = nextId++;
-	registry.set(id, new WeakRef(entry));
-	return id;
-}
-
-/** Drop a hosted entry after its Host is released. Binding-internal. */
-export function unregisterBehavior(id: bigint): void {
-	registry.delete(id);
-}
-
-/** The entry behind a ctx id, for in-process `Forward` composition. */
-export function entryFor(id: bigint): BehaviorEntry | undefined {
-	const entry = registry.get(id)?.deref();
-	if (entry === undefined) registry.delete(id);
-	return entry;
-}
 
 // Chase a behavior's result through the locally hosted `Forward` prefix:
 // while it forwards to a near target the current entry's Host
@@ -222,22 +193,33 @@ export async function tellLocal(
 /** Far tell mint: encode args, call `pancake_host_session_tell`, kick the drain. Local
  * targets stay behind `dispatchTell` / `tellLocal`. */
 export async function tellFar(
-	h: { ptr: Ptr; kickActions(): Promise<void> },
-	target: Ref,
+	h: PromiseFactoryHandle,
+	target: Ref | RemotePromise,
 	verb: string,
 	args: Argument[],
 ): Promise<void> {
 	const verbBytes = utf8Encoder.encode(verb);
 	const keep: Uint8Array[] = [];
 	const argsBuf = encodeArgs(args, keep);
-	checkHost(hostS.pancake_host_session_tell(
-		h.ptr,
-		ab(refStruct(target)),
-		ab(verbBytes),
-		BigInt(verbBytes.length),
-		ab(argsBuf),
-		BigInt(args.length),
-	));
+	if (target instanceof RemotePromise) {
+		checkHost(hostS.pancake_host_vow_tell(
+			h.hostRaw,
+			target.farVow(h.hostOwner),
+			ab(verbBytes),
+			BigInt(verbBytes.length),
+			ab(argsBuf),
+			BigInt(args.length),
+		));
+	} else {
+		checkHost(hostS.pancake_host_session_tell(
+			h.ptr,
+			ab(refStruct(target)),
+			ab(verbBytes),
+			BigInt(verbBytes.length),
+			ab(argsBuf),
+			BigInt(args.length),
+		));
+	}
 	await h.kickActions();
 }
 
@@ -269,14 +251,14 @@ export function dispatchSend(
  * everything else mints through `tellFar`. */
 export async function dispatchTell(
 	hosted: Map<bigint, bigint>,
-	h: { ptr: Ptr; kickActions(): Promise<void> },
-	target: Ref,
+	h: PromiseFactoryHandle,
+	target: Ref | RemotePromise,
 	verb: string,
 	args: Argument[],
-	recurse: (target: Ref, verb: string, args: Argument[]) => Promise<void>,
+	recurse: (target: Ref | RemotePromise, verb: string, args: Argument[]) => Promise<void>,
 	recordFailure: (error: unknown) => void,
 ): Promise<void> {
-	{
+	if (target instanceof Ref) {
 		const ctx = hosted.get(target.id);
 		if (ctx !== undefined) {
 			await tellLocal(ctx, verb, args, recurse, recordFailure);
@@ -367,7 +349,7 @@ function settleReply(
 		// owning Host, which the enclosing feed bracket carries.
 		const owner = activeDeliver ?? undefined;
 		if (owner === undefined || typeof owner.deferTurnToPromise !== "function") {
-			return turnBreak(turn, "async behavior outside a session feed");
+			return turnBreak(turn, "async behavior outside native Host progress");
 		}
 		if (!owner.deferTurnToPromise(turn, result)) {
 			return turnBreak(turn, hostLastError() ?? "deferral refused");
@@ -436,6 +418,7 @@ function trampoline(
 // may deliver for as long as the process hosts objects). Deno and Bun register
 // callbacks globally, so the runtime FFI mints it once for every archive.
 let trampolineCb: { pointer: Ptr } | null = null;
+let hostedFreeCb: { pointer: Ptr } | null = null;
 
 /** The shared trampoline's native pointer, for publish/spawn calls. */
 export function trampolinePointer(): Ptr {
@@ -457,6 +440,17 @@ export function trampolinePointer(): Ptr {
 		);
 	}
 	return trampolineCb.pointer;
+}
+
+/** The shared C context destructor for natively owned hosted behaviors. */
+export function hostedFreePointer(): Ptr {
+	if (hostedFreeCb === null) {
+		hostedFreeCb = ffi.makeCallback(
+			{ parameters: ["pointer"], result: "void" },
+			(ctx: Ptr) => releaseNativeBehavior(BigInt(ctx)),
+		);
+	}
+	return hostedFreeCb.pointer;
 }
 
 /** ADR-0064 caretaker: spawn a proxy that forwards to `target` until

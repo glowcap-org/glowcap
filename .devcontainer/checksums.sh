@@ -11,10 +11,10 @@
 # are pinned here beside the Linux ones.
 zig_sha256() {
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo "5e4c8acea6b9eea329480b500ad3ce28aff546e89cd37276b6306142cf7ee7d2" ;;
-        Linux-aarch64) echo "6f3610278d3289b69599f69a927e4f61c504e05551515dee1d0c5d1e1187fa7c" ;;
-        Darwin-arm64) echo "b26315d833480ccf5d6f5cacfbe88aa38a78fbbb014ee1768602c4e7b466f2ba" ;;
-        Darwin-x86_64) echo "6a097b4455d1ae8cedf5489dece3837561d616bd5210272e5f8025b74141970c" ;;
+        Linux-x86_64) echo "0825e4a55baf4a6647c3ce3077a7236c9ffec5b17e1ca0102a930fe33d631bc6" ;;
+        Linux-aarch64) echo "fc1899b14953c8561b0dc0be57c846e27723981b49446dbe32d74c342bb93764" ;;
+        Darwin-arm64) echo "7f8b084a7fd776a93bb45df36ee966402d260c955f2ea567ba7bde6f38e94ad1" ;;
+        Darwin-x86_64) echo "90468141517363cfb93c9aea18c3733ad4534f5abf71188bf8a10f42bff4e3bd" ;;
         *)
             echo "zig_sha256: unsupported platform: $(uname -s)-$(uname -m)" >&2
             return 1
@@ -36,8 +36,8 @@ node_sha256() {
 
 bun_sha256() {
     pancake_pick_by_arch bun_sha256 \
-        "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f" \
-        "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+        "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452" \
+        "4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e"
 }
 
 # Published beside each rustup-init binary as its .sha256 file, e.g.
@@ -50,8 +50,8 @@ rustup_init_sha256() {
 
 opencode_sha256() {
     pancake_pick_by_arch opencode_sha256 \
-        "0cddc222418b8553669905a8980c0cda7088f00da24d83d6ac76b01c9fdb2aaf" \
-        "dcb1b5ec5687b43f87749560021f9203f3809e0ce5ae44ff9be8ae17083fe4ba"
+        "d910c3ed7613bb5791a328904615d41cc25b7d3a6b470e3199ab0426a995b38a" \
+        "d30d2cba74617f4e7b96e25563c9572ffe453f9eae70fc0df16286813537ee72"
 }
 
 cursor_agent_sha256() {
@@ -62,19 +62,19 @@ cursor_agent_sha256() {
 
 uv_sha256() {
     pancake_pick_by_arch uv_sha256 \
-        "c8c60f47e6f88d18dbf6f33d7279fb1fbf7ae76631768152cf5578c3d65729b4" \
-        "49d881b3403187e1f1789720881e77e4251ad4259d86c4844862657d2a35d13f"
+        "68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2" \
+        "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
 }
 
 racket_tarball_and_sha256() {
     case "$(uname -m)" in
         x86_64)
             echo "racket-minimal-${RACKET_VERSION}-x86_64-linux-buster-cs.tgz"
-            echo "84d2c34c0ba7b4f206b5b4f0ce9e8127c153a55f65b0dbd2bdd9b1e2091b6822"
+            echo "8f469b7e93645fc876594470d884775aafff7688f530fd38be873fb44c71ca6a"
             ;;
         aarch64)
             echo "racket-minimal-${RACKET_VERSION}-aarch64-linux-buster-cs.tgz"
-            echo "0e572088e3d5e1b51b198d602bd25380e176a03921e22a02828ad3df71bdd1ce"
+            echo "221a1f77ba11ab090ec5ff77c5a95abfe1f72d3b8b879d694fc5d807567015be"
             ;;
         *)
             echo "racket_tarball_and_sha256: unsupported architecture: $(uname -m)" >&2

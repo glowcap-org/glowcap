@@ -44,11 +44,10 @@ pub const HostSession = struct {
     control: ControlWord = .{},
     /// The 32-byte seed of the key this session signs with: its keyed hello,
     /// and every handoff record naming this session (ADR-0097). Held per
-    /// session rather than read from the node because session identity and
-    /// durable node identity are different facts — they are drawn from the
-    /// same value only while a host signs every session with its durable key,
-    /// and the seam that reads this is what makes drawing a fresh one per
-    /// connection a change of one assignment.
+    /// session because session identity and durable node identity are different
+    /// facts. The Host derives it from a process-fresh, domain-separated root
+    /// and monotonic counter; reconnecting cannot recreate an earlier session's
+    /// key or side name.
     session_seed: [crypto.SEED_BYTES]u8 = undefined,
     /// The sealed byte channel this session's wire runs through (ADR-0107),
     /// or null for every unsealed session — one nullable pointer on the
@@ -58,8 +57,8 @@ pub const HostSession = struct {
     sealed: ?*foundation.sealed.SealedChannel = null,
     /// Transport-packet boundary semantics for this session, copied from the
     /// Host transport profile at mint time. Storing it here keeps the wire path
-    /// allocation-free and lookup-free, including future meta-netlayer carriers
-    /// whose selected subpath must not leak into CapTP.
+    /// allocation-free and lookup-free, including route-bundle dials
+    /// after their selected concrete path has been opened.
     wire_framing: model.transport.WireFraming,
     /// Partner session key this shell is indexed under in `Host.partner_by_side`,
     /// set in `indexPartnerKey` (before apply writes `partnerSessionKey`).
@@ -145,6 +144,19 @@ pub const HostSession = struct {
         return self.served.port.peer.session_state.captp_version;
     }
 
+    /// The profile this session settled with its partner. Before the keyed
+    /// handshake opens, the session fields still carry negotiation inputs and
+    /// are not an observable profile.
+    pub fn settledProfile(self: *const HostSession) ?engine.negotiation.Negotiated {
+        if (!self.sessionOpen()) return null;
+        const state = self.served.port.peer.session_state;
+        return .{
+            .captp_version = state.captp_version,
+            .codec = state.codec,
+            .features = state.features,
+        };
+    }
+
     pub fn lastAbort(self: *const HostSession) ?engine.AbortInfo {
         return self.served.port.peer.lastAbort();
     }
@@ -165,6 +177,9 @@ pub const HostSession = struct {
     /// `SealedChannelFailed` (or the allocation failure that forced it).
     pub fn takeOutbound(self: *HostSession) HostError!?foundation.Frame {
         try self.host.refuseReentry();
+        // Taking bytes is what makes queued pressure actionable, so a refused
+        // resume pump gets its bounded retry (see `Host.resume_pump_refused`).
+        self.host.resume_pump_refused = false;
         const channel = self.sealed orelse {
             const frame = self.served.takeOutbound() orelse return null;
             self.traceOutboundFrame(&frame);
@@ -259,9 +274,12 @@ pub const HostSession = struct {
     fn traceOutboundFrame(self: *HostSession, frame: *const foundation.Frame) void {
         const host = self.host;
         if (host.trace_sink == null) return;
-        const codec_id = self.served.port.peer.session_state.codec;
-        const body = engine.decodeBodyView(codec_id, frame.view()) catch return;
+        const state = self.served.port.peer.session_state;
+        // best-effort: tracing is observation only; a frame the tap cannot
+        // decode is skipped, never the send it observes.
+        const body = engine.decodeBodyView(state.codec, state.captp_version, frame.view()) catch return;
         if (body != .deliver) return;
+        // best-effort: the same observation-only skip as the decode above.
         const first = body.deliver.args.at(0) catch return;
         if (first != .symbol) return;
         host.traceMessage(self, true, first.symbol, frame.bytes());
@@ -270,6 +288,12 @@ pub const HostSession = struct {
     /// Whether the keyed handshake has completed and the session is open.
     pub fn sessionOpen(self: *const HostSession) bool {
         return self.served.port.peer.sessionIsOpen();
+    }
+
+    /// Whether the CapTP session is terminal while this byte-fed shell remains
+    /// retained for final transport work and explicit release.
+    pub fn sessionClosed(self: *const HostSession) bool {
+        return self.served.port.peer.sessionIsClosed();
     }
 
     /// The key this session signs with (ADR-0097). One derivation from

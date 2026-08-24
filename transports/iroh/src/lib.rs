@@ -26,8 +26,8 @@
 //!   `catch_unwind` and maps a panic to the function's error return.
 
 mod conn;
-mod constants_gen;
 mod connect;
+mod constants_gen;
 mod lifecycle;
 #[cfg(test)]
 mod lifecycle_test;

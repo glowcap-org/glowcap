@@ -18,6 +18,12 @@ pub fn isOpen(self: *const Peer) bool {
     return self.session_state.state == .open;
 }
 
+/// Whether CapTP authority is terminal while an adapter may still retain the
+/// shell to drain its final transport work.
+pub fn isClosed(self: *const Peer) bool {
+    return self.session_state.state == .closed;
+}
+
 /// Retire all CapTP handoff authority at the close transition, even when an
 /// embedder retains the Peer shell to drain its final abort frame.
 pub fn retireClosedAuthority(self: *Peer) void {

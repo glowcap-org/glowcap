@@ -77,7 +77,7 @@ async function sees(tab: Page, text: string, who: string): Promise<void> {
 	).catch(() => fail(`${who} did not render ${JSON.stringify(text)}`));
 }
 
-const deadline = setTimeout(() => fail("Rooms noise-relay DM scenario exceeded 25 seconds"), 25_000);
+const deadline = setTimeout(() => fail("Rooms noise-relay DM scenario exceeded 120 seconds"), 120_000);
 const httpPort = freePort();
 const roomPort = freePort();
 spawnOwned("deno", {

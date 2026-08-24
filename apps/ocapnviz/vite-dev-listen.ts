@@ -14,15 +14,15 @@
  */
 
 export type DevListen = {
-  host: string;
-  allowedHosts?: true;
+	host: string;
+	allowedHosts?: true;
 };
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
 /** Resolve `OCAPNVIZ_HOST` into Vite `server.host` / `server.allowedHosts`. */
 export function devListen(host: string | undefined): DevListen {
-  const bind = host?.trim() || "127.0.0.1";
-  if (LOOPBACK.has(bind)) return { host: bind };
-  return { host: bind, allowedHosts: true };
+	const bind = host?.trim() || "127.0.0.1";
+	if (LOOPBACK.has(bind)) return { host: bind };
+	return { host: bind, allowedHosts: true };
 }

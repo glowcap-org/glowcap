@@ -27,12 +27,7 @@ pub const StreamOptions = struct {
 };
 
 fn configureStream(stream: Stream, options: StreamOptions) ConfigurationError!void {
-    try std.posix.setsockopt(
-        stream.socket.handle,
-        std.posix.IPPROTO.TCP,
-        std.posix.TCP.NODELAY,
-        &std.mem.toBytes(@as(c_int, 1)),
-    );
+    try socket.applyNodelay(stream.socket.handle);
     if (options.keepalive) |keepalive| try socket.applyKeepalive(stream.socket.handle, keepalive);
 }
 

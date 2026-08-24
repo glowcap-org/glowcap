@@ -14,7 +14,7 @@
 
 import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
-import { recordProcessBindingFailure } from "@pancake/runtime/transport";
+import { recordProcessBindingFailure, retainSecondaryFailure } from "@pancake/runtime/transport";
 
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
@@ -53,6 +53,7 @@ export class Rendezvous {
 	readonly #held = new Map<string, Held[]>();
 	#heldCount = 0;
 	#closed = false;
+	#closePromise: Promise<void> | null = null;
 
 	static #socketClosing(socket: WebSocket): boolean {
 		return Number(socket.readyState) >= WebSocket.CLOSING;
@@ -114,8 +115,10 @@ export class Rendezvous {
 		entry.socket.removeEventListener("error", entry.onDrop);
 	}
 
-	#closeHeld(entry: Held, operation: string): void {
-		void entry.channel.close().catch((error) => recordProcessBindingFailure(operation, error));
+	#closeHeld(entry: Held, operation: string): Promise<void> {
+		const closed = entry.channel.close();
+		void closed.catch((error) => recordProcessBindingFailure(operation, error));
+		return closed;
 	}
 
 	/** Whether an identity currently holds at least one socket (an
@@ -160,20 +163,32 @@ export class Rendezvous {
 		return entry.channel;
 	}
 
-	/** Close every still-held registration and release its accounting. This is
+	/** Close and join every still-held registration, then release its accounting. This is
 	 * the registry's shutdown boundary: a taken channel belongs to its relay
 	 * session and is deliberately not part of this table anymore. Idempotence
 	 * makes signal/error teardown safe when both paths race. */
-	close(): void {
-		if (this.#closed) return;
+	close(): Promise<void> {
+		if (this.#closePromise != null) return this.#closePromise;
 		this.#closed = true;
 		const entries = [...this.#held.values()].flat();
 		this.#held.clear();
 		this.#heldCount = 0;
+		const closing: Promise<void>[] = [];
 		for (const entry of entries) {
 			this.#detach(entry);
-			this.#closeHeld(entry, "relay.rendezvous.shutdown.close");
+			closing.push(this.#closeHeld(entry, "relay.rendezvous.shutdown.close"));
 		}
+		this.#closePromise = (async () => {
+			let failure: unknown = null;
+			for (const outcome of await Promise.allSettled(closing)) {
+				if (outcome.status === "fulfilled") continue;
+				if (failure == null) failure = outcome.reason;
+				else retainSecondaryFailure(failure, outcome.reason);
+			}
+			if (failure != null) throw failure;
+		})();
+		void this.#closePromise.catch(() => {});
+		return this.#closePromise;
 	}
 }
 

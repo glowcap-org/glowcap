@@ -165,6 +165,18 @@ fn validateExecutionPosture(
         }
         return;
     }
+    const browser_prefix = ".{.browser_proof=";
+    if (!zig_test and std.mem.startsWith(u8, value, browser_prefix) and std.mem.endsWith(u8, value, "}")) {
+        const number = value[browser_prefix.len .. value.len - 1];
+        const seconds = std.fmt.parseInt(u16, number, 10) catch {
+            try appendViolation(gpa, violations, "{s}: browser-proof execution deadline must be a literal integer from 31 through 900", .{path});
+            return;
+        };
+        if (seconds <= 30 or seconds > 900) {
+            try appendViolation(gpa, violations, "{s}: browser-proof execution deadline is {d}s; a real-browser proof names 31..900s (its scenario's own deadline plus headroom), and one that fits 30s is simply deterministic", .{ path, seconds });
+        }
+        return;
+    }
     if (std.mem.eql(u8, value, ".search")) return;
     if (!zig_test and (std.mem.eql(u8, value, ".benchmark") or
         std.mem.eql(u8, value, ".build_tool") or
@@ -225,6 +237,22 @@ test "global execution census rejects arbitrary raw process receivers" {
 
 test "global deterministic deadline rejects 31 seconds" {
     try expectBuildViolation("const run = execution.addSystemCommand(b, .{ .deterministic = 31 }, argv);", "must be 1..30s");
+}
+
+test "browser-proof deadlines are bounded and cannot masquerade as short or unbounded" {
+    try expectBuildClean("const run = execution.addSystemCommand(b, .{ .browser_proof = 330 }, argv);");
+    try expectBuildViolation(
+        "const run = execution.addSystemCommand(b, .{ .browser_proof = 30 }, argv);",
+        "simply deterministic",
+    );
+    try expectBuildViolation(
+        "const run = execution.addSystemCommand(b, .{ .browser_proof = 901 }, argv);",
+        "31..900s",
+    );
+    try expectBuildViolation(
+        "const run = execution.addZigTest(b, tests, .{ .browser_proof = 120 });",
+        "unknown or invalid execution posture",
+    );
 }
 
 test "Zig test execution cannot use a non-test escape posture" {

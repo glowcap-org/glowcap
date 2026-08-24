@@ -4,9 +4,9 @@ import { pushError } from "./error-bus.ts";
 import { ErrorModalView } from "./ErrorModal.tsx";
 
 interface AppErrorBoundaryState {
-  hasError: boolean;
-  detail: string;
-  recovery: string;
+	hasError: boolean;
+	detail: string;
+	recovery: string;
 }
 
 /**
@@ -22,36 +22,36 @@ interface AppErrorBoundaryState {
  * subscribed listener (telemetry, future log shipper) sees it.
  */
 export class AppErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  AppErrorBoundaryState
+	{ children: React.ReactNode },
+	AppErrorBoundaryState
 > {
-  override state: AppErrorBoundaryState = {
-    hasError: false,
-    detail: "",
-    recovery: "",
-  };
+	override state: AppErrorBoundaryState = {
+		hasError: false,
+		detail: "",
+		recovery: "",
+	};
 
-  static getDerivedStateFromError(error: unknown): AppErrorBoundaryState {
-    const err = internalError(error);
-    return { hasError: true, detail: err.detail, recovery: err.recovery };
-  }
+	static getDerivedStateFromError(error: unknown): AppErrorBoundaryState {
+		const err = internalError(error);
+		return { hasError: true, detail: err.detail, recovery: err.recovery };
+	}
 
-  override componentDidCatch(error: unknown): void {
-    pushError({ error: internalError(error), source: "react-boundary" });
-  }
+	override componentDidCatch(error: unknown): void {
+		pushError({ error: internalError(error), source: "react-boundary" });
+	}
 
-  override render(): React.ReactNode {
-    if (this.state.hasError) {
-      return (
-        <ErrorModalView
-          title={INTERNAL_ERROR_TITLE}
-          detail={this.state.detail}
-          recovery={this.state.recovery}
-          primaryLabel="Reload"
-          onPrimary={() => globalThis.location.reload()}
-        />
-      );
-    }
-    return this.props.children;
-  }
+	override render(): React.ReactNode {
+		if (this.state.hasError) {
+			return (
+				<ErrorModalView
+					title={INTERNAL_ERROR_TITLE}
+					detail={this.state.detail}
+					recovery={this.state.recovery}
+					primaryLabel="Reload"
+					onPrimary={() => globalThis.location.reload()}
+				/>
+			);
+		}
+		return this.props.children;
+	}
 }

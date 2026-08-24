@@ -68,7 +68,7 @@ export type {
 	CommandPowers,
 	HeldDirectory,
 } from "./commands/types.ts";
-export { held, hereOf, known } from "./commands/catalog.ts";
+export { held, hereOf, inviteWhy, known } from "./commands/catalog.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
 import { COMMANDS } from "./commands/catalog.ts";
 
@@ -137,6 +137,8 @@ const NO_POWERS: CommandPowers = {
 	liveRooms: () => reading(),
 	roster: () => reading(),
 	quitDirectory: () => reading(),
+	aboutConversation: () => reading(),
+	ircLogin: () => reading(),
 };
 
 function reading(): never {

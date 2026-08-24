@@ -1,12 +1,4 @@
-// The live timeline endpoint, at the two seams a merged feed depends on.
-//
-// The pure half is the replay a connecting viewer gets: exactly the still-live
-// sessions' opens, in seq order, marked `replay: true` so the viewer treats
-// them as state. History is deliberately absent — a dead session's open/close
-// pair replayed on connect materialized ghost topology at the start of every
-// recording.
-//
-// The socket half is what merging feeds actually needs. Every producer numbers
+// The live timeline endpoint over real sockets. Every producer numbers
 // its own sessions from one, so two producers name their first session
 // identically; the endpoint scopes each id by the connection it arrived on, and
 // nothing a producer sends can claim a scope. Both ends of one session report
@@ -15,8 +7,8 @@
 // takes its topology with it, or a reloading viewer sees the ghosts of a peer
 // that left.
 
-import { parseRecord, replayLines, startViz, type VizServer } from "../server/viz.ts";
-import { announceLines, publishUrl, vizCapUrl } from "../lib/viz_publish.ts";
+import { parseRecord, startViz, type VizServer } from "../server/viz.ts";
+import { vizCapUrl } from "../lib/viz_publish.ts";
 import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { assertEquals } from "./assert.ts";
@@ -25,139 +17,7 @@ function assert(ok: boolean, what: string): void {
 	if (!ok) throw new Error(what);
 }
 
-type Stamped = { seq: number; line: string };
-
-/** The capability every socket here presents. Admission itself — a socket
- * refused without it, writes never landing — is `viz_cap_test.ts`'s subject. */
 const CAP = "f0".repeat(32);
-
-const stamp = (seq: number): Stamped => ({ seq, line: `{"seq":${seq}}` });
-const replayed = (seq: number): string => `{"replay":true,"seq":${seq}}`;
-
-Deno.test("replay is exactly the live opens, in seq order", () => {
-	const liveOpens = new Map([
-		["s2", stamp(7)],
-		["s1", stamp(3)],
-		["s3", stamp(400)],
-	]);
-	assertEquals(replayLines(liveOpens, new Map()), [
-		replayed(3),
-		replayed(7),
-		replayed(400),
-	]);
-});
-
-Deno.test("a live session's annotation replays beside its open", () => {
-	// The label is state like the open is: a connecting viewer hears
-	// who a live session carries. A meta for a session that already
-	// closed replays nothing.
-	const liveOpens = new Map([["s1", stamp(3)]]);
-	const liveMetas = new Map([["s1", stamp(9)], ["dead", stamp(4)]]);
-	assertEquals(replayLines(liveOpens, liveMetas), [
-		replayed(3),
-		replayed(9),
-	]);
-});
-
-Deno.test("no live sessions replays nothing", () => {
-	assertEquals(replayLines(new Map(), new Map()), []);
-});
-
-// ── What a producer may say ──────────────────────────────────────────────────
-
-Deno.test("a producer line that is not a timeline record is refused", () => {
-	assert(parseRecord("not json") === null, "non-JSON accepted");
-	assert(parseRecord("[1,2,3]") === null, "array accepted");
-	assert(
-		parseRecord('{"v":2,"kind":"ocapn.session-opened","session":"s"}') === null,
-		"wrong version accepted",
-	);
-	assert(
-		parseRecord('{"v":1,"kind":"whatever","session":"s"}') === null,
-		"unknown kind accepted",
-	);
-	assert(
-		parseRecord('{"v":1,"kind":"ocapn.session-opened"}') === null,
-		"missing session id accepted",
-	);
-	assert(
-		parseRecord('{"v":1,"kind":"ocapn.session-opened","session":5}') === null,
-		"non-string id accepted",
-	);
-	assert(
-		parseRecord(`{"v":1,"kind":"ocapn.session-opened","session":"${"x".repeat(5000)}"}`) ===
-			null,
-		"unbounded id accepted",
-	);
-	assert(
-		parseRecord('{"v":1,"kind":"ocapn.session-opened","session":"s","a":7}') === null,
-		"non-string endpoint accepted",
-	);
-});
-
-Deno.test("what a producer says about itself is bounded like everything else", () => {
-	// A producer states two things about its own end beside the designator it
-	// calls itself by: what it would like to be shown as, and what it says it
-	// runs. Both reach a viewer, so both are checked for type and length here —
-	// otherwise the shortest way to hand a viewer a megabyte is to publish a
-	// session whose profile is a megabyte long.
-	const line = (field: string, value: string) =>
-		`{"v":1,"kind":"ocapn.session-opened","session":"s","${field}":${value}}`;
-	for (const field of ["a_label", "a_profile"]) {
-		assert(
-			parseRecord(line(field, `"${"x".repeat(5000)}"`)) === null,
-			`unbounded ${field} accepted`,
-		);
-		assert(parseRecord(line(field, "7")) === null, `non-string ${field} accepted`);
-		const ok = parseRecord(line(field, '"pancake"'));
-		assert(ok !== null, `an ordinary ${field} was refused`);
-		assertEquals((ok as unknown as Record<string, unknown>)[field], "pancake");
-	}
-});
-
-Deno.test("a producer cannot stamp its own seq, epoch, or replay mark", () => {
-	// Those name the endpoint's own state. A producer that sends them would
-	// otherwise be able to make a viewer drop live records (a huge seq), retire
-	// live topology (a fresh epoch), or hide traffic (the replay mark).
-	const rec = parseRecord(
-		'{"v":1,"kind":"ocapn.session-opened","session":"s","seq":99999,"epoch":123,"replay":true}',
-	);
-	assert(rec !== null, "a well-formed record was refused");
-	const fields = rec as unknown as Record<string, unknown>;
-	assert(fields.seq === undefined, "producer seq survived");
-	assert(fields.epoch === undefined, "producer epoch survived");
-	assert(fields.replay === undefined, "producer replay mark survived");
-});
-
-Deno.test("publishUrl points at the producer half of an endpoint URL", () => {
-	assertEquals(publishUrl("ws://127.0.0.1:9000/"), "ws://127.0.0.1:9000/publish");
-	assertEquals(publishUrl("ws://127.0.0.1:9000/publish"), "ws://127.0.0.1:9000/publish");
-});
-
-Deno.test("a reconnecting producer re-announces its live topology and nothing else", () => {
-	// A reconnect is a new scope at the endpoint, so the sessions this peer
-	// still holds have to be named again under it. History must not come with
-	// them: a record about a closed session would draw topology that is gone.
-	const open = (id: string): TraceEvent => ({
-		v: 1,
-		sim_t_ns: 0,
-		kind: "ocapn.session-opened",
-		session: id,
-	});
-	const meta = (id: string): TraceEvent => ({
-		v: 1,
-		sim_t_ns: 0,
-		kind: "ocapn.session-meta",
-		session: id,
-		meta: { label: "bob" },
-	});
-	const opens = new Map([["s1", open("s1")]]);
-	const metas = new Map([["s1", meta("s1")], ["gone", meta("gone")]]);
-	assertEquals(announceLines(opens, metas), [
-		JSON.stringify(open("s1")),
-		JSON.stringify(meta("s1")),
-	]);
-});
 
 // ── The endpoint over real sockets ───────────────────────────────────────────
 
@@ -254,6 +114,7 @@ function openRecord(session: string, self: string, partner: string, sessionId?: 
 		session,
 		a: self,
 		b: partner,
+		transport: "tcp",
 		...(sessionId === undefined ? {} : { session_id: sessionId }),
 	});
 }
@@ -339,6 +200,7 @@ Deno.test("both ends of one wire reach the viewer", async () => {
 			sim_t_ns: 2,
 			kind: "ocapn.message-decoded",
 			session: "live-h1-s1",
+			outbound: true,
 			op: "dm",
 			digest: "ff".repeat(16),
 		}));
@@ -347,6 +209,7 @@ Deno.test("both ends of one wire reach the viewer", async () => {
 			sim_t_ns: 2,
 			kind: "ocapn.message-decoded",
 			session: "live-h1-s1",
+			outbound: false,
 			op: "dm",
 			digest: "ff".repeat(16),
 		}));
@@ -524,7 +387,7 @@ Deno.test("a viewer is told where its replay ends", async () => {
 	const port = await viz.ready;
 	try {
 		const peer = await publisher(port);
-		peer.send(openRecord("live-h1-s1", "alice", "room", "wire-1"));
+		peer.send(openRecord("live-h1-s1", "alice", "room", "d".repeat(64)));
 		await settle();
 		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
@@ -630,7 +493,7 @@ Deno.test("a producer cannot forge the end of a replay", async () => {
 			kind: "trace.replay-end",
 			session: "s1",
 		}));
-		peer.send(openRecord("live-h1-s1", "alice", "room", "wire-1"));
+		peer.send(openRecord("live-h1-s1", "alice", "room", "d".repeat(64)));
 		await viewer.expect("ocapn.session-opened", 1);
 		assert(
 			viewer.of("trace.replay-end").length === 1,

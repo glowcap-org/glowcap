@@ -15,11 +15,18 @@ const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 const StepGoal = lifecycle.StepGoal;
 
 const FlagProbe = struct {
+    runtime: *HostRuntime,
     session: *driver_core.HostSession,
     flag: *const bool,
 
     pub fn done(self: *FlagProbe) bool {
-        return self.flag.*;
+        if (!self.flag.*) return false;
+        const wire = self.runtime.wires.get(self.session.peer_handle) orelse return true;
+        if (wire.closed) return true;
+        return switch (wire.link) {
+            .stream => true,
+            .resident => |resident| resident.pending == null,
+        };
     }
 
     pub fn resumeSkip(self: *FlagProbe) ?*driver_core.HostSession {
@@ -33,7 +40,7 @@ pub fn pumpUntilFlag(self: *HostRuntime, session: *driver_core.HostSession, flag
     try self.refuseReentry();
     self.enterDriver();
     defer self.leaveDriver();
-    var probe = FlagProbe{ .session = session, .flag = flag };
+    var probe = FlagProbe{ .runtime = self, .session = session, .flag = flag };
     try Internal.pumpUntilProbe(self, &probe, budget);
 }
 

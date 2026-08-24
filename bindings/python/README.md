@@ -64,6 +64,10 @@ The native loop owns admission. A wildcard `bind_host` requires
 `advertised_host`, the dialable name or address placed in the Host locator;
 pancake does not guess that reachability from the bind.
 
+`relay.keyed.listen` and `relay.noise.listen` return the same `DriverServer`
+shape over a registered relay route. Their `locator` and `uri` carry the
+durable key and the rendezvous relay that partners dial.
+
 A shared host makes handoff transparent across several sessions. The less
 common `send_redeeming` call returns both the answer and `via`, the direct
 exporter session. Host a reply capability on `via`; a local reference is valid
@@ -78,7 +82,7 @@ only in the session where it was exported.
 | `pancake.inproc` | Blocking in-process connections. |
 | `pancake.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
 | `pancake.iroh` | Optional encrypted QUIC and `listen`. |
-| `pancake.relay` | Native `keyed-relay`/`noise-relay` provider composition. |
+| `pancake.relay` | Native `keyed-relay`/`noise-relay` provider composition and managed listeners. |
 
 The application imports only the transport modules it composes. A TCP-only
 program never loads the iroh library.

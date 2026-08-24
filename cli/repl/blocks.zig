@@ -170,6 +170,8 @@ pub const Store = struct {
             for (text) |c| {
                 if (c == '\n') line_n += 1;
             }
+            // best-effort: a target missing from the jump list only skips that
+            // block when hopping between prompts.
             if (b.kind == .user) targets.append(self.gpa, flat) catch {};
             flat += line_n;
         }

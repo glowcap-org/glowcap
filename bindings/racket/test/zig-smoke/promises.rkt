@@ -177,8 +177,7 @@
 ;; ── Promise pipelining: the questioner's half (ADR-0007) ──────────────────────
 ;; `session-send-promise` returns a far vow that is itself a `send` target, so
 ;; a create -> assign -> complete -> status chain is issued against the
-;; *unresolved* create answer and the four delivers travel as one batch on the
-;; settling `session-send`'s pump. The board's `create` spawns a fresh task
+;; create answer even after a fast resolution. The board's `create` spawns a fresh task
 ;; mid-turn and returns it; the partner's engine queues the pipelined calls on
 ;; that pending answer and drains them onto the task once create resolves. A
 ;; status of `done` proves the chain crossed the wire without round-tripping
@@ -200,7 +199,8 @@
        (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
-                        [(create name) (session-spawn hsession ^task)])))
+                        [(create name) (session-spawn hsession ^task)]
+                        [(barrier) "ready"])))
        (semaphore-post pl-ready)
        (session-serve hsession)
        (channel-put pl-ch 'served)))))
@@ -208,13 +208,60 @@
 (define pl-session (open-test-session (tcp-locator "127.0.0.1" (server-port pl-server))))
 (semaphore-wait pl-ready)
 (define pl-root (session-fetch pl-session "root"))
-;; The four verbs leave together: none waits for create's reply, and assign /
-;; complete / status target the create answer directly.
+;; An ordered call on the same session proves the client consumed the preceding
+;; create resolution before building the dependent chain. The public vow still
+;; owns that answer position until its finalizer releases it.
 (define pl-task (session-send-promise pl-session pl-root 'create "benchmark"))
-(void (session-send-promise pl-session pl-task 'assign "alice"))
+(expect (equal? "ready" (session-send pl-session pl-root 'barrier))
+        "pipelining: the ordered barrier settled")
+(session-tell pl-session pl-task 'assign "alice")
 (void (session-send-promise pl-session pl-task 'complete))
 (define pl-status (session-send pl-session pl-task 'status))
 (expect (equal? "done" pl-status) "pipelining: the chained status settled to done")
+
+(define pl2-server (listen "127.0.0.1" 0))
+(define pl2-ready (make-semaphore 0))
+(define pl2-ch (make-channel))
+(define pl2-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pl2-ch e))])
+       (define hsession (accept pl2-server))
+       (session-publish hsession "root"
+                        (lambda (bcom)
+                          (methods
+                           [(create name) (session-spawn hsession ^task)])))
+       (semaphore-post pl2-ready)
+       (session-serve hsession)
+       (channel-put pl2-ch 'served)))))
+(define pl2-session (open-test-session (tcp-locator "127.0.0.1" (server-port pl2-server))))
+(semaphore-wait pl2-ready)
+(define pl2-root (session-fetch pl2-session "root"))
+(define pl2-task (session-send-promise pl2-session pl2-root 'create "second"))
+(expect (= (session-vow-id pl-task) (session-vow-id pl2-task))
+        "host-scope: the scenario exercises colliding vow ids")
+(define foreign-vow-error
+  (with-handlers ([exn:fail:pancake? values])
+    (session-send-promise pl2-session pl-task 'status)
+    'no-error))
+(expect (and (exn:fail:pancake? foreign-vow-error)
+             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code foreign-vow-error)))
+        "host-scope: a foreign vow is refused before FFI")
+(define foreign-projection-error
+  (with-handlers ([exn:fail:pancake? values])
+    (session-index pl2-session pl-task 0)
+    'no-error))
+(expect (and (exn:fail:pancake? foreign-projection-error)
+             (= ERR-INVALID-ARGUMENT
+                (exn:fail:pancake-code foreign-projection-error)))
+        "host-scope: a foreign projection is refused before FFI")
+(expect (equal? "open" (session-send pl2-session pl2-task 'status))
+        "host-scope: the destination vow remains exact")
+(session-close! pl2-session)
+(define pl2-host-result (channel-get pl2-ch))
+(when (exn? pl2-host-result) (raise pl2-host-result))
+(expect (eq? 'served pl2-host-result) "host-scope: second Host served to a clean close")
+(server-close! pl2-server)
 
 (session-close! pl-session)
 (define pl-host-result (channel-get pl-ch))
@@ -222,7 +269,7 @@
 (expect (eq? 'served pl-host-result) "pipelining: host served to a clean close")
 (server-close! pl-server)
 
-(printf "racket zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch\n")
+(printf "racket zig-smoke OK: public vows remain pipeline targets and colliding ids stay Host-scoped\n")
 
 ;; ── Promise-pipeline saturation stays typed and terminal ─────────────────────
 ;; A queue cap of one admits the first call aimed at an unresolved answer and
@@ -230,10 +277,11 @@
 ;; create behavior can settle its answer. The refusal must remain the Session's
 ;; one terminal result through serve and every close observer.
 (define qs-host (make-fresh-host))
-(host-set-session-limits! qs-host 0 1)
+(host-set-session-limits! qs-host #:queue-cap 1 #:max-retained-sent-answer-bytes (* 8 1024 1024))
 (define qs-server (listen "127.0.0.1" 0 #:host qs-host))
 (define qs-ready (make-semaphore 0))
 (define qs-parked (box #f))
+(define qs-parked-ready (make-semaphore 0))
 (define qs-result (make-channel))
 (define qs-server-thread
   (thread
@@ -245,6 +293,7 @@
         (unless (eq? method 'create) (error 'queue-saturation "unexpected method"))
         (define pair (host-defer-turn (session-host hsession)))
         (set-box! qs-parked pair)
+        (semaphore-post qs-parked-ready)
         (void)))
      (semaphore-post qs-ready)
      (define serve-failure
@@ -268,9 +317,8 @@
 (semaphore-wait qs-ready)
 (define qs-root (session-fetch qs-session "root"))
 (define qs-task (session-send-promise qs-session qs-root 'create))
-(let await-deferred-answer ()
-  (unless (unbox qs-parked) (sleep 0.001) (await-deferred-answer)))
-(void (session-send-promise qs-session qs-task 'assign "first"))
+(semaphore-wait qs-parked-ready)
+(session-tell qs-session qs-task 'assign "first")
 (define qs-saturated
   (session-send-promise qs-session qs-task 'assign "saturated"))
 (define qs-client-failure
@@ -316,31 +364,78 @@
 ;; surfaces as a tagged/struct arg; index and untag are the
 ;; cross-binding-comparable pair, so they are what this dogfood asserts,
 ;; matching Python.)
-(define pj-server (listen "127.0.0.1" 0 #:captp-version 'next))
+(define pj-server (listen "127.0.0.1" 0 #:codec 'capnp #:captp-version 'next #:features 'full))
 (define pj-ready (make-semaphore 0))
+(define pj-release (make-semaphore 0))
+(define pj-resolver-ready (make-semaphore 0))
+(define pj-pipeline-sent (make-semaphore 0))
+(define pj-trace-uninstall
+  (enable-trace!
+   (lambda (ev)
+     (when (and (equal? (hash-ref ev 'kind #f) "ocapn.message-decoded")
+                (hash-ref ev 'outbound #f)
+                (equal? (hash-ref ev 'op #f) "pipeline-sentinel"))
+       (semaphore-post pj-pipeline-sent)))))
+(define pj-resolver (box #f))
 (define pj-ch (make-channel))
 (define pj-host
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pj-ch e))])
        (define hsession (accept pj-server))
+       (define hprofile (session-profile hsession))
+       (expect (equal? (settled-profile-captp-version hprofile) 'next)
+               "projections: accepted session reports pancake-next")
+       (expect (equal? (settled-profile-codec hprofile) 'capnp)
+               "projections: accepted session reports Cap'n Proto")
+       (expect (= (settled-profile-features hprofile) FEATURE-FULL)
+               "projections: accepted session reports the full feature set")
        (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
-                        [(make label) (tagged-arg "task" (list (list "assigned" label 7)))])))
+                        [(make label)
+                         (set-box! pj-resolver (host-defer-turn (session-host hsession)))
+                         (semaphore-post pj-resolver-ready)
+                         (void)]
+                        [(release)
+                         (semaphore-post pj-release)
+                         "released"])))
        (semaphore-post pj-ready)
+       (define settle
+         (thread
+          (lambda ()
+            (semaphore-wait pj-resolver-ready)
+            (semaphore-wait pj-release)
+            (resolver-fulfill!
+             (unbox pj-resolver)
+             (tagged-arg "task" (list (list "assigned" "alice" 7)))))))
        (session-serve hsession)
+       (thread-wait settle)
        (channel-put pj-ch 'served)))))
 
 (define pj-session (open-test-session (tcp-locator "127.0.0.1" (server-port pj-server))
-                            #:captp-version 'next))
+                            #:codec 'capnp
+                            #:captp-version 'next
+                            #:features 'full))
+(define pj-profile (session-profile pj-session))
+(expect (equal? (settled-profile-captp-version pj-profile) 'next)
+        "projections: dialed session reports pancake-next")
+(expect (equal? (settled-profile-codec pj-profile) 'capnp)
+        "projections: dialed session reports Cap'n Proto")
+(expect (= (settled-profile-features pj-profile) FEATURE-FULL)
+        "projections: dialed session reports the full feature set")
 (semaphore-wait pj-ready)
 (define pj-root (session-fetch pj-session "root"))
 ;; Neither projection waits for make's reply: they ride the unresolved make
 ;; answer and the whole chain leaves on one pump.
 (define pj-made (session-send-promise pj-session pj-root 'make "alice"))
-(define pj-label (session-await pj-session (session-index pj-session (session-untag pj-session pj-made "task") 1)))
-(expect (equal? "alice" pj-label) "projections: pipelined untag->index reached the label")
+(define pj-label (session-index pj-session (session-untag pj-session pj-made "task") 1))
+(session-tell pj-session pj-label 'pipeline-sentinel)
+(semaphore-wait pj-pipeline-sent)
+(expect (equal? "released" (session-send pj-session pj-root 'release))
+        "projections: release arrived after the unresolved projection chain")
+(define pj-label-value (session-await pj-session pj-label))
+(expect (equal? "alice" pj-label-value) "projections: pipelined untag->index reached the label")
 ;; The source answer settled while the projection pumped the loop; awaiting it
 ;; now must still resolve from the vow's recorded state.
 (define pj-full (session-await pj-session pj-made))
@@ -352,6 +447,7 @@
 (when (exn? pj-host-result) (raise pj-host-result))
 (expect (eq? 'served pj-host-result) "projections: host served to a clean close")
 (server-close! pj-server)
+(pj-trace-uninstall)
 
 (printf "racket zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles\n")
 
@@ -363,6 +459,7 @@
 ;; typed PANCAKE_ERR_CLOSED failure instead of hanging it forever.
 (define ub-server (listen "127.0.0.1" 0))
 (define ub-ready (make-semaphore 0))
+(define ub-boom-seen (make-semaphore 0))
 (define ub-host
   (thread
    (lambda ()
@@ -371,16 +468,17 @@
        (session-publish hsession "svc"
                      (lambda (bcom)
                        (methods
-                        [(boom) (error "kaboom: refused")]
+                        [(boom) (semaphore-post ub-boom-seen) (error "kaboom: refused")]
                         [(ok) (sym "fine")])))
        (semaphore-post ub-ready)
        (session-serve hsession)))))
 (define ub-session (open-test-session (tcp-locator "127.0.0.1" (server-port ub-server))))
 (semaphore-wait ub-ready)
 (define ub-cap (session-fetch ub-session "svc"))
-;; Fire the failing verb and never await it; the break arrives while the next
-;; call pumps and must stay silent.
+;; Fire the failing verb and never await it. No later operation exists yet:
+;; creation itself must flush the deliver and let the server observe it.
 (void (session-send-promise ub-session ub-cap 'boom))
+(semaphore-wait ub-boom-seen)
 (expect (equal? (sym "fine") (session-send ub-session ub-cap 'ok))
         "unawaited: a later call still settles after an unawaited break")
 (session-close! ub-session)
@@ -416,6 +514,4 @@
 (tcp-close dcs-relay)
 (server-close! dcs-server)
 
-(printf "racket zig-smoke OK: an unawaited break stays silent, and a real disconnect fails a pending send typed\n")
-
-
+(printf "racket zig-smoke OK: an unawaited send progresses silently, and a real disconnect fails a pending send typed\n")

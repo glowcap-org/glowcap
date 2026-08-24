@@ -91,6 +91,26 @@ test "writePeer round-trips a hinted locator through parsePeer" {
     try std.testing.expectEqualStrings(original, emitted);
 }
 
+test "writePeer round-trips an encoded OCapN authority beyond the DNS hostname limit" {
+    const allocator = std.testing.allocator;
+    var designator: [124]u8 = undefined;
+    @memset(&designator, 0xff);
+    const original: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = &designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+
+    const emitted = try uri.writePeer(allocator, original);
+    defer allocator.free(emitted);
+    try std.testing.expect(emitted.len > std.Io.net.HostName.max_len);
+
+    const reparsed = try uri.parsePeer(allocator, emitted);
+    defer uri.freePeer(allocator, reparsed);
+    try std.testing.expectEqualStrings(original.transport, reparsed.transport);
+    try std.testing.expectEqualSlices(u8, original.designator, reparsed.designator);
+}
+
 test "next writeSturdyref places raw swiss bytes before the query and round-trips" {
     const allocator = std.testing.allocator;
     const original = "ocapn://abcd.onion/s/swiss%2F%00?host=h";
@@ -217,6 +237,19 @@ test "userinfo port and fragment components are rejected" {
     try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://user@abcd.tcp"));
     try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://abcd.tcp:80"));
     try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://abcd.tcp#fragment"));
+}
+
+test "peer URI refuses excess hints before materializing another entry" {
+    const allocator = std.testing.allocator;
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(allocator);
+    try text.appendSlice(allocator, "ocapn://127.0.0.1%3A9000.tcp?");
+    for (0..model.max_locator_hint_count + 1) |index| {
+        if (index != 0) try text.append(allocator, '&');
+        var entry: [32]u8 = undefined;
+        try text.appendSlice(allocator, try std.fmt.bufPrint(&entry, "h{d}=v", .{index}));
+    }
+    try std.testing.expectError(uri.Error.InvalidLocator, uri.parsePeer(allocator, text.items));
 }
 
 test "parsePeer on a sturdyref-shaped path rejects the unknown path" {

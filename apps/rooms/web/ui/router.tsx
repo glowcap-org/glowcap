@@ -36,8 +36,12 @@
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
 
 import { useEffect, useRef } from "react";
-import { createBrowserRouter, Outlet, RouterProvider, useLocation, useParams } from "react-router";
+import { createBrowserRouter, Outlet, RouterProvider, useLocation, useParams, useRouteError } from "react-router";
 import { App } from "./App.tsx";
+import { OpsRoute } from "./ops/OpsPage.tsx";
+import { handOffNow } from "./boot.ts";
+import { Button } from "./Button.tsx";
+import { Said } from "./Said.tsx";
 import * as store from "./store.ts";
 import * as net from "./net.ts";
 import { implied, named } from "./intent.ts";
@@ -62,7 +66,7 @@ function withSearch(path: string, search: URLSearchParams): string {
 }
 
 /** The address the active conversation should stand at. */
-function addressOfActive(): string {
+export function addressOfActive(): string {
 	const s = store.get();
 	const search = pageSearch();
 	const conv = s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null;
@@ -221,18 +225,56 @@ function Shell() {
 	);
 }
 
+/** What a reader sees when a route element throws: the crash card in the
+ * page's own voice, in place of react-router's developer screen. The opening
+ * screen comes down first, because a card explaining a crash to a reader who
+ * cannot see it is not an explanation. */
+function RouteCrash() {
+	const failed = useRouteError();
+	useEffect(() => {
+		handOffNow();
+	}, []);
+	const message = failed instanceof Error ? failed.message : String(failed);
+	return (
+		<div className="crash" role="alert">
+			<h2>The page ran into a problem</h2>
+			<Said kind="failure">{message}</Said>
+			<p>Your session is not lost; the peer keeps running under this screen.</p>
+			<Button variant="quiet" onClick={() => location.reload()}>Reload</Button>
+		</div>
+	);
+}
+
 const router = createBrowserRouter([
 	{
-		element: <Shell />,
+		errorElement: <RouteCrash />,
 		children: [
-			{ index: true, element: <IndexRoute /> },
-			{ path: "join", element: <JoinRoute /> },
-			{ path: "room/:name", element: <RoomRoute /> },
-			{ path: "dm/:nick", element: <DmRoute /> },
-			{ path: "*", element: <ElsewhereRoute /> },
+			{
+				element: <Shell />,
+				children: [
+					{ index: true, element: <IndexRoute /> },
+					{ path: "join", element: <JoinRoute /> },
+					{ path: "room/:name", element: <RoomRoute /> },
+					{ path: "dm/:nick", element: <DmRoute /> },
+					// The operations namespace: /ops lands on the held panes,
+					// /ops/<pane> stands on one, and a pane this tab does not
+					// hold is a gate asking for its capability. The shell stays
+					// up and App swaps the content cell, so these too are
+					// navigation logic with nothing to draw.
+					{ path: "ops", element: <OpsRoute /> },
+					{ path: "ops/:pane", element: <OpsRoute /> },
+					{ path: "*", element: <ElsewhereRoute /> },
+				],
+			},
 		],
 	},
 ]);
+
+/** Navigate imperatively from outside the tree: the peer table's verbs run
+ * in module scope, where no hook is available. */
+export function navigateTo(path: string): void {
+	void router.navigate(path);
+}
 
 // The write-back half: when the active conversation *changes*, the address
 // follows. Only a transition writes — a deep link is an address standing
@@ -247,6 +289,11 @@ store.subscribe(() => {
 	const active = store.get().activeKey;
 	if (active === mirrored) return;
 	mirrored = active;
+	// Standing on /ops the shell is still the rooms one and the address is
+	// deliberately elsewhere. Picking a conversation is an act that leaves
+	// the namespace, so a transition to one navigates; a closure, to
+	// nothing, does not yank the reader off the operations surface.
+	if (router.state.location.pathname.startsWith("/ops") && active === null) return;
 	const want = addressOfActive();
 	const at = router.state.location;
 	if (want === `${at.pathname}${at.search}`) return;

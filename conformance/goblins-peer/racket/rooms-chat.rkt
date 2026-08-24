@@ -19,10 +19,10 @@
 ;; A direct message does not travel through the room. The room introduces the two
 ;; of you and then carries none of it: the line goes over a connection between
 ;; this vat and that member, opened by dialing the locator they registered.
-;; Anyone who messages you first can be answered, over the connection their
-;; message arrived on. Starting one yourself reaches another Goblins vat;
-;; `rooms-dm.rkt` says why a pancake member is the direction that does not work
-;; yet.
+;; Anyone who messages you first can be answered over the connection their
+;; message arrived on. Starting one yourself works when the member registered a
+;; locator this vat can dial: TCP for the testing adapter, or iroh when this
+;; repository's Goblins iroh netlayer is installed for the vat.
 ;;
 ;;   racket -y rooms-chat.rkt 127.0.0.1:9099 general goblins-carol
 ;;

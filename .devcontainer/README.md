@@ -217,6 +217,7 @@ in [`checksums.sh`](checksums.sh).
 
 | Group | Tools | Installer |
 | --- | --- | --- |
+| Base image | The Debian image both this container and the rooms deploy image build on, pinned by digest | `Dockerfile` |
 | Zig | Zig, with ZLS disabled until upstream supports the pinned compiler | `image/zig.sh`, `image/zls.sh` |
 | Conformance | Python, Racket, and Goblins | `image/python.sh`, `image/racket-goblins.sh` |
 | Bindings | Rust, Deno, Node, npm, and Bun | `image/rust.sh`, `image/js-toolchains.sh` |
@@ -250,17 +251,31 @@ editing by hand:
 
 ```sh
 .devcontainer/bin/update-pins.sh               # report pins vs upstream + submodule drift
-.devcontainer/bin/update-pins.sh bump <dep>    # rewrite pins.sh and checksums.sh
+.devcontainer/bin/update-pins.sh bump <dep>    # rewrite the pin and everything restating it
 .devcontainer/bin/update-pins.sh bump --safe   # bump everything outside the build graph
 ```
 
 It fetches versions and hashes from each tool's own release channel, stages
-the edits, and validates them before either file lands. Every bump ends with
+the edits, and validates them before any file lands. Every bump ends with
 a container rebuild; the report names the build check that proves anything
 deeper (a new Zig means `zig build check`, a new Racket or Goblins means
-`zig build check-external`). Path changes are still hand edits: keep the
+`zig build check-external`).
+
+A few pins are restated outside `pins.sh`, because a Dockerfile and a
+`deno.json` cannot source a shell file. A bump rewrites those copies with the
+pin itself, so they cannot fall a version behind, and `test/env-sync.sh` fails
+the build if one ever does. Path changes are still hand edits: keep the
 `Dockerfile` environment and `devcontainer.json` `containerEnv` aligned with
-`pins.sh`, which `test/env-sync.sh` enforces.
+`pins.sh`, which the same check enforces.
+
+The script's own modules are in `lib/`, one per subject, named
+`update-pins-*.sh`. To start tracking a new dependency, add it to
+[`lib/update-pins-deps.sh`](lib/update-pins-deps.sh): a name in
+`PANCAKE_PINS_DEPS`, its `pins.sh` variable, how a bump is proven, and the query
+that asks its release channel what the latest version is. If a file outside
+`pins.sh` also names that version, give it a row in
+`lib/update-pins-companions.sh` and you are done: the bump rewrites it from that
+row, and `test/env-sync.sh` reads the same row to check it.
 
 Host-side startup also uses the `DEVCONTAINER_CLI_VERSION` pin. An installed
 CLI is used only when its version matches; otherwise `npx` runs the pinned
@@ -371,6 +386,7 @@ finding fails container open and the CI push checks.
 | `bin/update-pins.sh` | Reports and bumps the pins against upstream | container |
 | `lib/mod.sh` | The library's front door, and the one call that loads a checkout's pins | sourced |
 | `lib/launcher.sh` | Shared mechanics of the tmux launchers: option grammar, checkout resolution, pane commands, attach | sourced |
+| `lib/update-pins-*.sh` | `bin/update-pins.sh`'s own modules, one subject each: the dependency table and its release channels, staged edits to `pins.sh` and `checksums.sh`, and the files outside `pins.sh` that restate a pin | sourced |
 | other `lib/*.sh` | One subject each: context guards, name grammars, settings tables, checkout lookup, the ignored `.env`, Docker, verified downloads | sourced |
 | `image/zig.sh` | Installs pinned Zig | image build, container, CI runners |
 | other `image/*.sh` | Installs one toolchain group | image build + container |

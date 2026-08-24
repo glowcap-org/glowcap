@@ -314,8 +314,16 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     try p1.feedOwned(p2.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
 
-    var resolve_event = p1.pollEvent().?;
+    var resolve_event = p1.pollEvent() orelse return error.MissingResolve;
     defer resolve_event.deinit();
+    try std.testing.expectEqual(engine.EventKind.deliver, resolve_event.kind());
+
+    const resolver_release = p2.takeOutbound() orelse return error.MissingResolverRelease;
+    try p1.feedOwned(resolver_release);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    var release_event = p1.pollEvent() orelse return error.MissingResolverReleaseEvent;
+    defer release_event.deinit();
+    try std.testing.expectEqual(engine.EventKind.gc_export, release_event.kind());
     const msg = try resolve_event.decodeOwned(allocator);
     const match = try fetch.tryMatchFetchOutcome(allocator, resolver_export, answer_position, msg);
     try std.testing.expect(match == .settled);

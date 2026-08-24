@@ -38,32 +38,32 @@
 .ocv-btn,
 .ocv-input,
 .ocv-select {
-  font-family: inherit;
-  font-size: 11px;
-  letter-spacing: 0.01em;
-  font-variant-numeric: tabular-nums;
-  height: var(--ocv-control-h);
-  box-sizing: border-box;
-  /* One inset, for the same reason there is one height: neighbours
-     whose text starts at different insets read as neighbours from
-     different sets. Eight against a twenty-tall box, so a label sits in
-     the same proportion of its control that it did in a taller one.
-     The dropdown widens the right side to clear its chevron. */
-  padding: 0 8px;
-  border-radius: var(--ocv-control-r);
-  border: 1px solid var(--ocv-border);
-  background: var(--ocv-surface);
-  color: var(--ocv-text-muted);
-  /* The focus ring, present and invisible, so it has something to fade
-     from. An outline is drawn outside the box and moves no layout. */
-  outline: var(--ocv-focus-w) solid transparent;
-  outline-offset: 1px;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease,
-    outline-color 120ms ease,
-    transform 80ms ease;
+	font-family: inherit;
+	font-size: 11px;
+	letter-spacing: 0.01em;
+	font-variant-numeric: tabular-nums;
+	height: var(--ocv-control-h);
+	box-sizing: border-box;
+	/* One inset, for the same reason there is one height: neighbours
+	   whose text starts at different insets read as neighbours from
+	   different sets. Eight against a twenty-tall box, so a label sits in
+	   the same proportion of its control that it did in a taller one.
+	   The dropdown widens the right side to clear its chevron. */
+	padding: 0 8px;
+	border-radius: var(--ocv-control-r);
+	border: 1px solid var(--ocv-border);
+	background: var(--ocv-surface);
+	color: var(--ocv-text-muted);
+	/* The focus ring, present and invisible, so it has something to fade
+	   from. An outline is drawn outside the box and moves no layout. */
+	outline: var(--ocv-focus-w) solid transparent;
+	outline-offset: 1px;
+	transition:
+		background-color 120ms ease,
+		border-color 120ms ease,
+		color 120ms ease,
+		outline-color 120ms ease,
+		transform 80ms ease;
 }
 
 /* Hover, once, for all three families: the surface steps in, the border
@@ -71,18 +71,18 @@
 .ocv-btn:hover:not(:disabled):not(.is-active):not(.is-segment),
 .ocv-input:hover:not(:disabled),
 .ocv-select:hover:not(:disabled) {
-  /* `background-color`, not the `background` shorthand — the shorthand
-     resets `background-repeat`, which tiles the dropdown's chevron. */
-  background-color: var(--ocv-surface-muted);
-  border-color: var(--ocv-border-strong);
-  color: var(--ocv-text);
+	/* `background-color`, not the `background` shorthand — the shorthand
+	   resets `background-repeat`, which tiles the dropdown's chevron. */
+	background-color: var(--ocv-surface-muted);
+	border-color: var(--ocv-border-strong);
+	color: var(--ocv-text);
 }
 
 .ocv-btn:disabled,
 .ocv-input:disabled,
 .ocv-select:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+	opacity: 0.4;
+	cursor: not-allowed;
 }
 
 /* Buttons ------------------------------------------------------------
@@ -94,19 +94,19 @@
 
 .ocv-btn,
 .ocv-select {
-  cursor: pointer;
-  user-select: none;
+	cursor: pointer;
+	user-select: none;
 }
 
 .ocv-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-shrink: 0;
-  /* A label is chrome, so it carries a little weight. A field's text is
-     the reader's own and stays regular; see `.ocv-input`. */
-  font-weight: 500;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	flex-shrink: 0;
+	/* A label is chrome, so it carries a little weight. A field's text is
+	   the reader's own and stays regular; see `.ocv-input`. */
+	font-weight: 500;
 }
 
 /* Chosen — the control in force. An accent box over the palest wash of
@@ -115,33 +115,33 @@
  * the thing the eye keeps going back to; the solid fill belongs to
  * `.is-primary` below, which is transient. */
 .ocv-btn.is-active {
-  background-color: var(--ocv-accent-soft);
-  border-color: var(--ocv-accent);
-  color: var(--ocv-accent);
-  font-weight: 600;
+	background-color: var(--ocv-accent-soft);
+	border-color: var(--ocv-accent);
+	color: var(--ocv-accent);
+	font-weight: 600;
 }
 
 /* Primary — a dialog's affirmative answer, and the one place the solid
  * accent fill belongs. A dialog is transient and asks one question, so
  * the loudest thing on screen being its answer is right. */
 .ocv-btn.is-primary {
-  background: var(--ocv-accent);
-  border-color: var(--ocv-accent);
-  /* White on light's deep indigo, near-black on dark's periwinkle. */
-  color: var(--ocv-text-inverse);
+	background: var(--ocv-accent);
+	border-color: var(--ocv-accent);
+	/* White on light's deep indigo, near-black on dark's periwinkle. */
+	color: var(--ocv-text-inverse);
 }
 
 .ocv-btn.is-primary:hover:not(:disabled) {
-  background-color: var(--ocv-accent-hover);
-  border-color: var(--ocv-accent-hover);
-  color: var(--ocv-text-inverse);
+	background-color: var(--ocv-accent-hover);
+	border-color: var(--ocv-accent-hover);
+	color: var(--ocv-text-inverse);
 }
 
 /* The press. A segmented cell sits it out: one cell dropping a pixel
  * while its neighbours hold still reads as the cell falling out of the
  * row. */
 .ocv-btn:active:not(:disabled):not(.is-segment) {
-  transform: translateY(1px);
+	transform: translateY(1px);
 }
 
 /* Ghost — same geometry, almost no chrome. Secondary actions in a
@@ -164,8 +164,8 @@
  * beside them now wear the ordinary bordered face. Transparency means
  * "you cannot press this"; nothing enabled in a pane should borrow it. */
 .ocv-btn.is-ghost {
-  background: transparent;
-  border-color: var(--ocv-border-faint);
+	background: transparent;
+	border-color: var(--ocv-border-faint);
 }
 
 /* Icon-only — a button whose whole content is one glyph. It takes the
@@ -175,8 +175,8 @@
  * strokes `currentColor`, so a picture is lit exactly like the label it
  * stands in for. */
 .ocv-btn.is-icon {
-  width: var(--ocv-control-h);
-  padding: 0;
+	width: var(--ocv-control-h);
+	padding: 0;
 }
 
 /* Segmented — a row of buttons joined into one cluster.
@@ -194,7 +194,7 @@
  */
 
 .ocv-segment {
-  display: inline-flex;
+	display: inline-flex;
 }
 
 /* Being a cell in a row is not a button's property, so the geometry names both
@@ -204,20 +204,20 @@
  * everything about a CHOSEN cell, none of which a field has. */
 .ocv-btn.is-segment,
 .ocv-input.is-segment {
-  border-radius: 0;
-  /* No border-color fade on a cell: animating it produces a fading
-     ghost edge when the `+ .is-active` rule recolors a sibling. */
-  transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    outline-color 120ms ease;
+	border-radius: 0;
+	/* No border-color fade on a cell: animating it produces a fading
+	   ghost edge when the `+ .is-active` rule recolors a sibling. */
+	transition:
+		background-color 120ms ease,
+		color 120ms ease,
+		outline-color 120ms ease;
 }
 
 /* Two neighbours share one line rather than stacking two, and a button
  * shares it by dropping its right border: the cell after it draws that
  * seam with its own left border. */
 .ocv-btn.is-segment {
-  border-right: 0;
+	border-right: 0;
 }
 
 /* A FIELD shares the same line from the other side: it keeps its right
@@ -241,32 +241,32 @@
  * state — a disabled one fades it, and opacity is not reachable by any
  * color rule. `segment-edges.test.ts` refuses it in either direction. */
 .ocv-input.is-segment {
-  border-right: 1px solid var(--ocv-border);
+	border-right: 1px solid var(--ocv-border);
 }
 
 .ocv-input.is-segment + .ocv-btn.is-segment,
 .ocv-input.is-segment + .ocv-input.is-segment {
-  border-left: 0;
+	border-left: 0;
 }
 
 /* A cell's own hover, since the baseline's moves the border. The
  * surface and the label carry it between them. */
 .ocv-btn.is-segment:hover:not(:disabled):not(.is-active) {
-  background-color: var(--ocv-surface-muted);
-  color: var(--ocv-text);
+	background-color: var(--ocv-surface-muted);
+	color: var(--ocv-text);
 }
 
 .ocv-btn.is-segment:first-child,
 .ocv-input.is-segment:first-child {
-  border-top-left-radius: var(--ocv-control-r);
-  border-bottom-left-radius: var(--ocv-control-r);
+	border-top-left-radius: var(--ocv-control-r);
+	border-bottom-left-radius: var(--ocv-control-r);
 }
 
 .ocv-btn.is-segment:last-child,
 .ocv-input.is-segment:last-child {
-  border-right: 1px solid var(--ocv-border);
-  border-top-right-radius: var(--ocv-control-r);
-  border-bottom-right-radius: var(--ocv-control-r);
+	border-right: 1px solid var(--ocv-border);
+	border-top-right-radius: var(--ocv-control-r);
+	border-bottom-right-radius: var(--ocv-control-r);
 }
 
 /* The chosen cell draws all four of its own edges -------------------
@@ -291,11 +291,11 @@
  * Later in source order than `:last-child` above, which is equally
  * specific and would otherwise leave a chosen last cell's edge grey. */
 .ocv-btn.is-segment.is-active {
-  border-right: 1px solid var(--ocv-accent);
+	border-right: 1px solid var(--ocv-accent);
 }
 
 .ocv-btn.is-segment.is-active + .ocv-btn.is-segment {
-  border-left: 0;
+	border-left: 0;
 }
 
 /* Inputs -------------------------------------------------------------
@@ -306,8 +306,8 @@
  * out is absent on purpose. */
 
 .ocv-input {
-  color: var(--ocv-text);
-  font-weight: 400;
+	color: var(--ocv-text);
+	font-weight: 400;
 }
 
 /* Prose that runs to more than a line — a document's description.
@@ -322,12 +322,12 @@
  * sits in is a field that can be dragged out of sight.
  */
 .ocv-input.is-multiline {
-  height: auto;
-  min-height: calc(var(--ocv-control-h) * 2.5);
-  padding: 6px 8px;
-  line-height: 1.45;
-  resize: vertical;
-  white-space: pre-wrap;
+	height: auto;
+	min-height: calc(var(--ocv-control-h) * 2.5);
+	padding: 6px 8px;
+	line-height: 1.45;
+	resize: vertical;
+	white-space: pre-wrap;
 }
 
 /* The numeric pill — ScrubInput's display and edit elements. It is an
@@ -336,11 +336,11 @@
  * read-out from resizing under its own digits mid-scrub, and the
  * display element is a div, so the centring is said twice. */
 .ocv-input.is-numeric {
-  min-width: 56px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+	min-width: 56px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
 }
 
 /* Dropdowns ----------------------------------------------------------
@@ -349,15 +349,15 @@
  * What the family owns is the chevron and the room for it: the right
  * inset is the baseline's plus the glyph's width. */
 .ocv-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: var(--ocv-chevron);
-  background-repeat: no-repeat;
-  background-position: right 3px center;
-  background-size: 14px 14px;
-  display: block;
-  padding-right: 20px;
-  text-align: left;
+	appearance: none;
+	-webkit-appearance: none;
+	background-image: var(--ocv-chevron);
+	background-repeat: no-repeat;
+	background-position: right 3px center;
+	background-size: 14px 14px;
+	display: block;
+	padding-right: 20px;
+	text-align: left;
 }
 
 /* Keyboard focus -----------------------------------------------------
@@ -380,22 +380,22 @@
 .ocv-session-row:focus-visible,
 .ocv-app-root input[type="checkbox"]:focus-visible,
 .ocv-input:focus {
-  outline-color: var(--ocv-accent);
+	outline-color: var(--ocv-accent);
 }
 
 /* The families that hold a value light their own edge when they take
  * the caret; a button has nothing to hold. */
 .ocv-input:focus,
 .ocv-select:focus {
-  border-color: var(--ocv-accent);
+	border-color: var(--ocv-accent);
 }
 
 /* A checkbox is a native control in the same tab order, so it takes the
  * same mark and needs the same invisible one to fade from. */
 .ocv-app-root input[type="checkbox"] {
-  outline: var(--ocv-focus-w) solid transparent;
-  outline-offset: 1px;
-  transition: outline-color 120ms ease;
+	outline: var(--ocv-focus-w) solid transparent;
+	outline-offset: 1px;
+	transition: outline-color 120ms ease;
 }
 
 /* Who paints on top --------------------------------------------------
@@ -412,19 +412,19 @@
  * eaten; hover is gone the moment the pointer is; chosen persists, so
  * it is still there once a transient mark above it passes. */
 :is(.ocv-btn, .ocv-input, .ocv-select, .ocv-session-row):is(:hover, :focus, :focus-visible, .is-active) {
-  position: relative;
+	position: relative;
 }
 
 :is(.ocv-btn, .ocv-input, .ocv-select, .ocv-session-row).is-active {
-  z-index: 1;
+	z-index: 1;
 }
 
 :is(.ocv-btn, .ocv-input, .ocv-select, .ocv-session-row):hover {
-  z-index: 2;
+	z-index: 2;
 }
 
 :is(.ocv-btn, .ocv-input, .ocv-select, .ocv-session-row):is(:focus, :focus-visible) {
-  z-index: 3;
+	z-index: 3;
 }
 
 /* A splitter is a line, not a box, so it wears the mark in the shape a
@@ -434,32 +434,32 @@
  * color, same weight, on the visible line rather than on the invisible
  * strip that catches the pointer. */
 .ocv-handle {
-  outline: none;
+	outline: none;
 }
 
 .ocv-handle::after {
-  content: "";
-  position: absolute;
-  background: transparent;
-  transition: background-color 120ms ease;
+	content: "";
+	position: absolute;
+	background: transparent;
+	transition: background-color 120ms ease;
 }
 
 .ocv-handle[aria-orientation="vertical"]::after {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: var(--ocv-focus-w);
-  transform: translateX(-50%);
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: var(--ocv-focus-w);
+	transform: translateX(-50%);
 }
 
 .ocv-handle[aria-orientation="horizontal"]::after {
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: var(--ocv-focus-w);
-  transform: translateY(-50%);
+	left: 0;
+	right: 0;
+	top: 50%;
+	height: var(--ocv-focus-w);
+	transform: translateY(-50%);
 }
 
 .ocv-handle:focus-visible::after {
-  background: var(--ocv-accent);
+	background: var(--ocv-accent);
 }

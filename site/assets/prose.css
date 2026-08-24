@@ -297,6 +297,10 @@ pre code {
    code blocks, which is the intended fallback. */
 .code-tabs .tab-bar {
   display: flex;
+  /* A long strip (eight transports plus Copy) must fold on a phone rather
+     than widen the page: wrapped rows keep every tab tappable, and only the
+     last row sits on the panel. */
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.3rem;
   /* The bar sits directly on the panel below; the buttons themselves overlap
@@ -349,4 +353,12 @@ pre code {
   margin: 0.6rem 0 -0.6rem;
   font-size: 0.85rem;
   color: var(--ink-soft);
+}
+
+/* Forced colors replace the wash that marks the chosen tab, so the state
+   moves to a border, which the system palette keeps. */
+@media (forced-colors: active) {
+  .code-tabs .tab-bar button[aria-pressed="true"] {
+    border: 2px solid SelectedItem;
+  }
 }

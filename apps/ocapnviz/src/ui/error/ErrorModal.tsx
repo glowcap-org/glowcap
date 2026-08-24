@@ -20,100 +20,106 @@ import { type AppError, subscribeErrors } from "./error-bus.ts";
  *     The default modal mounted under `<App />`.
  */
 export function ErrorModalView(
-  { title, detail, recovery, primaryLabel, onPrimary, onDismiss }: {
-    title: string;
-    detail: string;
-    recovery: string;
-    primaryLabel: string;
-    onPrimary: () => void;
-    /** What Escape does. Omitted when the dialog has nowhere to go — the
-     *  error boundary's, where the app behind it is already broken and
-     *  dismissing would take away the only explanation. */
-    onDismiss?: (() => void) | undefined;
-  },
+	{ title, detail, recovery, primaryLabel, onPrimary, onDismiss }: {
+		title: string;
+		detail: string;
+		recovery: string;
+		primaryLabel: string;
+		onPrimary: () => void;
+		/** What Escape does. Omitted when the dialog has nowhere to go — the
+		 *  error boundary's, where the app behind it is already broken and
+		 *  dismissing would take away the only explanation. */
+		onDismiss?: (() => void) | undefined;
+	},
 ) {
-  const primaryRef = useRef<HTMLButtonElement | null>(null);
+	const primaryRef = useRef<HTMLButtonElement | null>(null);
 
-  const copyDetail = () => {
-    const text = `${title}\n\n${detail}\n\n${recovery}`;
-    void navigator.clipboard?.writeText(text);
-  };
-  return (
-    <Dialog
-      role="alertdialog"
-      title={title}
-      titleTone="danger"
-      autoFocusRef={primaryRef}
-      onPrimary={onPrimary}
-      onDismiss={onDismiss}
-      footer={
-        <>
-          {
-            /* Both are `ocv-btn` and nothing else: the box, the corner,
+	const copyDetail = () => {
+		const text = `${title}\n\n${detail}\n\n${recovery}`;
+		void navigator.clipboard?.writeText(text);
+	};
+	return (
+		<Dialog
+			role="alertdialog"
+			title={title}
+			titleTone="danger"
+			autoFocusRef={primaryRef}
+			onPrimary={onPrimary}
+			onDismiss={onDismiss}
+			footer={
+				<>
+					{
+						/* Both are `ocv-btn` and nothing else: the box, the corner,
               the bevel, the hover and the focus ring are the app's, and
               `is-primary` is the one thing that distinguishes the answer
               from the aside. They used to carry a style object of their
               own, which is how they came to be the only buttons in the
               app with a three-pixel corner and no hover. */
-          }
-          <button type="button" className="ocv-btn" onClick={copyDetail}>
-            Copy detail
-          </button>
-          <button
-            type="button"
-            className="ocv-btn is-primary"
-            ref={primaryRef}
-            onClick={onPrimary}
-          >
-            {primaryLabel}
-          </button>
-        </>
-      }
-    >
-      <div
-        style={{
-          fontSize: SIZE.base,
-          color: c.text,
-          marginBottom: SPACE.md,
-          fontFamily: FONT.sans,
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {detail}
-      </div>
-      <div
-        style={{
-          fontSize: SIZE.sm,
-          color: c.textMuted,
-          fontFamily: FONT.sans,
-        }}
-      >
-        {recovery}
-      </div>
-    </Dialog>
-  );
+					}
+					<button
+						type="button"
+						className="ocv-btn"
+						onClick={copyDetail}
+					>
+						Copy detail
+					</button>
+					<button
+						type="button"
+						className="ocv-btn is-primary"
+						ref={primaryRef}
+						onClick={onPrimary}
+					>
+						{primaryLabel}
+					</button>
+				</>
+			}
+		>
+			<div
+				style={{
+					fontSize: SIZE.base,
+					color: c.text,
+					marginBottom: SPACE.md,
+					fontFamily: FONT.sans,
+					whiteSpace: "pre-wrap",
+				}}
+			>
+				{detail}
+			</div>
+			<div
+				style={{
+					fontSize: SIZE.sm,
+					color: c.textMuted,
+					fontFamily: FONT.sans,
+				}}
+			>
+				{recovery}
+			</div>
+		</Dialog>
+	);
 }
 
 /** Bus-subscribed modal: shows the most recent `internal` or
  * `import` error from the bus; primary button dismisses. */
 export function BusErrorModal() {
-  const [current, setCurrent] = useState<AppError | null>(null);
-  useEffect(() => {
-    return subscribeErrors((event) => {
-      if (event.error.code === "internal" || event.error.code === "import") {
-        setCurrent(event);
-      }
-    });
-  }, []);
-  if (!current) return null;
-  return (
-    <ErrorModalView
-      title={current.error.title}
-      detail={current.error.detail}
-      recovery={current.error.recovery}
-      primaryLabel="Dismiss"
-      onPrimary={() => setCurrent(null)}
-      onDismiss={() => setCurrent(null)}
-    />
-  );
+	const [current, setCurrent] = useState<AppError | null>(null);
+	useEffect(() => {
+		return subscribeErrors((event) => {
+			if (
+				event.error.code === "internal" || event.error.code === "import"
+			) {
+				setCurrent(event);
+			}
+		});
+	}, []);
+	if (!current) return null;
+	return (
+		<ErrorModalView
+			title={current.error.title}
+			detail={current.error.detail}
+			recovery={current.error.recovery}
+			primaryLabel="Dismiss"
+			onPrimary={() => setCurrent(null)}
+			onDismiss={() => setCurrent(null)}
+		/>
+	);
 }

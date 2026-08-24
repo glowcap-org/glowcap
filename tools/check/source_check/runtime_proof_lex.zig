@@ -177,7 +177,7 @@ pub const Owners = struct {
     pub fn advanceRacket(self: *Owners, line: []const u8) Owner {
         if (line.len != 0 and line[0] == '(') {
             const head = line[1..];
-            self.inert = std.mem.startsWith(u8, head, "provide") or std.mem.startsWith(u8, head, "require");
+            self.inert = racketFormIs(head, "provide") or racketFormIs(head, "require");
             self.current = racketDefineName(head);
         }
         if (self.inert) return .inert;
@@ -193,6 +193,11 @@ pub const Owners = struct {
         return .{ .definition = self.stack_name[0..self.depth] };
     }
 };
+
+fn racketFormIs(head: []const u8, name: []const u8) bool {
+    if (!std.mem.startsWith(u8, head, name)) return false;
+    return head.len == name.len or !IdentIter.isPart(.racket, head[name.len]);
+}
 
 pub fn parenDelta(line: []const u8) isize {
     var delta: isize = 0;
@@ -261,6 +266,12 @@ test "a racket provide clause owns nothing" {
     try std.testing.expectEqualStrings("session-release!", owned.definition[0]);
     const body = owners.advance("  (pancake_host_ref_release c ref))");
     try std.testing.expectEqualStrings("session-release!", body.definition[0]);
+}
+
+test "a Racket helper whose name starts with require remains executable" {
+    var owners = Owners.init(.racket);
+    try std.testing.expectEqual(Owner.module, owners.advance("(require-archive-fingerprint!"));
+    try std.testing.expectEqual(Owner.module, owners.advance(" 'host read expected)"));
 }
 
 test "a racket identifier lexes through its dashes and its bang" {

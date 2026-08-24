@@ -135,6 +135,14 @@ test "next Cap'n Proto peers authenticate start-session before opening" {
     try std.testing.expectEqual(model.CodecId.capnp, p1.session_state.codec);
     try std.testing.expect(p1.session_state.partnerSessionKey() != null);
     try std.testing.expect(p2.session_state.partnerSessionKey() != null);
+
+    const retained = p1.session_state.partnerLocatorRaw() orelse return error.MissingPartnerLocator;
+    var cursor: usize = 0;
+    const decoded = try engine.readLocatorOwned(allocator, retained, &cursor);
+    defer model.freePeerLocator(allocator, decoded);
+    try std.testing.expectEqual(retained.len, cursor);
+    try std.testing.expectEqualStrings(loc2.transport, decoded.transport);
+    try std.testing.expectEqualStrings(loc2.designator, decoded.designator);
 }
 
 /// Offers that negotiate the Cap'n Proto codec on both peers.
@@ -161,7 +169,6 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
@@ -197,7 +204,6 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     var pair = try pairedWithOffers(allocator, v1_capnp, v1_capnp);
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },

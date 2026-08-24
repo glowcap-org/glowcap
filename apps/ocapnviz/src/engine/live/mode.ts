@@ -77,23 +77,23 @@ const FORWARD_SLACK_MS = 250;
  * Exported so tests can exercise the stamping without opening a real peer.
  */
 export function makeLiveAppender(opts: {
-  liveDoc: TimelineDocument;
-  clock: { t: number };
+	liveDoc: TimelineDocument;
+	clock: { t: number };
 }): (ev: TimelineEvent) => void {
-  let offset: number | null = null;
-  return (ev) => {
-    const minT = opts.clock.t + 1;
-    const maxT = opts.clock.t + FORWARD_SLACK_MS;
-    if (offset === null || ev.t + offset < minT) offset = minT - ev.t;
-    else if (ev.t + offset > maxT) offset = maxT - ev.t;
-    // Every time field shifts by the same offset — a message's
-    // `arrivalT` left on the producer's base would give the flight
-    // a nonsense (often negative) duration.
-    const stamped: TimelineEvent = ev.kind === "message-sent"
-      ? { ...ev, t: ev.t + offset, arrivalT: ev.arrivalT + offset }
-      : { ...ev, t: ev.t + offset };
-    primaryObservations(opts.liveDoc).push(stamped);
-  };
+	let offset: number | null = null;
+	return (ev) => {
+		const minT = opts.clock.t + 1;
+		const maxT = opts.clock.t + FORWARD_SLACK_MS;
+		if (offset === null || ev.t + offset < minT) offset = minT - ev.t;
+		else if (ev.t + offset > maxT) offset = maxT - ev.t;
+		// Every time field shifts by the same offset — a message's
+		// `arrivalT` left on the producer's base would give the flight
+		// a nonsense (often negative) duration.
+		const stamped: TimelineEvent = ev.kind === "message-sent"
+			? { ...ev, t: ev.t + offset, arrivalT: ev.arrivalT + offset }
+			: { ...ev, t: ev.t + offset };
+		primaryObservations(opts.liveDoc).push(stamped);
+	};
 }
 
 /** What dialing a feed takes, and what it hands back.
@@ -101,17 +101,17 @@ export function makeLiveAppender(opts: {
  *  Both reports are optional and both are released by `dispose`, so a feed
  *  the caller no longer owns can never write into it. */
 export type FeedDial = {
-  /** The complete OCapN sturdyref announced by the trace endpoint. */
-  sturdyref: string;
-  /** Test seam for the browser peer; production uses the wasm-backed peer. */
-  peerFactory?: LivePeerFactory;
-  /** Called after CapTP subscription completes, with `true`; on close, with `false`. */
-  onConnectionChange?: (connected: boolean) => void;
-  /** Called when the feed cannot dial or enliven the trace capability. Taken
-   *  here rather than subscribed by the caller because that
-   *  failure happens inside the dial, so a subscriber attached afterwards
-   *  would never hear it. */
-  onError?: (error: EngineError) => void;
+	/** The complete OCapN sturdyref announced by the trace endpoint. */
+	sturdyref: string;
+	/** Test seam for the browser peer; production uses the wasm-backed peer. */
+	peerFactory?: LivePeerFactory;
+	/** Called after CapTP subscription completes, with `true`; on close, with `false`. */
+	onConnectionChange?: (connected: boolean) => void;
+	/** Called when the feed cannot dial or enliven the trace capability. Taken
+	 *  here rather than subscribed by the caller because that
+	 *  failure happens inside the dial, so a subscriber attached afterwards
+	 *  would never hear it. */
+	onError?: (error: EngineError) => void;
 };
 
 /**
@@ -125,21 +125,21 @@ export type FeedDial = {
  * of the dial is where they would start to.
  */
 export function dialLiveFeed(opts: FeedDial): {
-  feed: LiveFeed;
-  dispose: () => void;
+	feed: LiveFeed;
+	dispose: () => void;
 } {
-  const feed = new LiveFeed(opts.sturdyref, opts.peerFactory);
-  const unsubConnection = opts.onConnectionChange ? feed.onConnectionChange(opts.onConnectionChange) : () => {};
-  const unsubError = opts.onError ? feed.onError(opts.onError) : () => {};
-  feed.connect();
-  return {
-    feed,
-    dispose: () => {
-      unsubConnection();
-      unsubError();
-      feed.disconnect();
-    },
-  };
+	const feed = new LiveFeed(opts.sturdyref, opts.peerFactory);
+	const unsubConnection = opts.onConnectionChange ? feed.onConnectionChange(opts.onConnectionChange) : () => {};
+	const unsubError = opts.onError ? feed.onError(opts.onError) : () => {};
+	feed.connect();
+	return {
+		feed,
+		dispose: () => {
+			unsubConnection();
+			unsubError();
+			feed.disconnect();
+		},
+	};
 }
 
 /**
@@ -151,45 +151,45 @@ export function dialLiveFeed(opts: FeedDial): {
  * invokes to close the CapTP session and release subscribers.
  */
 export function startLiveMode(
-  opts: FeedDial & {
-    /** Upper bound on simulated time, in milliseconds. Defaults to 1 hour. */
-    durationMs?: number;
-  },
+	opts: FeedDial & {
+		/** Upper bound on simulated time, in milliseconds. Defaults to 1 hour. */
+		durationMs?: number;
+	},
 ): {
-  engine: Engine;
-  feed: LiveFeed;
-  dispose: () => void;
+	engine: Engine;
+	feed: LiveFeed;
+	dispose: () => void;
 } {
-  const liveDoc: TimelineDocument = {
-    id: "live",
-    metadata: {
-      "dct:title": "Live timeline-event feed",
-      "dct:description": `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
-    },
-    duration: opts.durationMs ?? 60 * 60 * 1000, // 1h default
-    recording: {
-      sources: [{
-        id: "live",
-        meta: { kind: "pancake-host" },
-        observations: [],
-      }],
-    },
-  };
+	const liveDoc: TimelineDocument = {
+		id: "live",
+		metadata: {
+			"dct:title": "Live timeline-event feed",
+			"dct:description": `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
+		},
+		duration: opts.durationMs ?? 60 * 60 * 1000, // 1h default
+		recording: {
+			sources: [{
+				id: "live",
+				meta: { kind: "pancake-host" },
+				observations: [],
+			}],
+		},
+	};
 
-  const engine = new Engine(liveDoc);
-  // Auto-play so events render as they arrive without the user
-  // having to hit play.
-  engine.enqueue({ kind: "play" });
+	const engine = new Engine(liveDoc);
+	// Auto-play so events render as they arrive without the user
+	// having to hit play.
+	engine.enqueue({ kind: "play" });
 
-  // Subscribed before the dial, for the reason `FeedDial.onError` gives:
-  // `connect()` can fail inside itself, so everything that must hear this
-  // feed is attached first. The appender is registered after `dialLiveFeed`
-  // returns because a failed dial delivers no events at all — the socket
-  // either opens and the subscription runs, or it does not and nothing does.
-  const dialed = dialLiveFeed(opts);
-  dialed.feed.subscribe(makeLiveAppender({ liveDoc, clock: engine.clock }));
+	// Subscribed before the dial, for the reason `FeedDial.onError` gives:
+	// `connect()` can fail inside itself, so everything that must hear this
+	// feed is attached first. The appender is registered after `dialLiveFeed`
+	// returns because a failed dial delivers no events at all — the socket
+	// either opens and the subscription runs, or it does not and nothing does.
+	const dialed = dialLiveFeed(opts);
+	dialed.feed.subscribe(makeLiveAppender({ liveDoc, clock: engine.clock }));
 
-  return { engine, feed: dialed.feed, dispose: dialed.dispose };
+	return { engine, feed: dialed.feed, dispose: dialed.dispose };
 }
 
 /** Breathing room past the last observation, so a claimed
@@ -223,37 +223,37 @@ const CAPTURE_TAIL_MS = 1_000;
  * relying on this.
  */
 export function claimRecording(
-  liveDoc: TimelineDocument,
-  id: string,
+	liveDoc: TimelineDocument,
+	id: string,
 ): TimelineDocument | null {
-  const observations = primaryObservations(liveDoc);
-  if (observations.length === 0) return null;
-  let end = 0;
-  for (const ev of observations) {
-    const t = ev.kind === "message-sent" ? Math.max(ev.t, ev.arrivalT) : ev.t;
-    if (t > end) end = t;
-  }
-  return {
-    ...liveDoc,
-    id,
-    metadata: { ...liveDoc.metadata, "dct:title": "Live recording" },
-    duration: end + CAPTURE_TAIL_MS,
-    recording: {
-      ...liveDoc.recording,
-      sources: (liveDoc.recording?.sources ?? []).map((source) => ({
-        ...source,
-        observations: [...source.observations],
-      })),
-    },
-  };
+	const observations = primaryObservations(liveDoc);
+	if (observations.length === 0) return null;
+	let end = 0;
+	for (const ev of observations) {
+		const t = ev.kind === "message-sent" ? Math.max(ev.t, ev.arrivalT) : ev.t;
+		if (t > end) end = t;
+	}
+	return {
+		...liveDoc,
+		id,
+		metadata: { ...liveDoc.metadata, "dct:title": "Live recording" },
+		duration: end + CAPTURE_TAIL_MS,
+		recording: {
+			...liveDoc.recording,
+			sources: (liveDoc.recording?.sources ?? []).map((source) => ({
+				...source,
+				observations: [...source.observations],
+			})),
+		},
+	};
 }
 
 /** The toast Stop uses when `claimRecording` returns null. */
 export function emptyCaptureError(): EngineError {
-  return {
-    code: "validation",
-    title: "Nothing to review",
-    detail: "Nothing arrived during this capture, so there is no recording to review.",
-    recovery: "Stay in Live and wait for activity, then Stop again.",
-  };
+	return {
+		code: "validation",
+		title: "Nothing to review",
+		detail: "Nothing arrived during this capture, so there is no recording to review.",
+		recovery: "Stay in Live and wait for activity, then Stop again.",
+	};
 }

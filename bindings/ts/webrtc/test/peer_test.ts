@@ -36,6 +36,7 @@ interface FakePeerConnection {
 	readonly configuration: RTCConfiguration;
 	finishRemoteDescription(): void;
 	emitDataChannel(channel: RTCDataChannel): void;
+	failConnection(): void;
 }
 
 function installFakePeerConnection(
@@ -48,6 +49,8 @@ function installFakePeerConnection(
 	class FakeRTCPeerConnection {
 		onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
 		ondatachannel: ((event: RTCDataChannelEvent) => void) | null = null;
+		onconnectionstatechange: (() => void) | null = null;
+		connectionState: RTCPeerConnectionState = "new";
 		readonly calls: string[] = [];
 		readonly configuration: RTCConfiguration;
 		#resolveRemote!: () => void;
@@ -100,6 +103,11 @@ function installFakePeerConnection(
 
 		emitDataChannel(channel: RTCDataChannel): void {
 			this.ondatachannel?.({ channel } as RTCDataChannelEvent);
+		}
+
+		failConnection(): void {
+			this.connectionState = "failed";
+			this.onconnectionstatechange?.();
 		}
 
 		close(): void {}
@@ -404,6 +412,23 @@ Deno.test("RtcPeer refuses unreliable data channels", async () => {
 		fake.instance().emitDataChannel(fakeChannel({ maxRetransmits: 0 }));
 		const error = await rejectionOf(opening);
 		if (!String(error).includes("reliable ordered ocapn")) throw error;
+	} finally {
+		fake.restore();
+	}
+});
+
+Deno.test("RtcPeer turns the ICE agent's terminal failure into a rejected open", async () => {
+	const fake = installFakePeerConnection(() => Promise.resolve());
+	try {
+		const peer = new RtcPeer({ offerer: false });
+		const opening = peer.waitOpen();
+		// Two peers with no route to each other never open a data channel and
+		// never fail one either; the connection state is the only verdict. It
+		// must settle the open with a reason a person can act on, not hang.
+		fake.instance().failConnection();
+		const error = await rejectionOf(opening);
+		if (!String(error).includes("ICE failed")) throw error;
+		peer.close();
 	} finally {
 		fake.restore();
 	}

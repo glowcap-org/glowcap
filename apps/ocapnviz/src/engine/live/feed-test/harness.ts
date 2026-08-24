@@ -15,43 +15,43 @@ import type { TimelineEvent } from "../../timeline.ts";
  * from array indexing.
  */
 export function expectKind<K extends TimelineEvent["kind"]>(
-  ev: TimelineEvent | undefined,
-  kind: K,
+	ev: TimelineEvent | undefined,
+	kind: K,
 ): Extract<TimelineEvent, { kind: K }> {
-  assert(ev !== undefined, `expected event of kind ${kind}, got undefined`);
-  assert(
-    ev.kind === kind,
-    `expected event of kind ${kind}, got ${ev.kind}`,
-  );
-  return ev as Extract<TimelineEvent, { kind: K }>;
+	assert(ev !== undefined, `expected event of kind ${kind}, got undefined`);
+	assert(
+		ev.kind === kind,
+		`expected event of kind ${kind}, got ${ev.kind}`,
+	);
+	return ev as Extract<TimelineEvent, { kind: K }>;
 }
 
 export function openSession(
-  convert: (ev: BaseTimelineEvent) => TimelineEvent[],
-  session: string,
-  b: string,
-  t_ns: number,
+	convert: (ev: BaseTimelineEvent) => TimelineEvent[],
+	session: string,
+	b: string,
+	t_ns: number,
 ): TimelineEvent[] {
-  return convert({
-    v: 1,
-    sim_t_ns: t_ns,
-    kind: "ocapn.session-opened",
-    session,
-    a: "rooms",
-    b,
-    codec: "syrup",
-  });
+	return convert({
+		v: 1,
+		sim_t_ns: t_ns,
+		kind: "ocapn.session-opened",
+		session,
+		a: "rooms",
+		b,
+		codec: "syrup",
+	});
 }
 
 export function closeSession(
-  convert: (ev: BaseTimelineEvent) => TimelineEvent[],
-  session: string,
-  t_ns: number,
+	convert: (ev: BaseTimelineEvent) => TimelineEvent[],
+	session: string,
+	t_ns: number,
 ): TimelineEvent[] {
-  return convert({
-    v: 1,
-    sim_t_ns: t_ns,
-    kind: "ocapn.session-closed",
-    session,
-  });
+	return convert({
+		v: 1,
+		sim_t_ns: t_ns,
+		kind: "ocapn.session-closed",
+		session,
+	});
 }

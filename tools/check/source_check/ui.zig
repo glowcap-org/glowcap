@@ -273,9 +273,18 @@ pub fn checkUiPaletteLiterals(
                 try appendViolation(gpa, violations, "{s} writes the core colour {s}; use var({s}) — ui/tokens.css owns it", .{ path, hex, name });
             }
             // The same colour spelled as decimal channels, which a hex scan misses.
-            const r = std.fmt.parseInt(u8, hex[1..3], 16) catch continue;
-            const g = std.fmt.parseInt(u8, hex[3..5], 16) catch continue;
-            const bl = std.fmt.parseInt(u8, hex[5..7], 16) catch continue;
+            const r = std.fmt.parseInt(u8, hex[1..3], 16) catch {
+                try appendViolation(gpa, violations, "ui/tokens.css core colour `{s}` is not #rrggbb; the decimal-channel scan cannot run", .{hex});
+                continue;
+            };
+            const g = std.fmt.parseInt(u8, hex[3..5], 16) catch {
+                try appendViolation(gpa, violations, "ui/tokens.css core colour `{s}` is not #rrggbb; the decimal-channel scan cannot run", .{hex});
+                continue;
+            };
+            const bl = std.fmt.parseInt(u8, hex[5..7], 16) catch {
+                try appendViolation(gpa, violations, "ui/tokens.css core colour `{s}` is not #rrggbb; the decimal-channel scan cannot run", .{hex});
+                continue;
+            };
             var spaced: [16]u8 = undefined;
             var tight: [16]u8 = undefined;
             for ([_][]const u8{

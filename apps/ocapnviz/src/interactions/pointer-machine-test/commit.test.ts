@@ -41,44 +41,44 @@ import { dispatch, gctx, snap } from "./harness.ts";
  * because the parameter goes unread, so it proves nothing and is not the check.
  */
 Deno.test("a drag the reader finished out of sight has something to commit", () => {
-  const { state } = dispatch(IDLE_MACHINE, [
-    {
-      kind: "pointer-down",
-      surface: "stage-empty",
-      snapshot: snap({ clientX: 100, clientY: 100 }),
-      ctx: gctx({ hit: dummyHit("stage-empty") }),
-    },
-    {
-      kind: "pointer-move",
-      snapshot: snap({ clientX: 140, clientY: 140 }),
-      hit: dummyHit("stage-empty"),
-    },
-  ]);
-  assertEquals(state.fsm.kind, "dragging");
-  assert(
-    hasSomethingToCommit(state),
-    "a drag in flight has something to commit and was thrown away",
-  );
+	const { state } = dispatch(IDLE_MACHINE, [
+		{
+			kind: "pointer-down",
+			surface: "stage-empty",
+			snapshot: snap({ clientX: 100, clientY: 100 }),
+			ctx: gctx({ hit: dummyHit("stage-empty") }),
+		},
+		{
+			kind: "pointer-move",
+			snapshot: snap({ clientX: 140, clientY: 140 }),
+			hit: dummyHit("stage-empty"),
+		},
+	]);
+	assertEquals(state.fsm.kind, "dragging");
+	assert(
+		hasSomethingToCommit(state),
+		"a drag in flight has something to commit and was thrown away",
+	);
 });
 
 Deno.test("a press that never dragged has nothing to commit", () => {
-  // Nothing is in flight to commit, and ending it would fire a click at wherever
-  // the pointer was when the news arrived — which may be nowhere near what was
-  // pressed, since this path is reached precisely when we missed the events in
-  // between.
-  const { state } = dispatch(IDLE_MACHINE, [{
-    kind: "pointer-down",
-    surface: "stage-peer",
-    snapshot: snap(),
-    ctx: gctx({ hit: dummyHit("stage-peer") }),
-  }]);
-  assertEquals(state.fsm.kind, "pressed");
-  assertEquals(hasSomethingToCommit(state), false);
+	// Nothing is in flight to commit, and ending it would fire a click at wherever
+	// the pointer was when the news arrived — which may be nowhere near what was
+	// pressed, since this path is reached precisely when we missed the events in
+	// between.
+	const { state } = dispatch(IDLE_MACHINE, [{
+		kind: "pointer-down",
+		surface: "stage-peer",
+		snapshot: snap(),
+		ctx: gctx({ hit: dummyHit("stage-peer") }),
+	}]);
+	assertEquals(state.fsm.kind, "pressed");
+	assertEquals(hasSomethingToCommit(state), false);
 });
 
 Deno.test("an idle machine has nothing to commit", () => {
-  // The ordinary case, and why the rule is safe to ask on every path: a normal
-  // release commits through the surface's own pointerup first, so the watch's
-  // report lands here and does nothing.
-  assertEquals(hasSomethingToCommit(IDLE_MACHINE), false);
+	// The ordinary case, and why the rule is safe to ask on every path: a normal
+	// release commits through the surface's own pointerup first, so the watch's
+	// report lands here and does nothing.
+	assertEquals(hasSomethingToCommit(IDLE_MACHINE), false);
 });

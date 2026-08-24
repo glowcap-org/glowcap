@@ -39,8 +39,7 @@ test "paired peers can exchange traffic once open" {
     var pair = try pairing.paired(allocator);
     defer pair.deinit();
 
-    // p1 imports p2's bootstrap export, then delivers against it.
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
+    // p1 delivers against p2's permanently addressable bootstrap export.
     try pair.p1.sendCopying(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
@@ -119,10 +118,58 @@ test "sendKeyedStartSession advertises non-baseline features into the signed hel
     try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.features);
     try std.testing.expectEqual(model.FeatureSet.minimum(), p2.session_state.features);
     // The recorded partner preference is what the partner's hello stated: p2
-    // stated minimum features, while the default Pancake peer stated its full
-    // implemented set.
+    // stated minimum features, while the default Pancake peer stated its
+    // ordinary default offer.
     try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.partner_preference.features);
     try std.testing.expectEqual(model.Preference{}, p2.session_state.partner_preference);
+}
+
+test "v1.0 hello advertisement strips next-only features" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .v1_0,
+        .codec = .syrup,
+        .features = model.FeatureSet.full(),
+    });
+    defer peer.deinit();
+
+    const loc: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:13",
+        .hints = model.Hints.emptyFalse(),
+    };
+    var storage: engine.Peer.HelloHints = .{};
+    defer storage.deinit(allocator);
+
+    const advertised = try peer.advertisedLocator(loc, &storage);
+    const stated = try session.parsePreferenceHints(advertised.hints);
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, stated.captp_version);
+    try std.testing.expect(stated.features.untag);
+    try std.testing.expect(!stated.features.multi_location);
+}
+
+test "hello hint stamping refuses an over-limit result before allocation" {
+    var names: [model.max_locator_hint_count][2]u8 = undefined;
+    var entries: [model.max_locator_hint_count]model.HintEntry = undefined;
+    for (&entries, 0..) |*entry, index| {
+        names[index] = .{ 'h', @intCast(index) };
+        entry.* = .{ .name = &names[index], .value = .{ .boolean = true } };
+    }
+    var storage: engine.Peer.HelloHints = .{};
+    var empty_storage: [0]u8 = .{};
+    var fixed = std.heap.FixedBufferAllocator.init(&empty_storage);
+
+    try std.testing.expectError(error.TooManyHints, storage.extend(
+        fixed.allocator(),
+        .{
+            .transport = model.transport.tcp,
+            .designator = "127.0.0.1:13",
+            .hints = .{ .entries = &entries },
+        },
+        .{ .captp_version = .next },
+        true,
+    ));
+    try std.testing.expect(storage.allocated_entries == null);
 }
 
 test "sendKeyedStartSession preserves arbitrary locator hint maps" {
@@ -235,6 +282,85 @@ test "a negotiated fallback retains its hello under the baseline profile" {
     const hello = (try event.view()).start_session;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, hello.captp_version);
     try std.testing.expectEqualStrings(locator.designator, hello.acceptable_location.designator);
+}
+
+test "negotiation uses the local preference actually stated on the wire" {
+    const allocator = std.testing.allocator;
+    var receiver = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+        .features = model.FeatureSet.full(),
+    });
+    defer receiver.deinit();
+
+    try receiver.sendCopying(handshake.startSession("tcp", "127.0.0.1:1"));
+    try std.testing.expect(receiver.session_state.handshake_local_sent);
+    try std.testing.expectEqual(model.Preference.baseline, receiver.session_state.local_preference);
+
+    var feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined;
+    const features = try model.FeatureSet.full().toWireString(&feature_bytes);
+    const remote_hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
+        .{ .name = model.transport.hint_codec, .value = .{ .string = "0" } },
+        .{ .name = model.transport.hint_features, .value = .{ .string = features } },
+    };
+    const remote = try handshake.signedHelloFrame(
+        allocator,
+        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4b))),
+        "tcp",
+        "127.0.0.1:2",
+        .{ .entries = &remote_hints },
+    );
+    try receiver.feedOwned(remote);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try receiver.step());
+
+    try std.testing.expect(receiver.sessionIsOpen());
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, receiver.session_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.syrup, receiver.codecId());
+    try std.testing.expect(!receiver.session_state.features.multi_location);
+}
+
+test "remote-first handshake settles after the local wire preference is sent" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+        .features = model.FeatureSet.full(),
+    });
+    defer peer.deinit();
+
+    var remote_feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined;
+    const remote_features = try model.FeatureSet.full().toWireString(&remote_feature_bytes);
+    const remote_hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
+        .{ .name = model.transport.hint_codec, .value = .{ .string = "0" } },
+        .{ .name = model.transport.hint_features, .value = .{ .string = remote_features } },
+    };
+    const remote = try handshake.signedHelloFrame(
+        allocator,
+        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4c))),
+        "tcp",
+        "127.0.0.1:3",
+        .{ .entries = &remote_hints },
+    );
+    try peer.feedOwned(remote);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expect(!peer.sessionIsOpen());
+
+    const local: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:4",
+        .hints = model.Hints.emptyFalse(),
+    };
+    try peer.sendKeyedStartSession(
+        local,
+        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4d))),
+    );
+
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expectEqual(model.CaptpVersion.next, peer.session_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, peer.codecId());
+    try std.testing.expect(peer.session_state.features.multi_location);
 }
 
 test "a pre-settlement abort uses the baseline wire pair" {
@@ -388,7 +514,6 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     var pair = try pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },

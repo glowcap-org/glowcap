@@ -1,10 +1,12 @@
-//! Start/stop supervision, and the JSON emitter every rooms-peer verb reports
-//! through, for `pancake app rooms-peer`.
+//! Start/stop supervision for `pancake app rooms-peer`.
 const std = @import("std");
+const builtin = @import("builtin");
 const signals = @import("../../operability/signals.zig");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
 const harness = @import("harness.zig");
+const files = @import("harness/files.zig");
+const json = @import("supervise/json.zig");
 const Flags = @import("flags.zig").Flags;
 
 const Io = common.Io;
@@ -14,154 +16,65 @@ const emitStdoutFmt = common.emitStdoutFmt;
 const default_locator = common.default_locator;
 const resolveLocator = common.resolveLocator;
 
-const pathIn = harness.pathIn;
-const readFile = harness.readFile;
-const removeFile = harness.removeFile;
+const pathIn = files.pathIn;
+const readFile = files.readFile;
 const stateField = harness.stateField;
-const writeJsonString = harness.writeJsonString;
 const writeState = harness.writeState;
 
-// --- json emit --------------------------------------------------------------
-
-/// One JSON document, built member by member. The braces, the commas, and the
-/// string escaping are written here so an emitter names its fields instead of
-/// spelling punctuation, and every method is fallible: a builder runs under
-/// `try`, and its caller reports a single failure rather than a document that
-/// stops mid-string.
-///
-/// Containers nest by `beginObject` / `arrayMember` and a matching `end`; the
-/// depth this area needs is an object holding an array of objects.
-pub const Json = struct {
-    gpa: Allocator,
-    buf: std.ArrayList(u8) = .empty,
-    /// Whether the container open at each depth already holds a member.
-    filled: [4]bool = @splat(false),
-    /// The byte that closes the container open at each depth.
-    closer: [4]u8 = @splat('}'),
-    depth: usize = 0,
-
-    pub fn init(gpa: Allocator) Json {
-        return .{ .gpa = gpa };
-    }
-
-    pub fn deinit(self: *Json) void {
-        self.buf.deinit(self.gpa);
-    }
-
-    /// Open an object: the document root, or one element of an open array.
-    pub fn beginObject(self: *Json) !void {
-        if (self.depth > 0) try self.separate();
-        try self.push('{', '}');
-    }
-
-    /// Open an array-valued member. Elements follow until `end`.
-    pub fn arrayMember(self: *Json, key: []const u8) !void {
-        try self.member(key);
-        try self.push('[', ']');
-    }
-
-    pub fn string(self: *Json, key: []const u8, value: []const u8) !void {
-        try self.member(key);
-        try writeJsonString(&self.buf, self.gpa, value);
-    }
-
-    pub fn boolean(self: *Json, key: []const u8, value: bool) !void {
-        try self.member(key);
-        try self.buf.appendSlice(self.gpa, if (value) "true" else "false");
-    }
-
-    pub fn number(self: *Json, key: []const u8, value: anytype) !void {
-        try self.member(key);
-        try self.buf.print(self.gpa, "{d}", .{value});
-    }
-
-    /// A value that is already JSON: `null`, or a document read off disk.
-    pub fn rawValue(self: *Json, key: []const u8, value: []const u8) !void {
-        try self.member(key);
-        try self.buf.appendSlice(self.gpa, value);
-    }
-
-    /// Close the innermost container.
-    pub fn end(self: *Json) !void {
-        std.debug.assert(self.depth > 0);
-        self.depth -= 1;
-        try self.buf.append(self.gpa, self.closer[self.depth]);
-    }
-
-    /// The finished document plus its trailing newline, ready for one write.
-    /// Only a builder that reached here has a document worth emitting.
-    pub fn line(self: *Json) ![]const u8 {
-        std.debug.assert(self.depth == 0);
-        try self.buf.append(self.gpa, '\n');
-        return self.buf.items;
-    }
-
-    fn push(self: *Json, open: u8, close: u8) !void {
-        std.debug.assert(self.depth < self.filled.len);
-        try self.buf.append(self.gpa, open);
-        self.filled[self.depth] = false;
-        self.closer[self.depth] = close;
-        self.depth += 1;
-    }
-
-    fn separate(self: *Json) !void {
-        if (self.filled[self.depth - 1]) try self.buf.append(self.gpa, ',');
-        self.filled[self.depth - 1] = true;
-    }
-
-    fn member(self: *Json, key: []const u8) !void {
-        try self.separate();
-        try writeJsonString(&self.buf, self.gpa, key);
-        try self.buf.append(self.gpa, ':');
-    }
-};
-
-/// The one failure door for a rooms-peer JSON emitter. A document that did not
-/// build is reported as a whole, parseable error object and fails with the
-/// internal exit code, so the agent reading this stdout never parses a
-/// truncated document or takes a half report for success.
-pub fn emitInternalError(io: Io) error{PeerFailed} {
-    emitStdout(io, "{\"ok\":false,\"error\":\"internal\"}\n");
+fn stateReadFailure(io: Io, err: anyerror) error{PeerFailed} {
+    // best-effort: the returned PeerFailed still carries the failure; only
+    // the JSON detail line is lost if stdout refuses.
+    emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"state\",\"detail\":\"{s}\"}}\n", .{@errorName(err)}) catch {};
     return error.PeerFailed;
 }
 
 // --- start ------------------------------------------------------------------
 
-/// Whether `pid` names a live process. A zombie (state `Z` — exited but not yet
-/// reaped) reads as dead: under a non-reaping container init (`sleep infinity` as
-/// PID 1) a cleanly-stopped daemon lingers as a zombie table entry, and treating
-/// that as "up" would make `stop` escalate to SIGKILL against an already-dead
-/// process and `status` misreport it. A reaping init (tini/systemd) clears the
-/// entry outright, so this only matters in the bare-container case.
-pub fn pidAlive(io: Io, gpa: Allocator, pid: i32) bool {
-    _ = gpa;
+pub const ProcessLiveness = enum { running, absent, unknown };
+
+/// Probe liveness without turning an observation failure into process death.
+/// `kill(pid, 0)` is portable; Linux's proc state additionally distinguishes a
+/// zombie, which can otherwise make a stopped daemon look live in a bare
+/// container until its init process reaps it.
+pub fn processLiveness(io: Io, pid: i32) ProcessLiveness {
+    if (pid <= 0) return .unknown;
+    const no_signal: std.posix.SIG = @fromBackingInt(@intCast(0));
+    std.posix.kill(@intCast(pid), no_signal) catch |err| switch (err) {
+        error.ProcessNotFound => return .absent,
+        error.PermissionDenied => return .running,
+        else => return .unknown,
+    };
+
+    if (comptime builtin.os.tag != .linux) return .running;
+
     var path_buf: [64]u8 = undefined;
-    const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/stat", .{pid}) catch return false;
-    // /proc/<pid>/stat is a synthetic file that reports size 0, so a size-based
-    // read gets nothing — read into a fixed buffer instead. Opening at all means
-    // a table entry exists; the state token distinguishes live from zombie.
-    const file = Io.Dir.cwd().openFile(io, path, .{}) catch return false;
+    const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/stat", .{pid}) catch return .unknown;
+    const file = Io.Dir.cwd().openFile(io, path, .{}) catch return .unknown;
     defer file.close(io);
     var read_buf: [512]u8 = undefined;
     var fr = file.reader(io, &read_buf);
     var data_buf: [512]u8 = undefined;
-    const n = fr.interface.readSliceShort(&data_buf) catch return true;
+    const n = fr.interface.readSliceShort(&data_buf) catch return .unknown;
     const data = data_buf[0..n];
-    // `comm` can hold spaces and parens, so the state is the token after the
-    // last ')'.
-    const rp = std.mem.lastIndexOfScalar(u8, data, ')') orelse return true;
+    const rp = std.mem.lastIndexOfScalar(u8, data, ')') orelse return .unknown;
     var i = rp + 1;
     while (i < data.len and data[i] == ' ') i += 1;
-    if (i >= data.len) return true;
-    const st = data[i];
-    return st != 'Z' and st != 'X' and st != 'x';
+    if (i >= data.len) return .unknown;
+    return switch (data[i]) {
+        'Z', 'X', 'x' => .absent,
+        else => .running,
+    };
 }
 
-/// The absolute path to this running binary, so a command we print for the
-/// agent is copy-pasteable from any working directory. Falls back to the bare
-/// name if `/proc/self/exe` cannot be read.
-pub fn selfExePath(io: Io, buf: []u8) []const u8 {
-    const n = Io.Dir.readLinkAbsolute(io, "/proc/self/exe", buf) catch return "pancake";
+pub fn pidAlive(io: Io, gpa: Allocator, pid: i32) bool {
+    _ = gpa;
+    return processLiveness(io, pid) == .running;
+}
+
+/// The absolute path to this running binary, so detached launches and printed
+/// commands do not depend on the caller's working directory or PATH.
+pub fn selfExePath(io: Io, buf: []u8) ![]const u8 {
+    const n = try std.process.executablePath(io, buf);
     return buf[0..n];
 }
 
@@ -171,6 +84,26 @@ pub fn readPid(io: Io, gpa: Allocator, dir: []const u8) ?i32 {
     const trimmed = std.mem.trim(u8, text, " \t\r\n");
     if (trimmed.len == 0) return null;
     return std.fmt.parseInt(i32, trimmed, 10) catch null;
+}
+
+pub const ProcessObservation = union(enum) {
+    none,
+    running: i32,
+    unconfirmed,
+};
+
+/// The lease, not the PID text, is the process identity. An unlocked sidecar
+/// means the PID is stale even if the operating system has since reused it.
+pub fn observeProcess(io: Io, gpa: Allocator, dir: []const u8) !ProcessObservation {
+    const lease = files.tryLockLeaf(io, dir, "peer.pid") catch |err| switch (err) {
+        error.Busy => {
+            const pid = readPid(io, gpa, dir) orelse return .unconfirmed;
+            return if (pidAlive(io, gpa, pid)) .{ .running = pid } else .unconfirmed;
+        },
+        else => return err,
+    };
+    lease.unlock();
+    return .none;
 }
 
 /// Always returns an owned copy the caller frees; an unreadable working
@@ -186,7 +119,7 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
     const io = init.io;
     const gpa = init.gpa;
     if (flags.nick.len == 0 or flags.dir.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"start needs --dir and --nick\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"start needs --dir and --nick\"}}\n", .{});
         return error.UsageFailed;
     }
     const dir = try absDir(io, gpa, flags.dir);
@@ -197,35 +130,60 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
     const bootstrap = if (flags.locator.len > 0) flags.locator else default_locator;
     {
         const probe = resolveLocator(io, gpa, bootstrap) catch |err| {
-            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"locator\",\"detail\":\"could not resolve {s}: {s}\"}}\n", .{ bootstrap, @errorName(err) });
+            var doc = json.Document.init(gpa);
+            defer doc.deinit();
+            doc.beginObject() catch return json.emitInternalError(io);
+            doc.boolean("ok", false) catch return json.emitInternalError(io);
+            doc.string("error", "locator") catch return json.emitInternalError(io);
+            doc.string("locator", bootstrap) catch return json.emitInternalError(io);
+            doc.string("detail", @errorName(err)) catch return json.emitInternalError(io);
+            doc.end() catch return json.emitInternalError(io);
+            const bytes = doc.line() catch return json.emitInternalError(io);
+            emitStdout(io, bytes) catch return error.PeerFailed;
             return error.PeerFailed;
         };
         gpa.free(probe);
     }
-    Io.Dir.cwd().createDirPath(io, dir) catch {};
+    try Io.Dir.cwd().createDirPath(io, dir);
+
+    const lifecycle = files.tryLockLeaf(io, dir, "lifecycle") catch |err| {
+        // best-effort: the failure return still lands; only the JSON line is lost.
+        emitStdout(io, "{\"ok\":false,\"error\":\"busy\",\"detail\":\"another rooms-peer lifecycle operation is active\"}\n") catch {};
+        return if (err == error.Busy) error.PeerFailed else err;
+    };
+    defer lifecycle.unlock();
 
     var exe_buf: [4096]u8 = undefined;
-    const exe = selfExePath(io, &exe_buf);
+    const exe = selfExePath(io, &exe_buf) catch |err| {
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"executable\",\"detail\":\"{s}\"}}\n", .{@errorName(err)});
+        return error.PeerFailed;
+    };
 
-    // Idempotent: never launch a second peer for a live dir.
-    if (readPid(io, gpa, dir)) |pid| {
-        if (pidAlive(io, gpa, pid)) {
+    // Idempotent: never launch a second peer for a live lease. A stale PID is
+    // disposable; a held lease with an unreadable/dead PID is not safe to adopt.
+    switch (try observeProcess(io, gpa, dir)) {
+        .running => |pid| {
             try waitJoinedAndReport(io, gpa, exe, dir, flags.nick, flags.room, pid, false);
             return;
-        }
+        },
+        .unconfirmed => {
+            try emitStdout(io, "{\"ok\":false,\"error\":\"peer-identity\",\"detail\":\"peer lease is held but its PID cannot be confirmed; inspect peer.out and stop manually\"}\n");
+            return error.PeerFailed;
+        },
+        .none => {},
     }
 
     // Spawn path only (an adopted live pid keeps its own state): reset
     // state.json before the spawn so the join wait below observes only this
     // daemon's progress — a dead-pid restart must not report ok off the
     // previous run's stale "joined" bytes.
-    writeState(io, gpa, dir, "starting", flags.nick, flags.room, bootstrap, false, 0);
+    try writeState(io, gpa, dir, "starting", flags.nick, flags.room, bootstrap, false, 0);
 
     // Raw daemon stdout/stderr (a startup crash before state.json) land here.
     var out_path_buf: [512]u8 = undefined;
-    const out_path = pathIn(&out_path_buf, dir, "peer.out");
+    const out_path = try pathIn(&out_path_buf, dir, "peer.out");
     const out_file = Io.Dir.cwd().createFile(io, out_path, .{ .truncate = true }) catch {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"peer-out\",\"detail\":\"could not open peer.out\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"peer-out\",\"detail\":\"could not open peer.out\"}}\n", .{});
         return error.PeerFailed;
     };
 
@@ -278,7 +236,7 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
         .stderr = .{ .file = out_file },
     }) catch |err| {
         out_file.close(io);
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"spawn\",\"detail\":\"{s}\"}}\n", .{@errorName(err)});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"spawn\",\"detail\":\"{s}\"}}\n", .{@errorName(err)});
         return error.PeerFailed;
     };
     out_file.close(io);
@@ -286,7 +244,15 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
     // init (tini/systemd) collects it on exit; under a bare-container PID 1 it
     // lingers as a harmless zombie table entry until container teardown.
     const pid: i32 = @intCast(child.id orelse 0);
+    var reported = false;
+    defer if (!reported) switch (processLiveness(io, pid)) {
+        .running => _ = stopPeerPid(io, gpa, dir, pid) catch |err|
+            log.err(io, "failed to stop peer after startup observer failure: {s}", .{@errorName(err)}),
+        .absent => {},
+        .unknown => log.err(io, "peer liveness became unobservable after startup failure; peer.pid retained", .{}),
+    };
     try waitJoinedAndReport(io, gpa, exe, dir, flags.nick, flags.room, pid, true);
+    reported = true;
 }
 
 fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8, nick: []const u8, room: []const u8, pid: i32, started: bool) !void {
@@ -297,38 +263,53 @@ fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8,
     const register_grace_ms: u64 = 15_000;
     var joined_at: ?u64 = null;
     while (waited < join_deadline_ms + register_grace_ms) {
-        const status = stateField(io, gpa, dir, "status");
+        const status = stateField(io, gpa, dir, "status") catch |err|
+            return stateReadFailure(io, err);
         defer gpa.free(status);
         if (std.mem.eql(u8, status, "joined")) {
             if (joined_at == null) joined_at = waited;
-            const registered = stateField(io, gpa, dir, "registered");
+            const registered = stateField(io, gpa, dir, "registered") catch |err|
+                return stateReadFailure(io, err);
             defer gpa.free(registered);
             const is_reg = std.mem.eql(u8, registered, "true");
             const grace_done = waited - joined_at.? >= register_grace_ms;
             if (is_reg or grace_done) {
-                const locator = stateField(io, gpa, dir, "locator");
+                const locator = stateField(io, gpa, dir, "locator") catch |err|
+                    return stateReadFailure(io, err);
                 defer gpa.free(locator);
                 return reportStarted(io, gpa, exe, dir, nick, room, pid, started, locator, is_reg);
             }
         } else if (waited >= join_deadline_ms) {
             return failJoinTimeout(io, gpa, dir, pid, started);
         }
-        if (!pidAlive(io, gpa, pid)) {
-            const tail = readFile(io, gpa, dir, "peer.out") catch gpa.dupe(u8, "") catch "";
-            defer gpa.free(tail);
-            var doc = Json.init(gpa);
-            defer doc.deinit();
-            const bytes = buildPeerExited(&doc, tailOf(tail, 600)) catch return emitInternalError(io);
-            emitStdout(io, bytes);
-            return error.PeerFailed;
+        switch (processLiveness(io, pid)) {
+            .running => {},
+            .unknown => {
+                // best-effort: the failure return still lands; only the JSON line is lost.
+                emitStdout(io, "{\"ok\":false,\"error\":\"peer-identity\",\"detail\":\"could not verify the peer process; peer.pid was retained\"}\n") catch {};
+                return error.PeerFailed;
+            },
+            .absent => {
+                const tail = readFile(io, gpa, dir, "peer.out") catch gpa.dupe(u8, "") catch "";
+                defer gpa.free(tail);
+                var doc = json.Document.init(gpa);
+                defer doc.deinit();
+                const bytes = buildPeerExited(&doc, tailOf(tail, 600)) catch return json.emitInternalError(io);
+                try emitStdout(io, bytes);
+                return error.PeerFailed;
+            },
         }
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real) catch {};
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real) catch |err| {
+            // best-effort: the failure return still lands; only the JSON line is lost.
+            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"startup-wait\",\"detail\":\"{s}\"}}\n", .{@errorName(err)}) catch {};
+            return error.PeerFailed;
+        };
         waited += 300;
     }
     return failJoinTimeout(io, gpa, dir, pid, started);
 }
 
-fn buildPeerExited(doc: *Json, peer_out: []const u8) ![]const u8 {
+fn buildPeerExited(doc: *json.Document, peer_out: []const u8) ![]const u8 {
     try doc.beginObject();
     try doc.boolean("ok", false);
     try doc.string("error", "peer-exited");
@@ -340,10 +321,14 @@ fn buildPeerExited(doc: *Json, peer_out: []const u8) ![]const u8 {
 
 /// The `join_attempts` counter out of state.json. `stateField` extracts
 /// strings and bools only, so the one numeric field gets its own read.
-fn stateJoinAttempts(io: Io, gpa: Allocator, dir: []const u8) u32 {
-    const raw = readFile(io, gpa, dir, "state.json") catch return 0;
+fn stateJoinAttempts(io: Io, gpa: Allocator, dir: []const u8) !u32 {
+    const raw = readFile(io, gpa, dir, "state.json") catch |err| return err;
     defer gpa.free(raw);
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, raw, .{}) catch return 0;
+    if (raw.len == 0) return 0;
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, raw, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.StateCorrupt,
+    };
     defer parsed.deinit();
     if (parsed.value == .object) {
         if (parsed.value.object.get("join_attempts")) |v| {
@@ -352,7 +337,7 @@ fn stateJoinAttempts(io: Io, gpa: Allocator, dir: []const u8) u32 {
             }
         }
     }
-    return 0;
+    return error.StateCorrupt;
 }
 
 /// The join deadline passed. A peer this `start` spawned is stopped so a
@@ -362,25 +347,37 @@ fn stateJoinAttempts(io: Io, gpa: Allocator, dir: []const u8) u32 {
 /// `join_attempts` carry the peer's last observed phase and how many join
 /// tries it has abandoned.
 fn failJoinTimeout(io: Io, gpa: Allocator, dir: []const u8, pid: i32, started: bool) error{PeerFailed} {
-    const status = stateField(io, gpa, dir, "status");
+    const status = stateField(io, gpa, dir, "status") catch |err|
+        return stateReadFailure(io, err);
     defer gpa.free(status);
-    const join_attempts = stateJoinAttempts(io, gpa, dir);
-    if (started) _ = stopPeerPid(io, gpa, dir, pid);
-    var doc = Json.init(gpa);
+    const join_attempts = stateJoinAttempts(io, gpa, dir) catch |err|
+        return stateReadFailure(io, err);
+    var stop_error: ?[]const u8 = null;
+    if (started) {
+        _ = stopPeerPid(io, gpa, dir, pid) catch |err| {
+            stop_error = @errorName(err);
+            log.err(io, "failed to stop peer after join timeout: {s}", .{stop_error.?});
+        };
+    }
+    var doc = json.Document.init(gpa);
     defer doc.deinit();
-    const bytes = buildJoinTimeout(&doc, status, join_attempts, started) catch return emitInternalError(io);
-    emitStdout(io, bytes);
+    const bytes = buildJoinTimeout(&doc, status, join_attempts, started, stop_error) catch return json.emitInternalError(io);
+    emitStdout(io, bytes) catch return error.PeerFailed;
     return error.PeerFailed;
 }
 
-fn buildJoinTimeout(doc: *Json, status: []const u8, join_attempts: u32, started: bool) ![]const u8 {
+fn buildJoinTimeout(doc: *json.Document, status: []const u8, join_attempts: u32, started: bool, stop_error: ?[]const u8) ![]const u8 {
     try doc.beginObject();
     try doc.boolean("ok", false);
     try doc.string("error", "join-timeout");
     try doc.string("status", status);
     try doc.number("join_attempts", join_attempts);
+    if (stop_error) |err| try doc.string("stop_error", err);
     try doc.string("detail", if (started)
-        "peer did not report joined in time and was stopped; check the locator and that the room is reachable"
+        if (stop_error == null)
+            "peer did not report joined in time and was stopped; check the locator and that the room is reachable"
+        else
+            "peer did not report joined in time; termination was not confirmed and peer.pid was retained"
     else
         "existing peer has not joined; left running (its own backoff may recover it) — rooms-peer stop if wedged");
     try doc.end();
@@ -409,15 +406,15 @@ fn reportStarted(
     locator: []const u8,
     registered: bool,
 ) error{PeerFailed}!void {
-    var doc = Json.init(gpa);
+    var doc = json.Document.init(gpa);
     defer doc.deinit();
     const bytes = buildStarted(&doc, exe, dir, nick, room, pid, started, locator, registered) catch
-        return emitInternalError(io);
-    emitStdout(io, bytes);
+        return json.emitInternalError(io);
+    emitStdout(io, bytes) catch return error.PeerFailed;
 }
 
 fn buildStarted(
-    doc: *Json,
+    doc: *json.Document,
     exe: []const u8,
     dir: []const u8,
     nick: []const u8,
@@ -440,9 +437,9 @@ fn buildStarted(
     try doc.string("locator", locator);
     try doc.boolean("registered", registered);
     try doc.string("dir", dir);
-    try doc.string("loop_cmd", std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }) catch "");
-    try doc.string("reply_cmd", std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }) catch "");
-    try doc.string("stop_cmd", std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }) catch "");
+    try doc.string("loop_cmd", try std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }));
+    try doc.string("reply_cmd", try std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }));
+    try doc.string("stop_cmd", try std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }));
     try doc.string("next", "Run loop_cmd repeatedly and wait for each return (up to 120s): reply/dismiss pending, then loop. A durable member Task must not final-answer after arming tick — that orphans the wake. Run stop_cmd only when human/lead ends the session. registered=true means DM introduce works.");
     try doc.end();
     return doc.line();
@@ -453,57 +450,89 @@ fn buildStarted(
 /// What a stop attempt did: whether any signal was sent, and whether it
 /// escalated to SIGKILL.
 const StopOutcome = struct {
-    signaled: bool,
     sigkill: bool,
 };
 
-/// SIGTERM then SIGKILL a live peer pid and clear `peer.pid`.
-fn stopPeerPid(io: Io, gpa: Allocator, dir: []const u8, target: i32) StopOutcome {
-    if (!pidAlive(io, gpa, target)) {
-        removeFile(io, dir, "peer.pid");
-        return .{ .signaled = false, .sigkill = false };
-    }
-    std.posix.kill(target, std.posix.SIG.TERM) catch {};
+/// SIGTERM then SIGKILL a live peer pid. The PID sidecar is removed only after
+/// death is observed; a signal or observation failure leaves ownership state
+/// intact and returns an operational failure.
+fn stopPeerPid(io: Io, gpa: Allocator, dir: []const u8, target: i32) !StopOutcome {
+    if (processLiveness(io, target) != .running) return error.TerminationUnconfirmed;
+    std.posix.kill(target, std.posix.SIG.TERM) catch |err| switch (err) {
+        error.ProcessNotFound => if (pidAlive(io, gpa, target)) return error.SignalFailed,
+        else => return error.SignalFailed,
+    };
     var waited: u64 = 0;
-    while (waited < 6000 and pidAlive(io, gpa, target)) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+    var liveness = processLiveness(io, target);
+    while (waited < 6000 and liveness == .running) {
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch return error.TerminationWaitFailed;
         waited += 100;
+        liveness = processLiveness(io, target);
     }
+    if (liveness == .unknown) return error.TerminationUnconfirmed;
     var sigkill = false;
-    if (pidAlive(io, gpa, target)) {
+    if (liveness == .running) {
         sigkill = true;
-        std.posix.kill(target, std.posix.SIG.KILL) catch {};
+        std.posix.kill(target, std.posix.SIG.KILL) catch |err| switch (err) {
+            error.ProcessNotFound => if (pidAlive(io, gpa, target)) return error.SignalFailed,
+            else => return error.SignalFailed,
+        };
         var w2: u64 = 0;
-        while (w2 < 3000 and pidAlive(io, gpa, target)) {
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+        liveness = processLiveness(io, target);
+        while (w2 < 3000 and liveness == .running) {
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch return error.TerminationWaitFailed;
             w2 += 100;
+            liveness = processLiveness(io, target);
         }
     }
-    removeFile(io, dir, "peer.pid");
-    return .{ .signaled = true, .sigkill = sigkill };
+    if (liveness != .absent) return error.TerminationUnconfirmed;
+    var path_buf: [512]u8 = undefined;
+    const path = try pathIn(&path_buf, dir, "peer.pid");
+    Io.Dir.cwd().deleteFile(io, path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+    return .{ .sigkill = sigkill };
 }
 
 pub fn runStop(init: std.process.Init, flags: Flags) !void {
     const io = init.io;
     const gpa = init.gpa;
     if (flags.dir.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"stop needs --dir\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"stop needs --dir\"}}\n", .{});
         return error.UsageFailed;
     }
-    const pid = readPid(io, gpa, flags.dir) orelse {
-        // Missing or unparseable pid file: clear it and report nothing to stop.
-        removeFile(io, flags.dir, "peer.pid");
-        emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}}\n", .{});
-        return;
+    const lifecycle = files.tryLockLeaf(io, flags.dir, "lifecycle") catch |err| {
+        // best-effort: the failure return still lands; only the JSON line is lost.
+        emitStdout(io, "{\"ok\":false,\"error\":\"busy\",\"detail\":\"another rooms-peer lifecycle operation is active\"}\n") catch {};
+        return if (err == error.Busy) error.PeerFailed else err;
     };
-    // stopPeerPid owns the dead-pid arm too (clears the stale pid file).
-    const outcome = stopPeerPid(io, gpa, flags.dir, pid);
-    if (!outcome.signaled) {
-        emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}}\n", .{});
-        return;
+    defer lifecycle.unlock();
+
+    switch (try observeProcess(io, gpa, flags.dir)) {
+        .none => {
+            // Only an unlocked lease permits stale PID cleanup.
+            var path_buf: [512]u8 = undefined;
+            const path = try pathIn(&path_buf, flags.dir, "peer.pid");
+            Io.Dir.cwd().deleteFile(io, path) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => return err,
+            };
+            try emitStdout(io, "{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}\n");
+        },
+        .unconfirmed => {
+            try emitStdout(io, "{\"ok\":false,\"error\":\"peer-identity\",\"detail\":\"peer lease is held but its PID cannot be confirmed; peer.pid was retained\"}\n");
+            return error.PeerFailed;
+        },
+        .running => |pid| {
+            const outcome = stopPeerPid(io, gpa, flags.dir, pid) catch |err| {
+                try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"stop\",\"detail\":\"could not confirm peer termination: {s}\",\"pid\":{d}}}\n", .{ @errorName(err), pid });
+                return error.PeerFailed;
+            };
+            try emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":true,\"pid\":{d},\"sigkill\":{s}}}\n", .{
+                pid,
+                if (outcome.sigkill) "true" else "false",
+            });
+        },
     }
-    emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":true,\"pid\":{d},\"sigkill\":{s}}}\n", .{
-        pid,
-        if (outcome.sigkill) "true" else "false",
-    });
 }

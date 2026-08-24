@@ -46,6 +46,7 @@ const retireClosedSession = harness.retireClosedSession;
 const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
+const nextRouteOptions = harness.nextRouteOptions;
 
 test "wire-shaped callback: a foreign-session reply breaks one vow, not the session" {
     const allocator = std.testing.allocator;
@@ -280,6 +281,58 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
 }
 
+test "core host: next Syrup traces an unresolved projected tell before settlement" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5c)), nextRouteOptions());
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5d)), nextRouteOptions());
+    defer server.deinit();
+    var trace = TraceLog{};
+    try client.setTrace(.{ .ctx = &trace, .emit = TraceLog.emit });
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7825", &dials);
+
+    var resolver_id: u64 = 0;
+    _ = try pair.b.served.publish(&server.vat, "worker", Deferring, .{
+        .host = &server,
+        .session = pair.b,
+        .out_resolver = &resolver_id,
+    });
+    var worker = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "worker"), .{ .ctx = &worker, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    const source = try client.send(pair.a, try worker.require(), .{ .verb = "work", .args = &.{} });
+    const untagged = try client.vowUntag(source, "task");
+    const projected = try client.vowIndex(untagged, 1);
+    // The downstream projection owns its dependency. Releasing the public
+    // intermediate handle must not sever an already-issued chain.
+    try client.vowRelease(untagged);
+    var label = CapturedString{};
+    try client.vowOn(projected, .{ .ctx = &label, .func = CapturedString.record });
+    try client.vowTellValues(projected, "pipeline-sentinel", &.{}, allocator);
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    try std.testing.expect(resolver_id != 0);
+    try std.testing.expect(label.len == 0 and !label.broken);
+    try std.testing.expect(trace.contains("msg out pipeline-sentinel"));
+    const row = [_]model.Argument{
+        .{ .string = "assigned" },
+        .{ .string = "alice" },
+        .{ .integer = 7 },
+    };
+    const tagged_values = [_]model.Argument{.{ .list = &row }};
+    try server.resolverFulfill(resolver_id, .{
+        .tagged = .{ .tag = "task", .value = &tagged_values },
+    });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    try std.testing.expectEqualStrings("alice", label.text());
+    try client.releaseSession(pair.a);
+    try server.releaseSession(pair.b);
+}
+
 test "core session release cancels a deferred answer before freeing its Port" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x2c)), Host.Options.withFrameCap(frame_cap));
@@ -466,7 +519,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     dials.clearRetainingCapacity();
     // Fail both dials: the break is the same queued completion a success
     // would take, and it needs the same reserved slot.
-    for (tickets) |ticket| try client.dialFailed(ticket, "unreachable in this scenario");
+    for (tickets) |ticket| try client.dialFailed(ticket, 0, "unreachable in this scenario");
 
     var settled_ids: [2]bool = .{ false, false };
     while (try client.nextAction()) |action| {

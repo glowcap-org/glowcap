@@ -9,21 +9,21 @@ import { c, FONT, SIZE, SPACE } from "../tokens.ts";
  * subscription.
  */
 export function FieldError({ error }: { error: EngineError | null }) {
-  if (!error) return null;
-  return (
-    <div
-      role="alert"
-      style={{
-        marginTop: SPACE.xs,
-        fontFamily: FONT.sans,
-        fontSize: SIZE.xs,
-        color: c.danger,
-      }}
-    >
-      <span style={{ fontWeight: 600 }}>{error.detail}</span>
-      <span style={{ color: c.textMuted, marginLeft: SPACE.xs }}>
-        {error.recovery}
-      </span>
-    </div>
-  );
+	if (!error) return null;
+	return (
+		<div
+			role="alert"
+			style={{
+				marginTop: SPACE.xs,
+				fontFamily: FONT.sans,
+				fontSize: SIZE.xs,
+				color: c.danger,
+			}}
+		>
+			<span style={{ fontWeight: 600 }}>{error.detail}</span>
+			<span style={{ color: c.textMuted, marginLeft: SPACE.xs }}>
+				{error.recovery}
+			</span>
+		</div>
+	);
 }

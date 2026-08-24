@@ -72,6 +72,16 @@
 (close-output-port rp-out)
 (close-input-port rp-in)
 (define rp-session (open-test-session (tcp-locator "127.0.0.1" (server-port rp-server))))
+(expect (equal? (session-transport-name rp-session) TRANSPORT-TCP)
+        "session transport metadata did not report tcp")
+(define rp-profile (session-profile rp-session))
+(expect (equal? (settled-profile-captp-version rp-profile) 'v1_0)
+        "TCP session did not report its settled CapTP profile")
+(expect (equal? (settled-profile-codec rp-profile) 'syrup)
+        "TCP session did not report its settled codec")
+(expect (= (settled-profile-features rp-profile)
+           (bitwise-and FEATURE-FULL (bitwise-not FEATURE-MULTI-LOCATION)))
+        "TCP session did not report the exact v1.0 feature floor")
 (semaphore-wait rp-ready)
 (define rp-cap (session-fetch rp-session "svc"))
 (expect (equal? (sym "alive") (session-send rp-session rp-cap 'ping))
@@ -282,5 +292,3 @@
 (server-close! ca-server)
 
 (printf "racket zig-smoke OK: native listener admission bypasses a silent peer and wildcard reachability is explicit\n")
-
-

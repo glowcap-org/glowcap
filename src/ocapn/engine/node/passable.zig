@@ -16,9 +16,35 @@ pub const AnswerSettlement = struct {
     resolution: model.Resolution,
 };
 
+/// The one operation a delayed outbound projection must fail if it cannot be
+/// published. An outbound answer is a question this peer asked; an inbound
+/// answer is a question it owes the partner. Tells carry no target and retire
+/// without turning one unreachable argument into a session failure.
+pub const FailureTarget = union(enum) {
+    outbound_answer: model.AnswerPosition,
+    inbound_answer: session.AnswerTarget,
+};
+
 pub const Outbound = union(enum) {
     message: model.Message,
     answer_settlement: AnswerSettlement,
+
+    pub fn answerProduced(self: Outbound) ?model.AnswerPosition {
+        return switch (self) {
+            .message => |message| answerProducedBy(message),
+            .answer_settlement => null,
+        };
+    }
+
+    pub fn failureTarget(self: Outbound) ?FailureTarget {
+        return switch (self) {
+            .answer_settlement => |settlement| .{ .inbound_answer = settlement.target },
+            .message => if (self.answerProduced()) |answer|
+                .{ .outbound_answer = answer }
+            else
+                null,
+        };
+    }
 
     pub fn deinit(self: Outbound, owner: *session.Session) void {
         switch (self) {
@@ -44,6 +70,16 @@ pub const Outbound = union(enum) {
         };
     }
 };
+
+fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
+    return switch (message) {
+        .deliver => |deliver| deliver.answer,
+        .get => |get| get.answer,
+        .index => |index| index.answer,
+        .untag => |untag| untag.answer,
+        else => null,
+    };
+}
 
 pub const BatchId = enum(u64) { _ };
 

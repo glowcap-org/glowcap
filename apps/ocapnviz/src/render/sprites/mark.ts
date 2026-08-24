@@ -22,20 +22,20 @@ import type { HaloTier } from "../types.ts";
  *  by invariant), so the call site doesn't repeat the subset
  *  check. */
 export function haloTierFor(
-  selection: ReadonlySet<EntityRefKey>,
-  anchor: EntityRefKey | null,
-  key: EntityRefKey,
+	selection: ReadonlySet<EntityRefKey>,
+	anchor: EntityRefKey | null,
+	key: EntityRefKey,
 ): HaloTier {
-  if (anchor === key) return "anchor";
-  if (selection.has(key)) return "selected";
-  return "none";
+	if (anchor === key) return "anchor";
+	if (selection.has(key)) return "selected";
+	return "none";
 }
 
 export function marked(
-  tier: HaloTier,
-  hovered: boolean,
-  wasTier: HaloTier,
-  wasHovered: boolean,
+	tier: HaloTier,
+	hovered: boolean,
+	wasTier: HaloTier,
+	wasHovered: boolean,
 ): boolean {
-  return tier !== "none" || hovered || wasTier !== "none" || wasHovered;
+	return tier !== "none" || hovered || wasTier !== "none" || wasHovered;
 }

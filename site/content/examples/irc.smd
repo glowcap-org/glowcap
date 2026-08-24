@@ -1,0 +1,60 @@
+---
+.title = "IRC on Rooms",
+.description = "Read an IRC channel as a capability-secured room, or point an ordinary IRC client at a native Rooms directory: two edges, one CapTP machinery.",
+.date = .date("2026-08-24T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+The [rooms app]($link.page('examples')) has two IRC edges. The bridge reads
+an IRC channel as an ordinary room, so a Rooms client can follow it. The
+front lets an ordinary IRC client enter rooms that live on a native
+directory. Both are projections at the edge: inside, everything is the same
+CapTP machinery every other Rooms client uses.
+
+# Read an IRC channel as a room
+
+```sh
+zig build rooms-irc-bridge
+```
+
+The default follows Libera's `#ocapn` over TLS and serves the resulting
+`libera/#ocapn` room on a loopback CapTP listener. The command prints the
+listener port and the room name, and any Rooms client can join them. IRC
+members appear as `irc/<nick>`, which keeps their origin visible on every
+front.
+
+The bridge is read-only until a registered nick opts into two-way mode with
+its SASL password. Two-way requires TLS, paces outbound lines, and bounds
+what it retains across a reconnect, so a busy room cannot flood the channel
+or the process.
+
+# Enter rooms with an IRC client
+
+```sh
+zig build rooms-irc-front -- --directory=127.0.0.1:9099
+```
+
+Point the IRC client at `127.0.0.1:6667`, pick a nickname, and
+`JOIN #general`. Channel and direct `PRIVMSG`, `NAMES`, `LIST`, `PART`,
+`PING`, `TOPIC`, and `WHOIS` all work. `JOIN` enters a room that exists on
+the directory and reports the directory's refusal when there is none.
+
+Each IRC connection holds the Directory, Room, and introduced direct-message
+capabilities it acquired. A direct message from IRC therefore uses the same
+introduction and retargeting rules as every other Rooms client, and the
+endpoint another member redeems is Noise-sealed by default. The IRC client
+itself cannot retain a capability, so the front remains the endpoint and
+makes no end-to-end claim on its behalf. What IRC cannot represent, such as
+files or overlong lines, becomes a notice rather than a partial message.
+
+# What holds it up
+
+The front admits a bounded number of clients, rooms, direct lines, and
+queued writes, so one connection cannot grow the process. The in-tree tests
+run inside `zig build check` and drive a real socket at the Goblins-compatible
+baseline; `zig build goblins-rooms-irc` runs both edges live against a real
+[Spritely Goblins](https://spritely.institute/) vat, including a direct
+message the vat answers. The
+[IRC README](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/irc/README.md)
+carries the full flag surface, deployment postures, and bounds.

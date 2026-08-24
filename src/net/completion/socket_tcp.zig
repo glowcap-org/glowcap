@@ -1,8 +1,8 @@
 //! Shared IPv4 TCP socket helpers for the platform completion backends.
 //!
-//! `kqueue` (Darwin) and `uring` (Linux) both open loopback listeners with
-//! `SO_REUSEADDR`, mint outbound stream sockets, and pack an `IpAddress` into
-//! a connect sockaddr. Those policies live here once. Platform differences stay
+//! `kqueue` (Darwin) and `uring` (Linux) both open IPv4 listeners with
+//! `SO_REUSEADDR`, mint outbound stream sockets, and pack an `IpAddress` into a
+//! connect sockaddr. Those policies live here once. Platform differences stay
 //! explicit via comptime OS: Darwin marks fds nonblocking for readiness (and
 //! carries the BSD `sockaddr_in` len byte); Linux leaves fds blocking because
 //! io_uring's accept/connect are completion-based.
@@ -78,20 +78,20 @@ pub fn openSocket(comptime os: Os) !i32 {
     return fd;
 }
 
-/// Bind+listen on `127.0.0.1:port` with `SO_REUSEADDR` so a pinned-port restart
-/// can reclaim a socket still in TIME_WAIT. Do not set `SO_REUSEPORT`: a
+/// Bind+listen on `ip4` with `SO_REUSEADDR` so a pinned-port restart can reclaim
+/// a socket still in TIME_WAIT. Do not set `SO_REUSEPORT`: a
 /// listener represents one identity-bearing OCapN Host, so concurrent address
 /// sharing would let the kernel route dials to different peers. Darwin also
 /// marks the listener nonblocking so stale readiness never parks the loop in
 /// `accept(2)`.
-pub fn openListener(comptime os: Os, port: u16) !i32 {
+pub fn openListener(comptime os: Os, ip4: Ip4) !i32 {
     const fd = try openStream(os);
     errdefer closeFd(os, fd);
     if (os == .darwin) {
         if (!setNonblocking(fd)) return error.SocketFailed;
     }
     try setReuseAddr(os, fd);
-    var addr = sockaddrIn4(os, loopbackIp4(port));
+    var addr = sockaddrIn4(os, ip4);
     try bind(os, fd, &addr);
     try listen(os, fd, completion.listen_backlog);
     return fd;
@@ -117,11 +117,13 @@ pub fn openListenerReuseAddr(comptime os: Os, ip4: Ip4, backlog: u31) !BoundList
     var addr = sockaddrIn4(os, ip4);
     try bind(os, fd, &addr);
     try listen(os, fd, backlog);
-    return .{ .fd = fd, .port = try boundPort(os, fd) };
+    return .{ .fd = fd, .port = (try boundIp4(os, fd)).port };
 }
 
-/// The local port of a bound socket, resolving a `bind(0)` draw.
-fn boundPort(comptime os: Os, fd: i32) !u16 {
+/// The local IPv4 address of a bound socket, resolving a `bind(0)` port draw.
+/// `addr` already occupies network-order bytes in memory; `@bitCast` preserves
+/// those bytes on either host endian rather than interpreting the integer.
+pub fn boundIp4(comptime os: Os, fd: i32) !Ip4 {
     var out: SockaddrIn(os) = undefined;
     switch (os) {
         .darwin => {
@@ -134,7 +136,10 @@ fn boundPort(comptime os: Os, fd: i32) !u16 {
             try checkLinux(linux.getsockname(fd, @ptrCast(&out), &len), error.SocketFailed);
         },
     }
-    return std.mem.bigToNative(u16, out.port);
+    return .{
+        .bytes = @bitCast(out.addr),
+        .port = std.mem.bigToNative(u16, out.port),
+    };
 }
 
 /// Set `O_NONBLOCK` on an fd. Every fd the kqueue backend submits on must be
@@ -156,6 +161,33 @@ pub fn setNoSigpipe(fd: i32) bool {
     const c = std.c;
     const enable: c_int = 1;
     return c.setsockopt(fd, c.SOL.SOCKET, c.SO.NOSIGPIPE, &enable, @sizeOf(c_int)) >= 0;
+}
+
+/// Disable Nagle on a loop connection, dialed or accepted, matching the
+/// blocking TCP resident's unconditional stream policy. CapTP frames are
+/// small and the protocol does its own batching, so coalescing buys nothing;
+/// with Nagle on, a reply written while an earlier reply is still unacked
+/// waits out the peer's delayed-ACK timer, which turns a pipelined
+/// conversation into one ~40ms round per unit on loopback.
+pub fn setNodelay(comptime os: Os, fd: i32) bool {
+    switch (os) {
+        .darwin => {
+            const c = std.c;
+            const enable: c_int = 1;
+            return c.setsockopt(fd, c.IPPROTO.TCP, std.posix.TCP.NODELAY, &enable, @sizeOf(c_int)) >= 0;
+        },
+        .linux => {
+            const enable: u32 = 1;
+            const rc = linux.setsockopt(
+                fd,
+                linux.IPPROTO.TCP,
+                std.posix.TCP.NODELAY,
+                std.mem.asBytes(&enable),
+                @sizeOf(u32),
+            );
+            return linux.errno(rc) == .SUCCESS;
+        },
+    }
 }
 
 pub const SendError = error{ WouldBlock, SendFailed };

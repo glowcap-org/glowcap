@@ -128,6 +128,7 @@ pub fn answerDeferredHello(
     advertised: model.PeerLocator,
     session_secret: foundation.crypto.SecretKey,
 ) !void {
+    // tolerant: unreadable hints are ignored; a hello stands without them.
     const stated = session.parsePreferenceHints(ss.acceptable_location.hints) catch return;
     if (!std.meta.eql(stated, model.Preference.baseline)) self.session_state.partner_known_pancake = true;
     return self.sendKeyedStartSessionAdvertised(advertised, session_secret);
@@ -188,7 +189,7 @@ pub const HelloHints = struct {
     /// preference. A peer that prefers the baseline, or any peer
     /// advertising onion, adds nothing and signs the byte-identical bare
     /// locator.
-    pub const Error = error{
+    pub const Error = model.PeerLocatorValidationError || error{
         /// The caller's hint count cannot be extended without overflowing
         /// the address space.
         TooManyHints,
@@ -196,7 +197,6 @@ pub const HelloHints = struct {
         ReservedHintName,
         /// Hints are a dictionary; signing duplicates produces a hello a
         /// conforming receiver must reject.
-        DuplicateHintName,
         /// The peer preference names an open wire id with no implementation
         /// in this build; advertising it would promise a codec we cannot use.
         UnknownCodec,
@@ -211,6 +211,7 @@ pub const HelloHints = struct {
     ) Error!model.PeerLocator {
         std.debug.assert(self.allocated_entries == null);
         if (!codec.registry.contains(preference.codec)) return Error.UnknownCodec;
+        try model.validatePeerLocator(supplied);
         const locator = canonicalAdvertisedLocator(supplied, partner_known_pancake);
         const carried = locator.hints.entries;
         // Every silent path out of here is a downgrade: a partner reads a
@@ -254,6 +255,7 @@ pub const HelloHints = struct {
         if (stamped_count == 0) return locator;
         const count = std.math.add(usize, carried.len, stamped_count) catch
             return Error.TooManyHints;
+        if (count > model.max_locator_hint_count) return Error.TooManyHints;
         const entries = if (count <= self.inline_entries.len)
             self.inline_entries[0..count]
         else blk: {
@@ -295,9 +297,12 @@ fn advertisedPreference(
     configured: model.Preference,
     partner_known_pancake: bool,
 ) model.Preference {
-    if (std.mem.eql(u8, transport, model.transport.onion) and !partner_known_pancake)
-        return model.Preference.baseline;
-    return configured;
+    var effective = if (std.mem.eql(u8, transport, model.transport.onion) and !partner_known_pancake)
+        model.Preference.baseline
+    else
+        configured;
+    effective.features = effective.features.forCaptpVersion(effective.captp_version);
+    return effective;
 }
 
 fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bool) model.PeerLocator {
@@ -352,27 +357,58 @@ pub fn verifyPartnerStartSession(
     const signed = if (ss.acceptable_location_raw) |raw|
         try codec.signed.locationBytesRaw(allocator, raw)
     else signed: {
-        // Borrow transport/designator and projected hints; materialize only the
-        // lazy arm. Signing needs full hint fidelity, not URI projection.
-        var owned_hints: ?model.Hints = null;
-        defer if (owned_hints) |h| model.freeHints(allocator, h);
-        const hints: model.Hints = switch (ss.acceptable_location.hints) {
-            .empty => |wire_form| .{ .wire_form = wire_form },
-            .projected => |h| h,
-            .lazy => blk: {
-                owned_hints = try ss.acceptable_location.hints.toOwned(allocator);
-                break :blk owned_hints.?;
-            },
-        };
-        const location: model.PeerLocator = .{
-            .transport = ss.acceptable_location.transport,
-            .designator = ss.acceptable_location.designator,
-            .hints = hints,
-        };
-        break :signed try codec.signed.locationBytes(allocator, location);
+        var location = try materializeLocatorView(allocator, ss.acceptable_location);
+        defer location.deinit();
+        break :signed try codec.signed.locationBytes(allocator, location.locator);
     };
     defer allocator.free(signed);
     crypto.verify(pubkey, signed, sig) catch return error.InvalidStartSessionSignature;
+}
+
+const MaterializedLocatorView = struct {
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+    owned_hints: ?model.Hints,
+
+    fn deinit(self: *MaterializedLocatorView) void {
+        if (self.owned_hints) |hints| model.freeHints(self.allocator, hints);
+    }
+};
+
+fn materializeLocatorView(
+    allocator: std.mem.Allocator,
+    locator: model.view.PeerLocator,
+) !MaterializedLocatorView {
+    var owned_hints: ?model.Hints = null;
+    const hints: model.Hints = switch (locator.hints) {
+        .empty => |wire_form| .{ .wire_form = wire_form },
+        .projected => |projected| projected,
+        .lazy => blk: {
+            owned_hints = try locator.hints.toOwned(allocator);
+            break :blk owned_hints.?;
+        },
+    };
+    return .{
+        .allocator = allocator,
+        .locator = .{
+            .transport = locator.transport,
+            .designator = locator.designator,
+            .hints = hints,
+        },
+        .owned_hints = owned_hints,
+    };
+}
+
+/// Canonical locator-record bytes for a codec-neutral borrowed view. Cap'n
+/// Proto hellos retain this once so later handoff origination has the same
+/// signed exporter-location representation Syrup supplies verbatim.
+pub fn encodePeerLocatorViewRecord(
+    allocator: std.mem.Allocator,
+    locator: model.view.PeerLocator,
+) ![]u8 {
+    var materialized = try materializeLocatorView(allocator, locator);
+    defer materialized.deinit();
+    return codec.signed.encodeLocatorRecord(allocator, materialized.locator);
 }
 
 /// The common locator has at most one routing hint plus the three profile
@@ -389,7 +425,7 @@ const inline_hint_entries = 4;
 /// round trip.
 pub fn settleNegotiatedProfile(self: *Peer) void {
     const settled = negotiation.settle(
-        self.session_state.preferred,
+        self.session_state.local_preference,
         self.session_state.partner_preference,
     );
     self.session_state.captp_version = settled.captp_version;

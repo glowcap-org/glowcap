@@ -36,7 +36,8 @@ from ._pin import pin_struct
 
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
-from ._constants_gen import TRACE_DIGEST_BYTES
+from ._constants_gen import HOST_ARCHIVE_FINGERPRINT, TRACE_DIGEST_BYTES
+from ._archive_contract import require_archive_fingerprint
 from ._lib_resolve import _lib_path
 
 # The signature table is generated from the archive's annotated symbol
@@ -58,16 +59,30 @@ class _CloseOptions(ctypes.Structure):
 pin_struct(_CloseOptions, "PANCAKE_CLOSE_OPTIONS")
 
 
+class _SessionLimitOptions(ctypes.Structure):
+    _fields_ = [
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("max_frame_bytes", ctypes.c_size_t),
+        ("queue_cap", ctypes.c_size_t),
+        ("outbound_high_water_bytes", ctypes.c_size_t),
+        ("max_retained_sent_answer_bytes", ctypes.c_size_t),
+    ]
+
+
+pin_struct(_SessionLimitOptions, "PANCAKE_SESSION_LIMIT_OPTIONS")
+
+
 class _HostAction(ctypes.Structure):
-    # PancakeHostAction (pancake_host.h) — hand-mirrored field-for-field
-    # (Python has no layout generator), pinned by `_pin_layout()` below
-    # against the header's documented layout. `kind`
+    # PancakeHostAction (pancake_host.h) — hand-mirrored field-for-field,
+    # pinned by `pin_struct` below against the generated layout facts. `kind`
     # selects the live fields; every popped byte view and `value`'s
     # sub-structure are host-owned and valid until the NEXT
     # pancake_host_next_action call.
     _fields_ = [
         ("kind", ctypes.c_uint32),
         ("ticket", ctypes.c_uint64),
+        ("route_index", ctypes.c_size_t),
         ("session", ctypes.c_void_p),
         ("value", _Argument),
         ("message", ctypes.c_void_p),
@@ -191,8 +206,14 @@ def _load():
         _PartnerIdentity,
         _TraceCallback,
         _CloseOptions,
+        _SessionLimitOptions,
     )
     lib = ctypes.CDLL(str(_lib_path("pancake_host")))
+    require_archive_fingerprint(
+        lambda: lib.pancake_host_archive_fingerprint,
+        "host",
+        HOST_ARCHIVE_FINGERPRINT,
+    )
     facade = _Lib(lib)
     _bind(facade, lib, sigs)
     return facade

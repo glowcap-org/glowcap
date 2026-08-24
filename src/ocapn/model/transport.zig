@@ -20,7 +20,7 @@ pub const AddressSource = enum { none, designator, direct_addresses_hint };
 
 /// The host-integration shape required to open a locator. This classifies the
 /// authority an adapter needs without selecting a concrete implementation.
-pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous };
+pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous, route_bundle };
 
 /// How a transport presents CapTP frames to the host once the channel exists.
 /// Byte streams need ADR-0110's outer Syrup byte-string envelope; transports
@@ -47,6 +47,11 @@ pub const Metadata = struct {
             left.wire_framing == right.wire_framing and
             left.max_packet_bytes == right.max_packet_bytes;
     }
+
+    pub fn provesKeyDesignator(self: Metadata) bool {
+        if (self.designator_scheme != .key) return false;
+        return self.sealed_channel or self.dial_shape == .peer_id or self.dial_shape == .signaling;
+    }
 };
 
 /// The transport symbols whose locator semantics pancake defines. Extensions
@@ -62,6 +67,7 @@ pub const Known = enum {
     webrtc,
     noise_tcp,
     noise_relay,
+    id,
 
     pub fn metadata(self: Known) Metadata {
         return switch (self) {
@@ -74,6 +80,7 @@ pub const Known = enum {
             .webrtc => .{ .symbol = "webrtc", .designator_scheme = .key, .dial_shape = .signaling, .wire_framing = .message, .max_packet_bytes = 16 * 1024 },
             .noise_tcp => .{ .symbol = "noise-tcp", .designator_scheme = .key, .address_source = .direct_addresses_hint, .dial_shape = .host_port, .sealed_channel = true },
             .noise_relay => .{ .symbol = "noise-relay", .designator_scheme = .key, .dial_shape = .rendezvous, .sealed_channel = true },
+            .id => .{ .symbol = "id", .designator_scheme = .key, .dial_shape = .route_bundle },
         };
     }
 };
@@ -191,16 +198,25 @@ pub const noise_tcp = Known.noise_tcp.metadata().symbol;
 /// because that tier has no HostSession.
 pub const noise_relay = Known.noise_relay.metadata().symbol;
 
+/// Transport-independent peer identity: the designator is the durable public
+/// key and concrete carrier locators ride the transport-owned route hint below.
+pub const id = Known.id.metadata().symbol;
+
 /// Locator hint entry name that carries dial addresses when the designator is
 /// a key (`keyed-tcp`, `iroh`).
 pub const hint_direct_addresses = "direct-addresses";
 
-/// Locator hint entry name carrying an ordered, comma-separated list of
-/// complete peer URIs to try after the locator carrying this hint. The value
-/// is routing advice, not peer identity: the recipient owns the fallback
-/// policy and the exporter locator remains the signed authority for the
-/// redeem.
+/// Locator hint entry name carrying an ordered, pipe-separated list of complete
+/// peer URIs to try after the locator carrying this hint. Pipe is outside the
+/// URI query safe set, so a pipe inside a nested locator remains percent-encoded
+/// and cannot become a list boundary after outer URI decoding. The value is
+/// routing advice, not peer identity: the recipient owns the fallback policy
+/// and the exporter locator remains the signed authority for the redeem.
 pub const hint_alt_locators = "alt-locators";
+
+/// Id route-bundle hint. The name is transport-local: only `id` interprets it,
+/// and `model.route_bundle` owns its parser.
+pub const hint_via = "via";
 
 /// Hint entry names that carry a peer's preferred wire profile: the CapTP
 /// version in the same representation the version field uses

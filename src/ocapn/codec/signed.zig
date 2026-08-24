@@ -39,6 +39,7 @@ pub const encodeLocatorRecord = syrup.encodePeerLocatorRecord;
 /// decode of `encodeLocatorRecord`. A URI, or any other spelling, fails loud
 /// here rather than being spliced into a give.
 pub const readLocatorOwned = syrup.readLocatorOwned;
+pub const readLocatorView = syrup.readLocatorView;
 
 // ── The signed handoff envelopes ─────────────────────────────────────────────
 

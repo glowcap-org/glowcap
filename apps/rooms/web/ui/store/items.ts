@@ -93,6 +93,19 @@ export function sysItem(text: string, audience: SysAudience = "here"): Item {
  * code: how much of a room a tab should keep, and what a reader should be told
  * when it stops keeping more. Until that is answered it is named here rather
  * than quietly capped. */
+/** Told each time a line lands, installed by the I/O side at boot: the
+ * store stays sync and free of I/O, and whoever records history owns the
+ * writing. One seat, because there is one recorder today; a second consumer
+ * composes behind one function rather than widening this to a list. */
+let recorder:
+	| ((conv: import("../types.ts").Conv, item: Item, change?: "withdrawn" | "edited") => void)
+	| null = null;
+export function setLineRecorder(
+	fn: (conv: import("../types.ts").Conv, item: Item, change?: "withdrawn" | "edited") => void,
+): void {
+	recorder = fn;
+}
+
 /** Told when lines leave the far end of a conversation, so whoever holds what
  * they carried can let it go. The store owns the log and knows nothing about
  * capabilities or object URLs; the network layer owns those and knows nothing
@@ -121,6 +134,31 @@ export function deliver(key: string, item: Item): void {
 	}
 	put(patch(conv, { history, unread }));
 	letLinesGo(key, gone);
+	recorder?.(conv, item);
+}
+
+/** Stand remembered lines under a conversation's log, oldest first, then a
+ * divider saying where they came from. Prepended and never counted as
+ * unread, because these are lines the reader has already lived; bounded by
+ * the same scrollback window as everything else. */
+export function prependHistory(
+	key: string,
+	lines: readonly { from: string; text: string; mine: boolean; at: number }[],
+	divider: string,
+): void {
+	const conv = getConv(key);
+	if (!conv || lines.length === 0) return;
+	const stood: Item[] = lines.map((line) => ({
+		kind: "chat",
+		id: nextItemId++,
+		from: line.from,
+		text: line.text,
+		mine: line.mine,
+		at: line.at,
+	}));
+	stood.push({ kind: "sys", id: nextItemId++, text: divider, at: Date.now(), audience: "shared" });
+	const history = [...stood, ...conv.history].slice(-MAX_SCROLLBACK);
+	put(patch(conv, { history }));
 }
 
 /** One more unread line. A run that is already going keeps the line it started
@@ -153,6 +191,15 @@ export function updateItem(key: string, id: number, fields: Partial<Item>): void
 	const history = conv.history.slice();
 	history[at] = { ...history[at], ...fields } as Item;
 	put(patch(conv, { history }));
+	// Kept history follows a line's life: a withdrawal or an edit on a chat
+	// line reaches the recorder, so a kept copy cannot outlive a takedown.
+	const changedConv = getConv(key);
+	const changed = changedConv?.history.find((item) => item.id === id);
+	if (changedConv != null && changed !== undefined && changed.kind === "chat") {
+		const change = fields as { withdrawn?: boolean; text?: string };
+		if (change.withdrawn === true) recorder?.(changedConv, changed, "withdrawn");
+		else if (typeof change.text === "string") recorder?.(changedConv, changed, "edited");
+	}
 }
 
 /** The reader has caught up with this conversation. The unread count clears at

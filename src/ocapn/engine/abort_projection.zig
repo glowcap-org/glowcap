@@ -124,6 +124,7 @@ pub fn classify(err: anyerror) Classification {
         // frame-size bounds, and the engine's drain-time local-delivery bound
         // (ADR-0007): a partner cannot push any of them past its cap.
         error.InboundAnswerCapExceeded,
+        error.RetainedAnswerCapExceeded,
         error.ListenerCapExceeded,
         error.ProjectionCapExceeded,
         error.ImportCapExceeded,
@@ -151,16 +152,11 @@ pub fn classify(err: anyerror) Classification {
         error.GcUnderflow,
         error.UnexpectedMessage,
         error.DuplicateStartSession,
-        error.ResolutionCycle,
         error.HostMismatch,
         => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "inbound message violated the session state machine",
         } },
-        // A `field` pipeline step has no Syrup wire shape
-        // (`pipeline.decomposeOutboundDeliver`). The deliver is refused at send
-        // time, before anything reaches the wire, so there is no abort to emit.
-        error.UnsupportedPipelineOp => .{ .domain = .codec, .abort = null },
         // The exact-size Syrup encoder detected disagreement between its two
         // internal passes. This is codec-owned but outbound-only: no partner
         // sent a frame to condemn, so contain it to the operation without an

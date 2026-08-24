@@ -4,8 +4,11 @@ const exit_codes = @import("../../exit_codes.zig");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
 const harness = @import("harness.zig");
+const files = @import("harness/files.zig");
+const ledger = @import("harness/ledger.zig");
 const peer = @import("peer.zig");
 const supervise = @import("supervise.zig");
+const supervise_json = @import("supervise/json.zig");
 const Flags = @import("flags.zig").Flags;
 
 const Io = common.Io;
@@ -14,27 +17,33 @@ const emitStdout = common.emitStdout;
 const emitStdoutFmt = common.emitStdoutFmt;
 const reply_placeholder = common.reply_placeholder;
 
-const Pending = harness.Pending;
-const loadReplied = harness.loadReplied;
-const markReplied = harness.markReplied;
-const readFile = harness.readFile;
-const scanInbox = harness.scanInbox;
+const Pending = ledger.Pending;
+const loadReplied = ledger.loadReplied;
+const markReplied = ledger.markReplied;
+const readFile = files.readFile;
+const scanInbox = ledger.scanInbox;
 const stateField = harness.stateField;
 
-const Json = supervise.Json;
-const emitInternalError = supervise.emitInternalError;
+const Json = supervise_json.Document;
+const emitInternalError = supervise_json.emitInternalError;
 const runPeer = peer.runPeer;
 const peerCliPrefix = supervise.peerCliPrefix;
-const pidAlive = supervise.pidAlive;
-const readPid = supervise.readPid;
+const observeProcess = supervise.observeProcess;
 const runStart = supervise.runStart;
 const runStop = supervise.runStop;
 const selfExePath = supervise.selfExePath;
 
+fn emitOperationFailure(io: Io, err: anyerror) error{PeerFailed} {
+    // best-effort: the returned PeerFailed still carries the failure; only
+    // the JSON detail line is lost if stdout refuses.
+    emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"persistence\",\"detail\":\"{s}\"}}\n", .{@errorName(err)}) catch {};
+    return error.PeerFailed;
+}
+
 // --- tick -------------------------------------------------------------------
 
-fn inboxSize(io: Io, gpa: Allocator, dir: []const u8) usize {
-    const c = readFile(io, gpa, dir, "inbox.jsonl") catch return 0;
+fn inboxSize(io: Io, gpa: Allocator, dir: []const u8) !usize {
+    const c = try readFile(io, gpa, dir, "inbox.jsonl");
     defer gpa.free(c);
     return c.len;
 }
@@ -45,17 +54,17 @@ fn inboxSize(io: Io, gpa: Allocator, dir: []const u8) usize {
 /// first. There is no relevance gate: `tick` hands the agent the room as it is,
 /// so the peer stays a full participant and never silently drops a message
 /// because it lacked an exact `@nick`. The agent decides what to say back.
-fn computePending(arena: Allocator, io: Io, dir: []const u8, nick: []const u8) std.ArrayList(Pending) {
-    const replied = loadReplied(arena, io, dir);
-    const scanned = scanInbox(arena, io, dir, nick);
+fn computePending(arena: Allocator, io: Io, dir: []const u8, nick: []const u8) !std.ArrayList(Pending) {
+    const replied = try loadReplied(arena, io, dir);
+    const scanned = try scanInbox(arena, io, dir, nick);
     var out: std.ArrayList(Pending) = .empty;
     var seen: std.StringHashMapUnmanaged(void) = .{};
     for (scanned.items) |item| {
         if (replied.contains(item.id) or seen.contains(item.id)) continue;
-        seen.put(arena, item.id, {}) catch {};
-        out.append(arena, item) catch {};
+        try seen.put(arena, item.id, {});
+        try out.append(arena, item);
     }
-    harness.sortPending(out.items);
+    ledger.sortPending(out.items);
     return out;
 }
 
@@ -63,46 +72,54 @@ fn runTick(init: std.process.Init, flags: Flags) !void {
     const io = init.io;
     const gpa = init.gpa;
     if (flags.dir.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"tick needs --dir\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"tick needs --dir\"}}\n", .{});
         return error.UsageFailed;
     }
-    const nick = stateField(io, gpa, flags.dir, "nick");
+    const nick = stateField(io, gpa, flags.dir, "nick") catch |err|
+        return emitOperationFailure(io, err);
     defer gpa.free(nick);
     var exe_buf: [4096]u8 = undefined;
-    const exe = selfExePath(io, &exe_buf);
+    const exe = selfExePath(io, &exe_buf) catch |err| return emitOperationFailure(io, err);
 
-    const pid = readPid(io, gpa, flags.dir);
-    const peer_up = pid != null and pidAlive(io, gpa, pid.?);
+    const observation = observeProcess(io, gpa, flags.dir) catch |err| return emitOperationFailure(io, err);
+    const peer_up = observation == .running;
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    var pending = computePending(arena_state.allocator(), io, flags.dir, nick);
+    var pending = computePending(arena_state.allocator(), io, flags.dir, nick) catch |err|
+        return emitOperationFailure(io, err);
 
     // Block up to --wait seconds only when nothing is pending yet.
     if (pending.items.len == 0 and flags.wait > 0 and peer_up) {
-        var last = inboxSize(io, gpa, flags.dir);
+        var last = inboxSize(io, gpa, flags.dir) catch |err|
+            return emitOperationFailure(io, err);
         var waited: u64 = 0;
         const budget = flags.wait * 1000;
         while (waited < budget) {
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(50), .real) catch {};
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(50), .real) catch |err|
+                return emitOperationFailure(io, err);
             waited += 50;
-            const cur = inboxSize(io, gpa, flags.dir);
+            const cur = inboxSize(io, gpa, flags.dir) catch |err|
+                return emitOperationFailure(io, err);
             if (cur != last) {
                 last = cur;
                 arena_state.deinit();
                 arena_state = std.heap.ArenaAllocator.init(gpa);
-                pending = computePending(arena_state.allocator(), io, flags.dir, nick);
+                pending = computePending(arena_state.allocator(), io, flags.dir, nick) catch |err|
+                    return emitOperationFailure(io, err);
                 if (pending.items.len > 0) break;
             }
         }
     }
 
-    const roster_final = harness.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir);
+    const roster_final = ledger.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir) catch |err|
+        return emitOperationFailure(io, err);
 
     // Hints steer agent harnesses: a Task subagent that final-answers after
     // background-arming tick orphans the wake loop (peer up, Task gone).
     const hint = if (!peer_up)
-        (std.fmt.allocPrint(arena_state.allocator(), "peer is down — restart it: {s} {s}start --dir {s} --nick {s}", .{ exe, peerCliPrefix(exe), flags.dir, if (nick.len > 0) nick else "<NICK>" }) catch "peer is down — run `start` again")
+        (std.fmt.allocPrint(arena_state.allocator(), "peer is down — restart it: {s} {s}start --dir {s} --nick {s}", .{ exe, peerCliPrefix(exe), flags.dir, if (nick.len > 0) nick else "<NICK>" }) catch |err|
+            return emitOperationFailure(io, err))
     else if (pending.items.len > 0)
         "answer each one: run its 'reply' command with your words in place of 'YOUR REPLY HERE', then run tick again and wait for it to return (do not end the agent Task / final-answer after arming). dismiss any you don't want to answer."
     else
@@ -112,7 +129,7 @@ fn runTick(init: std.process.Init, flags: Flags) !void {
     defer doc.deinit();
     const bytes = buildTick(&doc, arena_state.allocator(), exe, flags.dir, peer_up, pending.items, hint, roster_final) catch
         return emitInternalError(io);
-    emitStdout(io, bytes);
+    try emitStdout(io, bytes);
 }
 
 const PendingChannels = struct { dm: usize, room: usize };
@@ -146,7 +163,7 @@ fn buildTick(
     // Honest room-surface flag (includes peer chatter).
     try doc.boolean("room_pending", ch.room > 0);
     // Human-only when DIR/roster.json lists bot nicks; else false (no FP).
-    try doc.boolean("human_room_pending", harness.humanRoomPending(pending, roster));
+    try doc.boolean("human_room_pending", ledger.humanRoomPending(pending, roster));
     try doc.arrayMember("pending");
     for (pending) |item| {
         try doc.beginObject();
@@ -185,23 +202,27 @@ fn replyCommand(gpa: Allocator, exe: []const u8, dir: []const u8, item: Pending)
 
 fn runReply(io: Io, gpa: Allocator, flags: Flags) !void {
     if (flags.dir.len == 0 or flags.text.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"reply needs --dir and --text\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"reply needs --dir and --text\"}}\n", .{});
         return error.UsageFailed;
     }
     if (std.mem.eql(u8, flags.text, reply_placeholder)) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"placeholder\",\"detail\":\"replace 'YOUR REPLY HERE' with your actual message\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"placeholder\",\"detail\":\"replace 'YOUR REPLY HERE' with your actual message\"}}\n", .{});
         return error.UsageFailed;
     }
-    try harness.appendOutbox(io, gpa, flags.dir, flags.text, if (flags.dm.len > 0) flags.dm else null);
+    harness.appendOutbox(io, gpa, flags.dir, flags.text, if (flags.dm.len > 0) flags.dm else null) catch |err|
+        return emitOperationFailure(io, err);
     // --id folds the mark into the reply, so there is no separate done step.
     var marked = false;
     // A ledger write that failed is reported, not counted: the caller acts on
     // `marked` to decide whether the message is answered.
-    if (flags.id.len > 0) marked = (markReplied(io, gpa, flags.dir, &.{flags.id}) catch 0) > 0;
+    if (flags.id.len > 0) {
+        marked = (markReplied(io, gpa, flags.dir, &.{flags.id}) catch |err|
+            return emitOperationFailure(io, err)) > 0;
+    }
     var doc = Json.init(gpa);
     defer doc.deinit();
     const bytes = buildReplied(&doc, flags.id, marked) catch return emitInternalError(io);
-    emitStdout(io, bytes);
+    try emitStdout(io, bytes);
 }
 
 fn buildReplied(doc: *Json, id: []const u8, marked: bool) ![]const u8 {
@@ -222,60 +243,74 @@ fn buildReplied(doc: *Json, id: []const u8, marked: bool) ![]const u8 {
 /// dismissed message never resurfaces in `tick`.
 fn runDismiss(io: Io, gpa: Allocator, flags: Flags) !void {
     if (flags.dir.len == 0 or (flags.id.len == 0 and !flags.all)) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"dismiss needs --dir and either --id ID or --all\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"dismiss needs --dir and either --id ID or --all\"}}\n", .{});
         return error.UsageFailed;
     }
     var count: usize = 0;
     if (flags.all) {
-        const nick = stateField(io, gpa, flags.dir, "nick");
+        const nick = stateField(io, gpa, flags.dir, "nick") catch |err|
+            return emitOperationFailure(io, err);
         defer gpa.free(nick);
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
-        const pending = computePending(arena_state.allocator(), io, flags.dir, nick);
+        const pending = computePending(arena_state.allocator(), io, flags.dir, nick) catch |err|
+            return emitOperationFailure(io, err);
         var ids: std.ArrayList([]const u8) = .empty;
         defer ids.deinit(gpa);
-        for (pending.items) |item| ids.append(gpa, item.id) catch {};
-        count = markReplied(io, gpa, flags.dir, ids.items) catch 0;
+        for (pending.items) |item| ids.append(gpa, item.id) catch |err| return emitOperationFailure(io, err);
+        count = markReplied(io, gpa, flags.dir, ids.items) catch |err| return emitOperationFailure(io, err);
     } else {
-        count = markReplied(io, gpa, flags.dir, &.{flags.id}) catch 0;
+        count = markReplied(io, gpa, flags.dir, &.{flags.id}) catch |err| return emitOperationFailure(io, err);
     }
     var nb: [16]u8 = undefined;
-    emitStdoutFmt(io, "{{\"ok\":true,\"dismissed\":{s}}}\n", .{std.fmt.bufPrint(&nb, "{d}", .{count}) catch "0"});
+    try emitStdoutFmt(io, "{{\"ok\":true,\"dismissed\":{s}}}\n", .{std.fmt.bufPrint(&nb, "{d}", .{count}) catch "0"});
 }
 
 // --- status -----------------------------------------------------------------
 
 fn runStatus(io: Io, gpa: Allocator, flags: Flags) !void {
     if (flags.dir.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"status needs --dir\"}}\n", .{});
+        try emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"status needs --dir\"}}\n", .{});
         return error.UsageFailed;
     }
-    const pid = readPid(io, gpa, flags.dir);
-    const up = pid != null and pidAlive(io, gpa, pid.?);
+    const observation = try observeProcess(io, gpa, flags.dir);
+    const pid: ?i32 = switch (observation) {
+        .running => |value| value,
+        .none, .unconfirmed => null,
+    };
+    const peer_status = switch (observation) {
+        .running => "up",
+        .none => "down",
+        .unconfirmed => "unconfirmed",
+    };
     const state = try readFile(io, gpa, flags.dir, "state.json");
     defer gpa.free(state);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    const nick = stateField(io, gpa, flags.dir, "nick");
+    const nick = stateField(io, gpa, flags.dir, "nick") catch |err|
+        return emitOperationFailure(io, err);
     defer gpa.free(nick);
-    const pending = computePending(arena_state.allocator(), io, flags.dir, nick);
+    const pending = computePending(arena_state.allocator(), io, flags.dir, nick) catch |err|
+        return emitOperationFailure(io, err);
 
-    const backlog = harness.outboxBacklogBytes(io, gpa, flags.dir);
+    const backlog = harness.outboxBacklogBytes(io, gpa, flags.dir) catch |err|
+        return emitOperationFailure(io, err);
     const ch = countPendingChannels(pending.items);
-    const roster = harness.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir);
-    const human_room = harness.humanRoomPending(pending.items, roster);
+    const roster = ledger.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir) catch |err|
+        return emitOperationFailure(io, err);
+    const human_room = ledger.humanRoomPending(pending.items, roster);
 
     var doc = Json.init(gpa);
     defer doc.deinit();
-    const bytes = buildStatus(&doc, up, pid, pending.items.len, ch, human_room, backlog, state) catch
+    const bytes = buildStatus(&doc, peer_status, pid, pending.items.len, ch, human_room, backlog, state) catch
         return emitInternalError(io);
-    emitStdout(io, bytes);
+    try emitStdout(io, bytes);
 }
 
 fn buildStatus(
     doc: *Json,
-    up: bool,
+    peer_status: []const u8,
     pid: ?i32,
     pending: usize,
     ch: PendingChannels,
@@ -284,8 +319,8 @@ fn buildStatus(
     state: []const u8,
 ) ![]const u8 {
     try doc.beginObject();
-    try doc.boolean("ok", up);
-    try doc.string("peer", if (up) "up" else "down");
+    try doc.boolean("ok", std.mem.eql(u8, peer_status, "up"));
+    try doc.string("peer", peer_status);
     if (pid) |p| try doc.number("pid", p) else try doc.rawValue("pid", "null");
     try doc.number("pending", pending);
     var by_buf: [64]u8 = undefined;
@@ -327,7 +362,7 @@ const usage_text =
 /// code. Exiting the process here instead would skip `main`'s context
 /// teardown, which is what releases the identity state lock.
 fn usageFailed(io: Io) error{UsageFailed} {
-    emitStdout(io, usage_text);
+    emitStdout(io, usage_text) catch return error.UsageFailed;
     return error.UsageFailed;
 }
 

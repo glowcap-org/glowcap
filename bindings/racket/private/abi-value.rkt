@@ -22,16 +22,22 @@
 ;; The `PANCAKE-CAPTP-*` id for a CapTP profile (ADR-0003): `v1_0` is the
 ;; interop floor a Goblins vat speaks, `next` the pancake-to-pancake track
 ;; `Offer.native` prefers with Cap'n Proto.
-(define (captp-version<-id version)
+(define (captp-version<-id version [source #f])
   (cond
     [(= version CAPTP-V1-0) 'v1_0]
     [(= version CAPTP-NEXT) 'next]
+    [source (raise-pancake source ERR-INTERNAL
+                           "pancake ABI returned unknown session CapTP version ~a"
+                           version)]
     [else (error 'captp-version<-id "generated unknown default CapTP version: ~a" version)]))
 
-(define (codec<-id codec)
+(define (codec<-id codec [source #f])
   (cond
     [(= codec CODEC-SYRUP) 'syrup]
     [(= codec CODEC-CAPNP) 'capnp]
+    [source (raise-pancake source ERR-INTERNAL
+                           "pancake ABI returned unknown session codec ~a"
+                           codec)]
     [else (error 'codec<-id "generated unknown default codec: ~a" codec)]))
 
 (define (features<-mask features)
@@ -76,6 +82,7 @@
           [(wire_delta) FEATURE-WIRE-DELTA]
           [(sturdyref) FEATURE-STURDYREF]
           [(untag) FEATURE-UNTAG]
+          [(multi_location) FEATURE-MULTI-LOCATION]
           [else (error 'feature-mask "unknown OCapN feature: ~a" feature)])))]))
 
 ;; ── Marshalling (encode) ─────────────────────────────────────────────────────

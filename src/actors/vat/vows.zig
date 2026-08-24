@@ -125,6 +125,17 @@ pub fn on(self: *Vat, vow: Vow, listener: Listener) Error!void {
     }
 }
 
+/// Remove and return the listener on one still-pending local vow. The vow
+/// itself remains in the Vat and may settle normally; only this observer's
+/// lifetime ends. Host handle release uses this before freeing the listener's
+/// context, so a later local turn cannot call through a dead pointer.
+pub fn takeListener(self: *Vat, vow: Vow) ?Listener {
+    return switch (vow) {
+        .local => |id| if (self.listeners.fetchRemove(id)) |entry| entry.value else null,
+        .far => null,
+    };
+}
+
 /// Enter one nested settlement borrow scope.
 fn beginSettle(self: *Vat) std.mem.Allocator {
     self.settle_depth += 1;

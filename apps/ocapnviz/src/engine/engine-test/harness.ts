@@ -9,10 +9,10 @@
 // sanitizers for these Engine-constructing tests.
 
 export function engineTest(name: string, fn: () => void | Promise<void>): void {
-  Deno.test({
-    name,
-    sanitizeOps: false,
-    sanitizeResources: false,
-    fn,
-  });
+	Deno.test({
+		name,
+		sanitizeOps: false,
+		sanitizeResources: false,
+		fn,
+	});
 }

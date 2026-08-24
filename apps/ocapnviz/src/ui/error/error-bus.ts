@@ -23,14 +23,14 @@
 import type { EngineError } from "../../engine/errors.ts";
 
 export type ErrorSource =
-  | "engine"
-  | "window"
-  | "unhandled-rejection"
-  | "react-boundary";
+	| "engine"
+	| "window"
+	| "unhandled-rejection"
+	| "react-boundary";
 
 export interface AppError {
-  error: EngineError;
-  source: ErrorSource;
+	error: EngineError;
+	source: ErrorSource;
 }
 
 type Listener = (event: AppError) => void;
@@ -38,27 +38,27 @@ type Listener = (event: AppError) => void;
 const listeners = new Set<Listener>();
 
 export function pushError(event: AppError): void {
-  for (const listener of listeners) {
-    try {
-      listener(event);
-    } catch (listenerErr) {
-      // A listener that throws can't be allowed to starve the rest.
-      // Logging here only — we deliberately don't push another error
-      // through the bus (that would risk a loop).
-      console.error("error-bus: listener threw", listenerErr);
-    }
-  }
+	for (const listener of listeners) {
+		try {
+			listener(event);
+		} catch (listenerErr) {
+			// A listener that throws can't be allowed to starve the rest.
+			// Logging here only — we deliberately don't push another error
+			// through the bus (that would risk a loop).
+			console.error("error-bus: listener threw", listenerErr);
+		}
+	}
 }
 
 export function subscribeErrors(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+	listeners.add(listener);
+	return () => {
+		listeners.delete(listener);
+	};
 }
 
 /** Test-only. Resets the listener set; production code should never
  * call this. */
 export function _resetErrorBusForTesting(): void {
-  listeners.clear();
+	listeners.clear();
 }

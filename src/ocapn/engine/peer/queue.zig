@@ -26,6 +26,7 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         const Self = @This();
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
+            if (self.items.items.len == self.items.capacity) self.compactForAppend();
             try self.items.append(allocator, value);
             self.addWeight(&value);
         }
@@ -34,10 +35,11 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         /// preceding step has transferred ownership. This is the record/queue
         /// atomicity seam for stored resolutions and listener-fire accounting.
         pub fn ensureUnusedCapacityForOne(self: *Self, allocator: std.mem.Allocator) !void {
-            try self.items.ensureUnusedCapacity(allocator, 1);
+            try self.ensureUnusedCapacity(allocator, 1);
         }
 
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, count: usize) !void {
+            if (count > self.items.capacity - self.items.items.len) self.compactForAppend();
             try self.items.ensureUnusedCapacity(allocator, count);
         }
 
@@ -64,6 +66,38 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
             const value = self.pop(allocator) orelse unreachable;
             if (self.isEmpty()) std.debug.assert(self.pop(allocator) == null);
             return value;
+        }
+
+        /// Consume while retaining backing promised to unpublished queue
+        /// reservations. The ordinary steady-footprint trim resumes as soon as
+        /// the last reservation publishes or cancels.
+        pub fn consumeFrontReserved(self: *Self, allocator: std.mem.Allocator) T {
+            const value = fifo.popHead(
+                T,
+                &self.items,
+                &self.head,
+                allocator,
+                fifo.retain_all,
+            ) orelse unreachable;
+            if (self.isEmpty()) std.debug.assert(fifo.popHead(
+                T,
+                &self.items,
+                &self.head,
+                allocator,
+                fifo.retain_all,
+            ) == null);
+            return value;
+        }
+
+        pub fn trimDrained(self: *Self, allocator: std.mem.Allocator) void {
+            std.debug.assert(self.isEmpty());
+            std.debug.assert(fifo.popHead(
+                T,
+                &self.items,
+                &self.head,
+                allocator,
+                steady_retain_bytes,
+            ) == null);
         }
 
         /// Roll back the most-recent append without crossing the drain cursor.
@@ -112,6 +146,14 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.items.deinit(allocator);
+        }
+
+        fn compactForAppend(self: *Self) void {
+            if (self.head == 0) return;
+            const live = self.items.items.len - self.head;
+            std.mem.copyForwards(T, self.items.items[0..live], self.items.items[self.head..]);
+            self.items.shrinkRetainingCapacity(live);
+            self.head = 0;
         }
     };
 }

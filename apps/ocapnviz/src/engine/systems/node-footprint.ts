@@ -9,11 +9,11 @@
 
 import { endpointStageId, SESSION_SIDES } from "../../schema/session-end.ts";
 import {
-  endpointLabelText,
-  NODE_LABEL,
-  NODE_LABEL_GAP_PX,
-  peerLabelText,
-  pillSize,
+	endpointLabelText,
+	NODE_LABEL,
+	NODE_LABEL_GAP_PX,
+	peerLabelText,
+	pillSize,
 } from "../../render/stage-labels.ts";
 import { endpointClaims } from "../claims.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
@@ -46,9 +46,9 @@ export const NODE_HALF_WIDTH = 30;
  * carries that tension and bounds how wide the worst label gets.
  */
 export type NodeFootprint = {
-  halfWidth: number;
-  above: number;
-  below: number;
+	halfWidth: number;
+	above: number;
+	below: number;
 };
 
 /**
@@ -57,20 +57,20 @@ export type NodeFootprint = {
  * display name renders proportionally.
  */
 export function nodeFootprint(label: string, mono: boolean): NodeFootprint {
-  const pill = pillSize(label.length, NODE_LABEL, mono);
-  return {
-    halfWidth: Math.max(NODE_HALF_WIDTH, pill.width / 2),
-    above: NODE_HALF_WIDTH,
-    below: NODE_HALF_WIDTH + NODE_LABEL_GAP_PX + pill.height,
-  };
+	const pill = pillSize(label.length, NODE_LABEL, mono);
+	return {
+		halfWidth: Math.max(NODE_HALF_WIDTH, pill.width / 2),
+		above: NODE_HALF_WIDTH,
+		below: NODE_HALF_WIDTH + NODE_LABEL_GAP_PX + pill.height,
+	};
 }
 
 /** The footprint of a node the document says nothing about, which is a bare
  *  body. Used for a node that reaches the solver without a label of its own. */
 export const BARE_FOOTPRINT: NodeFootprint = {
-  halfWidth: NODE_HALF_WIDTH,
-  above: NODE_HALF_WIDTH,
-  below: NODE_HALF_WIDTH,
+	halfWidth: NODE_HALF_WIDTH,
+	above: NODE_HALF_WIDTH,
+	below: NODE_HALF_WIDTH,
 };
 
 /**
@@ -93,48 +93,50 @@ export const BARE_FOOTPRINT: NodeFootprint = {
  * forms too: two names that both elide come out the same width, so the longer
  * raw string is not the wider label.
  */
-export function nodeFootprints(doc: TimelineDocument): Map<string, NodeFootprint> {
-  const boxes = new Map<string, NodeFootprint>();
-  for (const [peerId, def] of Object.entries(doc.entities?.peers ?? {})) {
-    let widest = peerLabelText(def.label ?? peerId);
-    for (const kf of def.keyframes?.label ?? []) {
-      const drawn = peerLabelText(kf.value);
-      if (drawn.length > widest.length) widest = drawn;
-    }
-    boxes.set(peerId, nodeFootprint(widest, false));
-  }
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    if (ev.kind !== "peer-joined") continue;
-    if (boxes.has(ev.peerId)) continue; // entities entry won
-    boxes.set(
-      ev.peerId,
-      nodeFootprint(peerLabelText(ev.label ?? ev.peerId), false),
-    );
-  }
-  // An end that nothing has attributed wears its claim, or the plain word the
-  // renderer shows for having no claim at all. Both ends of every session are
-  // listed; the attributed ones never hold a stage id, so their entries are
-  // never looked up.
-  const claims = endpointClaims(doc);
-  for (const sessionId of Object.keys(doc.entities?.sessions ?? {})) {
-    for (const side of SESSION_SIDES) {
-      const stageId = endpointStageId(sessionId, side);
-      boxes.set(
-        stageId,
-        nodeFootprint(endpointLabelText(claims.get(stageId)), true),
-      );
-    }
-  }
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    if (ev.kind !== "session-opened") continue;
-    for (const side of SESSION_SIDES) {
-      const stageId = endpointStageId(ev.sessionId, side);
-      if (boxes.has(stageId)) continue;
-      boxes.set(
-        stageId,
-        nodeFootprint(endpointLabelText(claims.get(stageId)), true),
-      );
-    }
-  }
-  return boxes;
+export function nodeFootprints(
+	doc: TimelineDocument,
+): Map<string, NodeFootprint> {
+	const boxes = new Map<string, NodeFootprint>();
+	for (const [peerId, def] of Object.entries(doc.entities?.peers ?? {})) {
+		let widest = peerLabelText(def.label ?? peerId);
+		for (const kf of def.keyframes?.label ?? []) {
+			const drawn = peerLabelText(kf.value);
+			if (drawn.length > widest.length) widest = drawn;
+		}
+		boxes.set(peerId, nodeFootprint(widest, false));
+	}
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		if (ev.kind !== "peer-joined") continue;
+		if (boxes.has(ev.peerId)) continue; // entities entry won
+		boxes.set(
+			ev.peerId,
+			nodeFootprint(peerLabelText(ev.label ?? ev.peerId), false),
+		);
+	}
+	// An end that nothing has attributed wears its claim, or the plain word the
+	// renderer shows for having no claim at all. Both ends of every session are
+	// listed; the attributed ones never hold a stage id, so their entries are
+	// never looked up.
+	const claims = endpointClaims(doc);
+	for (const sessionId of Object.keys(doc.entities?.sessions ?? {})) {
+		for (const side of SESSION_SIDES) {
+			const stageId = endpointStageId(sessionId, side);
+			boxes.set(
+				stageId,
+				nodeFootprint(endpointLabelText(claims.get(stageId)), true),
+			);
+		}
+	}
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		if (ev.kind !== "session-opened") continue;
+		for (const side of SESSION_SIDES) {
+			const stageId = endpointStageId(ev.sessionId, side);
+			if (boxes.has(stageId)) continue;
+			boxes.set(
+				stageId,
+				nodeFootprint(endpointLabelText(claims.get(stageId)), true),
+			);
+		}
+	}
+	return boxes;
 }

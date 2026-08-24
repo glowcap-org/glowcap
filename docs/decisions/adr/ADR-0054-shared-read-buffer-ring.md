@@ -112,7 +112,7 @@ spill always assumed.
   accepted connection beyond the peer itself.
 - The kqueue backend owns a scratch pool (lazily allocated, `read_buffers` cap)
   because a readiness backend reads at poll time; it remains compile-gated by
-  `cross-check` and runtime-unproven off macOS.
+  `cross-check`, and the recurring macOS test suite executes its native path.
 - The peer-scaling story changes: per-connection read-buffer memory is no longer
   a per-connection figure at all. The bench's transport-buffer narration follows
   the code.

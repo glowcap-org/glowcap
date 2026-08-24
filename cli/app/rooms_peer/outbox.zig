@@ -7,6 +7,8 @@ const std = @import("std");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
 const harness = @import("harness.zig");
+const files = @import("harness/files.zig");
+const ledger = @import("harness/ledger.zig");
 const phase_mod = @import("phase.zig");
 const st = @import("state.zig");
 
@@ -14,14 +16,24 @@ const model = common.model;
 const actors = common.actors;
 const HostSession = common.HostSession;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
-const readFile = harness.readFile;
-const overwriteFile = harness.overwriteFile;
-const recordInbox = harness.recordInbox;
+const readFile = files.readFile;
+const overwriteFile = files.overwriteFile;
+const recordInbox = ledger.recordInbox;
 const compactOutboxRemainder = harness.compactOutboxRemainder;
-const lockLeaf = harness.lockLeaf;
+const lockLeaf = files.lockLeaf;
 const OutboxLine = harness.OutboxLine;
 const OutboxLineFate = harness.OutboxLineFate;
 const clampOutboxOffset = harness.clampOutboxOffset;
+
+fn recordSent(state: *st.PeerState, channel: []const u8, text: []const u8, peer: []const u8) void {
+    recordInbox(state.io, state.gpa, state.dir, "sent", channel, state.nick, text, peer) catch |err| {
+        // The wire action has already been admitted and flushed. Consume the
+        // outbox line to avoid duplicate delivery, then stop the loop so the
+        // operator sees that its local sent ledger is incomplete.
+        state.persistence_failed = true;
+        log.err(state.io, "recording sent {s} failed after wire commit: {s}", .{ channel, @errorName(err) });
+    };
+}
 
 // --- outbox -----------------------------------------------------------------
 
@@ -78,6 +90,8 @@ fn rememberFailedIntroduce(state: *st.PeerState, peer: []const u8) void {
         cooldown.* = redial_cooldown_wakes;
         return;
     }
+    // best-effort: an unrecorded cooldown only means the next wake may
+    // re-introduce this peer earlier than the cooldown intended.
     const key = state.gpa.dupe(u8, peer) catch return;
     state.failed_introduces.put(state.gpa, key, redial_cooldown_wakes) catch state.gpa.free(key);
 }
@@ -123,6 +137,8 @@ fn startIntroduce(state: *st.PeerState, peer: []const u8) void {
     const session = state.phase.joined.session;
     // Map key and IntroCtx peer are separate owned copies so clearRoomWire can
     // free the map without racing the settle callback's free of ic.peer.
+    // best-effort: an introduce that cannot start this wake starts on a later
+    // one; the outbox line it would serve stays queued.
     const map_key = state.gpa.dupe(u8, peer) catch return;
     const ctx_peer = state.gpa.dupe(u8, peer) catch {
         state.gpa.free(map_key);
@@ -169,7 +185,7 @@ fn evictDmCap(state: *st.PeerState, peer: []const u8) void {
 fn evictDmBack(state: *st.PeerState, peer: []const u8) void {
     if (state.dm_back.fetchRemove(peer)) |kv| {
         state.gpa.free(kv.key);
-        _ = state.host.capabilities.release(kv.value, 1) catch {};
+        _ = state.releaseCapability(kv.value, "dead DM route");
     }
 }
 
@@ -181,8 +197,11 @@ pub fn drainOutbox(state: *st.PeerState) void {
     if (state.phase != .joined) return;
     const room = state.phase.joined.room;
     const session = state.phase.joined.session;
+    // best-effort: a drain that cannot take the lock or read the file leaves
+    // the outbox intact; the next wake retries from the same offset.
     const lock = lockLeaf(state.io, state.dir, "outbox.jsonl") catch return;
     defer lock.unlock();
+    // best-effort: same retry contract as the lock above.
     const contents = readFile(state.io, state.gpa, state.dir, "outbox.jsonl") catch return;
     defer state.gpa.free(contents);
     st.g_offset = clampOutboxOffset(st.g_offset, contents.len);
@@ -195,6 +214,7 @@ pub fn drainOutbox(state: *st.PeerState) void {
         room: model.Reference,
 
         fn decide(self: @This(), parsed: OutboxLine) OutboxLineFate {
+            if (self.state.persistence_failed) return .stop;
             if (parsed.is_dm) return dmOutboxFate(self.state, self.session, parsed);
             return roomOutboxFate(self.state, self.session, self.room, parsed);
         }
@@ -204,16 +224,29 @@ pub fn drainOutbox(state: *st.PeerState) void {
         remainder,
         Drain{ .state = state, .session = session, .room = room },
         Drain.decide,
-    ) catch return;
+    ) catch |err| {
+        state.persistence_failed = true;
+        log.err(state.io, "outbox compaction failed after delivery may have committed: {s}", .{@errorName(err)});
+        return;
+    };
     defer state.gpa.free(kept);
     if (std.mem.eql(u8, kept, remainder)) return;
 
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(state.gpa);
-    list.appendSlice(state.gpa, contents[0..st.g_offset]) catch return;
-    list.appendSlice(state.gpa, kept) catch return;
-    overwriteFile(state.io, state.dir, "outbox.jsonl", list.items) catch {
-        log.err(state.io, "outbox compact write failed; holding remainder", .{});
+    list.appendSlice(state.gpa, contents[0..st.g_offset]) catch |err| {
+        state.persistence_failed = true;
+        log.err(state.io, "outbox compaction assembly failed after wire commit: {s}", .{@errorName(err)});
+        return;
+    };
+    list.appendSlice(state.gpa, kept) catch |err| {
+        state.persistence_failed = true;
+        log.err(state.io, "outbox compaction assembly failed after wire commit: {s}", .{@errorName(err)});
+        return;
+    };
+    overwriteFile(state.io, state.dir, "outbox.jsonl", list.items) catch |err| {
+        state.persistence_failed = true;
+        log.err(state.io, "outbox compact write failed after wire commit: {s}", .{@errorName(err)});
     };
 }
 
@@ -234,7 +267,7 @@ fn dmOutboxFate(state: *st.PeerState, session: *HostSession, parsed: OutboxLine)
     if (state.dm_back.get(parsed.peer)) |back| {
         if (state.host.tellCapability(session, back, msg)) |_| {
             if (!st.flushBridge(state, .dm)) return .stop;
-            recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
+            recordSent(state, "dm", parsed.text, parsed.peer);
             return .drop;
         } else |err| {
             log.err(state.io, "dm back-channel tell failed: {s}", .{@errorName(err)});
@@ -244,7 +277,7 @@ fn dmOutboxFate(state: *st.PeerState, session: *HostSession, parsed: OutboxLine)
     if (state.dm_caps.get(parsed.peer)) |dm| {
         if (state.host.tell(session, dm, msg)) |_| {
             if (!st.flushBridge(state, .dm)) return .stop;
-            recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
+            recordSent(state, "dm", parsed.text, parsed.peer);
             return .drop;
         } else |err| {
             log.err(state.io, "dm tell failed: {s}", .{@errorName(err)});
@@ -264,6 +297,6 @@ fn roomOutboxFate(state: *st.PeerState, session: *HostSession, room: model.Refer
         return .stop;
     };
     if (!st.flushBridge(state, .post)) return .stop;
-    recordInbox(state.io, state.gpa, state.dir, "sent", "room", state.nick, parsed.text, "") catch {};
+    recordSent(state, "room", parsed.text, "");
     return .drop;
 }

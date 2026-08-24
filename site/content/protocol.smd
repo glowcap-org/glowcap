@@ -75,6 +75,9 @@ ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ocapn://127.0.0.1%3A46659.tcp
 ```
 
+The prototype `id` locator bundles several such routes under one durable key;
+[Multi-home peers]($link.page('multihome')) covers it.
+
 If a name here is new, start with [Concepts]($link.page('concepts')).
 [Transports]($link.page('transports')) explains what a netlayer is;
 [Choosing a transport]($link.page('transports/choosing')) lists the ones a

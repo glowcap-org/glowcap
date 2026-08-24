@@ -20,7 +20,6 @@ const Kind = shared.Kind;
 const RefTag = shared.RefTag;
 const ArgKind = shared.ArgKind;
 const ResolutionKind = shared.ResolutionKind;
-const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 const ListContent = layout.ListContent;
@@ -253,7 +252,6 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
         .promise => |promise| {
             b.set(loc.data_idx, @backingInt(RefTag.promise));
             b.set(loc.data_idx + 1, promise.answer_position.int());
-            if (promise.path.ops.len != 0) try setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
         },
         .sturdy => |sturdy| {
             b.set(loc.data_idx, @backingInt(RefTag.sturdy));
@@ -270,6 +268,7 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
 /// all share this one layout, so a hint-carrying locator round-trips on every
 /// arm instead of being refused or silently dropped.
 fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
+    model.validatePeerLocator(locator) catch return Error.UnsupportedArgument;
     const loc = try allocStruct(b, allocator, 1, 3);
     if (locator.hints.wire_form == .boolean_false) b.set(loc.data_idx, 1);
     try setData(b, allocator, loc, 0, locator.transport);
@@ -282,13 +281,8 @@ fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: mo
 /// holding a discriminant plus inline payload in the data words (data word 0
 /// bit 16 doubles as the boolean value; data word 1 carries an integer value),
 /// the entry's String name at pointer 0, and a String/Bytes payload at pointer
-/// 1 for the `string`/`bytes` value kinds. Unlike `encodeStructEntries`, entries
-/// are emitted in the model's own order rather than sorted, because hint names
-/// are unique: `model.Hints.forDirectAddresses` emits at most one, and both
-/// decoders refuse a repeated name, so a locator that arrived from a partner
-/// carries unique names too. That last part is why the refusal lives in the
-/// decoders: without it a partner could hand pancake a dictionary it would
-/// re-emit and then reject on the way back in.
+/// 1 for the `string`/`bytes` value kinds. Model order is preserved; the peer
+/// locator validation above owns the dictionary invariants.
 fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []const model.HintEntry) EncodeError!ListContent {
     const data_words: u16 = 2;
     const ptr_words: u16 = 2;
@@ -586,28 +580,4 @@ fn relocatePointerOffset(word: u64, delta: i32) u64 {
         },
         else => word,
     };
-}
-
-/// Composite list of `PipelineOp` (1 data word, 1 pointer word per element).
-fn encodePipelinePath(b: *wire.Builder, allocator: std.mem.Allocator, ops: []const model.PipelineOp) EncodeError!ListContent {
-    const data_words: u16 = 1;
-    const ptr_words: u16 = 1;
-    const stride: usize = data_words + ptr_words;
-    const tag_idx = try b.allocWords(allocator, 1);
-    b.set(tag_idx, wire.Builder.compositeTag(@intCast(ops.len), data_words, ptr_words));
-    const block = try b.allocWords(allocator, ops.len * stride);
-    for (ops, 0..) |op, i| {
-        const loc = StructLoc{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words };
-        switch (op) {
-            .field => |field| {
-                b.set(loc.data_idx, @backingInt(PipelineOpKind.field));
-                try setData(b, allocator, loc, 0, field);
-            },
-            .call => |call| {
-                b.set(loc.data_idx, @backingInt(PipelineOpKind.call));
-                try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, call));
-            },
-        }
-    }
-    return .{ .data_idx = tag_idx, .elem = .composite, .count = ops.len * stride };
 }

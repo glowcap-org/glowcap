@@ -123,11 +123,13 @@ Deno.test("checkedMaxFrameBytes refuses values a usize waterline cannot represen
 
 Deno.test("HostGc retains a release token until the native release commits", () => {
 	const gc = new HostGc();
+	const abandoned: bigint[] = [];
 	gc.bind({
 		released: false,
 		hostRaw: NULL,
 		kick: () => {},
 		recordFailure: () => {},
+		abandonVow: (vow) => abandoned.push(vow),
 		scheduleDrain: () => {},
 	});
 	gc.pending.push(17n);
@@ -143,14 +145,83 @@ Deno.test("HostGc retains a release token until the native release commits", () 
 	if (gc.pending.length !== 1 || gc.pending[0] !== 17n) {
 		throw new Error(`refused release discarded its token: ${gc.pending}`);
 	}
+
+	gc.pending.length = 0;
+	gc.pendingVows.push(19n);
+	try {
+		gc.drainGc();
+	} catch {
+		// The null Host is the deliberate native refusal.
+	}
+	if (gc.pendingVows.length !== 1 || gc.pendingVows[0] !== 19n) {
+		throw new Error(`refused vow release discarded its token: ${gc.pendingVows}`);
+	}
+	if (abandoned.length !== 1 || abandoned[0] !== 19n) {
+		throw new Error(`vow release did not abandon local observation: ${abandoned}`);
+	}
+});
+
+Deno.test("HostGc retirement discards queues and ignores late finalizers", () => {
+	const gc = new HostGc();
+	gc.bind({
+		released: false,
+		hostRaw: NULL,
+		kick: () => {},
+		recordFailure: () => {},
+		abandonVow: () => {
+			throw new Error("retired GC touched vow state");
+		},
+		scheduleDrain: () => {
+			throw new Error("retired GC scheduled native work");
+		},
+	});
+	gc.pending.push(17n);
+	gc.pendingVows.push(19n);
+	gc.retire();
+	gc.parkVow(23n);
+	if (gc.pending.length !== 0 || gc.pendingVows.length !== 0) {
+		throw new Error("retired GC retained finalizer work");
+	}
+});
+
+Deno.test("HostGc retries scheduler refusal without duplicating a vow release", () => {
+	const gc = new HostGc();
+	let refuse = true;
+	let scheduled = 0;
+	gc.bind({
+		released: false,
+		hostRaw: NULL,
+		kick: () => {},
+		recordFailure: () => {},
+		abandonVow: () => {},
+		scheduleDrain: () => {
+			if (refuse) {
+				refuse = false;
+				throw new Error("scheduler refused");
+			}
+			scheduled += 1;
+		},
+	});
+	try {
+		gc.parkVow(29n);
+	} catch (failure) {
+		if (String(failure).includes("scheduler refused")) {
+			gc.parkVow(29n);
+		} else {
+			throw failure;
+		}
+	}
+	if (gc.pendingVows.length !== 1 || gc.pendingVows[0] !== 29n) {
+		throw new Error(`scheduler retry duplicated vow release: ${gc.pendingVows}`);
+	}
+	if (scheduled !== 1) throw new Error("retained vow release was not rescheduled");
 });
 
 Deno.test("Host surfaces one exact detached runtime failure at the next verb head", async () => {
 	const host = new Host();
 	const failure = new Error("detached task failed");
 	try {
-		host.startDialTask(1n, () => Promise.reject(failure));
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		await host.startDialTask(1n, 0n, () => Promise.reject(failure));
 		let surfaced: unknown;
 		try {
 			host.drainGc();
@@ -162,4 +233,10 @@ Deno.test("Host surfaces one exact detached runtime failure at the next verb hea
 	} finally {
 		await host.close();
 	}
+});
+
+Deno.test("Host enliven refuses after native handle retirement", async () => {
+	const host = new Host();
+	await host.close();
+	await assertRejectsWith(host.enliven("ocapn://example.invalid.tcp/s"), "host released");
 });

@@ -21,7 +21,7 @@
 //! counted, so a busy room cannot fake or break the assertion. This is the same
 //! application as the Deno, Python, Racket, and Zig clients, on one wire.
 
-mod room;
+pub mod room;
 
 #[path = "../../../_demo/rust/run_local.rs"]
 mod demo_run;
@@ -48,13 +48,19 @@ async fn enter_or_open(dir: &Directory, name: &str) -> Result<pancake::Ref, Stri
 }
 
 /// Render the live room list for one line of output.
-fn format_rooms(rooms: &[(String, i64)]) -> String {
+fn format_rooms(rooms: &[room::RoomInfo]) -> String {
 	if rooms.is_empty() {
 		return "(none yet)".to_string();
 	}
 	rooms
 		.iter()
-		.map(|(name, count)| format!("{name} ({count})"))
+		.map(|room| {
+			format!(
+				"{} ({})",
+				room.name,
+				room.count.map_or("unknown".to_string(), |count| count.to_string())
+			)
+		})
 		.collect::<Vec<_>>()
 		.join(", ")
 }
@@ -66,8 +72,9 @@ async fn join_room(locator: &str, room_name: &str, nick: &str) -> Result<Room, S
 	let dir = Directory::connect(locator).await?;
 	println!("[{nick}] rooms: {}", format_rooms(&dir.list().await?));
 	let watch_nick = nick.to_string();
-	dir.watch(move |kind, name, count| {
-		println!("[{watch_nick}] directory: {kind} {name} ({count})");
+	dir.watch(move |kind, room| {
+		let count = room.count.map_or("unknown".to_string(), |count| count.to_string());
+		println!("[{watch_nick}] directory: {kind} {} ({count})", room.name);
 	})
 	.await?;
 	let room_ref = enter_or_open(&dir, room_name).await?;

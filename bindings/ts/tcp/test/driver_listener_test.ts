@@ -1,5 +1,12 @@
 import * as tcp from "../mod.ts";
-import { formatLocatorUri, Host, Runtime, type Session } from "../../runtime/mod.ts";
+import {
+	FEATURE_FULL,
+	FEATURE_MULTI_LOCATION,
+	formatLocatorUri,
+	Host,
+	Runtime,
+	type Session,
+} from "../../runtime/mod.ts";
 
 function assert(value: unknown, message: string): asserts value {
 	if (!value) throw new Error(message);
@@ -47,6 +54,20 @@ Deno.test("closing a TCP listener preserves its Host and yielded session", async
 		const result = await next;
 		assert(!result.done, "driver listener did not yield a session");
 		accepted = result.value;
+		assert(client.transportName === "tcp", "dialed session lost its transport name");
+		assert(accepted.transportName === "tcp", "accepted session lost its transport name");
+		assert(client.profile.captpVersion === "v1_0", "dialed session did not settle v1.0");
+		assert(client.profile.codec === "syrup", "dialed session did not settle Syrup");
+		assert(
+			client.profile.features === (FEATURE_FULL & ~FEATURE_MULTI_LOCATION),
+			"dialed session did not report the exact v1.0 feature floor",
+		);
+		assert(
+			client.profile.captpVersion === accepted.profile.captpVersion,
+			"session profiles disagree on CapTP version",
+		);
+		assert(client.profile.codec === accepted.profile.codec, "session profiles disagree on codec");
+		assert(client.profile.features === accepted.profile.features, "session profiles disagree on features");
 		assert(server.host === host, "driver listener replaced the supplied Host wrapper");
 		assert(host.driverLoop != null, "supplied Host did not transfer to the driver");
 		accepted.publish("still-live", () => null);

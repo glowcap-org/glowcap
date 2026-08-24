@@ -28,30 +28,30 @@
  * where a freshly parsed document simply has no `recording`.
  */
 export function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (
-    typeof a !== "object" || typeof b !== "object" ||
-    a === null || b === null
-  ) return false;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) {
-      if (!deepEqual(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  const left = a as Record<string, unknown>;
-  const right = b as Record<string, unknown>;
-  for (const key of Object.keys(left)) {
-    if (!deepEqual(left[key], right[key])) return false;
-  }
-  // Only the keys the first object did not carry are left to check:
-  // the loop above already compared every shared one. A key the first
-  // object lacks is equal exactly when the second is not really
-  // stating it either.
-  for (const key of Object.keys(right)) {
-    if (!(key in left) && right[key] !== undefined) return false;
-  }
-  return true;
+	if (a === b) return true;
+	if (
+		typeof a !== "object" || typeof b !== "object" ||
+		a === null || b === null
+	) return false;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		if (!Array.isArray(a) || !Array.isArray(b)) return false;
+		if (a.length !== b.length) return false;
+		for (let i = 0; i < a.length; i += 1) {
+			if (!deepEqual(a[i], b[i])) return false;
+		}
+		return true;
+	}
+	const left = a as Record<string, unknown>;
+	const right = b as Record<string, unknown>;
+	for (const key of Object.keys(left)) {
+		if (!deepEqual(left[key], right[key])) return false;
+	}
+	// Only the keys the first object did not carry are left to check:
+	// the loop above already compared every shared one. A key the first
+	// object lacks is equal exactly when the second is not really
+	// stating it either.
+	for (const key of Object.keys(right)) {
+		if (!(key in left) && right[key] !== undefined) return false;
+	}
+	return true;
 }

@@ -15,7 +15,7 @@ assumes the why and explains the machinery. To see where `Session`, `Host`, and
 The whole protocol rests on the ordinary object reference. Code that holds a
 reference to an object can call it. Code that was never handed one cannot,
 and there is no way to manufacture one from bytes.
-[CapTP](http://erights.org/elib/distrib/captp/) is the protocol that keeps
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/) is the protocol that keeps
 this true between two programs on a network.
 [OCapN](https://github.com/ocapn/ocapn) is its standardization.
 [Spritely Goblins](https://spritely.institute/goblins/) is the implementation
@@ -79,7 +79,9 @@ The
 [sturdyref diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
 go deeper, and [Transports]($link.page('transports')) explains what a netlayer
 is. [Choosing a transport]($link.page('transports/choosing')) lists the ones a
-locator can name.
+locator can name. A peer reachable over several transports can carry them
+under one key with the prototype
+[multi-home locator]($link.page('multihome')).
 
 # Promise pipelining
 
@@ -127,9 +129,9 @@ diagrams draw it.
 Two peers have to agree on a CapTP **version** and a **codec** before
 anything else can happen. Each side carries a ranked menu of what it can
 speak, both sides run the same intersection rule, and the most-preferred
-entry both offer wins. None of this travels on the wire except the final
-version string inside `op:start-session`. If the menus share nothing, no
-session opens.
+entry both offer wins. The menus themselves stay local: what crosses the
+wire is each side's signed hello, naming the version it selected and the
+optional features it offers. If the menus share nothing, no session opens.
 
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
 of writing the same message down. Session logic never changes with the codec,
@@ -151,10 +153,11 @@ with Cap'n Proto. Application code cannot tell the difference.
 
 Export table slots carry reference counts, and answer slots hold a single
 reference that is released outright. With GC enabled on a binding, dropping a
-fetched far reference makes the engine tell the peer, with `op:gc-exports` or
-`op:gc-answers`, so unused slots leave the tables. It is off by default and
-covers `fetch` results only; everything else keeps its row until the session
-tears down. The
+projected far reference makes the engine tell the peer, with `op:gc-exports`
+or `op:gc-answers`, so unused slots leave the tables. That covers fetch
+results, fulfilled far answers, and capabilities nested in delivered
+arguments. It is a per-session opt-in, off by default; without it, rows stay
+until the session tears down. The
 [GC](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/05-gc.md)
 diagrams draw it.
 

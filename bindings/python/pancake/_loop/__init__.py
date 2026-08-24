@@ -30,6 +30,7 @@ from .._listener import ListenerOwner
 from .._ffi_driver import _driver, _TransportProvider
 from .._ffi_host import _host
 from .._locator import Locator
+from .._trampoline import _enter_host_deliver, _exit_deliver
 
 from .configuration import _driver_options
 from .dialing import _DialingMixin
@@ -297,18 +298,26 @@ class DriverLoop(
             self._record_terminal_failure(release_error)
         self._closed_event.set()
 
-    def serve_session(self, ptr: int) -> None:
+    def serve_session(self, ptr: int):
         """Announce the embedder is serving the session at ``ptr``: post-open
         setup is done, so the loop may deliver its inbound (bytes that arrived
         early replay in order). Idempotent; the loop tier's spelling of the
         byte-fed rule that ``serve`` resumes frames held behind the
-        handshake."""
+        handshake. Returns the registered public Session wrapper."""
         if self._terminal_failure is not None:
             raise self._terminal_failure
         if self._released or not ptr:
-            return
-        _check(_driver.pancake_driver_session_serve(self._h, ctypes.c_void_p(ptr)))
+            return None
+        session = self.adopt_session(ptr)
+        # Serving releases application frames parked behind the handshake and
+        # may invoke a hosted behavior before the native call returns.
+        prior = _enter_host_deliver(self._wrapper)
+        try:
+            _check(_driver.pancake_driver_session_serve(self._h, ctypes.c_void_p(ptr)))
+        finally:
+            _exit_deliver(prior)
         self.schedule_step()
+        return session
 
     # ── Extension transports ────────────────────────────────────────────────
 

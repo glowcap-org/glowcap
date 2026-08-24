@@ -61,13 +61,12 @@ async def run_unit(conn: Session, root) -> None:
 async def run_unit_pipelined(conn: Session, root) -> None:
     # The same four verbs as run_unit, but pipelined (ADR-0007, questioner half):
     # assign/complete/status are addressed at the answer `create` will resolve to
-    # — the RemotePromise it returns, passed as the send target, without awaiting
-    # it — so the unit costs one round trip instead of four. Only the final status
-    # is awaited, which flushes the queued batch together. The throughput unit;
-    # run_unit stays sequential so the latency row keeps measuring one round trip.
+    # — the RemotePromise it returns, passed as the send target. assign/complete
+    # are one-way deliveries; only status allocates an answer and is awaited. The
+    # unit costs one round trip without leaving discarded result promises behind.
     create = conn.send(root, "create", ["benchmark"])
-    conn.send(create, "assign", ["alice"])
-    conn.send(create, "complete", [])
+    await conn.tell(create, "assign", ["alice"])
+    await conn.tell(create, "complete", [])
     status = await conn.send(create, "status", [])
     if status_text(status) != "done":
         raise RuntimeError(f"bad status: {status_text(status)!r}")
@@ -81,6 +80,25 @@ async def warm(conn: Session, root, n: int, unit=run_unit) -> None:
     for _ in range(warmup_count(n)):
         await unit(conn, root)
     gc.collect()
+
+
+async def open_held_connection(host: str, port: int, reuse: Runtime | None = None):
+    runtime = reuse if reuse is not None else await Runtime.open(provider=tcp.provider())
+    try:
+        session = await runtime.connect(tcp.locator(host, port))
+        await session.fetch("root")
+        return runtime, session, reuse is None
+    except BaseException:
+        if reuse is None:
+            await runtime.close()
+        raise
+
+
+async def close_held_connection(held) -> None:
+    runtime, session, close_runtime = held
+    await session.close()
+    if close_runtime:
+        await runtime.close()
 
 
 async def run_latency(runtime: Runtime, host: str, port: int, n: int) -> None:
@@ -121,10 +139,8 @@ async def run_throughput(runtime: Runtime, host: str, port: int, n: int) -> None
 
 async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> None:
     warm_conns = []
-    for _ in range(min(n, 5)):
-        c = await runtime.connect(tcp.locator(host, port))
-        await c.fetch("root")
-        warm_conns.append(c)
+    for i in range(min(n, 5)):
+        warm_conns.append(await open_held_connection(host, port, runtime if i == 0 else None))
     gc.collect()
     emit({"v": 1, "event": "warmed"})
     sys.stdout.flush()
@@ -132,9 +148,7 @@ async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> Non
     handles = []
     t0 = now()
     for _ in range(n):
-        c = await runtime.connect(tcp.locator(host, port))
-        await c.fetch("root")
-        handles.append(c)
+        handles.append(await open_held_connection(host, port))
     total = now() - t0
     emit({
         "v": 1, "metric": "connections", "client": CLIENT, "suite": "taskboard", "conns": n,
@@ -142,10 +156,10 @@ async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> Non
     })
     sys.stdout.flush()
     await asyncio.sleep(2.5)
-    for c in handles:
-        await c.close()
-    for c in warm_conns:
-        await c.close()
+    for held in handles:
+        await close_held_connection(held)
+    for held in warm_conns:
+        await close_held_connection(held)
 
 
 async def run_cold(runtime: Runtime, host: str, port: int) -> None:
@@ -222,7 +236,7 @@ async def run_local(runtime: Runtime, n: int) -> None:
     via_host = await measure_hits(dial, far, n)
 
     await dial.close()
-    server.close()
+    await server.close()
     accept_task.cancel()
     for conn in accepted:
         await conn.close()

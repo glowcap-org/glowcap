@@ -31,7 +31,7 @@ export function RailSection(
 ) {
 	return (
 		<div className={className ? "section " + className : "section"}>
-			<div className="section-head">
+			<div className="section-head overline">
 				{heading === undefined ? <span>{title}</span> : heading(title)}
 				{field !== undefined && (
 					<AddButton

@@ -1,612 +1,342 @@
 # Interaction architecture
 
-This page describes the Stage interaction pipeline that is wired today, and
-names the timeline gaps that are still designed but not built.
+This page describes the interaction system that is wired today. The section numbers are load-bearing: modules under
+`src/interactions/` cite them. Cursor precedence has its own authority in [`cursor.md`](cursor.md).
 
-Every pointer, modifier, and keyboard interaction in the visualizer goes through
-one resolver and one state machine. A new feature that wants a gesture adds a
-row to a table here, extends the machine if it must, and ships an adapter. It
-does not bind a handler in component code.
+The visualizer has one semantic vocabulary and one resolver, not one physical event loop. The Stage's empty canvas uses
+the pure pointer machine. Stage sprites use Pixi listeners because they already own exact display-object hit geometry.
+The Timeline's Overview and Scrubber use DOM adapters because their drags mutate different view and document structures.
+All three paths share:
 
-The section numbers are load-bearing: modules under `src/interactions/` cite
-them in their own comments. The cursor rule is [`cursor.md`](cursor.md), not a
-numbered section here.
+- `Hit`, `DefaultVerb`, and `ResolvedGesture`;
+- `resolveGesture`'s precedence;
+- `SelectMode` and `selectionActionFor`;
+- the process-wide gesture lease in `gesture-router.ts`; and
+- `cursorFor`, so the offered cursor and the next pointer-down read the same decision.
 
-## What is wired
-
-The Stage runs the whole pipeline. `use-surface-pointer.ts` feeds the pointer
-machine, which resolves through `gesture-resolver.ts` and commits through
-`selection-store.ts`. `use-surface-wheel.ts` handles the wheel,
-`layer-interactivity.ts` decides which sprites accept pointer events, and
-`cursor.ts` answers what the pointer looks like on every surface in the app.
-
-Two things sit beside that. Sprite clicks and drags on the Stage never reach the
-machine. `makeStageHit` returns null over a peer, edge, or message sprite, so
-the machine sees only empty-stage gestures. The sprites commit through the
-`SelectMode` grammar in `types.ts` and `selectionActionFor` instead. Separately,
-every gesture-owning surface claims a process-wide lock in `gesture-router.ts`,
-so a drag on one surface cannot bleed into another. That router is not in the
-original design; it grew in the code.
-
-The timeline surfaces are the gap. The Scrubber, the Overview, and ScrubInput
-still run their own pointer handlers under that lock rather than the machine.
-Section 13 says what follows from that, and what else is designed but unbuilt.
+`ScrubInput` is a native DOM control. Its click-to-type and drag-to-adjust behavior is deliberately outside the canvas
+gesture vocabulary.
 
 ## 1. Principles
 
-**Spacebar wins.** Any pointer interaction while Space is held pans the surface
-under it.
+**Spacebar wins.** Space temporarily activates Hand. A pointer-down anywhere on a canvas surface pans instead of
+selecting, retiming, resizing, or invoking a gutter control.
 
-**The active tool owns the verb.** How a pointer event is read is a property of
-the tool. Select's verbs are what users experience as the default, but Select is
-not privileged; it is the tool whose verb table happens to equal the surface
-defaults in § 4.5. There is no "default gesture that a tool overrides."
+**The active tool owns precedence.** Hand is a navigation override. Stage-only authoring tools may claim the Stage
+surfaces listed in § 4.4. On the Timeline, those tools narrow to Select because no authoring verb lands there.
 
-**Modifiers mean the same thing everywhere.** Shift, Cmd or Ctrl, Alt, and Space
-carry global meanings in every tool on every surface. A tool binds verbs to
-unmodified clicks only.
+**Selection has one modifier grammar.** Plain replaces, Shift adds, and Shift+Option removes. Stage sprites, Stage
+marquee, Timeline pills, and Timeline marquee all commit through that grammar. Cmd/Ctrl is reserved for keyboard
+commands; it has no separate pointer-selection meaning.
 
-### 1.1 What the modifiers mean
+**Document, view, tool, and selection are separate state spaces.** Document edits change the authored timeline. View
+edits change camera, zoom, playhead, row expansion, or the visible time window. Tool changes choose an interpreter.
+Selection changes choose the entities a selection-aware command will act on. None writes another as a side effect.
 
-The visualizer is a direct-manipulation canvas and timeline in the lineage of
-Flash, After Effects, Photoshop, and Figma, and it inherits their conventions.
+**Mode is a product state, not a gesture primitive.** The resolver and pointer machine read `activeTool`, never Live,
+Play, or Build. `toolsForMode` decides which tools the current product state offers.
 
-| Modifier   | Meaning                                                                          |
-| ---------- | -------------------------------------------------------------------------------- |
-| Shift      | Constrain or extend. Snap to grid while dragging; extend the selection on click. |
-| Cmd / Ctrl | Toggle, or the other action. Toggle set membership on click.                     |
-| Alt        | Clone, from-center, or sample. Reserved here for the clone verbs.                |
-| Space      | Temporary Hand. Click-drag pans regardless of the active tool.                   |
-
-A new gesture honors these. A tool may not bind Shift-click to delete, because
-Shift already means extend. Bindings are constrained by the global meanings, not
-merely by what is unclaimed.
-
-**Document, view, tool, and selection are four separate state spaces.** The
-document is the timeline itself. The view is what is visible: camera, zoom,
-expanded categories, playhead, time window. The tool is the active verb
-interpreter, one at a time. The selection is what the next selection-aware verb
-will act on. None of them writes into another. A tool change never modifies the
-document, and a selection change never modifies the view. Where that discipline
-slips is where "why did my selection clear?" bugs come from.
-
-**Mode is a label, not an architectural concept.** Live, Play, and Build name
-three combinations of document source, editability, and recording state.
-
-| Mode  | Document                         | Editable | Tools available                                    |
-| ----- | -------------------------------- | -------- | -------------------------------------------------- |
-| Live  | websocket feed (blank until Record; capture while recording) | no | Select, Hand |
-| Play  | file, fixture, or claimed recording | no    | Select, Hand                                       |
-| Build | file or fixture                  | yes      | Select, Hand, Add Peer, Open Session, Send Message |
-
-The resolver and the machine never read mode. They read `activeTool`. Which
-tools exist in a mode is `toolsForMode` in `src/state/app-state.ts`, enforced by
-the app-state reducer: Select and Hand observe and exist everywhere, and the
-authoring tools exist only where mutation authority does.
+| Mode  | Source                              | Editable | Tools                                              |
+| ----- | ----------------------------------- | -------- | -------------------------------------------------- |
+| Live  | websocket feed or recording         | no       | Select, Hand                                       |
+| Play  | file, fixture, or claimed recording | no       | Select, Hand                                       |
+| Build | file or fixture                     | yes      | Select, Hand, Add Peer, Open Session, Send Message |
 
 ## 2. Data model
 
-`src/interactions/types.ts` is the single source of truth for every type in this
-pipeline, and its own comments carry the section labels below. Read it there. A
-second copy in this file would only drift.
+`src/interactions/types.ts` is the source of truth for the types below.
 
-| Label | What it names                                                       |
-| ----- | ------------------------------------------------------------------- |
-| § 2.1 | `SelectionState`: the `timeRange`, `anchor`, and `selection` slots. |
-| § 2.2 | `ModifierSet` and `PointerSnapshot`.                                |
-| § 2.3 | `Hit`, the tagged hit-test result, and `SurfaceId` derived from it. |
-| § 2.4 | `GestureContext`, `SurfaceGestureCtx`, `BuilderTool`, `ToolState`.  |
-| § 2.5 | `ResolvedGesture`, `DefaultVerb`, `ToolCreateVerb`.                 |
-| § 2.6 | `PointerMachineState` and its thresholds.                           |
+| Label | What it names                                                   |
+| ----- | --------------------------------------------------------------- |
+| § 2.1 | `SelectionState`: `anchor` and `selection`.                     |
+| § 2.2 | `ModifierSet` and `PointerSnapshot`.                            |
+| § 2.3 | `Hit`, the tagged hit-test result, and its derived `SurfaceId`. |
+| § 2.4 | `GestureContext`, `SurfaceGestureCtx`, tools, and `ToolState`.  |
+| § 2.5 | `ResolvedGesture`, `DefaultVerb`, and `ToolCreateVerb`.         |
+| § 2.6 | `PointerMachineState` and its drag threshold.                   |
 
-What the types cannot argue for themselves:
+### 2.1 Selection
 
-**The selection holds entities, not events.** A rubber-band selects entities
-whichever surface it is swept on, the stage and an empty timeline lane alike,
-and clicking a pill selects the entity the pill belongs to. Shifting several entities in time means
-shifting each one's events. This is the Flash model: you select layers, and
-their content moves with them. Selecting one event without its sibling is not
-supported, and if it is ever needed it gets a parallel event-keyed slot rather
-than replacing this one.
+The selection holds entities, not observations. A Timeline pill selects the entity it depicts; a marquee selects the
+entities whose painted spans or glyphs it crosses. A command that shifts selected entities then plans the observation
+moves needed for each entity.
 
-**The anchor rides with the selection.** It is both the pivot a shift-click
-extends from and the entity the Inspector follows. The reducer holds it to being
-a member of the selection, or null when the selection is empty.
+`anchor` is the Inspector-follow target. It is always a member of `selection`, and is null exactly when the selection is
+empty. It is re-seated when removal takes the current anchor away.
 
-**A surface is canvas-backed.** The Inspector and the Toolbar are DOM panels
-with native React events. They are not `Hit` variants and the machine never
-fires for them.
+### 2.3 Surfaces
 
-**A double-click is an effect, not a verb.** Double-clicking an entity emits
-`double-click` carrying the entity ref. The host fans that out into one
-coordinated view change: focus the Inspector, center the Stage, expand and
-scroll the timeline row. It never changes the document.
+`Hit` describes canvas-backed interaction geometry. Inspector and toolbar controls are DOM controls and are not
+variants. Timeline span edges use the generic `timeline-lane-event-edge` name because either the start or end may be
+grabbed; the `DragPlan` carries which edge it is.
 
 ## 3. Modules
 
-```
+```text
 src/interactions/
-├── types.ts                  // § 2 types; the SelectMode grammar
-├── gesture-resolver.ts       // § 4
-├── pointer-machine.ts        // § 5
-├── click-actions.ts          // § 4.7 (written, not wired)
-├── selection-store.ts        // § 6; selectionActionFor
-├── layer-interactivity.ts    // § 7
-├── cursor.ts                 // cursor.md; cursorFor, the one cursor authority
-├── gesture-router.ts         // cross-surface gesture lock
-├── use-gesture-surface.ts    // marks a host element as a router surface
-├── use-surface-pointer.ts    // § 8.1
-├── use-surface-wheel.ts      // § 8.2
-└── wheel-helpers.ts          // wheelToEffect and the wheel policies
+├── types.ts                  # § 2 vocabulary and SelectMode
+├── gesture-resolver.ts       # § 4 precedence and surface defaults
+├── pointer-machine.ts        # § 5 pure Stage-empty FSM
+├── selection-store.ts        # § 6 reducer and selectionActionFor
+├── layer-interactivity.ts    # § 7 Pixi event ownership
+├── cursor.ts                 # the one cursor authority
+├── gesture-router.ts         # cross-surface gesture lease
+├── use-gesture-surface.ts    # lease lifecycle for a host
+├── use-surface-pointer.ts    # Stage-empty pointer adapter
+├── use-surface-wheel.ts      # wheel adapter
+└── wheel-helpers.ts           # pure wheel policy
 ```
 
-Every module except the two hooks is pure: no React, no Pixi, no DOM, no clock,
-no global state, so unit tests drive them from fixture values. Each keeps its
-tests beside it.
+Timeline-specific ownership lives beside Timeline geometry:
 
-Two modules live outside the tree on purpose.
-`src/ui/Timeline/timeline-cursor.ts` is geometry rather than rule: it turns a
-position on the Scrubber or the Overview into a `Hit` and asks `cursorFor` about
-it. Keyboard lives under `src/state/`, because half its verbs are playback and
-persistence, which this pipeline does not own.
+```text
+src/ui/Timeline/
+├── timeline-gesture.ts          # shared Timeline pointer-down controller
+├── timeline-cursor.ts           # Overview/Scrubber geometry to Hit
+├── event-hit-index.ts           # reusable identity and anchor index
+├── event-hit.ts                 # exact pill/glyph/edge hit geometry
+├── use-scrubber-interaction.ts  # cached rows and event index
+└── scrubber-pointers/           # mutation adapters and drag lease
+```
 
-Only the hooks and the React components touch React, Pixi, or the DOM. Wheel and
-keyboard are sibling pipelines to the pointer machine: they emit the same
-families of effects and dispatch the same selection actions, but they do not go
-through it. `cursor.ts` reads `pointer-machine.ts` for one thing only, which
-gesture is in flight, because that has one authority and the cursor maps its
-answer rather than re-deriving it.
+Pure policy stays outside React, Pixi, and the DOM. Hooks own attachment and lifecycle. Adapters own local effects, but
+not precedence or selection set arithmetic.
 
 ## 4. Gesture resolver
 
-`resolveGesture(ctx: GestureContext): ResolvedGesture` is pure, deterministic,
-and total. It is the one place the precedence ladder is written down.
+`resolveGesture(ctx)` is pure, deterministic, and total over every `Hit` and tool. It runs at pointer-down to choose a
+drag verb. The generic machine runs it again at pointer-up for a click, so a modifier pressed during a stationary press
+can veto a Stage authoring verb.
 
 ### 4.2 Resolution order
 
-It runs at two moments. At pointer-down it decides the verb a drag will use. At
-pointer-up, if no drag happened, it runs again against the modifiers held at
-that moment, so pressing Shift between down and up makes the click a
-shift-click. The Adobe rule: modifiers at release decide a click, modifiers at
-drag start decide a drag.
+1. Space held: `space-pan`.
+2. Hand active: `hand-tool`.
+3. On an empty Timeline lane, Option without Shift: the local `pan-view` verb. Shift+Option remains the global
+   remove-selection marquee.
+4. With no modifier held, ask a Stage authoring tool for an override. A two-click tool that addresses nodes but refuses
+   this node returns `tool-refuses`; it does not fall through to selection.
+5. Take the surface default from § 4.5.
 
-1. Space held, so `space-pan`.
-2. The Hand tool is active, so `hand-tool`.
-3. Otherwise, with no modifier held, ask the tool (§ 4.4). A tool that claims
-   the surface returns `tool-create`. A two-click tool that claims stage nodes
-   but will not take this one returns `tool-refuses`, which carries no verb:
-   nothing happens, no ring lights, and the cursor says so before the click.
-   Falling through instead would quietly give the node its ordinary select
-   meaning.
-4. Take the surface default (§ 4.5).
-5. Shift, then Cmd, may swap that default for a variant (§ 4.6a). Alt has no
-   resolution-time swap.
-6. Otherwise the default stands.
+`navigationOverride` exposes the first two rungs for host padding that has no more specific `Hit`. `timeline-gesture.ts`
+narrows Stage-only tools to Select and calls the same resolver for both Overview and Scrubber pointer-down.
 
-The resolver's own invariants, each asserted by exhausting `Hit.surface` in the
-unit tests: the function is total, Space always wins, and the Select tool's verb
-on every surface is exactly its § 4.5 row with no special cases. A tool override
-fires only when no modifier is held, so a modified click always carries its
-global meaning.
+### 4.4 Stage tool overrides
 
-### 4.4 Tool overrides
+| Tool         | stage-empty       | stage-peer        | stage-endpoint    | other surfaces    |
+| ------------ | ----------------- | ----------------- | ----------------- | ----------------- |
+| Select       | —                 | —                 | —                 | —                 |
+| Hand         | navigation rung 2 | navigation rung 2 | navigation rung 2 | navigation rung 2 |
+| Add Peer     | `create-peer-at`  | —                 | —                 | —                 |
+| Open Session | —                 | `two-click-pick`  | refuses           | —                 |
+| Send Message | —                 | `two-click-pick`  | `two-click-pick`  | —                 |
 
-| Tool         | stage-empty      | stage-peer       | stage-endpoint   | other surfaces |
-| ------------ | ---------------- | ---------------- | ---------------- | -------------- |
-| select       | —                | —                | —                | —              |
-| hand         | (handled above)  |                  |                  |                |
-| add-peer     | `create-peer-at` | —                | —                | —              |
-| open-session | —                | `two-click-pick` | refuses          | —              |
-| send-message | —                | `two-click-pick` | `two-click-pick` | —              |
-
-Open Session refuses an endpoint because a new session mints its own two ends,
-so an end already belonging to one has nothing to be. Send Message takes either
-kind, because a message can name an end nothing has attributed.
-`toolAcceptsNode` in `gesture-resolver.ts` is the single statement of this, read
-by the resolver, the cursor, the hover ring, and the click path alike.
+Open Session refuses an existing session end because a new session mints its own two ends. Send Message accepts a peer
+or an unattributed end. `toolAcceptsNode` is the one statement read by resolution, cursor, hover, and the two-click
+action path.
 
 ### 4.5 Surface defaults
 
-The verb for each surface under an unmodified click with the Select tool.
+| Surface                  | Verb                      | Drag meaning                |
+| ------------------------ | ------------------------- | --------------------------- |
+| stage-empty              | `rubber-band`             | marquee                     |
+| stage-peer               | `select-or-drag-peer`     | move the peer               |
+| stage-endpoint           | `select-or-drag-endpoint` | move the unattributed end   |
+| stage-edge               | `select-edge`             | none                        |
+| stage-message            | `select-message`          | none                        |
+| timeline-overview        | `pan-view`                | pan the visible window      |
+| timeline-overview-edge   | `resize-time-window`      | resize the visible window   |
+| timeline-ruler           | `scrub`                   | move the playhead           |
+| timeline-lane-empty      | `rubber-band`             | marquee                     |
+| timeline-lane-event      | `select-or-drag-event`    | retime the span or glyph    |
+| timeline-lane-event-edge | `drag-event-edge`         | resize either temporal edge |
+| timeline-gutter-edge     | `resize-gutter`           | resize the label gutter     |
+| timeline-gutter-chevron  | `toggle-category`         | none                        |
+| timeline-gutter-eyeball  | `toggle-row-visibility`   | none                        |
+| timeline-gutter-label    | `reorder-row`             | reorder the row             |
 
-| Surface                        | Verb                      | On drag past the threshold |
-| ------------------------------ | ------------------------- | -------------------------- |
-| stage-empty                    | `rubber-band`             | marquee                    |
-| stage-peer                     | `select-or-drag-peer`     | drag the peer's position   |
-| stage-endpoint                 | `select-or-drag-endpoint` | drag the end's position    |
-| stage-edge                     | `select-edge`             | none; thin hit target      |
-| stage-message                  | `select-message`          | none; point hit target     |
-| timeline-overview              | `pan-view`                | pan by the drag delta      |
-| timeline-overview-edge         | `resize-time-window`      | widen or narrow the window |
-| timeline-ruler                 | `scrub`                   | scrub the playhead         |
-| timeline-lane-empty            | `rubber-band`             | marquee                    |
-| timeline-lane-event            | `select-or-drag-event`    | retime the event           |
-| timeline-lane-event-right-edge | `drag-event-right-edge`   | drag the arrival time      |
-| timeline-gutter-edge           | `resize-gutter`           | widen or narrow the gutter |
-| timeline-gutter-chevron        | `toggle-category`         | none                       |
-| timeline-gutter-eyeball        | `toggle-row-visibility`   | none                       |
-| timeline-gutter-label          | `reorder-row`             | reorder the row vertically |
+The empty Stage and an empty Timeline lane share a marquee verb. The adapter's hit geometry decides what the rectangle
+covers; the selection interpreter decides how those hits combine with the existing set.
 
-The empty stage and an empty lane share the marquee verb, because the gesture is
-the same on both: sweep a rectangle and commit what it covers through the
-`SelectMode` grammar. They differ only in what an empty-space click clears,
-which § 4.7 reads off the hit.
+### 4.6 Selection and drag modifiers
 
-Thin surfaces, meaning edges, messages, and edge handles, do not start drags of
-their own. To rubber-band from beside one, click the empty space next to it, and
-give thin surfaces narrow hit capture so they do not crowd out empty-stage
-clicks. There is no fall-through from one verb to another; a single-verb
-resolver cannot express it cleanly.
+Pointer-selection modifiers are interpreted at the commit boundary, not by minting alternate semantic verbs:
 
-Nothing sets the selection's time range from a gesture. The store keeps the slot
-and its actions, and the ruler seeks rather than ranges.
+| Keys         | `SelectMode` | Set meaning                     |
+| ------------ | ------------ | ------------------------------- |
+| none         | `replace`    | selection becomes the hits      |
+| Shift        | `add`        | add hits already absent         |
+| Shift+Option | `remove`     | remove hits already present     |
+| Option alone | `replace`    | except empty Timeline lane: pan |
 
-### 4.6a Modifiers that swap the verb
+Drag modifiers may change geometry while preserving the resolved verb. Shift snaps a Timeline retime to a major tick and
+constrains a Stage node move to an axis. Their feedback is the snap line or axis guide painted by the adapter.
 
-Held when the resolver runs, these return a different verb, so the adapter sees
-a different `ResolvedGesture`. `modifiedShift` and `modifiedCmd` own the rows.
+### 4.7 Adapter actions
 
-| Default verb           | + shift                  | + cmd                 |
-| ---------------------- | ------------------------ | --------------------- |
-| `select-or-drag-peer`  | `extend-selection-range` | `toggle-in-selection` |
-| `select-edge`          | `extend-selection-range` | `toggle-in-selection` |
-| `select-message`       | `extend-selection-range` | `toggle-in-selection` |
-| `select-or-drag-event` | `extend-selection-range` | `toggle-in-selection` |
-| `rubber-band`          | mode becomes `add`       | mode becomes `toggle` |
-
-Two of those rows do not reach a live surface today. The rubber-band commit
-never reads the verb's latched mode. The Stage latches Shift and Alt one way
-across the drag and the Scrubber latches at the press, and both derive the
-commit mode through the `SelectMode` grammar, where plain replaces, Shift adds,
-and Shift-Option removes. Sprite clicks never reach the resolver at all, so Cmd
-has no selection meaning on a live surface. The toggle and extend rows are
-exercised by the resolver's tests and by `clickActionFor`.
-
-### 4.6b Modifiers that change how a drag behaves
-
-These are read by the drag handler on each pointer move. The verb does not
-change, and the resolver never sees them.
-
-| Drag verb               | + shift                              |
-| ----------------------- | ------------------------------------ |
-| `select-or-drag-event`  | snap to the nearest major tick       |
-| `drag-event-right-edge` | snap the arrival to the nearest tick |
-| `select-or-drag-peer`   | constrain to the nearest axis        |
-
-The handler paints its own feedback, the snap line or the axis guide, reading
-the modifier flags each frame. Alt is reserved for cloning on drop, which is its
-canonical meaning, and no other verb may claim it.
-
-### 4.7 Click actions
-
-`clickActionFor(verb, hit, doc)` translates a click effect into a selection
-action, a view action, or nothing at all, so click meaning stays in one testable
-place. It is implemented and table-tested in `click-actions.ts` and **nothing
-calls it yet**: the Stage routes clicks straight to its `onSelect` and
-`onCanvasClick` callbacks, and the timeline surfaces keep their own handlers.
-
-The mapping is one row per verb. A rubber-band click clears, and the hit decides
-whether it clears the stage's way or the timeline's. The four select verbs set
-the selection to that entity. A ruler click seeks, and an overview click centers
-the window. Category and visibility toggles pass straight through. Row reorder
-and the right-edge drag map to nothing, because only their drags mean anything.
-Tool-create verbs never go through this function; the host handles creating
-peers and advancing two-click sequences itself. Space-pan and hand-tool clicks
-never commit; those tiers only fire drag effects.
+A resolved semantic verb reaches the adapter that owns the affected state. Stage authoring effects advance the builder
+tools. Timeline view verbs update the time window, playhead, expansion, or gutter. Selection gestures emit only a hit
+set plus `SelectMode`; `selectionActionFor` is the one interpreter that turns that pair into `set-selection`,
+`add-to-selection`, `remove-from-selection`, or `clear-on-empty-click`.
 
 ## 5. Pointer state machine
 
-`pointerReducer(state, event)` returns a new state and a list of effects. It is
-pure; the host executes the effects. Each surface adapter owns its own machine
-instance, and because pointer capture is taken at pointer-down, at most one of
-them is out of `idle` at a time. An idle machine still tracks hover and the last
-pointer-up.
+`pointerReducer(state, event)` is the pure down/move/up machine used by the Stage's empty surface. Each host instance
+owns its state, and the global gesture lease ensures only one surface can be in flight.
 
-The state has three slots. `fsm` is the foreground state, one of `idle`,
-`pressed`, `dragging`, and `paused-pan`. `hover` updates on every pointer move
-whatever the foreground is doing, and the cursor and hint derivations read it.
-`lastUp` holds the last pointer-up so the next pointer-down can qualify as a
-double-click.
+The state has `fsm` and `hover`. `fsm` is `idle`, `pressed`, `dragging`, or `paused-pan`. `hover` is independent and
+supplies the cursor authority.
 
 ### 5.3 Transitions
 
-| From       | Event        | Guard                    | To         | Effect                            |
-| ---------- | ------------ | ------------------------ | ---------- | --------------------------------- |
-| idle       | pointer-down | double-click qualifies   | idle       | `double-click`                    |
-| idle       | pointer-down | otherwise                | pressed    | none                              |
-| idle       | pointer-move |                          | idle       | none; hover updates               |
-| pressed    | pointer-move | within the threshold     | pressed    | none; hover updates               |
-| pressed    | pointer-move | past the threshold       | dragging   | `drag-start`                      |
-| pressed    | pointer-up   |                          | idle       | `click`, re-resolved at up        |
-| pressed    | space-down   |                          | paused-pan | none; the pan starts on next move |
-| pressed    | cancel       |                          | idle       | none                              |
-| dragging   | pointer-move |                          | dragging   | `drag-move`                       |
-| dragging   | pointer-up   |                          | idle       | `drag-end`                        |
-| dragging   | space-down   |                          | paused-pan | `drag-pause`                      |
-| dragging   | cancel       |                          | idle       | `drag-cancel`                     |
-| paused-pan | pointer-move |                          | paused-pan | `pan-step`                        |
-| paused-pan | space-up     | the button is still down | dragging   | `drag-resume`                     |
-| paused-pan | space-up     | the button was released  | idle       | `drag-end`                        |
-| paused-pan | pointer-up   |                          | idle       | `drag-end`                        |
-| paused-pan | cancel       |                          | idle       | `drag-cancel`                     |
+| From       | Event        | Guard                   | To         | Effects                         |
+| ---------- | ------------ | ----------------------- | ---------- | ------------------------------- |
+| idle       | pointer-down |                         | pressed    | none                            |
+| idle       | pointer-move |                         | idle       | hover update                    |
+| pressed    | pointer-move | below threshold         | pressed    | hover update                    |
+| pressed    | pointer-move | past threshold          | dragging   | `drag-start`, first `drag-move` |
+| pressed    | pointer-up   |                         | idle       | `click`, resolved at pointer-up |
+| pressed    | space-down   |                         | paused-pan | none                            |
+| pressed    | cancel       |                         | idle       | none                            |
+| dragging   | pointer-move |                         | dragging   | `drag-move`                     |
+| dragging   | pointer-up   |                         | idle       | `drag-end`                      |
+| dragging   | space-down   |                         | paused-pan | `drag-pause`                    |
+| dragging   | cancel       |                         | idle       | `drag-cancel`                   |
+| paused-pan | pointer-move |                         | paused-pan | `pan-step`                      |
+| paused-pan | space-up     | primary button held     | dragging   | `drag-resume`                   |
+| paused-pan | space-up     | primary button released | idle       | `drag-end`                      |
+| paused-pan | pointer-up   |                         | idle       | `drag-end`                      |
+| paused-pan | cancel       |                         | idle       | `drag-cancel`                   |
 
-A pointer-down qualifies as a double-click when the previous up was within 300
-ms and 4 px, on the same surface, and that surface is one of the entity
-surfaces. The machine then emits `double-click` and stays idle rather than
-entering `pressed`. The single click's effect has already fired, so the host
-suppresses its side effects for the same 300 ms. That is the standard behavior:
-the single click acts at once and the double click supersedes it if one arrives.
-For a plain selection the rollback is a no-op, since selecting the same entity
-twice changes nothing.
-
-Sequence-driven tests hold three things. In `paused-pan` a pointer move emits
-only `pan-step`, never a `drag-move` on the underlying verb. Every `drag-pause`
-is followed by exactly one of `drag-resume`, `drag-end`, or `drag-cancel`, never
-another pause. And every state and event pair has exactly one transition.
+The move that crosses the threshold also emits the first `drag-move`. Browsers may coalesce motion, so the result cannot
+depend on receiving another move before release.
 
 ### 5.4 Effects
 
-The reducer emits `click`, `double-click`, the drag effects, and `pan-step`.
-Each adapter consumes what it cares about. A `pan-step` names the surface it
-came from, which is how the host knows whether to move the Stage viewport or the
-timeline view. A `click` carries its hit so the adapter can pass it to
-`clickActionFor` without hit-testing again.
+Effects are `click`, the drag lifecycle, and `pan-step`. An adapter executes only effects its surface owns. A click
+carries its pointer-up hit; no second hit test is needed.
 
 ## 6. Selection store
 
-`selectionReducer(state, action)` is pure, and `types.ts` owns the
-`SelectionAction` union. Four actions carry a document snapshot, because they
-are derived: extending a range, selecting from a time range, inverting, and
-shrinking a range to its events all need to see the document. The caller
-supplies it in the payload so the reducer stores no document of its own.
+`selectionReducer` is pure. The action union is deliberately small:
 
-Which slot each action writes:
+| Action                  | Meaning                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `set-selection`         | replace the set and anchor its last member               |
+| `add-to-selection`      | add members and anchor the last new member               |
+| `remove-from-selection` | remove members and re-seat the anchor if necessary       |
+| `reconcile-with-doc`    | drop identities the current document no longer declares  |
+| `rename-entity`         | rewrite one identity without losing membership or anchor |
+| `clear-all`             | return `EMPTY_SELECTION`                                 |
+| `clear-on-empty-click`  | return `EMPTY_SELECTION`                                 |
 
-| Action                          | timeRange | anchor                 | selection                |
-| ------------------------------- | --------- | ---------------------- | ------------------------ |
-| set-time-range                  | write     | —                      | —                        |
-| extend-time-range               | write     | —                      | —                        |
-| expand-time-range               | write     | —                      | —                        |
-| shrink-time-range-to-events     | write     | —                      | —                        |
-| set-anchor                      | —         | write                  | —                        |
-| set-selection                   | —         | last added             | write                    |
-| add-to-selection                | —         | last added             | write                    |
-| remove-from-selection           | —         | re-seat if removed     | write                    |
-| toggle-in-selection             | —         | write                  | write                    |
-| extend-selection-range          | —         | the new entity         | write, in document order |
-| invert-selection                | —         | null                   | write, derived           |
-| rename-entity                   | —         | only if it was renamed | rewrite the id in place  |
-| set-selection-from-time-range   | —         | —                      | write, derived           |
-| clear-all                       | null      | null                   | empty                    |
-| clear-on-empty-click "stage"    | —         | null                   | empty                    |
-| clear-on-empty-click "timeline" | null      | —                      | empty                    |
-
-The anchor is not an independent slot; it rides with every selection write so
-the membership invariant holds. Only `clear-all`, `clear-on-empty-click`, and
-`set-selection-from-time-range` cross between the time range and the entity
-slots, and each is an explicitly named verb with one meaning.
-
-Three more invariants, all covered by unit tests. A time range always comes out
-with its start at or before its end. Every action writes exactly the columns its
-row names, asserted by an exhaustive switch, so a new action adds a row. And a
-write to `selection` always returns a new `Set` instance, because the Pixi
-repaint bail compares by reference.
-
-`invert-selection`, `expand-time-range`, and `shrink-time-range-to-events`
-mirror Photoshop's Select menu. They live in the reducer with nothing
-dispatching them yet; they need a discoverable surface first.
+Every non-empty selection has an anchor inside it. Every write returns a fresh `Set`, because rendering and selectors
+use reference identity as their cheap change signal. `allEntityKeys` allocates only for the explicit Cmd/Ctrl-A command,
+never on render or wire paths.
 
 ## 7. Layer interactivity
 
-`layerInteractivity(ctx)` is the one function deciding which Pixi sprite layers
-accept pointer events. No component flips an event mode directly.
+`layerInteractivity(ctx)` decides which Stage sprite layers accept Pixi pointer events.
 
-| Space held | Active tool  | peers  | edges  | messages |
-| ---------- | ------------ | ------ | ------ | -------- |
-| yes        | any          | none   | none   | none     |
-| no         | hand         | none   | none   | none     |
-| no         | add-peer     | none   | none   | none     |
-| no         | open-session | static | none   | none     |
-| no         | send-message | static | none   | none     |
-| no         | select       | static | static | static   |
+| Space | Tool         | peers  | edges  | messages |
+| ----- | ------------ | ------ | ------ | -------- |
+| yes   | any          | none   | none   | none     |
+| no    | Hand         | none   | none   | none     |
+| no    | Add Peer     | none   | none   | none     |
+| no    | Open Session | static | none   | none     |
+| no    | Send Message | static | none   | none     |
+| no    | Select       | static | static | static   |
 
-Space makes the whole stage pointer-transparent so the pan layer gets
-everything. Hand and Add Peer both want empty-stage hits. The two-click tools
-want nodes, so edges and messages fall silent and clicks land on the peers
-beneath them.
-
-This governs pointer events only. Wheel listeners live on the host `<div>`s and
-are unaffected.
+Space, Hand, and Add Peer need the empty Stage host. Two-click tools need node sprites but must not let edges or
+messages obscure them.
 
 ## 8. Adapters
 
 ### 8.1 Pointer
 
-`useSurfacePointer(host, makeHit, handlers, ctx, surfaceTag?)` attaches the
-pointer listeners to a host element and feeds a per-host machine. Returning null
-from `makeHit` skips the pointer-down entirely, which is how the Stage keeps
-sprite hits out of the machine. The hook takes pointer capture on down and
-claims the router lock for the length of the gesture. It bridges window Space
-keys into the machine's `space-down` and `space-up` events, and it re-runs the
-resolver at pointer-up so a modifier pressed mid-press counts.
+`useSurfacePointer` feeds one machine instance. `makeHit` returning null skips pointer-down, which keeps Stage sprite
+gestures in their Pixi owners. The hook takes pointer capture and a gesture lease for the interaction.
+
+Space has one keyboard authority. `useKeyboardInput` updates the App's held state; `useSurfacePointer` observes that
+state and sends `space-down` or `space-up` to its current machine. It does not attach a second global keyboard listener.
+
+Timeline adapters ask `resolveTimelineGesture` before mutating. Space or Hand therefore starts pan even over a span
+edge, visibility eye, or dead gutter pad. The Scrubber supplies one cached row layout and one `EventHitIndex`; ordinary
+pointermove neither rebuilds rows nor scans the observation list. Effective times remain live reads so an in-flight
+authoring transaction still moves its hit geometry immediately.
 
 ### 8.2 Wheel
 
-`useSurfaceWheel(host, surface, policy, handlers)` is a sibling pipeline: same
-effect families, no pointer state. It attaches a non-passive wheel listener,
-because it calls `preventDefault` so the page does not scroll, and maps the
-event through `wheelToEffect` under one of two policies.
-
-A **spatial** surface such as the Stage is a 2D canvas: vertical scroll zooms
-around the cursor, Shift zooms faster, and nothing pans. Panning needs Space or
-the Hand tool. That is deliberate. A trackpad's two-finger gesture usually
-carries a small incidental component in the other axis, and routing that to a
-pan surprises people.
-
-A **linear** surface such as the timeline is a 1D track: a horizontal swipe or
-Shift with vertical pans the time window, and plain vertical zooms it. This is
-the convention in audio and video editors, where the primary axis is time.
-
-The wheel reads no tool, no selection, and no modifier beyond Shift. It is how
-people navigate, and it works the same everywhere.
+Wheel is a sibling pipeline. Listeners are non-passive because navigation must prevent page scroll. Stage vertical wheel
+zooms around the pointer. Timeline horizontal wheel or Shift-wheel pans time; plain vertical wheel zooms. Wheel over the
+Scrubber gutter scrolls the row stack.
 
 ### 8.3 Keyboard
 
-The app attaches one keyboard listener, in `useKeyboardInput`. It reads the
-facts off each event and hands them to `resolveKeyDown` in
-`state/keyboard-input.ts`, which answers the only question this layer has: what
-does this press mean right now?
+`useKeyboardInput` is the only global keyboard listener. Held gestures are latched until keyup or window blur. One-shot
+commands are rows in `SHORTCUTS`; they refuse auto-repeat and text-input targets.
 
-A key means one of two things, and each has a table.
+Escape unwinds focus before selection. Cmd/Ctrl-A selects every declared entity. Delete, clipboard, history, and
+authoring tool shortcuts exist only where their owning mode allows them. Arrow keys nudge a Build selection when a nudge
+consumes the key and otherwise seek by the configured stride.
 
-A **held gesture** is a key whose meaning lasts as long as it is down: Space as
-the temporary hand, Shift and Alt as previews of what a click would do. Each is
-a row in `HELD_GESTURES` with the spellings that press it and the guard that
-decides at the press whether it claims. A claim latches until the key is
-released or the window loses focus, which is why the pointer leaving the canvas
-mid-pan cannot turn the pan into a transport toggle. The guard is asked once and
-the answer holds for the whole gesture.
+### 8.4 Surface ownership
 
-A claim says what a key **offers**, and that is all it says. It cannot say what
-a gesture made under it became, because a press resolves to a verb at
-pointer-down and the machine owns that verb from then on. Releasing Space during
-a pan leaves a pan running, because the pan was the gesture. Releasing it during
-a marquee that Space interrupted puts the marquee back, because there the pan
-was only an interruption. Same key event, two outcomes, told apart by what the
-press resolved to.
+| Surface family               | Host                 | Interaction owner                         |
+| ---------------------------- | -------------------- | ----------------------------------------- |
+| Stage empty                  | Stage marker         | pointer machine and wheel adapter         |
+| Stage peer/endpoint/edge/msg | Pixi display objects | sprite adapters, shared selection grammar |
+| Timeline Overview            | Overview marker      | Timeline controller and view adapter      |
+| Timeline ruler/lanes/gutter  | Scrubber marker      | Timeline controller and pointer adapters  |
+| Inspector, toolbar, inputs   | DOM                  | native controls and keyboard text guard   |
 
-So each reader asks the layer that owns its question. What is offered is the
-key's, read from `isClaimed`; the tip explaining that Space is a temporary hand
-reads that, because a tip has nothing left to say once the key is up. What is
-happening is the machine's, read from `inFlightGesture`; the cursor reads that,
-because a default arrow while the canvas pans under the user's hand would be
-saying something false.
-
-A **one-shot command** is everything else, and it is a row in `SHORTCUTS`. Two
-rules cover the whole table: no command runs on an auto-repeat, because a held
-key is not a second press, and no command shadows typing.
-
-`resolveKeyDown` puts them in order. It asks the held table first and reaches
-`dispatchShortcut` only if nothing claimed the press, so a press over the stage
-never sees the Space command at all. Order decided in a function body is order a
-reader can check; two listeners racing on one event would settle it by whichever
-the browser called first.
-
-Reading the tables: adding a held gesture is one row, and the keyup and blur
-lifecycle come with it. Space is contextual, claimed by the pan gesture over the
-stage and toggling the transport in Play and Build. Live has no transport: Space,
-R, and arrow-seek do not run there. File commands exist in every mode, while
-history, clipboard, and delete are Build-only. Tool keys route
-through `onPickTool`, but `toolsForMode` is the authority that refuses an
-authoring tool outside Build. Arrow keys nudge the selection in Build when a
-nudge consumes the gesture, and otherwise scrub time, with Shift as the coarse
-stride.
-
-Whether a press landed on an input, a textarea, or a contenteditable element is
-answered by `isTextInputTarget`, the one copy every keyboard pipeline reads. It
-arrives as a fact on the event, and each table says what it does with it: the
-pan gesture declines to claim, and no command runs.
-
-### 8.4 Surfaces today
-
-| Surface                        | Host               | Pipeline                                     |
-| ------------------------------ | ------------------ | -------------------------------------------- |
-| stage-empty                    | Stage's marker div | pointer machine and wheel hook               |
-| stage-peer / edge / message    | Pixi sprites       | sprite listeners committing via `SelectMode` |
-| timeline-overview and its edge | Overview marker    | own handlers under the router lock           |
-| timeline-ruler, lanes, gutter  | Scrubber marker    | own handlers under the router lock           |
-
-Moving the timeline surfaces onto the machine is the target. They already share
-the router lock, the `SelectMode` grammar, `selectionActionFor`, the `Hit`
-vocabulary, the App's one `SurfaceGestureCtx`, and `cursorFor`.
-
-The Inspector, the Toolbar, and the tool options bar are DOM panels with native
-React events, not surfaces. Keyboard verbs work over them, subject to the
-text-input guard above.
+These are ownership boundaries, not semantic forks. The resolver, cursor, selection interpreter, and gesture lease cross
+them.
 
 ## 9. Tools
 
-Tools are peers. The toolbar shows the set the current mode allows, the user
-picks one, and that pick is the entire input grammar until they pick another.
-Select is the tool whose verbs equal the § 4.5 defaults, which is what "no
-override" means; Hand is handled a step earlier than the override table, so it
-never reaches it.
+Tools are peers in the toolbar. Display facts live in `TOOL_FACTS`; shortcut keys live in `SHORTCUTS`; Stage claims live
+in `toolOverride`; cursor spelling lives in `cursor.ts`; per-tool draft configuration lives in `ToolOptionsBar.tsx`.
+`toolsForMode` is the authority on availability.
 
-A tool's facts are split by concern rather than gathered into one registry.
-Display facts, meaning the label, hint, and glyph, live in `TOOL_FACTS` in
-`src/ui/ToolPalette.tsx`. Shortcut keys live in the `SHORTCUTS` table: V and H
-everywhere, P, S, and M in Build. Which surfaces a tool claims lives in the
-resolver's `toolOverride`. A tool's resting cursor lives in `restingCursor` in
-`cursor.ts`. Per-tool configuration, such as the profile or the id the next
-click will use, lives in `src/ui/ToolOptionsBar.tsx`.
-
-## 11. Sequences
-
-### 11.2 Space pressed mid-drag
+## 11. Space pressed mid-drag
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant H as use-surface-pointer
-  participant FSM as PointerMachine
-  participant V as Viewport (Stage)
-
-  Note over FSM: dragging, verb = rubber-band
-  U->>H: keydown Space
-  H->>FSM: space-down
-  FSM-->>H: paused-pan, [drag-pause]
-  Note over H: marquee frozen in surface coords
+  participant K as keyboard authority
+  participant H as surface adapter
+  participant F as pointer machine
+  U->>K: keydown Space
+  K-->>H: spaceHeld = true
+  H->>F: space-down
+  F-->>H: paused-pan / drag-pause
   U->>H: pointermove
-  H->>FSM: pointer-move
-  FSM-->>H: [pan-step(stage, delta)]
-  H->>V: pan the Stage viewport
-  Note over H: marquee origin transforms with the pan
-  U->>H: keyup Space (button still down)
-  H->>FSM: space-up(pointerHeld=true)
-  FSM-->>H: dragging, [drag-resume(carriedOrigin)]
-  Note over H: marquee resumes from the carried origin
+  H->>F: pointer-move
+  F-->>H: pan-step
+  U->>K: keyup Space
+  K-->>H: spaceHeld = false
+  H->>F: space-up(pointerHeld)
+  F-->>H: drag-resume or drag-end
 ```
 
 ## 12. Tests
 
-Every pure module is table-driven against the tables above. The resolver is
-driven over every cell of §§ 4.4 to 4.6a, the machine over every row of § 5.3,
-click actions over § 4.7, layer interactivity over § 7, and the cursor over
-every branch of [cursor.md](cursor.md). The selection store is tested action by
-action and then over its invariants, `timeline-cursor` zone by zone, and the
-shortcut table row by row including its guards.
+Resolver tests exhaust every surface and tool. Machine tests cover every transition, coalesced pointer motion, Space
+interruption, cancellation, and pointer-up re-resolution. Selection tests pin anchor membership, fresh-set identity,
+reconciliation, rename, empty commits, and Select All.
 
-Property tests cover what a table cannot. The resolver stays total over random
-contexts, and the machine over every state and event pair. Every pause pairs
-with one resume, end, or cancel. A click re-resolves at pointer-up, and a
-cancelled drag emits `drag-cancel` and never a phantom `drag-end`. The selection
-store has one of its own: a write to `selection` always returns a fresh `Set`.
+Timeline geometry tests cover scrolled rows, gutter precedence, ruler dead space, span and glyph priority, both span
+edges, authored spans with no anchor observation, and Overview grips. Timeline controller tests prove Hand and Space
+turn every mutation target into pan, while Option steals only an empty lane. The indexed-hover guard makes the event
+iterable throw if hit testing scans it after the index has been built.
 
-Playwright probes live in `scripts/playwright-*-probe.ts`. The ones exercising
-this pipeline include the stage rubber-band probe, the cursor-race probe for
-Space held while the pointer moves, and the shift-click, multi-select,
-modifier-cursor, and axis-lock probes.
+## 13. Deliberate boundaries
 
-## 13. What remains
+The generic pointer machine is not a goal by itself. It owns the common threshold and Space-interruption lifecycle where
+that lifecycle is actually shared. Timeline drags retain typed local state because resizing a view window, retiming an
+observation transaction, reordering a row, and sweeping a marquee have different commit and teardown requirements.
+`timeline-gesture.ts` is the shared controller that prevents those adapters from inventing precedence.
 
-The Scrubber and the Overview still run their own pointer handlers, coordinated
-through the router lock and committing through `selectionActionFor`, rather than
-`use-surface-pointer`. So `clickActionFor` stays unwired for them, and each host
-names its own in-flight verb instead of reading it off the machine. Cursors no
-longer wait on that move: both hosts hit-test into the `Hit` vocabulary and ask
-`cursorFor`. When the pointer paths land, every gesture in the visualizer will
-flow through one resolver and one machine.
-
-One thing § 4.5 says that the Scrubber does not yet do, waiting on the same
-move: `timeline-lane-event-right-edge` names a right edge, while the Scrubber
-grabs either end of a span. It changes no cursor today, which is why it was left
-alone.
-
-Double-click drill-in is half built. The machine detects it and emits the
-effect; the coordinated focus fan-out across the Inspector, Stage, and timeline
-is not written.
-
-Alt-drag cloning has its slots reserved in §§ 4.6a and 4.6b and no
-implementation. The selection operations in § 6 are implemented with nothing
-dispatching them. A status hint bar deriving its text from the tool, the hover,
-and the machine state would fit the same shape, and is not built.
+Native DOM inputs remain native. Double-click means fit on the Timeline and reset on numeric scrub inputs; it is not a
+hidden entity drill-in gesture.

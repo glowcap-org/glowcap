@@ -2,7 +2,7 @@
 //!
 //! This file is one implementation of the completion-backend interface documented
 //! in `completion.Loop` (`loop.zig`): it provides the platform completion
-//! primitive (io_uring) and the loopback socket primitives, and nothing else. All
+//! primitive (io_uring) and the native TCP socket primitives, and nothing else. All
 //! the portable connection orchestration lives in `completion.Loop`, which is
 //! generic over this backend. The kqueue (Darwin) sibling is a separate file
 //! implementing the same interface (a Windows IOCP backend is not implemented);
@@ -43,7 +43,7 @@ pub const Backend = struct {
     /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
     /// lives on `tcp.DialResolver`, not on this platform Backend.
     pub const ConnectTarget = std.Io.net.IpAddress;
-    pub const ListenerAddress = u16;
+    pub const ListenerAddress = socket_tcp.Ip4;
 
     /// The one buffer group registered on the ring; group ids only need to be
     /// unique per ring.
@@ -58,6 +58,9 @@ pub const Backend = struct {
     buffers: []u8,
     buf_bytes: u32,
     buf_count: u16,
+    /// The local IPv4 address used by the one listener. The port remains loop
+    /// policy and arrives later through `openListener`.
+    listener_ip4: [4]u8,
     /// The one listener and accept request this backend may own. A listening
     /// socket cannot rely on `shutdown(2)` to cancel an io_uring accept, so
     /// listener close targets the request by its exact user_data instead.
@@ -82,6 +85,26 @@ pub const Backend = struct {
         queue_entries: u16,
         read_buffers: u16,
         read_buffer_bytes: u32,
+    ) !Backend {
+        return initWithListenerIp4(
+            allocator,
+            queue_entries,
+            read_buffers,
+            read_buffer_bytes,
+            .{ 127, 0, 0, 1 },
+        );
+    }
+
+    /// Build a backend whose listener binds `listener_ip4`. The ordinary
+    /// constructor keeps the least-exposed default, `127.0.0.1`; a service
+    /// intended for other hosts can opt into an interface address or
+    /// `0.0.0.0` before moving the backend into `Loop.initWithBackend`.
+    pub fn initWithListenerIp4(
+        allocator: std.mem.Allocator,
+        queue_entries: u16,
+        read_buffers: u16,
+        read_buffer_bytes: u32,
+        listener_ip4: [4]u8,
     ) !Backend {
         if (read_buffer_bytes == 0) return error.InvalidReadBufferBytes;
         var ring = try IoUring.init(queue_entries, 0);
@@ -109,6 +132,7 @@ pub const Backend = struct {
             .buffers = buffers,
             .buf_bytes = read_buffer_bytes,
             .buf_count = count,
+            .listener_ip4 = listener_ip4,
         };
     }
 
@@ -148,6 +172,7 @@ pub const Backend = struct {
     pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd {
         const fd = try openSocket();
         errdefer self.closeFd(fd);
+        if (!socket_tcp.setNodelay(tcp_os, fd)) return error.SocketConfigurationFailed;
         try self.submitConnect(user_data, fd, target);
         return fd;
     }
@@ -280,19 +305,25 @@ pub const Backend = struct {
         const n = try self.ring.copy_cqes(cqes[0..want], 0);
         if (n == 0) return null;
         var produced: usize = 0;
+        // The synthetic listener-close completion is emitted only after the
+        // CQE loop. Emitting it mid-batch would shift every later CQE one
+        // slot right, and a full batch would then write past `out`; after the
+        // loop, `finishListenerClose` appends into remaining room or parks in
+        // `listener_close_ready` for the next poll.
+        var listener_close_due = false;
         for (cqes[0..n]) |cqe| {
             if (cqe.user_data == listener_cancel_ud) {
                 const disposition = classifyListenerCancel(cqe.res);
                 switch (disposition) {
-                    .resolved => self.finishListenerClose(out, &produced),
+                    .resolved => listener_close_due = true,
                     .wait_for_target => {
                         const pending = &(self.listener_cancel orelse unreachable);
                         pending.phase = .waiting_target;
                         // The accept CQE may have won the race and appeared
                         // earlier in this same batch. In that order both halves
-                        // are now retired, so finish without another poll.
+                        // are retired once this batch finishes.
                         if (self.listener_accept_ud == null)
-                            self.finishListenerClose(out, &produced);
+                            listener_close_due = true;
                     },
                 }
                 continue;
@@ -301,6 +332,14 @@ pub const Backend = struct {
             if (listener_accept)
                 self.listener_accept_ud = null;
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
+            if (listener_accept and cqe.res >= 0 and !socket_tcp.setNodelay(tcp_os, cqe.res)) {
+                // Same policy as the kqueue accept path: a connection whose
+                // socket options cannot be set is refused; the loop's accept
+                // re-arm recovers.
+                self.closeFd(cqe.res);
+                comp.result = -1;
+                comp.failure = error.SocketConfigurationFailed;
+            }
             if (cqe.res < 0 and cqe.res != enobufs_res)
                 comp.failure = completion.failureFromErrno(std.posix.errno(
                     @as(usize, @bitCast(@as(isize, cqe.res))),
@@ -323,10 +362,11 @@ pub const Backend = struct {
             if (listener_accept) {
                 if (self.listener_cancel) |pending| {
                     if (pending.phase == .waiting_target)
-                        self.finishListenerClose(out, &produced);
+                        listener_close_due = true;
                 }
             }
         }
+        if (listener_close_due) self.finishListenerClose(out, &produced);
         return produced;
     }
 
@@ -353,7 +393,10 @@ pub const Backend = struct {
 
     pub fn openListener(self: *Backend, port: u16) !Fd {
         std.debug.assert(self.listener_fd == null);
-        const fd = try socket_tcp.openListener(tcp_os, port);
+        const fd = try socket_tcp.openListener(tcp_os, .{
+            .bytes = self.listener_ip4,
+            .port = port,
+        });
         self.listener_fd = fd;
         return fd;
     }
@@ -363,14 +406,15 @@ pub const Backend = struct {
     }
 
     pub fn listenerAddress(_: *Backend, fd: Fd) !ListenerAddress {
-        var addr: linux.sockaddr.in = .{ .port = 0, .addr = 0 };
-        var len: linux.socklen_t = @sizeOf(linux.sockaddr.in);
-        try check(linux.getsockname(fd, @ptrCast(&addr), &len));
-        return std.mem.bigToNative(u16, addr.port);
+        const address = try socket_tcp.boundIp4(tcp_os, fd);
+        return .{
+            .bytes = address.bytes,
+            .port = address.port,
+        };
     }
 
     pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
+        return address.port;
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
@@ -403,6 +447,58 @@ fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
 pub const white_box = if (builtin.is_test) struct {
     pub fn cancelResolved(result: i32) bool {
         return classifyListenerCancel(result) == .resolved;
+    }
+
+    /// Drive one real loopback dial-and-accept through the backend and report
+    /// whether both resulting sockets carry `TCP_NODELAY`. Pinned by
+    /// `test/net/uring_test.zig`: with Nagle left on, a pipelined CapTP
+    /// conversation stalls one delayed-ACK (~40ms) per round.
+    pub fn dialAndAcceptSetNodelay(allocator: std.mem.Allocator) !bool {
+        var backend = try Backend.init(allocator, 16, 4, 4096);
+        defer backend.deinit();
+
+        const listen_fd = try backend.openListener(0);
+        defer backend.closeFd(listen_fd);
+        const port = (try socket_tcp.boundIp4(tcp_os, listen_fd)).port;
+        try backend.submitAccept(1, listen_fd);
+
+        const dial_fd = try backend.startDial(2, .{ .ip4 = .{ .bytes = .{ 127, 0, 0, 1 }, .port = port } });
+        defer backend.closeFd(dial_fd);
+
+        var accepted: ?Backend.Fd = null;
+        defer if (accepted) |fd| backend.closeFd(fd);
+        var connected = false;
+        var rounds: usize = 0;
+        while ((accepted == null or !connected) and rounds < 100) : (rounds += 1) {
+            var out: [8]completion.Completion = undefined;
+            const n = try backend.poll(&out, 100);
+            for (out[0..n]) |comp| switch (comp.user_data) {
+                1 => {
+                    if (comp.result < 0) return error.AcceptFailed;
+                    accepted = comp.result;
+                },
+                2 => {
+                    if (comp.result < 0) return error.ConnectFailed;
+                    connected = true;
+                },
+                else => {},
+            };
+        }
+        if (accepted == null or !connected) return error.HandshakeIncomplete;
+        return nodelayEnabled(dial_fd) and nodelayEnabled(accepted.?);
+    }
+
+    fn nodelayEnabled(fd: Backend.Fd) bool {
+        var value: u32 = 0;
+        var len: u32 = @sizeOf(u32);
+        const rc = linux.getsockopt(
+            fd,
+            linux.IPPROTO.TCP,
+            std.posix.TCP.NODELAY,
+            std.mem.asBytes(&value),
+            &len,
+        );
+        return linux.errno(rc) == .SUCCESS and value != 0;
     }
 } else struct {};
 

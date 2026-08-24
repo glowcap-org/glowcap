@@ -34,7 +34,10 @@ pub fn check(
         };
         const exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt" };
         for (roots) |bind_root| {
-            var dir = root.openDir(io, bind_root, .{ .iterate = true }) catch continue;
+            var dir = root.openDir(io, bind_root, .{ .iterate = true }) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be opened for the binding-literal check ({s})", .{ bind_root, @errorName(err) });
+                continue;
+            };
             defer dir.close(io);
             var walker = try dir.walk(gpa);
             defer walker.deinit();

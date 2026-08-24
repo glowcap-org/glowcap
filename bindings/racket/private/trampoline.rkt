@@ -32,22 +32,23 @@
 ;; Session + pump for the local-send await path (session eagerly requires this
 ;; module; lazy-require breaks the cycle).
 (lazy-require
- ["session/state.rkt" (session-vat session-host session-ptr)]
+ ["session/state.rkt" (session? session-vat session-host session-ptr)]
  ["host/state.rkt" (host-record-callerless-failure!)]
- ["pump.rkt" (pump-until current-deliver-session)]
+ ["pump.rkt" (pump-until current-deliver-owner)]
  ["host/state.rkt" (host-retain! host-retire! call-with-host host-session-for-ptr)]
- ["promise.rkt" (await-vow session-far-send)]
+ ["promise.rkt" (await-vow release-vow! session-far-send)]
  ["gc.rkt" (track-arguments!)])
 
 (provide (all-defined-out))
 
-;; The turn context while a hosted actor's trampoline runs: a pair of the
-;; opaque `PancakeHostTurn*` and the session the turn arrived on, or #f
+;; The turn context while a hosted actor's trampoline runs: the opaque
+;; `PancakeHostTurn*`, owning Host, and optional public ingress Session, or #f
 ;; outside any turn. `session-spawn`/`session-caretaker` read it to pick the
 ;; turn-time spawn (`pancake_host_turn_spawn`) over the top-level one, which
 ;; the host refuses inside a callback; the pump reads it to defer action
 ;; drains to the enclosing verb's unwind.
 (define current-turn (make-parameter #f))
+(struct turn-context (turn host session) #:transparent)
 
 ;; The current turn pointer when it belongs to a Port on `c`'s Host, else #f.
 ;; A hosted actor may outlive the Port it was first projected through, and a
@@ -55,10 +56,9 @@
 (define (current-turn-for c)
   (define t (current-turn))
   (and t
-       (cdr t)
        c
-       (eq? (session-host (cdr t)) (session-host c))
-       (car t)))
+       (eq? (turn-context-host t) (session-host c))
+       (turn-context-turn t)))
 
 ;; Whether ANY hosted turn is running on this thread — the pump defers action
 ;; drains while one is (the host refuses the driving verbs inside a callback;
@@ -124,6 +124,10 @@
         (define rc (pancake_host_turn_forward turn (ref->c target)
                                               (pin-immobile mb) (bytes-length mb)
                                               aptr acnt out-reply))
+        ;; Buffers nested inside `aptr` are reachable only through `keep`,
+        ;; whose raw addresses the collector cannot see; keep them live past
+        ;; the call.
+        (void/reference-sink keep)
         (if (= rc OK) OK (turn-break! turn (or (host-last-error) "forward refused")))]
        [else (turn-break! turn "forward target is not callable")])]
     [else (write-reply! chased out-reply)]))
@@ -141,22 +145,22 @@
   ;; A native callback can only run synchronously inside the pump's feed
   ;; bracket. The arriving Session supplies routing; never retain the Port
   ;; that happened to create this Host-owned actor.
-  (define carrier (current-deliver-session))
-  (unless carrier (error "hosted callback ran outside a session feed"))
-  ;; A native loop brackets the step with a synthetic Host carrier because a
-  ;; callback can arrive on an internal redeemed session that has no public
-  ;; wrapper. When a wrapper does exist, the turn itself is the authoritative
-  ;; route to it; per-session policy (GC opt-in, current-session) must never be
-  ;; inferred from the carrier.
+  (define carrier (current-deliver-owner))
+  (unless carrier (error "hosted callback ran outside native Host progress"))
+  ;; A callback can arrive on an internal redeemed session with no public
+  ;; wrapper. The turn still supplies exact Host identity; per-session policy
+  ;; exists only when the Host registry already owns a wrapper.
   (define-values (session-rc session-ptr*) (pancake_host_turn_session turn))
   (check/host session-rc)
+  (define owner (if (session? carrier) (session-host carrier) carrier))
   (define arriving
-    (or (host-session-for-ptr (session-host carrier) session-ptr*) carrier))
-  (track-arguments! arriving args)
+    (or (host-session-for-ptr owner session-ptr*)
+        (and (session? carrier) carrier)))
+  (when arriving (track-arguments! arriving args))
   (define outcome
     (with-handlers ([converts-to-broken? (lambda (error) (cons 'broken error))])
       (cons 'ok
-            (parameterize ([current-turn (cons turn arriving)])
+            (parameterize ([current-turn (turn-context turn owner arriving)])
               (run method args)))))
   (case (car outcome)
     [(broken) (turn-break! turn (exn->message (cdr outcome)))]
@@ -227,16 +231,21 @@
 
 ;; Near-hosted vs far send dispatch (blocking): resolve the target, then local
 ;; `session-send-local` or far mint + `await-vow`. Session keeps guard/drain.
-;; Far mint flushes inside `session-far-send`; `await-vow` flushes again before
-;; parking so a cross-thread deliver cannot sit unsent.
+;; `await-vow` flushes the far-send batch before parking.
 (define (dispatch-send c target verb args)
   (define resolved (vat-resolve-target (session-vat c) target))
   (cond
     [(actor-ref? resolved) (session-send-local c resolved verb args)]
-    [else (await-vow c (session-far-send c resolved verb args #t) 'session-send verb)]))
+    [else
+     (define vow (session-far-send c resolved verb args #t))
+     (dynamic-wind
+       void
+       (lambda () (await-vow c vow 'session-send verb))
+       (lambda () (release-vow! vow)))]))
 
 ;; Near-hosted vs far send-promise dispatch: local runs `<-` + `drive` and
-;; returns the vow; far mints through `session-far-send` (which flushes).
+;; returns the vow; a far mint schedules immediate transport progress and
+;; remains a valid pipeline target until its public handle is released.
 (define (dispatch-send-promise c target verb args)
   (define v (session-vat c))
   (define resolved (vat-resolve-target v target))

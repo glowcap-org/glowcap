@@ -31,8 +31,8 @@ import { elideIdentifier } from "../elide.ts";
  *  has not found a name, and repeating it as "alice-2 (alice-2)" would
  *  be the noise this module exists to remove. */
 export type PickerOption = {
-  readonly id: string;
-  readonly name?: string | undefined;
+	readonly id: string;
+	readonly name?: string | undefined;
 };
 
 /** The human name this option actually has, or undefined when it has
@@ -40,9 +40,11 @@ export type PickerOption = {
  *  cleared has an empty string in it, and an empty option is a row a
  *  reader cannot click with any confidence. */
 function humanName(option: PickerOption): string | undefined {
-  const name = option.name?.trim();
-  if (name === undefined || name === "" || name === option.id) return undefined;
-  return name;
+	const name = option.name?.trim();
+	if (name === undefined || name === "" || name === option.id) {
+		return undefined;
+	}
+	return name;
 }
 
 /**
@@ -62,17 +64,17 @@ function humanName(option: PickerOption): string | undefined {
  * ids, which is the only thing left that tells its rows apart.
  */
 export function pickerLabels(options: readonly PickerOption[]): string[] {
-  const names = options.map(humanName);
-  const short = options.map((o) => elideIdentifier(o.id));
-  const bare = names.map((name, i) => name ?? short[i]!);
-  if (unique(bare)) return bare;
-  const qualified = names.map((name, i) => name === undefined ? short[i]! : `${name} (${short[i]})`);
-  if (unique(qualified)) return qualified;
-  return names.map((name, i) => name === undefined ? options[i]!.id : `${name} (${options[i]!.id})`);
+	const names = options.map(humanName);
+	const short = options.map((o) => elideIdentifier(o.id));
+	const bare = names.map((name, i) => name ?? short[i]!);
+	if (unique(bare)) return bare;
+	const qualified = names.map((name, i) => name === undefined ? short[i]! : `${name} (${short[i]})`);
+	if (unique(qualified)) return qualified;
+	return names.map((name, i) => name === undefined ? options[i]!.id : `${name} (${options[i]!.id})`);
 }
 
 function unique(labels: readonly string[]): boolean {
-  return new Set(labels).size === labels.length;
+	return new Set(labels).size === labels.length;
 }
 
 /**
@@ -86,9 +88,9 @@ function unique(labels: readonly string[]): boolean {
  * nothing about is the id it was asked about.
  */
 export function pickerLabelFor(
-  options: readonly PickerOption[],
+	options: readonly PickerOption[],
 ): (id: string) => string {
-  const labels = pickerLabels(options);
-  const byId = new Map(options.map((o, i) => [o.id, labels[i]!]));
-  return (id) => byId.get(id) ?? elideIdentifier(id);
+	const labels = pickerLabels(options);
+	const byId = new Map(options.map((o, i) => [o.id, labels[i]!]));
+	return (id) => byId.get(id) ?? elideIdentifier(id);
 }

@@ -36,9 +36,11 @@ One table serves both mints, and the probe that reads it is version-neutral.
 export* — an export of ours whose settlement is one of our outbound answers —
 and that answer; the field on `Session` is `outbound_resolver_link`. The probe
 moved out of `engine.v1_0.interceptInboundDeliver` and into
-`engine.inbound.classifyInboundDeliver`, where it runs first on every session.
-What is left of the V1.0 intercept is `registerPartnerResolver`, which installs
-the resolver the *partner* advertised and stays gated.
+`engine.inbound.deliver_route.classify`, where it runs first on every session.
+What remains profile-gated is `engine.v1_0.preparePartnerResolver`: it prepares
+the answer-to-import link for the resolver the *partner* advertised, and the
+inbound transaction commits that link only after the frame's queue or event
+destination is secured.
 
 The verb is `engine.listen.listenOnFar(peer, target)`. It refuses anything
 but a far this session holds, reserves a listener export bound to a fresh
@@ -70,8 +72,9 @@ same way. One table describes one wire shape.
 How each profile asks for answer notification stays distinct. On V1.0 an
 answered `op:deliver` is augmented with a synthesized resolver export and
 settles through a callback deliver
-(`engine.v1_0.installResolverForOutboundDeliver`,
-`encodeResolveAsCallback`, `session.v1_0.mintOutboundResolver`). Next sends an
+(`engine.v1_0.prepareOutboundDeliver`,
+`engine.v1_0.encodeResolveAsCallback`,
+`session.v1_0.mintOutboundResolver`). Next sends an
 answered operation with no inline resolver, then follows it with a mandatory
 `op:listen`. The listener callback settles the answer; next has no wire
 `op:resolve`.

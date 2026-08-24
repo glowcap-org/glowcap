@@ -1,8 +1,8 @@
 # Room links, directory peering, and the IRC gateway
 
-Status: active plan. Tier 1 room joins, several rooms at once, direct room
-sturdyrefs, and the multi-directory session model ship; directory peering and
-both IRC adapters remain. This plan extends the rooms
+Status: historical — room links, the multi-directory session model, directory
+peering, both directions of the IRC bridge, and the IRC client front have shipped.
+This plan extends the rooms
 application described in [`apps/rooms/README.md`](../../apps/rooms/README.md)
 and [`apps/rooms/developing.md`](../../apps/rooms/developing.md). The one-line
 direction already recorded there ("IRC is a front, not a netlayer") is expanded
@@ -243,7 +243,7 @@ expressible without naming a room** — the join card asks for a room today, and
 said. A rail that can draw a directory with nothing open on it needs a way to
 make one.
 
-## Part 2: directory peering
+## Part 2: directory peering (shipped)
 
 A directory that lists rooms hosted elsewhere is just a directory holding
 references to them. Handing one to a member is the same three-party handoff the
@@ -251,12 +251,27 @@ DM path already ships: the directory introduces, the member redeems, the member
 connects to the hosting server directly, and the introducing directory carries
 none of the traffic afterward.
 
+This is the first rooms feature that needs ADR-0125's route-bundle work. A
+peered room reference names the hosting peer plus the routes by which different
+clients can reach it; reducing that to one locator would make the introducing
+directory choose tcp, iroh, onion, or a browser relay on behalf of every future
+reader. The room's authority is still the room capability. The route bundle is
+only how a compatible reader reaches the peer that hosts it.
+
+The compatibility default stays ordinary OCapN. A directory may remember a rich
+route bundle for a room, but it lowers what it hands out to the recipient's
+session: pancake peers that negotiated identity routes can receive the `id`
+form, while a Goblins member receives one `1.0`/Syrup-compatible
+locator for a transport it speaks. If the hosting room has no such route, the
+directory refuses the introduction as unreachable instead of leaking private
+route vocabulary into the Goblins-facing wire.
+
 That is the whole federation design. There is no server-to-server protocol, no
 state synchronization, and no shared authority, so netsplit semantics do not
-exist because nothing is replicated. The existing `register` and `introduce`
-verbs generalize from members to rooms; the work is that generalization plus
-the directory UI to show foreign rooms beside native ones, labeled with where
-they live.
+exist because nothing is replicated. The directory registry stores bounded,
+operator-configured room routes and hands a peered room through the same
+three-party capability path as a member introduction. Every front sees foreign
+rooms beside native ones, labeled with the directory that owns their namespace.
 
 ## Part 3: the IRC bridge
 
@@ -287,10 +302,13 @@ server. It uses only the public binding surface, like every app.
   connection reconnects with backoff. These are conditions of being a good
   citizen on a public network, not options.
 
-The first slice is read-only: mirror `libera/#ocapn` into a room and relay
-nothing outward. It delivers the visible goal (the channel, live, in rooms)
-with no risk of misbehaving on a public network, and the two-way slice builds
-on its translation table.
+`zig build rooms-irc-bridge` mirrors `libera/#ocapn` into a room. IRC names
+carry an `irc/` prefix in Rooms, so a bridged author cannot be mistaken for a
+native member. Two-way mode requires TLS and SASL PLAIN credentials for the
+registered bridge nick. It sends Rooms lines as `<nick> text`, paces them at
+one every 1.2 seconds, and retains at most 64 encoded lines (32 KiB) across a
+reconnect. The bridge retains at most 256 IRC names, 256 Rooms readers, and 256
+directory watchers in either mode.
 
 The check for the bridge cannot depend on a public network. A scripted
 in-process IRC server fixture covers the subset a bridge speaks (registration,
@@ -332,6 +350,36 @@ The front and the bridge share one IRC vocabulary module (line parsing,
 message shapes, the verb mapping), with the front reading the table one way and
 the bridge the other. The mapping has one authority so the two edges cannot
 drift apart.
+
+`zig build rooms-irc-front` listens on loopback by default and connects each
+IRC client to the selected Rooms directory. It accepts no IRC capabilities yet;
+registration, `JOIN`, channel and direct `PRIVMSG`, `NAMES`, `LIST`, `PART`,
+`PING`, `TOPIC`, and `WHOIS` are the supported client vocabulary. A non-loopback
+IRC bind requires a TLS certificate and key. The separate endpoint peers redeem
+for direct messages is Noise-sealed and key-authenticated by default. An
+explicit `--dm-transport=iroh` selects encrypted QUIC that a Goblins vat can
+dial through this repository's adapter; `--dm-transport=tcp` is restricted to
+loopback for local Goblins conformance.
+
+One connection holds at most 32 room memberships, 32 introduced direct lines,
+256 live inbox publications, and 2,048 projected nicknames. The 256-client
+process owns one 65,536-entry Host publication ledger; disconnect unpublishes
+aliases without retargeting capabilities already issued. Its serialized socket writer retains at most 64
+IRC lines and 32 KiB; a client that cannot drain that bound is disconnected.
+The process admits 256 IRC clients. A native Rooms name outside IRC's nickname
+alphabet receives a connection-local `rooms-<hash>` spelling, with `WHOIS`
+reporting the native name. A Rooms line or topic that cannot fit IRC's 512-byte
+frame is reported as omitted rather than silently truncated, and file
+capabilities are returned after a notice because IRC has no value that can
+carry them.
+
+The hermetic socket scenario uses a v1.0/Syrup front Host and proves the
+complete channel vocabulary plus introduced direct messages in both
+directions. The two directions meet over Noise using the same live peer
+connection, so the scenario also catches a front that merely relays DM text
+through the directory. The live Goblins compositions select TCP on loopback or
+iroh explicitly; a compatible wire profile is not mistaken for a compatible
+netlayer.
 
 ## Refusals
 
@@ -383,20 +431,21 @@ late would mean building on a shape that has to be torn out.
    says how its directory is doing whenever that is not simply connected, so a
    directory reaching or gone is said on the rooms it is about rather than in
    one notice speaking for the page.
-6. **Directory peering**, generalizing introductions from members to rooms. Its
+6. **Directory peering** (shipped), generalizing introductions from members to rooms. Its
    server half is the same three-party handoff the direct-message path already
    ships and needs no interface; the interface half is one more directory in a
    rail that already tells them apart.
-7. **Read-only bridge** publishing `libera/#ocapn`, checked against the scripted
-   IRC fixture, demoed live as an opt-in step.
-8. **Two-way bridge**, adding the outbound relay, throttling, and the prefix
-   convention.
-9. **IRC front**, reusing the shared vocabulary module.
+7. **Read-only bridge** (shipped), publishing `libera/#ocapn` and checked
+   against a scripted IRC fixture through both the native Rooms profile and the
+   Goblins-compatible 1.0/Syrup floor. The live service is an opt-in step.
+8. **Two-way bridge** (shipped), adding SASL-authenticated outbound relay,
+   throttling, a bounded reconnect queue, and the prefix convention.
+9. **IRC front** (shipped), reusing the shared vocabulary module and the native
+   Directory, Room, and DirectMessage wrappers.
 
-Steps 3 and 6 each have a server half that needs no interface, and both are
-worth landing ahead of their interface halves: they are provable against the
-server tests alone, and they keep the interface work from being the thing that
-gates protocol work.
+Steps 3 and 6 each had a server half that needed no interface. Their server
+tests established the capability and routing contracts before the fronts began
+presenting them.
 
 The bridge does not strictly depend on room links (a bridge on one's own
 server needs no link), but links come first because they turn every later

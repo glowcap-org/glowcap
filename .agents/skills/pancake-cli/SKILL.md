@@ -51,7 +51,7 @@ Same binary via the build graph: `zig build pancake -- <command> …`. No
 | CapTP tools inside Cursor/Claude (edit-loop dogfood) | **MCP** | [pancake-mcp](../pancake-mcp/SKILL.md) (project `mcp.json`) |
 | Durable room presence / wake | **rooms-peer** | [rooms-peer](../rooms-peer/SKILL.md) |
 | Something else to dial *you* | **argv listen** | background `ocapn listen …` |
-| Sim / timeline (not built) | **griddle** | `griddle status` placeholder only |
+| Deterministic CapTP simulation / NDJSON timeline | **griddle** | `pancake griddle run --scenario … --seed …` |
 
 ## Session model (load-bearing)
 
@@ -107,7 +107,8 @@ default is workbench. Non-TTY: line mode, same `exec` path. Locator optional.
 Inside: CapTP verbs, `help` / `help captp`, `tour …`, `?`, `quit`. Tab cycle;
 paste locators without quotes. `PANCAKE_REPL_QUIET=1` /
 `PANCAKE_REPL_NO_MOUSE=1` / `PANCAKE_REPL_REDUCED_MOTION=1`. Walkthrough:
-[`docs/cli.md`](../../../docs/cli.md). Sim brand: `pancake griddle` stub.
+[`docs/cli.md`](../../../docs/cli.md). Simulations are the separate
+`pancake griddle run` front; they do not borrow a live REPL session.
 
 ## Footguns
 

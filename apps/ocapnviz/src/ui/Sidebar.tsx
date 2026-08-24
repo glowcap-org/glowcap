@@ -29,16 +29,16 @@ import { sessionsTouchingPeer } from "./inspector/entity-info.ts";
 export type { EditorBindings };
 
 export type SidebarBodyProps = {
-  engine: Engine;
-  /** The "Inspector follow" entity — what the panel populates its
-   *  per-kind fields and Connections section against. Always also
-   *  a member of `entitySelection` when set; null when no entity
-   *  is anchored. The single-select / multi-select asymmetry is
-   *  resolved by `entitySelection` (the full set) being a separate
-   *  prop on the components that need it (`EntityDetails`,
-   *  `EntityConnections`); this slot is just the anchor. */
-  anchor: StageSelection;
-  onSelect: (selection: StageSelection) => void;
+	engine: Engine;
+	/** The "Inspector follow" entity — what the panel populates its
+	 *  per-kind fields and Connections section against. Always also
+	 *  a member of `entitySelection` when set; null when no entity
+	 *  is anchored. The single-select / multi-select asymmetry is
+	 *  resolved by `entitySelection` (the full set) being a separate
+	 *  prop on the components that need it (`EntityDetails`,
+	 *  `EntityConnections`); this slot is just the anchor. */
+	anchor: StageSelection;
+	onSelect: (selection: StageSelection) => void;
 };
 
 /** Entity-fields section. `editor` toggles read-only vs. edit (Build);
@@ -57,10 +57,10 @@ export type SidebarBodyProps = {
  * panels, and a panel around panels reads as a mistake rather than a grouping.
  */
 const sectionPanel = {
-  ...PANEL,
-  display: "flex",
-  flexDirection: "column",
-  gap: SPACE.sm,
+	...PANEL,
+	display: "flex",
+	flexDirection: "column",
+	gap: SPACE.sm,
 } satisfies React.CSSProperties;
 
 /**
@@ -90,103 +90,103 @@ const sectionPanel = {
  * so the common case allocates nothing.
  */
 export function inspectorView(
-  engine: Engine,
-  anchor: StageSelection,
-  selection: ReadonlySet<EntityRefKey> | undefined,
+	engine: Engine,
+	anchor: StageSelection,
+	selection: ReadonlySet<EntityRefKey> | undefined,
 ): {
-  anchor: StageSelection;
-  selection: ReadonlySet<EntityRefKey> | undefined;
+	anchor: StageSelection;
+	selection: ReadonlySet<EntityRefKey> | undefined;
 } {
-  const entities = engine.doc.entities;
-  const shownAnchor = anchor && documentHolds(entities, anchor) ? anchor : null;
-  if (!selection || selection.size === 0) {
-    return { anchor: shownAnchor, selection };
-  }
-  let allHeld = true;
-  for (const k of selection) {
-    if (!documentHolds(entities, parseEntityKey(k))) {
-      allHeld = false;
-      break;
-    }
-  }
-  if (allHeld) return { anchor: shownAnchor, selection };
-  const kept = new Set<EntityRefKey>();
-  for (const k of selection) {
-    if (documentHolds(entities, parseEntityKey(k))) kept.add(k);
-  }
-  return { anchor: shownAnchor, selection: kept };
+	const entities = engine.doc.entities;
+	const shownAnchor = anchor && documentHolds(entities, anchor) ? anchor : null;
+	if (!selection || selection.size === 0) {
+		return { anchor: shownAnchor, selection };
+	}
+	let allHeld = true;
+	for (const k of selection) {
+		if (!documentHolds(entities, parseEntityKey(k))) {
+			allHeld = false;
+			break;
+		}
+	}
+	if (allHeld) return { anchor: shownAnchor, selection };
+	const kept = new Set<EntityRefKey>();
+	for (const k of selection) {
+		if (documentHolds(entities, parseEntityKey(k))) kept.add(k);
+	}
+	return { anchor: shownAnchor, selection: kept };
 }
 
 export function EntityDetails(
-  { engine, anchor, editor, entitySelection, onNarrowSelection }:
-    & SidebarBodyProps
-    & {
-      editor?: EditorBindings | undefined;
-      entitySelection?: ReadonlySet<EntityRefKey> | undefined;
-      /** Replace the selection with exactly these entities — the
-       *  group panel's narrowing control, dispatched by the host as
-       *  the store's own `set-selection`. */
-      onNarrowSelection?:
-        | ((entities: ReadonlySet<EntityRefKey>) => void)
-        | undefined;
-    },
+	{ engine, anchor, editor, entitySelection, onNarrowSelection }:
+		& SidebarBodyProps
+		& {
+			editor?: EditorBindings | undefined;
+			entitySelection?: ReadonlySet<EntityRefKey> | undefined;
+			/** Replace the selection with exactly these entities — the
+			 *  group panel's narrowing control, dispatched by the host as
+			 *  the store's own `set-selection`. */
+			onNarrowSelection?:
+				| ((entities: ReadonlySet<EntityRefKey>) => void)
+				| undefined;
+		},
 ) {
-  // Document + playhead only. Mid-drag bumps `version` without moving either,
-  // so this shell stays quiet while a pin is being dragged; per-kind field
-  // panels that follow live world position subscribe to `version` themselves.
-  useDocVersion(engine);
-  useClockSnapshot(engine);
-  if (entitySelection && entitySelection.size > 1) {
-    const selection = entitySelection;
-    // What a group delete would take, which is not always the whole
-    // selection: a session end has no delete of its own, and a
-    // selection of nothing else is offered no trash at all.
-    const takes = editor ? deletionPhrase(selection) : null;
-    return (
-      <>
-        <SelectionFields
-          engine={engine}
-          selection={selection}
-          editor={editor}
-          onNarrow={onNarrowSelection}
-        />
-        {editor && takes && (
-          <DeleteRow
-            label={`Delete ${takes}`}
-            onDelete={() => deleteSelection(editor, selection)}
-          />
-        )}
-      </>
-    );
-  }
-  // `anchor` is already what the Inspector is showing rather than what is
-  // logically selected — `inspectorView` resolved it once for every part of the
-  // pane (`AppView.tsx`), so there is nothing left to ask here.
-  const at = anchor;
-  if (!at) {
-    return (
-      <div style={sectionPanel}>
-        <div style={placeholder}>
-          Tap a peer node, session edge, or message in flight on the canvas to inspect it.
-        </div>
-      </div>
-    );
-  }
-  const Fields = FIELDS_BY_KIND[at.kind];
-  const body = <Fields engine={engine} id={at.id} editor={editor} />;
-  // An unattributed end has no delete of its own: it is one of the two ends
-  // its session HAS, and deleting the session is what takes it.
-  if (!editor || at.kind === "endpoint") return body;
-  const kind = at.kind;
-  return (
-    <>
-      {body}
-      <DeleteRow
-        label={deleteLabels[kind]}
-        onDelete={() => editor.onDelete(at)}
-      />
-    </>
-  );
+	// Document + playhead only. Mid-drag bumps `version` without moving either,
+	// so this shell stays quiet while a pin is being dragged; per-kind field
+	// panels that follow live world position subscribe to `version` themselves.
+	useDocVersion(engine);
+	useClockSnapshot(engine);
+	if (entitySelection && entitySelection.size > 1) {
+		const selection = entitySelection;
+		// What a group delete would take, which is not always the whole
+		// selection: a session end has no delete of its own, and a
+		// selection of nothing else is offered no trash at all.
+		const takes = editor ? deletionPhrase(selection) : null;
+		return (
+			<>
+				<SelectionFields
+					engine={engine}
+					selection={selection}
+					editor={editor}
+					onNarrow={onNarrowSelection}
+				/>
+				{editor && takes && (
+					<DeleteRow
+						label={`Delete ${takes}`}
+						onDelete={() => deleteSelection(editor, selection)}
+					/>
+				)}
+			</>
+		);
+	}
+	// `anchor` is already what the Inspector is showing rather than what is
+	// logically selected — `inspectorView` resolved it once for every part of the
+	// pane (`AppView.tsx`), so there is nothing left to ask here.
+	const at = anchor;
+	if (!at) {
+		return (
+			<div style={sectionPanel}>
+				<div style={placeholder}>
+					Tap a peer node, session edge, or message in flight on the canvas to inspect it.
+				</div>
+			</div>
+		);
+	}
+	const Fields = FIELDS_BY_KIND[at.kind];
+	const body = <Fields engine={engine} id={at.id} editor={editor} />;
+	// An unattributed end has no delete of its own: it is one of the two ends
+	// its session HAS, and deleting the session is what takes it.
+	if (!editor || at.kind === "endpoint") return body;
+	const kind = at.kind;
+	return (
+		<>
+			{body}
+			<DeleteRow
+				label={deleteLabels[kind]}
+				onDelete={() => editor.onDelete(at)}
+			/>
+		</>
+	);
 }
 
 /** One entry per selectable kind. Keyed by `EntityKind` rather than by a
@@ -194,44 +194,44 @@ export function EntityDetails(
  *  panel fails the build instead of resolving to `undefined` and making
  *  React refuse to render the Inspector. */
 const FIELDS_BY_KIND: Record<
-  EntityKind,
-  (props: {
-    engine: Engine;
-    id: string;
-    editor?: EditorBindings | undefined;
-  }) => React.ReactNode
+	EntityKind,
+	(props: {
+		engine: Engine;
+		id: string;
+		editor?: EditorBindings | undefined;
+	}) => React.ReactNode
 > = {
-  peer: PeerFields,
-  endpoint: EndpointFields,
-  session: SessionFields,
-  message: MessageFields,
+	peer: PeerFields,
+	endpoint: EndpointFields,
+	session: SessionFields,
+	message: MessageFields,
 };
 
 const CONNECTIONS_BY_KIND: Record<
-  EntityKind,
-  (props: {
-    engine: Engine;
-    id: string;
-    onSelect: (selection: StageSelection) => void;
-    entitySelection?: ReadonlySet<EntityRefKey> | undefined;
-  }) => React.ReactNode
+	EntityKind,
+	(props: {
+		engine: Engine;
+		id: string;
+		onSelect: (selection: StageSelection) => void;
+		entitySelection?: ReadonlySet<EntityRefKey> | undefined;
+	}) => React.ReactNode
 > = {
-  peer: PeerConnections,
-  endpoint: EndpointConnections,
-  session: SessionConnections,
-  message: MessageConnections,
+	peer: PeerConnections,
+	endpoint: EndpointConnections,
+	session: SessionConnections,
+	message: MessageConnections,
 };
 
 const deleteRow = {
-  display: "flex",
-  justifyContent: "flex-end",
-  marginTop: SPACE.xs,
+	display: "flex",
+	justifyContent: "flex-end",
+	marginTop: SPACE.xs,
 } satisfies React.CSSProperties;
 
 const deleteLabels: Record<"peer" | "session" | "message", string> = {
-  peer: "Delete peer",
-  session: "Delete session",
-  message: "Delete message",
+	peer: "Delete peer",
+	session: "Delete session",
+	message: "Delete message",
 };
 
 /** The trash a panel ends with. One entity or a whole selection, the
@@ -239,21 +239,21 @@ const deleteLabels: Record<"peer" | "session" | "message", string> = {
  *  one element and the only thing that varies is what it claims to
  *  take. */
 function DeleteRow(
-  { label, onDelete }: { label: string; onDelete: () => void },
+	{ label, onDelete }: { label: string; onDelete: () => void },
 ) {
-  return (
-    <div style={deleteRow}>
-      <button
-        type="button"
-        className="ocv-btn is-icon"
-        onClick={onDelete}
-        title={`${label} (Delete)`}
-        aria-label={label}
-      >
-        <TrashGlyph />
-      </button>
-    </div>
-  );
+	return (
+		<div style={deleteRow}>
+			<button
+				type="button"
+				className="ocv-btn is-icon"
+				onClick={onDelete}
+				title={`${label} (Delete)`}
+				aria-label={label}
+			>
+				<TrashGlyph />
+			</button>
+		</div>
+	);
 }
 
 /** Connections section. Resolves against `engine.world`, so works
@@ -267,37 +267,37 @@ function DeleteRow(
  *  `entitySelection` lights up the targets that are also in the
  *  selection so cross-references are legible. */
 export function EntityConnections(
-  { engine, anchor, onSelect, entitySelection }:
-    & SidebarBodyProps
-    & { entitySelection?: ReadonlySet<EntityRefKey> | undefined },
+	{ engine, anchor, onSelect, entitySelection }:
+		& SidebarBodyProps
+		& { entitySelection?: ReadonlySet<EntityRefKey> | undefined },
 ) {
-  // Same split as Details: connections are document- and playhead-shaped.
-  // Mid-drag does not change who touches whom.
-  useDocVersion(engine);
-  useClockSnapshot(engine);
-  const at = anchor;
-  if (!at) {
-    return (
-      <div style={sectionPanel}>
-        <div style={placeholder}>
-          Connections appear here once you pick something on the canvas.
-        </div>
-      </div>
-    );
-  }
-  const isMulti = (entitySelection?.size ?? 0) > 1;
-  const Connections = CONNECTIONS_BY_KIND[at.kind];
-  return (
-    <div style={sectionPanel}>
-      {isMulti && <AnchorNote engine={engine} anchor={at} />}
-      <Connections
-        engine={engine}
-        id={at.id}
-        onSelect={onSelect}
-        entitySelection={entitySelection}
-      />
-    </div>
-  );
+	// Same split as Details: connections are document- and playhead-shaped.
+	// Mid-drag does not change who touches whom.
+	useDocVersion(engine);
+	useClockSnapshot(engine);
+	const at = anchor;
+	if (!at) {
+		return (
+			<div style={sectionPanel}>
+				<div style={placeholder}>
+					Connections appear here once you pick something on the canvas.
+				</div>
+			</div>
+		);
+	}
+	const isMulti = (entitySelection?.size ?? 0) > 1;
+	const Connections = CONNECTIONS_BY_KIND[at.kind];
+	return (
+		<div style={sectionPanel}>
+			{isMulti && <AnchorNote engine={engine} anchor={at} />}
+			<Connections
+				engine={engine}
+				id={at.id}
+				onSelect={onSelect}
+				entitySelection={entitySelection}
+			/>
+		</div>
+	);
 }
 
 /** Connections-section title shaped to the anchor ("Session edges
@@ -312,25 +312,25 @@ export function EntityConnections(
  * another; `AnchorNote` says whose rows these are instead, and the
  * Details heading above is where the selection is counted. */
 export function connectionsSectionTitle(
-  engine: Engine,
-  anchor: StageSelection,
+	engine: Engine,
+	anchor: StageSelection,
 ): string {
-  // Given the resolved anchor, like the bodies: a title naming a peer over a list
-  // that says nothing is picked reads as a list that failed to load.
-  const at = anchor;
-  if (!at) return "Connections";
-  if (at.kind === "peer") {
-    const count = sessionsTouchingPeer(engine, at.id).length;
-    return count > 0 ? `Session edges (${count})` : "Session edges";
-  }
-  // "Edges", not "peers": a session's ends are two rows here, and an
-  // end nothing attributed has no peer to name. Titling the list after
-  // the thing only one row might be would make the other read as
-  // missing rather than as what it is.
-  if (at.kind === "session") return "Endpoint edges";
-  if (at.kind === "endpoint") return "Session";
-  // Messages: subsections inside `MessageConnections` carry their
-  // own labels ("From peer", "To peer", "Carried over"), so the
-  // section header is a plain catch-all.
-  return "Connections";
+	// Given the resolved anchor, like the bodies: a title naming a peer over a list
+	// that says nothing is picked reads as a list that failed to load.
+	const at = anchor;
+	if (!at) return "Connections";
+	if (at.kind === "peer") {
+		const count = sessionsTouchingPeer(engine, at.id).length;
+		return count > 0 ? `Session edges (${count})` : "Session edges";
+	}
+	// "Edges", not "peers": a session's ends are two rows here, and an
+	// end nothing attributed has no peer to name. Titling the list after
+	// the thing only one row might be would make the other read as
+	// missing rather than as what it is.
+	if (at.kind === "session") return "Endpoint edges";
+	if (at.kind === "endpoint") return "Session";
+	// Messages: subsections inside `MessageConnections` carry their
+	// own labels ("From peer", "To peer", "Carried over"), so the
+	// section header is a plain catch-all.
+	return "Connections";
 }

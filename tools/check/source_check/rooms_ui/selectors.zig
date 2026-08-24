@@ -93,6 +93,22 @@ const selectors = [_]Selector{
     // one directory, made by a name that moved.
     .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"dircardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    // The conversation's name opens what this tab knows about it, and a long
+    // refusal's Show opens the rest of the words. A rename here reads as "the
+    // title did nothing" or "Show did not open the rest" — claims about those
+    // cards, made by a name that moved.
+    .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"kitchenLongWhy\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"errorTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"errorBody\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardUriKind\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardReach\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardDir\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardStanding\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardLeaveAsk\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"convcardLeaveSaid\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "\"dirfacts\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"settingsAboutDir\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"dircardLeaveAsk\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
@@ -185,9 +201,9 @@ fn readProof(
         // value; the bytes it points at belong to `reached` and stay put.
         const path = reached.items[at];
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-            // Only the named entry has to be there. A module it imports that
-            // cannot be read is `deno check`'s to report, and reporting it here
-            // as a missing proof would name the wrong fault.
+            // tolerant: only the named entry has to be there. A module it
+            // imports that cannot be read is `deno check`'s to report, and
+            // reporting it here as a missing proof would name the wrong fault.
             if (at == 0) return err;
             continue;
         };
@@ -283,7 +299,10 @@ fn readUiSources(
         if (!tsx and !document and !std.mem.endsWith(u8, entry.path, ".ts")) continue;
         const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
         defer gpa.free(path);
-        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the selector check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
         defer gpa.free(source);
         try all.appendSlice(gpa, source);
     }

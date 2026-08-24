@@ -1,0 +1,150 @@
+// The conversation card, and the rest of a long refusal.
+//
+// The title is the way into what this tab knows about the room or line on
+// screen; `/details` opens the same card. The directory named there opens that
+// directory's own card, and Escape puts this one back. A room's card is where
+// you stand in it and where you leave it. A long error stays two lines where it
+// appeared, and Show is the way into the rest. Both cards are native dialogs,
+// so Escape and a press on the dim around them put the reader back on the
+// control that opened them.
+
+import type { Page } from "playwright";
+import { fail } from "./harness.ts";
+
+export async function run(tab: Page): Promise<void> {
+	// ── A long refusal stays in its slot ─────────────────────────────────
+	await tab.click("#settingsBtn");
+	await tab.waitForSelector("#settingsTitle");
+	await tab.click("#helpBtn");
+	await tab.waitForSelector("#helpTitle");
+	await tab.click("#glossarySecret");
+	await tab.waitForSelector("#kitchenSink").catch(() =>
+		fail("Help did not open the parts catalog for the long refusal")
+	);
+	const boxed = await tab.evaluate(() => {
+		const why = document.getElementById("kitchenLongWhy");
+		const sample = why?.closest(".kitchen-sample");
+		if (!(why instanceof HTMLElement) || sample == null) return null;
+		const a = why.getBoundingClientRect();
+		const b = sample.getBoundingClientRect();
+		return {
+			overflows: Math.round(a.right) > Math.round(b.right + 1) ||
+				Math.round(a.bottom) > Math.round(b.bottom + 1),
+			show: why.classList.contains("said-more"),
+		};
+	});
+	if (boxed === null) fail("the parts catalog has no long refusal beside a field");
+	if (!boxed.show) fail("a long refusal in the catalog is not the Show control");
+	if (boxed.overflows) fail("a long refusal in the catalog shoved the field's sample off the card");
+	await tab.click("#kitchenLongWhy");
+	await tab.waitForSelector("#errorTitle").catch(() => fail("Show did not open the rest of the refusal"));
+	const rest = await tab.evaluate(() => {
+		const body = document.getElementById("errorBody");
+		const card = body?.closest(".modal-card");
+		if (!(body instanceof HTMLElement) || card == null) return null;
+		const a = body.getBoundingClientRect();
+		const b = card.getBoundingClientRect();
+		return {
+			text: body.textContent ?? "",
+			overflows: Math.round(a.right) > Math.round(b.right + 1),
+			title: document.getElementById("errorTitle")?.textContent ?? "",
+		};
+	});
+	if (rest === null) fail("the error card did not hold the rest of the refusal");
+	if (rest.title !== "What went wrong") {
+		fail(`the error card is titled ${JSON.stringify(rest.title)}`);
+	}
+	if (!rest.text.includes("unreachableswissnum")) {
+		fail("the error card did not carry the locator the refusal named");
+	}
+	if (rest.overflows) fail("the rest of the refusal ran out of the error card");
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("errorTitle") === null)
+		.catch(() => fail("Escape did not put the catalog back"));
+	await tab.waitForFunction(() => document.activeElement?.id === "kitchenLongWhy")
+		.catch(() => fail("closing the error card did not return focus to Show"));
+	if (await tab.locator("#kitchenSink").count() === 0) {
+		fail("reading the rest of a refusal threw the catalog away");
+	}
+	await tab.click("#kitchenBack");
+	await tab.keyboard.press("Escape");
+	await tab.waitForSelector("#settingsTitle");
+	await tab.keyboard.press("Escape");
+	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
+
+	// ── The title is the way into this conversation ──────────────────────
+	await tab.click("#roomAbout");
+	await tab.waitForSelector("#convcardTitle").catch(() => fail("the room title did not open what is known about it"));
+	const about = await tab.evaluate(() => ({
+		title: document.getElementById("convcardTitle")?.textContent?.trim() ?? "",
+		locator: document.getElementById("convcardLocator")?.textContent?.trim() ?? "",
+		facts: document.querySelector("#convcardTitle")?.closest(".modal-card")?.querySelector(".dirfacts")
+			?.textContent ?? "",
+		pressed: document.getElementById("roomAbout")?.getAttribute("aria-expanded"),
+	}));
+	if (!about.title.includes("lobby")) {
+		fail(`the conversation card is titled ${JSON.stringify(about.title)}`);
+	}
+	if (about.locator === "" || about.locator === "…") {
+		fail("the conversation card did not offer a locator to copy");
+	}
+	if (about.locator.includes("/s/")) {
+		fail("a public room joined by name offered a sturdyref instead of the directory locator");
+	}
+	const kind = (await tab.textContent("#convcardUriKind"))?.trim() ?? "";
+	if (kind !== "Directory locator") {
+		fail(`the conversation card labeled the locator ${JSON.stringify(kind)}`);
+	}
+	const reach = (await tab.textContent("#convcardReach")) ?? "";
+	if (!reach.includes("not a separate address for #lobby")) {
+		fail(`the conversation card did not say why the locator is the directory's: ${JSON.stringify(reach)}`);
+	}
+	if (!about.facts.includes("Public room") || !about.facts.includes("Connected")) {
+		fail(`the conversation card did not say what this room is: ${JSON.stringify(about.facts)}`);
+	}
+	if (about.pressed !== "true") fail("the title did not say the card was open");
+	const hash = await tab.evaluate(() => document.querySelector("#convcardTitle .hash")?.textContent ?? "");
+	if (hash !== "#") fail("a public room's card did not wear the hash the rest of the page wears");
+	await tab.click("#convcardDir");
+	await tab.waitForSelector("#dircardTitle").catch(() =>
+		fail("the directory named on the conversation card did not open that directory")
+	);
+	const dirTitle = (await tab.textContent("#dircardTitle"))?.toLowerCase() ?? "";
+	if (!dirTitle.includes("directory")) {
+		fail(`the directory card is titled ${JSON.stringify(dirTitle)}`);
+	}
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("dircardTitle") === null)
+		.catch(() => fail("Escape did not put the conversation card back"));
+	await tab.waitForFunction(() => document.activeElement?.id === "convcardDir")
+		.catch(() => fail("closing the directory did not return focus to its name on the conversation card"));
+	await tab.waitForSelector("#convcardStanding").catch(() =>
+		fail("the conversation card did not offer where you are in this room")
+	);
+	await tab.click("#convcardLeaveAsk");
+	await tab.waitForSelector("#convcardLeaveSaid").catch(() => fail("Leave this room did not ask before leaving"));
+	const leaving = (await tab.textContent("#convcardLeaveSaid")) ?? "";
+	if (!leaving.includes("come back")) {
+		fail(`leaving a public room did not say you can come back: ${JSON.stringify(leaving)}`);
+	}
+	await tab.click("#convcardLeaveStay");
+	await tab.waitForSelector("#convcardLeaveAsk").catch(() => fail("Stay did not put Leave this room back"));
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("convcardTitle") === null)
+		.catch(() => fail("Escape did not put the conversation away"));
+	await tab.waitForFunction(() => document.activeElement?.id === "roomAbout")
+		.catch(() => fail("closing the conversation card did not return focus to the title"));
+
+	await tab.fill("#line", "/details");
+	await tab.press("#line", "Enter");
+	await tab.waitForSelector("#convcardTitle").catch(() =>
+		fail("/details did not open what is known about this room")
+	);
+	const again = await tab.evaluate(() => document.getElementById("convcardTitle")?.textContent?.trim() ?? "");
+	if (!again.includes("lobby")) fail(`/details opened a card titled ${JSON.stringify(again)}`);
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("convcardTitle") === null)
+		.catch(() => fail("Escape did not close the card /details opened"));
+	await tab.waitForFunction(() => document.activeElement?.id === "line")
+		.catch(() => fail("closing the card /details opened did not return focus to the composer"));
+}

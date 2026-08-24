@@ -29,6 +29,11 @@ export function tellStanding(key: string): void {
 	// The room tells everybody, this tab included, so nothing is shown from here:
 	// what a roster says is the room's word rather than this tab's intention.
 	room.away(standing).catch((error) => {
+		// A room without the verb is a room without the concept — the bridge
+		// vocabulary is the room's own — and absence is not something to scold
+		// the reader about. Told stays recorded, so a reconnect does not ask a
+		// room the same question it already declined to have.
+		if (reason(error).includes("has no method")) return;
 		session.standingTold.delete(key);
 		// In the room it failed for, named: `tellStandingEverywhere` runs this
 		// once per room, and several bare "Could not say that" lines landing in

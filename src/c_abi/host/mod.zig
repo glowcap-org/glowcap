@@ -69,6 +69,7 @@ const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 
 const host = @import("host.zig");
+const session_limits = @import("session_limits.zig");
 const session = @import("session.zig");
 const session_lifecycle = @import("session/lifecycle.zig");
 const session_pump = @import("session/pump.zig");
@@ -181,6 +182,11 @@ pub const testing = if (builtin.is_test) struct {
         return inst.core.capabilities.liveCount();
     }
 
+    pub fn configuredSessionLimits(host_handle: ?*PancakeHost) !engine.SessionLimits {
+        const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
+        return inst.core.opts.limits;
+    }
+
     pub fn importRefcount(raw: ?*PancakeHostSession, position: u64) !u64 {
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
@@ -199,7 +205,7 @@ pub const PancakeContext = shared.PancakeContext;
 /// authority, many sessions. Created with `pancake_host_new`; released with
 /// `pancake_host_release`.
 /// The structs the wasm32 layout descriptor reports and the TypeScript
-/// mirror's `WASM_LAYOUT_STRUCTS` manifest names, in one canonical order.
+/// `WASM_LAYOUT_STRUCTS` manifest names, in one canonical order.
 /// This table is the single authority both consumers read — the wasm
 /// module's `pancake_wasm_abi_layout` walks it to emit offsets, and
 /// `tools/gen/binding/ts_abi.zig` walks it to emit the manifest — so a
@@ -213,6 +219,9 @@ pub const WasmLayoutSpec = struct {
     /// name-hash word is computed from.
     prefix: []const u8,
     T: type,
+    /// Whether native TypeScript FFI also reads this struct directly. A false
+    /// row is byte-fed wasm embedder vocabulary, not native binding policy.
+    native_mirror: bool = true,
 };
 
 pub const wasm_layout_manifest = [_]WasmLayoutSpec{
@@ -224,12 +233,13 @@ pub const wasm_layout_manifest = [_]WasmLayoutSpec{
     .{ .prefix = "ALLOCATOR", .T = shared.PancakeAllocator },
     .{ .prefix = "HOST_ACTION", .T = PancakeHostAction },
     .{ .prefix = "HOST_PUMP_HOOKS", .T = PancakeHostPumpHooks },
-    .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan },
+    .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan, .native_mirror = false },
     .{ .prefix = "PARTNER_IDENTITY", .T = PancakePartnerIdentity },
     .{ .prefix = "TRACE_EVENT", .T = PancakeTraceEvent },
     .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.PancakeLocatorHintView },
     .{ .prefix = "LOCATOR_VIEW", .T = shared.PancakeLocatorView },
     .{ .prefix = "CLOSE_OPTIONS", .T = shared.PancakeCloseOptions },
+    .{ .prefix = "SESSION_LIMIT_OPTIONS", .T = PancakeSessionLimitOptions },
     .{ .prefix = "FAILURE_REPORT", .T = shared.PancakeFailureReport },
     .{ .prefix = "FAILURE_EVENT", .T = shared.PancakeFailureEvent },
 };
@@ -237,6 +247,18 @@ pub const wasm_layout_manifest = [_]WasmLayoutSpec{
 pub const PancakeHost = opaque {};
 
 pub const PancakeCloseOptions = shared.PancakeCloseOptions;
+/// Current layout version for `PancakeSessionLimitOptions`.
+pub const PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION: u32 = 1;
+/// Selective overrides for the limits copied into future sessions. A zero
+/// field leaves the Host's current value unchanged.
+pub const PancakeSessionLimitOptions = extern struct {
+    abi_version: u32,
+    struct_size: usize,
+    max_frame_bytes: usize,
+    queue_cap: usize,
+    outbound_high_water_bytes: usize,
+    max_retained_sent_answer_bytes: usize,
+};
 pub const PANCAKE_PENDING_CANCEL = shared.PANCAKE_PENDING_CANCEL;
 pub const PANCAKE_PENDING_FINISH = shared.PANCAKE_PENDING_FINISH;
 pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = shared.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
@@ -379,8 +401,9 @@ pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_a
 pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops;
 
 /// One embedder effect popped from `pancake_host_next_action`. `kind` selects
-/// the live fields: DIAL and CANCEL_DIAL carry only `ticket` (DIAL borrows the
-/// pending view with `pancake_host_pending_dial`). FLUSH and CLOSE carry `session`;
+/// the live fields: DIAL and CANCEL_DIAL carry `ticket` and `route_index`
+/// (DIAL borrows the pending view with `pancake_host_pending_dial`). FLUSH and
+/// CLOSE carry `session`;
 /// NEED_GIFT_ID carries `ticket`. SETTLE carries the settled vow id in
 /// `ticket` and the fulfilled value in `value`; FAIL carries the vow id in
 /// `ticket`, the typed failure code in `result`, and the failure reason in
@@ -390,6 +413,7 @@ pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_
 pub const PancakeHostAction = extern struct {
     kind: u32,
     ticket: u64,
+    route_index: usize,
     session: ?*PancakeHostSession,
     value: shared.PancakeArgument,
     message: ?[*]const u8,
@@ -502,7 +526,7 @@ pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_
 pub const pancake_host_set_advertised_locator = host.pancake_host_set_advertised_locator;
 pub const pancake_host_ensure_advertised_locator = host.pancake_host_ensure_advertised_locator;
 pub const pancake_host_remove_advertised_locator = host.pancake_host_remove_advertised_locator;
-pub const pancake_host_set_session_limits = host.pancake_host_set_session_limits;
+pub const pancake_host_set_session_limits = session_limits.pancake_host_set_session_limits;
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
 pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
 pub const pancake_host_reference_exporter = host.pancake_host_reference_exporter;
@@ -528,6 +552,8 @@ pub const pancake_host_session_close_progress = session_lifecycle.pancake_host_s
 pub const pancake_host_session_lifecycle_state = session_lifecycle.pancake_host_session_lifecycle_state;
 pub const pancake_host_session_release = session_lifecycle.pancake_host_session_release;
 pub const pancake_host_session_is_open = session_lifecycle.pancake_host_session_is_open;
+pub const pancake_host_session_profile = session_lifecycle.pancake_host_session_profile;
+pub const pancake_host_session_transport_name = session_lifecycle.pancake_host_session_transport_name;
 pub const pancake_host_session_trace_id = session_lifecycle.pancake_host_session_trace_id;
 pub const pancake_host_session_feed = session_pump.pancake_host_session_feed;
 pub const pancake_host_session_feed_bytes = session_pump.pancake_host_session_feed_bytes;
@@ -540,6 +566,7 @@ pub const pancake_host_session_spawn = session.pancake_host_session_spawn;
 pub const pancake_host_session_fetch = session.pancake_host_session_fetch;
 pub const pancake_host_session_enliven = session.pancake_host_session_enliven;
 pub const pancake_host_enliven = host.pancake_host_enliven;
+pub const pancake_host_enliven_for_version = host.pancake_host_enliven_for_version;
 pub const pancake_host_set_trace = host.pancake_host_set_trace;
 pub const pancake_host_set_trace_queue = host.pancake_host_set_trace_queue;
 pub const pancake_host_next_trace = host.pancake_host_next_trace;
@@ -549,6 +576,8 @@ pub const pancake_host_session_listen = session.pancake_host_session_listen;
 pub const pancake_host_session_send = session.pancake_host_session_send;
 pub const pancake_host_session_tell = session.pancake_host_session_tell;
 pub const pancake_host_vow_send = session.pancake_host_vow_send;
+pub const pancake_host_vow_tell = session.pancake_host_vow_tell;
+pub const pancake_host_vow_release = session.pancake_host_vow_release;
 pub const pancake_host_vow_index = session.pancake_host_vow_index;
 pub const pancake_host_vow_untag = session.pancake_host_vow_untag;
 pub const pancake_host_vow_get = session.pancake_host_vow_get;
@@ -574,6 +603,26 @@ pub const pancake_host_pump_drain = pump.pancake_host_pump_drain;
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
+
+pub const contract_layouts = [_]shared.archive_contract.Layout{
+    shared.archive_contract.layout("PANCAKE_HOST_ACTION", PancakeHostAction),
+    shared.archive_contract.layout("PANCAKE_HOST_PUMP_HOOKS", PancakeHostPumpHooks),
+    shared.archive_contract.layout("PANCAKE_SESSION_LIMIT_OPTIONS", PancakeSessionLimitOptions),
+    shared.archive_contract.cOnlyLayout("PANCAKE_DIAL_PLAN", PancakeDialPlan),
+    shared.archive_contract.layout("PANCAKE_PARTNER_IDENTITY", PancakePartnerIdentity),
+    shared.archive_contract.layout("PANCAKE_TRACE_EVENT", PancakeTraceEvent),
+};
+
+/// Exact reflected callable/layout identity for the byte-fed Host archive.
+pub const PANCAKE_HOST_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint(
+    "host",
+    @This(),
+    .{ shared.contract_layouts, contract_layouts },
+);
+
+pub export fn pancake_host_archive_fingerprint() u64 {
+    return PANCAKE_HOST_ARCHIVE_FINGERPRINT;
+}
 
 /// Zig-facing one-loop drain helpers over `pancake_host_next_action`
 /// (ADR-0072 fifth amendment). Not a C export — the pull-queue stays

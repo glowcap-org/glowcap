@@ -22,6 +22,8 @@ const PancakeHostSession = c.PancakeHostSession;
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+const PANCAKE_ERR_CLOSED = shared.PANCAKE_ERR_CLOSED;
 
 fn sessionCloseOutcomeCode(inst: *const common.Instance, session: *const driver_core.HostSession) i32 {
     const delivered = inst.core.sessionCloseActionDelivered(session);
@@ -195,8 +197,9 @@ pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) i32 {
     const inst = instOf(session.host);
     if (!common.embedderOwnsDrive(inst, "session_release")) return PANCAKE_ERR_INVALID_ARGUMENT;
     inst.core.releaseSession(session) catch |err| {
+        const code = errToCode(err);
         shared.setLastError("host: session_release: {s}", .{@errorName(err)});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return code;
     };
     return PANCAKE_OK;
 }
@@ -206,6 +209,46 @@ pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return 0;
     return if (session.sessionOpen()) 1 else 0;
+}
+
+/// Read the complete profile this session settled with its partner. All three
+/// outputs are required and written together. Before the keyed handshake opens,
+/// no settled profile exists and the call returns `PANCAKE_ERR_WOULD_BLOCK`;
+/// after the CapTP session becomes terminal it returns `PANCAKE_ERR_CLOSED`.
+pub export fn pancake_host_session_profile(
+    raw: ?*PancakeHostSession,
+    out_captp_version: ?*u32,
+    out_codec: ?*u32,
+    out_features: ?*u32,
+) i32 {
+    shared.lastErrorClear();
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const version = out_captp_version orelse return PANCAKE_ERR_NULL_POINTER;
+    const codec = out_codec orelse return PANCAKE_ERR_NULL_POINTER;
+    const features = out_features orelse return PANCAKE_ERR_NULL_POINTER;
+    if (session.isTerminating()) return PANCAKE_ERR_CLOSED;
+    const profile = session.settledProfile() orelse
+        return if (session.sessionClosed()) PANCAKE_ERR_CLOSED else PANCAKE_ERR_WOULD_BLOCK;
+    version.* = shared.captpVersionToC(profile.captp_version);
+    codec.* = shared.codecToC(profile.codec);
+    features.* = shared.featureSetToC(profile.features);
+    return PANCAKE_OK;
+}
+
+/// Borrow the actual netlayer symbol this session was opened through. Both
+/// outputs are required and remain valid until the session is released.
+pub export fn pancake_host_session_transport_name(
+    raw: ?*PancakeHostSession,
+    out_name: ?*?[*]const u8,
+    out_name_len: ?*usize,
+) i32 {
+    shared.lastErrorClear();
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const name = out_name orelse return PANCAKE_ERR_NULL_POINTER;
+    const len = out_name_len orelse return PANCAKE_ERR_NULL_POINTER;
+    name.* = session.transport.ptr;
+    len.* = session.transport.len;
+    return PANCAKE_OK;
 }
 
 /// The id the live trace names this session's rows by (`PancakeTraceEvent`'s

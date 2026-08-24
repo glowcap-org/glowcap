@@ -26,7 +26,7 @@ impl Drop for OwnedTaskRegistration {
 
 struct DialTaskRegistration {
 	host: Weak<HostShared>,
-	ticket: u64,
+	attempt: (u64, usize),
 	_owned: OwnedTaskRegistration,
 }
 
@@ -43,7 +43,7 @@ impl Drop for AbortTaskOnDrop {
 impl Drop for DialTaskRegistration {
 	fn drop(&mut self) {
 		if let Some(host) = self.host.upgrade() {
-			host.dial_tasks.borrow_mut().remove(&self.ticket);
+			host.dial_tasks.borrow_mut().remove(&self.attempt);
 		}
 	}
 }
@@ -143,7 +143,7 @@ impl HostShared {
 	/// Tokio cancellation is the right primitive here: every binding task runs
 	/// on one current-thread LocalSet, so close cannot race a task currently on
 	/// another thread, and `abort` prevents its next poll before native teardown.
-	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, run: F) -> Result<bool>
+	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, route_index: usize, run: F) -> Result<bool>
 	where
 		F: FnOnce(Rc<HostShared>) -> Fut + 'static,
 		Fut: Future<Output = ()> + 'static,
@@ -154,7 +154,7 @@ impl HostShared {
 		let host = Rc::clone(self);
 		let registration = DialTaskRegistration {
 			host: Rc::downgrade(self),
-			ticket,
+			attempt: (ticket, route_index),
 			_owned: self.start_owned_task()?,
 		};
 		let Some(task) = try_spawn_local_handle(async move {
@@ -178,18 +178,19 @@ impl HostShared {
 				} else {
 					Error::with_detail(sys::ERR_INTERNAL, format!("dial task failed: {join}"))
 				};
-				let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(observer.raw(), ticket) });
+				let cancellation =
+					check_host(unsafe { ffi::pancake_host_dial_cancelled(observer.raw(), ticket, route_index) });
 				observer.record_background_failure(crate::retain_cleanup_failure(primary, cancellation));
 			}
 		}) else {
 			return Ok(false);
 		};
-		self.dial_tasks.borrow_mut().insert(ticket, task);
+		self.dial_tasks.borrow_mut().insert((ticket, route_index), task);
 		Ok(true)
 	}
 
-	pub(crate) async fn cancel_dial_task(&self, ticket: u64) -> Result<()> {
-		let task = self.dial_tasks.borrow_mut().remove(&ticket);
+	pub(crate) async fn cancel_dial_task(&self, ticket: u64, route_index: usize) -> Result<()> {
+		let task = self.dial_tasks.borrow_mut().remove(&(ticket, route_index));
 		let task_failure = if let Some(task) = task {
 			task.abort();
 			match task.await {
@@ -210,7 +211,7 @@ impl HostShared {
 		} else {
 			None
 		};
-		let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(self.raw(), ticket) });
+		let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(self.raw(), ticket, route_index) });
 		match task_failure {
 			Some(primary) => Err(crate::retain_cleanup_failure(primary, cancellation)),
 			None => cancellation,
@@ -386,6 +387,7 @@ impl HostShared {
 	fn retire_native_host(&self, raw: *mut ffi::PancakeHost) {
 		crate::trace::detach_host(raw);
 		self.raw.set(core::ptr::null_mut());
+		crate::gc::retire(self);
 		self.vows.clear();
 		// Native release ran every ctx-free callback. These maps contain only
 		// non-owning pointers and cannot retain stale lookup results afterward.

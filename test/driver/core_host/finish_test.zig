@@ -337,16 +337,16 @@ test "core host cancel settles a parked select-or-dial without realizing its tic
     const dial = (try host.nextAction()) orelse return error.MissingDial;
     try std.testing.expect(dial == .dial);
     const ticket = dial.dial.ticket;
-    try std.testing.expect(host.pendingDial(ticket) != null);
+    try std.testing.expect(host.pendingDial(ticket, 0) != null);
 
     host.beginClose(.cancel, 0);
-    try std.testing.expect(host.pendingDial(ticket) == null);
+    try std.testing.expect(host.pendingDial(ticket, 0) == null);
     try std.testing.expectEqual(Host.LifecyclePhase.terminating, host.lifecyclePhase());
     const cancel = (try host.nextAction()) orelse return error.MissingDialCancellation;
     try std.testing.expect(cancel == .cancel_dial);
     try std.testing.expectEqual(ticket, cancel.cancel_dial.ticket);
     try std.testing.expectEqual(Host.LifecyclePhase.terminating, host.lifecyclePhase());
-    try host.dialCancelled(ticket);
+    try host.dialCancelled(ticket, 0);
     const failed = (try host.nextAction()) orelse return error.MissingFailure;
     try std.testing.expect(failed == .failed);
     try std.testing.expectEqual(vow_id, failed.failed.vow_id);

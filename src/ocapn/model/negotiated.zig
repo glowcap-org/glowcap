@@ -40,7 +40,7 @@ pub const CodecId = enum(u16) {
 pub const Preference = struct {
     captp_version: CaptpVersion = .v1_0,
     codec: CodecId = .syrup,
-    features: FeatureSet = FeatureSet.full(),
+    features: FeatureSet = FeatureSet.defaultOffer(),
 
     /// What pancake offers when a caller does not override the session profile.
     pub const default_offer: Preference = .{};
@@ -92,7 +92,7 @@ pub const CaptpVersion = enum {
 /// Optional CapTP capabilities a session may negotiate. Every field here is
 /// gated in `session.validate` when the matching ops run — do not add a bit
 /// that nothing enforces.
-pub const FeatureSet = struct {
+pub const FeatureSet = packed struct {
     pipelining: bool = false,
     handoff: bool = false,
     wire_delta: bool = false,
@@ -102,6 +102,9 @@ pub const FeatureSet = struct {
     /// of this bit. The distinction lets a pancake peer avoid sending the
     /// operation to Goblins, whose absent feature hint means the baseline set.
     untag: bool = false,
+    /// Private identity-route vocabulary. A peer must advertise this before an
+    /// `id/via` locator can appear in CapTP payloads.
+    multi_location: bool = false,
 
     pub const wire_string_max_len = blk: {
         var len: usize = 0;
@@ -138,6 +141,23 @@ pub const FeatureSet = struct {
         inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
             @field(out, field_name) = true;
         }
+        return out;
+    }
+
+    /// Pancake's implicit offer keeps private route vocabulary silent. Callers
+    /// opt in per session so enabling it cannot change baseline bytes.
+    pub fn defaultOffer() FeatureSet {
+        var out = FeatureSet.full();
+        out.multi_location = false;
+        return out;
+    }
+
+    /// Features usable under the active CapTP version. `multi_location` is
+    /// pancake-next identity-route vocabulary: a v1.0 session may hear an offer
+    /// bit, but the settled session must not report it as usable.
+    pub fn forCaptpVersion(self: FeatureSet, captp_version: CaptpVersion) FeatureSet {
+        var out = self;
+        if (captp_version != .next) out.multi_location = false;
         return out;
     }
 

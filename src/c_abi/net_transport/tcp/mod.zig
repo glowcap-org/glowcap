@@ -29,12 +29,18 @@ const runtime = @import("runtime.zig");
 // (ADR-0059 companion split, generalized from the iroh companion).
 const c = @import("c_abi_shared");
 
-/// Exact callable-surface identity checked before a separately loaded TCP
-/// archive receives any arguments. Derived from this archive and the shared
-/// provider ABI; never hand-bumped.
-pub const PANCAKE_TCP_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprintParts(
-    &.{ @embedFile("mod.zig"), @embedFile("runtime.zig") },
-    @embedFile("symbols.zig"),
+pub const contract_layouts = [_]c.archive_contract.Layout{
+    c.archive_contract.layout("PANCAKE_TCP_STREAM_OPTIONS", PancakeTcpStreamOptions),
+    c.archive_contract.layout("PANCAKE_TCP_CONFIG", PancakeTcpConfig),
+    c.archive_contract.layout("PANCAKE_TCP_OPERATION_OPTIONS", PancakeTcpOperationOptions),
+};
+
+/// Exact callable/layout identity checked before a separately loaded TCP
+/// archive receives any ordinary arguments.
+pub const PANCAKE_TCP_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    "tcp",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
 );
 
 pub export fn pancake_tcp_archive_fingerprint() u64 {

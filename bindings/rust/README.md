@@ -42,6 +42,9 @@ provider into the same loop rather than creating a second transport runtime.
 partners dial; the sealed profile includes both the durable key and direct
 address. `ListenerIdentity::Seed` preserves a keyed identity across restarts;
 `ListenerIdentity::Host` shares an existing Host and its session directory.
+`relay::keyed::listen` and `relay::noise::listen` return `relay::Server` over
+the same loop-owned server lifecycle. Their locator carries the rendezvous
+route instead of a direct socket address.
 
 ## Sessions and actors
 
@@ -78,7 +81,7 @@ session and its actors on that task.
 | `onion` | Tor provider and raw netlayer handles through a Tor daemon you run; with `async`, also adds `onion::Server` and Session dial/listen helpers. | no |
 | `async` | Tokio `Session`, `Host`, and managed `Runtime`. | no |
 | `iroh` | Encrypted iroh transport and `iroh::Server`; implies `async`. | no |
-| `relay` | Native `keyed-relay`/`noise-relay` provider package; implies `async`. | no |
+| `relay` | Native `keyed-relay`/`noise-relay` provider package and managed listeners; implies `async`. | no |
 | `webrtc` | Raw WebRTC multiplexed readiness, signaling, and try-I/O ABI. | no |
 
 The core value and locator types are always available. Async builds link the
@@ -93,8 +96,10 @@ provider ABI. Blocking TCP handles remain available through that same feature.
 configures one, so `Config` names where an existing daemon listens.
 With `async,onion`, `onion::listen` and `onion::connect` compose that provider
 into the generic driver and yield ordinary Sessions; `onion::Netlayer` remains
-the raw frame surface. Its
-checks talk to a fake daemon, so nothing has yet crossed the Tor network.
+the raw frame surface. The Rust binding dogfood uses a fake daemon and makes no
+live-Tor claim of its own. Repository-level on-demand checks cross Tor with two
+pancake peers, Goblins in both directions, upstream conformance, service
+restoration, and Rooms; they require Tor and outbound network access.
 
 iroh requires `zig build iroh-abi`. Construct a `Runtime` with an iroh provider
 and use its `connect` method; a TCP-only build links no iroh provider.

@@ -27,6 +27,7 @@
          "private/session.rkt"
          "private/session/state.rkt"
          "private/session/identity.rkt"
+         "private/session/profile.rkt"
          "private/session/establish.rkt"
          "private/session/close.rkt"
          "private/trace.rkt"
@@ -42,6 +43,7 @@
          (struct-out kw) (struct-out error-arg) (struct-out pset) (struct-out tagged-arg) (struct-out struct-arg)
          (struct-out abort-info)
          (struct-out partner-identity)
+         (struct-out settled-profile)
          abi-version last-error
          exn:fail:pancake? exn:fail:pancake-code exn:fail:pancake-abort
          exn:fail:pancake-carrier-failure (struct-out carrier-failure)
@@ -83,6 +85,7 @@
          host-redeem-reachability-value set-host-redeem-reachability!
          designator-from-seed
          session-partner-identity partner-identity-durable-authenticated?
+         session-profile session-transport-name
          session-bind-verified-channel-key!
          session-vat session-async session-host session-spawn session-publish session-published-ref
          session-fetch session-enliven session-send session-listen session-send-redeeming
@@ -94,8 +97,15 @@
          ;; close barrier over every session the host holds, including the ones
          ;; it dialed to redeem handoffs, and it releases the handle last.
          host-close!
-         TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-NOISE-TCP TRANSPORT-INPROC TRANSPORT-IROH
-         HINT-DIRECT-ADDRESSES)
+         TRANSPORT-TCP TRANSPORT-ONION TRANSPORT-ID TRANSPORT-KEYED-TCP TRANSPORT-NOISE-TCP
+         TRANSPORT-INPROC TRANSPORT-IROH TRANSPORT-KEYED-RELAY TRANSPORT-WEBRTC TRANSPORT-NOISE-RELAY
+         HINT-ALT-LOCATORS
+         HINT-DIRECT-ADDRESSES
+         HINT-VIA)
+
+(provide FEATURE-MINIMUM FEATURE-BASELINE FEATURE-PIPELINING FEATURE-HANDOFF
+         FEATURE-WIRE-DELTA FEATURE-STURDYREF FEATURE-UNTAG
+         FEATURE-MULTI-LOCATION FEATURE-FULL)
 
 ;; ── Transport seam ───────────────────────────────────────────────────────────
 ;; The binding-internal surface every transport companion builds on, mirroring

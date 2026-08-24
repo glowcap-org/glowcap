@@ -5,8 +5,17 @@
 # Install, verify, Dockerfile ENV, and devcontainer.json must stay aligned.
 # test/env-sync.sh enforces path consistency across those surfaces.
 
+# --- Base image ---
+# Both Dockerfiles build on this one image, and they pin its digest rather than
+# its tag, because a tag moves under you and the two images have to be the same
+# one. The digest names the multi-architecture index, so one value serves every
+# machine the image builds on. `update-pins.sh check` reports it like any other
+# dependency and `test/env-sync.sh` holds both Dockerfiles to the value here.
+DEBIAN_BASE_TAG="trixie-slim"
+DEBIAN_BASE_DIGEST="sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258"
+
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.1818+7051f8e73"
+ZIG_VERSION="0.17.0-dev.1857+3c46da14d"
 # ZLS currently refuses the pinned Zig 0.17 compiler. Keep its upstream source
 # pin recorded for update checks, but do not build or advertise it until
 # upstream supports this compiler generation.
@@ -16,13 +25,13 @@ ZLS_SOURCE_REVISION="8da87d4f3305a550e7b739bad764e34bf1e46a08"
 ZLS_SOURCE_SHA256="621bbf0eddfcd909499338767a6d48941a9ab3d6fd3302ce72f0ccf3ebba4d43"
 
 # --- Rust (C ABI dogfood) ---
-RUST_VERSION="1.97.1"
+RUST_VERSION="1.98.0"
 RUSTUP_INIT_VERSION="1.29.0"
 
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.5"
 NODE_VERSION="26.7.0"
-BUN_VERSION="1.3.14"
+BUN_VERSION="1.4.0"
 
 # --- Playwright (the browser proofs' Chromium) ---
 # This is the one place the version is written. The root deno.json resolves the
@@ -32,13 +41,13 @@ BUN_VERSION="1.3.14"
 PLAYWRIGHT_VERSION="1.62.1"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.4"
-OCAPN_CONFORMANCE_PYTHON="3.12.13"
+UV_VERSION="0.12.5"
+OCAPN_CONFORMANCE_PYTHON="3.12.14"
 SERENA_AGENT_VERSION="1.7.0"
 SERENA_PYTHON="3.13"
-CLAUDE_CODE_VERSION="2.1.232"
-OPENCODE_VERSION="1.18.18"
-CODEX_VERSION="0.147.0"
+CLAUDE_CODE_VERSION="2.1.241"
+OPENCODE_VERSION="1.18.21"
+CODEX_VERSION="0.149.0"
 # Cursor publishes the agent CLI as one dated build per platform. The version
 # string is the whole path segment (date and commit), so it is copied verbatim
 # into the download URL rather than composed from parts.
@@ -48,12 +57,14 @@ CURSOR_AGENT_VERSION="2026.08.11-e8db854"
 DEVCONTAINER_CLI_VERSION="0.88.0"
 
 # --- Racket / Spritely Goblins ---
-RACKET_VERSION="9.2"
+RACKET_VERSION="9.3"
+COMPILER_CHECKSUM="a79cef4aa671e7625e310577678ac5ed467983eb"
+COMPILER_LIB_CHECKSUM="8270ecc4ff62a0770a89d4c680af2f5e36ee9a37"
 GOBLINS_VERSION="0.18.0-52-gdcc2b2c5"
 GOBLINS_REVISION="dcc2b2c5aa9ab66574f4c58f41ed7f3e02b7aa55"
 GOBLINS_CHECKSUM="${GOBLINS_REVISION}"
 GOBLINS_SOURCE="https://codeberg.org/spritely/racket-goblins.git?path=goblins#${GOBLINS_REVISION}"
-UNIX_SOCKET_LIB_CHECKSUM="f95429d8b8990ed5ee6033a40e31bf1c52fca610"
+UNIX_SOCKET_LIB_CHECKSUM="7c41d334bbef65f4ba122e902fd817ef358f5052"
 RFC6455_CHECKSUM="e3a87e914e25841a6e1bb996aa001aeb178284bf"
 CRYPTO_LIB_CHECKSUM="713eaaf45a5e6c55bd3e97a32b2a90f61ef13c4f"
 CRYPTO_LIB_FFI_SOURCE_SHA256="ad743ac28d1a4598d011caf983ec51a85e661baff0c6d4c365ca6644338044a6"

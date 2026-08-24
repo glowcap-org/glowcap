@@ -112,7 +112,11 @@ pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosi
         model.freeResolution(self.allocator, resolution);
         return Error.UnexpectedMessage;
     }
-    entry.cell.resolution = resolution;
+    const promise_target = self.promiseTargetForResolution(resolution) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    entry.cell.resolution = .{ .value = resolution, .promise_target = promise_target };
     return true;
 }
 
@@ -139,6 +143,14 @@ pub fn restoreImportedPromiseListeners(self: *Session, import_position: model.Im
 pub fn importedPromiseResolution(self: *Session, import_position: model.ImportPosition) ?*const model.Resolution {
     const entry = findImportedPromise(self, import_position) orelse return null;
     return cell_ops.resolution(&entry.cell);
+}
+
+pub fn importedPromiseStoredResolution(
+    self: *Session,
+    import_position: model.ImportPosition,
+) ?*const session.StoredResolution {
+    const entry = findImportedPromise(self, import_position) orelse return null;
+    return cell_ops.storedResolution(&entry.cell);
 }
 
 /// Find one stored relayed resolution whose previously installed listeners

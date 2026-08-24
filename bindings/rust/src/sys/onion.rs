@@ -8,6 +8,8 @@
 //! [`crate::sys`].
 #![allow(dead_code)]
 
+use super::layouts_gen::*;
+
 #[repr(C)]
 pub struct PancakeOnionNetlayer {
 	_private: [u8; 0],
@@ -24,7 +26,7 @@ pub struct PancakeOnionListener {
 /// How the netlayer reaches Tor, and what it asks for when hosting.
 ///
 /// The layout mirrors `PancakeOnionConfig` in
-/// `src/c_abi/net_transport/onion/mod.zig`, whose declaration documents every
+/// `src/c_abi/net_transport/onion/contract.zig`, whose declaration documents every
 /// field. Zero-initialize and set what you use: [`Default`] gives the
 /// all-zero form, which is what makes a field added later read as absent rather
 /// than as stack contents.
@@ -46,6 +48,22 @@ pub struct PancakeOnionConfig {
 	pub forward: *const u8,
 	pub forward_len: usize,
 }
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeOnionConfig>() == PANCAKE_ONION_CONFIG_SIZE);
+	assert!(offset_of!(PancakeOnionConfig, socks) == PANCAKE_ONION_CONFIG_SOCKS_OFF);
+	assert!(offset_of!(PancakeOnionConfig, socks_len) == PANCAKE_ONION_CONFIG_SOCKS_LEN_OFF);
+	assert!(offset_of!(PancakeOnionConfig, control_endpoint) == PANCAKE_ONION_CONFIG_CONTROL_ENDPOINT_OFF);
+	assert!(offset_of!(PancakeOnionConfig, control_endpoint_len) == PANCAKE_ONION_CONFIG_CONTROL_ENDPOINT_LEN_OFF);
+	assert!(offset_of!(PancakeOnionConfig, auth_kind) == PANCAKE_ONION_CONFIG_AUTH_KIND_OFF);
+	assert!(offset_of!(PancakeOnionConfig, auth_secret) == PANCAKE_ONION_CONFIG_AUTH_SECRET_OFF);
+	assert!(offset_of!(PancakeOnionConfig, auth_secret_len) == PANCAKE_ONION_CONFIG_AUTH_SECRET_LEN_OFF);
+	assert!(offset_of!(PancakeOnionConfig, service_key) == PANCAKE_ONION_CONFIG_SERVICE_KEY_OFF);
+	assert!(offset_of!(PancakeOnionConfig, service_key_len) == PANCAKE_ONION_CONFIG_SERVICE_KEY_LEN_OFF);
+	assert!(offset_of!(PancakeOnionConfig, forward) == PANCAKE_ONION_CONFIG_FORWARD_OFF);
+	assert!(offset_of!(PancakeOnionConfig, forward_len) == PANCAKE_ONION_CONFIG_FORWARD_LEN_OFF);
+};
 
 /// An unauthenticated control endpoint, which is what a Unix control socket with
 /// no authentication gives and what upstream Goblins assumes.

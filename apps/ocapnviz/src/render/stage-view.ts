@@ -56,23 +56,23 @@ export const MAX_STAGE_SCALE = 99.99;
 export const STAGE_ZOOM_STEP = 1.2;
 
 export type StageView = {
-  /** Scale, where 1 is one world unit per screen pixel. */
-  zoom: number;
-  /** World point held at the center of the viewport. */
-  center: { x: number; y: number };
+	/** Scale, where 1 is one world unit per screen pixel. */
+	zoom: number;
+	/** World point held at the center of the viewport. */
+	center: { x: number; y: number };
 };
 
 export const DEFAULT_STAGE_VIEW: StageView = {
-  zoom: 1,
-  center: { x: 0, y: 0 },
+	zoom: 1,
+	center: { x: 0, y: 0 },
 };
 
 /** Whether two views put the camera in the same place. Field by field, because a
  *  view is three numbers and none of them wants an epsilon: either the camera
  *  republished what it already said, or it moved. */
 export function sameStageView(a: StageView, b: StageView): boolean {
-  return a.zoom === b.zoom && a.center.x === b.center.x &&
-    a.center.y === b.center.y;
+	return a.zoom === b.zoom && a.center.x === b.center.x &&
+		a.center.y === b.center.y;
 }
 
 /**
@@ -85,49 +85,51 @@ export function sameStageView(a: StageView, b: StageView): boolean {
  * as reachable.
  */
 export function clampStageZoom(zoom: number): number {
-  if (!Number.isFinite(zoom) || zoom <= 0) return DEFAULT_STAGE_VIEW.zoom;
-  return Math.min(MAX_STAGE_SCALE, Math.max(MIN_STAGE_SCALE, zoom));
+	if (!Number.isFinite(zoom) || zoom <= 0) return DEFAULT_STAGE_VIEW.zoom;
+	return Math.min(MAX_STAGE_SCALE, Math.max(MIN_STAGE_SCALE, zoom));
 }
 
 /** The view a document opens at: what it stored, clamped, or the default. */
 export function initialStageView(
-  stored: StageView | undefined,
+	stored: StageView | undefined,
 ): StageView {
-  if (!stored) return DEFAULT_STAGE_VIEW;
-  return {
-    zoom: clampStageZoom(stored.zoom),
-    center: {
-      x: Number.isFinite(stored.center.x) ? stored.center.x : 0,
-      y: Number.isFinite(stored.center.y) ? stored.center.y : 0,
-    },
-  };
+	if (!stored) return DEFAULT_STAGE_VIEW;
+	return {
+		zoom: clampStageZoom(stored.zoom),
+		center: {
+			x: Number.isFinite(stored.center.x) ? stored.center.x : 0,
+			y: Number.isFinite(stored.center.y) ? stored.center.y : 0,
+		},
+	};
 }
 
 /** The scale one step further in or out, held inside the bounds. */
 export function steppedStageZoom(zoom: number, out: boolean): number {
-  const from = clampStageZoom(zoom);
-  return clampStageZoom(out ? from / STAGE_ZOOM_STEP : from * STAGE_ZOOM_STEP);
+	const from = clampStageZoom(zoom);
+	return clampStageZoom(
+		out ? from / STAGE_ZOOM_STEP : from * STAGE_ZOOM_STEP,
+	);
 }
 
 /** Whether a step out would move at all, which is what greys the button. Asked
  *  rather than compared against the floor at the call site, so the floor stays
  *  one fact. */
 export function canStepOut(zoom: number): boolean {
-  return steppedStageZoom(zoom, true) < clampStageZoom(zoom);
+	return steppedStageZoom(zoom, true) < clampStageZoom(zoom);
 }
 
 /** The same question at the other end. Both bounds grey their own button, so
  *  neither reads as live while it cannot move. */
 export function canStepIn(zoom: number): boolean {
-  return steppedStageZoom(zoom, false) > clampStageZoom(zoom);
+	return steppedStageZoom(zoom, false) > clampStageZoom(zoom);
 }
 
 /** A rectangle in world units — what the stage has actually drawn. */
 export type ContentBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
 };
 
 /**
@@ -140,25 +142,25 @@ export type ContentBounds = {
  * answering the empty batch instead of the drawn peers.
  */
 export function unionBounds(
-  rects: readonly ContentBounds[],
+	rects: readonly ContentBounds[],
 ): ContentBounds | null {
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  for (const r of rects) {
-    if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
-    if (!Number.isFinite(r.width) || !Number.isFinite(r.height)) continue;
-    // A point has no extent to fit; keeping it would pin the AABB to its
-    // origin the way an empty Pixi layer does.
-    if (r.width <= 0 && r.height <= 0) continue;
-    minX = Math.min(minX, r.x);
-    minY = Math.min(minY, r.y);
-    maxX = Math.max(maxX, r.x + r.width);
-    maxY = Math.max(maxY, r.y + r.height);
-  }
-  if (minX > maxX || minY > maxY) return null;
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (const r of rects) {
+		if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
+		if (!Number.isFinite(r.width) || !Number.isFinite(r.height)) continue;
+		// A point has no extent to fit; keeping it would pin the AABB to its
+		// origin the way an empty Pixi layer does.
+		if (r.width <= 0 && r.height <= 0) continue;
+		minX = Math.min(minX, r.x);
+		minY = Math.min(minY, r.y);
+		maxX = Math.max(maxX, r.x + r.width);
+		maxY = Math.max(maxY, r.y + r.height);
+	}
+	if (minX > maxX || minY > maxY) return null;
+	return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 /**
@@ -178,26 +180,26 @@ export function unionBounds(
  * answer is the default view rather than a negative scale.
  */
 export function fitStageView(
-  content: ContentBounds,
-  size: { width: number; height: number },
-  padding: number,
+	content: ContentBounds,
+	size: { width: number; height: number },
+	padding: number,
 ): StageView {
-  const center = {
-    x: Number.isFinite(content.x) && Number.isFinite(content.width) ? content.x + content.width / 2 : 0,
-    y: Number.isFinite(content.y) && Number.isFinite(content.height) ? content.y + content.height / 2 : 0,
-  };
-  const usableW = size.width - padding * 2;
-  const usableH = size.height - padding * 2;
-  if (!(usableW > 0) || !(usableH > 0)) {
-    return { zoom: DEFAULT_STAGE_VIEW.zoom, center };
-  }
-  const scales: number[] = [];
-  if (content.width > 0) scales.push(usableW / content.width);
-  if (content.height > 0) scales.push(usableH / content.height);
-  if (scales.length === 0) {
-    return { zoom: DEFAULT_STAGE_VIEW.zoom, center };
-  }
-  return { zoom: clampStageZoom(Math.min(...scales)), center };
+	const center = {
+		x: Number.isFinite(content.x) && Number.isFinite(content.width) ? content.x + content.width / 2 : 0,
+		y: Number.isFinite(content.y) && Number.isFinite(content.height) ? content.y + content.height / 2 : 0,
+	};
+	const usableW = size.width - padding * 2;
+	const usableH = size.height - padding * 2;
+	if (!(usableW > 0) || !(usableH > 0)) {
+		return { zoom: DEFAULT_STAGE_VIEW.zoom, center };
+	}
+	const scales: number[] = [];
+	if (content.width > 0) scales.push(usableW / content.width);
+	if (content.height > 0) scales.push(usableH / content.height);
+	if (scales.length === 0) {
+		return { zoom: DEFAULT_STAGE_VIEW.zoom, center };
+	}
+	return { zoom: clampStageZoom(Math.min(...scales)), center };
 }
 
 /**
@@ -215,19 +217,19 @@ export function fitStageView(
  * more than the camera has goes as far as it goes.
  */
 export function parseStageZoom(text: string): number | null {
-  const cleaned = text.trim().replace(/%$/, "").trim();
-  if (cleaned === "") return null;
-  const percent = Number(cleaned);
-  if (!Number.isFinite(percent) || percent <= 0) return null;
-  return clampStageZoom(percent / 100);
+	const cleaned = text.trim().replace(/%$/, "").trim();
+	if (cleaned === "") return null;
+	const percent = Number(cleaned);
+	if (!Number.isFinite(percent) || percent <= 0) return null;
+	return clampStageZoom(percent / 100);
 }
 
 /** How a scale reads to a person: a percentage, at a resolution that stays
  *  useful at both ends of a range this wide. Below one percent it would round
  *  to zero, and the bounds stop it getting there. */
 export function formatStageZoom(zoom: number): string {
-  const pct = zoom * 100;
-  if (pct >= 100) return `${Math.round(pct)}%`;
-  if (pct >= 10) return `${pct.toFixed(0)}%`;
-  return `${pct.toFixed(1)}%`;
+	const pct = zoom * 100;
+	if (pct >= 100) return `${Math.round(pct)}%`;
+	if (pct >= 10) return `${pct.toFixed(0)}%`;
+	return `${pct.toFixed(1)}%`;
 }

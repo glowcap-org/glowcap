@@ -34,16 +34,13 @@
 
    The label is text and whatever sits at the line's end is a mark, so they take
    the two insets their kinds take, which is also what puts a section's "+" on
-   the vertical the counts and leave marks below it stand on. */
+   the vertical the counts and leave marks below it stand on. The type itself
+   is the shared caption voice, `.overline` in controls.css; this rule keeps
+   only the rails' layout. */
 .section-head,
 .members h2 {
 	padding: 4px var(--mark-inset) 4px var(--row-pad);
-	font-size: 11px;
 	line-height: var(--label-line);
-	font-weight: 600;
-	letter-spacing: .1em;
-	text-transform: uppercase;
-	color: var(--ink-soft);
 }
 /* A label is the height of its own text. The "+" one of the two rails carries is
    a touch target and taller than a word, so it hangs out of the line rather than
@@ -89,6 +86,29 @@
    inside them lines up too. That is what puts the mark on the same pixel
    whichever header is holding it: collapsing the rail hands the mark to the
    topbar, and it does not move. */
+/* The lockup is a link to the front page. It dresses like the title chip:
+   quiet at rest, the hover wash on approach, and it stays the header's
+   centred middle cell. */
+.wordmark-link {
+	display: flex;
+	justify-self: center;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	padding: 4px 6px;
+	border-radius: var(--radius-chip);
+	color: inherit;
+	text-decoration: none;
+}
+@media (hover: hover) {
+	.wordmark-link:hover {
+		background: var(--hover);
+	}
+}
+.wordmark-link:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
 .workspace {
 	position: relative;
 	display: grid;

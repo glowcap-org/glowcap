@@ -36,7 +36,9 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const session = @import("session");
 const engine = @import("mod.zig");
+const id_route = session.id_route;
 const export_ranges = @import("export_ranges.zig");
 const fifo = @import("fifo.zig");
 const node_actions = @import("node/actions.zig");
@@ -56,7 +58,8 @@ const proxy_settlement = @import("node/proxies/settlement.zig");
 const proxy_topology = @import("node/proxies/topology.zig");
 const redeem = @import("node/redeem.zig");
 const redeem_dials = @import("node/redeem/dials.zig");
-const redeem_plan = @import("node/redeem/plan.zig");
+const redeem_dial_admission = @import("node/redeem/dials/admission.zig");
+const dial_staging = @import("node/redeem/dials/staging.zig");
 const redeem_withdrawals = @import("node/redeem/withdrawals.zig");
 
 const crypto = foundation.crypto;
@@ -80,15 +83,22 @@ pub const SessionSecretResolver = struct {
     resolve: *const fn (ctx: ?*anyopaque, peer_handle: PeerHandle) ?crypto.SecretKey,
 };
 
-/// Resolve runtime transport designation semantics for peers composed under a
-/// Host. A standalone Node uses the built-in model vocabulary; a Host installs
-/// its provider registry once the Node has a stable address.
-pub const TransportDesignatorResolver = struct {
+/// Resolve Host-owned runtime transport facts without adding them to every
+/// protocol Peer. A standalone Node uses built-in designator semantics and has
+/// no physical-session carrier knowledge.
+pub const TransportResolver = struct {
     ctx: ?*anyopaque,
-    resolve: *const fn (ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        designator_scheme: *const fn (ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
+        session_transport: *const fn (ctx: ?*anyopaque, peer_handle: PeerHandle) ?[]const u8,
+    };
 };
 
 pub const Node = struct {
+    pub const RuntimeTransportResolver = TransportResolver;
+
     /// Max third parties one introducing-session proxy row will introduce to a
     /// single home promise (ADR-0009).
     ///
@@ -110,9 +120,6 @@ pub const Node = struct {
     /// while staging a cross-session redeem, before any one CapTP session's
     /// `SessionLimits` exists on the dial path. The count includes only
     /// alternatives; the primary locator is always one additional path.
-    pub const max_alt_locator_count = redeem_plan.max_alt_locator_count;
-    pub const max_alt_locator_bytes = redeem_plan.max_alt_locator_bytes;
-
     allocator: std.mem.Allocator,
     /// The node's durable identity, expanded once at construction. Hosts draw
     /// fresh keys for their sessions; a standalone Node may use this key as its
@@ -141,9 +148,11 @@ pub const Node = struct {
     /// record names a session, so the layer above supplies that session's key.
     /// A standalone Node falls back to its durable key.
     session_secret_resolver: ?SessionSecretResolver = null,
-    /// Host-owned runtime transport semantics, shared by every registered
-    /// Peer through `NodeServices` without spending a field per session.
-    transport_designator_resolver: ?TransportDesignatorResolver = null,
+    /// Host-owned transport semantics and physical carrier lookup, shared by
+    /// every registered Peer without spending a field per session. The engine
+    /// cannot infer a carrier from a partner's advertised locator, which may
+    /// intentionally name another route.
+    transport_resolver: ?TransportResolver = null,
     /// Registered CapTP sessions keyed by `peer_handle`: the node-owned,
     /// heap-pinned peer for each live session, whose stable address the
     /// embedder's `net.Connection` borrows. Presence is the entire liveness
@@ -333,16 +342,21 @@ pub const Node = struct {
         self.session_secret_resolver = resolver;
     }
 
-    pub fn setTransportDesignatorResolver(self: *Node, resolver: TransportDesignatorResolver) void {
-        self.transport_designator_resolver = resolver;
+    pub fn setTransportResolver(self: *Node, resolver: TransportResolver) void {
+        self.transport_resolver = resolver;
+    }
+
+    fn sessionTransport(self: *const Node, peer_handle: PeerHandle) ?[]const u8 {
+        const resolver = self.transport_resolver orelse return null;
+        return resolver.vtable.session_transport(resolver.ctx, peer_handle);
     }
 
     fn designatorScheme(self: *const Node, transport: []const u8) ?model.transport.DesignatorScheme {
-        const resolver = self.transport_designator_resolver orelse {
+        const resolver = self.transport_resolver orelse {
             const known = model.transport.parseKnown(transport) orelse return null;
             return known.metadata().designator_scheme;
         };
-        return resolver.resolve(resolver.ctx, transport);
+        return resolver.vtable.designator_scheme(resolver.ctx, transport);
     }
 
     /// The key `peer_handle`'s session signs handoff records with: the session's
@@ -386,12 +400,12 @@ pub const Node = struct {
 
     pub const exporterPeerFor = peer_routes.exporterPeerFor;
 
-    pub const ForeignEnrollmentRollback = peer_routes.ForeignEnrollmentRollback;
+    pub const ForeignEnrollmentReceipt = peer_routes.ForeignEnrollmentReceipt;
     pub const ForeignEnrollment = peer_routes.ForeignEnrollment;
 
     pub const prepareForeignEnrollment = peer_routes.prepareForeignEnrollment;
 
-    pub const rollbackForeignEnrollment = peer_routes.rollbackForeignEnrollment;
+    pub const abandonForeignEnrollment = peer_routes.abandonForeignEnrollment;
 
     pub const enrollForeign = peer_routes.enrollForeign;
 
@@ -478,6 +492,28 @@ pub const Node = struct {
     pub const Action = node_actions.Action;
 
     pub const pendingDial = redeem_dials.pendingDial;
+    pub fn parseIdRouteLocator(
+        self: *const Node,
+        allocator: std.mem.Allocator,
+        locator: model.PeerLocator,
+    ) !model.RouteBundle {
+        _ = self;
+        return id_route.parseLocator(allocator, locator);
+    }
+
+    pub fn parseIdSturdyrefLocator(
+        self: *const Node,
+        allocator: std.mem.Allocator,
+        locator: model.PeerLocator,
+    ) !model.RouteBundle {
+        _ = self;
+        return id_route.parseSturdyrefLocator(allocator, locator);
+    }
+
+    pub fn validateIdRouteLocator(self: *const Node, locator: model.PeerLocator) !crypto.PeerKey {
+        _ = self;
+        return (try id_route.validateLocator(locator)) orelse error.UnparseableId;
+    }
     pub const beginDialEffect = redeem_dials.beginEffect;
     pub const rollbackDialEffect = redeem_dials.rollbackEffect;
     pub const DialCancellationIterator = redeem_dials.CancellationIterator;
@@ -504,12 +540,16 @@ pub const Node = struct {
     pub const consumePeekedAction = node_actions.consumePeekedAction;
     pub const nextAction = node_actions.nextAction;
 
-    pub const acceptGive = redeem_dials.acceptGive;
-    pub const acceptInlineGive = redeem_dials.acceptInlineGive;
-    pub const DialStage = redeem_dials.Stage;
-    pub const stageDial = redeem_dials.stage;
+    pub const acceptGive = redeem_dial_admission.acceptGive;
+    pub const acceptInlineGive = redeem_dial_admission.acceptInlineGive;
+    pub const DialStage = dial_staging.Stage;
+    pub const stageDial = dial_staging.stage;
+    pub const prepareDialLocator = dial_staging.prepareDialLocator;
+    pub const prepareIdRouteBundle = dial_staging.prepareIdRouteBundle;
     pub const exporterDialed = redeem_dials.exporterDialed;
     pub const exporterSelected = redeem_dials.exporterSelected;
+    pub const ExporterCompletion = redeem_dials.ExporterCompletion;
+    pub const exporterCompleted = redeem_dials.exporterCompleted;
     pub const exporterApplicationOwned = redeem_dials.exporterApplicationOwned;
     pub const claimExporterRetirement = redeem_dials.claimExporterRetirement;
     pub const dialFailed = redeem_dials.failed;
@@ -571,6 +611,7 @@ pub const Internal = struct {
     pub const claimOutboundStagingLease = passable_leases.claim;
     pub const unclaimOutboundStagingLease = passable_leases.unclaim;
     pub const sessionSecret = Node.sessionSecret;
+    pub const sessionTransport = Node.sessionTransport;
     pub const foreignRoute = Node.foreignRoute;
     pub const homeOf = Node.homeOf;
     pub const InlinePassablePayload = passable.Payload;

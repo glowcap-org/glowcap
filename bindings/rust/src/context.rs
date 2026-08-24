@@ -111,6 +111,7 @@ impl Context {
 
 	/// A context that routes every allocation through `allocator`.
 	pub fn with_allocator(allocator: Box<dyn ContextAllocator>) -> Result<Context> {
+		require_ocapn_archive()?;
 		let user_data = Box::into_raw(Box::new(allocator));
 		let c_allocator = sys::PancakeAllocator {
 			alloc: alloc_trampoline,
@@ -148,7 +149,7 @@ impl Context {
 		Ok(failures)
 	}
 
-	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion", feature = "relay"))]
 	pub(crate) fn raw(&self) -> *mut sys::PancakeContext {
 		self.inner.raw
 	}
@@ -161,6 +162,7 @@ impl Context {
 
 impl ContextInner {
 	pub(crate) fn new() -> Result<Self> {
+		require_ocapn_archive()?;
 		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
 		check(unsafe { sys::pancake_context_new(&mut raw) })?;
 		Ok(Self {
@@ -307,6 +309,14 @@ impl ContextInner {
 			},
 		}))
 	}
+}
+
+fn require_ocapn_archive() -> Result<()> {
+	crate::require_archive_fingerprint(
+		"ocapn",
+		unsafe { sys::pancake_ocapn_archive_fingerprint() },
+		sys::OCAPN_ARCHIVE_FINGERPRINT,
+	)
 }
 
 impl Drop for ContextInner {

@@ -134,7 +134,10 @@ pub fn checkSkillCatalog(
         }
 
         var agents_buf: [128]u8 = undefined;
-        const agents_needle = std.fmt.bufPrint(&agents_buf, "skills/{s}/SKILL.md", .{entry.path}) catch continue;
+        const agents_needle = std.fmt.bufPrint(&agents_buf, "skills/{s}/SKILL.md", .{entry.path}) catch {
+            try appendViolation(gpa, violations, ".agents/skills/{s}: the skill path overflows the catalog needle buffer; grow it", .{entry.path});
+            continue;
+        };
         if (std.mem.indexOf(u8, agents_readme, agents_needle) == null) {
             try appendViolation(gpa, violations, ".agents/README.md: missing skills table entry for `{s}`", .{entry.path});
         }
@@ -214,7 +217,10 @@ pub fn checkAgentPersonas(
         }
 
         var catalog_buf: [128]u8 = undefined;
-        const catalog_needle = std.fmt.bufPrint(&catalog_buf, "personas/{s}.md", .{stem}) catch continue;
+        const catalog_needle = std.fmt.bufPrint(&catalog_buf, "personas/{s}.md", .{stem}) catch {
+            try appendViolation(gpa, violations, ".agents/personas/{s}.md: the persona path overflows the catalog needle buffer; grow it", .{stem});
+            continue;
+        };
         if (std.mem.indexOf(u8, agents_readme, catalog_needle) == null) {
             try appendViolation(gpa, violations, ".agents/README.md: missing Personas table entry for `{s}`", .{stem});
         }

@@ -25,6 +25,8 @@
 import { chromium } from "playwright";
 import { fail, freePort, ROOT, waitForHttp, WEB } from "./page/harness.ts";
 import * as opening from "./page/opening.ts";
+import * as firstRail from "./page/first_rail.ts";
+import * as details from "./page/details.ts";
 import * as rails from "./page/rails.ts";
 import * as completion from "./page/completion.ts";
 import * as files from "./page/files.ts";
@@ -96,7 +98,9 @@ spawnOwned("deno", {
 		PANCAKE_ROOMS_STATE: opsState,
 		PANCAKE_ROOMS_DIAGNOSTICS: "1",
 		PANCAKE_ROOMS_ADMIN_LISTENERS: "1",
+		PANCAKE_ROOMS_PEERING: "1",
 		PANCAKE_ROOMS_VIZ: "1",
+		PANCAKE_ROOMS_IRC: "1",
 		PANCAKE_ROOMS_VIZ_PORT: String(vizPort),
 	},
 	stdout: "piped",
@@ -115,11 +119,27 @@ try {
 	await waitForHttp(httpPort);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();
+	const invalidMarkup: string[] = [];
+	// Mirror the page's own console and crashes into this proof's output: a
+	// scene that times out otherwise reports only the selector it never saw,
+	// while the page has been saying exactly what went wrong the whole time.
+	tab.on("console", (message) => {
+		if (message.type() === "error" || message.type() === "warning") {
+			const said = message.text();
+			console.error(`PAGE-CONSOLE ${message.type()}: ${said}`);
+			if (said.includes("cannot be a descendant") || said.includes("cannot contain a nested")) {
+				invalidMarkup.push(said);
+			}
+		}
+	});
+	tab.on("pageerror", (error) => console.error(`PAGE-ERROR: ${error.message}`));
 
 	// One conversation, driven in order: each phase leaves the page where the
 	// next one expects to find it, which is why they are calls in a list rather
 	// than tests that could be run on their own.
 	await opening.run(tab, httpPort, browser);
+	await firstRail.run(tab);
+	await details.run(tab);
 	const second = await rails.run(tab, browser, httpPort);
 	await completion.run(tab, second);
 	const descendersIntact = await files.run(tab, second);
@@ -135,7 +155,10 @@ try {
 		descendersIntact,
 	);
 	await standing.run(tab, foreignLocator, httpPort, browser, second);
-	await operations.run(tab, opsState);
+	await operations.run(tab, opsState, foreignLocator);
+	if (invalidMarkup.length !== 0) {
+		fail(`the page rendered invalid nested markup: ${invalidMarkup.join(" | ")}`);
+	}
 
 	console.log(
 		"PASS: the rooms page ran as a browser peer through every phase of one " +

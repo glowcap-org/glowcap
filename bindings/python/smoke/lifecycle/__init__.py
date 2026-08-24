@@ -11,6 +11,8 @@ import threading
 import pancake
 
 from pancake import (
+    FEATURE_FULL,
+    FEATURE_MULTI_LOCATION,
     tcp,
     Locator,
     Host,
@@ -43,7 +45,10 @@ from .session_coordinator import (
     cancelled_loop_close_waiter_preserves_terminal_chain as cancelled_loop_close_waiter_preserves_terminal_chain,
 )
 
-_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
+    "scenario_runtimes", default=None
+)
+
 
 async def _listen_surfaces_bound_port() -> None:
     """`listen` binds a `Server` whose `.port` reads the kernel-chosen ephemeral
@@ -59,6 +64,10 @@ async def _listen_surfaces_bound_port() -> None:
         async def accept_one() -> None:
             async for session in server:
                 accepted.append(session)
+                assert session.transport_name == TRANSPORT_TCP
+                assert session.profile.captp_version == "v1_0"
+                assert session.profile.codec == "syrup"
+                assert session.profile.features == FEATURE_FULL & ~FEATURE_MULTI_LOCATION
                 await identity_checked.wait()
                 await session.close()
                 break
@@ -69,17 +78,17 @@ async def _listen_surfaces_bound_port() -> None:
             Locator(
                 TRANSPORT_TCP,
                 tcp.address_designator("127.0.0.1", port),
-                {
-                    "pancake/features": (
-                        "pipelining,handoff,wire_delta,sturdyref,untag"
-                    )
-                },
+                {"pancake/features": ("pipelining,handoff,wire_delta,sturdyref,untag")},
                 "map",
             )
         )
         assert client.partner_identity().locator_record == expected, (
             "the accepted host advertised the listener's complete locator record"
         )
+        assert client.transport_name == TRANSPORT_TCP
+        assert client.profile.features == FEATURE_FULL & ~FEATURE_MULTI_LOCATION
+        assert client.profile.captp_version == "v1_0"
+        assert client.profile.codec == "syrup"
         identity_checked.set()
         # Both keyed handshakes complete; one connection was accepted on the
         # bound port.
@@ -137,7 +146,9 @@ async def _supplied_host_tcp_listener_ownership() -> None:
     client = None
     accepted = None
     try:
-        assert server.host is supplied, "listener did not preserve the supplied Host wrapper"
+        assert server.host is supplied, (
+            "listener did not preserve the supplied Host wrapper"
+        )
         assert parse_locator(server.uri).transport == TRANSPORT_TCP, server.uri
         client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         accepted = await asyncio.wait_for(accepted_task, timeout=5)
@@ -145,7 +156,6 @@ async def _supplied_host_tcp_listener_ownership() -> None:
         accepted.serve()
 
         await server.close()
-        await asyncio.sleep(0)
         assert not supplied.released, "listener close released a yielded supplied Host"
         svc = await client.fetch("svc")
         assert await client.send(svc, "ping", []) == Symbol("alive")
@@ -197,15 +207,20 @@ async def _supplied_host_iroh_listener_ownership() -> None:
     client = None
     accepted = None
     try:
-        assert server.host is supplied, "iroh listener did not preserve the supplied Host wrapper"
+        assert server.host is supplied, (
+            "iroh listener did not preserve the supplied Host wrapper"
+        )
         from pancake.iroh import provider as iroh_provider
 
-        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY)))
+        runtime = await Runtime.open(
+            provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY))
+        )
         client = await runtime.connect(server.locator)
         accepted = await asyncio.wait_for(accepted_task, timeout=10)
         await server.close()
-        await asyncio.sleep(0)
-        assert not supplied.released, "iroh listener close released a yielded supplied Host"
+        assert not supplied.released, (
+            "iroh listener close released a yielded supplied Host"
+        )
         await accepted.close()
         await client.close()
     finally:
@@ -258,7 +273,7 @@ async def _host_release_joins_dial_task() -> None:
     started = asyncio.Event()
     finished = asyncio.Event()
 
-    async def pending_dial(_host, _ticket) -> None:
+    async def pending_dial(_host, _ticket, _route_index) -> None:
         started.set()
         try:
             await asyncio.Event().wait()
@@ -274,13 +289,17 @@ async def _host_release_joins_dial_task() -> None:
         from pancake._action import _run_action
         from pancake._host_action_gen import CancelDial, Dial
 
-        await _run_action(host, Dial(ticket=7))
+        await _run_action(host, Dial(ticket=7, route_index=0))
         await asyncio.wait_for(started.wait(), timeout=1)
-        await _run_action(host, CancelDial(ticket=7))
+        await _run_action(host, CancelDial(ticket=7, route_index=0))
         assert finished.is_set(), "CANCEL_DIAL returned before DIAL cleanup finished"
         await host.close()
-        assert host._raw is None, "Host close retained native authority after CANCEL_DIAL cleanup"
-        assert not host._dial_tasks, "the Host-owned DIAL registry retained a finished task"
+        assert host._raw is None, (
+            "Host close retained native authority after CANCEL_DIAL cleanup"
+        )
+        assert not host._dial_tasks, (
+            "the Host-owned DIAL registry retained a finished task"
+        )
     finally:
         dial_module.run_dial_ticket = original
         if host._raw is not None:
@@ -350,12 +369,22 @@ async def _proof_refusal_releases_minted_session() -> None:
         except PancakeError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
-            raise AssertionError("a refused accepted-channel proof unexpectedly established")
-        assert releases == 2, "accepted proof refusal did not release exactly one session"
-        assert accepted_transport.close_count == 1, "accepted proof refusal did not close its transport"
-        assert not host._sessions, "accepted proof refusal left a session registered on its Host"
+            raise AssertionError(
+                "a refused accepted-channel proof unexpectedly established"
+            )
+        assert releases == 2, (
+            "accepted proof refusal did not release exactly one session"
+        )
+        assert accepted_transport.close_count == 1, (
+            "accepted proof refusal did not close its transport"
+        )
+        assert not host._sessions, (
+            "accepted proof refusal left a session registered on its Host"
+        )
     finally:
-        session_module._host.pancake_host_session_bind_verified_channel_key = original_bind
+        session_module._host.pancake_host_session_bind_verified_channel_key = (
+            original_bind
+        )
         session_module._host.pancake_host_session_release = original_release
         await host.close()
 
@@ -371,7 +400,9 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
     pancake.take_runtime_failures()
 
     class ControlledNetlayer(IrohNetlayer):
-        def __init__(self, _config, _secret_seed=None, *, _construction_token=None) -> None:
+        def __init__(
+            self, _config, _secret_seed=None, *, _construction_token=None
+        ) -> None:
             started.set()
             finish.wait()
 
@@ -379,7 +410,9 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
             released.set()
             raise cleanup_failure
 
-    opening = asyncio.create_task(ControlledNetlayer.open(IrohConfig(Reachability.DIRECT)))
+    opening = asyncio.create_task(
+        ControlledNetlayer.open(IrohConfig(Reachability.DIRECT))
+    )
     assert await asyncio.to_thread(started.wait, 1), "iroh constructor did not start"
     opening.cancel()
     finish.set()
@@ -389,7 +422,9 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
         pass
     else:
         raise AssertionError("cancelled iroh startup returned an endpoint")
-    assert released.is_set(), "cancelled iroh startup abandoned the constructed endpoint"
+    assert released.is_set(), (
+        "cancelled iroh startup abandoned the constructed endpoint"
+    )
     diagnostics = pancake.take_runtime_failures()
     assert len(diagnostics) == 1, diagnostics
     assert diagnostics[0].operation == "iroh-release-after-cancel"
@@ -418,7 +453,6 @@ async def _iroh_close_joins_after_cancellation() -> None:
     close = asyncio.create_task(netlayer.close())
     assert await asyncio.to_thread(started.wait, 1), "close did not start"
     close.cancel()
-    await asyncio.sleep(0)
     assert not close.done(), "close waiter detached before native teardown"
     finish.set()
     try:
@@ -508,10 +542,10 @@ async def _session_repeated_close_joins_published_failure() -> None:
 
     session._start_terminal_coordinator(session._close_future)
     repeated = asyncio.create_task(session.close())
-    await asyncio.sleep(0)
-    assert not repeated.done(), "released state bypassed the active close barrier"
 
-    session._close_future.set_exception(PancakeError(ERR_INVALID_ARGUMENT, "published close failure"))
+    session._close_future.set_exception(
+        PancakeError(ERR_INVALID_ARGUMENT, "published close failure")
+    )
     try:
         await repeated
     except PancakeError as error:

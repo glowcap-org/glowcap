@@ -235,7 +235,7 @@ impl Netlayer {
 
 	/// Return this endpoint's archive-owned provider package.
 	pub fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
-		let mut package: crate::sys::driver::PancakeTransportProvider = unsafe { core::mem::zeroed() };
+		let mut package: crate::sys::PancakeTransportProvider = unsafe { core::mem::zeroed() };
 		check_iroh(unsafe { ffi::pancake_iroh_transport_provider(self.raw.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,

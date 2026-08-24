@@ -71,24 +71,25 @@
       ;; pump-until idiom), so a rival path retiring this shell between the
       ;; check and the park still wakes this driver.
       (define gen (host-progress-evt m))
-      (define state #f)
-      (define close-code OK)
       (define wait-ms -1)
       (define fx
         (call-with-host
          m
          (lambda ()
            (define effects (loop-drain! m lp))
-           (define-values (rc lifecycle)
-             (pancake_driver_session_lifecycle_state
-              (driver-loop-handle lp) (session-ptr c)))
-           (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
-           (set! close-code rc)
-           (set! state lifecycle)
-           (when (lifecycle-closed? state)
-             (set-box! (session-close-result c) close-code))
-           (unless (lifecycle-closed? state)
-             (set! wait-ms (loop-step-wait-ms lp)))
+           ;; Draining parked releases may consume this exact Session before
+           ;; the native lifecycle query. Its Racket terminal result was
+           ;; published by that release path, so the consumed handle must not
+           ;; be consulted again.
+           (unless (session-released? c)
+             (define-values (rc lifecycle)
+               (pancake_driver_session_lifecycle_state
+                (driver-loop-handle lp) (session-ptr c)))
+             (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
+             (when (lifecycle-closed? lifecycle)
+               (set-box! (session-close-result c) rc))
+             (unless (lifecycle-closed? lifecycle)
+               (set! wait-ms (loop-step-wait-ms lp))))
            effects)))
       (run-drain-effects! m fx)
       (when (drain-effects-productive? fx) (host-bump-progress! m))

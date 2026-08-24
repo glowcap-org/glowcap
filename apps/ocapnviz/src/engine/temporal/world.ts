@@ -10,8 +10,8 @@
 import type { EffectiveRange } from "./range.ts";
 
 export const WORLD_RANGE: EffectiveRange = {
-  start: 0,
-  end: Number.POSITIVE_INFINITY,
+	start: 0,
+	end: Number.POSITIVE_INFINITY,
 };
 
 /** Intrinsic and effective are equal at the root — world has no

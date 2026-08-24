@@ -2,14 +2,6 @@
 //! a hook serving connection A that enqueued sends on connection B's peer
 //! arms B's write without waiting for B's own traffic. Proven twice: end to
 //! end on the platform backend (a quiet partner receives a frame only
-//! cross-arming could have put on its wire), and on the scripted backend
-//! that pins the queue accounting. Cross-armed bytes count into the
-//! connection's pending outbound, so ADR-0042 parks that connection's next
-//! read at the high-water mark exactly as it parks reply traffic.
-//! The completion loop's cross-connection outbound arm (`Loop.armOutbound`):
-//! a hook serving connection A that enqueued sends on connection B's peer
-//! arms B's write without waiting for B's own traffic. Proven twice: end to
-//! end on the platform backend (a quiet partner receives a frame only
 //! cross-arming could have put on its wire), and on a scripted backend that
 //! pins the queue accounting. Cross-armed bytes count into the connection's
 //! pending outbound, so ADR-0042 parks that connection's next read at the

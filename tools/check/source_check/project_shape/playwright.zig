@@ -69,7 +69,10 @@ pub fn checkPlaywrightPin(
     if (try checkPlaywrightImportMap(io, gpa, root, violations, "deno.json", expected, version, pins_path)) mapped_scopes += 1;
 
     for (playwright_scan_trees) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch continue;
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be opened for the Playwright pin check ({s})", .{ tree, @errorName(err) });
+            continue;
+        };
         defer dir.close(io);
         var walker = try dir.walk(gpa);
         defer walker.deinit();
@@ -90,7 +93,10 @@ pub fn checkPlaywrightPin(
             if (!std.mem.endsWith(u8, entry.path, ".ts") and !std.mem.endsWith(u8, entry.path, ".tsx") and
                 !std.mem.endsWith(u8, entry.path, ".js") and !std.mem.endsWith(u8, entry.path, ".mjs")) continue;
 
-            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot be read for the Playwright pin check ({s})", .{ path, @errorName(err) });
+                continue;
+            };
             defer gpa.free(contents);
             const inline_pin = "npm:playwright@";
             var from: usize = 0;

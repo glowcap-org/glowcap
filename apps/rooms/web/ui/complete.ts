@@ -6,8 +6,10 @@
 // and `/` a composer command. A sigil only triggers at the start of the token
 // under the caret, so `mail@host` and `10:30` stay plain text. `:` waits for one
 // valid shortcode character, so a clause-ending colon or `:)` stays quiet.
+// `/link` and `/join` also complete a listed room name as their argument,
+// without needing `#`.
 
-import { type CommandHere, held } from "./commands.ts";
+import { type CommandHere, commandIn, held } from "./commands.ts";
 import { ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
 
@@ -20,6 +22,8 @@ export interface Trigger {
 	/** Index of the sigil in the text; replacement spans [start, caret). */
 	start: number;
 	query: string;
+	/** A room name after `/link` or `/join`, written without `#`. */
+	bare?: true;
 }
 
 const NAME_QUERY = /^[\w-]*$/;
@@ -38,6 +42,31 @@ export function triggerAt(text: string, caret: number): Trigger | null {
 		return { kind: "emoji", start, query };
 	}
 	return null;
+}
+
+/** A listed room name as the argument of `/link` or `/join`.
+ *
+ * `#lobby` still works; so does `lobby` without the hash. `/link` with nothing
+ * after it is this room, so the list stays down until a name is started —
+ * taking Enter for a row would steal the send that mints this room's link.
+ * `/join` needs a destination, so an empty argument offers the listed rooms. */
+export function commandArgTrigger(text: string, caret: number): Trigger | null {
+	const named = commandIn(text);
+	if (named?.command.argument !== "room") return null;
+	const head = text.match(/^\/[\w-]+\s+/);
+	if (head === null) return null;
+	const start = head[0].length;
+	if (caret < start) return null;
+	const token = text.slice(start, caret);
+	if (token.includes(" ") || token.includes("/") || token.includes(":")) return null;
+	if (token.startsWith("#")) {
+		const query = token.slice(1);
+		if (!NAME_QUERY.test(query)) return null;
+		return { kind: "room", start, query };
+	}
+	if (!NAME_QUERY.test(token)) return null;
+	if (token === "" && named.command.needsArgument !== true) return null;
+	return { kind: "room", start, query: token, bare: true };
 }
 
 /** One row the list offers: what accepting it puts in the draft in place of
@@ -161,7 +190,7 @@ export function completeCandidates(
 			});
 		}
 	} else {
-		const sigil = trigger.kind === "nick" ? "@" : "#";
+		const sigil = trigger.kind === "nick" ? "@" : trigger.bare === true ? "" : "#";
 		// The room's own names sit among the members, because that is where a
 		// reader reaches for them. Labelled apart, though: calling everyone is not
 		// the same act as calling one person, and the list should say so before the

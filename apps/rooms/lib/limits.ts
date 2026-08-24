@@ -199,6 +199,15 @@ export const MAX_ROOM_LINKS = 4096;
  * bot serving many rooms) is a real shape; past it, creation refuses by name. */
 export const MAX_ROOMS_PER_CREATOR = 256;
 
+/** Foreign rooms one directory retains in total and from one source session.
+ * Both counts include the held room capability and its directory metadata. */
+export const MAX_PEERED_ROOMS = 4096;
+export const MAX_PEERED_ROOMS_PER_SOURCE = 256;
+/** How long a foreign-room namespace and quota reservation may wait for the
+ * handed capability to resolve. A source that never settles it must not hold
+ * destination capacity for the life of its connection. */
+export const PEERED_ROOM_READY_TIMEOUT_MS = 15_000;
+
 /** Attachment caps.
  *
  * A blob read and an upload write each carry at most `BLOB_CHUNK` bytes, well
@@ -318,11 +327,12 @@ export const REQUEST_TIMEOUT_MS = 15_000;
  */
 export const MAX_BLOB_READERS = 256;
 
-/** How many direct-message inboxes one member will hold. Nothing withdraws a
- * host giftable, so each inbox a member offers costs a bootstrap row and an
- * export on every session it ever opens, for the life of the process. The peer
- * asking is the one who chose the name, so the count needs a ceiling that peer
- * cannot argue with. `max_dm_inboxes` in `cli/app/rooms_peer/common.zig` and in
+/** How many direct-message inboxes one member will hold live. Each inbox costs
+ * a Host publication and an export on every session that projects it. Leaving
+ * retires the alias; already-issued capabilities keep their exact old actor
+ * until their own roots disappear. The peer asking chose the name, so the
+ * count needs a ceiling that peer cannot argue with. `max_dm_inboxes` in
+ * `cli/app/rooms_peer/common.zig` and in
  * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
  * peer and the Goblins one. */
 export const MAX_DM_INBOXES = 256;

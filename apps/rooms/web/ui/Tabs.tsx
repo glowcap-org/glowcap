@@ -34,7 +34,8 @@ export function Tabs<T extends string>(
 		/** Anything the caller styles the bar by, beyond the shared look. */
 		className?: string;
 		tabs: readonly TabFace<T>[];
-		selected: T;
+		/** The chosen tab, or null while none of these is the one on screen. */
+		selected: T | null;
 		/** What names the set of tabs, usually the dialog's title. */
 		labelledBy: string;
 		/** The chosen tab's button, for a dialog that opens focus onto it. */
@@ -52,7 +53,9 @@ export function Tabs<T extends string>(
 		chosen.current?.focus();
 	}, [selected, chosen]);
 
-	const at = Math.max(0, tabs.findIndex((tab) => tab.id === selected));
+	// -1 while nothing is chosen: the thumb hides on it, and focus enters at
+	// the first tab.
+	const at = tabs.findIndex((tab) => tab.id === selected);
 	return (
 		<div
 			id={id}
@@ -72,7 +75,7 @@ export function Tabs<T extends string>(
 				else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
 					go(Math.min(tabs.length - 1, at + 1));
 				} else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-					go(Math.max(0, at - 1));
+					go(Math.max(0, at === -1 ? 0 : at - 1));
 				}
 			}}
 		>
@@ -87,7 +90,7 @@ export function Tabs<T extends string>(
 					role="tab"
 					aria-selected={tab.id === selected}
 					aria-controls={tab.id === selected ? tab.panelId : undefined}
-					tabIndex={tab.id === selected ? 0 : -1}
+					tabIndex={tab.id === selected || (selected === null && tab === tabs[0]) ? 0 : -1}
 					onClick={() => onSelect(tab.id)}
 				>
 					{tab.label}

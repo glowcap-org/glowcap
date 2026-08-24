@@ -186,7 +186,10 @@ pub fn checkRoomsLayerBans(
     // The store's own field is exempt from nothing above, but the one writer of
     // it lives in hooks.ts, which is allowed the document. What net.ts may not
     // do is import a component.
-    const net = root.readFileAlloc(io, ui_dir ++ "/net.ts", gpa, .limited(1 << 20)) catch return;
+    const net = root.readFileAlloc(io, ui_dir ++ "/net.ts", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}/net.ts: cannot be read for the rooms UI check ({s})", .{ ui_dir, @errorName(err) });
+        return;
+    };
     defer gpa.free(net);
     const net_code = try codeOnly(gpa, net);
     defer gpa.free(net_code);
@@ -197,6 +200,46 @@ pub fn checkRoomsLayerBans(
             "{s}/net.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
             .{ui_dir},
         );
+    }
+
+    try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
+}
+
+/// `/join` of a locator seats from subscribe's listed-ness. Asking `private()`
+/// first aborted on an occupancy that has no such method (pancake error -12).
+fn checkRoomsJoinDoesNotAskPrivate(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
+        try appendViolation(gpa, violations, "{s}: could not open to check join does not ask private()", .{ui_dir});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".ts") and !std.mem.endsWith(u8, entry.path, ".tsx")) continue;
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
+        defer gpa.free(path);
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
+            try appendViolation(gpa, violations, "{s}: could not read to check join does not ask private()", .{path});
+            continue;
+        };
+        defer gpa.free(source);
+        const code = try codeOnly(gpa, source);
+        defer gpa.free(code);
+        if (std.mem.indexOf(u8, code, "roomIsPrivate") != null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s} asks `roomIsPrivate`: /join of a locator seats from subscribe's listed-ness; asking private() first aborts on a room that has no such method",
+                .{path},
+            );
+        }
     }
 }
 
@@ -427,7 +470,10 @@ pub fn checkRoomsConfig(
     // Comments may cross-reference the number freely; what must not exist is a
     // third place that *decides* with it.
     for ([_][]const u8{ ui_dir ++ "/hooks.ts", ui_dir ++ "/Composer.tsx", ui_dir ++ "/App.tsx" }) |elsewhere| {
-        const source = root.readFileAlloc(io, elsewhere, gpa, .limited(1 << 20)) catch continue;
+        const source = root.readFileAlloc(io, elsewhere, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the rooms UI check ({s})", .{ elsewhere, @errorName(err) });
+            continue;
+        };
         defer gpa.free(source);
         const code = try codeOnly(gpa, source);
         defer gpa.free(code);

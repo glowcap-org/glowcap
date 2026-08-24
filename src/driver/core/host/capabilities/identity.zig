@@ -61,7 +61,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
                 .far => |value| value,
                 else => return HostError.ForeignArgument,
             };
-            if (!home.served.port.peer.session_state.hasImport(far.import_position)) return HostError.ForeignArgument;
+            if (!home.served.port.peer.session_state.holdsImport(far.import_position)) return HostError.ForeignArgument;
             if (home.served.port.peer.session_state.hostImportIdentity(far.import_position)) |identity| {
                 const existing = self.capabilities.refFromRaw(identity.ref);
                 const existing_target = self.capabilities.resolve(existing) orelse return error.UnknownCapability;
@@ -109,7 +109,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
     errdefer _ = self.capabilities.release(ref, 1) catch unreachable;
     const home = self.sessions.get(target.remote.peer_handle) orelse return HostError.CapabilityRouteUnavailable;
     try home.served.port.peer.session_state.noteHostCapability(target.remote.far.import_position, ref.raw());
-    claimed_wire_retain = true;
+    claimed_wire_retain = target.remote.far.import_position.int() != engine.BOOTSTRAP_POSITION;
     self.next_import_incarnation = target.remote.incarnation + 1;
     return .{
         .ref = ref,

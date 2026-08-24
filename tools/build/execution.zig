@@ -13,6 +13,14 @@ pub const Posture = union(enum) {
     /// the project's 30-second maximum; the build-time check keeps direct
     /// callers from constructing an invalid value outside that scan.
     deterministic: u8,
+    /// A proof that drives a real browser end to end, often beside live
+    /// servers or vats. Deterministic in outcome, but its process spans a
+    /// Chromium launch, on-demand bundling, and multi-peer choreography, so
+    /// its owner-calibrated ceiling is minutes: the scenario's own deadline
+    /// stays the semantic timer, and this wrapper is the containment above
+    /// it, set to that deadline plus scheduling headroom. Bounded 31..900 —
+    /// a proof that fits 30 seconds is simply deterministic.
+    browser_proof: u16,
     /// Intentional unbounded postures. These are names, not escape hatches:
     /// the source gate inventories which artifact owns each one.
     benchmark,
@@ -44,7 +52,7 @@ pub fn addZigTest(
             return run;
         },
         .search => {},
-        .benchmark, .build_tool, .real_internet, .service => @panic("Zig tests may be deterministic or explicit searches only"),
+        .benchmark, .browser_proof, .build_tool, .real_internet, .service => @panic("Zig tests may be deterministic or explicit searches only"),
     }
     return b.addRunArtifact(compile);
 }
@@ -57,6 +65,7 @@ pub fn addSystemCommand(
 ) *std.Build.Step.Run {
     return switch (posture) {
         .deterministic => |seconds| boundedCommand(b, argv, seconds),
+        .browser_proof => |seconds| browserBoundedCommand(b, argv, seconds),
         .benchmark, .build_tool, .search, .real_internet, .service => b.addSystemCommand(argv),
     };
 }
@@ -70,6 +79,11 @@ pub fn addArtifact(
     return switch (posture) {
         .deterministic => |seconds| blk: {
             const run = boundedCommand(b, &.{}, seconds);
+            run.addArtifactArg(compile);
+            break :blk run;
+        },
+        .browser_proof => |seconds| blk: {
+            const run = browserBoundedCommand(b, &.{}, seconds);
             run.addArtifactArg(compile);
             break :blk run;
         },
@@ -98,6 +112,25 @@ fn boundedCommand(
     if (seconds == 0 or seconds > 30) {
         @panic("deterministic process deadline must be 1..30 seconds");
     }
+    return wrappedCommand(b, argv, seconds);
+}
+
+fn browserBoundedCommand(
+    b: *std.Build,
+    argv: []const []const u8,
+    seconds: u16,
+) *std.Build.Step.Run {
+    if (seconds <= 30 or seconds > 900) {
+        @panic("browser-proof process deadline must be 31..900 seconds");
+    }
+    return wrappedCommand(b, argv, seconds);
+}
+
+fn wrappedCommand(
+    b: *std.Build,
+    argv: []const []const u8,
+    seconds: u16,
+) *std.Build.Step.Run {
     const run = b.addSystemCommand(&.{
         "python3",
         wrapperPath(b),

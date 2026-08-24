@@ -22,7 +22,14 @@ import {
 	MAX_TOPIC,
 	relayedSignalFits,
 } from "../lib/limits.ts";
-import { readLineBytes, readPresence, readRoomEvent, readRoomFacts, readTopic } from "../lib/room_client.ts";
+import {
+	readLineBytes,
+	readListed,
+	readPresence,
+	readRoomEvent,
+	readRoomFacts,
+	readTopic,
+} from "../lib/room_client.ts";
 import { assertEquals } from "./assert.ts";
 
 const APP_MAX = 8192;
@@ -119,6 +126,10 @@ Deno.test("the two room facts do not answer for each other", () => {
 	// the line cap.
 	assertEquals(readTopic(["a", "b", "line-bytes", 400n]), undefined, "a cap is not a topic");
 	assertEquals(readLineBytes(["a", "b", "topic", "about things"]), undefined, "a topic is not a cap");
+	assertEquals(readListed(["a", "b", "topic", "about things"]), undefined, "a topic is not listed-ness");
+	assertEquals(readTopic(["a", "b", "listed"]), undefined, "listed-ness is not a topic");
+	assertEquals(readListed(["room", "", "listed"]), true, "listed");
+	assertEquals(readListed(["room", "", "unlisted"]), false, "unlisted");
 });
 
 Deno.test("a line carries whichever facts the room put on it, and nothing otherwise", () => {
@@ -128,6 +139,8 @@ Deno.test("a line carries whichever facts the room put on it, and nothing otherw
 	assertEquals(readRoomFacts(["room", "welcome", "roster", "bob"]), undefined, "a roster");
 	assertEquals(readRoomFacts(["room", "welcome", "topic", "about things"]), { topic: "about things" }, "a topic");
 	assertEquals(readRoomFacts(["room", "welcome", "line-bytes", 400n]), { lineBytes: 400 }, "a cap");
+	assertEquals(readRoomFacts(["room", "", "listed"]), { listed: true }, "a listed occupancy");
+	assertEquals(readRoomFacts(["room", "", "unlisted"]), { listed: false }, "an unlisted occupancy");
 	// A topic taken down is a fact, so it survives the "did this line say
 	// anything" question rather than being read as silence.
 	assertEquals(readRoomFacts(["room", "welcome", "topic", ""]), { topic: "" }, "a topic cleared");
@@ -164,8 +177,26 @@ Deno.test("a directory's live feed is read the way its other claims are", () => 
 	// something and counts something. A kind nobody knows used to fall through to
 	// the room list, a name longer than one may be was kept for as long as the tab
 	// held that directory, and a count that is not a count was drawn as it stood.
-	assertEquals(readRoomEvent(["opened", "lobby", 1n]), { kind: "opened", name: "lobby", count: 1 });
-	assertEquals(readRoomEvent(["registered", "ada", 1n]), { kind: "registered", name: "ada", count: 1 });
+	const lobby = {
+		id: "room-generation",
+		name: "lobby",
+		kind: "local" as const,
+		count: 1,
+		origin: "",
+		proof: "local" as const,
+	};
+	assertEquals(readRoomEvent(["opened", "lobby", 1n, "room-generation", "local", "", "local"]), {
+		kind: "opened",
+		name: "lobby",
+		count: 1,
+		entry: lobby,
+	});
+	assertEquals(readRoomEvent(["registered", "ada", 1n]), {
+		kind: "registered",
+		name: "ada",
+		count: 1,
+		entry: null,
+	});
 
 	assertEquals(readRoomEvent(["gossip", "lobby", 1n]), null, "a kind nobody knows was taken as one");
 	assertEquals(readRoomEvent(["opened", "", 1n]), null, "an unnamed room was taken");
@@ -177,10 +208,30 @@ Deno.test("a directory's live feed is read the way its other claims are", () => 
 	);
 	// A member event and a room event are two different things wearing one field,
 	// so each is held to its own ceiling rather than to the looser of the two.
-	assertEquals(readRoomEvent(["count", "r".repeat(MAX_ROOM), 2n])?.name.length, MAX_ROOM);
+	assertEquals(
+		readRoomEvent(["count", "r".repeat(MAX_ROOM), 2n, "room-generation", "local", "", "local"])?.name.length,
+		MAX_ROOM,
+	);
 
 	assertEquals(readRoomEvent(["count", "lobby", "many"]), null, "a count that is not a count was drawn");
 	assertEquals(readRoomEvent(["count", "lobby", -1n]), null, "a room with fewer than nobody in it was drawn");
+	assertEquals(
+		readRoomEvent(["opened", "remote", null, "foreign-generation", "foreign", "peer-key", "authenticated"]),
+		{
+			kind: "opened",
+			name: "remote",
+			count: null,
+			entry: {
+				id: "foreign-generation",
+				name: "remote",
+				kind: "foreign",
+				count: null,
+				origin: "peer-key",
+				proof: "authenticated",
+			},
+		},
+		"a foreign room's unknown occupancy was invented",
+	);
 });
 
 Deno.test("a relayed bring-up is held to a size at both ends of the relay", () => {

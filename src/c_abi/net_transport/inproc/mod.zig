@@ -31,9 +31,12 @@ const net = @import("net");
 // (ADR-0059 companion split).
 const c = @import("c_abi_shared");
 
+pub const contract_layouts = [_]c.archive_contract.Layout{};
+
 pub const PANCAKE_INPROC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
-    @embedFile("mod.zig"),
-    @embedFile("symbols.zig"),
+    "inproc",
+    @This(),
+    .{ c.contract_layouts, contract_layouts },
 );
 
 pub export fn pancake_inproc_archive_fingerprint() u64 {

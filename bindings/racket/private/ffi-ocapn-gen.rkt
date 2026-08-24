@@ -9,7 +9,8 @@
 ;; this module together with the shared cstruct vocabulary.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"         "lib-resolve.rkt")
+         "ffi-shared.rkt"
+         "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_abi_version*
                      pancake_context_next_failure*
@@ -38,6 +39,7 @@
 
 (define-ffi-definer define-pancake ocapn-lib)
 
+(define-pancake pancake_ocapn_archive_fingerprint (_fun -> _uint64))
 (define-pancake pancake_abi_version*
   (_fun _pointer _pointer _pointer -> _void)
   #:c-id pancake_abi_version)

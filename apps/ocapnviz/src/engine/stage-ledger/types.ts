@@ -19,60 +19,60 @@ import type { SessionSide } from "../../schema/session-end.ts";
  * it joined under. Held apart so withdrawing a claim reveals the name
  * underneath instead of freezing the last thing anyone said. */
 export type LivePeer = {
-  stageId: string;
-  liveWires: number;
-  eternal: boolean;
-  joinName: string;
-  selfLabel: string | undefined;
-  claimLabel: string | undefined;
-  /** What is currently on screen, so a restatement is not a rename. */
-  shown: string;
-  /** The implementation this peer is currently known by, so a
-   * restatement is not a change. Starts unknown and only ever moves to a
-   * named implementation — see `LedgerNames.learnProfile`. */
-  profile: PeerProfile;
+	stageId: string;
+	liveWires: number;
+	eternal: boolean;
+	joinName: string;
+	selfLabel: string | undefined;
+	claimLabel: string | undefined;
+	/** What is currently on screen, so a restatement is not a rename. */
+	shown: string;
+	/** The implementation this peer is currently known by, so a
+	 * restatement is not a change. Starts unknown and only ever moves to a
+	 * named implementation — see `LedgerNames.learnProfile`. */
+	profile: PeerProfile;
 };
 
 /** One producer's view of a wire: which side it occupies, so a
  * message's `outbound` flag reads against the right end. */
 export type Observer = {
-  selfStage: string;
-  /** The node the far end sits at, or undefined while it is loose. */
-  otherStage: string | undefined;
-  /** Ledger keys of the same two sides, for the close refcount. */
-  selfKey: string;
-  otherKey: string;
+	selfStage: string;
+	/** The node the far end sits at, or undefined while it is loose. */
+	otherStage: string | undefined;
+	/** Ledger keys of the same two sides, for the close refcount. */
+	selfKey: string;
+	otherKey: string;
 };
 
 /** A live incarnation of one wire — one stage session, however many
  * producers report it. */
 export type LiveWire = {
-  stageId: string;
-  /** The two ends. Which POSITION a side holds is fixed when the wire
-   * opens — `a` is the end the first observer reported as its own —
-   * and only the key AT a position ever moves (`#retargetSide`). Every
-   * `session-endpoint-attributed` the timeline holds names a position,
-   * so swapping these would silently retarget keyframes already
-   * recorded. */
-  aKey: string;
-  bKey: string;
-  /** Every producer session watching this wire, by scoped session id. */
-  observers: Map<string, Observer>;
-  /** Message tags already drawn on this wire. A tag is entered by the
-   * first end to report the message and CONSUMED by the second, so a
-   * peer that genuinely sends the same bytes twice draws two
-   * messages. Bounded, oldest out first. */
-  seen: Set<string>;
-  /** Names an application claimed for an end nobody could name yet,
-   * by side, held until the end attaches to a peer that can wear
-   * them.
-   *
-   * It lives on the wire because that is what it is about: a claim
-   * names one end of one conversation, and when the conversation goes
-   * the claim has nothing left to be about. Kept in a ledger-wide map
-   * instead it outlived every wire it described and grew for the
-   * feed's life. At most two entries, and they die with the row. */
-  looseClaims: Map<SessionSide, string>;
+	stageId: string;
+	/** The two ends. Which POSITION a side holds is fixed when the wire
+	 * opens — `a` is the end the first observer reported as its own —
+	 * and only the key AT a position ever moves (`#retargetSide`). Every
+	 * `session-endpoint-attributed` the timeline holds names a position,
+	 * so swapping these would silently retarget keyframes already
+	 * recorded. */
+	aKey: string;
+	bKey: string;
+	/** Every producer session watching this wire, by scoped session id. */
+	observers: Map<string, Observer>;
+	/** Message tags already drawn on this wire. A tag is entered by the
+	 * first end to report the message and CONSUMED by the second, so a
+	 * peer that genuinely sends the same bytes twice draws two
+	 * messages. Bounded, oldest out first. */
+	seen: Set<string>;
+	/** Names an application claimed for an end nobody could name yet,
+	 * by side, held until the end attaches to a peer that can wear
+	 * them.
+	 *
+	 * It lives on the wire because that is what it is about: a claim
+	 * names one end of one conversation, and when the conversation goes
+	 * the claim has nothing left to be about. Kept in a ledger-wide map
+	 * instead it outlived every wire it described and grew for the
+	 * feed's life. At most two entries, and they die with the row. */
+	looseClaims: Map<SessionSide, string>;
 };
 
 /** Message tags held per wire for the fold. One conversation's
@@ -111,12 +111,12 @@ export type FarEndBacking = "partner-named" | "correlated";
  * is what keeps an unattributed side from ever colliding with a real
  * name. */
 export function anonKey(wireKey: string): string {
-  return `claim@${wireKey}`;
+	return `claim@${wireKey}`;
 }
 
 /** Which end of a wire a ledger key sits on. */
 export function sideOf(row: LiveWire, key: string): SessionSide {
-  return row.aKey === key ? "a" : "b";
+	return row.aKey === key ? "a" : "b";
 }
 
 /** What one observation says about its own reporting end: the producer's
@@ -129,11 +129,11 @@ export function sideOf(row: LiveWire, key: string): SessionSide {
  * something that cannot speak `pancake-next` is a producer contradicting
  * itself, and the viewer repeats what it was told rather than correcting it. */
 export function selfProfileOf(opts?: {
-  selfProfile?: PeerProfile;
-  pancakePrivateProfile?: boolean;
+	selfProfile?: PeerProfile;
+	pancakePrivateProfile?: boolean;
 }): PeerProfile | undefined {
-  if (opts?.selfProfile !== undefined) return opts.selfProfile;
-  return opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined;
+	if (opts?.selfProfile !== undefined) return opts.selfProfile;
+	return opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined;
 }
 
 /** The name an observation's edge is keyed on: the wire, which both
@@ -147,8 +147,8 @@ export function selfProfileOf(opts?: {
  * implementations of "which edge is this" would be two answers the moment
  * one of them changed. */
 export function wireKeyFor(
-  sessionId: string,
-  wire: string | undefined,
+	sessionId: string,
+	wire: string | undefined,
 ): string {
-  return wire !== undefined && wire.length > 0 ? wire : sessionId;
+	return wire !== undefined && wire.length > 0 ? wire : sessionId;
 }

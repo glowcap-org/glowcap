@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import ctypes
+from collections.abc import Callable
+from typing import Any
 
 
-def require_archive_fingerprint(lib, stem: str, expected: int) -> None:
-    symbol = f"pancake_{stem}_archive_fingerprint"
+def require_archive_fingerprint(
+    resolve: Callable[[], Any], stem: str, expected: int
+) -> None:
+    """Resolve and compare one archive fingerprint before ordinary use."""
     try:
-        read = getattr(lib, symbol)
+        read = resolve()
     except AttributeError as error:
         raise RuntimeError(
             f"{stem}: missing archive fingerprint; rebuild the native libraries from this checkout"

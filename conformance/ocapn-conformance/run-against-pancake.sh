@@ -92,8 +92,14 @@ run_module() {
   python3 tools/run-with-timeout.py --kill-after 5s "$MODULE_TIMEOUT" bash conformance/ocapn-conformance/run.sh test "$URL" --test-module "$module" --verbose >"$suite_out" 2>&1
   code=$?
   grep -vE "$FILTER" "$suite_out"
+  if ! kill -0 "$PEER_PID" 2>/dev/null; then
+    echo "ocapn-conformance: pancake peer exited during $module" >&2
+    cat "$LOG" >&2
+    code=1
+  fi
   if [ "$code" -eq 124 ]; then
     echo "ocapn-conformance: $module TIMED OUT after $MODULE_TIMEOUT" >&2
+    cat "$LOG" >&2
   elif ! grep -q "^OK" "$suite_out"; then
     code=1
   elif grep -q "skipped=" "$suite_out"; then

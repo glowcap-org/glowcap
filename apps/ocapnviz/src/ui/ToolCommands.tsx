@@ -53,63 +53,65 @@ import { SIZE, SPACE } from "./tokens.ts";
 /** The row the commands sit in. Renders nothing outside Build, so the
  *  section closes up rather than leaving a gap under the tool strip. */
 export function ToolCommandRow(
-  { mode, children }: { mode: AppMode; children: React.ReactNode },
+	{ mode, children }: { mode: AppMode; children: React.ReactNode },
 ) {
-  if (mode !== "build") return null;
-  return <div style={commandRow}>{children}</div>;
+	if (mode !== "build") return null;
+	return <div style={commandRow}>{children}</div>;
 }
 
 export function ToolCommandButton(
-  { mode, label, ready, whenReady, whenInert, confirm, onRun }: {
-    mode: AppMode;
-    /** What the button says: an imperative verb and what it acts on. */
-    label: string;
-    /** Whether the command has anything to do right now. */
-    ready: boolean;
-    /** Tooltip while it does — what running it would change. */
-    whenReady: string;
-    /** Tooltip while it does not — why, in a sentence. */
-    whenInert: string;
-    /** Asked before running, for a command that cannot be taken back.
-     *  Absent means the act is recoverable and asks nothing. */
-    confirm?: ConfirmRequest;
-    onRun: () => void;
-  },
+	{ mode, label, ready, whenReady, whenInert, confirm, onRun }: {
+		mode: AppMode;
+		/** What the button says: an imperative verb and what it acts on. */
+		label: string;
+		/** Whether the command has anything to do right now. */
+		ready: boolean;
+		/** Tooltip while it does — what running it would change. */
+		whenReady: string;
+		/** Tooltip while it does not — why, in a sentence. */
+		whenInert: string;
+		/** Asked before running, for a command that cannot be taken back.
+		 *  Absent means the act is recoverable and asks nothing. */
+		confirm?: ConfirmRequest;
+		onRun: () => void;
+	},
 ) {
-  if (mode !== "build") return null;
-  return (
-    <button
-      type="button"
-      className="ocv-btn"
-      // Asking is a dialog now rather than the browser's blocking one, so the
-      // click runs in two parts with the reader's answer in between. A command
-      // with nothing to ask still runs before the first await, so nothing about
-      // the recoverable ones waits on a turn of the event loop.
-      onClick={async () => {
-        if (confirm !== undefined && !await requestConfirm(confirm)) return;
-        onRun();
-      }}
-      disabled={!ready}
-      title={ready ? whenReady : whenInert}
-      style={buttonStyle}
-    >
-      {label}
-    </button>
-  );
+	if (mode !== "build") return null;
+	return (
+		<button
+			type="button"
+			className="ocv-btn"
+			// Asking is a dialog now rather than the browser's blocking one, so the
+			// click runs in two parts with the reader's answer in between. A command
+			// with nothing to ask still runs before the first await, so nothing about
+			// the recoverable ones waits on a turn of the event loop.
+			onClick={async () => {
+				if (confirm !== undefined && !await requestConfirm(confirm)) {
+					return;
+				}
+				onRun();
+			}}
+			disabled={!ready}
+			title={ready ? whenReady : whenInert}
+			style={buttonStyle}
+		>
+			{label}
+		</button>
+	);
 }
 
 const commandRow = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: SPACE.xs,
+	display: "flex",
+	flexWrap: "wrap",
+	gap: SPACE.xs,
 } satisfies React.CSSProperties;
 
 // Each button takes an equal share of the row and may grow past its
 // label, but never shrinks below it — which is what makes the row wrap
 // at a narrow pane instead of clipping "Discard all" to "Discard a…".
 const buttonStyle = {
-  flex: "1 1 auto",
-  fontSize: SIZE.base,
+	flex: "1 1 auto",
+	fontSize: SIZE.base,
 } satisfies React.CSSProperties;
 
 /**
@@ -121,26 +123,26 @@ const buttonStyle = {
  * `builder/selection-history.ts`; this is the affordance.
  */
 export function UnpinAllButton(
-  { engine, mode }: { engine: Engine; mode: AppMode },
+	{ engine, mode }: { engine: Engine; mode: AppMode },
 ) {
-  // Subscribe so the inert state tracks the document: pinning the
-  // first node has to wake the button, and the sweep has to put it
-  // back to sleep.
-  const version = useDocVersion(engine);
-  const pinned = useMemo(
-    () => authoredPins(engine.doc).size,
-    [engine, version],
-  );
-  return (
-    <ToolCommandButton
-      mode={mode}
-      label="Unpin all"
-      ready={pinned > 0}
-      whenReady="Return every pinned peer and session end to automatic placement"
-      whenInert="Nothing is pinned. Every node is already placed automatically."
-      onRun={() => clearAllPins(engine)}
-    />
-  );
+	// Subscribe so the inert state tracks the document: pinning the
+	// first node has to wake the button, and the sweep has to put it
+	// back to sleep.
+	const version = useDocVersion(engine);
+	const pinned = useMemo(
+		() => authoredPins(engine.doc).size,
+		[engine, version],
+	);
+	return (
+		<ToolCommandButton
+			mode={mode}
+			label="Unpin all"
+			ready={pinned > 0}
+			whenReady="Return every pinned peer and session end to automatic placement"
+			whenInert="Nothing is pinned. Every node is already placed automatically."
+			onRun={() => clearAllPins(engine)}
+		/>
+	);
 }
 
 /**
@@ -154,27 +156,27 @@ export function UnpinAllButton(
  * one that promises the document itself.
  */
 export function UndoAllButton(
-  { engine, mode, dispatchSelection }: {
-    engine: Engine;
-    mode: AppMode;
-    dispatchSelection: React.Dispatch<SelectionAction>;
-  },
+	{ engine, mode, dispatchSelection }: {
+		engine: Engine;
+		mode: AppMode;
+		dispatchSelection: React.Dispatch<SelectionAction>;
+	},
 ) {
-  // Whether any step is left to walk back, so it goes inert once the
-  // reader reaches the beginning — where `DiscardAllButton` is still
-  // live, because the history it would throw away is still there.
-  const version = useDocVersion(engine);
-  const steps = useMemo(() => engine.canUndo, [engine, version]);
-  return (
-    <ToolCommandButton
-      mode={mode}
-      label="Undo all"
-      ready={steps}
-      whenReady="Take every step back, as far as the history goes. Redo walks forward again."
-      whenInert="You are at the beginning of the history."
-      onRun={() => undoAllWithSelection(engine, dispatchSelection)}
-    />
-  );
+	// Whether any step is left to walk back, so it goes inert once the
+	// reader reaches the beginning — where `DiscardAllButton` is still
+	// live, because the history it would throw away is still there.
+	const version = useDocVersion(engine);
+	const steps = useMemo(() => engine.canUndo, [engine, version]);
+	return (
+		<ToolCommandButton
+			mode={mode}
+			label="Undo all"
+			ready={steps}
+			whenReady="Take every step back, as far as the history goes. Redo walks forward again."
+			whenInert="You are at the beginning of the history."
+			onRun={() => undoAllWithSelection(engine, dispatchSelection)}
+		/>
+	);
 }
 
 /**
@@ -189,34 +191,34 @@ export function UndoAllButton(
  * runs, exactly as switching source does for the same loss.
  */
 export function DiscardAllButton(
-  { engine, mode, dispatchSelection }: {
-    engine: Engine;
-    mode: AppMode;
-    dispatchSelection: React.Dispatch<SelectionAction>;
-  },
+	{ engine, mode, dispatchSelection }: {
+		engine: Engine;
+		mode: AppMode;
+		dispatchSelection: React.Dispatch<SelectionAction>;
+	},
 ) {
-  // Whether there is a history at all, which is not the question
-  // `UndoAllButton` asks. At the beginning of the history there is
-  // nothing left to undo and there is still a history, and this is the
-  // command that gets rid of one.
-  const version = useDocVersion(engine);
-  const anyHistory = useMemo(() => engine.hasHistory, [engine, version]);
-  return (
-    <ToolCommandButton
-      mode={mode}
-      label="Discard all"
-      ready={anyHistory}
-      whenReady="Go back to the document this was built from, and clear the history. This cannot be undone."
-      whenInert="There is no history to discard."
-      confirm={DISCARD_CONFIRM}
-      onRun={() => discardAllEdits(engine, dispatchSelection)}
-    />
-  );
+	// Whether there is a history at all, which is not the question
+	// `UndoAllButton` asks. At the beginning of the history there is
+	// nothing left to undo and there is still a history, and this is the
+	// command that gets rid of one.
+	const version = useDocVersion(engine);
+	const anyHistory = useMemo(() => engine.hasHistory, [engine, version]);
+	return (
+		<ToolCommandButton
+			mode={mode}
+			label="Discard all"
+			ready={anyHistory}
+			whenReady="Go back to the document this was built from, and clear the history. This cannot be undone."
+			whenInert="There is no history to discard."
+			confirm={DISCARD_CONFIRM}
+			onRun={() => discardAllEdits(engine, dispatchSelection)}
+		/>
+	);
 }
 
 export const DISCARD_CONFIRM: ConfirmRequest = {
-  title: "Discard every edit?",
-  detail: "This puts the composition back to the document it was built from " +
-    "and clears the history, so it cannot be undone.",
-  confirmLabel: "Discard all",
+	title: "Discard every edit?",
+	detail: "This puts the composition back to the document it was built from " +
+		"and clears the history, so it cannot be undone.",
+	confirmLabel: "Discard all",
 };

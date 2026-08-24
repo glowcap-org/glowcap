@@ -121,6 +121,26 @@ test "Syrup decode refuses duplicate feature hints as a noncanonical dictionary"
     try std.testing.expect(!peer.session_state.handshake_remote_received);
 }
 
+test "Syrup locator hints reject string and symbol spellings of one name" {
+    const frame_bytes: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{1\"a1\"x1'a1\"y}>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
+}
+
+test "Syrup locator hints require string keys" {
+    const frame_bytes: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{1'a1\"x}>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
+}
+
 test "a session refuses malformed reserved profile hints on the borrowed start-session path" {
     const allocator = std.testing.allocator;
     const hint_maps = [_][]const u8{

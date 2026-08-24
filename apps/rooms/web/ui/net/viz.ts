@@ -3,7 +3,7 @@
 //
 // The endpoint admits no socket without its swiss, so a tab that only knows
 // the URL publishes nothing. Like inspect and listeners next door, the swiss
-// is taken through the Advanced toggle and possession is what the store row
+// is taken through the Capabilities toggle and possession is what the store row
 // says — but this capability is presented to the timeline endpoint rather
 // than fetched on the directory session, so it survives a directory
 // reconnect and ends only with the reader's drop, or with the endpoint
@@ -22,7 +22,7 @@ import { publishViz, type VizPublisher } from "../../../lib/viz_publish.ts";
 import { pastedSwiss } from "../../../lib/operations.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
-import { opsLost, reason } from "./common.ts";
+import { opsLost, trouble } from "./common.ts";
 import { forgetOpsSwiss, rememberedOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 
 /** How long a take waits for the endpoint's answer. Refusal and admission
@@ -57,7 +57,7 @@ function arm(
 ): void {
 	const publisher: VizPublisher = publishViz(url, {
 		cap: swiss,
-		onError: (err) => console.error("rooms: viz publish error:", reason(err)),
+		onError: (err) => trouble("the visualizer publisher errored", err),
 		onStatus: (connected) => {
 			if (held?.publisher !== publisher) return;
 			store.setVizPublish({ url, connected });
@@ -80,7 +80,7 @@ function arm(
 	store.setVizPublish({ url, connected: false });
 }
 
-/** The reader's drop, from the Advanced toggle: stop publishing, uninstall
+/** The reader's drop, from the Capabilities toggle: stop publishing, uninstall
  * the tap, and erase the remembered swiss — no path may drop the capability
  * but keep the secret the reader asked to give up. Also the refusal path's
  * cleanup, where the erased memory is a dead secret rather than a choice. */
@@ -103,7 +103,7 @@ export async function takeVizCap(pasted: string, remember = false): Promise<stri
 	if (url === null) {
 		return "This page has no live timeline endpoint. Start the server with --viz, or open the page with ?viz=<ws url>.";
 	}
-	const swiss = pastedSwiss(pasted);
+	const swiss = pastedSwiss(pasted, "v1_0");
 	if (swiss === "") return "paste the swiss number the server printed";
 	if (held !== null) dropVizCap();
 	const outcome = await new Promise<string>((resolve) => {
@@ -158,5 +158,5 @@ export async function ensureVizPublisher(): Promise<void> {
 	// Nobody is waiting on this arm, so its refusal has no return path: a
 	// restarted endpoint minting a fresh swiss would otherwise turn the toggle
 	// off with no word for a capability the reader had asked to keep.
-	arm(url, pastedSwiss(swiss), { onRefused: (why) => opsLost("viz", why) });
+	arm(url, pastedSwiss(swiss, "v1_0"), { onRefused: (why) => opsLost("viz", why) });
 }

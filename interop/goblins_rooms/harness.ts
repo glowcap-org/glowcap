@@ -34,7 +34,7 @@
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@pancake/runtime";
-import { connectVizViewer, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -144,7 +144,7 @@ async function watchTrace(
 	sturdyref: string,
 ): Promise<{ rows: Map<string, SessionRow>; close: () => Promise<void> }> {
 	const rows = new Map<string, SessionRow>();
-	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+	const viewer = await connectVizViewer(sturdyref, (record) => {
 		const ev = record as unknown as TraceEvent;
 		const row = rows.get(ev.session) ?? {};
 		if (ev.kind === "ocapn.session-opened") {
@@ -238,7 +238,7 @@ try {
 	// while a producer opens a socket and writes records to it. So the vat is
 	// told where the endpoint listens, which the endpoint itself names in the
 	// sturdyref it announced.
-	const publishUrl = `ws://127.0.0.1:${vizPortOf(vizRef)}/`;
+	const publishUrl = vizUrlOf(vizRef);
 
 	// Both members enter the same room and each waits to hear the other. The
 	// pancake client posts once its whole roster is present; the Goblins vat

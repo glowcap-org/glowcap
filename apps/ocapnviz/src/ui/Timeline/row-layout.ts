@@ -59,8 +59,8 @@ export const ROW_PITCH = MIN_LANE_HEIGHT + LANE_GAP;
  * makes.
  */
 export function wholeRowsHeight(available: number): number {
-  if (available <= 0) return 0;
-  return Math.floor(available / ROW_PITCH) * ROW_PITCH;
+	if (available <= 0) return 0;
+	return Math.floor(available / ROW_PITCH) * ROW_PITCH;
 }
 
 /** Height of an expanded category-header row. Pinned to
@@ -78,9 +78,9 @@ export const CATEGORY_HEADER_HEIGHT = MIN_LANE_HEIGHT;
  * lanes. Anchored here so the renderer, hit-tester, and React
  * label column all walk lanes in the same order. */
 export const LANE_ORDER: readonly Exclude<LaneKind, "ruler">[] = [
-  "peers",
-  "sessions",
-  "messages",
+	"peers",
+	"sessions",
+	"messages",
 ];
 
 /** Captured at the start of a row-drag so the pointermove handler
@@ -91,89 +91,89 @@ export const LANE_ORDER: readonly Exclude<LaneKind, "ruler">[] = [
  * indicator at the resolved target slot. Null when no row drag
  * is active (or the drag hasn't moved past the threshold yet). */
 export type RowDragSnapshot = {
-  category: Exclude<LaneKind, "ruler">;
-  entityId: string;
-  startIndex: number;
-  finalIndex: number;
+	category: Exclude<LaneKind, "ruler">;
+	entityId: string;
+	startIndex: number;
+	finalIndex: number;
 };
 
 export type RowDescriptor =
-  | {
-    kind: "category-collapsed";
-    category: Exclude<LaneKind, "ruler">;
-    y: number;
-    height: number;
-  }
-  | {
-    kind: "category-header";
-    category: Exclude<LaneKind, "ruler">;
-    y: number;
-    height: number;
-  }
-  | {
-    kind: "entity-row";
-    category: Exclude<LaneKind, "ruler">;
-    entityId: string;
-    y: number;
-    height: number;
-    hidden: boolean;
-  };
+	| {
+		kind: "category-collapsed";
+		category: Exclude<LaneKind, "ruler">;
+		y: number;
+		height: number;
+	}
+	| {
+		kind: "category-header";
+		category: Exclude<LaneKind, "ruler">;
+		y: number;
+		height: number;
+	}
+	| {
+		kind: "entity-row";
+		category: Exclude<LaneKind, "ruler">;
+		entityId: string;
+		y: number;
+		height: number;
+		hidden: boolean;
+	};
 
 export function* iterateRows(
-  expanded: ReadonlySet<LaneKind>,
-  expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>,
-  /** Per-category ordered entity ids (already resolved via
-   * `orderEntities`). An empty category still gets its row — the
-   * lane toggle, not content, decides row existence. */
-  orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
-  rowHidden: TimelineDocument["rowHidden"],
-  laneHeight: number,
+	expanded: ReadonlySet<LaneKind>,
+	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>,
+	/** Per-category ordered entity ids (already resolved via
+	 * `orderEntities`). An empty category still gets its row — the
+	 * lane toggle, not content, decides row existence. */
+	orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
+	rowHidden: TimelineDocument["rowHidden"],
+	laneHeight: number,
 ): Generator<RowDescriptor> {
-  let y = 0;
-  for (const lane of LANE_ORDER) {
-    if (!expanded.has(lane)) continue;
-    // The lane toggle alone decides whether a category row exists —
-    // empty or not. Chrome answers to user-set state (the toggle,
-    // the expansion set) and never to content: rows that appear and
-    // vanish as data changes are unrequested layout shifts, and a
-    // group emptied while drilled-down would otherwise lose its
-    // chevron and be stuck expanded. A lane the user doesn't want
-    // has its own remedy — toggle it off.
-    if (!expandedCategories.has(lane)) {
-      yield {
-        kind: "category-collapsed",
-        category: lane,
-        y: y + LANE_GAP / 2,
-        height: laneHeight,
-      };
-      y += laneHeight + LANE_GAP;
-      continue;
-    }
-    yield {
-      kind: "category-header",
-      category: lane,
-      y: y + LANE_GAP / 2,
-      height: CATEGORY_HEADER_HEIGHT,
-    };
-    y += CATEGORY_HEADER_HEIGHT + LANE_GAP;
-    const hiddenSet = new Set(rowHidden?.[lane] ?? []);
-    for (const entityId of orderedEntities[lane]) {
-      // `hidden` reports stage visibility, NOT row geometry —
-      // every entity-row paints at full `laneHeight` so the row
-      // remains interactive (drag-to-reorder, click-to-select,
-      // edit on the timeline) regardless of whether the entity
-      // is currently rendered on the stage.
-      yield {
-        kind: "entity-row",
-        category: lane,
-        entityId,
-        y: y + LANE_GAP / 2,
-        height: laneHeight,
-        hidden: hiddenSet.has(entityId),
-      };
-      y += laneHeight + LANE_GAP;
-    }
-  }
+	let y = 0;
+	for (const lane of LANE_ORDER) {
+		if (!expanded.has(lane)) continue;
+		// The lane toggle alone decides whether a category row exists —
+		// empty or not. Chrome answers to user-set state (the toggle,
+		// the expansion set) and never to content: rows that appear and
+		// vanish as data changes are unrequested layout shifts, and a
+		// group emptied while drilled-down would otherwise lose its
+		// chevron and be stuck expanded. A lane the user doesn't want
+		// has its own remedy — toggle it off.
+		if (!expandedCategories.has(lane)) {
+			yield {
+				kind: "category-collapsed",
+				category: lane,
+				y: y + LANE_GAP / 2,
+				height: laneHeight,
+			};
+			y += laneHeight + LANE_GAP;
+			continue;
+		}
+		yield {
+			kind: "category-header",
+			category: lane,
+			y: y + LANE_GAP / 2,
+			height: CATEGORY_HEADER_HEIGHT,
+		};
+		y += CATEGORY_HEADER_HEIGHT + LANE_GAP;
+		const hiddenSet = new Set(rowHidden?.[lane] ?? []);
+		for (const entityId of orderedEntities[lane]) {
+			// `hidden` reports stage visibility, NOT row geometry —
+			// every entity-row paints at full `laneHeight` so the row
+			// remains interactive (drag-to-reorder, click-to-select,
+			// edit on the timeline) regardless of whether the entity
+			// is currently rendered on the stage.
+			yield {
+				kind: "entity-row",
+				category: lane,
+				entityId,
+				y: y + LANE_GAP / 2,
+				height: laneHeight,
+				hidden: hiddenSet.has(entityId),
+			};
+			y += laneHeight + LANE_GAP;
+		}
+	}
 }
 
 /** Marquee-clamp bounds for the Scrubber's plot content rect.
@@ -209,39 +209,39 @@ export function* iterateRows(
  * the entity-row it yields.
  */
 export function rowStackHeight(
-  expanded: ReadonlySet<LaneKind>,
-  expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>,
-  orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
-  laneHeight: number,
+	expanded: ReadonlySet<LaneKind>,
+	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>,
+	orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
+	laneHeight: number,
 ): number {
-  let bottom = 0;
-  for (
-    const row of iterateRows(
-      expanded,
-      expandedCategories,
-      orderedEntities,
-      undefined,
-      laneHeight,
-    )
-  ) {
-    // Each row sits half a gap below its pitch boundary, so the stack's bottom
-    // is the last row's far edge plus the other half.
-    bottom = row.y + row.height + LANE_GAP / 2;
-  }
-  return bottom;
+	let bottom = 0;
+	for (
+		const row of iterateRows(
+			expanded,
+			expandedCategories,
+			orderedEntities,
+			undefined,
+			laneHeight,
+		)
+	) {
+		// Each row sits half a gap below its pitch boundary, so the stack's bottom
+		// is the last row's far edge plus the other half.
+		bottom = row.y + row.height + LANE_GAP / 2;
+	}
+	return bottom;
 }
 
 export function scrubberPlotBounds(
-  view: TimelineView,
-  hostWidth: number,
-  hostHeight: number,
+	view: TimelineView,
+	hostWidth: number,
+	hostHeight: number,
 ): { minX: number; minY: number; maxX: number; maxY: number } {
-  const plotX = plotStartXOf(view);
-  const plotW = plotWidthOf(hostWidth, view);
-  return {
-    minX: plotX,
-    minY: 0,
-    maxX: plotX + plotW,
-    maxY: Math.max(0, hostHeight - RULER_HEIGHT - RULER_TOP_PAD),
-  };
+	const plotX = plotStartXOf(view);
+	const plotW = plotWidthOf(hostWidth, view);
+	return {
+		minX: plotX,
+		minY: 0,
+		maxX: plotX + plotW,
+		maxY: Math.max(0, hostHeight - RULER_HEIGHT - RULER_TOP_PAD),
+	};
 }

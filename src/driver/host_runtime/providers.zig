@@ -56,7 +56,11 @@ pub fn init(
     var session_root: [foundation.crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_root) catch return Error.HandshakeEntropyFailed;
     const core = try allocator.create(driver_core.Host);
-    var core_opts = driver_core.Host.Options{ .codec = opts.codec, .captp_version = opts.captp_version };
+    var core_opts = driver_core.Host.Options{
+        .codec = opts.codec,
+        .captp_version = opts.captp_version,
+        .features = opts.features,
+    };
     core_opts.limits.max_frame_bytes = opts.frame_cap;
     core.* = try driver_core.Host.init(allocator, seed, session_root, core_opts);
     var result = HostRuntime{ .allocator = allocator, .io = io, .core = core, .opts = opts };
@@ -78,6 +82,7 @@ pub fn initWithCore(
         .max_pending_opens = adoption.max_pending_opens,
         .codec = core.opts.codec,
         .captp_version = core.opts.captp_version,
+        .features = core.opts.features,
         .handshake = adoption.handshake,
         .listener_setup = adoption.listener_setup,
         .settle = adoption.settle,

@@ -4,8 +4,8 @@ use super::support::*;
 
 // Promise pipelining (ADR-0007), the questioner's half: `send` returns a
 // `RemotePromise` that is itself a `send` target, so a create -> assign ->
-// complete -> status chain is issued against the *unresolved* create answer,
-// none of the four waits for create's reply. The board returns a freshly
+// complete -> status chain may be issued against the create answer after a
+// fast resolution. The board returns a freshly
 // spawned task; the partner's engine queues the pipelined calls on the create
 // answer and drains them onto the task once create resolves. A status of
 // `done` proves the chain crossed the wire without round-tripping per link.
@@ -52,13 +52,66 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 			.unwrap();
 			ready_rx.await.unwrap();
 			let root = session.fetch("root").await.unwrap();
-			// The four verbs leave together: none awaits create's reply, and
-			// assign / complete / status target the create answer directly.
 			let task = session.send(&root, "create", &[Argument::String("benchmark".into())]);
-			session.send(&task, "assign", &[Argument::String("alice".into())]);
+			session
+				.tell(&task, "assign", &[Argument::String("alice".into())])
+				.unwrap();
 			session.send(&task, "complete", &[]);
 			let status = session.send(&task, "status", &[]).await.unwrap();
 			assert_eq!(status, Argument::String("done".into()));
+
+			let second_server = listen("127.0.0.1:0").await.unwrap();
+			let second_addr = std::net::SocketAddr::from(([127, 0, 0, 1], second_server.port().unwrap()));
+			let (second_ready_tx, second_ready_rx) = oneshot::channel::<()>();
+			let second_host = tokio::task::spawn_local(async move {
+				let second_session = second_server.accept().await.unwrap();
+				let factory = Session::view(Rc::clone(&second_session.shared));
+				second_session
+					.publish("root", move |verb, args| {
+						if verb != "create" {
+							return Err(format!("no such method: {verb}"));
+						}
+						let label = match args.first() {
+							Some(Argument::String(label)) => label.clone(),
+							_ => return Err("create needs a label".to_string()),
+						};
+						let task = factory
+							.spawn(move |task_verb, _args| {
+								if task_verb == "label" {
+									Ok(Argument::String(label.clone()))
+								} else {
+									Err(format!("no such method: {task_verb}"))
+								}
+							})
+							.map_err(|error| error.to_string())?;
+						Ok((&task).into())
+					})
+					.unwrap();
+				second_ready_tx.send(()).unwrap();
+				second_session.serve().await.unwrap();
+			});
+			let second = connect(
+				&crate::tcp::locator(&second_addr.ip().to_string(), second_addr.port()),
+				ConnectOptions::default(),
+			)
+			.await
+			.unwrap();
+			second_ready_rx.await.unwrap();
+			let second_root = second.fetch("root").await.unwrap();
+			let second_task = second.send(&second_root, "create", &[Argument::String("second".into())]);
+			assert_eq!(
+				task.vow(),
+				second_task.vow(),
+				"the scenario needs colliding Host vow ids"
+			);
+			let error = second.send(&task, "label", &[]).await.unwrap_err();
+			assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+			assert_eq!(
+				second.send(&second_task, "label", &[]).await.unwrap(),
+				Argument::String("second".into())
+			);
+			second.close(crate::PendingWork::Cancel).await.unwrap();
+			second_host.await.unwrap();
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})
@@ -155,9 +208,21 @@ async fn pipelined_projections_reach_a_field() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
+			let (trace_tx, mut trace_rx) = tokio::sync::mpsc::unbounded_channel();
+			let uninstall_trace = crate::enable_trace(
+				Box::new(move |event| {
+					if event.kind == crate::TraceKind::MessageDecoded
+						&& event.outbound && event.op.as_deref() == Some("pipeline-sentinel")
+					{
+						let _ = trace_tx.send(());
+					}
+				}),
+				None,
+			);
 			let next_host = || {
 				Host::with_options(crate::HostOptions {
 					captp_version: crate::CaptpVersion::Next,
+					features: crate::FeatureSet::FULL,
 					..Default::default()
 				})
 				.unwrap()
@@ -165,10 +230,17 @@ async fn pipelined_projections_reach_a_field() {
 			let server = listen_with_host("127.0.0.1:0", next_host()).await.unwrap();
 			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
+			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
+			let (release_tx, mut release_rx) = tokio::sync::mpsc::unbounded_channel();
 			let host = tokio::task::spawn_local(async move {
 				let session = server.accept().await.unwrap();
+				let behavior_host = session.host();
 				session
-					.publish("root", |verb, args| {
+					.publish("root", move |verb, args| {
+						if verb == "release" {
+							release_tx.send(()).map_err(|_| "release observer closed".to_string())?;
+							return Ok(Argument::String("released".into()));
+						}
 						if verb != "make" {
 							return Err(format!("no such method: {verb}"));
 						}
@@ -176,24 +248,42 @@ async fn pipelined_projections_reach_a_field() {
 							Some(Argument::String(s)) => s.clone(),
 							_ => "anon".to_string(),
 						};
-						// A Tagged wrapping a single row: untag unwraps to it.
-						Ok(Argument::Tagged {
-							tag: "task".into(),
-							value: vec![Argument::List(vec![
-								Argument::String("assigned".into()),
-								Argument::String(label),
-								Argument::Integer(7),
-							])],
-						})
+						let resolver = behavior_host.defer_turn().map_err(|e| e.to_string())?;
+						resolver_tx
+							.send((resolver, label))
+							.map_err(|_| "resolver observer closed".to_string())?;
+						Ok(Argument::Void)
 					})
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				session.serve().await.unwrap();
 			});
+			let settlement = tokio::task::spawn_local(async move {
+				let (mut resolver, label) = resolver_rx.recv().await.expect("make deferred its answer");
+				release_rx.recv().await.expect("release arrived after the projections");
+				resolver
+					.fulfill(&Argument::Tagged {
+						tag: "task".into(),
+						value: vec![Argument::List(vec![
+							Argument::String("assigned".into()),
+							Argument::String(label),
+							Argument::Integer(7),
+						])],
+					})
+					.unwrap();
+			});
 
 			let session = connect_with_host(&crate::tcp::locator(&addr.ip().to_string(), addr.port()), next_host())
 				.await
 				.unwrap();
+			assert_eq!(
+				session.profile().unwrap(),
+				crate::SessionProfile {
+					captp_version: crate::CaptpVersion::Next,
+					codec: Codec::Syrup,
+					features: crate::FeatureSet::FULL,
+				}
+			);
 			ready_rx.await.unwrap();
 			let root = session.fetch("root").await.unwrap();
 			// Neither projection awaits a prior reply: they ride the
@@ -206,14 +296,26 @@ async fn pipelined_projections_reach_a_field() {
 				field.vow().is_some(),
 				"RemotePromise::get should mint a pipelinable vow"
 			);
-			let label = made.untag("task").index(1).await.unwrap();
+			let label = made.untag("task").index(1);
+			session.tell(&label, "pipeline-sentinel", &[]).unwrap();
+			tokio::time::timeout(std::time::Duration::from_secs(2), trace_rx.recv())
+				.await
+				.expect("projected tell trace timed out")
+				.expect("projected tell reached the wire before settlement");
+			assert_eq!(
+				session.send(&root, "release", &[]).await.unwrap(),
+				Argument::String("released".into())
+			);
+			let label = label.await.unwrap();
 			assert_eq!(label, Argument::String("alice".into()));
 			// The source answer settled while the projection pumped the loop;
 			// awaiting it now must still resolve.
 			let full = made.await.unwrap();
 			assert!(matches!(full, Argument::Tagged { ref tag, .. } if tag == "task"));
 			session.close(crate::PendingWork::Cancel).await.unwrap();
+			settlement.await.unwrap();
 			host.await.unwrap();
+			uninstall_trace();
 		})
 		.await;
 }

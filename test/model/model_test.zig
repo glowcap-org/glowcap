@@ -3,6 +3,21 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 
+fn exporterUriWithAlternatives(
+    allocator: std.mem.Allocator,
+    alternatives: []const u8,
+) ![]u8 {
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .string = alternatives },
+    }};
+    return model.uri.writePeer(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:9049",
+        .hints = .{ .entries = &hints },
+    });
+}
+
 test "hint addition preserves locator invariants" {
     const entries = [_]model.HintEntry{.{ .name = "route", .value = .{ .string = "direct" } }};
     const locator = model.PeerLocator{
@@ -17,6 +32,43 @@ test "hint addition preserves locator invariants" {
     var no_hints = locator;
     no_hints.hints = model.Hints.emptyFalse();
     try std.testing.expectError(error.InvalidFalseHints, model.validateLocatorHintAddition(no_hints, "route"));
+
+    var names: [model.max_locator_hint_count + 1][2]u8 = undefined;
+    var too_many: [model.max_locator_hint_count + 1]model.HintEntry = undefined;
+    for (&too_many, 0..) |*entry, i| {
+        names[i] = .{ @intCast(i + 1), 'h' };
+        entry.* = .{ .name = &names[i], .value = .{ .boolean = true } };
+    }
+    try std.testing.expectError(error.TooManyHints, model.validatePeerLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = .{ .entries = &too_many },
+    }));
+}
+
+test "route plan equality treats hint maps semantically" {
+    const left_entries = [_]model.HintEntry{
+        .{ .name = "address", .value = .{ .string = "127.0.0.1:1" } },
+        .{ .name = "zone", .value = .{ .integer = 2 } },
+    };
+    const right_entries = [_]model.HintEntry{
+        .{ .name = "zone", .value = .{ .integer = 2 } },
+        .{ .name = "address", .value = .{ .string = "127.0.0.1:1" } },
+    };
+    var left_paths = [_]model.RoutePath{
+        .{ .transport = model.transport.keyed_tcp, .designator = "key", .hints = .{ .entries = &left_entries } },
+        .{ .transport = model.transport.tcp, .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() },
+    };
+    var right_paths = [_]model.RoutePath{
+        .{ .transport = model.transport.keyed_tcp, .designator = "key", .hints = .{ .entries = &right_entries } },
+        .{ .transport = model.transport.tcp, .designator = "127.0.0.1:2", .hints = model.Hints.emptyMap() },
+    };
+    var left_identity = [_]u8{'l'};
+    var right_identity = [_]u8{'r'};
+    try std.testing.expect(model.route_bundle.samePaths(
+        .{ .source = .peer_locator, .identity = &left_identity, .paths = &left_paths },
+        .{ .source = .peer_locator, .identity = &right_identity, .paths = &right_paths },
+    ));
 }
 
 test "value-tree types stay within their documented size budget" {
@@ -156,4 +208,210 @@ test "protocol model arms map one-to-one onto Zig Message tags" {
             try std.testing.expectEqualStrings(model.message_kinds[i].model_name, oracle.message_arms[i].name);
         }
     }
+}
+
+test "route bundle parses primary locators and route-list hints through one owner" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectEqual(model.transport.DialShape.route_bundle, model.transport.Known.id.metadata().dial_shape);
+    try std.testing.expect(!model.transport.Known.id.metadata().sealed_channel);
+
+    const exporter =
+        "ocapn://127.0.0.1%3A9049.tcp?alt-locators=ocapn%3A%2F%2F127.0.0.1%253A9050.tcp%7Cocapn%3A%2F%2Fpeer.keyed-relay";
+    var fallback = try model.parseExporterRouteBundleUri(allocator, exporter);
+    defer fallback.deinit(allocator);
+    try std.testing.expectEqual(model.route_bundle.Source.peer_locator, fallback.source);
+    try std.testing.expectEqual(@as(usize, 3), fallback.paths.len);
+    try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9049.tcp", fallback.identity);
+    try std.testing.expectEqualStrings("tcp", fallback.paths[0].transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9049", fallback.paths[0].designator);
+    try std.testing.expectEqualStrings("127.0.0.1:9050", fallback.paths[1].designator);
+    try std.testing.expectEqualStrings(model.transport.keyed_relay, fallback.paths[2].transport);
+
+    const routes = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = "ocapn://127.0.0.1%3A9051.tcp|ocapn://relay-key.keyed-relay" },
+    }};
+    var id = try model.parseIdRouteBundle(allocator, .{
+        .transport = model.transport.id,
+        .designator = "peer-key",
+        .hints = .{ .entries = &routes },
+    });
+    defer id.deinit(allocator);
+    try std.testing.expectEqual(model.route_bundle.Source.id, id.source);
+    try std.testing.expectEqual(@as(usize, 2), id.paths.len);
+    try std.testing.expectEqualStrings("ocapn://peer-key.id", id.identity);
+    try std.testing.expectEqualStrings("127.0.0.1:9051", id.paths[0].designator);
+    try std.testing.expectEqualStrings("relay-key", id.paths[1].designator);
+
+    const id_exporter =
+        "ocapn://peer-key.id?via=ocapn%3A%2F%2F127.0.0.1%253A9051.tcp%7Cocapn%3A%2F%2Frelay-key.keyed-relay";
+    var exported_id = try model.parseExporterRouteBundleUri(allocator, id_exporter);
+    defer exported_id.deinit(allocator);
+    try std.testing.expectEqual(model.route_bundle.Source.id, exported_id.source);
+    try std.testing.expectEqual(@as(usize, 2), exported_id.paths.len);
+
+    const malformed_alt_hints = [_]model.HintEntry{
+        .{
+            .name = model.transport.hint_via,
+            .value = .{ .string = "ocapn://127.0.0.1%3A9051.tcp" },
+        },
+        .{ .name = model.transport.hint_alt_locators, .value = .{ .boolean = true } },
+    };
+    try std.testing.expectError(error.UnparseableLocator, model.route_bundle.fromIdLocator(
+        allocator,
+        .{
+            .transport = model.transport.id,
+            .designator = "peer-key",
+            .hints = .{ .entries = &malformed_alt_hints },
+        },
+    ));
+    try std.testing.expectEqualStrings("ocapn://peer-key.id", exported_id.identity);
+    try std.testing.expectEqualStrings("127.0.0.1:9051", exported_id.paths[0].designator);
+
+    const nested_commas =
+        "ocapn://peer-key.id?via=ocapn%3A%2F%2Froute-key.noise-tcp%3Fdirect-addresses%3D127.0.0.1%253A9051%252C127.0.0.1%253A9052";
+    var nested = try model.parseExporterRouteBundleUri(allocator, nested_commas);
+    defer nested.deinit(allocator);
+    try std.testing.expectEqual(model.route_bundle.Source.id, nested.source);
+    try std.testing.expectEqual(@as(usize, 1), nested.paths.len);
+    try std.testing.expectEqualStrings(model.transport.noise_tcp, nested.paths[0].transport);
+    try std.testing.expectEqualStrings("route-key", nested.paths[0].designator);
+    try std.testing.expectEqual(@as(usize, 1), nested.paths[0].hints.entries.len);
+    try std.testing.expectEqualStrings(model.transport.hint_direct_addresses, nested.paths[0].hints.entries[0].name);
+    try std.testing.expectEqualStrings(
+        "127.0.0.1:9051,127.0.0.1:9052",
+        nested.paths[0].hints.entries[0].value.string,
+    );
+
+    const direct_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_direct_addresses,
+        .value = .{ .string = "127.0.0.1:9051,127.0.0.1:9052" },
+    }};
+    const direct_uri = try model.uri.writePeer(allocator, .{
+        .transport = model.transport.noise_tcp,
+        .designator = "route-key",
+        .hints = .{ .entries = &direct_hints },
+    });
+    defer allocator.free(direct_uri);
+    try std.testing.expectEqualStrings(
+        "ocapn://route-key.noise-tcp?direct-addresses=127.0.0.1%3A9051,127.0.0.1%3A9052",
+        direct_uri,
+    );
+    const rendered_routes = try std.fmt.allocPrint(
+        allocator,
+        "{s}|ocapn://relay-key.keyed-relay",
+        .{direct_uri},
+    );
+    defer allocator.free(rendered_routes);
+    const rendered_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = rendered_routes },
+    }};
+    var rendered = try model.parseIdRouteBundle(allocator, .{
+        .transport = model.transport.id,
+        .designator = "peer-key",
+        .hints = .{ .entries = &rendered_hints },
+    });
+    defer rendered.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2), rendered.paths.len);
+    try std.testing.expectEqualStrings(
+        "127.0.0.1:9051,127.0.0.1:9052",
+        rendered.paths[0].hints.entries[0].value.string,
+    );
+
+    const moved_locator = try model.uri.parsePeer(
+        allocator,
+        "ocapn://127.0.0.1%3A9047.tcp?direct-addresses=127.0.0.1%3A9047",
+    );
+    const moved_transport = moved_locator.transport.ptr;
+    const moved_designator = moved_locator.designator.ptr;
+    var moved = try model.route_bundle.fromOwnedPeerLocator(allocator, moved_locator);
+    defer moved.deinit(allocator);
+    try std.testing.expectEqual(moved_transport, moved.paths[0].transport.ptr);
+    try std.testing.expectEqual(moved_designator, moved.paths[0].designator.ptr);
+}
+
+test "route bundle refuses malformed and over-budget route lists" {
+    const allocator = std.testing.allocator;
+
+    try std.testing.expectError(
+        error.UnparseableLocator,
+        model.parseExporterRouteBundleUri(allocator, "ocapn://127.0.0.1%3A9049.tcp?alt-locators=not-a-peer-uri"),
+    );
+
+    var too_many = std.ArrayList(u8).empty;
+    defer too_many.deinit(allocator);
+    for (0..model.route_bundle.max_route_list_count + 1) |index| {
+        if (index != 0) try too_many.append(allocator, '|');
+        try too_many.appendSlice(allocator, "ocapn://127.0.0.1%3A9051.tcp");
+    }
+    const count_limited = try exporterUriWithAlternatives(allocator, too_many.items);
+    defer allocator.free(count_limited);
+    try std.testing.expectError(error.UnparseableLocator, model.parseExporterRouteBundleUri(allocator, count_limited));
+
+    var at_limit = std.ArrayList(u8).empty;
+    defer at_limit.deinit(allocator);
+    for (0..model.route_bundle.max_route_list_count - 1) |index| {
+        if (index != 0) try at_limit.append(allocator, '|');
+        try at_limit.appendSlice(allocator, "ocapn://127.0.0.1%3A9051.tcp");
+    }
+    const accepted_at_limit = try exporterUriWithAlternatives(allocator, at_limit.items);
+    defer allocator.free(accepted_at_limit);
+    var full = try model.parseExporterRouteBundleUri(allocator, accepted_at_limit);
+    defer full.deinit(allocator);
+    try std.testing.expectEqual(model.route_bundle.max_route_list_count, full.paths.len);
+
+    var full_fallbacks = std.ArrayList(u8).empty;
+    defer full_fallbacks.deinit(allocator);
+    for (0..model.route_bundle.max_route_list_count) |index| {
+        if (index != 0) try full_fallbacks.append(allocator, '|');
+        try full_fallbacks.appendSlice(allocator, "ocapn://127.0.0.1%3A9051.tcp");
+    }
+    const primary_plus_full_list = try exporterUriWithAlternatives(allocator, full_fallbacks.items);
+    defer allocator.free(primary_plus_full_list);
+    try std.testing.expectError(
+        error.UnparseableLocator,
+        model.parseExporterRouteBundleUri(allocator, primary_plus_full_list),
+    );
+
+    try std.testing.expectError(
+        error.UnparseableLocator,
+        model.parseExporterRouteBundleUri(
+            allocator,
+            "ocapn://127.0.0.1%3A9049.tcp?alt-locators=ocapn%3A%2F%2Fpeer.id%3Fvia%3Docapn%253A%252F%252Fpeer.iroh",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnparseableLocator,
+        model.parseExporterRouteBundleUri(
+            allocator,
+            "ocapn://127.0.0.1%3A9049.tcp?alt-locators=ocapn%3A%2F%2F127.0.0.1%253A9050.tcp%3Falt-locators%3Docapn%253A%252F%252F127.0.0.1%25253A9051.tcp",
+        ),
+    );
+
+    const duplicate_alt_hints = [_]model.HintEntry{
+        .{
+            .name = model.transport.hint_alt_locators,
+            .value = .{ .string = "ocapn://127.0.0.1%3A9050.tcp" },
+        },
+        .{
+            .name = model.transport.hint_alt_locators,
+            .value = .{ .string = "ocapn://127.0.0.1%3A9051.tcp" },
+        },
+    };
+    try std.testing.expectError(error.UnparseableLocator, model.parseRouteBundleLocator(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:9049",
+        .hints = .{ .entries = &duplicate_alt_hints },
+    }));
+
+    const byte_alt_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .bytes = "ocapn://127.0.0.1%3A9050.tcp" },
+    }};
+    try std.testing.expectError(error.UnparseableLocator, model.parseRouteBundleLocator(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = "127.0.0.1:9049",
+        .hints = .{ .entries = &byte_alt_hints },
+    }));
 }

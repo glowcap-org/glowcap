@@ -35,27 +35,27 @@ import { observationsOf } from "./temporal/recording-access.ts";
  * known.
  */
 function indexPeersByDesignator(
-  peers: Iterable<{ id: string; designator?: string | undefined }>,
+	peers: Iterable<{ id: string; designator?: string | undefined }>,
 ): Map<string, string | null> {
-  const into = new Map<string, string | null>();
-  for (const peer of peers) {
-    const name = peer.designator;
-    if (name === undefined || name === "") continue;
-    const held = into.get(name);
-    if (held === undefined) into.set(name, peer.id);
-    else if (held !== peer.id) into.set(name, null);
-  }
-  return into;
+	const into = new Map<string, string | null>();
+	for (const peer of peers) {
+		const name = peer.designator;
+		if (name === undefined || name === "") continue;
+		const held = into.get(name);
+		if (held === undefined) into.set(name, peer.id);
+		else if (held !== peer.id) into.set(name, null);
+	}
+	return into;
 }
 
 /** The peer a designator names, or undefined when it names nobody the
  *  document declares — or more than one. */
 function claimedPeer(
-  designator: string | undefined,
-  byDesignator: ReadonlyMap<string, string | null>,
+	designator: string | undefined,
+	byDesignator: ReadonlyMap<string, string | null>,
 ): string | undefined {
-  if (designator === undefined) return undefined;
-  return byDesignator.get(designator) ?? undefined;
+	if (designator === undefined) return undefined;
+	return byDesignator.get(designator) ?? undefined;
 }
 
 /**
@@ -85,37 +85,39 @@ function claimedPeer(
  * asked by `claimsOnStage` where the era's node set is known.
  */
 export function claimedPeerByEnd(doc: TimelineDocument): Map<string, string> {
-  const byDesignator = indexPeersByDesignator(
-    Array.from(peerDesignators(doc), ([id, designator]) => ({
-      id,
-      designator,
-    })),
-  );
-  const named = new Map<string, string>();
-  for (const [stageId, claim] of endpointClaims(doc)) {
-    const peerId = claimedPeer(claim, byDesignator);
-    if (peerId !== undefined && peerId !== stageId) named.set(stageId, peerId);
-  }
-  if (named.size === 0) return named;
-  // A stage id belongs to exactly one session, so one entry per end is enough
-  // to find a claim's other end. Every candidate is collected before any is
-  // dropped, so the two ends of one session decide together rather than in
-  // listed order — and so the lookup is one step deep and never follows a
-  // chain: a claim at the far end contributes the peer IT names.
-  const otherEnd = new Map<string, string>();
-  for (const ends of sessionEnds(doc).values()) {
-    if (ends.a === ends.b) continue;
-    otherEnd.set(ends.a, ends.b);
-    otherEnd.set(ends.b, ends.a);
-  }
-  const claimed = new Map<string, string>();
-  for (const [stageId, peerId] of named) {
-    const other = otherEnd.get(stageId);
-    if (other === undefined) continue;
-    if ((named.get(other) ?? other) === peerId) continue;
-    claimed.set(stageId, peerId);
-  }
-  return claimed;
+	const byDesignator = indexPeersByDesignator(
+		Array.from(peerDesignators(doc), ([id, designator]) => ({
+			id,
+			designator,
+		})),
+	);
+	const named = new Map<string, string>();
+	for (const [stageId, claim] of endpointClaims(doc)) {
+		const peerId = claimedPeer(claim, byDesignator);
+		if (peerId !== undefined && peerId !== stageId) {
+			named.set(stageId, peerId);
+		}
+	}
+	if (named.size === 0) return named;
+	// A stage id belongs to exactly one session, so one entry per end is enough
+	// to find a claim's other end. Every candidate is collected before any is
+	// dropped, so the two ends of one session decide together rather than in
+	// listed order — and so the lookup is one step deep and never follows a
+	// chain: a claim at the far end contributes the peer IT names.
+	const otherEnd = new Map<string, string>();
+	for (const ends of sessionEnds(doc).values()) {
+		if (ends.a === ends.b) continue;
+		otherEnd.set(ends.a, ends.b);
+		otherEnd.set(ends.b, ends.a);
+	}
+	const claimed = new Map<string, string>();
+	for (const [stageId, peerId] of named) {
+		const other = otherEnd.get(stageId);
+		if (other === undefined) continue;
+		if ((named.get(other) ?? other) === peerId) continue;
+		claimed.set(stageId, peerId);
+	}
+	return claimed;
 }
 
 /**
@@ -126,14 +128,16 @@ export function claimedPeerByEnd(doc: TimelineDocument): Map<string, string> {
  * present and which are ordinary bodies.
  */
 export function claimsOnStage(
-  claimed: ReadonlyMap<string, string>,
-  present: ReadonlySet<string>,
+	claimed: ReadonlyMap<string, string>,
+	present: ReadonlySet<string>,
 ): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const [stageId, peerId] of claimed) {
-    if (present.has(stageId) && present.has(peerId)) out.set(stageId, peerId);
-  }
-  return out;
+	const out = new Map<string, string>();
+	for (const [stageId, peerId] of claimed) {
+		if (present.has(stageId) && present.has(peerId)) {
+			out.set(stageId, peerId);
+		}
+	}
+	return out;
 }
 
 /**
@@ -142,27 +146,27 @@ export function claimsOnStage(
  * stage id in any era's node set, so nothing ever looks its claim up.
  */
 export function endpointClaims(doc: TimelineDocument): Map<string, string> {
-  const claims = new Map<string, string>();
-  for (
-    const [sessionId, def] of Object.entries(doc.entities?.sessions ?? {})
-  ) {
-    for (const side of SESSION_SIDES) {
-      const claim = def[side].designator;
-      if (claim !== undefined) {
-        claims.set(endpointStageId(sessionId, side), claim);
-      }
-    }
-  }
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    if (ev.kind !== "session-opened") continue;
-    for (const side of SESSION_SIDES) {
-      const stageId = endpointStageId(ev.sessionId, side);
-      if (claims.has(stageId)) continue; // entities entry won
-      const claim = ev[side].designator;
-      if (claim !== undefined) claims.set(stageId, claim);
-    }
-  }
-  return claims;
+	const claims = new Map<string, string>();
+	for (
+		const [sessionId, def] of Object.entries(doc.entities?.sessions ?? {})
+	) {
+		for (const side of SESSION_SIDES) {
+			const claim = def[side].designator;
+			if (claim !== undefined) {
+				claims.set(endpointStageId(sessionId, side), claim);
+			}
+		}
+	}
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		if (ev.kind !== "session-opened") continue;
+		for (const side of SESSION_SIDES) {
+			const stageId = endpointStageId(ev.sessionId, side);
+			if (claims.has(stageId)) continue; // entities entry won
+			const claim = ev[side].designator;
+			if (claim !== undefined) claims.set(stageId, claim);
+		}
+	}
+	return claims;
 }
 
 /**
@@ -179,26 +183,26 @@ export function endpointClaims(doc: TimelineDocument): Map<string, string> {
  * lands, with no re-solve behind it.
  */
 export function sessionEnds(
-  doc: TimelineDocument,
+	doc: TimelineDocument,
 ): Map<string, { a: string; b: string }> {
-  const ends = new Map<string, { a: string; b: string }>();
-  for (
-    const [sessionId, def] of Object.entries(doc.entities?.sessions ?? {})
-  ) {
-    ends.set(sessionId, {
-      a: endpointNodeId(sessionId, "a", def.a),
-      b: endpointNodeId(sessionId, "b", def.b),
-    });
-  }
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    if (ev.kind !== "session-opened") continue;
-    if (ends.has(ev.sessionId)) continue; // entities entry won
-    ends.set(ev.sessionId, {
-      a: endpointNodeId(ev.sessionId, "a", ev.a),
-      b: endpointNodeId(ev.sessionId, "b", ev.b),
-    });
-  }
-  return ends;
+	const ends = new Map<string, { a: string; b: string }>();
+	for (
+		const [sessionId, def] of Object.entries(doc.entities?.sessions ?? {})
+	) {
+		ends.set(sessionId, {
+			a: endpointNodeId(sessionId, "a", def.a),
+			b: endpointNodeId(sessionId, "b", def.b),
+		});
+	}
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		if (ev.kind !== "session-opened") continue;
+		if (ends.has(ev.sessionId)) continue; // entities entry won
+		ends.set(ev.sessionId, {
+			a: endpointNodeId(ev.sessionId, "a", ev.a),
+			b: endpointNodeId(ev.sessionId, "b", ev.b),
+		});
+	}
+	return ends;
 }
 
 /**
@@ -209,15 +213,17 @@ export function sessionEnds(
  * peer only ever arrives under a name somebody stated.
  */
 function peerDesignators(doc: TimelineDocument): Map<string, string> {
-  const designators = new Map<string, string>();
-  for (const [peerId, def] of Object.entries(doc.entities?.peers ?? {})) {
-    if (def.designator !== undefined) designators.set(peerId, def.designator);
-  }
-  for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
-    if (ev.kind !== "peer-joined") continue;
-    if (ev.designator === undefined) continue;
-    if (designators.has(ev.peerId)) continue; // entities entry won
-    designators.set(ev.peerId, ev.designator);
-  }
-  return designators;
+	const designators = new Map<string, string>();
+	for (const [peerId, def] of Object.entries(doc.entities?.peers ?? {})) {
+		if (def.designator !== undefined) {
+			designators.set(peerId, def.designator);
+		}
+	}
+	for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
+		if (ev.kind !== "peer-joined") continue;
+		if (ev.designator === undefined) continue;
+		if (designators.has(ev.peerId)) continue; // entities entry won
+		designators.set(ev.peerId, ev.designator);
+	}
+	return designators;
 }

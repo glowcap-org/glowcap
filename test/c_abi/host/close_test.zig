@@ -17,6 +17,7 @@ const argInt = harness.argInt;
 const argStr = harness.argStr;
 const argRef = harness.argRef;
 const frame_cap = harness.frame_cap;
+const sessionLimitOptions = harness.sessionLimitOptions;
 const close_cancel = harness.close_cancel;
 const close_finish_unbounded = harness.close_finish_unbounded;
 const closeFinish = harness.closeFinish;
@@ -307,10 +308,34 @@ test "byte-fed session close owns grace deadline and escalation" {
     try std.testing.expectEqual(c.PANCAKE_ERR_TIMEOUT, cd.pancake_host_session_lifecycle_state(session, &state));
 }
 
-test "pancake_host_set_session_limits overrides queue_cap before mint (ADR-0082)" {
+test "pancake_host_set_session_limits validates one versioned patch and updates durable limits" {
     const host = try newHost(0x51);
     defer _ = cd.pancake_host_release(host);
-    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19, 0));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, cd.pancake_host_set_session_limits(host, null));
+    var unsupported = sessionLimitOptions(0, 19, 0, 0);
+    unsupported.abi_version = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_set_session_limits(host, &unsupported),
+    );
+    unsupported = sessionLimitOptions(0, 19, 0, 0);
+    unsupported.struct_size -= 1;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_set_session_limits(host, &unsupported),
+    );
+    if (comptime @sizeOf(usize) > @sizeOf(u32)) {
+        unsupported = sessionLimitOptions(0, 0, 0, @as(usize, std.math.maxInt(u32)) + 1);
+        try std.testing.expectEqual(
+            c.PANCAKE_ERR_INVALID_ARGUMENT,
+            cd.pancake_host_set_session_limits(host, &unsupported),
+        );
+    }
+    var limits = sessionLimitOptions(0, 19, 0, 8 * 1024 * 1024);
+    try expectOk(cd.pancake_host_set_session_limits(host, &limits));
+    const configured = try cd.testing.configuredSessionLimits(host);
+    try std.testing.expectEqual(@as(usize, 19), configured.queue_cap);
+    try std.testing.expectEqual(@as(u32, 8 * 1024 * 1024), configured.max_retained_sent_answer_bytes);
     // Mint a dialed session; limits land via Host.negotiatingOptions.
     try ensureAdvertisedLocator(host, "tcp");
     var session: ?*cd.PancakeHostSession = null;
@@ -406,7 +431,7 @@ test "take_outbound returns one stream-ready vector without transport inference"
     try std.testing.expect(noise_frame.len > 0);
 }
 
-test "take_outbound allocation refusal preserves the queued frame" {
+test "take_outbound wraps an already queued frame without allocating" {
     const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingHost;
     var counting = CountingHost{};
     const spec = counting.spec();
@@ -435,17 +460,6 @@ test "take_outbound allocation refusal preserves the queued frame" {
     var prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
     var prefix_len: usize = undefined;
     counting.fail_allocations = true;
-    try std.testing.expectEqual(
-        c.PANCAKE_ERR_INTERNAL,
-        cd.pancake_host_session_take_outbound(
-            session,
-            &frame,
-            &prefix,
-            prefix.len,
-            &prefix_len,
-        ),
-    );
-    counting.fail_allocations = false;
     try expectOk(cd.pancake_host_session_take_outbound(
         session,
         &frame,
@@ -454,6 +468,14 @@ test "take_outbound allocation refusal preserves the queued frame" {
         &prefix_len,
     ));
     c.pancake_managed_frame_release(&frame);
+    counting.fail_allocations = false;
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_session_take_outbound(
+        session,
+        &frame,
+        &prefix,
+        prefix.len,
+        &prefix_len,
+    ));
 
     try expectOk(cd.pancake_host_session_release(session));
     try expectOk(cd.pancake_host_release(host));
@@ -465,7 +487,8 @@ test "pancake_host_release accepts an exclusive terminal thread transfer" {
     const host = try newHost(0x52);
     // Claim the Host on this thread through an ordinary live verb first. Only
     // terminal ownership moves; every nonterminal call remains thread-affine.
-    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19, 0));
+    var limits = sessionLimitOptions(0, 19, 0, 0);
+    try expectOk(cd.pancake_host_set_session_limits(host, &limits));
 
     var release_rc: i32 = c.PANCAKE_ERR_INTERNAL;
     const thread = try std.Thread.spawn(.{}, struct {

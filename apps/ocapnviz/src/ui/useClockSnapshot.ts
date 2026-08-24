@@ -14,13 +14,13 @@ import type { ClockSnapshot } from "../engine/clock.ts";
 import type { Engine } from "../engine/engine.ts";
 
 export function useClockSnapshot(engine: Engine): ClockSnapshot {
-  const subscribe = useCallback(
-    (cb: () => void) => engine.subscribe(cb),
-    [engine],
-  );
-  const getSnapshot = useCallback(
-    () => engine.clock.snapshot(),
-    [engine],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot);
+	const subscribe = useCallback(
+		(cb: () => void) => engine.subscribe(cb),
+		[engine],
+	);
+	const getSnapshot = useCallback(
+		() => engine.clock.snapshot(),
+		[engine],
+	);
+	return useSyncExternalStore(subscribe, getSnapshot);
 }

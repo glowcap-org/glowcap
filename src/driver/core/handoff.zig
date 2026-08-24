@@ -20,6 +20,7 @@ const host_mod = @import("host.zig");
 const host_pump = @import("host/pump.zig");
 const enliven_mod = @import("enliven.zig");
 const capability = @import("capability.zig");
+const pending_dial_identity = @import("pending_dial_identity.zig");
 const sessions_mod = @import("sessions.zig");
 
 const Host = host_mod.Host;
@@ -94,59 +95,93 @@ pub fn wireNodeServices(self: *Host) void {
 
 /// Borrow the in-flight pending dial for `ticket`, or null if settled.
 /// Same contract as `Node.pendingDial`.
-pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId) ?engine.Node.PendingDialView {
+pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId, route_index: usize) ?engine.Node.PendingDialView {
     switch (self.lifecyclePhase()) {
         .active, .finishing => {},
         .terminating, .closed => return null,
     }
-    return self.node.pendingDial(ticket);
+    return self.node.pendingDial(ticket, route_index);
 }
 
-/// Finish a ticketed Node effect after its row was consumed. Outbound
-/// backpressure is already represented by the dirty session's FLUSH action,
-/// so surfacing WOULD_BLOCK here would invite an invalid retry of an effect
-/// that committed. Allocation failure remains visible: the ticket verbs are
-/// idempotent on a stale ticket, which lets the embedder retry only to resume
-/// host cleanup once memory is available.
-fn finishCommittedEffect(self: *Host) !void {
+/// Complete work after a Host verb commits its Node transition. Pressure
+/// leaves the dirty/action queues as continuation state; it must not make the
+/// caller retry an operation whose authority already moved.
+fn finishCommittedEffect(self: *Host) void {
     host_pump.finishVerb(self) catch |err| switch (err) {
-        error.OutboundBackpressure => return,
-        else => return err,
+        error.OutOfMemory, error.OutboundBackpressure => {},
+        else => sessions_mod.condemnRemainingSessions(self, "committed host effect failed"),
     };
 }
 
 /// Report a `dial` action's success: `session` is an `openPendingDial`
-/// against that ticket's pending locator, driven to an open session. The
-/// node withdraws every give waiting on the ticket; the withdraws and
-/// their flushes pump inside this call. A stale ticket is a no-op.
-pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, session: *HostSession) !void {
+/// against that ticket and route's pending locator, driven to an open session.
+/// The node adopts it for every give waiting on the logical ticket. The bounded Host pump
+/// advances resulting work before return; pressure stays queued for the next
+/// action drain. A stale or non-running attempt is a no-op.
+pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, session: *HostSession) !bool {
     try self.refuseReentry();
     try self.checkSession(session);
-    try self.node.exporterDialed(ticket, session.peer_handle);
-    // Enlivens parked on this ticket continue over the opened session,
-    // each settling its pre-minted vow; their fetch frames ride the same
-    // finish pump the withdraws do.
-    enliven_mod.settleParkedEnlivens(self, ticket, session, "");
-    try finishCommittedEffect(self);
+    const adopted = try completeExporter(self, ticket, route_index, session, .dialed);
+    finishCommittedEffect(self);
+    return adopted;
+}
+
+fn completeExporter(
+    self: *Host,
+    ticket: engine.Node.PendingId,
+    route_index: usize,
+    session: *HostSession,
+    mode: engine.Node.ExporterCompletion,
+) !bool {
+    const completion = (try switch (mode) {
+        .dialed => pending_dial_identity.requireDialed(self, ticket, route_index, session),
+        .selected => pending_dial_identity.requireSelected(self, ticket, route_index, session),
+    }) orelse return false;
+    const adopted = try self.node.exporterCompleted(
+        ticket,
+        route_index,
+        session.peer_handle,
+        mode,
+    );
+    if (!adopted) return false;
+    // Enlivens parked on this ticket continue over the opened session, each
+    // settling its pre-minted vow; their fetch frames ride the same action
+    // drain as the withdraws.
+    enliven_mod.settleParkedEnlivens(self, ticket, .{ .opened = .{
+        .session = session,
+        .provenance = completion.provenance,
+    } });
+    return true;
+}
+
+/// Internal action-pump completion when a pending route already has a live
+/// session. The enclosing pump owns the finish tail.
+pub fn completeSelectedExporter(
+    self: *Host,
+    ticket: engine.Node.PendingId,
+    route_index: usize,
+    session: *HostSession,
+) !bool {
+    return completeExporter(self, ticket, route_index, session, .selected);
 }
 
 /// Report a `dial` action's failure. A failed path may leave the ticket live
 /// and queue another dial; parked select-or-dial operations therefore settle
-/// only when Node reports exhaustion. A stale ticket is a no-op.
-pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, reason: []const u8) !void {
+/// only when Node reports exhaustion. A stale or non-running attempt is a no-op.
+pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, reason: []const u8) !void {
     try self.refuseReentry();
-    const outcome = try self.node.dialFailed(ticket, reason);
+    const outcome = try self.node.dialFailed(ticket, route_index, reason);
     if (outcome == .exhausted)
-        enliven_mod.settleParkedEnlivens(self, ticket, null, reason);
-    try finishCommittedEffect(self);
+        enliven_mod.settleParkedEnlivens(self, ticket, .{ .failed = reason });
+    finishCommittedEffect(self);
 }
 
 /// A `cancel_dial` executor has interrupted and joined the physical dial it
 /// owned. Terminal Host completion remains pending until this report arrives.
-pub fn dialCancelled(self: *Host, ticket: engine.Node.PendingId) !void {
+pub fn dialCancelled(self: *Host, ticket: engine.Node.PendingId, route_index: usize) !void {
     try self.refuseReentry();
-    self.node.dialCancelled(ticket);
-    try finishCommittedEffect(self);
+    self.node.dialCancelled(ticket, route_index);
+    finishCommittedEffect(self);
 }
 
 /// Answer a `need_gift_id` action with 32 host-drawn bytes: the node
@@ -155,7 +190,7 @@ pub fn dialCancelled(self: *Host, ticket: engine.Node.PendingId) !void {
 pub fn provideGiftId(self: *Host, ticket: u64, gift_id: []const u8) !void {
     try self.refuseReentry();
     try self.node.provideGiftId(ticket, gift_id);
-    try finishCommittedEffect(self);
+    finishCommittedEffect(self);
 }
 
 /// Report that the embedder could not answer a `need_gift_id` action. The
@@ -164,7 +199,7 @@ pub fn provideGiftId(self: *Host, ticket: u64, gift_id: []const u8) !void {
 pub fn giftIdFailed(self: *Host, ticket: u64) !void {
     try self.refuseReentry();
     try self.node.giftIdFailed(ticket);
-    try finishCommittedEffect(self);
+    finishCommittedEffect(self);
 }
 
 /// Redeem a `desc:handoff-give` this recipient `session` received outside
@@ -185,7 +220,7 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.node.acceptGive(session.peer_handle, answer, give, exporter_locator);
-    try finishCommittedEffect(self);
+    finishCommittedEffect(self);
 }
 
 /// Record the exporter locator to embed in gives whose exporter is `session`

@@ -254,6 +254,11 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, workflow, "gh release create") == null) {
         try appendViolation(gpa, violations, "{s}: must still contain `gh release create` for the tag path", .{release_workflow});
     }
+    if (std.mem.indexOf(u8, workflow, "expected_tag=\"v$(jq -r '.abi_version' bindings/c-abi-resolve.json)\"") == null or
+        std.mem.indexOf(u8, workflow, "GITHUB_REF_NAME\" != \"$expected_tag") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: tag publication must require `v<abi_version>` from bindings/c-abi-resolve.json", .{release_workflow});
+    }
     if (std.mem.indexOf(u8, workflow, "jq") == null or
         std.mem.indexOf(u8, workflow, ".releases_published == true") == null)
     {
@@ -261,6 +266,112 @@ pub fn checkCAbiResolve(
     }
     if (std.mem.indexOf(u8, workflow, "workflow_dispatch") == null) {
         try appendViolation(gpa, violations, "{s}: must offer workflow_dispatch for dry-run archive builds", .{release_workflow});
+    }
+    if (std.mem.indexOf(u8, workflow, "zig build -Doptimize=ReleaseSafe release-pack") == null) {
+        try appendViolation(gpa, violations, "{s}: release archives must be built explicitly in ReleaseSafe mode", .{release_workflow});
+    }
+    if (std.mem.indexOf(u8, workflow, "actions: read") == null or
+        std.mem.indexOf(u8, workflow, "/actions/workflows/check.yml/runs") == null or
+        std.mem.indexOf(u8, workflow, "head_sha=$GITHUB_SHA") == null or
+        std.mem.indexOf(u8, workflow, ".conclusion == \"success\"") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: tag publication must require a successful check.yml run for the exact GITHUB_SHA", .{release_workflow});
+    }
+    if (std.mem.indexOf(u8, workflow, "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == null or
+        std.mem.indexOf(u8, workflow, "attestations: write") == null or
+        std.mem.indexOf(u8, workflow, "id-token: write") == null or
+        std.mem.indexOf(u8, workflow, "artifact-metadata: write") == null or
+        std.mem.indexOf(u8, workflow, "release-assets/*.tar.gz") == null or
+        std.mem.indexOf(u8, workflow, "release-assets/SHA256SUMS") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: published archives and SHA256SUMS must receive GitHub artifact attestations", .{release_workflow});
+    }
+
+    const release_build_path = "tools/build/release.zig";
+    const release_build = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_build_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(release_build);
+    if (std.mem.indexOf(u8, release_build, "cp -aL zig-out/lib") != null or
+        std.mem.indexOf(u8, release_build, "zig-out/lib zig-out/include") != null)
+    {
+        try appendViolation(gpa, violations, "{s}: release staging must not copy the shared install directories; dirty and cross-target artifacts would enter the bundle", .{release_build_path});
+    }
+    for ([_][]const u8{
+        "pub const Manifest = struct",
+        "static_archives: []const []const u8",
+        "dynamic_archives: []const []const u8",
+        "missing static archive",
+        "missing shared-library member",
+        "stage must contain only regular files and directories",
+        "release-pack refuses Debug artifacts",
+        "tools/check/release-pack-smoke.sh",
+    }) |marker| {
+        if (std.mem.indexOf(u8, release_build, marker) == null) {
+            try appendViolation(gpa, violations, "{s}: target-isolated release staging requires `{s}`", .{ release_build_path, marker });
+        }
+    }
+
+    const release_smoke_path = "tools/check/release-pack-smoke.sh";
+    const release_smoke = root.readFileAlloc(io, release_smoke_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_smoke_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(release_smoke);
+    for ([_][]const u8{
+        "sha256sum -c SHA256SUMS",
+        "pancake_abi_version",
+        "pancake_ocapn_archive_fingerprint",
+        "pancake_host_archive_fingerprint",
+        "pancake_driver_archive_fingerprint",
+        "pancake_%s_archive_fingerprint",
+        "static manifest omits libpancake_ocapn",
+        "shared manifest omits libpancake_ocapn",
+        "repo_root=",
+        ". \"$repo_root/tools/c-abi/archive-hygiene.sh\"",
+        "archive_hygiene_check",
+        "TAR_OPTIONS=",
+        "--no-same-owner",
+        "zig cc",
+        "write_consumer \"$workdir/static-$name-consumer.c\" \"$name\"",
+        "shared-consumer",
+        "bin/pancake",
+        "bin/rooms-peer",
+    }) |marker| {
+        if (std.mem.indexOf(u8, release_smoke, marker) == null) {
+            try appendViolation(gpa, violations, "{s}: extracted release consumer proof requires `{s}`", .{ release_smoke_path, marker });
+        }
+    }
+
+    const stability_path = "docs/stability.md";
+    const stability = root.readFileAlloc(io, stability_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read extracted-consumer evidence with {s}", .{ stability_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(stability);
+    if (std.mem.indexOf(u8, stability, "`release-pack` also safely extracts its tarball off-tree") == null or
+        std.mem.indexOf(u8, stability, "independent C consumer for each self-contained static archive") == null or
+        std.mem.indexOf(u8, stability, "There is no independent C consumer") != null)
+    {
+        try appendViolation(gpa, violations, "{s}: C ABI evidence must state the extracted static/shared consumer proof rather than the retired no-consumer limitation", .{stability_path});
+    }
+
+    const root_build_path = "build.zig";
+    const root_build = root.readFileAlloc(io, root_build_path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for release-manifest authority with {s}", .{ root_build_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(root_build);
+    for ([_][]const u8{
+        "release_install: bool = true",
+        ".static_archives = release_static_archives.items",
+        ".dynamic_archives = release_dynamic_archives.items",
+        ".headers = release_headers.items",
+    }) |marker| {
+        if (std.mem.indexOf(u8, root_build, marker) == null) {
+            try appendViolation(gpa, violations, "{s}: archive_table must drive the release manifest through `{s}`", .{ root_build_path, marker });
+        }
     }
 
     // Package-ship surfaces: contract must be reachable from published packages.

@@ -80,7 +80,7 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     try std.testing.expectError(condemned_err, a.tell(condemned, target, .{ .verb = "poke", .args = &.{} }));
     try std.testing.expectError(condemned_err, a.fetch(condemned, "widget"));
     try std.testing.expectError(condemned_err, a.enliven(condemned, tcpSturdyref(designator, "widget")));
-    try std.testing.expectError(condemned_err, a.exporterDialed(0, condemned));
+    _ = try std.testing.expectError(condemned_err, a.exporterDialed(0, 0, condemned));
     try std.testing.expectError(condemned_err, a.breakFarVows(condemned, "gone"));
     try std.testing.expectError(condemned_err, a.setExporterLocation(condemned, null));
 

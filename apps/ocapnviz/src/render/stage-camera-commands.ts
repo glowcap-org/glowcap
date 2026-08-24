@@ -28,18 +28,18 @@ export const FIT_PADDING_PX = 24;
 
 /** The slice of pixi-viewport a named command needs. */
 export type StageCameraTarget = {
-  readonly center: { readonly x: number; readonly y: number };
-  readonly scale: { readonly x: number };
-  readonly screenWidth: number;
-  readonly screenHeight: number;
-  setZoom(zoom: number, center?: boolean): unknown;
-  moveCenter(x: number, y: number): unknown;
+	readonly center: { readonly x: number; readonly y: number };
+	readonly scale: { readonly x: number };
+	readonly screenWidth: number;
+	readonly screenHeight: number;
+	setZoom(zoom: number, center?: boolean): unknown;
+	moveCenter(x: number, y: number): unknown;
 };
 
 /** A layer Fit may measure. Empty layers are skipped by `unionBounds`. */
 export type StageFitLayer = {
-  readonly children: { readonly length: number };
-  getLocalBounds(): { x: number; y: number; width: number; height: number };
+	readonly children: { readonly length: number };
+	getLocalBounds(): { x: number; y: number; width: number; height: number };
 };
 
 /**
@@ -66,74 +66,74 @@ export type StageFitLayer = {
  * when one is missing.
  */
 export function runStageCameraCommand(
-  viewport: StageCameraTarget,
-  fitLayers: readonly StageFitLayer[],
-  command: StageCameraCommand,
+	viewport: StageCameraTarget,
+	fitLayers: readonly StageFitLayer[],
+	command: StageCameraCommand,
 ): void {
-  switch (command.kind) {
-    case "zoom-to": {
-      const held = viewport.center;
-      viewport.setZoom(clampStageZoom(command.zoom), true);
-      viewport.moveCenter(held.x, held.y);
-      break;
-    }
-    case "zoom-in":
-    case "zoom-out": {
-      // About the viewport's center, unlike the wheel's cursor pivot: hold
-      // the center world point, rescale, put it back.
-      const held = viewport.center;
-      viewport.setZoom(
-        steppedStageZoom(viewport.scale.x, command.kind === "zoom-out"),
-        true,
-      );
-      viewport.moveCenter(held.x, held.y);
-      break;
-    }
-    case "fit": {
-      const drawn = fitLayers
-        .filter((layer) => layer.children.length > 0)
-        .map((layer) => layer.getLocalBounds());
-      const content = unionBounds(drawn);
-      // Nothing drawn is nothing to fit, and moving the camera to say so
-      // would lose the reader their place.
-      if (!content) break;
-      const view = fitStageView(
-        content,
-        { width: viewport.screenWidth, height: viewport.screenHeight },
-        FIT_PADDING_PX,
-      );
-      viewport.setZoom(view.zoom, true);
-      viewport.moveCenter(view.center.x, view.center.y);
-      break;
-    }
-    case "go-to": {
-      // Both at once, because the caller is naming a whole view rather
-      // than adjusting the one the camera holds.
-      viewport.setZoom(clampStageZoom(command.view.zoom), true);
-      viewport.moveCenter(command.view.center.x, command.view.center.y);
-      break;
-    }
-    case "home": {
-      // The middle of the world at 1:1. Not the document's stored view,
-      // which is the document panel's business: its Opens-at row is where
-      // a reader both sets that view and goes back to it.
-      viewport.setZoom(DEFAULT_STAGE_VIEW.zoom, true);
-      viewport.moveCenter(
-        DEFAULT_STAGE_VIEW.center.x,
-        DEFAULT_STAGE_VIEW.center.y,
-      );
-      break;
-    }
-  }
+	switch (command.kind) {
+		case "zoom-to": {
+			const held = viewport.center;
+			viewport.setZoom(clampStageZoom(command.zoom), true);
+			viewport.moveCenter(held.x, held.y);
+			break;
+		}
+		case "zoom-in":
+		case "zoom-out": {
+			// About the viewport's center, unlike the wheel's cursor pivot: hold
+			// the center world point, rescale, put it back.
+			const held = viewport.center;
+			viewport.setZoom(
+				steppedStageZoom(viewport.scale.x, command.kind === "zoom-out"),
+				true,
+			);
+			viewport.moveCenter(held.x, held.y);
+			break;
+		}
+		case "fit": {
+			const drawn = fitLayers
+				.filter((layer) => layer.children.length > 0)
+				.map((layer) => layer.getLocalBounds());
+			const content = unionBounds(drawn);
+			// Nothing drawn is nothing to fit, and moving the camera to say so
+			// would lose the reader their place.
+			if (!content) break;
+			const view = fitStageView(
+				content,
+				{ width: viewport.screenWidth, height: viewport.screenHeight },
+				FIT_PADDING_PX,
+			);
+			viewport.setZoom(view.zoom, true);
+			viewport.moveCenter(view.center.x, view.center.y);
+			break;
+		}
+		case "go-to": {
+			// Both at once, because the caller is naming a whole view rather
+			// than adjusting the one the camera holds.
+			viewport.setZoom(clampStageZoom(command.view.zoom), true);
+			viewport.moveCenter(command.view.center.x, command.view.center.y);
+			break;
+		}
+		case "home": {
+			// The middle of the world at 1:1. Not the document's stored view,
+			// which is the document panel's business: its Opens-at row is where
+			// a reader both sets that view and goes back to it.
+			viewport.setZoom(DEFAULT_STAGE_VIEW.zoom, true);
+			viewport.moveCenter(
+				DEFAULT_STAGE_VIEW.center.x,
+				DEFAULT_STAGE_VIEW.center.y,
+			);
+			break;
+		}
+	}
 }
 
 /** The slice of pixi-viewport a wheel effect mutates. */
 export type StageWheelTarget = {
-  readonly scale: { readonly x: number };
-  readonly position: { x: number; y: number };
-  setZoom(zoom: number, center?: boolean): unknown;
-  toWorld(x: number, y: number): { x: number; y: number };
-  toScreen(x: number, y: number): { x: number; y: number };
+	readonly scale: { readonly x: number };
+	readonly position: { x: number; y: number };
+	setZoom(zoom: number, center?: boolean): unknown;
+	toWorld(x: number, y: number): { x: number; y: number };
+	toScreen(x: number, y: number): { x: number; y: number };
 };
 
 /**
@@ -147,40 +147,40 @@ export type StageWheelTarget = {
  * surface).
  */
 export function applyStageWheel(
-  viewport: StageWheelTarget,
-  effect: WheelEffect,
-  host: Pick<HTMLElement, "getBoundingClientRect"> | null,
-  canvas: Pick<HTMLElement, "getBoundingClientRect"> | null,
+	viewport: StageWheelTarget,
+	effect: WheelEffect,
+	host: Pick<HTMLElement, "getBoundingClientRect"> | null,
+	canvas: Pick<HTMLElement, "getBoundingClientRect"> | null,
 ): void {
-  if (effect.kind === "zoom-step") {
-    if (host && canvas) {
-      const r = host.getBoundingClientRect();
-      const c = canvas.getBoundingClientRect();
-      const pivotClientX = c.left + effect.pivotX;
-      const pivotClientY = c.top + effect.pivotY;
-      if (
-        pivotClientX < r.left || pivotClientX > r.right ||
-        pivotClientY < r.top || pivotClientY > r.bottom
-      ) {
-        return;
-      }
-    }
-    // pixi-viewport's `clampZoom` plugin still constrains the
-    // assigned scale; we just compute the target and let it
-    // clamp via setZoom (which respects the plugin).
-    const nextScale = viewport.scale.x * effect.factor;
-    // Anchor the zoom around the cursor: convert the pivot from
-    // screen coords (host-relative) into world coords BEFORE the
-    // scale change, then re-position the viewport so that world
-    // point still maps to the same screen point AFTER.
-    const worldPivot = viewport.toWorld(effect.pivotX, effect.pivotY);
-    viewport.setZoom(nextScale, true);
-    const screenAfter = viewport.toScreen(worldPivot.x, worldPivot.y);
-    viewport.position.x += effect.pivotX - screenAfter.x;
-    viewport.position.y += effect.pivotY - screenAfter.y;
-    return;
-  }
-  // Horizontal pan from trackpad swipe or Shift+wheel.
-  viewport.position.x -= effect.delta.dx;
-  viewport.position.y -= effect.delta.dy;
+	if (effect.kind === "zoom-step") {
+		if (host && canvas) {
+			const r = host.getBoundingClientRect();
+			const c = canvas.getBoundingClientRect();
+			const pivotClientX = c.left + effect.pivotX;
+			const pivotClientY = c.top + effect.pivotY;
+			if (
+				pivotClientX < r.left || pivotClientX > r.right ||
+				pivotClientY < r.top || pivotClientY > r.bottom
+			) {
+				return;
+			}
+		}
+		// pixi-viewport's `clampZoom` plugin still constrains the
+		// assigned scale; we just compute the target and let it
+		// clamp via setZoom (which respects the plugin).
+		const nextScale = viewport.scale.x * effect.factor;
+		// Anchor the zoom around the cursor: convert the pivot from
+		// screen coords (host-relative) into world coords BEFORE the
+		// scale change, then re-position the viewport so that world
+		// point still maps to the same screen point AFTER.
+		const worldPivot = viewport.toWorld(effect.pivotX, effect.pivotY);
+		viewport.setZoom(nextScale, true);
+		const screenAfter = viewport.toScreen(worldPivot.x, worldPivot.y);
+		viewport.position.x += effect.pivotX - screenAfter.x;
+		viewport.position.y += effect.pivotY - screenAfter.y;
+		return;
+	}
+	// Horizontal pan from trackpad swipe or Shift+wheel.
+	viewport.position.x -= effect.delta.dx;
+	viewport.position.y -= effect.delta.dy;
 }

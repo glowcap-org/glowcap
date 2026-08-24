@@ -202,7 +202,7 @@ const paths = {
 			<circle cx="10.4" cy="17" r="1.9" />
 		</>
 	),
-	// A wrench, for the Operations modal: the operator's hand on the server,
+	// A wrench, for the Operations page: the operator's hand on the server,
 	// distinct from the gear that already means this page's own Settings.
 	wrench: (
 		<path d="M14.1 6.5a4 4 0 0 1 4.7-4l-2.5 2.5 2.7 2.7 2.5-2.5a4 4 0 0 1-5.1 4.6l-8.6 8.6a1.9 1.9 0 1 1-2.7-2.7l8.6-8.6z" />

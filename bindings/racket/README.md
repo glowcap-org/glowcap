@@ -27,7 +27,7 @@ API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 | [`pancake.rkt`](pancake.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
 | [`pancake-iroh.rkt`](pancake-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
 | [`pancake-onion.rkt`](pancake-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
-| [`pancake-relay.rkt`](pancake-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers and keyed byte connector. |
+| [`pancake-relay.rkt`](pancake-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
 | [`pancake-tcp.rkt`](pancake-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
 | [`pancake-inproc.rkt`](pancake-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
 
@@ -41,6 +41,10 @@ with `(relay-provider)`, or pass `(relay-connector)` when an application owns
 the byte-fed Host. A `rendezvous-relay` hint is interpreted only by the relay
 value selected by the application; `runtime-connect` never falls back from a
 missing provider to a WebSocket.
+
+`listen-keyed-relay` and `listen-noise-relay` register the Host's durable key
+and return the same server shape as the TCP listeners. `server-uri` renders the
+relay route partners use, and `accept` yields ordinary sessions.
 
 ## The native loop
 

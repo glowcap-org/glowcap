@@ -95,10 +95,14 @@ async def _run_action(host, action: HostAction) -> None:
             # without serializing this drain behind network establishment.
             from ._dial import run_dial_ticket
 
-            host.start_dial_task(a.ticket, lambda: run_dial_ticket(host, a.ticket))
+            host.start_dial_task(
+                a.ticket,
+                a.route_index,
+                lambda: run_dial_ticket(host, a.ticket, a.route_index),
+            )
 
         async def cancel_dial(self, a: CancelDial) -> None:
-            await host.cancel_dial_task(a.ticket)
+            await host.cancel_dial_task(a.ticket, a.route_index)
 
         async def flush(self, a: Flush) -> None:
             session = host.get_session(a.session_ptr)

@@ -51,7 +51,10 @@ const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
 test "Host owner extraction preserves the aggregate footprint and supported verb shapes" {
-    try std.testing.expectEqual(@as(usize, 2224), @sizeOf(Host));
+    // 2232: `resume_pump_refused` (the action-drain pressure stand-down)
+    // crossed an alignment boundary. Per-Host, not per-session, so the eight
+    // bytes are a process cost, not a 500k-session withdrawal.
+    try std.testing.expectEqual(@as(usize, 2232), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expect(Host.InitError == error{ DurableBootstrapUnavailable, InvalidHostWorkQuantum });
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
@@ -59,7 +62,7 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
     try std.testing.expectEqual(@as(usize, 4), @typeInfo(Host.LifecyclePhase).@"enum".field_names.len);
     try std.testing.expectEqual(@as(usize, 10), @typeInfo(Host.Options).@"struct".field_names.len);
 
-    const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
+    const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize, ?u32) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
     const flush_session: *const fn (*Host, *HostSession) anyerror!void = &Host.flushSession;
     const fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.fetch;
     const queue_fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.queueFetch;
@@ -509,4 +512,23 @@ test "a keyed dial to a malformed designator refuses without freeing it twice" {
         .designator = "not-a-key",
         .hints = model.Hints.emptyFalse(),
     }));
+}
+
+test "route-bundle transports cannot be opened as physical sessions" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x22)), .{});
+    defer host.deinit();
+    try host.setAdvertisedLocator(tcpLocator("127.0.0.1:7068"));
+
+    try std.testing.expectError(driver.core.HostError.UnknownTransport, host.openDialedLocator(.{
+        .transport = model.transport.id,
+        .designator = "not-a-route",
+        .hints = model.Hints.emptyFalse(),
+    }));
+
+    try std.testing.expectError(driver.core.HostError.UnknownTransport, host.openAcceptedAdvertised(model.transport.id));
+
+    var pinned = engine.Peer.initNegotiating(allocator);
+    defer pinned.deinit();
+    try std.testing.expectError(driver.core.HostError.UnknownTransport, host.openAcceptedAdvertisedOver(&pinned, model.transport.id));
 }

@@ -101,8 +101,9 @@ fn reentryBehavior(
     ok = ok and takeOutbound(rc.session, &mf) == inv;
     var action: cd.PancakeHostAction = undefined;
     ok = ok and cd.pancake_host_next_action(rc.host, &action) == inv;
-    ok = ok and cd.pancake_host_dialed(rc.host, 0, rc.session) == inv;
-    ok = ok and cd.pancake_host_dial_failed(rc.host, 0, "x", 1) == inv;
+    var adopted: u8 = 0;
+    ok = ok and cd.pancake_host_dialed(rc.host, 0, 0, rc.session, &adopted) == inv;
+    ok = ok and cd.pancake_host_dial_failed(rc.host, 0, 0, "x", 1) == inv;
     ok = ok and cd.pancake_host_provide_gift_id(rc.host, 0, "x", 1) == inv;
     var new_session: ?*cd.PancakeHostSession = null;
     ok = ok and openDialed(rc.host, "tcp", 3, "d", 1, &new_session) == inv;

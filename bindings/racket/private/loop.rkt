@@ -25,19 +25,10 @@
   (make-PancakeDriverEvent
    0 0 0 0 0 0 0 0 0 0 0 #f
    (make-PancakeHostAction
-    0 0 #f
+    0 0 0 #f
     (make-PancakeArgument 0 0 0 0.0 #f 0 (make-PancakeReference 0) #f 0)
     #f 0 0)
    #f 0 #f 0))
-
-(define (make-step-carrier m)
-  (session (make-async-connection
-            (async-transport (lambda (_frame) (void)) void
-                             (lambda (wake-evt) (sync wake-evt) 'woke) void))
-           #f m #f
-           (make-pending-writes 1)
-           (make-semaphore 1) (box #f) (box OK)
-           (box #f) (box #f) (box #f) (box #f)))
 
 ;; Native adoption is the one ownership transaction. Every Racket owner is
 ;; allocated first; Host attachment publishes only after the C call succeeds.
@@ -65,7 +56,7 @@
         (make-host durable #:codec codec #:captp-version captp-version
                    #:features features)))
   (define lp
-    (driver-loop #f m (make-step-carrier m) (fresh-event-buf)
+    (driver-loop #f m (fresh-event-buf)
                  (make-hash) (make-hash) (make-hash)
                  (box 'open) #f (make-semaphore 0) #f #f))
   (define options

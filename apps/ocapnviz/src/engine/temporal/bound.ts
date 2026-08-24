@@ -11,21 +11,21 @@
  */
 
 export type Bound = {
-  /** User-stored value. Used iff `explicit` is true. Preserved when
-   *  implicit so flipping back doesn't lose the user's last input. */
-  value: number;
-  /** When false, this side inherits from context at read time. */
-  explicit: boolean;
+	/** User-stored value. Used iff `explicit` is true. Preserved when
+	 *  implicit so flipping back doesn't lose the user's last input. */
+	value: number;
+	/** When false, this side inherits from context at read time. */
+	explicit: boolean;
 };
 
 export const implicitBound = (value: number = 0): Bound => ({
-  value,
-  explicit: false,
+	value,
+	explicit: false,
 });
 
 export const explicitBound = (value: number): Bound => ({
-  value,
-  explicit: true,
+	value,
+	explicit: true,
 });
 
 /** Make a bound explicit while preserving its stored value. If the
@@ -42,6 +42,6 @@ export const withImplicit = (b: Bound): Bound => b.explicit ? { ...b, explicit: 
 /** Set the stored value AND mark explicit. The common case for an
  *  authoring intent that takes a user-typed number. */
 export const withValue = (_b: Bound, value: number): Bound => ({
-  value,
-  explicit: true,
+	value,
+	explicit: true,
 });

@@ -294,25 +294,22 @@ fn goblinsPresent(ctx: *Ctx) !bool {
 /// the same footing: a spawn loads bytecode, so cold-start measures real
 /// startup, not our packaging (verified: ~775 ms → ~120 ms per spawn).
 ///
-/// `compiler/cm`'s `managed-compile-zo` follows the module's imports, so one
-/// call writes `.zo` for the script, the binding, and the shared metrics into
-/// each source's `compiled/` (all git-ignored). It rides on `racket` itself —
-/// `raco make` lives in a `compiler-lib` package this minimal install lacks —
-/// so it needs nothing the run did not already require. Best-effort: if the
-/// compile fails, the run proceeds with the source-load cost still in the
-/// number (a slower but honest fallback, not a crash).
+/// `raco make` follows the module's imports, so one call writes `.zo` for the
+/// script, the binding, and the shared metrics into each source's `compiled/`
+/// (all git-ignored). Best-effort: when the command is absent or compilation
+/// fails, the run proceeds with the source-load cost still in the number.
 fn precompileRacket(ctx: *Ctx, present: []const ClientDef) !void {
-    const racket = ctx.racket_path orelse return;
+    if (ctx.racket_path == null) return;
+    const raco = (try onPath(ctx.io, ctx.arena, ctx.environ, "raco")) orelse return;
     for (present) |def| {
         const script = switch (def.kind) {
             .racket => client_dir ++ "/racket_bench.rkt",
             .goblins => client_dir ++ "/goblins_bench.rkt",
             else => continue,
         };
-        try out(ctx.io, "bench-langs: precompiling {s} client (managed-compile-zo) ...\n", .{def.name});
-        const compile_expr = try std.fmt.allocPrint(ctx.arena, "(managed-compile-zo \"{s}\")", .{script});
+        try out(ctx.io, "bench-langs: precompiling {s} client (raco make) ...\n", .{def.name});
         var child = std.process.spawn(ctx.io, .{
-            .argv = &.{ racket, "-e", "(require compiler/cm)", "-e", compile_expr },
+            .argv = &.{ raco, "make", script },
             .environ_map = ctx.environ,
             .stdout = .ignore,
             .stderr = .inherit,
@@ -331,24 +328,22 @@ fn benchOne(ctx: *Ctx, def: ClientDef) !Row {
         var host = try startHost(ctx);
         defer host.kill(ctx.io);
         const line = try runMetric(ctx, def, "latency", host.port, ctx.lat_n);
-        if (line) |l| {
-            row.p50 = jf(l, "\"p50_ms\"") orelse "-";
-            row.p99 = jf(l, "\"p99_ms\"") orelse "-";
-            row.p999 = jf(l, "\"p999_ms\"") orelse "-";
-            row.mean = jf(l, "\"mean_ms\"") orelse "-";
-        }
+        row.p50 = jf(line, "\"p50_ms\"") orelse "-";
+        row.p99 = jf(line, "\"p99_ms\"") orelse "-";
+        row.p999 = jf(line, "\"p999_ms\"") orelse "-";
+        row.mean = jf(line, "\"mean_ms\"") orelse "-";
     }
     {
         var host = try startHost(ctx);
         defer host.kill(ctx.io);
         const line = try runMetric(ctx, def, "throughput", host.port, ctx.tput_n);
-        if (line) |l| row.rps = jf(l, "\"rps\"") orelse "-";
+        row.rps = jf(line, "\"rps\"") orelse "-";
     }
     {
         var host = try startHost(ctx);
         defer host.kill(ctx.io);
         const conn = try runConnections(ctx, def, host.port, ctx.conns);
-        if (conn.line) |l| row.conn_ms = jf(l, "\"per_conn_ms\"") orelse "-";
+        row.conn_ms = jf(conn.line, "\"per_conn_ms\"") orelse "-";
         row.per_conn_kb = conn.per_conn_kb;
     }
     {
@@ -361,13 +356,11 @@ fn benchOne(ctx: *Ctx, def: ClientDef) !Row {
         // host/port arguments, so no host is spawned and the port is 0. The
         // goblins-ref row reports its via_host fields as JSON null.
         const line = try runMetric(ctx, def, "local", 0, ctx.local_n);
-        if (line) |l| {
-            row.local_in_ns = jfDash(l, "\"in_lang_ns\"");
-            row.local_in_p99_ns = jfDash(l, "\"in_lang_p99_ns\"");
-            row.local_via_ns = jfDash(l, "\"via_host_ns\"");
-            row.local_via_p99_ns = jfDash(l, "\"via_host_p99_ns\"");
-            row.local_ratio = jfDash(l, "\"ratio\"");
-        }
+        row.local_in_ns = jfDash(line, "\"in_lang_ns\"");
+        row.local_in_p99_ns = jfDash(line, "\"in_lang_p99_ns\"");
+        row.local_via_ns = jfDash(line, "\"via_host_ns\"");
+        row.local_via_p99_ns = jfDash(line, "\"via_host_p99_ns\"");
+        row.local_ratio = jfDash(line, "\"ratio\"");
     }
     return row;
 }
@@ -428,15 +421,14 @@ fn dupArgv(ctx: *Ctx, items: []const []const u8) ![]const []const u8 {
     return ctx.arena.dupe([]const u8, items);
 }
 
-/// Run a client to completion in `mode`; return the first NDJSON `metric` line
-/// (arena-owned), or null if it produced none.
-fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !?[]const u8 {
+/// Run a client to completion in `mode` and return its NDJSON metric line.
+fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) ![]const u8 {
     const argv = try buildArgv(ctx, def, mode, port, n);
     var child = try std.process.spawn(ctx.io, .{
         .argv = argv,
         .environ_map = ctx.environ,
         .stdout = .pipe,
-        .stderr = .ignore,
+        .stderr = .inherit,
     });
     defer child.kill(ctx.io);
 
@@ -449,11 +441,13 @@ fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !
         if (found == null and std.mem.indexOf(u8, line, "\"metric\"") != null)
             found = try ctx.arena.dupe(u8, line);
     }
-    return found;
+    const term = try child.wait(ctx.io);
+    if (term != .exited or term.exited != 0) return error.ClientFailed;
+    return found orelse error.MissingClientMetric;
 }
 
 const ConnResult = struct {
-    line: ?[]const u8,
+    line: []const u8,
     per_conn_kb: []const u8,
 };
 
@@ -468,7 +462,7 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
         .argv = argv,
         .environ_map = ctx.environ,
         .stdout = .pipe,
-        .stderr = .ignore,
+        .stderr = .inherit,
     });
     defer child.kill(ctx.io);
     const pid = child.id orelse return error.NoClientPid;
@@ -488,9 +482,14 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
             loaded = sampleMinRss(ctx, pid, loaded_samples, loaded_dt_ms);
         }
     }
+    const term = try child.wait(ctx.io);
+    if (term != .exited or term.exited != 0) return error.ClientFailed;
     const delta: u64 = if (loaded > base) loaded - base else 0;
     const per_conn = @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(@max(1, n)));
-    return .{ .line = line, .per_conn_kb = try std.fmt.allocPrint(ctx.arena, "{d:.1}", .{per_conn}) };
+    return .{
+        .line = line orelse return error.MissingClientMetric,
+        .per_conn_kb = try std.fmt.allocPrint(ctx.arena, "{d:.1}", .{per_conn}),
+    };
 }
 
 /// Cold start: spawn a fresh client in `cold` mode and time from just-before
@@ -505,14 +504,24 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
             .argv = argv,
             .environ_map = ctx.environ,
             .stdout = .pipe,
-            .stderr = .ignore,
+            .stderr = .inherit,
         });
+        defer child.kill(ctx.io);
         const out_file = child.stdout orelse return error.NoClientStdout;
         var buf: [4096]u8 = undefined;
         var reader = out_file.readerStreaming(ctx.io, &buf);
+        var found = false;
         while (true) {
             const l = reader.interface.takeDelimiterInclusive('\n') catch break;
-            if (std.mem.indexOf(u8, l, "cold-done") != null) break;
+            if (std.mem.indexOf(u8, l, "cold-done") != null) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            const term = try child.wait(ctx.io);
+            if (term != .exited or term.exited != 0) return error.ClientFailed;
+            return error.MissingColdMarker;
         }
         times[i] = @as(f64, @floatFromInt(nowNs(ctx.io) - t0)) / 1_000_000.0;
         child.kill(ctx.io);

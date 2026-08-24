@@ -35,7 +35,7 @@ import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
 import type { DirId } from "../types.ts";
-import { reason } from "./common.ts";
+import { reason, trouble } from "./common.ts";
 import { convSession, dirSession, isCurrent, type Live } from "./live.ts";
 import { applyTyping } from "./typing.ts";
 import {
@@ -48,6 +48,7 @@ import {
 	sendDm,
 } from "./direct.ts";
 import { resendFile, resendRoomLine } from "./send.ts";
+import { hydrateDm } from "./history.ts";
 
 // ── Cold-dial rendezvous: being reachable as a browser (ADR-0088) ──────────
 // The one inbox host per page. It dials the directory AND accepts cold-dials,
@@ -59,9 +60,9 @@ import { resendFile, resendRoomLine } from "./send.ts";
 // browser-to-browser through the relay, independent of the room server, so a room
 // respawn must not tear it down.
 //
-// Each of those inboxes is permanent — nothing withdraws a giftable — so the tab
-// accumulates one per member it has seen, up to `MAX_DM_INBOXES`, which the
-// offerer holds for us.
+// Each live peer gets one inbox, up to `MAX_DM_INBOXES`. A departing peer's
+// alias is retired; any capability already issued to that peer keeps the exact
+// old actor and is never retargeted to a later holder of the name.
 //
 // Which transport this tab advertises for direct messages: a `webrtc`
 // identity by default, so the DataChannel carries the DM directly and the
@@ -109,6 +110,7 @@ function inboxFor(dir: DirId, peer: string): (verb: string, args: unknown[]) => 
 		if (verb === TYPING) {
 			const conv = store.ensureDm(dir, peer);
 			if (conv === null) return null;
+			hydrateDm(conv);
 			applyTyping(conv.key, peer, args[0] === true);
 			return null;
 		}
@@ -155,6 +157,7 @@ function inboxFor(dir: DirId, peer: string): (verb: string, args: unknown[]) => 
 		// the turn returns, and our reply sends on a later one.
 		const conv = store.ensureDm(dir, peer);
 		if (conv === null) return null;
+		hydrateDm(conv);
 		const key = conv.key;
 		noteIgnoredDm(key, peer);
 		const session = currentSession();
@@ -191,22 +194,32 @@ export function ensureOfferer(dir: DirId): InboxOfferer {
 		dir: () => dirSession(dir)?.dir ?? null,
 		behaviorFor: (peer) => inboxFor(dir, peer),
 		skip: (peer) => store.isSelf(dir, peer),
-		onError: (peer, err) => console.error(`rooms: could not offer an inbox for ${peer}:`, reason(err)),
+		// That one person's direct messages toward this tab will not arrive,
+		// and they are told only that the send failed — so this side says which
+		// offer broke, where the reader can see it.
+		onError: (peer, err) =>
+			store.deliverActive(store.sysItem(
+				`Could not prepare a direct-message inbox for ${peer}: ${reason(err)}. ` +
+					`Their messages to you may not arrive.`,
+			)),
 	});
 	offerers.set(dir, offerer);
 	return offerer;
 }
 
-/** Forget one directory's peer mapping without resetting the Host-wide
- * publication ledger that bounds every directory together. */
+/** Retire one directory's aliases without resetting the Host-wide ledger that
+ * bounds every directory together. */
 export function forgetOfferer(dir: DirId): void {
+	const held = offerers.get(dir);
 	offerers.delete(dir);
+	void held?.close();
 }
 
 // Peers to offer an inbox to as soon as our own registration is acknowledged.
 // The gate below is real — an offer sent before the directory has granted us a
-// name is refused, and the giftable it published stays published for nothing —
-// but dropping the request loses it: `mintInboxFor` dispatches synchronously
+// name is refused, so publishing before that answer only creates authority the
+// offerer must retire. Dropping the request also loses it: `mintInboxFor`
+// dispatches synchronously
 // inside the inbound feed while the acknowledgement lands on a microtask, so the
 // first peer to ask arrives before the flag does.
 
@@ -259,7 +272,7 @@ export function ensureInbox(runtime: WebRuntime, iceServers: () => Promise<IceSe
 			relayUrl: pageSocketBase("/relay"),
 		}, {
 			onError: (err) => {
-				console.error("rooms: rendezvous registration error:", reason(err));
+				trouble("the relay would not take this tab's rendezvous registration", err);
 				// Said once, not per attempt: the pool keeps trying with a backoff,
 				// so an error here is a stretch of trouble rather than an end, and a
 				// line each time would bury the conversation it is about. Said at
@@ -323,7 +336,7 @@ export function advertisePresence(session: Live): void {
 					host,
 					dir: () => (isCurrent(session) ? session.dir : null),
 					iceServers: owner.iceServers,
-					onError: (err) => console.error("rooms: webrtc signaling error:", reason(err)),
+					onError: (err) => trouble("WebRTC signaling errored", err),
 				}).then((signaling) => {
 					if (!isCurrent(session)) {
 						void signaling.close();
@@ -334,7 +347,21 @@ export function advertisePresence(session: Live): void {
 					// peers map, and exported inbox stay live for the tab's life.
 					void session.signaling?.close();
 					session.signaling = signaling;
-				}).catch((err) => console.error("rooms: could not offer signaling:", reason(err)));
+				}).catch((err) => {
+					// With no signaling answerer, browser-to-browser direct
+					// messages toward this tab cannot open, while every roster
+					// goes on listing it as reachable. Said on the surface built
+					// for exactly this claim, not only to the console.
+					if (!isCurrent(session)) return;
+					store.setDmUnreachable(
+						session.id,
+						`this tab could not answer WebRTC direct messages: ${reason(err)}`,
+					);
+					store.deliverActive(store.sysItem(
+						`Nobody can reach you for direct messages here: this tab could not answer WebRTC ` +
+							`signaling (${reason(err)}).`,
+					));
+				});
 			}
 			flushDeferredOffers(session);
 		})
@@ -352,7 +379,7 @@ export function advertisePresence(session: Live): void {
 			// transient and retrying at it forever would be a busy wait against
 			// a fact that is not going to change.
 			if (session.advertiseRetries <= 0) {
-				console.error("rooms: could not advertise for direct messages:", reason(err));
+				trouble("could not advertise for direct messages", err);
 				// And said where a reader can see it. This window stays in every
 				// roster on this directory looking perfectly ordinary while no
 				// direct message can arrive, and the person who cannot reach them

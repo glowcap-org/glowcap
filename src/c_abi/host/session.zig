@@ -237,6 +237,34 @@ pub export fn pancake_host_vow_send(
     return PANCAKE_OK;
 }
 
+/// Fire-and-forget promise-pipelined send. The target rules and argument
+/// lowering match `pancake_host_vow_send`, but no answer or Host vow is minted.
+pub export fn pancake_host_vow_tell(
+    host: ?*PancakeHost,
+    vow: u64,
+    verb: ?[*]const u8,
+    verb_len: usize,
+    args: ?[*]const shared.PancakeArgument,
+    args_len: usize,
+) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    _ = inst.core.vowSession(vow) catch |err| return errToCode(err);
+    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    inst.core.vowTellValues(vow, msg.verb, msg.args, inst.arg_scratch.allocator()) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Release one public Host vow. The handle remains a valid promise-pipeline
+/// target after settlement until this call succeeds. A far answer publishes
+/// its `op:gc-answer`; a non-OK return consumes nothing and is retryable.
+pub export fn pancake_host_vow_release(host: ?*PancakeHost, vow: u64) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    inst.core.vowRelease(vow) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
 /// Pipeline an `op:index` projection against a far host vow, minting a new
 /// vow for the projected element. Same local-vow and unknown-vow refusals as
 /// `pancake_host_vow_send`; an index above INT64_MAX is refused

@@ -42,6 +42,14 @@ pub fn register(
     const tasks_demo_step = b.step("demo-tasks", "Run the cross-language tasks board demo (needs deno; joins python3/racket/cargo clients when present)");
     tasks_demo_step.dependOn(&tasks_demo.step);
 
+    const tasks_app_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "apps/tasks/deno/containment_test.ts",
+    });
+    tasks_app_test.has_side_effects = true;
+    const tasks_app_test_step = b.step("tasks-app-test", "Run the task board's bounded-state and lifecycle tests (needs deno)");
+    tasks_app_test_step.dependOn(&tasks_app_test.step);
+    check_step.dependOn(tasks_app_test_step);
+
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools — attenuated to read-only,
     // and revocable — and each agent proves delegation, attenuation, and
@@ -83,7 +91,7 @@ pub fn register(
     const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // The accountability application and its three-party attribution test are
-    // Zig-hermetic (loopback TCP and in-memory respectively), so they ride the
+    // Zig-hermetic (both use loopback TCP), so they ride the
     // gate: a runnable application is a contract the same way an example is. The
     // check run writes generated state under `.zig-cache` instead of the public
     // demo's `.data/` path, so the gate never dirties source files.
@@ -112,9 +120,9 @@ pub fn register(
     accountability_demo_step.dependOn(&host_install.step);
     accountability_demo_step.dependOn(&accountability_demo.step);
 
-    // Three-party accountability test: proves that a handoff-introduced caller's
-    // Episode attributes the true caller, not the introducer. In-memory, protocol-
-    // level, the same test the Zig-native and cross-seam demos make over TCP.
+    // Three-party accountability proof: the production owning Host redeems a
+    // live loopback-TCP handoff, then the exporter attributes the true caller
+    // rather than the introducer.
     const three_party_mod = b.createModule(.{
         .root_source_file = b.path("apps/accountability-on-pancake/zig/three_party_test.zig"),
         .target = target,
@@ -126,7 +134,7 @@ pub fn register(
         .root_module = three_party_mod,
     });
     const run_three_party = execution.addZigTest(b, three_party_test, .{ .deterministic = 30 });
-    const three_party_step = b.step("accountability-three-party", "Run the three-party accountability attribution test");
+    const three_party_step = b.step("accountability-three-party", "Run three-Host TCP handoff attribution");
     three_party_step.dependOn(&run_three_party.step);
     check_step.dependOn(&run_three_party.step);
 }

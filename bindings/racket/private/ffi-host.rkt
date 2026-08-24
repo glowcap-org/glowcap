@@ -27,9 +27,12 @@
 ;; `(values rc …)` only.
 (require ffi/unsafe
          "constants.rkt"
+         "lib-resolve.rkt"
          (only-in "ffi-ocapn.rkt" pancake_locator_clone)
          "ffi-host-gen.rkt"
          "ffi-shared.rkt")
+(require-archive-fingerprint!
+ 'host pancake_host_archive_fingerprint HOST-ARCHIVE-FINGERPRINT)
 (provide (except-out (all-from-out "ffi-host-gen.rkt")
                      pancake_host_pending_dial*)
          (all-from-out "ffi-shared.rkt")
@@ -40,7 +43,7 @@
 ;; required count and performs `pancake_locator_clone` before that storage can go
 ;; out of scope. Bespoke rather than generated because one output's capacity
 ;; controls the other output's nested pointer.
-(define (pancake_host_pending_dial host ticket)
+(define (pancake_host_pending_dial host ticket route-index)
   (define (clone-pending rc view)
     (if (= rc OK)
         (pancake_locator_clone view)
@@ -49,7 +52,7 @@
   (define count (malloc _size 'atomic-interior))
   (ptr-set! count _size 0)
   (define probe-rc
-    (pancake_host_pending_dial* host ticket #f 0 view count))
+    (pancake_host_pending_dial* host ticket route-index #f 0 view count))
   (cond
     [(= probe-rc ERR-BUFFER-TOO-SMALL)
      (define required (ptr-ref count _size))
@@ -58,7 +61,7 @@
      (define copy-count (malloc _size 'atomic-interior))
      (ptr-set! copy-count _size 0)
      (define copy-rc
-       (pancake_host_pending_dial* host ticket hints required copy-view copy-count))
+       (pancake_host_pending_dial* host ticket route-index hints required copy-view copy-count))
      (clone-pending copy-rc copy-view)]
     [else
      (clone-pending probe-rc view)]))

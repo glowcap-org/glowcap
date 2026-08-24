@@ -4,8 +4,8 @@
 // capability. A toggle that is on means this tab holds that capability:
 // flipping it on opens the take modal — paste the swiss number, fetch it —
 // and only a successful take lands it on. Flipping it off lets the
-// capability go. While any is held, an Operations control in the head opens
-// the modal with the held panes.
+// capability go. While any is held, an Operations control in the head stands
+// the reader on the /ops page with the held panes.
 
 import { useEffect, useRef, useState } from "react";
 import { usePeer } from "./peer.ts";
@@ -30,18 +30,18 @@ interface SettingsProps {
 	/** Which operations capabilities this tab holds, which is what the toggles
 	 * say and what draws the Operations control in the head. */
 	opsHeld: OpsHeld;
-	/** Whether the Operations modal is the top layer, so its control can sit
-	 * pressed while this dialog is retained beneath it. */
-	opsOpen: boolean;
-	/** Which panel to show when this dialog mounts. Returning from Operations
-	 * lands on Advanced rather than resetting to Locators. */
+	/** Whether this device keeps direct-message history; the Advanced switch
+	 * draws it and `peer.setKeepHistory` flips it. */
+	keepHistory: boolean;
+	/** Which panel to show when this dialog mounts. Returning from a take
+	 * lands on Capabilities rather than resetting to Locators. */
 	tab: SettingsTab;
 	/** Keep the tree while another native dialog has the top layer. */
 	retain?: boolean;
 }
 
 export function Settings(
-	{ open, retain = false, theme, notifyOn, dir, opsHeld, opsOpen, tab }: SettingsProps,
+	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, tab }: SettingsProps,
 ) {
 	const { held, onExited } = useHeldModal(open, retain);
 	if (!held) return null;
@@ -54,14 +54,14 @@ export function Settings(
 			notifyOn={notifyOn}
 			dir={dir}
 			opsHeld={opsHeld}
-			opsOpen={opsOpen}
+			keepHistory={keepHistory}
 			tab={tab}
 		/>
 	);
 }
 
 function SettingsDialog(
-	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, opsOpen, tab }: Omit<SettingsProps, "retain"> & {
+	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, keepHistory, tab }: Omit<SettingsProps, "retain"> & {
 		retain?: boolean;
 		onExited: () => void;
 	},
@@ -78,6 +78,7 @@ function SettingsDialog(
 	const [selfLoc, setSelfLoc] = useState<string | null>(null);
 	const tabs: readonly TabFace<SettingsTab>[] = [
 		{ id: "overview", domId: "overviewTab", label: "Locators", panelId: "overviewPanel" },
+		{ id: "capabilities", domId: "capabilitiesTab", label: "Capabilities", panelId: "capabilitiesPanel" },
 		{ id: "settings", domId: "settingsTab", label: "Advanced", panelId: "settingsPanel" },
 	];
 	useModalDialog(
@@ -133,7 +134,7 @@ function SettingsDialog(
 			aria-labelledby={titleId}
 		>
 			<form
-				className="modal-card"
+				className="modal-card card-plane"
 				data-dir="home"
 				onSubmit={(e) => {
 					e.preventDefault();
@@ -149,8 +150,10 @@ function SettingsDialog(
 					named={open}
 					ops={anyOpsHeld(opsHeld)
 						? {
-							open: opsOpen,
-							onOpen: (event) => openModalFrom(event.currentTarget, () => peer.openOperations()),
+							// Operations is its own page now, so the control
+							// navigates rather than layering: never pressed.
+							open: false,
+							onOpen: () => peer.openOperations(),
 						}
 						: undefined}
 					closeId={open ? "settingsClose" : undefined}
@@ -176,8 +179,8 @@ function SettingsDialog(
 						    Leave live on its card — the same card a room's caption opens —
 						    so this panel does not answer those twice. */
 						}
+						<p className="well-title overline">This directory</p>
 						<div className="group well">
-							<p className="uri-label">This directory</p>
 							<CopyField
 								id="directoryLocator"
 								text={roomLoc}
@@ -196,8 +199,8 @@ function SettingsDialog(
 								</Button>
 							)}
 						</div>
+						<p className="well-title overline">This browser</p>
 						<div className="group well">
-							<p className="uri-label">This browser</p>
 							<CopyField
 								id="selfLocator"
 								text={selfLoc}
@@ -206,6 +209,41 @@ function SettingsDialog(
 							<p className="hint">
 								Your browser's own locator lets another peer open a direct conversation with you.
 							</p>
+						</div>
+					</div>
+				)}
+				{pane === "capabilities" && (
+					<div
+						id="capabilitiesPanel"
+						role="tabpanel"
+						aria-labelledby="capabilitiesTab"
+					>
+						{
+							/* One toggle per operations capability, and the toggle is the
+						    capability: on means this tab holds it. Flipping one on opens
+						    the take modal, and only a successful take lands it on;
+						    flipping it off lets the capability go, pane and swiss with
+						    it. The Operations control in the head appears while any is
+						    held. */
+						}
+						<p className="well-title overline" id="opsLegend">Operations</p>
+						<div className="group well" role="group" aria-labelledby="opsLegend">
+							{OPS_CAPS.map((cap: OpsCap) => (
+								<div className="switch-row" key={cap}>
+									<p className="group-label" id={`ops-${cap}-legend`}>{OPS_CATALOG[cap].label}</p>
+									<Switch
+										id={OPS_CATALOG[cap].toggleId}
+										checked={opsHeld[cap]}
+										label={OPS_CATALOG[cap].label}
+										aria-labelledby={`ops-${cap}-legend`}
+										onClick={(event) => {
+											if (opsHeld[cap]) {
+												peer.dropOpsCap(cap);
+											} else openModalFrom(event.currentTarget, () => peer.openOpsTake(cap));
+										}}
+									/>
+								</div>
+							))}
 						</div>
 					</div>
 				)}
@@ -218,8 +256,8 @@ function SettingsDialog(
 						<p className="lead">
 							Saving reloads this window.
 						</p>
+						<p className="well-title overline" id="dmLegend">Direct message connection</p>
 						<div className="group well" role="group" aria-labelledby="dmLegend">
-							<p className="group-label" id="dmLegend">Direct message connection</p>
 							<label className="choice">
 								<input
 									type="radio"
@@ -248,32 +286,22 @@ function SettingsDialog(
 								</span>
 							</label>
 						</div>
-						{
-							/* One toggle per operations capability, and the toggle is the
-						    capability: on means this tab holds it. Flipping one on opens
-						    the take modal, and only a successful take lands it on;
-						    flipping it off lets the capability go, pane and swiss with
-						    it. The Operations control in the head appears while any is
-						    held. */
-						}
-						<div className="group well" role="group" aria-labelledby="opsLegend">
-							<p className="group-label" id="opsLegend">Operations</p>
-							{OPS_CAPS.map((cap: OpsCap) => (
-								<div className="switch-row" key={cap}>
-									<p className="group-label" id={`ops-${cap}-legend`}>{OPS_CATALOG[cap].label}</p>
-									<Switch
-										id={OPS_CATALOG[cap].toggleId}
-										checked={opsHeld[cap]}
-										label={OPS_CATALOG[cap].label}
-										aria-labelledby={`ops-${cap}-legend`}
-										onClick={(event) => {
-											if (opsHeld[cap]) {
-												peer.dropOpsCap(cap);
-											} else openModalFrom(event.currentTarget, () => peer.openOpsTake(cap));
-										}}
-									/>
-								</div>
-							))}
+						<p className="well-title overline" id="historyLegend">This device</p>
+						<div className="group well" role="group" aria-labelledby="historyLegend">
+							<div className="switch-row">
+								<p className="group-label" id="keepHistoryLegend">Keep direct-message history</p>
+								<Switch
+									id="keepHistoryToggle"
+									checked={keepHistory}
+									label="Keep direct-message history"
+									aria-labelledby="keepHistoryLegend"
+									onClick={() => peer.setKeepHistory(!keepHistory)}
+								/>
+							</div>
+							<p className="hint">
+								Direct messages are end-to-end encrypted, so their history can only live here, on this
+								device. Turning this off erases what this browser has kept.
+							</p>
 						</div>
 						<Button type="submit" disabled={!dirty}>Save and reload</Button>
 					</div>

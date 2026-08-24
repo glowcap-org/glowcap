@@ -427,17 +427,17 @@ test "core host: a three-vat handoff holds native between the pancake pair and b
     // The redeem dial: two pancake hosts on the wire, but the recipient still
     // cannot do native, so this session settles on the baseline too.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
+        .transport = redeem_view.locator.transport,
+        .designator = redeem_view.locator.designator,
         .hints = model.Hints.emptyFalse(),
     });
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     try std.testing.expect(r_to_e.sessionOpen());
-    try recipient.exporterDialed(parked.ticket, r_to_e);
+    _ = try recipient.exporterDialed(parked.ticket, 0, r_to_e);
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
 
     // The handoff completed across the profile split.

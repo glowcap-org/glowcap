@@ -19,6 +19,7 @@ import { lineCost, MAX_LINE, MAX_MESSAGE_FILES, MAX_TOPIC } from "../lib/limits.
 import type { PostedFile, RoomState } from "./registry.ts";
 import { broadcastFiles, dropFileBytes, forgetFile, postStaged } from "./files.ts";
 import { broadcast } from "./presence.ts";
+import { forgetRoomLine, updateRoomLine } from "./history.ts";
 
 /** The upload capability `attach` answers with: one file being staged into a
  * message, spent when that message is posted or the file is discarded.
@@ -66,6 +67,7 @@ export function lineBehavior(state: RoomState, from: string, id: number, files: 
 			// members keep the blobs they hold, and the room re-sends none. `refile`
 			// is the one verb that changes what a line carries.
 			broadcast(state, from, text, EDITED, BigInt(id));
+			if (!state.private) updateRoomLine(state.name, id, text);
 			return null;
 		}
 		if (verb === REFILE) {
@@ -87,6 +89,7 @@ export function lineBehavior(state: RoomState, from: string, id: number, files: 
 				// nobody can see. A plain line's set is empty and this is a no-op.
 				freeLineFiles(files);
 				broadcast(state, from, "", WITHDRAWN, BigInt(id));
+				if (!state.private) forgetRoomLine(state.name, id);
 			}
 			return null;
 		}
@@ -151,6 +154,7 @@ function refileLine(state: RoomState, from: string, id: number, files: PostedFil
 		// empty takes it back rather than leaving a blank bubble. The takedown is
 		// the room's own word, tagged so an older client draws it too.
 		broadcast(state, from, "", WITHDRAWN, BigInt(id));
+		if (!state.private) forgetRoomLine(state.name, id);
 		return true;
 	}
 	broadcastFiles(state, from, caption, files, REFILED, id);

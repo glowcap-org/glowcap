@@ -85,6 +85,35 @@ test "duplicate gc-answers positions refuse before decrementing" {
     );
 }
 
+test "detached answers remain inside the inbound answer budget" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .v1_0,
+        .features = model.FeatureSet.full(),
+        .limits = .{ .max_inbound_answers = 1 },
+    });
+    defer s.deinit();
+
+    try s.registerExport(.from(1));
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(1) },
+        .args = &.{},
+        .answer = .from(99),
+    } });
+    try s.installInboundResolver(.fromWire(.from(99)), .from(3));
+    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{99} } });
+
+    try std.testing.expectEqual(@as(usize, 1), s.inboundAnswerObligationCount());
+    try std.testing.expectError(
+        error.InboundAnswerCapExceeded,
+        s.recordRecv(.{ .deliver = .{
+            .target = .{ .near = model.NearRef.object(1) },
+            .args = &.{},
+            .answer = .from(100),
+        } }),
+    );
+}
+
 test "detached answer cannot adopt reused position resolver" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{

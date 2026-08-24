@@ -12,17 +12,12 @@
 // down says nothing about another: each backs off on its own schedule while the
 // rest carry on.
 
-import { init } from "@pancake/web";
-import * as relay from "@pancake/relay";
-import * as webrtc from "@pancake/webrtc";
 import { iceServers } from "./ice.ts";
 import { Directory } from "../../../lib/room_client.ts";
 import { dial } from "../../../lib/locator.ts";
-import { directorySignalingAuthority } from "../../../lib/signaling.ts";
-import { CAPTP_VERSION, CODEC } from "../../../lib/protocol.ts";
 import * as store from "../store.ts";
 import { type DirId, dirId } from "../types.ts";
-import { markSend, reason } from "./common.ts";
+import { markSend, reason, trouble } from "./common.ts";
 import { convSession, directoryLocators, dirs, isCurrent, type Live } from "./live.ts";
 import {
 	announceDirectoryReady,
@@ -34,25 +29,17 @@ import {
 	homeLocator,
 	notALocator,
 	noteHomeDirectoryLocator,
-	readyRuntime,
-	soleLive,
 } from "./bootstrap.ts";
+import { bootRuntime } from "./runtime_boot.ts";
 import { dropInspect, takeDiagnosticCap } from "./diagnostics.ts";
 import { dropListeners, takeListenersCap } from "./listeners.ts";
+import { dropPeering, takePeeringCap } from "./peering.ts";
 import { forgetOpsSwiss, rememberedOpsSwiss } from "./ops_memory.ts";
 import { commitAttachmentUpdates, releaseFiles, releaseLines } from "./files.ts";
 import { dropLine, releaseBackChannel, releaseHandedRoomsForDirectory } from "./direct.ts";
-import {
-	ADVERTISE_RETRY_LIMIT,
-	ensureInbox,
-	ensureOfferer,
-	forgetOfferer,
-	offerInboxFor,
-	relayLocatorUrl,
-	relayWsUrl,
-} from "./reachable.ts";
-import { ensureVizPublisher } from "./viz.ts";
+import { ADVERTISE_RETRY_LIMIT, ensureInbox, ensureOfferer, forgetOfferer, offerInboxFor } from "./reachable.ts";
 import { closeDm, enterRoom, leaveRoom, openPrivateRoom, settleStaged, takeStaged } from "./rooms.ts";
+import { dropIrcHold, takeIrcGatewayCap } from "./irc.ts";
 
 // ── Connection ────────────────────────────────────────────────────────────
 /** What a reader is told when an attempt to reach the room directory did not get
@@ -136,29 +123,13 @@ const reconnects = new Map<DirId, ReturnType<typeof setTimeout>>();
 async function openDirectoryAttempt(locator: string | null, backoff: number, signal?: AbortSignal): Promise<string> {
 	if (signal?.aborted) return "";
 	try {
-		// Install tracing before `init` creates the page's long-lived Runtime Host.
-		await ensureVizPublisher();
 		// Instantiate the wasm peer once; its adapter injection lets the runtime's
 		// `connect` (which `Directory.connect` rides) dial over the relay. Cache
 		// only a *resolved* init: `/pancake_host.wasm` answers 503 until the
 		// module is built, so a first attempt can lose that race — a rejected
 		// promise left cached would make every reconnect re-await the same failure
 		// forever instead of retrying once the asset is live.
-		const runtime = await readyRuntime(() =>
-			init({
-				wasm: fetch("/pancake_host.wasm"),
-				wsUrl: relayWsUrl,
-				relayUrl: relayLocatorUrl,
-				codec: CODEC,
-				captpVersion: CAPTP_VERSION,
-				connectors: [
-					relay.connector(),
-					webrtc.connector(directorySignalingAuthority(() => soleLive()?.dir ?? null), {
-						iceServers,
-					}),
-				],
-			})
-		);
+		const runtime = await bootRuntime();
 		// The inbox host both dials the directory and accepts cold-dials, so start
 		// it before the dial: the directory session must be present in the same
 		// host's live-session directory when a later cold-dial withdraws from that
@@ -230,7 +201,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		const seen = await next.watch((event) => {
 			switch (event.kind) {
 				case "closed":
-					store.dropLiveRoom(id, event.name);
+					store.dropLiveRoom(id, event.entry);
 					break;
 				case "registered":
 					store.setDmable(id, event.name, true);
@@ -262,7 +233,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 					ensureOfferer(session.id).forget(event.name);
 					break;
 				default:
-					store.setLiveRoom(id, event.name, event.count);
+					store.setLiveRoom(id, event.entry);
 					break;
 			}
 		});
@@ -270,7 +241,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 			dropAbortedDirectory(id, locator, next);
 			return "";
 		}
-		store.resetLiveRooms(id, seen.map((room) => [room.name, room.count] as const));
+		store.resetLiveRooms(id, seen);
 		announceDirectoryReady();
 		store.markDirReached(id);
 		store.setDirSession(id, "connected");
@@ -290,7 +261,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 
 		// A dropped directory session (the server respawning) reconnects the page.
 		next.session.serve()
-			.catch((err) => console.error("rooms: the directory session ended:", reason(err)))
+			.catch((err) => trouble("the directory session ended", err))
 			.finally(() => endSession(session));
 		// Reset the backoff only once this session has *survived* a stability
 		// window, not the instant the handshake reached `watch`. A server that
@@ -333,7 +304,9 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 					? "rejoining #" + rejoining[0].id + "…"
 					: "rejoining " + rejoining.length + " rooms…",
 			);
-			for (const conv of rejoining) void enterRoom(conv.dir, conv.id, nick);
+			for (const conv of rejoining) {
+				void enterRoom(conv.dir, conv.id, nick, { publicationId: conv.publicationId });
+			}
 		} else if (signal?.aborted || abandoned.has(id) || (leaveGen.get(id) ?? 0) !== gen) {
 			dropAbortedDirectory(id, locator, next);
 			return "";
@@ -346,22 +319,19 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 						id,
 						wanted.room,
 						wanted.nick,
-						0,
-						undefined,
-						undefined,
-						wanted.nick,
-						true,
-						signal,
+						{ requested: wanted.nick, signal },
 					),
 				);
 			} else store.setDirStatus(id, "");
 		}
 		return "";
 	} catch (err) {
-		// Surface the real cause for the devtools console; the user sees a plain
-		// retry line, but a blocked ws (an http page over https, say) or a wasm
-		// load failure is otherwise invisible.
-		console.error("rooms: could not open the peer session:", err);
+		// The cause rides the retry line the reader sees: a blocked ws (an http
+		// page over https, say) or a wasm load failure is otherwise invisible,
+		// and "retrying" alone gives them nothing to correct. The console keeps
+		// the full object for whoever is debugging with a stack in hand.
+		trouble("could not open the peer session", err);
+		const unreachable = `${UNREACHABLE} (${reason(err)})`;
 		if (signal?.aborted) {
 			if (locator !== null) {
 				const id = directoryId(locator);
@@ -372,7 +342,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		// A staged join is not lost on a failed attempt: the retry below opens
 		// another session, which replays it. The card is told so it can offer the
 		// button back, in case the reader would rather change their mind.
-		settleStaged(UNREACHABLE);
+		settleStaged(unreachable);
 		// The attempt is over and it failed. Left on "connecting", the dot in the
 		// foot of the rail would go on claiming an attempt that is no longer
 		// running, and the opening screen would go on waiting for an answer that
@@ -411,19 +381,19 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 			// on, so leaving it saying "reaching …" reports an attempt that ended,
 			// on a server that was never even involved.
 			store.setStatus("");
-			return UNREACHABLE;
+			return unreachable;
 		}
 		if (abandoned.has(failed)) {
 			store.forgetDir(failed);
 			store.setStatus("");
-			return UNREACHABLE;
+			return unreachable;
 		}
 		store.openDir(failed);
 		store.setDirSession(failed, "disconnected");
-		store.setDirStatus(failed, UNREACHABLE);
+		store.setDirStatus(failed, unreachable);
 		if (home) noteHomeDirectoryLocator(null);
 		scheduleReconnect(home ? null : failedLocator, Math.min(backoff * 2, BACKOFF_CEILING_MS), failed);
-		return UNREACHABLE;
+		return unreachable;
 	}
 }
 
@@ -471,6 +441,14 @@ async function redeemRememberedOps(home: DirId): Promise<void> {
 	if (inspect !== null && (await takeDiagnosticCap(inspect, true)) !== "") {
 		forgetOpsSwiss("diagnostics", home);
 	}
+	const peering = rememberedOpsSwiss("peering", home);
+	if (peering !== null && (await takePeeringCap(peering, true)) !== "") {
+		forgetOpsSwiss("peering", home);
+	}
+	const gateway = rememberedOpsSwiss("irc", home);
+	if (gateway !== null && (await takeIrcGatewayCap(gateway, true)) !== "") {
+		forgetOpsSwiss("irc", home);
+	}
 }
 
 function releaseSession(which: Live): boolean {
@@ -478,10 +456,12 @@ function releaseSession(which: Live): boolean {
 	dirs.delete(which.id);
 	if (which.id === store.get().homeDir) {
 		dropInspect();
+		dropIrcHold();
 		dropListeners();
+		dropPeering();
 	}
 	if (which.stable !== null) clearTimeout(which.stable);
-	void which.signaling?.close().catch((err) => console.error("rooms: WebRTC signaling would not stop:", reason(err)));
+	void which.signaling?.close().catch((err) => trouble("WebRTC signaling would not stop", err));
 	// A redeemed introduction holds a connection open and an inbox exported on
 	// it, so these are handed back rather than merely forgotten.
 	for (const key of [...which.lines.keys()]) dropLine(which, key);
@@ -528,7 +508,7 @@ function releaseSession(which: Live): boolean {
 		try {
 			line.release();
 		} catch (error) {
-			console.error("rooms: a line capability could not be released during session cleanup:", reason(error));
+			trouble("a line capability could not be released during session cleanup", error);
 		}
 	}
 	which.posted.clear();
@@ -550,9 +530,7 @@ function releaseSession(which: Live): boolean {
 	// deterministic releases against the close barrier and can turn cleanup into
 	// a stream of avoidable closed-handle failures. This remains idempotent when
 	// the pump already completed EOF teardown.
-	void which.dir.session.closeTransport().catch((err) =>
-		console.error("rooms: could not retire the dead directory session:", reason(err))
-	);
+	void which.dir.session.closeTransport().catch((err) => trouble("could not retire the dead directory session", err));
 	return true;
 }
 
@@ -569,7 +547,7 @@ function dropAbortedDirectory(id: DirId, locator: string | null, next?: Director
 		leaveDirectory(id);
 		return;
 	}
-	void next?.close().catch((err) => console.error("rooms: abandoned directory would not close:", reason(err)));
+	void next?.close().catch((err) => trouble("abandoned directory would not close", err));
 	store.forgetDir(id);
 	directoryLocators.delete(id);
 	store.setStatus("");
@@ -605,9 +583,8 @@ export function leaveDirectory(dir: DirId): void {
 	}
 	if (live !== undefined) releaseSession(live);
 	// The offerer goes with the directory itself, never with one connection to
-	// it. The published aliases stay in the Host-scoped publisher ledger because
-	// nothing withdraws a giftable; reopening starts a fresh peer mapping but
-	// cannot reset or exceed the process-wide publication ceiling.
+	// it. Leaving retires its aliases from the Host-scoped ledger; capabilities
+	// already issued keep their old actors, so reopening cannot retarget them.
 	forgetOfferer(dir);
 	releaseHandedRoomsForDirectory(dir);
 	store.forgetDir(dir);

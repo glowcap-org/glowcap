@@ -11,6 +11,7 @@ pub const outputs = [_]Output{
 pub const step_name = "gen-header-driver";
 
 const emitted_fn_names = [_][]const u8{
+    "pancake_driver_archive_fingerprint",
     "pancake_driver_take_host",
     "pancake_driver_close",
     "pancake_driver_retire",
@@ -180,6 +181,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
 
+    try E.emitFn(&b, gpa, "pancake_driver_archive_fingerprint", &.{}, "Read the exact reflected callable and layout identity of this driver archive.");
     try E.emitFn(&b, gpa, "pancake_driver_take_host", &.{ "host", "options", "out_loop" }, "Move a quiescent Host into a transport loop. Failure leaves Host ownership\nunchanged. Success transfers transport execution, action draining, session\nrelease, and terminal Host release to the loop. The loop starts with no\ntransports; add provider packages before dial or listen. The options layout\nmust be recognized; buffer and admission limits must be positive, while zero\nwait budgets select an unbounded wait. Release only through\npancake_driver_release.");
     try E.emitFn(&b, gpa, "pancake_driver_close", &.{ "loop", "options" }, "Seal admission, stop listeners, and begin or escalate one terminal close\nbarrier without blocking. CANCEL interrupts admitted opens and closes sessions.\nFINISH drives admitted opens, vows, and deferred answers under the explicit\nfinite or unbounded grace choice. Continue pancake_driver_step and drain events\nuntil pancake_driver_lifecycle_state reports PANCAKE_LIFECYCLE_CLOSED. This\ncloses without releasing the loop handle.");
     try E.emitFn(&b, gpa, "pancake_driver_retire", &.{"loop"}, "Stop listener admission and retire the loop after every application-owned\nsession handle releases. Existing sessions remain active; the final release\nbegins cancel close. Continue stepping until lifecycle state reports CLOSED.");
@@ -204,7 +206,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "pancake_driver_claim_reference_exporter", &.{ "loop", "reference", "out_session" }, "Resolve a live remote capability's exporter session and ensure the loop's one\napplication-owned handle claims it before returning. A local, stale, foreign-Host,\nor closed-session capability writes NULL. Repeated calls return the same handle.");
     try E.emitFn(&b, gpa, "pancake_driver_session_close", &.{ "loop", "session", "options" }, "Seal one loop-owned session's application admission and begin or escalate its\nnonblocking close barrier. Continue stepping until\npancake_driver_session_lifecycle_state reports PANCAKE_LIFECYCLE_CLOSED. This\ncloses without releasing the session handle.");
     try E.emitFn(&b, gpa, "pancake_driver_session_lifecycle_state", &.{ "loop", "session", "out_state" }, "Write one loop-owned session's PANCAKE_LIFECYCLE_* phase. CLOSED means the\ntransport is closed while the handle remains valid for explicit release. A finite\nfinish grace expiry returns PANCAKE_ERR_TIMEOUT together with CLOSED.");
-    try E.emitFn(&b, gpa, "pancake_driver_session_serve", &.{ "loop", "session" }, "Begin delivering this session's inbound application frames: the embedder has\nfinished its post-open setup (publishes, spawns), so a partner's pipelined\nfirst frames can no longer outrun the objects they name. A session surfaced\nby an OPENED or ACCEPTED event holds its inbound until this call; handshake\nframes were never held, and early bytes wait unread and replay in order now.\nIdempotent. Every binding runtime calls this from its serve path.");
+    try E.emitFn(&b, gpa, "pancake_driver_session_serve", &.{ "loop", "session" }, "Begin delivering this session's inbound application frames: the embedder has\nfinished its post-open setup (publishes, spawns), so a partner's pipelined\nfirst frames can no longer outrun the objects they name. A session surfaced\nby an OPENED or ACCEPTED event holds its inbound until this call; handshake\nframes were never held, and early bytes wait unread and replay in order now.\nReplaying resident bytes may invoke PancakeHostBehavior synchronously before\nthis call returns; binding runtimes must install their Host delivery context\nfirst. Idempotent.");
     try E.emitFn(&b, gpa, "pancake_driver_session_release", &.{ "loop", "session" }, "Release one loop-owned session and its wire.");
     try E.emitFn(&b, gpa, "pancake_driver_last_error", &.{ "out_buf", "cap" }, "Query or copy this archive's thread-local error message." ++ header_emit.last_error_freshness_doc);
     try E.emitFn(&b, gpa, "pancake_driver_clear_last_error", &.{}, "Clear this archive's thread-local error message.");

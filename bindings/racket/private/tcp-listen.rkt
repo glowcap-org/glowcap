@@ -11,6 +11,7 @@
          "abi-value.rkt"
          "errors.rkt"
          "locator.rkt"
+         "server-verbs.rkt"
          "socket-address.rkt"
          "tcp-config.rkt"
          "host/state.rkt")
@@ -26,21 +27,11 @@
    loop-listener-advertise!
    loop-listener-select!
    loop-listener-close!
-   make-loop-server
-   loop-server?
-   loop-server-locator
-   loop-server-host
-   loop-server-accept
-   loop-server-close!)]
+   make-loop-server)]
  ["tcp-provider.rkt" (driver-loop-add-tcp!)])
 
-(provide server?
-         server-host
-         server-locator
-         server-uri
+(provide (all-from-out "server-verbs.rkt")
          server-port
-         server-close!
-         accept
          listen
          listen-keyed-tcp
          listen-noise-tcp)
@@ -107,10 +98,16 @@
   (define listener #f)
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
-                     (when listener (loop-listener-close! lp listener))
-                     (when (and owns-loop? (not shared-host))
-                       (driver-loop-abort! lp))
-                     (raise e))])
+                     (define failed-listener listener)
+                     (raise-after-cleanups
+                      e
+                      (append
+                       (if failed-listener
+                           (list (lambda () (loop-listener-close! lp failed-listener)))
+                           '())
+                       (if (and owns-loop? (not shared-host))
+                           (list (lambda () (driver-loop-abort! lp)))
+                           '()))))])
     (driver-loop-add-tcp! lp config)
     (set! listener
           (loop-listen! lp transport (format "~a:~a" bind-host port) options))
@@ -139,7 +136,9 @@
              (hash HINT-DIRECT-ADDRESSES advertised-direct))))
       (loop-listener-advertise! lp listener locator-uri))
     (loop-listener-select! lp listener)
-    (make-loop-server lp listener time-travel? (not shared-host))))
+    (define server (make-loop-server lp listener time-travel? (not shared-host)))
+    (set! listener #f)
+    server))
 
 (define (listen bind-host [port 0] #:codec [codec #f]
                 #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
@@ -177,14 +176,8 @@
                       captp-version features advertised-host time-travel?
                       shared-host config options))
 
-(define server? loop-server?)
-(define server-host loop-server-host)
-(define server-locator loop-server-locator)
-(define (server-uri s) (format-locator-uri (server-locator s)))
 (define (server-port s)
   (define-values (_host port)
     (split-designator 'server-port
                       (locator-direct-address 'server-port (server-locator s))))
   port)
-(define accept loop-server-accept)
-(define server-close! loop-server-close!)

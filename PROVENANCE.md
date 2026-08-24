@@ -34,11 +34,6 @@ may use agents; its messages to OCapN may not. Any finding or review request is
 independently understood and written by the maintainer rather than forwarded
 from an agent-produced packet.
 
-It will fail if Zig changes the source, including when the upstream fix makes
-the copy unnecessary. Do not forward this project's description or patch
-upstream. Any upstream report or change must be independently derived under
-the target project's policy.
-
 ## Responsibility and licensing
 
 The maintainer uses pancake and stands behind the repository. The author field
@@ -73,7 +68,7 @@ External evidence is separate:
 External evidence does not resolve its direct inputs from moving package
 catalogs. OCapN conformance dependencies and Python WebSocket proofs use
 committed `uv` locks. Direct Racket packages are installed at the checksums in
-`.devcontainer/pins.sh`; the Racket 9.2 crypto-lib compatibility change is a
+`.devcontainer/pins.sh`; the pinned crypto-lib compatibility change is a
 committed patch whose source and output hashes are checked during image build.
 Racket's `--auto` still resolves transitive packages through its catalogs; the
 direct source pins prevent those roots from moving but do not make that graph a

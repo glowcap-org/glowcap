@@ -52,7 +52,7 @@ pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>) -> Re
 }
 
 /// Execute one byte-fed Host DIAL action and report its terminal result.
-pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Result<()> {
+pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_index: usize) -> Result<()> {
 	use crate::host::{check_host, try_spawn_local};
 	use crate::sys::host as ffi;
 
@@ -65,6 +65,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 			ffi::pancake_host_pending_dial(
 				host.raw(),
 				ticket,
+				route_index,
 				core::ptr::null_mut(),
 				0,
 				&mut view,
@@ -77,6 +78,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 				ffi::pancake_host_pending_dial(
 					host.raw(),
 					ticket,
+					route_index,
 					hints.as_mut_ptr(),
 					hints.len(),
 					&mut view,
@@ -109,7 +111,13 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 				"dial completion requires a running LocalSet".to_string(),
 			));
 		}
-		check_host(unsafe { ffi::pancake_host_dialed(host.raw(), ticket, raw_session) })?;
+		let mut adopted = 0u8;
+		check_host(unsafe { ffi::pancake_host_dialed(host.raw(), ticket, route_index, raw_session, &mut adopted) })?;
+		if adopted == 0 {
+			let session = opened.take().expect("unadopted dial remains owned");
+			session.close(crate::PendingWork::Cancel).await?;
+			return Ok(());
+		}
 		let session = opened.take().expect("reported session remains owned");
 		serve_tx.send(session).map_err(|_| {
 			Error::with_detail(
@@ -132,7 +140,9 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 				return Ok(());
 			}
 			let reason = error.to_string();
-			check_host(unsafe { ffi::pancake_host_dial_failed(host.raw(), ticket, reason.as_ptr(), reason.len()) })
+			check_host(unsafe {
+				ffi::pancake_host_dial_failed(host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+			})
 		}
 	}
 }

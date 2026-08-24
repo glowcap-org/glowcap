@@ -34,6 +34,11 @@ pub fn restoreListeners(cell: *PromiseListenCell, listeners: []ListenerEntry) vo
 
 /// Borrow the stored resolution when present.
 pub fn resolution(cell: *const PromiseListenCell) ?*const model.Resolution {
+    if (cell.resolution) |*r| return &r.value;
+    return null;
+}
+
+pub fn storedResolution(cell: *const PromiseListenCell) ?*const session.StoredResolution {
     if (cell.resolution) |*r| return r;
     return null;
 }
@@ -41,6 +46,6 @@ pub fn resolution(cell: *const PromiseListenCell) ?*const model.Resolution {
 /// Release listeners and any stored resolution. Safe to drop afterward.
 pub fn deinit(allocator: std.mem.Allocator, cell: *PromiseListenCell) void {
     cell.listeners.deinit(allocator);
-    if (cell.resolution) |r| model.freeResolution(allocator, r);
+    if (cell.resolution) |r| model.freeResolution(allocator, r.value);
     cell.resolution = null;
 }

@@ -20,52 +20,52 @@ import { assertEquals } from "@std/assert";
 import { EMPTY_TOOL_DRAFTS, ToolDraftStore } from "./ToolOptionsBar.tsx";
 
 Deno.test("a handler built early reads a field edited later", () => {
-  // The corruption, in miniature: arm the first peer (which is
-  // what rebuilds the click handler), then change a field, then
-  // commit.
-  const store = new ToolDraftStore();
-  const commit = () => store.read().sessionCodec;
-  assertEquals(commit(), "capnp");
-  store.set({ ...store.read(), sessionCodec: "syrup" });
-  assertEquals(commit(), "syrup");
+	// The corruption, in miniature: arm the first peer (which is
+	// what rebuilds the click handler), then change a field, then
+	// commit.
+	const store = new ToolDraftStore();
+	const commit = () => store.read().sessionCodec;
+	assertEquals(commit(), "capnp");
+	store.set({ ...store.read(), sessionCodec: "syrup" });
+	assertEquals(commit(), "syrup");
 });
 
 Deno.test("update patches fields and leaves the rest", () => {
-  // How the peer drop clears its id without dropping the sticky
-  // session and message values beside it.
-  const store = new ToolDraftStore();
-  store.set({
-    ...EMPTY_TOOL_DRAFTS,
-    peerId: "alice",
-    peerLabel: "Alice",
-    sessionCodec: "syrup",
-    messageLabel: "greet",
-  });
-  store.update({ peerId: "", peerLabel: "" });
-  assertEquals(store.read().peerId, "");
-  assertEquals(store.read().peerLabel, "");
-  assertEquals(store.read().sessionCodec, "syrup");
-  assertEquals(store.read().messageLabel, "greet");
+	// How the peer drop clears its id without dropping the sticky
+	// session and message values beside it.
+	const store = new ToolDraftStore();
+	store.set({
+		...EMPTY_TOOL_DRAFTS,
+		peerId: "alice",
+		peerLabel: "Alice",
+		sessionCodec: "syrup",
+		messageLabel: "greet",
+	});
+	store.update({ peerId: "", peerLabel: "" });
+	assertEquals(store.read().peerId, "");
+	assertEquals(store.read().peerLabel, "");
+	assertEquals(store.read().sessionCodec, "syrup");
+	assertEquals(store.read().messageLabel, "greet");
 });
 
 Deno.test("subscribers hear every write and stop on unsubscribe", () => {
-  const store = new ToolDraftStore();
-  const seen: string[] = [];
-  const stop = store.subscribe(() => seen.push(store.read().peerId));
-  store.update({ peerId: "a" });
-  store.update({ peerId: "ab" });
-  stop();
-  store.update({ peerId: "abc" });
-  assertEquals(seen, ["a", "ab"]);
-  assertEquals(store.read().peerId, "abc");
+	const store = new ToolDraftStore();
+	const seen: string[] = [];
+	const stop = store.subscribe(() => seen.push(store.read().peerId));
+	store.update({ peerId: "a" });
+	store.update({ peerId: "ab" });
+	stop();
+	store.update({ peerId: "abc" });
+	assertEquals(seen, ["a", "ab"]);
+	assertEquals(store.read().peerId, "abc");
 });
 
 Deno.test("the snapshot is stable between writes", () => {
-  // `useSyncExternalStore` re-renders whenever the snapshot's
-  // identity changes, so an unchanged store must return the same
-  // object or the bar repaints on every render of its parent.
-  const store = new ToolDraftStore();
-  assertEquals(store.read() === store.read(), true);
-  store.update({ peerId: "a" });
-  assertEquals(store.read() === store.read(), true);
+	// `useSyncExternalStore` re-renders whenever the snapshot's
+	// identity changes, so an unchanged store must return the same
+	// object or the bar repaints on every render of its parent.
+	const store = new ToolDraftStore();
+	assertEquals(store.read() === store.read(), true);
+	store.update({ peerId: "a" });
+	assertEquals(store.read() === store.read(), true);
 });

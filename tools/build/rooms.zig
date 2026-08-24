@@ -39,10 +39,12 @@ pub const Context = struct {
     host_install: *std.Build.Step,
     driver_install: *std.Build.Step,
     tcp_install: *std.Build.Step,
+    relay_install: *std.Build.Step,
     pin_port: ?u16,
     attach: bool,
     diagnostics: bool,
     admin_listeners: bool,
+    peering: bool,
     viz: bool,
 };
 
@@ -84,9 +86,16 @@ const rooms_server_test_batches: []const []const []const u8 = &.{
         "apps/rooms/test/server_names_test.ts",
         "apps/rooms/test/server_signaling_test.ts",
         "apps/rooms/test/server_rooms_test.ts",
+        "apps/rooms/test/server_peering_test.ts",
         "apps/rooms/test/server_lines_test.ts",
+        "apps/rooms/test/server_history_test.ts",
+        "apps/rooms/test/server_irc_gateway_test.ts",
+        "apps/rooms/test/server_capabilities_test.ts",
+        "apps/rooms/test/irc_reader_test.ts",
         "apps/rooms/test/server_links_test.ts",
         "apps/rooms/test/server_listeners_test.ts",
+        "apps/rooms/test/registry_test.ts",
+        "apps/rooms/test/routes_test.ts",
     },
     &.{
         "apps/rooms/test/text_test.ts",
@@ -98,6 +107,7 @@ const rooms_server_test_batches: []const []const []const u8 = &.{
         "apps/rooms/test/richtext_test.ts",
         "apps/rooms/test/room_facts_test.ts",
         "apps/rooms/test/commands_test.ts",
+        "apps/rooms/test/error_detail_test.ts",
         "apps/rooms/test/log_test.ts",
         "apps/rooms/test/name_voucher_test.ts",
         "apps/rooms/test/dir_address_test.ts",
@@ -113,9 +123,21 @@ const rooms_server_test_batches: []const []const []const u8 = &.{
     },
     &.{
         "apps/rooms/test/web_test.ts",
+        "apps/rooms/test/viz_records_test.ts",
         "apps/rooms/test/viz_test.ts",
         "apps/rooms/test/viz_cap_test.ts",
+        "apps/rooms/test/viz_containment_test.ts",
         "apps/rooms/test/web_viz_proxy_test.ts",
+    },
+    &.{
+        "apps/rooms/test/irc_protocol_test.ts",
+        "apps/rooms/test/irc_config_test.ts",
+        "apps/rooms/test/irc_front_config_test.ts",
+        "apps/rooms/test/irc_front_inbox_test.ts",
+        "apps/rooms/test/irc_socket_writer_test.ts",
+        "apps/rooms/test/irc_outbound_test.ts",
+        "apps/rooms/test/irc_bridge_test.ts",
+        "apps/rooms/test/irc_front_test.ts",
     },
 };
 
@@ -179,6 +201,7 @@ pub fn register(ctx: Context) void {
         batch.step.dependOn(ctx.host_install);
         batch.step.dependOn(ctx.driver_install);
         batch.step.dependOn(ctx.tcp_install);
+        batch.step.dependOn(ctx.relay_install);
         rooms_server_test_step.dependOn(&batch.step);
     }
 
@@ -215,6 +238,30 @@ pub fn register(ctx: Context) void {
     const rooms_onion_demo = common.addInstalledSystemRun(b, .real_internet, &.{ "bash", "apps/rooms/demos/run-onion.sh" });
     const rooms_onion_demo_step = b.step("demo-rooms-onion", "Run the Rooms application over real Tor with one onion service and two independent peers (needs deno + tor + network)");
     rooms_onion_demo_step.dependOn(&rooms_onion_demo.step);
+
+    // One IRC channel presented as an ordinary Rooms directory. IRC
+    // stays at the application edge: the listener below is the same CapTP Rooms
+    // listener as every other server, while main.ts owns IRC registration, TLS,
+    // bounded line parsing, and reconnect policy. Arguments after `--` select
+    // the network/channel/endpoints; the default is Libera's #ocapn over TLS.
+    const rooms_irc_bridge = common.addInstalledSystemRun(b, .service, &.{
+        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_IRC_SASL_PASSWORD", "apps/rooms/irc/main.ts",
+    });
+    rooms_irc_bridge.addPassthruArgs();
+    const rooms_irc_bridge_step = b.step("rooms-irc-bridge", "Serve an IRC channel as a Rooms directory (read-only by default; needs deno + network)");
+    rooms_irc_bridge_step.dependOn(&rooms_irc_bridge.step);
+
+    // The opposite edge: ordinary IRC clients enter a native Rooms directory.
+    // Each socket holds the Directory, Room, and introduced DM capabilities it
+    // acquired; the IRC listener adds no server-to-server network and no second
+    // chat authority. It is loopback-cleartext by default and requires a TLS
+    // keypair before configuration will expose it on a non-loopback bind.
+    const rooms_irc_front = common.addInstalledSystemRun(b, .service, &.{
+        "deno", "run", "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR", "apps/rooms/irc/front_main.ts",
+    });
+    rooms_irc_front.addPassthruArgs();
+    const rooms_irc_front_step = b.step("rooms-irc-front", "Serve a native Rooms directory to ordinary IRC clients (loopback by default; needs deno + network)");
+    rooms_irc_front_step.dependOn(&rooms_irc_front.step);
 
     // Four native direct-message scenarios over TCP, one table because their
     // wiring is identical and only the scenario differs.
@@ -350,12 +397,13 @@ pub fn register(ctx: Context) void {
     if (ctx.pin_port) |p| rooms_web.addArg(b.fmt("{d}", .{p}));
     if (ctx.diagnostics) rooms_web.addArg("--diagnostics");
     if (ctx.admin_listeners) rooms_web.addArg("--admin-listeners");
+    if (ctx.peering) rooms_web.addArg("--peering");
     if (ctx.viz) rooms_web.addArg("--viz");
     rooms_web.addPassthruArgs();
     // The page's browser peer loads the wasm Host module from zig-out; serving
     // a stale one ships a layout descriptor the freshly-bundled page refuses.
     rooms_web.step.dependOn(ctx.wasm_driver_install);
-    const rooms_web_step = b.step("rooms-web-tcp", "Serve the rooms browser UI over cleartext TCP (public rooms + direct messages by introduction); open the printed URL. Prefer rooms-web, which serves the same UI over encrypted QUIC (needs deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dviz` mint the operations capabilities; `-- --bind=<host> --announce-host=<host>` expose the cleartext room on a LAN");
+    const rooms_web_step = b.step("rooms-web-tcp", "Serve the rooms browser UI over cleartext TCP (public rooms + direct messages by introduction); open the printed URL. Prefer rooms-web, which serves the same UI over encrypted QUIC (needs deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dpeering` / `-Dviz` mint the operations capabilities; `-- --bind=<host> --announce-host=<host>` expose the cleartext room on a LAN");
     rooms_web_step.dependOn(&rooms_web.step);
 
     // The same browser UI with the room directory published as a Tor onion
@@ -371,11 +419,12 @@ pub fn register(ctx: Context) void {
     if (ctx.pin_port) |p| rooms_web_onion.addArg(b.fmt("{d}", .{p}));
     if (ctx.diagnostics) rooms_web_onion.addArg("--diagnostics");
     if (ctx.admin_listeners) rooms_web_onion.addArg("--admin-listeners");
+    if (ctx.peering) rooms_web_onion.addArg("--peering");
     if (ctx.viz) rooms_web_onion.addArg("--viz");
     rooms_web_onion.addPassthruArgs();
     // Same stale-wasm guard as `rooms-web-tcp` above.
     rooms_web_onion.step.dependOn(ctx.wasm_driver_install);
-    const rooms_web_onion_step = b.step("rooms-web-onion", "Serve the rooms browser UI with the room directory published as a Tor onion service; open the printed URL (needs deno + tor). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dviz` mint the operations capabilities");
+    const rooms_web_onion_step = b.step("rooms-web-onion", "Serve the rooms browser UI with the room directory published as a Tor onion service; open the printed URL (needs deno + tor). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dpeering` / `-Dviz` mint the operations capabilities");
     rooms_web_onion_step.dependOn(&rooms_web_onion.step);
 
     // The rooms browser-peer proof: a wasm browser peer drives the real
@@ -482,7 +531,7 @@ pub fn register(ctx: Context) void {
         .{ .step_name = "rooms-web-dm-reopen", .description = "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_reopen_test.ts" },
     };
     for (web_proofs) |proof| {
-        const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-all", proof.source });
+        const run = execution.addSystemCommand(b, .{ .browser_proof = 330 }, &.{ "deno", "run", "--allow-all", proof.source });
         const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", proof.source });
         run.step.dependOn(&cache.step);
         run.setCwd(b.path("."));
@@ -504,15 +553,16 @@ pub fn register(ctx: Context) void {
     if (ctx.pin_port) |p| rooms_web_iroh.addArg(b.fmt("{d}", .{p}));
     if (ctx.diagnostics) rooms_web_iroh.addArg("--diagnostics");
     if (ctx.admin_listeners) rooms_web_iroh.addArg("--admin-listeners");
+    if (ctx.peering) rooms_web_iroh.addArg("--peering");
     if (ctx.viz) rooms_web_iroh.addArg("--viz");
     rooms_web_iroh.addPassthruArgs();
     rooms_web_iroh.step.dependOn(ctx.iroh_abi_step);
     // Same stale-wasm guard as `rooms-web-tcp` above.
     rooms_web_iroh.step.dependOn(ctx.wasm_driver_install);
-    const rooms_web_iroh_step = b.step("rooms-web-iroh", "Serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dviz` mint the operations capabilities");
+    const rooms_web_iroh_step = b.step("rooms-web-iroh", "Serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dpeering` / `-Dviz` mint the operations capabilities");
     rooms_web_iroh_step.dependOn(&rooms_web_iroh.step);
     // The short name is this step: iroh is the ordinary way to run the UI.
-    b.step("rooms-web", "Serve the rooms browser UI over iroh (same as rooms-web-iroh); open the printed URL (needs cargo + deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dviz` mint the operations capabilities")
+    b.step("rooms-web", "Serve the rooms browser UI over iroh (same as rooms-web-iroh); open the printed URL (needs cargo + deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Dpeering` / `-Dviz` mint the operations capabilities")
         .dependOn(rooms_web_iroh_step);
 
     // Everything the rooms deploy container mounts, in one step.

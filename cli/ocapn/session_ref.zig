@@ -60,6 +60,17 @@ fn finishOwned(
         } else {
             failure = .init(cleanup);
         }
+        // A failed close has not crossed the Session release boundary. Move
+        // the still-live one-shot handle into the context so process teardown
+        // or a later command can retry the exact barrier.
+        ctx.retainOneShotSession(session);
+        if (ctx.takeCallerless()) |later| {
+            if (failure) |*chain| chain.noteChain(later) else failure = later;
+        }
+        if (primary) |cause| return cause;
+        if (code.? != exit_codes.ok) return code.?;
+        ctx.logCloseFailure("session close", failure.?);
+        return ctx.mapCloseErr(failure.?.cause);
     };
     session.deinit();
     if (ctx.takeCallerless()) |cleanup| {

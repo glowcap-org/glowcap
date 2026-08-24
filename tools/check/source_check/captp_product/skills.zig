@@ -291,3 +291,53 @@ pub fn checkPancakeCliSkillAuthority(
         try appendViolation(gpa, violations, "{s}: CapTP verb table is incomplete — enumerate every registry leaf or defer to `pancake help` (no second catalog)", .{skill_path});
     }
 }
+
+/// `pancake griddle run` is a shipped CLI front. Agent guides may route it to
+/// pancake-cli, but must not describe the live runner as unfinished.
+pub fn checkGriddleSkillTruth(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const command_path = "cli/griddle/mod.zig";
+    const command = root.readFileAlloc(io, command_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for griddle skill truth with {s}", .{ command_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(command);
+    if (std.mem.indexOf(u8, command, ".name = \"run\"") == null or
+        std.mem.indexOf(u8, command, ".run = runRun") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: griddle skill truth expects the shipped `run` command; update the check with the command boundary", .{command_path});
+        return;
+    }
+
+    const skill_paths = [_][]const u8{
+        ".agents/skills/pancake-cli/SKILL.md",
+        ".agents/skills/pancake-mcp/SKILL.md",
+    };
+    for (skill_paths) |path| {
+        const skill = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for griddle skill truth with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(skill);
+        if (std.mem.indexOf(u8, skill, "pancake griddle run") == null) {
+            try appendViolation(gpa, violations, "{s}: must route the shipped `pancake griddle run` front truthfully", .{path});
+        }
+        var lines = std.mem.splitScalar(u8, skill, '\n');
+        while (lines.next()) |line| {
+            const lower = try gpa.dupe(u8, line);
+            defer gpa.free(lower);
+            _ = std.ascii.lowerString(lower, line);
+            if (std.mem.indexOf(u8, lower, "griddle") == null) continue;
+            if (std.mem.indexOf(u8, lower, "stub") != null or
+                std.mem.indexOf(u8, lower, "not built") != null or
+                std.mem.indexOf(u8, lower, "deferred") != null)
+            {
+                try appendViolation(gpa, violations, "{s}: calls shipped griddle unfinished in `{s}`", .{ path, std.mem.trim(u8, line, " \t") });
+            }
+        }
+    }
+}

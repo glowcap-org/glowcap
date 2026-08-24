@@ -102,7 +102,7 @@ pub fn register(
     // the upstream Syrup encoder re-deriving the committed corpus. Run this
     // before believing a protocol claim; the checks workflow runs
     // `ci/gates.sh` on main-branch pushes and pull requests.
-    const check_external_step = b.step("check-external", "Run the core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, the relayed give, the hinted-locator give, and Syrup corpus parity (needs uv + racket + goblins)");
+    const check_external_step = b.step("check-external", "Run the core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, both foreign-promise listener directions, the hinted-locator give, and Syrup corpus parity (needs uv + racket + goblins)");
     check_external_step.dependOn(ocapn_conformance_step);
     check_external_step.dependOn(ocapn_findings_step);
     check_external_step.dependOn(goblins_reg.interop_step);
@@ -110,6 +110,7 @@ pub fn register(
     check_external_step.dependOn(goblins_reg.gift_step);
     check_external_step.dependOn(goblins_reg.gift_hints_step);
     check_external_step.dependOn(goblins_reg.relayed_give_step);
+    check_external_step.dependOn(goblins_reg.listen_recipient_step);
     check_external_step.dependOn(goblins_reg.exporter_step);
     check_external_step.dependOn(fixture_gen_check_step);
 

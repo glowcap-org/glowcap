@@ -263,9 +263,9 @@ locator through `server.uri`.
 
 # Async
 
-Sessions return native promises, and a session is disposable: `await using session =
-await runtime.connect(...)` closes it when the block ends, in place of an explicit
-`session.close()`. For how one call can pipeline on another before it resolves,
+Sessions return native promises, and a session is disposable: connect with
+`await using`, and the session closes when the block ends, in place of an
+explicit `session.close()`. For how one call can pipeline on another before it resolves,
 see [Concepts]($link.page('concepts')).
 
 # Actors

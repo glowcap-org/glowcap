@@ -222,6 +222,28 @@ export async function withServer(fn: (port: number) => Promise<void>): Promise<v
 	}
 }
 
+export async function withPeeringServer(
+	fn: (port: number, swiss: string) => Promise<void>,
+): Promise<void> {
+	const state = await Deno.makeTempDir();
+	const proc = spawnOwned("deno", {
+		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--peering"],
+		cwd: ROOT,
+		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: state },
+		stdout: "piped",
+		stderr: "piped",
+	});
+	try {
+		const port = await readPort(proc);
+		const swiss = (await Deno.readTextFile(`${state}/peering`)).trim();
+		assert(swiss.length > 0, "the peering server did not persist its swiss");
+		await fn(port, swiss);
+	} finally {
+		await stopOwned(proc);
+		await Deno.remove(state, { recursive: true });
+	}
+}
+
 export async function withCapturedServer(fn: (port: number) => Promise<void>): Promise<string> {
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
@@ -370,6 +392,7 @@ export {
 	enterOrOpen,
 	listRooms,
 	nextMessage,
+	recordDirectoryEvent,
 	refusalCode,
 	registerAndWatch,
 	resubscribeAndHold,

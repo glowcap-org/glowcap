@@ -6,7 +6,7 @@ const negotiation = pancake.ocapn.engine.negotiation;
 
 test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     const a = model.FeatureSet.full();
-    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref or untag
+    const b = model.FeatureSet.pipeliningAndHandoff();
 
     const ab = a.intersect(b);
     const ba = b.intersect(a);
@@ -19,6 +19,7 @@ test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     try std.testing.expect(ab.wire_delta);
     try std.testing.expect(!ab.sturdyref);
     try std.testing.expect(!ab.untag);
+    try std.testing.expect(!ab.multi_location);
 }
 
 test "intersect with minimum yields minimum" {
@@ -31,13 +32,21 @@ test "FeatureSet wire hint round-trips and rejects ambiguous spellings" {
 
     try std.testing.expectEqualStrings("", try model.FeatureSet.minimum().toWireString(&buf));
     const full = try model.FeatureSet.full().toWireString(&buf);
-    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref,untag", full);
+    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref,untag,multi_location", full);
     try std.testing.expectEqual(model.FeatureSet.full(), model.FeatureSet.fromWireString(full).?);
     try std.testing.expectEqual(model.FeatureSet.minimum(), model.FeatureSet.fromWireString("").?);
 
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,pipelining") == null);
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,") == null);
     try std.testing.expect(model.FeatureSet.fromWireString("sturdy") == null);
+}
+
+test "default offer excludes private identity-route vocabulary" {
+    const default_offer = model.FeatureSet.defaultOffer();
+    try std.testing.expect(default_offer.untag);
+    try std.testing.expect(!default_offer.multi_location);
+    try std.testing.expect(model.FeatureSet.full().multi_location);
+    try std.testing.expect(!(model.Preference{}).features.multi_location);
 }
 
 test "an absent feature hint never grants outbound untag" {
@@ -66,6 +75,16 @@ test "negotiate picks the most-preferred shared codec and intersects features" {
     // first).
     try std.testing.expectEqual(model.CodecId.capnp, n.codec);
     try std.testing.expectEqual(model.FeatureSet.pipeliningAndHandoff(), n.features);
+}
+
+test "v1.0 negotiation drops the pancake-next multi-location feature" {
+    const local = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
+    const remote = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
+
+    const n = negotiation.negotiate(local, remote).?;
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, n.captp_version);
+    try std.testing.expect(!n.features.multi_location);
+    try std.testing.expect(model.FeatureSet.full().forCaptpVersion(.next).multi_location);
 }
 
 test "negotiate is symmetric under perspective swap" {

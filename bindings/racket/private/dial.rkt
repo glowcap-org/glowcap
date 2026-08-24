@@ -239,12 +239,13 @@
 ;; dial breaks every waiting redeem with the reason. The exporter connection
 ;; is kept pumped by a background serve so the withdraw's resolution — and
 ;; any later routed traffic — is read.
-(define (run-dial! m ticket [cancelled? (lambda () #f)])
-  ;; Ticket-only DIAL: clone the complete parsed locator, then dial. The
+(define (run-dial! m ticket route-index [cancelled? (lambda () #f)])
+  ;; Clone the concrete attempt's parsed locator, then dial. The
   ;; dynamic-wind after-thunk is the terminal guard: a break aimed at the
   ;; executing green thread cannot strand the already-popped ticket.
   (define c #f)
   (define reported? #f)
+  (define adopted? #f)
   (define failure "dial interrupted")
   (dynamic-wind
    void
@@ -253,7 +254,7 @@
                       (lambda (e)
                         (set! failure (exn->message e)))])
        (define-values (rc locator-handle)
-         (pancake_host_pending_dial (host-ptr m) ticket))
+         (pancake_host_pending_dial (host-ptr m) ticket route-index))
        (check/host rc)
        (define loc (call-with-owned-locator-handle locator-handle owned-locator->locator))
        (set! c (dial-exporter m loc))
@@ -264,7 +265,7 @@
            ;; report, even if a later drain effect is interrupted.
            (parameterize-break
             #f
-            (host-dialed! m ticket (session-ptr c))
+            (set! adopted? (host-dialed! m ticket route-index (session-ptr c)))
             (set! reported? #t))
            (drain-host-actions! m)))
        (void)))
@@ -275,12 +276,14 @@
      (parameterize-break
       #f
       (if reported?
-          (thread
-           (lambda ()
-             (with-handlers ([converts-to-broken?
-                              (lambda (error)
-                                (record-host-runtime-failure! m error))])
-               (session-serve c))))
+          (if adopted?
+              (thread
+               (lambda ()
+                 (with-handlers ([converts-to-broken?
+                                  (lambda (error)
+                                    (record-host-runtime-failure! m error))])
+                   (session-serve c))))
+              (retain-host-cleanup-failure! m (lambda () (session-close! c))))
           (begin
             ;; Roll back the opened session before failure is reported, matching
             ;; the transactional C Host contract.
@@ -292,5 +295,5 @@
                (lambda ()
                 (with-host-drain m
                   (lambda ()
-                    (host-dial-failed! m ticket failure)
+                    (host-dial-failed! m ticket route-index failure)
                     (drain-host-actions! m))))))))))))

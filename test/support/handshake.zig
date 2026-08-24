@@ -17,7 +17,6 @@ const std = @import("std");
 const pancake = @import("pancake");
 const foundation = pancake.foundation;
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const codec = pancake.ocapn.codec;
 const crypto = foundation.crypto;
 
@@ -48,8 +47,7 @@ pub fn startSession(transport: []const u8, designator: []const u8) model.Message
 /// `engine.Peer.advertisedLocator`, which stamps this peer's preferred CapTP
 /// version and codec into the signed location, so every hello built here
 /// carries no preference hints and its partner reads it as a peer asking for
-/// the interop baseline. Tests about negotiation belong on the production
-/// builder instead.
+/// the interop baseline unless the test supplies those hints explicitly.
 pub fn signedHelloFrame(
     allocator: std.mem.Allocator,
     secret: crypto.SecretKey,
@@ -57,8 +55,6 @@ pub fn signedHelloFrame(
     designator: []const u8,
     hints: model.Hints,
 ) !foundation.Frame {
-    var sender = engine.Peer.initNegotiating(allocator);
-    defer sender.deinit();
     const locator: model.PeerLocator = .{
         .transport = transport,
         .designator = designator,
@@ -67,12 +63,10 @@ pub fn signedHelloFrame(
     const signed = try codec.signed.locationBytes(allocator, locator);
     defer allocator.free(signed);
     const sig = crypto.sign(&secret, signed);
-    try sender.sendCopying(.{ .start_session = .{
+    return codec.syrup.encodeMessageForProfile(allocator, .v1_0, .{ .start_session = .{
         .captp_version = model.Preference.baseline.captp_version,
         .session_pubkey = .{ .bytes = secret.publicKey().asBytes() },
         .acceptable_location = locator,
         .acceptable_location_sig = .{ .bytes = sig.asBytes() },
     } });
-    _ = try sender.step();
-    return sender.takeOutbound().?;
 }

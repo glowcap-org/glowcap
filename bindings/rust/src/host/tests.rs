@@ -118,14 +118,14 @@ fn cancel_dial_action_joins_its_ticketed_task() {
 		let task_dropped = Rc::clone(&dropped);
 		assert!(host
 			.shared
-			.spawn_dial_task(1, move |_host| async move {
+			.spawn_dial_task(1, 0, move |_host| async move {
 				let _probe = DropProbe(task_dropped);
 				std::future::pending::<()>().await;
 			})
 			.unwrap());
 		tokio::task::yield_now().await;
 
-		host.shared.cancel_dial_task(1).await.unwrap();
+		host.shared.cancel_dial_task(1, 0).await.unwrap();
 		assert!(dropped.get(), "CANCEL_DIAL joins the ticketed DIAL future");
 		host.close(crate::PendingWork::Cancel).await.unwrap();
 	});
@@ -142,7 +142,7 @@ fn panicking_dial_task_reaches_the_host_close_barrier() {
 		let host = Host::new_host();
 		assert!(host
 			.shared
-			.spawn_dial_task(1, move |_host| async move {
+			.spawn_dial_task(1, 0, move |_host| async move {
 				panic!("dial executor panic");
 			})
 			.unwrap());
@@ -337,14 +337,18 @@ fn action_kick_without_a_local_set_reports_admission_failure() {
 	);
 }
 
-// Public Host surfaces the ADR-0082 selective knobs (not only HostShared).
+// Public Host surfaces the ADR-0124 selective knobs (not only HostShared).
 #[test]
 fn set_session_limits_is_callable_on_host() {
 	let host = Host::new_host();
-	host.set_session_limits(0, 0, 0)
+	host.set_session_limits(crate::SessionLimitOptions::default())
 		.expect("0 leaves both fields unchanged");
-	host.set_session_limits(64 * 1024, 0, 0)
-		.expect("max_frame_bytes alone is accepted");
+	host.set_session_limits(crate::SessionLimitOptions {
+		max_frame_bytes: 64 * 1024,
+		max_retained_sent_answer_bytes: 8 * 1024 * 1024,
+		..Default::default()
+	})
+	.expect("independent transient and durable byte caps are accepted");
 }
 
 #[test]
@@ -370,7 +374,8 @@ fn host_options_carry_local_turn_budget() {
 		..Default::default()
 	})
 	.unwrap();
-	host.set_session_limits(0, 0, 0).expect("minted host answers limits");
+	host.set_session_limits(crate::SessionLimitOptions::default())
+		.expect("minted host answers limits");
 }
 
 #[test]
