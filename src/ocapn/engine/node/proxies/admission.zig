@@ -43,7 +43,7 @@ const PreparedHome = struct {
 
     fn commit(self: *PreparedHome, node: *Node) void {
         const home = node.peer(self.key.home) orelse unreachable;
-        home.session_state.recordSend(self.message) catch unreachable;
+        home.session_state.recordPreparedSend(self.message);
         home.pushPendingAssume(self.reservation, .{ .message = self.message });
         const listener_key: topology.ListenerKey = .{
             .home = self.key.home,

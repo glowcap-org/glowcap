@@ -11,8 +11,10 @@
 ;; capability lookup followed by an invocation); the harness times the whole unit.
 (file-stream-buffer-mode (current-output-port) 'line)
 
-(require (file "/workspaces/pancake/bench/goblins/metrics.rkt"))
+(require racket/runtime-path)
+(require "metrics.rkt")
 
+(define-runtime-path here ".")
 (define args (current-command-line-arguments))
 (define backend-name (vector-ref args 0))
 (define suite (vector-ref args 1))
@@ -23,9 +25,9 @@
 (define CONNS (if (> (vector-length args) 6) (string->number (vector-ref args 6)) 1))
 
 (define backend-path
-  (string->path (format "/workspaces/pancake/bench/goblins/backend-~a.rkt" backend-name)))
+  (build-path here (format "backend-~a.rkt" backend-name)))
 (define app-path
-  (string->path (format "/workspaces/pancake/bench/goblins/apps/~a.rkt" suite)))
+  (build-path here "apps" (format "~a.rkt" suite)))
 
 (define client-connect (dynamic-require backend-path 'client-connect))
 (define client-fetch   (dynamic-require backend-path 'client-fetch))

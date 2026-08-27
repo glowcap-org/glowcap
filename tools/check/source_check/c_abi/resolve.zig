@@ -1,8 +1,9 @@
 //! The C-ABI find/download contract (ADR-0077): the canonical
 //! `c-abi-resolve.json`'s shape, the version pin against the generated
 //! header, the byte-identical package copies, the packaging documentation,
-//! the publish valve in the release workflow, and the package-ship surfaces
-//! that make the contract reachable from every published package.
+//! the separation between tagged publication and consumer availability, and
+//! the package-ship surfaces that make the contract reachable from every
+//! published package.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -241,15 +242,18 @@ pub fn checkCAbiResolve(
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: must document release-pack target triples / cargo cfg posture", .{});
     }
 
-    // release.yml must gate `gh release create` on the contract valve.
+    // A successful exact-SHA version tag authorizes archive publication.
+    // `releases_published` is a later consumer-availability decision; using it
+    // here would deadlock the first release because the flag cannot truthfully
+    // turn on until the assets exist.
     const release_workflow = ".github/workflows/release.yml";
     const workflow = root.readFileAlloc(io, release_workflow, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_workflow, @errorName(err) });
         return;
     };
     defer gpa.free(workflow);
-    if (std.mem.indexOf(u8, workflow, "releases_published") == null) {
-        try appendViolation(gpa, violations, "{s}: must gate publish on contract `releases_published`", .{release_workflow});
+    if (std.mem.indexOf(u8, workflow, "releases_published") != null) {
+        try appendViolation(gpa, violations, "{s}: `releases_published` governs consumer downloads, not tagged archive publication", .{release_workflow});
     }
     if (std.mem.indexOf(u8, workflow, "gh release create") == null) {
         try appendViolation(gpa, violations, "{s}: must still contain `gh release create` for the tag path", .{release_workflow});
@@ -259,10 +263,10 @@ pub fn checkCAbiResolve(
     {
         try appendViolation(gpa, violations, "{s}: tag publication must require `v<abi_version>` from bindings/c-abi-resolve.json", .{release_workflow});
     }
-    if (std.mem.indexOf(u8, workflow, "jq") == null or
-        std.mem.indexOf(u8, workflow, ".releases_published == true") == null)
+    if (std.mem.indexOf(u8, workflow, "macos-15-intel") == null or
+        std.mem.indexOf(u8, workflow, "macos-13") != null)
     {
-        try appendViolation(gpa, violations, "{s}: must jq-check `.releases_published == true` before publish", .{release_workflow});
+        try appendViolation(gpa, violations, "{s}: x86_64-macos archives require the supported `macos-15-intel` runner", .{release_workflow});
     }
     if (std.mem.indexOf(u8, workflow, "workflow_dispatch") == null) {
         try appendViolation(gpa, violations, "{s}: must offer workflow_dispatch for dry-run archive builds", .{release_workflow});

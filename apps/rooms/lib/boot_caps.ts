@@ -10,6 +10,8 @@
 // alphabetical, so an operator scanning the block finds a line by name.
 
 export interface BootCapDef {
+	/** Stable state-bundle and UI identifier. */
+	id: OperationsCapability;
 	/** The argv flag that asks for it, e.g. `--diagnostics`. */
 	flag: string;
 	/** The flag's env twin, set to `1`. */
@@ -22,8 +24,11 @@ export interface BootCapDef {
 	label: string;
 }
 
+export type OperationsCapability = "listeners" | "diagnostics" | "irc" | "operator" | "peering" | "viz";
+
 export const BOOT_CAPS = {
 	adminListeners: {
+		id: "listeners",
 		flag: "--admin-listeners",
 		env: "PANCAKE_ROOMS_ADMIN_LISTENERS",
 		file: "admin-listeners",
@@ -31,6 +36,7 @@ export const BOOT_CAPS = {
 		label: "admin-listeners",
 	},
 	diagnostics: {
+		id: "diagnostics",
 		flag: "--diagnostics",
 		env: "PANCAKE_ROOMS_DIAGNOSTICS",
 		file: "diagnostics",
@@ -38,13 +44,23 @@ export const BOOT_CAPS = {
 		label: "diagnostics",
 	},
 	irc: {
+		id: "irc",
 		flag: "--irc",
 		env: "PANCAKE_ROOMS_IRC",
 		file: "irc",
 		token: "ROOMS-IRC",
 		label: "irc",
 	},
+	operator: {
+		id: "operator",
+		flag: "--operator",
+		env: "PANCAKE_ROOMS_OPERATOR",
+		file: "operator",
+		token: "ROOMS-OPERATOR",
+		label: "operator",
+	},
 	peering: {
+		id: "peering",
 		flag: "--peering",
 		env: "PANCAKE_ROOMS_PEERING",
 		file: "peering",
@@ -52,6 +68,7 @@ export const BOOT_CAPS = {
 		label: "peering",
 	},
 	viz: {
+		id: "viz",
 		flag: "--viz",
 		env: "PANCAKE_ROOMS_VIZ",
 		file: "viz",
@@ -62,3 +79,7 @@ export const BOOT_CAPS = {
 
 /** Every capability, in print order. */
 export const ALL_BOOT_CAPS: readonly BootCapDef[] = Object.values(BOOT_CAPS);
+
+export const OPERATIONS_CAPABILITIES: readonly OperationsCapability[] = ALL_BOOT_CAPS.map((capability) =>
+	capability.id
+);

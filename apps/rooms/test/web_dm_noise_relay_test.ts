@@ -6,39 +6,16 @@
 // this scenario proves the mapped product path carries in both directions.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const FIRST = "hello through sealed relay rendezvous";
 const REPLY = "replying over the arriving Noise session";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 200; i++) {
-		try {
-			const response = await fetch(`http://127.0.0.1:${port}/locator`);
-			await response.body?.cancel();
-			if (response.ok) return;
-		} catch {
-			// The server owns its startup; the scenario owns only this bounded wait.
-		}
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-	fail("serve.ts did not publish its room locator");
-}
 
 async function join(browser: Browser, port: number, nick: string): Promise<Page> {
 	const tab = await (await browser.newContext()).newPage();
@@ -47,6 +24,7 @@ async function join(browser: Browser, port: number, nick: string): Promise<Page>
 		if (message.type() === "error") console.error(`  [${nick} console.error]`, message.text());
 	});
 	await tab.goto(`http://127.0.0.1:${port}/?dm=relay`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");

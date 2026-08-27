@@ -211,7 +211,7 @@ relay and waits there.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         noise_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -224,7 +224,7 @@ relay and waits there.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise proves this durable key to dialers
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **TypeScript**
@@ -300,7 +300,7 @@ relay and waits there.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -313,7 +313,7 @@ relay and waits there.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **TypeScript**

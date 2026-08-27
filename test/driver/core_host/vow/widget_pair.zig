@@ -1,6 +1,5 @@
 const std = @import("std");
 const pancake = @import("pancake");
-const test_host = @import("../../../support/core_host.zig");
 const harness = @import("../harness.zig");
 
 const model = pancake.ocapn.model;

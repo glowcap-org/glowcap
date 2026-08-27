@@ -26,49 +26,12 @@
 // `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
+import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/pancake-webrtc-answerer`;
 const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
-const BUNDLE_CONFIG = new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-// Bundle the probe for the browser through the web binding's browser-bundle
-// config, which maps @pancake/web, @pancake/webrtc, and the stack graph, and
-// stubs the non-browser FFI adapters so the single-file bundle resolves.
-async function bundleProbe(): Promise<string> {
-	const { code, stdout, stderr } = await new Deno.Command("deno", {
-		args: [
-			"bundle",
-			"--platform",
-			"browser",
-			"--no-lock",
-			"--quiet",
-			"--config",
-			BUNDLE_CONFIG,
-			PROBE,
-		],
-		stdout: "piped",
-		stderr: "piped",
-	}).output();
-	if (code !== 0) {
-		fail("deno bundle of the probe failed: " + new TextDecoder().decode(stderr).trim());
-	}
-	return new TextDecoder().decode(stdout);
-}
-
 const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60s"), 60_000);
 
 // The native answerer: the sidecar-linked keyed server. Piped stdio carries
@@ -87,7 +50,7 @@ async function toAnswerer(line: string): Promise<void> {
 const assetServer = new AbortController();
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
-	const probeJs = await bundleProbe();
+	const probeJs = await bundleProbe(PROBE);
 	const wasmBytes = await Deno.readFile(WASM);
 	const page = `<!doctype html><meta charset=utf-8><title>webrtc browser peer probe</title>` +
 		`<pre id=status>connecting…</pre><script type=module>${probeJs}</script>`;

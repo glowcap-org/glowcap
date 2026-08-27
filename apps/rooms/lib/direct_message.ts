@@ -10,14 +10,130 @@
 // reference a room answers a post with, except the durable owner here is the
 // person you are talking to.
 
-import { annotateSession, Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
-import type { Argument, Session } from "@pancake/runtime";
-import { type Attachment, fetchBlob, readAttachments, sendWithAttachments } from "./attachment.ts";
+import {
+	annotateSession,
+	type Argument,
+	type Behavior,
+	currentSession,
+	Ref,
+	retainCleanupFailures,
+	retainSecondaryFailure,
+	type Session,
+} from "@pancake/runtime";
+import {
+	type Attachment,
+	attachmentCapabilities,
+	fetchBlob,
+	fetchBlobChunk,
+	readAttachments,
+	sendWithAttachments,
+} from "./attachment.ts";
 import type { AttachmentSource } from "./attachment.ts";
-import { DM, HAND_ROOM, OFFER_ROOM, TYPING } from "./protocol.ts";
+import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ROOM, TYPING } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import type { Directory } from "./directory.ts";
 import { PostedLine } from "./posted_line.ts";
+import { refuseCapabilityArguments, releaseUnexpectedCapabilityArguments } from "./argument_custody.ts";
+
+/** The direct protocol a caller is prepared to receive on the reply route it
+ * hands to the peer. Messages are the base contract; optional sibling verbs
+ * are refused rather than silently reported as delivered. */
+export interface DirectMessageReceiver {
+	message(text: string, attachments: Attachment[], session: Session, reply: Ref | null): ReturnType<Behavior>;
+	ready?(session: Session, reply: Ref): void | Promise<void>;
+	typing?(on: boolean): void;
+	handRoom?(label: string, room: Ref, session: Session): void | Promise<void>;
+	offerRoom?(label: string, link: string): void | Promise<void>;
+	handArchive?(
+		directory: string,
+		conversation: string,
+		archive: Ref,
+		session: Session,
+	): void | Promise<void>;
+}
+
+/** Parse the one direct inbox protocol for a public inbox or a reply route. */
+export function directMessageReceiverBehavior(
+	receiver: DirectMessageReceiver,
+	sessionFor: () => Session | null = currentSession,
+): Behavior {
+	const session = (): Session => {
+		const active = sessionFor();
+		if (active == null) throw new Error("a direct inbox is reachable only during a session turn");
+		return active;
+	};
+	return (verb, args) => {
+		if (verb === DIRECT_READY) {
+			if (args.length !== 1 || !(args[0] instanceof Ref)) {
+				refuseCapabilityArguments(session(), args, "directReady takes one reply capability");
+			}
+			if (receiver.ready == null) {
+				refuseCapabilityArguments(session(), args, "direct inbox cannot establish a reciprocal route");
+			}
+			return Promise.resolve(receiver.ready(session(), args[0])).then(() => null);
+		}
+		if (verb === TYPING) {
+			if (args.length !== 1 || typeof args[0] !== "boolean") {
+				refuseCapabilityArguments(session(), args, "direct typing takes one boolean");
+			}
+			if (receiver.typing == null) throw new Error("direct inbox has no typing receiver");
+			receiver.typing(args[0]);
+			return null;
+		}
+		if (verb === HAND_ROOM) {
+			if (args.length !== 2 || typeof args[0] !== "string" || !(args[1] instanceof Ref)) {
+				refuseCapabilityArguments(session(), args, "a handed room needs a label and room capability");
+			}
+			if (receiver.handRoom == null) {
+				refuseCapabilityArguments(session(), args, "direct inbox cannot receive a handed room");
+			}
+			return Promise.resolve(receiver.handRoom(args[0], args[1], session())).then(() => null);
+		}
+		if (verb === OFFER_ROOM) {
+			if (args.length !== 2 || typeof args[0] !== "string" || typeof args[1] !== "string") {
+				refuseCapabilityArguments(session(), args, "a room-link invitation needs a label and sturdyref");
+			}
+			if (receiver.offerRoom == null) throw new Error("direct inbox cannot receive a room link");
+			return Promise.resolve(receiver.offerRoom(args[0], args[1])).then(() => null);
+		}
+		if (verb === HAND_ARCHIVE) {
+			if (
+				args.length !== 3 || typeof args[0] !== "string" || typeof args[1] !== "string" ||
+				!(args[2] instanceof Ref)
+			) {
+				refuseCapabilityArguments(
+					session(),
+					args,
+					"handArchive takes a directory, conversation, and archive capability",
+				);
+			}
+			if (receiver.handArchive == null) {
+				refuseCapabilityArguments(session(), args, "direct inbox cannot receive archive history");
+			}
+			return Promise.resolve(receiver.handArchive(args[0], args[1], args[2], session())).then(() => null);
+		}
+		if (verb !== DM) refuseCapabilityArguments(session(), args, `direct inbox has no method ${verb}`);
+		if (typeof args[0] !== "string") {
+			refuseCapabilityArguments(session(), args, "a direct message needs one text value");
+		}
+		const reply = args[1] instanceof Ref ? args[1] : null;
+		const attachments = readAttachments(args, reply == null ? 1 : 2);
+		const retained = attachmentCapabilities(attachments);
+		if (reply != null) retained.add(reply);
+		releaseUnexpectedCapabilityArguments(
+			session(),
+			args,
+			retained,
+			"a direct inbox could not return an unexpected capability",
+		);
+		return receiver.message(
+			args[0],
+			attachments,
+			session(),
+			reply,
+		);
+	};
+}
 
 /** A live, direct line to one member, obtained by introduction. `DirectMessage.open`
  * asks the directory to introduce you and wraps the redeemed capability. `say`
@@ -27,8 +143,8 @@ import { PostedLine } from "./posted_line.ts";
  *
  * The line is bidirectional. It hosts a reply inbox on the very connection the
  * redeem opened and hands it to the member with each message, so the member
- * answers you back over that same connection — even though you never listen. An
- * `onReply` handler passed to `open` receives those replies. */
+ * answers you back over that same connection — even though you never listen.
+ * The receiver passed to `open` handles that reply route's direct protocol. */
 /** How many live lines ride each redeemed exporter connection.
  *
  * A redeem to an exporter this host has already dialed resolves the *same*
@@ -52,6 +168,7 @@ export class DirectMessage {
 	#ownsSession: boolean;
 	#spent = false;
 	readonly peer: string;
+	readonly peerRegistrationId: string;
 
 	/** Whether the connection this line rides is still open. A line outlives
 	 * the peer that went offline, and every send on it fails; asking first lets
@@ -60,18 +177,35 @@ export class DirectMessage {
 		return this.#session.sessionOpen;
 	}
 
+	/** Whether an arriving occurrence names the route this line already uses.
+	 * Ref wrappers own separate retains, so target equality is `Ref.equals`, not
+	 * JavaScript object identity. */
+	usesRoute(session: Session, target: Ref): boolean {
+		return !this.#spent && this.#session === session && this.#dm?.equals(target) === true;
+	}
+
 	private constructor(
 		session: Session,
 		dm: Ref,
 		peer: string,
+		peerRegistrationId: string,
 		replyInbox: Ref | null,
 		ownsSession: boolean,
 	) {
 		this.#session = session;
 		this.#dm = dm;
 		this.peer = peer;
+		this.peerRegistrationId = peerRegistrationId;
 		this.#replyInbox = replyInbox;
 		this.#ownsSession = ownsSession;
+	}
+
+	/** Adopt a reply route received by an inbox on an already-owned Host
+	 * session. The route rides that arriving session and closing the line must
+	 * release only the imported capability, never the shared Host session. */
+	static adopt(session: Session, dm: Ref, peer: string, peerRegistrationId: string): DirectMessage {
+		annotateSession(session, { label: peer });
+		return new DirectMessage(session, dm, peer, peerRegistrationId, null, false);
 	}
 
 	/** Give this line back.
@@ -141,36 +275,28 @@ export class DirectMessage {
 		return this.#dm;
 	}
 
-	/** Open a direct line to `peer` by asking `dir` to introduce you. `onReply`,
-	 * if given, fires with each reply and its files on the direct connection;
-	 * it is the member we were introduced to, so no name is carried. */
+	/** Open a direct line to `peer` by asking `dir` to introduce you. `receiver`
+	 * defines the complete protocol accepted on the reply route handed to that
+	 * peer. The peer name is not repeated because the introduction already
+	 * identifies who holds that route. */
 	static async open(
 		dir: Directory,
 		peer: string,
-		onReply?: (text: string, attachments: Attachment[], session: Session) => Argument,
+		receiver?: DirectMessageReceiver,
+		expectedRegistrationId?: string,
 	): Promise<DirectMessage> {
-		const { dm, via } = await dir.introduceVia(peer);
+		const registrationId = expectedRegistrationId ?? await dir.memberRegistration(peer);
+		const { dm, via } = await dir.introduceVia(peer, registrationId);
 		// The reply inbox must live on the connection the redeemed capability
 		// routes to (`via`), so it is a valid near export the member can call
 		// back. Without a `via` (no fresh redeem) there is no connection to host
 		// it on, so the line is send-only.
 		const session = via ?? dir.session;
-		const owns = via !== undefined && via !== null;
+		const owns = via != null;
 		let replyInbox: Ref | null = null;
 		try {
-			if (onReply && via) {
-				replyInbox = session.spawn((verb, args) => {
-					if (verb !== DM) throw new Error(`dm reply inbox has no method ${verb}`);
-					const recordAt = args[1] instanceof Ref ? 2 : 1;
-					// The reply inbox answers whatever the receiver mints for this line —
-					// a handle the peer holds to change it later. Only a fresh `dm` reaches
-					// here; editing an existing line calls that handle, not this inbox.
-					return onReply(
-						typeof args[0] === "string" ? args[0] : "",
-						readAttachments(args, recordAt),
-						session,
-					);
-				});
+			if (receiver != null && via) {
+				replyInbox = session.spawn(directMessageReceiverBehavior(receiver, () => session));
 			}
 			// Name the direct connection for whoever is watching the live timeline.
 			// Only a redeemed one: a send-only line rides the directory's connection,
@@ -181,7 +307,7 @@ export class DirectMessage {
 			// Count this line onto the connection before handing it over, so a
 			// close knows whether it is the last one out.
 			if (owns) linesOnSession.set(session, (linesOnSession.get(session) ?? 0) + 1);
-			return new DirectMessage(session, dm, peer, replyInbox, owns);
+			return new DirectMessage(session, dm, peer, registrationId, replyInbox, owns);
 		} catch (error) {
 			// The introduction already transferred the imported DM reference and
 			// may have opened a direct session. If constructing this line fails, no
@@ -209,6 +335,20 @@ export class DirectMessage {
 		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
 	}
 
+	/** Hand the peer our reply inbox without sending a visible message. This is
+	 * the reciprocal introduction path for peers whose carrier we can dial even
+	 * when they cannot dial ours. */
+	async establishReplyRoute(): Promise<void> {
+		if (this.#replyInbox == null) throw new Error("this direct line has no reply route to establish");
+		await ask(
+			this.#session,
+			this.#target(),
+			DIRECT_READY,
+			[this.#replyInbox],
+			"they did not answer the reciprocal direct route",
+		);
+	}
+
 	/** Hand this peer a room, over this line.
 	 *
 	 * The reference is the invitation: it crosses as a handoff and arrives as a
@@ -217,6 +357,29 @@ export class DirectMessage {
 	 * sender calls it. */
 	async handRoom(label: string, room: Ref): Promise<void> {
 		await ask(this.#session, this.#target(), HAND_ROOM, [label, room], "they did not answer being handed a room");
+	}
+
+	/** Hand this peer a read-only archive facet for one direct conversation.
+	 * The directory and conversation are the sender's archive coordinates, not
+	 * identity claims; the receiver uses them only to constrain its read. */
+	async handArchive(directory: string, conversation: string, archive: Ref): Promise<void> {
+		await ask(
+			this.#session,
+			this.#target(),
+			HAND_ARCHIVE,
+			[directory, conversation, archive],
+			"they did not answer being handed archive history",
+		);
+	}
+
+	/** Host a short-lived facet on this direct session so its capability can be
+	 * handed to the peer on the same connection. */
+	spawn(behavior: import("@pancake/runtime").Behavior): Ref {
+		return this.#session.spawn(behavior);
+	}
+
+	releaseCapability(capability: Ref): void {
+		this.#session.release(capability);
 	}
 
 	/** Offer this peer a room as durable data, over this line.
@@ -240,6 +403,11 @@ export class DirectMessage {
 	/** Pull one file received on this line. */
 	fetch(attachment: Attachment, onProgress?: (got: number) => void): Promise<Uint8Array> {
 		return fetchBlob(this.#session, attachment, onProgress);
+	}
+
+	/** Pull one bounded slice without materializing the complete attachment. */
+	fetchChunk(attachment: Attachment, offset: number, maxLen: number): Promise<Uint8Array> {
+		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
 	}
 
 	/** Give back a file capability this member no longer needs. */

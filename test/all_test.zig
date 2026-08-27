@@ -6,6 +6,7 @@ comptime {
     _ = @import("foundation/crypto_test.zig");
     _ = @import("foundation/noise_test.zig");
     _ = @import("foundation/sealed_test.zig");
+    _ = @import("foundation/thread_affinity_test.zig");
     _ = @import("foundation/spill_test.zig");
     _ = @import("foundation/failure_chain_test.zig");
     _ = @import("codec/syrup/encode_test.zig");
@@ -26,6 +27,7 @@ comptime {
     _ = @import("driver/fuzz_test.zig");
     _ = @import("model/fuzz_test.zig");
     _ = @import("net/fuzz_test.zig");
+    _ = @import("session/fuzz_test.zig");
     _ = @import("actors/fuzz_test.zig");
     _ = @import("persistent/fuzz_test.zig");
     _ = @import("codec/codec_equivalence_test.zig");
@@ -153,6 +155,7 @@ comptime {
     _ = @import("session/answer_test.zig");
     _ = @import("session/answer_notification_test.zig");
     _ = @import("session/gc_test.zig");
+    _ = @import("session/gc_prepared_test.zig");
     _ = @import("session/grant_test.zig");
     _ = @import("session/handoff_test.zig");
     _ = @import("session/resolver_test.zig");

@@ -128,20 +128,54 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		if (mute.length > 0) fail(`a command was offered with nothing said about it: ${JSON.stringify(mute)}`);
 		const run = said.filter((row) => !row.spoken.includes(", "));
 		if (run.length > 0) fail(`a command's name runs into its summary when read out: ${JSON.stringify(run)}`);
-		// A command this room has not handed over, or that only a room can run, is
-		// not in the list. Offering `/kick` here would only teach the refusal.
+		// A granted command is on exactly the lists its capability reached.
+		// This tab explicitly claimed the steward in the room's details, so /kick
+		// belongs on its list. The second tab holds no steward, and offering /kick
+		// there would only teach the refusal.
 		await tab.fill("#line", "");
 		await tab.type("#line", "/kick");
-		const waiting = await tab.evaluate(() =>
+		await tab.waitForSelector('#completePop [role=option]:has-text("/kick")', { timeout: 10_000 })
+			.catch(() => fail("this tab claimed the room's steward, but /kick is not on its list"));
+		await second.click("#line");
+		await second.fill("#line", "");
+		await second.type("#line", "/kick");
+		const waiting = await second.evaluate(() =>
 			[...document.querySelectorAll("#completePop [role=option]")].map((row) =>
 				row.querySelector(".complete-label")?.textContent ?? ""
 			)
 		);
 		if (waiting.includes("/kick")) {
-			fail(`/kick was offered before this room handed it over: ${JSON.stringify(waiting)}`);
+			fail(`/kick was offered to a member the room handed no steward: ${JSON.stringify(waiting)}`);
 		}
-		// Left as the next check found it: a bare slash, mid-typing.
+		await second.fill("#line", "");
+
+		// Possession is more than a slash-command filter. The room's own details
+		// present the operation the held capability enables, against the live
+		// roster, and ask before acting. Cancel so the rest of this long scene can
+		// keep using the second peer.
 		await tab.fill("#line", "");
+		await tab.click("#roomAbout");
+		await tab.click("#convcardModerationTab").catch(() =>
+			fail("the held steward did not reveal the Moderation tab")
+		);
+		const moderate = tab.locator('.entry:has-text("bartholomew-longname") button', {
+			hasText: "Ask to leave",
+		});
+		await moderate.waitFor({ timeout: 10_000 }).catch(() =>
+			fail("the held steward did not reveal a room-scoped moderation operation")
+		);
+		await moderate.click();
+		await tab.waitForSelector("#convcardKickConfirm").catch(() =>
+			fail("the moderation operation would remove a member without asking first")
+		);
+		await tab.locator('.confirm button:has-text("Keep here")').click();
+		if (await tab.locator("#convcardKickConfirm").count() !== 0) {
+			fail("cancelling the moderation operation left its confirmation armed");
+		}
+		await tab.keyboard.press("Escape");
+		await tab.waitForFunction(() => document.getElementById("convcardTitle") === null);
+
+		// Left as the next check found it: a bare slash, mid-typing.
 		await tab.type("#line", "/");
 		await tab.waitForSelector("#completePop [role=option]", { timeout: 10_000 })
 			.catch(() => fail("the command list did not come back"));

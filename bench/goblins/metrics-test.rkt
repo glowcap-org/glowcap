@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Unit tests for the backend-agnostic metrics helpers.
 (require rackunit
-         (file "/workspaces/pancake/bench/goblins/metrics.rkt"))
+         "metrics.rkt")
 
 (check-equal? (percentile (build-list 100 add1) 0.50) 50)
 (check-equal? (percentile (build-list 100 add1) 0.99) 99)

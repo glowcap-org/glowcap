@@ -144,6 +144,7 @@ pub fn check(
     try ui.checkUiThemeParity(io, gpa, root, &violations);
     try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
     try rooms_ui.checkRoomsLayerBans(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsControlSurfaces(io, gpa, root, &violations);
     try rooms_ui.checkRoomsBootStates(io, gpa, root, &violations);
     try rooms_ui.checkRoomsRailRow(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
@@ -236,6 +237,7 @@ pub fn check(
     try ps_registries.checkGeneratedStateIgnores(io, gpa, root, &violations, root_path);
     try ps_registries.checkRepositoryUrl(io, gpa, root, &violations, root_path);
     try ps_hygiene.checkPathIoCopies(io, gpa, root, &violations);
+    try ps_hygiene.checkRawNuls(io, gpa, root, &violations);
     try ps_budgets.checkFootprintBudgetQuotes(io, gpa, root, &violations);
     try ps_playwright.checkPlaywrightPin(io, gpa, root, &violations);
     try ps_formatting.check(io, gpa, root, &violations);

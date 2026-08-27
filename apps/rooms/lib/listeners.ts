@@ -7,9 +7,43 @@
 // what this module owns. The server side lives in `server/listeners.ts`.
 
 import type { Ref, Session } from "@pancake/runtime";
+import {
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
+} from "@pancake/runtime";
+import * as z from "zod/mini";
 import { DOWN, LIST, UP } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import { takeOperationsCap } from "./operations.ts";
+import { MAX_OPERATIONS_ROWS } from "./limits.ts";
+import { boundedText, nonemptyText, positiveSafeInteger } from "./schema.ts";
+
+export const LISTENER_TRANSPORTS = [
+	TRANSPORT_TCP,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_ONION,
+] as const;
+export const ListenerTransportSchema = z.enum(LISTENER_TRANSPORTS);
+export type ListenerTransport = z.infer<typeof ListenerTransportSchema>;
+export type ListenerOptionName = "bind" | "port" | "advertise" | "relay";
+export const LISTENER_OPTION_NAMES: Record<ListenerTransport, readonly ListenerOptionName[]> = {
+	[TRANSPORT_TCP]: ["bind", "port", "advertise"],
+	[TRANSPORT_KEYED_TCP]: ["bind", "port", "advertise"],
+	[TRANSPORT_NOISE_TCP]: ["bind", "port", "advertise"],
+	[TRANSPORT_IROH]: [],
+	[TRANSPORT_KEYED_RELAY]: ["relay"],
+	[TRANSPORT_NOISE_RELAY]: ["relay"],
+	[TRANSPORT_ONION]: [],
+};
 
 /** One transport seat, as the admin capability reports it: the server's own
  * catalog entry (name, description, an optional reference page, what an `up`
@@ -20,77 +54,100 @@ import { takeOperationsCap } from "./operations.ts";
  * `unavailable` sentence means the server already knows an `up` would
  * refuse. */
 /** One knob a seat's `up` accepts, as the server lists it. */
-export interface ListenerUpOption {
-	name: string;
-	kind: "host" | "port" | "url";
-	hint: string;
+const listenerText = boundedText(64 * 1024);
+const listenerOptionKind = z.enum(["host", "port", "url"]);
+const listenerTakes = z.array(z.tuple([listenerText, listenerOptionKind, listenerText])).check(z.maxLength(32));
+
+export const ListenerUpOptionSchema = z.strictObject({
+	name: listenerText,
+	kind: listenerOptionKind,
+	hint: listenerText,
+});
+
+export type ListenerUpOption = z.infer<typeof ListenerUpOptionSchema>;
+
+export const ListenerOptionsSchema = z.record(
+	nonemptyText(64),
+	z.union([boundedText(64 * 1024), z.int()]),
+).check(z.refine((options) => Object.keys(options).length <= 16));
+
+export type ListenerOptions = z.infer<typeof ListenerOptionsSchema>;
+
+export function listenerOptionsFitTransport(transport: ListenerTransport, options: ListenerOptions): boolean {
+	const allowed = new Set<string>(LISTENER_OPTION_NAMES[transport]);
+	return Object.keys(options).every((name) => allowed.has(name));
 }
 
-export interface ListenerRow {
-	transport: string;
-	description: string;
+export const ListenerRowSchema = z.strictObject({
+	transport: listenerText,
+	description: listenerText,
 	/** A page that explains the technology, or empty. */
-	reference: string;
+	reference: listenerText,
 	/** What the reference explains, as link text; empty exactly when
 	 * `reference` is. */
-	referenceName: string;
+	referenceName: listenerText,
 	/** The knobs this seat's `up` accepts: name, value shape, and what a
 	 * blank field means in the server's own words. */
-	takes: readonly ListenerUpOption[];
+	takes: z.array(ListenerUpOptionSchema).check(z.maxLength(32)),
 	/** Why an `up` would refuse today, or empty. */
-	unavailable: string;
+	unavailable: listenerText,
 	/** The live listener's number, or null while down. */
-	id: number | null;
+	id: z.nullable(positiveSafeInteger),
 	/** The live listener's dialable locator, or null while down. */
-	locator: string | null;
-	serving: boolean;
-}
+	locator: z.nullable(listenerText),
+	serving: z.boolean(),
+}).check(
+	z.refine((row) =>
+		(row.id == null) === (row.locator == null) && (!row.serving || row.id != null) &&
+		(row.reference === "") === (row.referenceName === "")
+	),
+);
 
-function parseRows(raw: unknown): ListenerRow[] {
-	if (!Array.isArray(raw)) throw new Error("the listeners capability did not answer a list");
-	const rows: ListenerRow[] = [];
-	for (const row of raw) {
-		const parsed = parseRow(row);
-		if (parsed !== null) rows.push(parsed);
-	}
-	return rows;
-}
+export type ListenerRow = z.infer<typeof ListenerRowSchema>;
 
-function parseTakes(raw: unknown): readonly ListenerUpOption[] | null {
-	if (!Array.isArray(raw)) return null;
-	const takes: ListenerUpOption[] = [];
-	for (const entry of raw) {
-		if (!Array.isArray(entry) || entry.length < 3) return null;
-		const [name, kind, hint] = entry;
-		if (typeof name !== "string" || typeof hint !== "string") return null;
-		if (kind !== "host" && kind !== "port" && kind !== "url") return null;
-		takes.push({ name, kind, hint });
-	}
-	return takes;
-}
+const ListenerWireRowSchema = z.tuple([
+	listenerText,
+	listenerText,
+	listenerText,
+	listenerText,
+	listenerTakes,
+	listenerText,
+	z.int().check(z.gte(0)),
+	listenerText,
+	z.boolean(),
+]).check(
+	z.refine((row) =>
+		(row[6] === 0) === (row[7] === "") && (!row[8] || row[6] > 0) &&
+		(row[2] === "") === (row[3] === "")
+	),
+);
+const ListenerWireRowsSchema = z.array(ListenerWireRowSchema).check(z.maxLength(MAX_OPERATIONS_ROWS));
 
-function parseRow(row: unknown): ListenerRow | null {
-	if (!Array.isArray(row) || row.length < 9) return null;
+function adaptListenerRow(row: z.infer<typeof ListenerWireRowSchema>): ListenerRow {
 	const [transport, description, reference, referenceName, rawTakes, unavailable, id, locator, serving] = row;
-	if (
-		typeof transport !== "string" || typeof description !== "string" ||
-		typeof reference !== "string" || typeof referenceName !== "string" ||
-		typeof unavailable !== "string" ||
-		typeof id !== "number" || typeof locator !== "string"
-	) return null;
-	const takes = parseTakes(rawTakes);
-	if (takes === null) return null;
 	return {
 		transport,
 		description,
 		reference,
 		referenceName,
-		takes,
+		takes: rawTakes.map(([name, kind, hint]) => ({ name, kind, hint })),
 		unavailable,
 		id: id === 0 ? null : id,
 		locator: locator === "" ? null : locator,
-		serving: serving === true,
+		serving,
 	};
+}
+
+export function parseListenerRows(raw: unknown): ListenerRow[] {
+	const parsed = z.safeParse(ListenerWireRowsSchema, raw);
+	if (!parsed.success) throw new Error("the listeners capability answered an invalid snapshot");
+	return parsed.data.map(adaptListenerRow);
+}
+
+function parseListenerRow(raw: unknown): ListenerRow {
+	const parsed = z.safeParse(ListenerWireRowSchema, raw);
+	if (!parsed.success) throw new Error("the listeners capability answered an invalid row");
+	return adaptListenerRow(parsed.data);
 }
 
 /** Fetch the listeners object and ask it for the live listeners. */
@@ -104,7 +161,7 @@ export async function takeListeners(session: Session, pasted: string): Promise<{
 
 /** Ask a listeners capability already in hand for the live listeners. */
 export async function listListeners(session: Session, cap: Ref): Promise<ListenerRow[]> {
-	return parseRows(await ask(session, cap, LIST, [], "the listeners capability did not answer"));
+	return parseListenerRows(await ask(session, cap, LIST, [], "the listeners capability did not answer"));
 }
 
 /** Bring a listener up on `transport` (a name the server's own list
@@ -115,14 +172,12 @@ export async function listenerUp(
 	session: Session,
 	cap: Ref,
 	transport: string,
-	options?: Record<string, string | number>,
+	options?: ListenerOptions,
 ): Promise<ListenerRow> {
 	const pairs = Object.entries(options ?? {});
 	const args = pairs.length === 0 ? [transport] : [transport, pairs];
 	const raw = await ask(session, cap, UP, args, `the listeners capability did not bring up ${transport}`);
-	const row = parseRow(raw);
-	if (row === null) throw new Error("the listeners capability answered up without a listener row");
-	return row;
+	return parseListenerRow(raw);
 }
 
 /** Take the listener numbered `id` down. It stops admitting connections;

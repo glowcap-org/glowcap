@@ -4,8 +4,9 @@
 
 import { type MouseEvent, type ReactNode, type Ref, useState } from "react";
 import { IconButton } from "./IconButton.tsx";
+import { ModalHead } from "./ModalHead.tsx";
 import { openModalFrom } from "./modal.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
 import { Said } from "./Said.tsx";
 
 export function SettingsHead(
@@ -48,26 +49,20 @@ export function SettingsHead(
 		children?: ReactNode;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
 	const [notifyErr, setNotifyErr] = useState<string | null>(null);
+	const [notifyBusy, setNotifyBusy] = useState(false);
 	const id = (value: string) => named ? value : undefined;
 	return (
 		<div className="settings-head">
-			<div className="settings-head-row">
-				<h2 id={id(titleId)}>{title}</h2>
-				{onClose !== undefined && (
-					<IconButton
-						id={closeId}
-						ref={closeRef}
-						icon="close"
-						label={closeLabel}
-						title={closeLabel}
-						size="small"
-						variant="ghost"
-						onClick={onClose}
-					/>
-				)}
-			</div>
+			<ModalHead
+				titleId={id(titleId)}
+				title={title}
+				closeId={closeId}
+				closeLabel={closeLabel}
+				closeRef={closeRef}
+				onClose={onClose}
+			/>
 			<div className="settings-toggles">
 				{ops !== undefined && (
 					<IconButton
@@ -85,17 +80,24 @@ export function SettingsHead(
 					icon={theme === "dark" ? "sun" : "moon"}
 					label="Toggle light or dark theme"
 					title={theme === "dark" ? "Switch to light" : "Switch to syrup (dark)"}
-					onClick={() => peer.setTheme(theme === "dark" ? "light" : "dark")}
+					onClick={() => browser.setTheme(theme === "dark" ? "light" : "dark")}
 				/>
 				<IconButton
 					id={id("notifyToggle")}
 					icon={notifyOn ? "bell" : "bellOff"}
-					label="Toggle mention notifications"
-					title="Notify me when I'm mentioned"
+					label={notifyBusy ? "Changing mention notifications" : "Toggle mention notifications"}
+					title={notifyBusy ? "Changing mention notifications" : "Notify me when I'm mentioned"}
 					aria-pressed={notifyOn}
 					aria-describedby={named && notifyErr ? "notifyHint" : undefined}
+					busy={notifyBusy}
 					onClick={() => {
-						void peer.toggleNotify().then(setNotifyErr);
+						setNotifyErr(null);
+						setNotifyBusy(true);
+						void browser.toggleNotify()
+							.then(setNotifyErr, (error) => {
+								setNotifyErr(error instanceof Error ? error.message : String(error));
+							})
+							.finally(() => setNotifyBusy(false));
 					}}
 				/>
 				<IconButton
@@ -104,7 +106,7 @@ export function SettingsHead(
 					label="Help"
 					aria-pressed={helpOpen}
 					onClick={(event) =>
-						helpOpen ? peer.closeHelp() : openModalFrom(event.currentTarget, () => peer.openHelp())}
+						helpOpen ? browser.closeHelp() : openModalFrom(event.currentTarget, () => browser.openHelp())}
 				/>
 			</div>
 			{

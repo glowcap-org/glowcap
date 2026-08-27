@@ -9,17 +9,14 @@
 //
 // Run: deno run -A bindings/proofs/noise_relay_listen/harness.ts -- <listener argv...>
 
+import { awaitMarker, fail } from "../_support/harness.ts";
+
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
 const installedArchiveEnv = {
 	PANCAKE_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 const sep = Deno.args.indexOf("--");
 const listenerArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);
@@ -29,38 +26,6 @@ const deadline = setTimeout(
 	() => fail("noise-relay listen proof timed out after 120s"),
 	120_000,
 );
-
-// Read `child`'s stdout line by line until `prefix` appears, echoing everything
-// so a red run carries the child's own diagnostics; resolve the line's tail.
-async function awaitMarker(
-	child: Deno.ChildProcess,
-	prefix: string,
-	who: string,
-): Promise<string> {
-	const reader = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
-	let buffered = "";
-	while (true) {
-		const { value, done } = await reader.read();
-		if (done) fail(`${who} exited before printing ${prefix}`);
-		buffered += value;
-		let newline: number;
-		while ((newline = buffered.indexOf("\n")) !== -1) {
-			const line = buffered.slice(0, newline).trim();
-			buffered = buffered.slice(newline + 1);
-			if (line.length !== 0) console.log(`  [${who}] ${line}`);
-			if (line.startsWith(prefix)) {
-				// Keep draining in the background so the child never blocks on a
-				// full stdout pipe.
-				void (async () => {
-					try {
-						while (!(await reader.read()).done) { /* drain */ }
-					} catch { /* child ended */ }
-				})();
-				return line.slice(prefix.length).trim();
-			}
-		}
-	}
-}
 
 const relay = new Deno.Command("deno", {
 	args: [
@@ -80,6 +45,8 @@ const relay = new Deno.Command("deno", {
 
 let listener: Deno.ChildProcess | null = null;
 let clientCode = 1;
+let listenerCode: number | null = null;
+let listenerForcedClosed = false;
 try {
 	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
 	const relayUrl = `ws://localhost:${relayPort}/relay`;
@@ -110,15 +77,27 @@ try {
 	clientCode = (await client.status).code;
 } finally {
 	clearTimeout(deadline);
-	try {
-		listener?.kill();
-	} catch { /* already gone */ }
+	if (listener !== null) {
+		const status = listener.status;
+		const exited = await Promise.race([
+			status.then(() => true),
+			new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
+		]);
+		if (!exited) {
+			listenerForcedClosed = true;
+			try {
+				listener.kill();
+			} catch { /* already gone */ }
+		}
+		listenerCode = (await status).code;
+	}
 	try {
 		relay.kill();
 	} catch { /* already gone */ }
-	await listener?.status;
 	await relay.status;
 }
 if (clientCode !== 0) fail(`dial client exited ${clientCode}`);
+if (listenerForcedClosed) fail("listener did not close itself after the served session");
+if (listenerCode !== 0) fail(`listener exited ${listenerCode}`);
 console.log("PASS: the managed listener registered, advertised, and served a sealed session");
 Deno.exit(0);

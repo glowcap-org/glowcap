@@ -284,6 +284,34 @@
 	text-wrap: pretty;
 }
 
+/* Earlier messages arrive above the live log. Reserve their measure where they
+   will appear, so the empty column does not pretend the room has answered and
+   then jump when it does. The shared shimmer owns motion and its reduced-motion
+   answer; these lines own only the log-native shape. */
+.history-loading {
+	align-self: center;
+	box-sizing: border-box;
+	width: var(--card-max);
+	margin: 0 20px 14px;
+	padding: 13px 18px;
+	border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+	border-radius: var(--radius-card);
+	background: color-mix(in srgb, var(--paper-raised) 80%, transparent);
+}
+.history-loading-line {
+	display: block;
+	width: 78%;
+	height: 8px;
+	border-radius: 999px;
+	background-color: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.history-loading-line + .history-loading-line {
+	margin-top: 9px;
+}
+.history-loading-line.short {
+	width: 48%;
+}
+
 /* Each scroll panel keeps its touch scrolling to itself (the body is locked), so
    flinging the rail or the roster does not rubber-band or chain to anything else.
    The left rail's scroller is the region under the title, not each list. */

@@ -3,8 +3,8 @@
  *
  * The recording layer holds observations from a network simulator
  * or other live capture. This module is the one-way **projection**
- * that derives each entity's span (and, in the future, keyframes)
- * from those observations.
+ * that derives each entity's span and keyframes from those
+ * observations.
  *
  * Used by:
  *   - Live ingest:    every engine tick re-runs the projection, so

@@ -14,7 +14,6 @@ const conf_state = @import("conf_state.zig");
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
-const codec = pancake.ocapn.codec;
 const tcp = pancake.net.tcp;
 const driver = pancake.driver;
 
@@ -71,12 +70,7 @@ pub fn drainDeferred(shared: *Shared) !void {
         const action = shared.deferred.items[index];
         index += 1;
         const result = switch (action) {
-            .accept_give => |redeem| shared.host.acceptGive(
-                redeem.session,
-                redeem.answer,
-                redeem.give,
-                redeem.uri,
-            ),
+            .accept_give => |redeem| runRecipientGive(shared, redeem.session, redeem.give),
             .fetch => |fetch| runGifterFetch(
                 shared,
                 fetch.exporter,
@@ -116,11 +110,11 @@ pub fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot
     }
 }
 
-/// A `desc:handoff-give` delivered to the greeter: the recipient half. Record
-/// the exporter's uuid→address, then hand the give to the Host, which dials the
-/// exporter and withdraws the gift (`Node.acceptGive`). The greet deliver
-/// carries no answer, so a throwaway inbound answer absorbs the redeem outcome
-/// the suite never reads.
+/// A typed `desc:handoff-give` delivered to the greeter: the recipient half.
+/// Record the exporter's uuid→address, then hand the give to the Host, which
+/// dials the exporter and withdraws the gift. The suite does not read the
+/// redeemed capability, so `runRecipientGive` releases its Host identity while
+/// the Host-owned deferred completion remains the terminal-result authority.
 pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     const peer = conf.session.served.port.peer;
     const shared = conf.shared;
@@ -136,38 +130,35 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     };
     const greeter_pos = peer.session_state.bootstrapLookup(GREETER) orelse return false;
     if (target_id != greeter_pos.int()) return false;
-    if (std.mem.indexOf(u8, event.bytes(), "desc:handoff-give") == null) return false;
-
-    const give_bytes = codec.syrup.spanSignedHandoffGive(event.bytes()) orelse return false;
-
-    // The give names the exporter as a verbatim ocapn-peer locator whose address
-    // lives in `host`/`port` hints. Decode it for its uuid and address, record
-    // the address for the dialer, and rebuild the dialable URI for the Host.
-    const uri = locatorFromGive(allocator, shared, event.bytes()) orelse return false;
-    defer allocator.free(uri);
-
-    const give_owned = try allocator.dupe(u8, give_bytes);
-    const uri_owned = allocator.dupe(u8, uri) catch |err| {
-        allocator.free(give_owned);
-        return err;
+    if ((deliver.args.len() catch return false) != 1) return false;
+    const argument = deliver.args.at(0) catch return false;
+    const argument_handoff = switch (argument) {
+        .handoff => |value| value,
+        else => return false,
     };
-    var owns_buffers = true;
-    defer if (owns_buffers) {
-        allocator.free(give_owned);
-        allocator.free(uri_owned);
+    const give = switch (argument_handoff) {
+        .give => |value| value,
+        .receive => return false,
     };
+
+    // The parsed argument is the authority for both the signed envelope span
+    // and exporter locator. Attacker-controlled byte strings elsewhere in the
+    // frame cannot impersonate either value.
+    recordLocatorAddr(shared, give.exporter);
+    const give_owned = try give.toOwned(allocator);
+    errdefer model.freeHandoffGive(allocator, give_owned);
     try shared.deferred.ensureUnusedCapacity(allocator, 1);
-
-    const answer = (peer.session_state.allocateExport() catch return false).int();
-    peer.session_state.installInboundAnswer(model.AnswerPosition.from(answer)) catch return false;
     shared.deferred.appendAssumeCapacity(.{ .accept_give = .{
         .session = conf.session,
-        .answer = answer,
         .give = give_owned,
-        .uri = uri_owned,
     } });
-    owns_buffers = false;
     return true;
+}
+
+fn runRecipientGive(shared: *Shared, session: *HostSession, give: model.HandoffGive) !void {
+    const capability_ref = try shared.host.acceptInlineGive(session, give);
+    errdefer shared.host.releaseCapabilityTerminal(capability_ref, null);
+    try shared.host.releaseCapability(capability_ref, 1);
 }
 
 /// A sturdyref enliven to the enlivener: the gifter half. Fetch the object on
@@ -190,12 +181,17 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const enlivener_pos = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse return false;
     if (target_id != enlivener_pos.int()) return false;
 
-    const frame_bytes = event.bytes();
-    const peer_start = std.mem.indexOf(u8, frame_bytes, "<10'ocapn-peer") orelse return false;
-    var cursor = peer_start;
-    const locator = codec.syrup.readLocatorOwned(allocator, frame_bytes, &cursor) catch return false;
-    defer model.freePeerLocator(allocator, locator);
-    const swiss = readSyrupBytes(frame_bytes, &cursor) catch return false;
+    if ((deliver.args.len() catch return false) != 1) return false;
+    const argument = deliver.args.at(0) catch return false;
+    const sturdy = switch (argument) {
+        .reference => |reference| switch (reference) {
+            .sturdy => |value| value,
+            else => return false,
+        },
+        else => return false,
+    };
+    const locator = sturdy.peer;
+    const swiss = sturdy.swissnum;
 
     recordLocatorAddr(shared, locator);
     const existing = findSessionByDesignator(shared, locator.designator);
@@ -259,7 +255,7 @@ pub fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8
 // ── Locator helpers ──────────────────────────────────────────────────────────
 
 /// Record a `tcp-testing-only` locator's uuid → `host:port` for the dialer.
-fn recordLocatorAddr(shared: *Shared, locator: model.PeerLocator) void {
+fn recordLocatorAddr(shared: *Shared, locator: model.view.PeerLocator) void {
     if (use_onion) return;
     const hostport = hostPortFromHints(shared.allocator, locator) orelse return;
     defer shared.allocator.free(hostport);
@@ -270,16 +266,17 @@ fn recordLocatorAddr(shared: *Shared, locator: model.PeerLocator) void {
 /// null when either hint is missing. Falls back to the designator when the
 /// locator carries no host/port hints (a plain `tcp` locator's designator is
 /// already `host:port`).
-fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.PeerLocator) ?[]u8 {
-    var dial_host: ?[]const u8 = null;
-    var dial_port: ?[]const u8 = null;
-    for (locator.hints.entries) |entry| {
-        if (std.mem.eql(u8, entry.name, "host")) {
-            if (entry.value == .string) dial_host = entry.value.string;
-        } else if (std.mem.eql(u8, entry.name, "port")) {
-            if (entry.value == .string) dial_port = entry.value.string;
-        }
-    }
+fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocator) ?[]u8 {
+    const host_hint = locator.hints.findNamed("host") catch return null;
+    const port_hint = locator.hints.findNamed("port") catch return null;
+    const dial_host: ?[]const u8 = if (host_hint) |value|
+        if (value == .string) value.string else null
+    else
+        null;
+    const dial_port: ?[]const u8 = if (port_hint) |value|
+        if (value == .string) value.string else null
+    else
+        null;
     if (dial_host) |h| {
         if (dial_port) |p| {
             const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
@@ -289,17 +286,6 @@ fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.PeerLocator) ?
         }
     }
     return allocator.dupe(u8, locator.designator) catch null;
-}
-
-/// Decode the exporter locator embedded in a signed give, record its address,
-/// and return the dialable `ocapn://…` URI (caller-owned) the Host redeems with.
-fn locatorFromGive(allocator: std.mem.Allocator, shared: *Shared, give_bytes: []const u8) ?[]u8 {
-    const at = std.mem.indexOf(u8, give_bytes, "<10'ocapn-peer") orelse return null;
-    var cursor = at;
-    const locator = codec.syrup.readLocatorOwned(allocator, give_bytes, &cursor) catch return null;
-    defer model.freePeerLocator(allocator, locator);
-    recordLocatorAddr(shared, locator);
-    return model.uri.writePeer(allocator, locator) catch null;
 }
 
 /// The accepted session whose partner advertised `designator`, or null.
@@ -330,21 +316,4 @@ fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?engine.Answer
         return peer.session_state.answerTargetNamed(answer);
     }
     return null;
-}
-
-/// Read one syrup bytestring (`N:bytes`) at `cursor`, advancing past it — the
-/// one raw decode this harness does outside the codec's public surface.
-fn readSyrupBytes(bytes: []const u8, cursor: *usize) ![]const u8 {
-    var i = cursor.*;
-    var len: usize = 0;
-    var saw_digit = false;
-    while (i < bytes.len and bytes[i] >= '0' and bytes[i] <= '9') : (i += 1) {
-        saw_digit = true;
-        len = try std.math.add(usize, try std.math.mul(usize, len, 10), bytes[i] - '0');
-    }
-    if (!saw_digit or i >= bytes.len or bytes[i] != ':') return error.BadByteString;
-    i += 1;
-    if (bytes.len - i < len) return error.BadByteString;
-    cursor.* = i + len;
-    return bytes[i .. i + len];
 }

@@ -7,7 +7,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         iroh_resident.netlayer(),
         .{ .designator = "" },
@@ -20,7 +20,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

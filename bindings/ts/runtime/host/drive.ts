@@ -250,13 +250,17 @@ export abstract class HostDrive extends HostApplication {
 	}
 
 	protected async _drainActions(): Promise<void> {
-		if (this._raw === NULL) return;
+		// A publication schedules this byte-fed drain as a microtask. Listener
+		// adoption can transfer the still-quiescent Host before that microtask
+		// starts; all unpopped work transfers with it, so the stale owner must
+		// stand down instead of calling next_action on a driver-owned Host.
+		if (this._raw === NULL || this._driverLoop != null) return;
 		// The live trace's capture ring drains on the same unwind as the action
 		// queue: both are host effects the embedder pops, and popping them
 		// together is what keeps a queued fact from waiting on the next verb.
 		traceDrainHost(this._raw);
 		while (true) {
-			if (this._raw === NULL) return;
+			if (this._raw === NULL || this._driverLoop != null) return;
 			// The native drain resumes queued Host work before it pops the first
 			// external action. That work may deliver to a hosted behavior, so the
 			// synchronous drain call is a Host-carried delivery just like a loop step.

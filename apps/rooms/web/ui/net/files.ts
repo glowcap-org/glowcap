@@ -12,7 +12,7 @@
 // object URL the browser keeps until it is told otherwise, so each is remembered
 // against the file that shows it and released when that file's line goes.
 
-import { type Attachment, type AttachmentSource, fetchBlob } from "../../../lib/attachment.ts";
+import { type Attachment, fetchBlob } from "../../../lib/attachment.ts";
 import type { Session } from "@pancake/runtime";
 import type { Room } from "../../../lib/room_client.ts";
 import { BLOB_EXPIRED, roomErrorOf } from "../../../lib/errors.ts";
@@ -20,6 +20,7 @@ import * as store from "../store.ts";
 import type { Item, ViewerDirection } from "../types.ts";
 import { reason } from "./common.ts";
 import { convSession, type HeldFile, isCurrent, type Live } from "./live.ts";
+import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 
 /** Keep transfer cadence out of React. Parallel files replace their own latest
  * byte count in a session-bounded map, then one animation frame publishes every
@@ -99,7 +100,7 @@ export async function measureImage(
  * reads as a fact about this window rather than about the room, because the
  * room may well still have the bytes: what ended was the connection they were
  * offered over. */
-const FILE_GONE_WITH_ITS_CONNECTION = "this file came over an earlier connection and cannot be fetched again";
+export const FILE_GONE_WITH_ITS_CONNECTION = "this file came over an earlier connection and cannot be fetched again";
 
 /** Fetch a posted file's bytes and hand it an object URL to draw or download
  * from. Idempotent: a file already holding its bytes, or already
@@ -158,15 +159,20 @@ export function stepViewer(direction: ViewerDirection): void {
 }
 
 export function holdRoomFile(room: Room, attachment: Attachment): HeldFile {
+	let fetching: Promise<Uint8Array> | null = null;
 	return {
 		attachment,
-		fetch: (onProgress) => room.fetch(attachment, onProgress),
-		release: () => {
-			try {
-				room.release(attachment);
-			} catch {
-				// The room session already reclaimed it.
+		fetch: (onProgress) => {
+			if (fetching == null) {
+				fetching = room.fetch(attachment, onProgress).catch((error) => {
+					fetching = null;
+					throw error;
+				});
 			}
+			return fetching;
+		},
+		release: () => {
+			settleCapabilityCleanup("room file capability release failed", () => room.release(attachment));
 		},
 	};
 }
@@ -175,17 +181,30 @@ export function holdDirectFile(
 	session: Session,
 	attachment: Attachment,
 ): HeldFile {
+	let fetching: Promise<Uint8Array> | null = null;
 	return {
 		attachment,
-		fetch: (onProgress) => fetchBlob(session, attachment, onProgress),
-		release: () => {
-			try {
-				session.release(attachment.blob);
-			} catch {
-				// The direct session already reclaimed it.
+		fetch: (onProgress) => {
+			if (fetching == null) {
+				fetching = fetchBlob(session, attachment, onProgress).catch((error) => {
+					fetching = null;
+					throw error;
+				});
 			}
+			return fetching;
+		},
+		release: () => {
+			settleCapabilityCleanup("direct file capability release failed", () => session.release(attachment.blob));
 		},
 	};
+}
+
+export function releaseRoomAttachment(room: Room, attachment: Attachment): void {
+	settleCapabilityCleanup("unused room file capability release failed", () => room.release(attachment));
+}
+
+export function releaseRoomAttachments(room: Room, attachments: readonly Attachment[]): void {
+	for (const attachment of attachments) releaseRoomAttachment(room, attachment);
 }
 
 /** A Blob over exactly these bytes. Copied into an array of its own because a
@@ -201,16 +220,6 @@ export function blobOf(bytes: Uint8Array, mime: string): Blob {
 /** One browser file as the shared attachment layer reads it. The description
  * is also validated before Send clears the composer, so refusal preserves the
  * reader's draft and attached chips. */
-export function pickedSource(file: File): AttachmentSource {
-	return {
-		name: file.name,
-		mime: file.type || "application/octet-stream",
-		size: file.size,
-		read: async (offset: number, length: number) =>
-			new Uint8Array(await file.slice(offset, offset + length).arrayBuffer()),
-	};
-}
-
 /** Mint the object URL one file owns, replacing any retry's prior URL. The
  * session is the one whose capability produced the bytes, and it is what the URL
  * is released with when that directory goes. */
@@ -282,11 +291,7 @@ export function releaseLines(session: Live, key: string, lines: readonly Item[])
 		// bubble nobody can see.
 		const posted = session.posted.get(item.id);
 		if (posted !== undefined) {
-			try {
-				posted.release();
-			} catch {
-				// The session that answered with it has already reclaimed it.
-			}
+			settleCapabilityCleanup("posted line capability release failed", () => posted.release());
 			session.posted.delete(item.id);
 		}
 	}

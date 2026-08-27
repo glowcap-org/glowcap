@@ -6,16 +6,11 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const netlayer_test = @import("../../support/netlayer.zig");
-const test_host = @import("../../support/core_host.zig");
-const support_actors = @import("../../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const driver = pancake.driver;
-const driver_core = driver.core;
 const net = pancake.net;
 const tcp = net.tcp;
-
-const frame_cap = 8192;
 
 const harness = @import("harness.zig");
 const FailureCapture = harness.FailureCapture;

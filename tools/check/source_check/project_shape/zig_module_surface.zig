@@ -33,6 +33,7 @@ const surfaces = [_]Surface{
         "sealed",
         "spill",
         "stream_framing",
+        "thread_affinity",
     } },
     .{ .path = "src/ocapn/model/mod.zig", .modules = &.{
         "equality",

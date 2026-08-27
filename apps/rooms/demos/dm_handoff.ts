@@ -172,9 +172,9 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 			behaviorFor: dmFor,
 			onError: (peer, err) => fail(`Bob could not offer an inbox for ${peer}: ${err}`),
 		});
-		await bobDirectory.register("bob", bob.locator, (peer) => {
+		const bobRegistrationId = await bobDirectory.register("bob", bob.locator, (peer, registrationId) => {
 			asked = peer;
-			bobOfferer.offer(peer);
+			bobOfferer.offer(peer, registrationId);
 		});
 
 		if (bobInboundCount() !== 0) {
@@ -204,7 +204,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		// him for one and refuses this ask. One extra round trip, once per pair.
 		let pending = false;
 		try {
-			await carolToRoom.send(carolDir, INTRODUCE, ["bob"]);
+			await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
 		} catch (err) {
 			pending = roomErrorOf(err)?.code === INTRODUCTION_PENDING;
 			if (!pending) throw err;
@@ -217,8 +217,8 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 
 		// Now it lands: the directory hands Carol the inbox Bob minted for her, as a
 		// gift, and her send redeems it onto a fresh direct connection to Bob.
-		const introduced = await carolToRoom.send(carolDir, INTRODUCE, ["bob"]);
-		if (!(introduced instanceof Ref)) fail("introduce did not return a capability");
+		const direct = await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
+		if (!(direct instanceof Ref)) fail("introduce did not return a capability");
 
 		await until(() => bobInboundCount() >= 1, "Carol's direct connection to Bob");
 		if (bobInboundCount() !== 1) {
@@ -227,7 +227,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 			);
 		}
 
-		await carolToRoom.send(introduced, DM, [t.dmText]);
+		await carolToRoom.send(direct, DM, [t.dmText]);
 		await until(() => received("carol", t.dmText), "Bob to receive Carol's direct DM");
 		if (carolInboundCount() !== 0) {
 			fail(`expected nobody to dial Carol, she saw ${carolInboundCount()}`);

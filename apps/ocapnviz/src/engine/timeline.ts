@@ -435,29 +435,3 @@ export type TimelineDocument = z.infer<typeof TimelineDocument>;
 export function docTitle(doc: TimelineDocument): string {
 	return doc.metadata?.["dct:title"] ?? doc.id;
 }
-
-/** What a document says it is about, or nothing. */
-export function docDescription(doc: TimelineDocument): string | undefined {
-	return doc.metadata?.["dct:description"];
-}
-
-/** Slice of observations in the half-open simulated-time interval
- * `[fromT, toT)`. Walks every source's observation stream and
- * filters by `t`. Sources are independent; the returned array
- * concatenates them in source-declaration order, not strict global
- * chronological order. */
-export function observationsInRange(
-	doc: TimelineDocument,
-	fromT: number,
-	toT: number,
-): TimelineEvent[] {
-	const out: TimelineEvent[] = [];
-	for (const src of doc.recording?.sources ?? []) {
-		for (const ev of src.observations) {
-			if (ev.t < fromT) continue;
-			if (ev.t >= toT) continue;
-			out.push(ev as TimelineEvent);
-		}
-	}
-	return out;
-}

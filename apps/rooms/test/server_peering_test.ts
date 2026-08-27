@@ -7,7 +7,7 @@ import {
 	stringHint,
 	TRANSPORT_ID,
 } from "@pancake/runtime";
-import { loopbackTcpDesignator, roomsHost, roomsLocator } from "../lib/locator.ts";
+import { loopbackTcpDesignator, parseRoomsSturdyref, roomsHost, roomsLocator } from "../lib/locator.ts";
 import { PUBLICATION_READY, PUBLISH_DURABLE_ROOM, REVOKE } from "../lib/protocol.ts";
 import { Directory, DirectoryPeering, listenerUp, Room, takeListeners } from "../lib/room_client.ts";
 import {
@@ -66,6 +66,12 @@ roomsTest("peering redeems an identity-routed room through its weak TCP fallback
 				(address) => dial(address, roomsHost()),
 			);
 			const room = await Room.subscribe(source.session, await source.open("routed"), "owner");
+			const roomRoute = parseRoomsSturdyref(await room.link()).locator;
+			assert(roomRoute.transport === TRANSPORT_ID, "the room link did not carry the identity route");
+			assert(
+				stringHint(roomRoute, HINT_ALT_LOCATORS)?.includes(formatLocatorUri(roomsLocator(tcp.locator))),
+				"the room link omitted its TCP fallback",
+			);
 			const peering = await DirectoryPeering.fetch(publisher, peeringSwiss);
 			const publication = await peering.publish("routed", room, source);
 			const listed = (await viewer.list())[0];
@@ -76,7 +82,7 @@ roomsTest("peering redeems an identity-routed room through its weak TCP fallback
 			await publication.revoke();
 			await visitor.leave();
 			await room.leave();
-			peering.close();
+			await peering.close();
 			source.session.release(admin.cap);
 			await viewer.close();
 			await publisher.close();
@@ -131,8 +137,65 @@ roomsTest("peering publishes one durable foreign room and revocation leaves hand
 			await visitor.say("still reachable");
 			await visitor.leave();
 
-			peering.close();
+			await peering.close();
 			await viewer.close();
+			await publisher.close();
+			await source.close();
+		});
+	});
+});
+
+roomsTest("releasing a publication lease does not revoke before publisher disconnect", async () => {
+	await withServer(async (sourcePort) => {
+		await withPeeringServer(async (destinationPort, peeringSwiss) => {
+			const host = roomsHost();
+			const connect = (locator: string, on = host) => Directory.connect(locator, (address) => dial(address, on));
+			const source = await connect(loopbackTcpDesignator(sourcePort));
+			const publisher = await connect(loopbackTcpDesignator(destinationPort));
+			const observer = await connect(loopbackTcpDesignator(destinationPort), roomsHost());
+			const room = await Room.subscribe(source.session, await source.open("leased"), "owner");
+			const peering = await DirectoryPeering.fetch(publisher, peeringSwiss);
+			const publication = await peering.publish("leased", room, source);
+
+			publication.release();
+			await peering.close();
+			assert((await observer.list()).length === 1, "releasing the lease silently revoked its listing");
+			await publisher.close();
+			await waitForMatch(async () => String((await observer.list()).length), /^0$/);
+
+			await room.leave();
+			await observer.close();
+			await source.close();
+		});
+	});
+});
+
+roomsTest("closing peering cancels a publication already admitted by the client", async () => {
+	await withServer(async (sourcePort) => {
+		await withPeeringServer(async (destinationPort, peeringSwiss) => {
+			const host = roomsHost();
+			const connect = (locator: string) => Directory.connect(locator, (address) => dial(address, host));
+			const source = await connect(loopbackTcpDesignator(sourcePort));
+			const publisher = await connect(loopbackTcpDesignator(destinationPort));
+			const room = await Room.subscribe(source.session, await source.open("cancelled"), "owner");
+			const first = await DirectoryPeering.fetch(publisher, peeringSwiss);
+			const pending = first.publish("reusable", room, source);
+			await first.close();
+			let cancelled = false;
+			try {
+				await pending;
+			} catch {
+				cancelled = true;
+			}
+			assert(cancelled, "close let its in-flight publication become live");
+
+			const second = await DirectoryPeering.fetch(publisher, peeringSwiss);
+			const publication = await second.publish("reusable", room, source);
+			assert((await publisher.list())[0]?.name === "reusable", "close left the admitted name occupied");
+
+			await publication.revoke();
+			await second.close();
+			await room.leave();
 			await publisher.close();
 			await source.close();
 		});
@@ -148,7 +211,7 @@ roomsTest("stale peering leases cannot revoke replacements and publisher disconn
 			const publisher = await connect(loopbackTcpDesignator(destinationPort));
 			const observer = await connect(loopbackTcpDesignator(destinationPort), roomsHost());
 			const room = await Room.subscribe(source.session, await source.open("replaceable"), "owner");
-			await room.link(await source.advertisedLocation());
+			await room.link();
 			const authority = await publisher.session.fetch(peeringSwiss);
 			const publish = async (): Promise<Ref> => {
 				const lease = await publisher.session.send(authority, PUBLISH_DURABLE_ROOM, [
@@ -163,6 +226,14 @@ roomsTest("stale peering leases cannot revoke replacements and publisher disconn
 			const firstLease = await publish();
 			const first = (await publisher.list())[0];
 			assert(first !== undefined, "the first publication was not listed");
+			let refused = false;
+			try {
+				await publisher.session.send(firstLease, PUBLICATION_READY, ["surplus"]);
+			} catch {
+				refused = true;
+			}
+			assert(refused, "a publication lease accepted surplus readiness data");
+			assert((await publisher.list())[0]?.id === first.id, "a malformed lease call changed the publication");
 			await publisher.session.send(firstLease, REVOKE, []);
 			const secondLease = await publish();
 			const second = (await publisher.list())[0];
@@ -186,6 +257,43 @@ roomsTest("stale peering leases cannot revoke replacements and publisher disconn
 
 			await room.leave();
 			await observer.close();
+			await source.close();
+		});
+	});
+});
+
+roomsTest("a synchronous peering listen refusal releases the reservation immediately", async () => {
+	await withServer(async (sourcePort) => {
+		await withPeeringServer(async (destinationPort, peeringSwiss) => {
+			const host = roomsHost();
+			const connect = (locator: string) => Directory.connect(locator, (address) => dial(address, host));
+			const source = await connect(loopbackTcpDesignator(sourcePort));
+			const publisher = await connect(loopbackTcpDesignator(destinationPort));
+			const authority = await publisher.session.fetch(peeringSwiss);
+
+			// Sending the destination's own live peering object back to it produces
+			// a near object, not the far promise pancake-next listen requires. The
+			// refusal happens synchronously while the server admits listen.
+			let refused = false;
+			try {
+				await publisher.session.send(authority, PUBLISH_DURABLE_ROOM, ["reusable", authority]);
+			} catch {
+				refused = true;
+			}
+			assert(refused, "peering accepted a live object where a handed promise was required");
+
+			// The failed transaction must have returned its name and quota slot now,
+			// rather than waiting for the handed-room deadline or disconnect cleanup.
+			const room = await Room.subscribe(source.session, await source.open("source"), "owner");
+			const peering = await DirectoryPeering.fetch(publisher, peeringSwiss);
+			const publication = await peering.publish("reusable", room, source);
+			assert((await publisher.list())[0]?.name === "reusable", "the refused reservation was not reusable");
+
+			await publication.revoke();
+			await peering.close();
+			publisher.session.release(authority);
+			await room.leave();
+			await publisher.close();
 			await source.close();
 		});
 	});

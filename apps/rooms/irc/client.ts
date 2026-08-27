@@ -182,10 +182,33 @@ export interface IrcEndpoint extends IrcConnectionOptions {
 	readonly hostname: string;
 	readonly port: number;
 	readonly tls: boolean;
+	/** Cancels a connection attempt. Once TLS has a TCP socket, cancellation
+	 * closes that socket so a superseded seat cannot finish registering. */
+	readonly signal?: AbortSignal;
 }
 
 export async function connectIrc(endpoint: IrcEndpoint): Promise<Deno.Conn> {
-	return endpoint.tls
-		? await Deno.connectTls({ hostname: endpoint.hostname, port: endpoint.port })
-		: await Deno.connect({ hostname: endpoint.hostname, port: endpoint.port });
+	const address = { hostname: endpoint.hostname, port: endpoint.port };
+	if (!endpoint.tls) return await Deno.connect({ ...address, signal: endpoint.signal });
+	if (endpoint.signal === undefined) return await Deno.connectTls(address);
+
+	// `connectTls` has no cancellation edge. Establishing TCP separately gives
+	// the seat ownership of a concrete socket before the TLS handshake begins,
+	// so its AbortSignal can retire every phase of the attempt.
+	const conn = await Deno.connect({ ...address, signal: endpoint.signal });
+	const aborted = () => {
+		try {
+			conn.close();
+		} catch { /* the handshake already consumed or closed it */ }
+	};
+	if (endpoint.signal.aborted) {
+		aborted();
+		throw new DOMException("IRC connection was cancelled", "AbortError");
+	}
+	endpoint.signal.addEventListener("abort", aborted, { once: true });
+	try {
+		return await Deno.startTls(conn, { hostname: endpoint.hostname });
+	} finally {
+		endpoint.signal.removeEventListener("abort", aborted);
+	}
 }

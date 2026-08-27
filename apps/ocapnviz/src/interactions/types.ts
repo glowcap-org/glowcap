@@ -51,10 +51,6 @@ export function parseEntityKey(key: EntityRefKey): EntityRef {
 	return { kind, id };
 }
 
-export function entityRefsEqual(a: EntityRef, b: EntityRef): boolean {
-	return a.kind === b.kind && a.id === b.id;
-}
-
 export type SelectionState = {
 	/** Inspector follow target. The current entity moves to the most
 	 *  recent selection member and is null when nothing is selected.

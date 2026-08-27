@@ -16,6 +16,7 @@
 // found it.
 
 import type { Page } from "playwright";
+import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "./harness.ts";
 import { run as filterFormRun } from "./filter_form.ts";
 
@@ -98,7 +99,7 @@ async function makeRoom(tab: Page, name: string, held: boolean): Promise<void> {
 
 /** Leave a room from its own row. */
 async function leaveRoom(tab: Page, name: string): Promise<void> {
-	const row = tab.locator("#roomList li").filter({ has: tab.locator(`.rname:text-is(${JSON.stringify(name)})`) });
+	const row = namedRoomRow(tab, name);
 	await row.hover();
 	await row.locator(".room-leave").click();
 	await tab.waitForFunction(
@@ -122,7 +123,7 @@ async function sayInto(peer: Page, room: string, line: string): Promise<void> {
 	await peer.press("#line", "Enter");
 	await peer.waitForSelector(`.bubble:has-text(${JSON.stringify(line)})`, { timeout: 30_000 })
 		.catch(() => fail(`the second peer's line never landed in ${JSON.stringify(room)}`));
-	const row = peer.locator("#roomList li").filter({ has: peer.locator(`.rname:text-is(${JSON.stringify(room)})`) });
+	const row = namedRoomRow(peer, room);
 	await row.hover();
 	await row.locator(".room-leave").click();
 	await peer.waitForSelector("#joinBtn", { timeout: 30_000 })

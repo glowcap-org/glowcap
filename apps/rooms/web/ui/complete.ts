@@ -10,7 +10,7 @@
 // without needing `#`.
 
 import { type CommandHere, commandIn, held } from "./commands.ts";
-import { ROOM_MENTIONS_OFFERED } from "./text.ts";
+import { MENTION_QUERY, ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
 
 export type TriggerKind = "nick" | "room" | "emoji" | "command";
@@ -35,7 +35,7 @@ export function triggerAt(text: string, caret: number): Trigger | null {
 	if (start >= caret) return null;
 	const sigil = text[start];
 	const query = text.slice(start + 1, caret);
-	if (sigil === "@" && NAME_QUERY.test(query)) return { kind: "nick", start, query };
+	if (sigil === "@" && MENTION_QUERY.test(query)) return { kind: "nick", start, query };
 	if (sigil === "#" && NAME_QUERY.test(query)) return { kind: "room", start, query };
 	if (sigil === "/" && NAME_QUERY.test(query)) return { kind: "command", start, query };
 	if (sigil === ":" && query.length >= 1 && EMOJI_QUERY.test(query)) {

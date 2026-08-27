@@ -4,7 +4,7 @@
 # which owns a separate Tor process and remains the foreign implementation under
 # test rather than a pancake-authored copy of it.
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 1
 
 if [ -z "${PANCAKE_OCAPN_TOR_SOCKS:-}" ]; then
   echo "ocapn-conformance-onion: PANCAKE_OCAPN_TOR_SOCKS is required (host:port)" >&2
@@ -20,10 +20,12 @@ if [ -n "${PANCAKE_OCAPN_TOR_CONTROL_PASSWORD+x}" ] && [ -n "${PANCAKE_OCAPN_TOR
 fi
 
 if [ -z "${UV_CACHE_DIR:-}" ] || [ ! -w "$UV_CACHE_DIR" ]; then
-  export UV_CACHE_DIR="$(mktemp -d)"
+  UV_CACHE_DIR="$(mktemp -d)"
+  export UV_CACHE_DIR
 fi
 if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] || [ ! -w "$UV_PYTHON_INSTALL_DIR" ]; then
-  export UV_PYTHON_INSTALL_DIR="$(mktemp -d)"
+  UV_PYTHON_INSTALL_DIR="$(mktemp -d)"
+  export UV_PYTHON_INSTALL_DIR
 fi
 
 PEER=zig-out/bin/pancake-ocapn-onion-peer

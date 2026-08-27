@@ -58,9 +58,10 @@ import * as tcp from "@pancake/tcp";
 // one wire is two rows here, and a viewer drawing them one at a time would
 // invent the same learning sequence a live feed genuinely goes through.
 
-import { currentSession, formatSturdyRef, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
+import { currentSession, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
+import { throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import { VIZ_CAP_PARAM, VIZ_PUBLISH_PATH, VIZ_REFUSED_CLOSE_CODE } from "../lib/viz_publish.ts";
 import { observeCloseFailure, observeSettledFailures, releaseRefusedCapability } from "./viz/lifecycle.ts";
 import {
@@ -73,6 +74,7 @@ import {
 	ProducerBudget,
 } from "./viz/policy.ts";
 import { parseRecord, utf8Bytes } from "./viz/records.ts";
+import { formatRoomsSturdyref } from "../lib/locator.ts";
 import { noteTrouble } from "./journal.ts";
 
 export { parseRecord } from "./viz/records.ts";
@@ -205,11 +207,15 @@ export function startViz(port: number, swiss: string): VizServer {
 	const traceHost = new Host(); // rooms-profile-exempt: generic v1.0 observer, not a Rooms peer.
 	const traceDesignator = traceHost.designator();
 	traceHost.publishGiftable(swiss, (verb, args) => {
-		if (verb !== "subscribe" || args.length !== 1 || !(args[0] instanceof Ref)) {
-			throw new Error("trace.subscribe expects one inbox capability");
-		}
 		const session = currentSession();
-		if (session === null) throw new Error("trace.subscribe requires a session");
+		if (session == null) throw new Error("trace.subscribe requires a session");
+		if (verb !== "subscribe" || args.length !== 1 || !(args[0] instanceof Ref)) {
+			throwAfterReleasingCapabilities(
+				session,
+				args,
+				new Error("trace.subscribe expects one inbox capability"),
+			);
+		}
 		addSubscriber(session, args[0]);
 		return null;
 	});
@@ -414,7 +420,7 @@ export function startViz(port: number, swiss: string): VizServer {
 				boundPort = bound;
 				announceBound(bound);
 				const locator = tcp.locator("127.0.0.1", bound);
-				const ref = formatSturdyRef(locator, swiss, "v1_0");
+				const ref = formatRoomsSturdyref(locator, swiss);
 				announceSturdyref(ref);
 				console.error(`ROOMS-VIZ-LISTENING ${ref}`);
 			},

@@ -19,8 +19,9 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../web/ui/store.ts");
 const types = await import("../web/ui/types.ts");
 const text = await import("../web/ui/text.ts");
-const { canRetry, dirId, isUnsent } = types;
+const { canRetry, dirId, isUnsent, sendControlsFor } = types;
 const { MAX_SCROLLBACK } = await import("../lib/limits.ts");
+const { registrationId } = await import("./support/registration.ts");
 
 function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
@@ -123,6 +124,13 @@ Deno.test("an unsent message offers a retry only where one could work", () => {
 	assert(!canRetry(undefined), "a line that went needs no retry");
 });
 
+Deno.test("message controls belong to the controller that owns the send", () => {
+	const local = sendControlsFor("local");
+	assert(local.retry && local.stop, "local sends lost their recovery controls");
+	const shared = sendControlsFor("attached");
+	assert(!shared.retry && !shared.stop, "attached sends exposed controls they cannot own");
+});
+
 Deno.test("a connection ending takes what its lines could be told, not what they said", () => {
 	const dir = dirId("test-dir-held");
 	const room = store.ensureRoom(dir, "authority");
@@ -156,6 +164,83 @@ Deno.test("a connection ending takes what its lines could be told, not what they
 	// What was said is untouched: only what can still be done to it changed.
 	const line = store.getConv(room.key)?.history.find((item) => item.id === mine.id);
 	assert(line?.kind === "chat" && line.text === "said on a connection", "the line's own words were rewritten");
+});
+
+Deno.test("steward claimability belongs to one room connection and retires with acquisition", () => {
+	const dir = dirId("test-dir-steward-claim");
+	const room = store.ensureRoom(dir, "harbor", { stewardClaimable: true });
+	assert(room.stewardClaimable, "the creator connection's room did not retain its one claimable act");
+
+	// A pump ensuring the conversation without identity information must not
+	// rewrite a fact it does not own.
+	assert(store.ensureRoom(dir, "harbor").stewardClaimable, "an ordinary room update erased claimability");
+	assert(
+		!store.ensureRoom(dir, "harbor", { stewardClaimable: false }).stewardClaimable,
+		"a replacement connection left the creator-only act on screen",
+	);
+
+	const acquired = store.ensureRoom(dir, "quay", { stewardClaimable: true });
+	store.noteRoomSteward(acquired.key, "ocapn://room", "ocapn://steward");
+	const after = store.getConv(acquired.key);
+	assert(after?.type === "room" && !after.stewardClaimable, "acquisition left Claim stewardship available");
+});
+
+Deno.test("room history progress says what the membership actually learned", () => {
+	const room = store.ensureRoom(dirId("test-dir-history-state"), "archive");
+	assert(room.earlierHistory === "unasked", "a room invented a history answer before asking");
+	store.setEarlierHistory(room.key, "loading");
+	const loading = store.getConv(room.key);
+	assert(loading?.type === "room" && loading.earlierHistory === "loading", "the history wait was not visible");
+	store.setEarlierHistory(room.key, "empty");
+	const empty = store.getConv(room.key);
+	assert(empty?.type === "room" && empty.earlierHistory === "empty", "an empty answer stayed in progress");
+});
+
+Deno.test("a saved room remains distinct from its live membership", () => {
+	const room = store.ensureRoom(dirId("membership-directory"), "saved-room");
+	assert(room.membership === "joining", "a new room intent claimed a live membership");
+	store.setRoomMembership(room.key, "joined");
+	const joined = store.getConv(room.key);
+	assert(
+		joined?.type === "room" && joined.membership === "joined",
+		"join was lost",
+	);
+	store.setRoomMembership(room.key, "unavailable");
+	const unavailable = store.getConv(room.key);
+	assert(
+		unavailable?.type === "room" && unavailable.membership === "unavailable",
+		"a failed realization erased or stayed joined",
+	);
+	store.forgetConv(room.key);
+});
+
+Deno.test("an IRC seat annotates one Rooms member and never mints another", () => {
+	const room = store.ensureRoom(dirId("irc-seat-state"), "bridge");
+	store.applyPresence(room.key, { kind: "roster", names: ["alice", "irc/bo"] });
+	store.applyPresence(room.key, { kind: "irc-seat", name: "alice", state: "connecting", nick: "alice_irc" });
+	let conv = store.getConv(room.key);
+	assert(conv?.type === "room", "the bridged room disappeared");
+	assert(conv.members.size === 2, "a seat projection minted another roster member");
+	assert(conv.members.get("alice")?.irc?.state === "connecting", "the connecting seat was not shown");
+	store.applyPresence(room.key, { kind: "irc-seat", name: "alice", state: "linked", nick: "alice_irc" });
+	conv = store.getConv(room.key);
+	assert(conv?.type === "room" && conv.members.get("alice")?.irc?.state === "linked", "the seat never linked");
+	assert(conv.members.get("alice")?.irc?.nick === "alice_irc", "the linked IRC nick was lost");
+	store.applyPresence(room.key, { kind: "irc-seat", name: "nobody", state: "linked", nick: "intruder" });
+	conv = store.getConv(room.key);
+	assert(conv?.type === "room" && !conv.members.has("nobody"), "a seat fact invented a Rooms member");
+	store.applyPresence(room.key, { kind: "irc-seat", name: "alice", state: "rooms", nick: "alice_irc" });
+	conv = store.getConv(room.key);
+	assert(
+		conv?.type === "room" && conv.members.get("alice")?.irc?.state === "rooms",
+		"a Rooms-only transition was lost",
+	);
+	store.applyPresence(room.key, { kind: "roster", names: ["alice", "irc/bo"] });
+	conv = store.getConv(room.key);
+	assert(
+		conv?.type === "room" && conv.members.get("alice")?.irc === undefined,
+		"a full roster kept a stale seat projection",
+	);
 });
 
 Deno.test("a conversation keeps its scrollback bounded, and says what left", () => {
@@ -245,17 +330,6 @@ Deno.test("an ignored line does not count at the reader, and their own always do
 	store.unignore("jim");
 });
 
-Deno.test("the ignore list survives a name with a comma in it across a reload", () => {
-	const KEY = "rooms.ignored";
-	localStorage.setItem(KEY, JSON.stringify(["a,b", "carol"]));
-	const round = store.readPersistedIgnored();
-	assert(round.has("a,b"), "a comma-bearing name did not round-trip");
-	assert(round.has("carol") && round.size === 2, `the reload mangled the list: ${[...round].join("|")}`);
-	localStorage.setItem(KEY, "dave,erin");
-	assert(store.readPersistedIgnored().size === 0, "malformed storage minted ignored names");
-	localStorage.removeItem(KEY);
-});
-
 Deno.test("clearing a conversation hands back what its lines were holding", () => {
 	// /clear is the third way lines leave the log, and it has to leave through
 	// the same door: the release seam that the scrollback trim and a closing
@@ -316,15 +390,24 @@ const joining = await import("../web/ui/joining.ts");
 
 Deno.test("empty and this directory's locator are one destination", () => {
 	const home = dirId("ocapn://abc.iroh");
-	assert(joining.thisDirectoryLocator("", home) === "", "an empty locator was not this directory");
+	const context = { home, defaultDirectory: { id: home, locator: home } };
+	assert(joining.thisDirectoryLocator("", context) === "", "an empty locator was not this directory");
 	assert(
-		joining.thisDirectoryLocator("ocapn://abc.iroh", home) === "",
+		joining.thisDirectoryLocator("ocapn://abc.iroh", context, home) === "",
 		"this directory's locator was kept as a distinct value",
 	);
-	assert(joining.thisDirectoryLocator(" ocapn://abc.iroh\n", home) === "", "a pasted home locator was not cleared");
 	assert(
-		joining.thisDirectoryLocator("ocapn://other.iroh", home) === "ocapn://other.iroh",
+		joining.thisDirectoryLocator(" ocapn://abc.iroh\n", context, home) === "",
+		"a pasted home locator was not cleared",
+	);
+	assert(
+		joining.thisDirectoryLocator("ocapn://other.iroh", context) === "ocapn://other.iroh",
 		"a foreign locator was treated as this directory",
+	);
+	const roomLink = "ocapn://abc.iroh/s/room-swiss";
+	assert(
+		joining.thisDirectoryLocator(roomLink, context, home) === roomLink,
+		"a room link on this directory was collapsed to the directory default",
 	);
 });
 
@@ -424,9 +507,30 @@ Deno.test("a direct line is not opened with yourself", () => {
 	store.setDirNick(dir, "alice");
 	assert(store.isSelf(dir, "Alice"), "own nick is compared the way the directory grants it");
 	assert(!store.isSelf(dir, "bo"), "somebody else counted as you");
-	assert(store.ensureDm(dir, "alice") === null, "ensureDm minted a conversation with yourself");
-	const other = store.ensureDm(dir, "bo");
+	assert(store.ensureDm(dir, "alice", registrationId(1)) == null, "ensureDm minted a conversation with yourself");
+	const other = store.ensureDm(dir, "bo", registrationId(2));
 	assert(other !== null && other.type === "dm", "a line to somebody else was not opened");
+});
+
+Deno.test("a reused nickname cannot retarget its previous direct conversation", () => {
+	const dir = dirId("direct-incarnation");
+	store.openDir(dir);
+	store.setDmable(dir, "bo", registrationId(1), true);
+	const old = store.ensureDm(dir, "bo", registrationId(1));
+	assert(old != null, "the original direct conversation was not created");
+	store.setDmable(dir, "bo", registrationId(1), false);
+	store.setDmable(dir, "bo", registrationId(2), true);
+	assert(
+		store.liveDmWith(dir, "bo", registrationId(2)) == null,
+		"the replacement registration inherited the old line",
+	);
+	const replacement = store.ensureDm(dir, "bo", registrationId(2));
+	assert(
+		replacement != null && replacement.key !== old.key,
+		"the replacement registration reused the old conversation",
+	);
+	store.closeDmsWith(dir, "bo", registrationId(1));
+	assert(replacement.line !== "closed", "retiring the old registration closed its replacement");
 });
 
 Deno.test("a direct row relays the rooms' word on who is away", () => {

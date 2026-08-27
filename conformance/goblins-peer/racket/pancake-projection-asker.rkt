@@ -68,10 +68,6 @@
   (define vec (struct->vector obj))
   (and (> (vector-length vec) idx) (vector-ref vec idx)))
 
-(define (answer-desc-pos desc)
-  (and (equal? (record-label desc) "desc:answer")
-       (record-field desc 1)))
-
 (define (export-desc-pos desc)
   (and (equal? (record-label desc) "desc:export")
        (record-field desc 1)))

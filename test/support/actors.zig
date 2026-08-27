@@ -1,5 +1,5 @@
 //! Canonical scenario actors for the driver and transport tests.
-//! Consumers: `test/driver/blocking_session_test.zig`,
+//! Consumers: `test/driver/blocking_session/`,
 //! `test/driver/session_target_test.zig`, `test/driver/inproc_netlayer_test.zig`,
 //! `test/driver/keyed_tcp_restart_test.zig`, `test/driver/pluggability_test.zig`.
 
@@ -38,3 +38,16 @@ pub fn StaticReplyValueActor(comptime verb: []const u8, comptime reply: []const 
         }
     };
 }
+
+/// A counting target: every `hit` is one local turn and the reply is the
+/// running count, which makes it the actor to reach for when a test counts
+/// deliveries or drives amplification.
+pub const Counter = struct {
+    hits: i64 = 0,
+    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+        self.hits += 1;
+        return .{ .integer = self.hits };
+    }
+};

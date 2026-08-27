@@ -7,7 +7,7 @@
 // here instead, bounded, deduplicated against the newest entry, and drawn by
 // the operations page's diagnostics pane.
 
-import { set, state } from "./core.ts";
+import { get, set } from "./core.ts";
 
 /** The ring keeps this many distinct troubles; the oldest fall off. */
 const TROUBLE_KEPT = 50;
@@ -15,7 +15,7 @@ const TROUBLE_KEPT = 50;
 /** File one trouble. A repeat of the newest entry folds into its count, so a
  * failure loop reads as one line with a number instead of a full ring. */
 export function noteTrouble(source: string, reason: string): void {
-	const rows = state.trouble;
+	const rows = get().trouble;
 	const newest = rows[0];
 	if (newest !== undefined && newest.source === source && newest.reason === reason) {
 		set({ trouble: [{ ...newest, count: newest.count + 1 }, ...rows.slice(1)] });

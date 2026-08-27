@@ -412,10 +412,6 @@ fn readBalancedLimited(bytes: []const u8, cursor: *usize, open: u8, close: u8, l
     return Error.Incomplete;
 }
 
-pub fn skipSyrupValue(bytes: []const u8, cursor: *usize) Error!void {
-    return skipSyrupValueLimited(bytes, cursor, no_limit);
-}
-
 pub fn skipSyrupValueLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!void {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     switch (bytes[cursor.*]) {

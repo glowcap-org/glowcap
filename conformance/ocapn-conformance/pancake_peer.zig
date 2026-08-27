@@ -170,12 +170,15 @@ const PromiseResolver = struct {
     }
 };
 
-const Unimplemented = struct {
-    pub fn handle(self: *Unimplemented, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+/// The supported sturdyref-enlivener deliveries are consumed by
+/// `handoff.tryGifterEnliven` before Vat dispatch. Reaching this actor means the
+/// message named the reserved bootstrap object but was not that wire form.
+const InterceptedSturdyrefEnlivener = struct {
+    pub fn handle(self: *InterceptedSturdyrefEnlivener, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         _ = turn;
         _ = msg;
-        return error.NotImplemented;
+        return error.UnsupportedConformanceEnliven;
     }
 };
 
@@ -219,7 +222,7 @@ fn publishConf(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyer
     _ = try served.publish(vat, GREETER, Greeter, .{});
     _ = try served.publish(vat, CAR_FACTORY_BUILDER, CarFactoryBuilder, .{});
     _ = try served.publish(vat, PROMISE_RESOLVER, PromiseResolver, .{ .conf = conf });
-    _ = try served.publish(vat, STURDYREF_ENLIVENER, Unimplemented, .{});
+    _ = try served.publish(vat, STURDYREF_ENLIVENER, InterceptedSturdyrefEnlivener, .{});
 }
 
 fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {

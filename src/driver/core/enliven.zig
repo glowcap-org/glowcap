@@ -397,6 +397,10 @@ pub fn continueParkedEnliven(
         failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(HostError.PeerIdentityUnverified));
         return;
     }
+    self.node.replaceDiscoveredExporterLocation(session.peer_handle, parked.sturdyref.peer) catch |err| {
+        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
+        return;
+    };
     const err: anyerror = blk: {
         const peer = session.served.port.peer;
         const reservation = reserveEnlivenVowAt(self, session, parked.vow_id) catch |e| break :blk e;
@@ -498,6 +502,11 @@ pub fn enlivenWithPolicy(
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     const provenance = try matchSturdyrefPeer(self, session, sturdyref, policy);
+    // The complete sturdyref is route advice already verified against this
+    // session. Retain its canonical locator once for later three-party gives;
+    // applications should not sample and restate the same route through a
+    // second RPC and parser pass.
+    try self.node.replaceDiscoveredExporterLocation(session.peer_handle, sturdyref.peer);
     const swissnum = sturdyref.swissnum;
     const peer = session.served.port.peer;
     // Admission precedes `prepareEnliven`: its fresh arm records the in-flight

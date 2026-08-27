@@ -7,20 +7,7 @@ import {
 } from "@pancake/abi";
 import { acceptRemoteCandidate } from "../connector.ts";
 import { RtcPeer } from "../peer.ts";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-		throw new Error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-	}
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-	let resolve!: () => void;
-	const promise = new Promise<void>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
-}
+import { assertDeepEquals, deferred } from "../../dogfood/assert.ts";
 
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 	try {
@@ -158,7 +145,7 @@ Deno.test("RtcPeer gives the browser the embedding's ICE configuration", () => {
 			credential: "short-lived-secret",
 		}];
 		const peer = new RtcPeer({ offerer: false, iceServers });
-		assertEquals(fake.instance().configuration, { iceServers });
+		assertDeepEquals(fake.instance().configuration, { iceServers });
 		peer.close();
 	} finally {
 		fake.restore();
@@ -173,10 +160,10 @@ Deno.test("RtcPeer applies pre-SDP ICE candidates in arrival order", async () =>
 		const second = peer.addRemoteCandidate({ candidate: "second" });
 		const setRemote = peer.setRemoteOffer("offer");
 		const pc = fake.instance();
-		assertEquals(pc.calls, ["set remote"]);
+		assertDeepEquals(pc.calls, ["set remote"]);
 		pc.finishRemoteDescription();
 		await Promise.all([setRemote, first, second]);
-		assertEquals(pc.calls, ["set remote", "candidate first", "candidate second"]);
+		assertDeepEquals(pc.calls, ["set remote", "candidate first", "candidate second"]);
 	} finally {
 		fake.restore();
 	}
@@ -193,7 +180,7 @@ Deno.test("RtcPeer snapshots a candidate retained before remote SDP", async () =
 		const pc = fake.instance();
 		pc.finishRemoteDescription();
 		await Promise.all([setRemote, applied]);
-		assertEquals(pc.calls, ["set remote", "candidate original"]);
+		assertDeepEquals(pc.calls, ["set remote", "candidate original"]);
 	} finally {
 		fake.restore();
 	}
@@ -216,9 +203,9 @@ Deno.test("RtcPeer surfaces a queued ICE failure without stranding later candida
 			rejectionOf(bad),
 			good,
 		]);
-		assertEquals(setError, failure);
-		assertEquals(badError, failure);
-		assertEquals(pc.calls, ["set remote", "candidate bad", "candidate good"]);
+		assertDeepEquals(setError, failure);
+		assertDeepEquals(badError, failure);
+		assertDeepEquals(pc.calls, ["set remote", "candidate bad", "candidate good"]);
 	} finally {
 		fake.restore();
 	}
@@ -311,7 +298,7 @@ Deno.test("RtcPeer rejects oversized remote SDP before browser parsing", async (
 			Promise.resolve().then(() => peer.setRemoteOffer("x".repeat(WEBRTC_MAX_SIGNAL_BYTES + 1))),
 		);
 		if (!String(error).includes("SDP is too large")) throw error;
-		assertEquals(fake.instance().calls, []);
+		assertDeepEquals(fake.instance().calls, []);
 		peer.close();
 	} finally {
 		fake.restore();
@@ -326,7 +313,7 @@ Deno.test("RtcPeer rejects oversized generated offer before browser commit", asy
 		const peer = new RtcPeer({ offerer: true });
 		const error = await rejectionOf(peer.createOffer());
 		if (!String(error).includes("SDP is too large")) throw error;
-		assertEquals(fake.instance().calls, ["create offer"]);
+		assertDeepEquals(fake.instance().calls, ["create offer"]);
 		peer.close();
 	} finally {
 		fake.restore();
@@ -341,7 +328,7 @@ Deno.test("RtcPeer rejects oversized generated answer before browser commit", as
 		const peer = new RtcPeer({ offerer: false });
 		const error = await rejectionOf(peer.createAnswer());
 		if (!String(error).includes("SDP is too large")) throw error;
-		assertEquals(fake.instance().calls, ["create answer"]);
+		assertDeepEquals(fake.instance().calls, ["create answer"]);
 		peer.close();
 	} finally {
 		fake.restore();
@@ -355,7 +342,7 @@ Deno.test("RtcPeer measures remote SDP in UTF-8 bytes", async () => {
 		const tooManyBytes = "é".repeat(Math.floor(WEBRTC_MAX_SIGNAL_BYTES / 2) + 1);
 		const error = await rejectionOf(Promise.resolve().then(() => peer.setRemoteOffer(tooManyBytes)));
 		if (!String(error).includes("SDP is too large")) throw error;
-		assertEquals(fake.instance().calls, []);
+		assertDeepEquals(fake.instance().calls, []);
 		peer.close();
 	} finally {
 		fake.restore();
@@ -374,7 +361,7 @@ Deno.test("acceptRemoteCandidate rejects oversized JSON before parsing", async (
 		acceptRemoteCandidate(peer, "x".repeat(WEBRTC_MAX_SIGNAL_BYTES + 1)),
 	);
 	if (!String(error).includes("signaling message is too large")) throw error;
-	assertEquals(called, false);
+	assertDeepEquals(called, false);
 });
 
 Deno.test("acceptRemoteCandidate measures JSON in UTF-8 bytes before parsing", async () => {
@@ -388,7 +375,7 @@ Deno.test("acceptRemoteCandidate measures JSON in UTF-8 bytes before parsing", a
 	const tooManyBytes = "é".repeat(Math.floor(WEBRTC_MAX_SIGNAL_BYTES / 2) + 1);
 	const error = await rejectionOf(acceptRemoteCandidate(peer, tooManyBytes));
 	if (!String(error).includes("signaling message is too large")) throw error;
-	assertEquals(called, false);
+	assertDeepEquals(called, false);
 });
 
 Deno.test("RtcPeer close rejects a channel-open wait", async () => {

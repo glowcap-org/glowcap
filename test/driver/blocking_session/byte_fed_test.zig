@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
-const support_actors = @import("../../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -15,8 +14,6 @@ const tcp = pancake.net.tcp;
 const net = pancake.net;
 const syrup = pancake.ocapn.codec.syrup;
 const crypto = pancake.foundation.crypto;
-
-const ip = std.Io.net;
 
 const harness = @import("harness.zig");
 const handshake_budget = harness.handshake_budget;

@@ -24,7 +24,7 @@
  *
  * Not covered: the era count still grows by two per reconnect, because each one
  * really is two topology moments. That is a cost, not a wrong picture, and
- * `docs/era-collapse-plan.md` records why no threshold was added for it.
+ * `docs/era-collapse.md` records why no threshold was added for it.
  */
 
 import { assert, assertEquals } from "@std/assert";

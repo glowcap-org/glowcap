@@ -6,8 +6,8 @@
 
 import { impossibleStatus, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
 import { MAX_ROOM_LINKS } from "../lib/limits.ts";
-import { loopbackTcpDesignator } from "../lib/locator.ts";
-import { DIRECTORY, SNAPSHOT, SUBSCRIBE } from "../lib/protocol.ts";
+import { loopbackTcpDesignator, roomsSturdyrefForSession } from "../lib/locator.ts";
+import { DIRECTORY, OPEN, SNAPSHOT, SUBSCRIBE } from "../lib/protocol.ts";
 import {
 	Directory,
 	Room,
@@ -17,23 +17,20 @@ import {
 	takeDiagnostics,
 } from "../lib/room_client.ts";
 import { RoomServerState } from "../server/state.ts";
+import { type PublishRoomAuthorities, RoomLinks } from "../server/room_links.ts";
 import {
 	assert,
 	assertMatch,
 	DENO_FLAGS,
 	dial,
 	enterOrOpen,
-	freeServerPort,
+	freePort,
 	irohUsable,
 	readPort,
-	restartStatefulServer,
 	roomLines,
 	roomsTest,
 	ROOT,
 	SERVER,
-	stablePort,
-	startStatefulServer,
-	stopServer,
 	subscribeOnceIroh,
 	until,
 	waitForLine,
@@ -42,7 +39,7 @@ import {
 	withIrohServer,
 	withServer,
 } from "./support/rooms_server.ts";
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Ref, type Session } from "@pancake/runtime";
 import { spawnOwned, stopOwned } from "./support/children.ts";
 
 async function untilListed(room: Room): Promise<void> {
@@ -52,79 +49,20 @@ async function untilListed(room: Room): Promise<void> {
 	);
 }
 
-roomsTest("a private room mints a link that reaches it, and nothing else does", async () => {
-	// The capability answer to inviting somebody: a durable authority asked for
-	// with the reference, handed over as data. It is the same mint a public room
-	// makes — keyed by the room's own unguessable name rather than by a label
-	// two rooms may share — and it survives the server that made it.
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-private-" });
-	// A stable locator across the restart needs one number for the whole
-	// scenario, and a learned ephemeral one is any concurrent test step's to
-	// take during the restart gap; `stablePort` sits below that range.
-	const port = stablePort();
-	let server = startStatefulServer(port, stateDirectory);
-	try {
-		await readPort(server);
-		const locator = loopbackTcpDesignator(port);
-		const dir = await Directory.connect(locator, (address) => dial(address));
-		const room = await Room.subscribe(dir.session, await dir.open("plans", true), "ada");
-		const link = await room.link(locator);
-		assert((await room.called()) === "plans", "a live private room did not say what it is called");
-		assert((await room.isPrivate()) === true, "a live private room did not say it is unlisted");
-		// The label is not in the link and the link is not reachable by label:
-		// asking the directory for one by that name finds nothing, because a
-		// private room is not in the table names are looked up in.
-		let byName = "";
-		try {
-			await dir.link("plans", locator);
-		} catch (err) {
-			byName = err instanceof Error ? err.message : String(err);
-		}
-		assertMatch(byName, /no room named "plans"/);
-
-		// Somebody else, holding the string and nothing else, is in the room.
-		const guest = await Directory.connect(locator, (address) => dial(address));
-		const guestRef = await guest.session.enliven(link);
-		assert(
-			(await roomCalledAs(guest.session, guestRef)) === "plans",
-			"enlivening a live private room's link did not say what the room is called",
-		);
-		const asGuest = await Room.subscribe(guest.session, guestRef, "bo");
-		await untilListed(asGuest);
-		assert(asGuest.listed === false, "a private room's welcome did not say it is unlisted");
-		await asGuest.say("here by the link alone");
-		await room.leave();
-		await asGuest.leave();
-		await dir.close();
-		await guest.close();
-
-		// And it outlives the process that minted it, which is what makes it a
-		// way back rather than a way in for the moment.
-		await stopServer(server);
-		server = await restartStatefulServer(port, stateDirectory);
-		const later = await Directory.connect(locator, (address) => dial(address));
-		const again = await Room.subscribe(later.session, await later.session.enliven(link), "ada");
-		await again.say("still here");
-		await again.leave();
-		await later.close();
-	} finally {
-		await stopServer(server);
-		await Deno.remove(stateDirectory, { recursive: true });
-	}
-});
-
 roomsTest("a public room's link is that listed room", async () => {
 	await withServer(async (port) => {
 		const locator = loopbackTcpDesignator(port);
 		const owner = await Directory.connect(locator, (address) => dial(address));
 		const guest = await Directory.connect(locator, (address) => dial(address));
 		try {
-			const room = await Room.subscribe(owner.session, await owner.open("general"), "ada");
-			const link = await room.link(locator);
+			// A leading `~` is an ordinary public name. Only the exact 16-byte
+			// private-key shape belongs to the private namespace.
+			const room = await Room.subscribe(owner.session, await owner.open("~general"), "ada");
+			const link = await room.link();
 			const other = await Room.subscribe(guest.session, await guest.open("foo"), "cy");
-			const guestRef = await guest.session.enliven(link);
+			const guestRef = await guest.session.enliven(roomsSturdyrefForSession(link, guest.session));
 			assert(
-				(await roomCalledAs(guest.session, guestRef)) === "general",
+				(await roomCalledAs(guest.session, guestRef)) === "~general",
 				"a public room's link did not say the listed name",
 			);
 			const heard = roomLines(room);
@@ -156,7 +94,8 @@ roomsTest("room link state restores its identity and sealed room names", async (
 	try {
 		const bytes = (entropy: Uint8Array) => [...entropy].join(",");
 		const first = await RoomServerState.open(directory);
-		const firstEntropy = bytes(await first.entropyFor("General"));
+		const firstEntropy = bytes(await first.roomEntropyFor("General"));
+		const firstStewardEntropy = bytes(await first.stewardEntropyFor("General"));
 		await first.remember("General");
 
 		const restored = await RoomServerState.open(directory);
@@ -164,17 +103,28 @@ roomsTest("room link state restores its identity and sealed room names", async (
 			[...restored.identitySeed].join(",") === [...first.identitySeed].join(","),
 			"the room Host identity changed across state restore",
 		);
+		const exposedSeed = restored.identitySeed;
+		exposedSeed[0] ^= 0xff;
+		assert(exposedSeed[0] !== restored.identitySeed[0], "a caller could mutate the room Host identity seed");
 		assert(
-			bytes(await restored.entropyFor("general")) === firstEntropy,
+			bytes(await restored.roomEntropyFor("general")) === firstEntropy,
 			"the same case-insensitive room did not restore the same swiss authority",
 		);
 		assert(
-			bytes(await restored.entropyFor("elsewhere")) !== firstEntropy,
+			bytes(await restored.roomEntropyFor("elsewhere")) !== firstEntropy,
 			"one room link granted a different room",
 		);
 		assert(
-			(await restored.entropyFor("General")).length === DURABLE_SWISS_ENTROPY_BYTES,
+			(await restored.roomEntropyFor("General")).length === DURABLE_SWISS_ENTROPY_BYTES,
 			"a room's derived entropy is not the width the Host mints from",
+		);
+		assert(
+			bytes(await restored.stewardEntropyFor("general")) === firstStewardEntropy,
+			"the same room did not restore the same steward authority",
+		);
+		assert(
+			firstStewardEntropy !== firstEntropy,
+			"the steward and room publication shared one durable-name domain",
 		);
 		assert(
 			restored.linkedRooms().join(",") === "General",
@@ -183,6 +133,65 @@ roomsTest("room link state restores its identity and sealed room names", async (
 	} finally {
 		await Deno.remove(directory, { recursive: true });
 	}
+});
+
+roomsTest("revoked room links remain tombstoned across restart", async () => {
+	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-link-revoke-" });
+	try {
+		const state = await RoomServerState.open(directory);
+		await state.remember("General");
+		assert(state.roomLinkActive("general"), "a remembered room link was not active");
+		await state.revokeRoomLink("GENERAL");
+		assert(!state.roomLinkActive("general"), "revoking left the room link active");
+		assert(state.revokedRooms().join(",") === "General", "the tombstone lost the room's durable name");
+
+		const restored = await RoomServerState.open(directory);
+		assert(!restored.roomLinkActive("General"), "restart republished a revoked room link");
+		let refused = false;
+		try {
+			await restored.remember("general");
+		} catch {
+			refused = true;
+		}
+		assert(refused, "a tombstoned derived swiss was reissued");
+	} finally {
+		await Deno.remove(directory, { recursive: true });
+	}
+});
+
+roomsTest("room and moderator revocation remove their durable Host publications", async () => {
+	const exercise = async (remove: "moderator" | "room") => {
+		const directory = await Deno.makeTempDir({ prefix: `pancake-rooms-unpublish-${remove}-` });
+		try {
+			const state = await RoomServerState.open(directory);
+			await state.rememberSteward("General");
+			const unpublished: string[] = [];
+			const publish: PublishRoomAuthorities = {
+				room: (name) => `room-${name}`,
+				steward: (name) => `moderator-${name}`,
+				unpublish: (swiss) => {
+					unpublished.push(swiss);
+					return true;
+				},
+			};
+			const links = await RoomLinks.restore(state, publish, () => "127.0.0.1:1");
+			if (remove === "moderator") {
+				await links.revokeSteward("General");
+				assert(unpublished.join(",") === "moderator-General", `moderator revoke unpublished ${unpublished}`);
+			} else {
+				await links.revokeRoomLink("General");
+				assert(
+					new Set(unpublished).size === 2 && unpublished.includes("room-General") &&
+						unpublished.includes("moderator-General"),
+					`room revoke unpublished ${unpublished}`,
+				);
+			}
+		} finally {
+			await Deno.remove(directory, { recursive: true });
+		}
+	};
+	await exercise("moderator");
+	await exercise("room");
 });
 
 roomsTest("room link state refuses an unbounded durable name registry", async () => {
@@ -207,39 +216,28 @@ roomsTest("room link state refuses an unbounded durable name registry", async ()
 	}
 });
 
-roomsTest("a room sturdyref reaches the same room publication after server restart", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-links-" });
-	// One stable number for the whole scenario, as above.
-	const port = stablePort();
-	let link = "";
-	let first = startStatefulServer(port, stateDirectory);
+roomsTest("room state refuses unknown versions without rewriting them", async () => {
+	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-state-version-" });
 	try {
-		await readPort(first);
-		const locator = loopbackTcpDesignator(port);
-		const dir = await Directory.connect(locator, (address) => dial(address));
-		const room = await Room.subscribe(dir.session, await dir.open("kept"), "before");
-		link = await dir.link("kept", locator);
-		await room.leave();
-		await dir.close();
-		await stopServer(first);
-
-		first = await restartStatefulServer(port, stateDirectory);
-		const after = await Directory.connect(locator, (address) => dial(address));
-		// Redeem the link itself rather than picking it apart. A holder of a room
-		// link has the string and nothing else, so enlivening it is the act under
-		// test; reading the swiss out and fetching it by name would prove the
-		// server published something, not that the link reaches it.
-		const roomAfter = await Room.subscribe(after.session, await after.session.enliven(link), "after");
-		assert(
-			await after.link("kept", locator) === link,
-			"the server returned a different sturdyref after restoring its state",
-		);
-		await roomAfter.say("the link still reaches the room");
-		await roomAfter.leave();
-		await after.close();
+		await RoomServerState.open(directory);
+		const path = `${directory}/rooms.json`;
+		const current = JSON.parse(await Deno.readTextFile(path));
+		for (const version of [2, 3, 4, 5, 6, 7]) {
+			await Deno.writeTextFile(path, JSON.stringify({ ...current, version }) + "\n");
+			let refused = "";
+			try {
+				await RoomServerState.open(directory);
+			} catch (error) {
+				refused = error instanceof Error ? error.message : String(error);
+			}
+			assertMatch(refused, new RegExp(`rooms state version ${version} is not supported`));
+			assert(
+				JSON.parse(await Deno.readTextFile(path)).version === version,
+				`refusing version ${version} rewrote it as current state`,
+			);
+		}
 	} finally {
-		await stopServer(first);
-		await Deno.remove(stateDirectory, { recursive: true });
+		await Deno.remove(directory, { recursive: true });
 	}
 });
 
@@ -249,10 +247,10 @@ roomsTest("a refused first subscription leaves no cold linked room behind", asyn
 		const directory = await Directory.connect(locator, (address) => dial(address));
 		try {
 			const room = await Room.subscribe(directory.session, await directory.open("cold-rollback"), "maker");
-			const link = await room.link(locator);
+			const link = await room.link();
 			await room.leave();
 
-			const cold = await directory.session.enliven(link);
+			const cold = await directory.session.enliven(roomsSturdyrefForSession(link, directory.session));
 			let refused = "";
 			await directory.session.send(cold, SUBSCRIBE, ["broken", null]).catch((error) => {
 				refused = error instanceof Error ? error.message : String(error);
@@ -279,13 +277,13 @@ roomsTest("an iroh room sturdyref enlivens directly into its room capability", a
 		const owner = await Directory.connect(uri, (address) => dial(address));
 		const ownerRoom = await Room.subscribe(owner.session, await owner.open("linked"), "owner");
 		const ownerLines = roomLines(ownerRoom);
-		const link = await owner.link("linked", uri);
+		const link = await owner.link("linked");
 
 		const joinerSession = await dial(uri);
 		joinerSession.serve().catch(() => {});
 		const joinerRoom = await Room.subscribe(
 			joinerSession,
-			await joinerSession.enliven(link),
+			await joinerSession.enliven(roomsSturdyrefForSession(link, joinerSession)),
 			"joiner",
 		);
 		await waitForLine(roomLines(joinerRoom), /^room: in the room:/);
@@ -343,7 +341,7 @@ roomsTest("a second server on one port stops rather than sharing it", async () =
 	// anywhere says why. Refusing is the only honest answer, so it is checked
 	// against a real one already listening rather than against a bind in
 	// isolation.
-	const port = freeServerPort();
+	const port = freePort();
 	const first = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, String(port)],
 		cwd: ROOT,
@@ -412,6 +410,58 @@ roomsTest("a server that cannot start says so and exits saying so", async () => 
 	}
 });
 
+roomsTest("the server creates a nested state path before publishing capabilities", async () => {
+	const parent = await Deno.makeTempDir({ prefix: "pancake-rooms-state-parent-" });
+	const state = `${parent}/nested/rooms-state`;
+	const proc = spawnOwned("deno", {
+		args: [...DENO_FLAGS, `--allow-write=${state}`, SERVER, "0", "--viz"],
+		cwd: ROOT,
+		env: {
+			PANCAKE_ROOMS_STATE: state,
+			PANCAKE_ROOMS_VIZ_PORT: "0",
+		},
+		stdout: "piped",
+		stderr: "piped",
+	});
+	try {
+		await readPort(proc);
+		assert((await Deno.stat(`${state}/rooms.json`)).isFile, "the server did not create its state document");
+		assert((await Deno.stat(`${state}/viz`)).isFile, "capability publication ran before state path creation");
+	} finally {
+		await stopOwned(proc);
+		await Deno.remove(parent, { recursive: true });
+	}
+});
+
+roomsTest("a torn operator capability file refuses startup instead of reminting authority", async () => {
+	const dir = await Deno.makeTempDir();
+	try {
+		await RoomServerState.open(dir);
+		await Deno.writeTextFile(`${dir}/operator`, "partial-swiss\n");
+		const proc = spawnOwned("deno", {
+			args: [...DENO_FLAGS, `--allow-write=${dir}`, SERVER, "0", "--operator"],
+			cwd: ROOT,
+			env: { PANCAKE_ROOMS_STATE: dir },
+			stdout: "piped",
+			stderr: "piped",
+		});
+		const [status, said, out] = await Promise.all([
+			proc.status,
+			new Response(proc.stderr).text(),
+			new Response(proc.stdout).text(),
+		]);
+		assert(!status.success, "a server with a torn operator swiss started");
+		assert(!out.includes("ROOMS-SERVER-LISTENING"), "a server that reminted authority announced itself");
+		assert(said.includes("operator state is not a complete swiss number"), `the refusal was: ${said}`);
+		assert(
+			(await Deno.readTextFile(`${dir}/operator`)).trim() === "partial-swiss",
+			"startup rewrote corrupt authority",
+		);
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
+});
+
 Deno.test("a status no version defines is read as a mismatched library, not as iroh", () => {
 	// The shape of the real incident: a container mounting shared libraries built
 	// from one revision and source from another. The call returns whatever was in
@@ -425,6 +475,21 @@ Deno.test("a status no version defines is read as a mismatched library, not as i
 	assert(!said(-2), "invalid-argument is a status this version defines");
 	assert(!said(-15), "timed-out is a status this version defines");
 	assert(!said(0), "ok is a status this version defines");
+});
+
+Deno.test("inspect rejects malformed rows instead of turning them into an empty view", async () => {
+	for (const answer of [["room", "harbor"], ["room", "harbor", "live", "surplus"], ["", "harbor", "live"]]) {
+		const session = {
+			send: () => Promise.resolve([answer]),
+		} as unknown as Session;
+		let refused = "";
+		try {
+			await snapshotDiagnostics(session, {} as Ref);
+		} catch (error) {
+			refused = error instanceof Error ? error.message : String(error);
+		}
+		assert(refused.includes("invalid row"), `malformed inspect row was accepted or refused unclearly: ${refused}`);
+	}
 });
 
 roomsTest("inspect is a fetched capability, not a directory method", async () => {
@@ -465,6 +530,38 @@ roomsTest("inspect is a fetched capability, not a directory method", async () =>
 				again.some((row) => row.kind === "occupant" && row.name === "inspector"),
 				`inspect did not name the occupant: ${JSON.stringify(again)}`,
 			);
+
+			// A private room is unlisted to other users, but the operator's own
+			// diagnostic shows it by label with its occupants: holding inspect is
+			// the Rooms operator's view of their own directory, not a member's,
+			// so the discoverability a private room stays out of does not apply.
+			const directoryCap = await session.fetch(DIRECTORY);
+			const privateRoom = await session.send(directoryCap, OPEN, ["quiet-corner", true]) as Ref;
+			const privateMember = await Room.subscribe(session, privateRoom, "whisper");
+			await privateMember.link();
+			const withPrivate = await snapshotDiagnostics(session, taken.cap);
+			const privateRow = withPrivate.find((row) => row.kind === "room" && row.name === "quiet-corner");
+			assert(privateRow !== undefined, `inspect hid the operator's private room: ${JSON.stringify(withPrivate)}`);
+			assert(
+				privateRow.note.includes("private"),
+				`inspect did not mark the private room private: ${privateRow.note}`,
+			);
+			assert(
+				withPrivate.some((row) => row.kind === "occupant" && row.name === "whisper"),
+				`inspect did not name the private-room occupant: ${JSON.stringify(withPrivate)}`,
+			);
+			const linkRow = withPrivate.find((row) => row.kind === "link");
+			assert(
+				linkRow?.note === "durable publication active",
+				"inspect disclosed or misstated room-link authority",
+			);
+			let diagnosticAuthority = "";
+			try {
+				await session.fetch(linkRow.note);
+			} catch (error) {
+				diagnosticAuthority = error instanceof Error ? error.message : String(error);
+			}
+			assert(diagnosticAuthority !== "", "a diagnostic link note redeemed as room authority");
 			let unknown = "";
 			try {
 				await session.fetch("not-the-inspect-swiss");

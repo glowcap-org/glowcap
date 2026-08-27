@@ -1,7 +1,8 @@
-# Developing and operating Rooms
+# Developing Rooms
 
-This guide collects the details needed to test, extend, or deploy Rooms. Start with the [Rooms overview](README.md) if
-you only want to run the application.
+This guide collects the details needed to test and extend Rooms. Start with the [Rooms overview](README.md) to run the
+application, and see [Operating Rooms](operating.md) for the granted server features — the live timeline, the IRC
+gateway, storage, moderation, and the operations capabilities.
 
 ## Demo controls
 
@@ -29,10 +30,30 @@ zig build rooms-web-tcp -- --bind=0.0.0.0 --announce-host=192.168.1.20
 ```
 
 `--bind` is the host the room server listens on, and `--announce-host` is the dialable hostname it prints and
-advertises, which is also the address the page's relay will open for tabs served from other machines. Open
-`http://192.168.1.20:8000` from any machine on that network. Remember what the transport is: `tcp` is cleartext and
-proves nothing about who is on the other end, so a room exposed this way is readable by everyone on that network. For
-anything beyond a trusted LAN, serve over iroh (`zig build rooms-web`) instead.
+advertises. `tcp` is cleartext and proves nothing about who is on the other end, so a room exposed this way is readable
+by everyone on that network.
+
+Keep the browser page on a trustworthy origin. From another development machine, forward the web port and open the
+local end; for example, `ssh -N -L 8000:127.0.0.1:8000 development-host`, then open `http://localhost:8000`. A page
+served over bare network HTTP could be replaced before it becomes a peer, and browsers withhold APIs Rooms needs there,
+so the page refuses that origin with the same directions. For a shared browser deployment, terminate HTTPS at a reverse
+proxy or tunnel as described in [`web/deploy/README.md`](web/deploy/README.md). For anything beyond a trusted LAN, use
+iroh for the room transport (`zig build rooms-web`) rather than TCP as well.
+
+On a Tailscale host, [Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) is the short path to the same
+boundary. Enable [MagicDNS and HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates) for the
+tailnet once, then proxy the local Rooms port:
+
+```sh
+tailscale serve --bg 8000
+tailscale serve status
+```
+
+Open the full `https://machine.tailnet.ts.net` URL it prints, not the short HTTP MagicDNS name. Serve keeps the page
+inside the tailnet, terminates TLS, and forwards the page and its same-origin WebSockets to Rooms on loopback. When
+Tailscale runs on the outer host and Rooms runs in a devcontainer, run Serve on that host after checking that its
+`http://127.0.0.1:8000` reaches the forwarded port. HTTPS certificate names are recorded in public Certificate
+Transparency logs, so choose the Tailscale machine name with that disclosure in mind.
 
 ## Hosting the room as an onion service
 
@@ -52,160 +73,6 @@ Three things are worth knowing before reaching for it:
   relay opens no circuits itself, so it reaches no onion service other than the supervised room's own.
 - A terminal client needs an onion-capable runtime to dial through Tor; `apps/rooms/demos/onion_demo.ts` is the working
   example. The plain `chat.ts` command the TCP and iroh runs print does not apply here.
-
-## Watching the room live
-
-The room server can broadcast its own protocol activity as a timeline the [ocapnviz](../ocapnviz/) viewer draws. Start
-the server with `--viz` (or `PANCAKE_ROOMS_VIZ=1`), switch the viewer to **Live**, and point the Source sturdyref field
-at the printed `ROOMS-VIZ-LISTENING` capability. The endpoint serves on port 9300; `PANCAKE_ROOMS_VIZ_PORT` changes that
-default and enables nothing on its own. Enabling also mints the viz capability: one swiss number, persisted under
-`PANCAKE_ROOMS_STATE` and printed as a `ROOMS-VIZ` token line, which the endpoint requires of every socket — reading the
-timeline and writing traces into it alike. The sturdyref carries that swiss as its swissnum, so the viewer needs nothing
-beyond the announcement:
-
-```sh
-deno run --allow-ffi --allow-net --allow-read --allow-env \
-  apps/rooms/server/main.ts 9099 --viz
-```
-
-Entering Live connects to the feed. Press **Record** to capture: every session the room accepts, every message in either
-direction, and every close draws on the stage from that moment. **Stop** hands the capture to Play, where it replays
-like any other recording. The stream is the same versioned timeline schema `pancake griddle run` prints.
-
-Direct messages never go through the room, so each member also publishes its own trace to the same viz endpoint. A
-browser tab reaches it through its own page origin: `/viz` and `/publish` on the web server carry the socket to the
-endpoint, so the endpoint's own port never has to be published to the browser's host (in the devcontainer it is not),
-and an HTTPS page keeps working where a bare `ws://` port could not. Reaching it is still not the authority to publish:
-the tab's sending arms only while it holds the viz swiss, taken through the "Protocol visualizer" toggle in Settings
-under Capabilities (the same take-and-remember flow as the other operations capabilities, presented to the endpoint rather
-than fetched on the directory session). What it sends travels on a socket that carries nothing back but the endpoint's
-admission mark. The conversation stays private; the timeline only merges the telemetry, and when both ends of one
-conversation report it, the endpoint draws it once. What a tab sends is who it talked to, when, which verb, and how many
-bytes, never the bytes themselves: the other end of a direct message never agreed to appear on a shared timeline. The
-room server publishes its own frames in full, so a room line still shows its bytes on the timeline and a direct message
-never does.
-
-The same works with the browser UI. The web supervisor forwards the flag to the room server it spawns, so `-Dviz` on
-`rooms-web` or `rooms-web-tcp` traces the room and every tab's sessions with it:
-
-```sh
-zig build rooms-web -Dviz
-zig build rooms-web-tcp -Dviz
-```
-
-The supervisor keeps one room identity across child crashes. A child that had been serving and then died comes straight
-back; one that exits the moment it starts, which is what a taken port or an unreachable state directory looks like, is
-restarted more slowly each time up to half a minute, so the line it printed about why stays readable instead of
-scrolling past under copies of itself.
-
-Its development default is a private temporary `PANCAKE_ROOMS_STATE` directory that lives as long as `serve.ts`; set
-`PANCAKE_ROOMS_STATE` yourself when the identity and issued room links must also survive restarting the web supervisor.
-The container deployment does this with its `rooms-state` volume.
-
-Cargo must be on `PATH` for the iroh transport sidecar; Deno is required for the UI either way. The TCP form drops the
-Cargo requirement and the encryption with it. Either command prints a `ROOMS-VIZ-LISTENING` line once the room server is
-up. Open [ocapnviz](../ocapnviz/) (`cd apps/ocapnviz && bash dev.sh`), switch the top bar to **Live**, and give the
-Source field that sturdyref.
-
-## The IRC gateway
-
-`--irc` (or `PANCAKE_ROOMS_IRC=1`) mints a fifth operator capability, printed as `ROOMS-IRC`: holding it bridges IRC
-channels into this directory. `joinIrc(network, channel, host, port, tls, nick)` stands the channel beside the native
-rooms — entered, listed, and watched like any of them, IRC members appearing as `irc/<nick>` — and `partIrc` takes it
-down. One shared IRC connection per bridged channel is the read feed, the standalone bridge's machinery made dynamic.
-Members are IRC citizens through per-reader connections: subscribing seats them on the channel under their own nick
-(projected when it does not fit IRC's alphabet), a post reaches IRC as them before the room echoes it or fails closed
-with the network's reason, and leaving takes their nick off the channel. The shared feed can log into a
-registered account: the pane's optional account and password fields ride the join once (TLS required), the server
-holds them in memory beside the connection they authenticate — never in a snapshot, never in the journal, gone with
-the bridge — and a restart means re-bridging with them again. A member logs into their own
-registered account with `/irclogin account password` in the bridged room: the credentials ride the room verb once,
-live only in the seat beside the connections they authenticate, and go with the seat; the next message opens their
-authenticated connection. A cleartext bridge refuses them, the same custody rule as the feed's. Sitting in a bridged room is joining the channel: the seat opens at
-subscribe, `/me` crosses as the CTCP ACTION it is in both directions, stepping away tells the channel through a live
-seat, and IRC topic changes land as the room's own topic line. A seated member is one person everywhere:
-the feed suppresses their own channel echo (their join, their lines, their roster entry) so they never appear twice,
-a services force-rename follows them (the room tells them their new outward nick), and a dropped seat is said in the
-room, not only the journal. In the interface every bridged identity wears the one IRC color and an IRC mark beside
-its bare nick. The gateway's `snapshot` lists each bridged channel with
-its connection state.
-
-## Room history
-
-`--history` (or `PANCAKE_ROOMS_HISTORY=1`) has the room server keep each listed room's last lines and answer them to
-any member who asks; the browser asks on entering a room whose log is empty and stands the answer under a divider that
-names the room as the keeper. A policy flag rather than a capability: there is no swiss number, only a stated
-retention. With `PANCAKE_ROOMS_STATE` set the kept lines live in JSONL files under `<state>/history/` and survive the
-server restarting; without it they live for the life of the process. Private rooms never record: a private room is
-reference-only, and keeping its lines is a retention decision its holders never made. A server without the flag
-refuses the verb, which clients read as an empty answer. Direct messages are separate on purpose: their plaintext is
-end-to-end encrypted and is kept only in the reader's own browser, under the Advanced switch.
-
-## Operations capabilities
-
-Swiss numbers persist under `PANCAKE_ROOMS_STATE`, one file per capability, and
-`deno run --allow-read --allow-env apps/rooms/server/capabilities.ts` prints the
-token lines for whatever that directory holds — the same lines the boot block
-prints, readable any time after startup.
-
-Start the web UI with `--diagnostics` (or `-Ddiagnostics` on the zig step) and the room server publishes a second Host
-object under an unguessable swiss number — the same kind of bootstrap name as `directory`, not a page flag. The process
-prints that swiss number. `--admin-listeners` (or `-Dadmin-listeners`) publishes a listener-admin object the same way,
-and its swiss number prints beside the first.
-
-`--peering` (or `-Dpeering`) publishes the authority to add durable rooms from another directory. `ROOMS-PEERING` prints
-its swiss number. A successful `publishDurableRoom` returns a lease whose `ready` answer marks the publication live and
-whose `revoke` removes that exact generation from discovery.
-
-The visualizer capability: `--viz` (or `-Dviz`) serves the timeline endpoint and mints the
-capability described above, the same enabling shape as the others.
-
-In Settings → Capabilities, each capability has its own toggle, and the toggle is the capability: flipping one on opens a
-form asking for its swiss number, and only a successful take lands the toggle on — dismissing the form leaves it off.
-Diagnostics and listeners are fetched on the live directory session; the visualizer swiss is presented to the timeline
-endpoint, whose admission answer is the take. The form can also remember the swiss number on that device, opt-in and per
-home (the directory for the first two, the endpoint URL for the visualizer), so a reload takes the capability again
-unasked; turning the toggle off, or a failed re-take, erases what was remembered. While any capability is held, an
-Operations control sits at the left of the Settings header's toggle row and stands the reader on the Operations page:
-one address per held capability under `/ops`, behind a tab bar once two or more are held, with the rooms rail and
-Settings still in reach and possession gating an address arrived at cold. The diagnostics pane lists the names this directory
-currently holds (rooms, occupants, registrations, durable links), then two trouble journals: the server's own
-bounded ring of failures that had no caller left to reach, served as `trouble` rows on the same snapshot, and the
-page's ring of its console-only failures, drawn in a This-page well beside it. The listeners pane draws one switch per transport the
-server itself lists, each described in the owning provider package's words: on brings that listener up, off takes it
-down, and a row that is up carries its copyable locator. A row that is down draws one field per knob its `up` accepts —
-the tcp family's bind host, port, and advertised host, the relay family's relay (prefilled with this page's own) — and a
-blank field means the default the server's own hint names. The listener serving this very page is marked and its switch
-is disabled, a seat the server already knows cannot come up stands disabled with its reason, and a flip the server
-cannot honor answers with its reason in words, in the row that asked. The peering pane publishes a room this tab has
-joined on another directory into this one, durably: pick the room, name it, and it lists beside the local rooms until
-revoked. The rows under the form are this tab's own publications, each with the one revocation its lease carries; a tab
-holding no other directory is told to join one first. The visualizer pane names the endpoint this tab publishes to,
-whether the socket is up, and holds the endpoint override (blank publishes to this page's own `/viz`; saving reloads the
-window). Help, from the icon in the Settings header, says what a swiss number is. Turning a toggle off drops that
-capability, and a reconnect drops the two session-fetched ones the same way; the visualizer capability lives on the
-endpoint socket and survives a directory reconnect. A respawn of the same `PANCAKE_ROOMS_STATE` republishes the same
-swiss numbers, so the printed names keep answering.
-
-```sh
-zig build rooms-web -Ddiagnostics
-zig build rooms-web-iroh -Ddiagnostics -Dadmin-listeners -Dviz
-zig build rooms-web-tcp -Dadmin-listeners
-```
-
-Without a swiss number, fetch fails the way any unknown bootstrap name fails. The directory itself grows neither an
-inspect nor a listeners method.
-
-Attach mode is the one caveat: if an orphaned room server already holds the room port, the web server attaches to it
-instead of spawning its own child, and tracing follows however that orphan was started. `--diagnostics` in that case
-does not print a swiss number from this supervisor's empty state directory — it would name a capability nothing on the
-attached server answers. Kill stray servers first when the `ROOMS-VIZ-LISTENING` line doesn't appear.
-
-`PANCAKE_ROOMS_VIZ_PORT=0` takes whatever port is free, and the announce line names the one it bound. A browser tab
-cannot find an endpoint chosen that way, because the port is picked inside the room server and the page is served by
-another process. Keep a fixed port when you want members' direct messages on the timeline, or open the page with
-`?viz=ws://127.0.0.1:<port>/` (the same override the Visualizer pane holds once the capability is taken) — and in every
-case the tab still publishes only while its "Protocol visualizer" toggle holds the viz swiss.
 
 ## Bringing a Spritely Goblins vat into the room
 
@@ -295,7 +162,7 @@ The main scenarios are:
 | `zig build rooms-web-browser-peer`       | A real browser runs the wasm peer through the relay.                                                                                      | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-page`               | The whole page as a peer: join, round-trip a line, and hold both layouts.                                                                 | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-routes`             | The page address is shareable: a cold link arrives named, back and forward walk it, and following one never moves the rail.               | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-reconnect`          | The page survives losing its room server and re-enters on its own.                                                                        | Deno and Playwright Chromium.                        |
+| `zig build rooms-web-reconnect`          | The page survives a room-server restart, re-enters listed rooms by name and private rooms by a durable link, and keeps both conversations. | Deno, Cargo, and Playwright Chromium.                |
 | `zig build rooms-web-dm`                 | Browser-to-native direct messaging.                                                                                                       | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-tabs`            | Two tabs cold-dial through one relay and message off-room.                                                                                | Deno and Playwright Chromium.                        |
 | `zig build rooms-web-dm-native`          | A native peer cold-dials a browser member through the relay rendezvous.                                                                   | Deno and Playwright Chromium.                        |
@@ -419,7 +286,21 @@ A room that answers a post with nothing is an older room, and a client meeting o
 `postFiles` answers the same reference, so a file line is a line like any other. `edit(text)` changes its caption and
 leaves its files alone; `refile(caption, ...keep)` changes the files, keeping the ones whose indices it names and adding
 the connection's freshly-staged uploads after them; and `withdraw()` takes the whole line back, its files with it.
-Refiling a line down to no files and no caption withdraws it, because an empty line is nothing.
+Refiling a line down to no files and no caption withdraws it, because an empty line is nothing. When room retention is
+on, the line capability retains the history row's process-local token and carries every edit, refile, or withdrawal to
+that row. Line numbers and mutation tokens restart with a room generation and never enter durable history, so a new
+room cannot govern a row restored from an earlier one. Attachment bytes remain outside this room-owned history; the
+member archive keeps them behind its own scoped blob capabilities.
+
+`server/history_index.ts` is the room-history policy owner. It admits at most 500 lines per room and 4,096 lines across
+256 rooms, evicting one least-recently-active whole room at the global edge so an ordinary post transfers one line to
+storage rather than copying another room's tail. Both storage adapters restore through that index before a listener
+opens. JSONL bounds each startup read at 64 MiB and the directory at 512 MiB, validates even compactable rows outside
+the visible tail, and repairs only an unfinished final append or a stale compaction temporary. PostgreSQL restores one
+bounded query and includes the index's exact whole-room victim in the triggering append transaction. File append and
+victim deletion cannot share an OS transaction; a crash between them leaves the extra file, and the shared startup
+index removes that same surplus room before serving. Controlled shutdown stops admission and drains the serialization
+queue before closing its backend.
 
 Direct inboxes follow the same rule. `dm(text)` carries no claimed sender because each inbox was minted for one
 introduced peer. A direct conversation is keyed by that introduction, not by the room nickname. `dm` answers a line
@@ -430,6 +311,40 @@ because there is no store to stage on, and names the receiver's own kept files b
 connection, so it dies with it: a line whose connection has gone cannot be changed, the same way a room line's reference
 dies with its session.
 
+Public inboxes and reply inboxes use the same direct receiver grammar. Which member initiated the connection therefore
+does not change whether messages, typing levels, room invitations, or archive shares can travel back across it. A
+capability-bearing verb that the receiver does not implement returns that imported occurrence before refusing. The
+requester whose ordinary dial fails can ask the directory to wake the target, which may establish the reciprocal carrier
+and hand over a reply capability without inventing an empty message. This lets a browser dial a durable session even when
+the session does not implement the browser's chosen carrier, without racing the ordinary WebRTC path. It creates no conversation until a real message arrives. `session_mixed_dm_peer_test.ts` and
+`rooms-web-shared-session` prove messages, typing, files, archive sharing, restart, and replacement-route adoption in
+both mixed directions.
+
+A member-owned archive is another ordinary object, defined in `lib/archive.ts`. `put(record)` upserts one standing or
+line under its recorder source, conversation generation, and record id; `read(filter, afterRevision, limit)` answers a
+bounded revision page. `narrow(filter, access)` synchronously returns a facet whose exact scope can only shrink and
+whose write authority can only be removed. The tab's implementation owns the `rooms-history` IndexedDB database and
+can be projected on a live session with `web/ui/archive.ts`. Its current schema contains only attributed archive
+records and metadata; an older prerelease schema is reset rather than translated or kept behind a compatibility view.
+Neither the source nor the generation is a person identity: a nickname and fresh session key cannot merge records.
+At the wire edge a record is validated once, then transferred as one immutable object through storage and the shared
+index; the index does not rebuild or clone its text-bearing record. One passable row is allocated for an outbound put.
+
+`web/ui/net/archive_target.ts` owns a selected peer's sturdyref, session, and reference below the presentation store.
+It validates a candidate with one bounded read, then asks `web/ui/history.ts` to drain the old target before swapping.
+The archive-peer card the Data tab opens may retain the bearer only by explicit opt-in. A failed selected peer becomes unavailable and never
+falls back to the device archive; retry preserves the original retention choice. The direct-conversation card waits
+for earlier writes, mints a read-only facet for that line, and hands it to the other member. The receiver validates the
+scope before retaining it, keeps a bounded offer list, and releases the facet after one read or an explicit give-back.
+`zig build rooms-web-archive` proves this handover, selection, and fresh-profile recovery through a live iroh peer.
+
+`archive/main.ts` hosts the same behavior on a durable v1/Syrup Host. `archive/storage.ts` appends and syncs one
+revision before applying the shared `ArchiveIndex` transition, then atomically compacts a bounded delta tail. Its state
+directory also retains the Host seed and publication entropy, so restarting on the same locator reproduces the same
+sturdyref. An operating-system lock admits one live writer. iroh is the deployed default; TCP is the cleartext local and
+self-contained-check posture. `zig build rooms-archive-test` owns the contract, recovery, resource-bound, wire, and
+restart evidence.
+
 The application wrappers use only the public binding surface: connect, fetch, spawn, send, and serve. Protocol tables,
 export positions, and frame movement remain below them.
 
@@ -439,26 +354,66 @@ The page is a conversation. A rail lists rooms and direct lines. The workarea is
 topbar, a log of messages, and a composer that floats over the bottom of that column. The log owns the messages and the
 fade at their lower edge. The composer holds the controls that sit on that edge. Pressing the room or direct-message
 name in the topbar opens what this tab already knows about that conversation — the directory that carries it, the
-session, the path a direct line takes — and `/details` (also `/info`) opens the same card. The locator on that card is
-the directory's, labeled as such, unless this tab already holds a room link from `/link` or from `/join` of one — then
-it copies that sturdyref, labeled as a room link, and does not mint one by looking. `/link` with no argument is this
-room; `/link lobby` mints a listed room's link. `/join` is a destination — a name or a locator — never the conversation
-it was typed in. `/join` of a locator seats from what subscribe says about that occupancy — listed or unlisted — not
-from a method asked first, and not from the label a private room may share with a public one. The directory named on it
-opens that directory's card. A room's card is also where you say where you are in it, and where you leave it; a direct
-line's card closes the conversation. A long refusal stays two lines where it appeared; Show opens the rest on its own
-card. The topbar stripe and the welcome card take their color from the rail row that opened the conversation, room or
-direct line. On the join screen the topbar keeps a stripe from rail selection, which is not the join card's aim. The
-rail's teal-to-orange header fade stays static. Orange controls stay orange.
+session, the path a direct line takes — and `/details` (also `/info`) opens the same card. The room's Capabilities tab
+creates its durable bearer link with an explicit press, then exposes that sturdyref for copying. Creating a link keeps
+the room reachable across a server restart; it does not enable history or grant moderation. `/link` reaches the same
+operation from the composer: with no argument it links this room, and `/link lobby` links a listed room. `/join` is a
+destination — a name or a locator — never the conversation it was typed in. `/join` of a locator seats from what
+subscribe says about that occupancy — listed or unlisted — not from a method asked first, and not from the label a
+private room may share with a public one. The directory named on it opens that directory's card. A room's card is also
+where you say where you are in it, and where you leave it; a direct line's card closes the conversation. A long refusal
+stays two lines where it appeared; Show opens the rest on its own card. The topbar stripe and the welcome card take
+their color from the rail row that opened the conversation, room or direct line. On the join screen the topbar keeps a
+stripe from rail selection, which is not the join card's aim. The rail's teal-to-orange header fade stays static.
+Orange controls stay orange.
 
 It is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`. Styles
-live in `page.css` plus the sheets it imports, split along those sections. Shared UI state lives in `store.ts`: every
-fact the page shows, and every verb that changes one. State that belongs to one control stays in that component: a
-half-typed room name, an open emoji tray, the composer caret. UI state must not live in the DOM. An element's own value
-outlives closing the control or switching conversations, and comes back carrying an earlier intention.
+live in `page.css` plus the sheets it imports, split along those sections. One Zustand store projects the facts the
+page draws. Components subscribe through `useRoomsState` selectors; the store has no persistence middleware and holds
+no live capability authority. State that belongs to one control stays in that component: an open emoji tray or the
+composer caret. UI state must not live in the DOM. An element's own value outlives closing the control or switching
+conversations, and comes back carrying an earlier intention.
 
-`net.ts` owns the CapTP session outside the React tree and reads and writes only the store. The opening screen in
-`page.html` stays until `boot.ts` has the peer's first answer. `zig build source-check`
+Every card and pane draws its forms from one vocabulary, held in `forms.css` and the components beside it (`Field`,
+`Confirm`, `ModalHead`, `Button`), and Help's parts catalog shows each piece next to its siblings. A question is a
+`Field`: its label, the control, the sentence under it, and the refusal it met, wired together so the control announces
+all three. A single-line field stands at the touch height (`--field-h`), and the button beside it in a `field-row`
+stands at the same height, level with the control. The acts a surface offers sit in an `actions` row at the end of the
+line they belong to, with the commitment last; only a card's own foot fills the width. An act that takes something away
+ends its label with an ellipsis and opens a `Confirm` inline: one sentence saying what will be lost, then the way out and
+a red commitment, so a leave, a delete, or a revoke can never wear the same button as a join. Opening one moves focus
+onto the way out, Escape is the way out and stays inside the card, and keeping hands focus back to the act that asked. A
+list of things the surface knows about is `entries`, each with a head (name, a short fact, the acts at the line's end) and its longer facts
+under it. A door to another card is a `launch` row: a mark, a name and one sentence, and the act at the end. Sections
+are an overline title over a `well`. Session setup, the Data and Advanced tabs, the room and directory
+cards, and every Operations pane are built from these and nothing else, which is what keeps a form in one of them
+looking like a form in the rest.
+
+A form that takes a pasted capability opens a card of its own rather than standing on the tab that owns the subject.
+The Data tab is written that way: each of its cards says where something is kept and offers the acts that change it,
+and attaching a session, choosing an archive peer, issuing access, and replacing the stored state each open a
+`SettingsSubmodal`. Ending a door's label with an ellipsis says the press opens rather than commits, and the
+commitment then lives at the foot of the card that opened. Closing Settings over an unsaved form asks first: the
+window selects the tab holding the change and puts a `Confirm` above that form, so the reader sees what is at stake
+where they left it. A file to choose is a `FilePick`, which is the platform's own input made transparent over a face
+the page draws, because the platform's control cannot be dressed and reads as pasted in from another program.
+
+The operator pane is written for a directory holding more rows than one page. Each inventory offers its rows to
+`server/operator/page.ts` as sources: the lowercased text a search matches, which every row pays, and the work of
+building the row, which only a row on the asked-for page pays. A count is therefore the directory's own number of
+matches rather than the length of what was sent, and a search over a hundred thousand rooms costs a hundred thousand
+string tests instead of a hundred thousand member lists. `server/operator/inventory.ts` gives every category the same
+face — the wire row, and the act that retires it where one exists — so the search, the paging, and the bulk retire are
+written once. The bulk retire is bounded per call and answers how many rows still match, which is what makes a sweep
+over a very large inventory interruptible and its progress real.
+
+`RoomsBrowserController` owns presentation and establishment before a session exists. After establishment,
+`RoomsSessionController` supplies either the local or attached implementation of Rooms commands. Both are stable React
+context values; changing snapshots stay in the selector store. `net.ts` owns the local CapTP session outside the React
+tree, while an attached controller owns the durable session connection. Both project results into the store. For an
+attached session, `AttachedSessionFeed` owns snapshot acceptance, revision waits, line sequencing, and invalidation
+observers; `AttachedRoomsController` owns serialized commands and operation identity. The opening screen in `page.html`
+stays until `boot.ts` has the controller's first answer. `zig build source-check`
 (`tools/check/source_check/rooms_ui.zig`) holds the ids and classes the browser proofs select on, and keeps `net.ts` and
 `store.ts` off the document.
 
@@ -534,6 +489,11 @@ messages; a toast is for a failure whose home is already gone; and a modal asks 
 reader answers, which today means the join card and a capability take. Logging a reader-facing failure to the console
 instead of one of these is swallowing it.
 
+A success says so where the act is too. It is a checked line of its own under the actions row ("Capability set
+saved.", "Listed here as lobby."), never inside the row, so the buttons keep their place. It can instead be the well
+changing shape into what the act made, such as a link's copy field replacing the button that created it. A form whose
+only answer to success is that nothing happened has not answered.
+
 Work in flight follows the same rule without blocking anything: the pending state shows on the act, sized to what it can
 usefully say. A shape that will be filled shimmers, the way an attachment does on its way in. A control that was pressed
 goes busy where it stands (`Button`'s `busy`, a listener switch mid-flip). An act worth narrating keeps saying what it
@@ -582,6 +542,9 @@ space from it.
 
 ## Present boundaries
 
+- The session chooser draws a third door, "Sign in", as a stated boundary: starting a session a server keeps and
+  reaching it from any device with an account is not built, so the row carries a "Coming soon" state and no act.
+
 These are decided directions, so a session picking one up starts from the decision rather than re-opening it.
 
 - **Emoji breadth.** `web/ui/emoji.ts` is a curated table and the one authority the tray, `:code:` substitution, and
@@ -607,8 +570,14 @@ These are decided directions, so a session picking one up starts from the decisi
   direct-message capabilities through a bounded listener. Its external IRC socket requires TLS; its direct endpoint is
   Noise-sealed by default, with explicit authenticated iroh and loopback-only Goblins TCP postures. Carrying CapTP
   itself over IRC is refused: a 512-byte line protocol with a server that may inject cannot keep an OCapN session
-  insertable only by its participants. The complete direction is in
-  [the room links and IRC plan](../../docs/planning/rooms-locators-and-irc.md).
+  insertable only by its participants. The rules behind these edges are
+  recorded in [ADR-0128](../../docs/decisions/adr/ADR-0128-room-links-peering-and-irc-edges.md).
+- **Peering is one handed authority, not a server link.** The source-authored room sturdyref is enlivened once; that
+  verified operation retains its canonical locator on the actual exporter Session for the later give. Publication adds
+  no locator RPC, URI reconstruction, or steady-state source retain after send admission. The destination owns one
+  bounded reservation until the handed promise settles, then one foreign row until its exact lease revokes it or the
+  publisher Session disconnects. A synchronous listen refusal rolls the reservation and received occurrence back in
+  the admitting turn. `zig build goblins-rooms-peering` holds the v1.0/Syrup product floor.
 
 ## Source map
 
@@ -616,6 +585,8 @@ These are decided directions, so a session picking one up starts from the decisi
 | -------------------- | ---------------------------------------------------------------- |
 | `server/main.ts`     | Directory and room host.                                         |
 | `lib/protocol.ts`    | Directory, room, and direct-message verbs.                       |
+| `lib/archive.ts`     | Member-owned archive records, bounds, behavior, and client.       |
+| `archive/`           | Durable archive peer identity, JSONL store, and listener.         |
 | `lib/room_client.ts` | Shared application wrapper used by Deno and the browser.         |
 | `lib/dm_*.ts`        | Direct inboxes, replies, and handoff choreography.               |
 | `lib/locator.ts`     | TCP and iroh dialing for Deno clients.                           |
@@ -623,11 +594,13 @@ These are decided directions, so a session picking one up starts from the decisi
 | `irc/`               | Bounded IRC grammar, channel bridge, and native Rooms front.     |
 | `web/serve.ts`       | Page server, room supervisor, and relay endpoint.                |
 | `web/relay.ts`       | Byte relay and browser rendezvous bridge.                        |
-| `web/ui/`            | Browser peer and interface.                                      |
-| `web/ui/net.ts`      | The peer itself: sessions, rooms, and direct messages.           |
-| `web/ui/store.ts`    | Every fact the interface shows, and the verbs that change them.  |
+| `web/ui/`            | Browser Rooms client and interface.                              |
+| `web/ui/controller/` | Browser and established-session React controller boundaries.     |
+| `web/ui/net.ts`      | Local session, rooms, and direct-message effects.                |
+| `web/ui/session/`    | Attached session client, projection, and UI adapter.             |
+| `web/ui/store.ts`    | Non-authoritative page projection and its domain updates.        |
 | `web/ui/intent.ts`   | What the reader meant, and how firmly, for forms to answer from. |
 | `web/ui/boot.ts`     | Hands the page from the opening screen to the React app.         |
-| `web/ui/*.tsx`       | The React components that draw from that store.                  |
+| `web/ui/*.tsx`       | React components subscribed to projection selectors.            |
 | `demos/`             | Command-line scenario orchestrators.                             |
 | `test/`              | Server, relay, browser, and direct-message checks.               |

@@ -9,18 +9,23 @@ import { DIRECTORY, JOIN_IRC, LIST, PART_IRC, SNAPSHOT } from "../lib/protocol.t
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { Room } from "../lib/room_client.ts";
 import { directoryBehavior } from "../server/directory_behavior.ts";
-import { ircGatewayBehavior } from "../server/irc_gateway.ts";
+import { ircGatewayBehavior } from "../server/irc_gateway_behavior.ts";
+import { RoomServerOperationsState } from "../server/operations_state.ts";
 import { readIrcLines } from "../irc/protocol.ts";
+import { ircNickRenameRefusal } from "../irc/identity.ts";
+import { registerSaslReader, say, writeAll } from "./irc_gateway/fixture.ts";
 import { assert, dial, enterOrOpen, nextMessage, roomsTest, within } from "./support/rooms_server.ts";
 
-async function writeAll(conn: Deno.Conn, bytes: Uint8Array): Promise<void> {
-	let offset = 0;
-	while (offset < bytes.length) offset += await conn.write(bytes.subarray(offset));
-}
-
-const say = (line: string) => new TextEncoder().encode(line + "\r\n");
+Deno.test("an IRC identity refuses a service-forced guest nick", () => {
+	assert(ircNickRenameRefusal("Chosen", "cHOSEN") === null, "IRC case mapping changed an equivalent nick");
+	assert(
+		ircNickRenameRefusal("Chosen", "Guest1234")?.includes("registered account") === true,
+		"a service-forced guest nick was accepted as the Rooms identity",
+	);
+});
 
 roomsTest("the gateway bridges a fixture channel in and parts it again", async () => {
+	const operations = await RoomServerOperationsState.open(null);
 	const ircListener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
 	const ircPort = (ircListener.addr as Deno.NetAddr).port;
 	let feed!: () => void;
@@ -55,11 +60,7 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 	// One accept order, not a race: the shared feed connects first (join
 	// starts it), the reader's own connection second (subscribing starts it).
 	const firstConn = ircListener.accept();
-	const secondConn = firstConn.then(() => {
-		const next = ircListener.accept();
-		void next.finally(() => ircListener.close());
-		return next;
-	});
+	const secondConn = firstConn.then(() => ircListener.accept());
 
 	// The reader's own connection: the member registers under their nick,
 	// joins, and their post arrives as them.
@@ -93,9 +94,9 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 				`away crossed as ${JSON.stringify(away?.params)}`,
 			);
 			readerActed();
-			// Services force-rename the reader mid-session; the link stays up
-			// under the new name and the gateway is told. On cue, so the note
-			// cannot land in the stream before the scenes ahead of it.
+			// Services force-rename the reader mid-session. That is not the
+			// Rooms identity they asked to project, so the gateway closes the
+			// seat with an account-login diagnosis.
 			await renameReady;
 			await writeAll(conn, say(":reader!u@example NICK :Guest1234"));
 			// On cue, the network drops the seat: the member hears about it in
@@ -129,18 +130,10 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			await feedMoreReady;
 			await writeAll(conn, say(":alice!u@example PRIVMSG #news :\u0001ACTION dances\u0001"));
 			await writeAll(conn, say(":alice!u@example TOPIC #news :ship day"));
-			// The feed hears the reader's own citizenship back from the
-			// channel: their join, a roster refresh naming them, their line.
-			// None of it may echo into the room as a second irc/ identity.
+			// Markers after the forced rename prove the failed seat injects
+			// neither its old nick nor the unwanted Guest nick into the room.
 			await feedEchoReady;
-			await writeAll(conn, say(":reader!u@example JOIN :#news"));
-			await writeAll(conn, say(":fixture 353 gwbot = #news :gwbot @alice reader"));
-			await writeAll(conn, say(":fixture 366 gwbot #news :end of names"));
-			await writeAll(conn, say(":reader!u@example PRIVMSG #news :hi from rooms"));
 			await writeAll(conn, say(":alice!u@example PRIVMSG #news :first marker"));
-			// After the rename the suppression follows the live nick.
-			await writeAll(conn, say(":Guest1234!u@example JOIN :#news"));
-			await writeAll(conn, say(":Guest1234!u@example PRIVMSG #news :hi from rooms"));
 			await writeAll(conn, say(":alice!u@example PRIVMSG #news :second marker"));
 			// Hold the connection until the gateway closes it at part.
 			for await (const _ of lines) { /* drain */ }
@@ -155,12 +148,14 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 	const serving = (async () => {
 		for await (const session of server) {
 			session.publish(DIRECTORY, directoryBehavior());
-			session.publish("gw", ircGatewayBehavior());
+			session.publish("gw", ircGatewayBehavior(operations));
 			void session.serve().catch(() => {});
 		}
 	})();
 
 	const session = await dial(loopbackTcpDesignator(server.port));
+	let witnessSession: Awaited<ReturnType<typeof dial>> | null = null;
+	let replacementSession: Awaited<ReturnType<typeof dial>> | null = null;
 	try {
 		const gw = await session.fetch("gw");
 		const name = await within(
@@ -168,9 +163,22 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			"the join answer",
 		);
 		assert(name === "fixture/#news", `joinIrc answered ${String(name)}`);
+		assert(operations.ircBridges().length === 1, "joining did not commit the IRC bridge intent");
 
 		const roomRef = await within(enterOrOpen(session, "fixture/#news"), "entering the bridged room");
 		const room = await within(Room.subscribe(session, roomRef, "reader"), "subscribing");
+		await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "reader" &&
+				message.presence.state === "rooms",
+		);
+		await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "reader" &&
+				message.presence.state === "linked",
+		);
 		feed();
 		const line = await nextMessage(room, (message) => message.text.includes("hello from IRC"));
 		assert(line.from === "irc/alice", `the IRC line arrived from ${line.from}`);
@@ -195,14 +203,23 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 		assert(danced.from === "irc/alice", `the action arrived from ${danced.from}`);
 		await nextMessage(room, (message) => message.text === "the topic is: ship day");
 
-		// A services rename reaches the member as a room line. Awaited before
-		// the echo burst: the stream reader discards what it scans past.
+		// A services rename fails the projected identity instead of silently
+		// presenting a Guest nick as success.
 		renameCue();
-		await nextMessage(room, (message) => message.text.includes("on IRC you are now <Guest1234>"));
+		const renamedSeat = await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "reader" &&
+				message.presence.state === "failed",
+		);
+		assert(renamedSeat.presence?.kind === "irc-seat", "the services rename did not fail the structured seat");
+		await nextMessage(
+			room,
+			(message) =>
+				message.text.includes("changed the chosen nick") && message.text.includes("registered account"),
+		);
 
-		// The member's own channel echo never comes back as a second member
-		// or a second message: the next thing the room hears after the echo
-		// burst is alice, not irc/reader.
+		// Ordinary channel traffic continues after the reader seat failed.
 		feedEcho();
 		const afterEcho = await nextMessage(
 			room,
@@ -213,7 +230,7 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			`the reader's echo leaked back as ${afterEcho.from}: "${afterEcho.text}"`,
 		);
 
-		// After the rename the suppression follows the live name.
+		// The failed seat injects no echo under the unwanted Guest name.
 		const afterRename = await nextMessage(
 			room,
 			(message) => message.from.startsWith("irc/") || message.from === "reader",
@@ -223,15 +240,14 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			`the renamed echo leaked back as ${afterRename.from}: "${afterRename.text}"`,
 		);
 
-		// The seat dropping is told to the member where they speak.
+		// Let the fixture finish its already-closed reader connection.
 		dropSeat();
-		await nextMessage(room, (message) => message.text.includes("your IRC seat ended"));
 
 		// Their own registered account is refused on a cleartext bridge: the
 		// custody rule is the same as the feed's, stated at the seat.
 		let refusedAccount = "";
 		try {
-			await within(room.ircAccount("acct", "pw"), "the cleartext account refusal");
+			await within(room.ircIdentity("reader", "acct", "pw"), "the cleartext account refusal");
 		} catch (error) {
 			refusedAccount = error instanceof Error ? error.message : String(error);
 		}
@@ -240,19 +256,74 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			`a cleartext bridge took a member's account: "${refusedAccount}"`,
 		);
 
+		await within(room.disconnectIrc(), "disconnecting the IRC identity");
+		await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "reader" &&
+				message.presence.state === "rooms",
+		);
+		let refusedPost = "";
+		try {
+			await within(room.say("must stay rooms only"), "the Rooms-only post refusal");
+		} catch (error) {
+			refusedPost = error instanceof Error ? error.message : String(error);
+		}
+		assert(
+			refusedPost.includes("link your IRC identity"),
+			`a Rooms-only member silently reopened IRC: "${refusedPost}"`,
+		);
+
 		const rows = await within(session.send(gw, SNAPSHOT, []), "the gateway snapshot") as unknown[];
 		assert(Array.isArray(rows) && rows.length === 1, "the snapshot lists the one bridged channel");
 		const row = rows[0] as unknown[];
 		assert(row[0] === "fixture" && row[1] === "#news" && row[2] === "fixture/#news", "the row names it");
 
-		await within(session.send(gw, PART_IRC, ["fixture", "#news"]), "the part answer");
+		// Transport closure is the membership boundary too. A witness observes
+		// the leave before a fresh connection claims the same Rooms name; if the
+		// old IrcBridgeRoom member survived, this subscribe is refused as a
+		// duplicate even though its IRC socket is gone.
+		witnessSession = await dial(loopbackTcpDesignator(server.port));
+		const witnessRef = await within(enterOrOpen(witnessSession, "fixture/#news"), "entering as the witness");
+		const witness = await within(Room.subscribe(witnessSession, witnessRef, "witness"), "subscribing the witness");
+		await session.close();
+		await nextMessage(
+			witness,
+			(message) => message.presence?.kind === "leave" && message.presence.name === "reader",
+		);
+		replacementSession = await dial(loopbackTcpDesignator(server.port));
+		const replacementRef = await within(
+			enterOrOpen(replacementSession, "fixture/#news"),
+			"entering after the closed reader",
+		);
+		await within(
+			Room.subscribe(replacementSession, replacementRef, "reader"),
+			"reusing the name after transport close",
+		);
+
+		const witnessGw = await witnessSession.fetch("gw");
+		await within(witnessSession.send(witnessGw, PART_IRC, ["fixture", "#news"]), "the part answer");
+		assert(operations.ircBridges().length === 0, "parting retained the IRC bridge intent");
 		const listed = await within(
-			session.send(session.fetch ? await session.fetch(DIRECTORY) : gw, LIST, []),
+			witnessSession.send(await witnessSession.fetch(DIRECTORY), LIST, []),
 			"the list",
 		) as unknown[];
 		assert(
 			!JSON.stringify(listed).includes("fixture/#news"),
 			"a parted channel still stands in the directory list",
+		);
+		let retainedRefusal = "";
+		try {
+			await within(
+				Room.subscribe(replacementSession, replacementRef, "after-part"),
+				"the retained room capability refusal",
+			);
+		} catch (error) {
+			retainedRefusal = error instanceof Error ? error.message : String(error);
+		}
+		assert(
+			retainedRefusal.includes("parted"),
+			`a retained room capability recreated the parted bridge: "${retainedRefusal}"`,
 		);
 	} finally {
 		// Backstops: a scene that failed above must not park the fixtures on
@@ -262,49 +333,258 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 		feedEcho();
 		feed();
 		feedAgain();
+		await replacementSession?.close().catch(() => {});
+		await witnessSession?.close().catch(() => {});
 		await session.close().catch(() => {});
+		try {
+			ircListener.close();
+		} catch { /* the failed scene may already have closed it */ }
 		(server as unknown as { close?: () => void }).close?.();
 		await Promise.allSettled([fixture, readerFixture, serving]);
 	}
 });
 
-roomsTest("a registered account is refused over cleartext, and validated", async () => {
+roomsTest("a member's IRC login chooses their wire nick and SASL account", async () => {
+	const ircListener = Deno.listenTls({
+		hostname: "localhost",
+		port: 0,
+		cert: await Deno.readTextFile("test/net/fixtures/tls_server.pem"),
+		key: await Deno.readTextFile("test/net/fixtures/tls_server.key"),
+	});
+	const ircPort = (ircListener.addr as Deno.NetAddr).port;
+	const feedConn = ircListener.accept();
+	const initialReaderConn = feedConn.then(() => ircListener.accept());
+	const authenticatedReaderConn = initialReaderConn.then(() => ircListener.accept());
+	const collidingReaderConn = authenticatedReaderConn.then(() => ircListener.accept());
+	const restoredAfterCollisionConn = collidingReaderConn.then(() => ircListener.accept());
+	const refusedReaderConn = restoredAfterCollisionConn.then(() => ircListener.accept());
+	const restoredReaderConn = refusedReaderConn.then(() => ircListener.accept());
+	let initialReaderRegistered!: () => void;
+	const initialReaderReady = new Promise<void>((resolve) => {
+		initialReaderRegistered = resolve;
+	});
+
+	const feedFixture = (async () => {
+		const conn = await feedConn;
+		try {
+			const lines = readIrcLines(conn.readable)[Symbol.asyncIterator]();
+			assert((await lines.next()).value?.command === "NICK", "the login fixture feed registers its nick");
+			assert((await lines.next()).value?.command === "USER", "the login fixture feed registers its user");
+			await writeAll(conn, say(":fixture 001 gwbot :welcome"));
+			assert((await lines.next()).value?.command === "JOIN", "the login fixture feed joins");
+			await writeAll(conn, say(":gwbot!u@example JOIN :#login"));
+			for await (const _ of lines) { /* drain until part */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const initialReaderFixture = (async () => {
+		const conn = await initialReaderConn;
+		try {
+			const lines = readIrcLines(conn.readable)[Symbol.asyncIterator]();
+			const nick = (await lines.next()).value;
+			assert(nick?.command === "NICK" && nick.params[0] === "rooms-name", "the initial seat uses the Rooms name");
+			assert((await lines.next()).value?.command === "USER", "the initial seat registers its user");
+			// Hold registration here. The login must cancel this in-flight attempt
+			// before opening the chosen identity, not let it win the seat later.
+			initialReaderRegistered();
+			for await (const _ of lines) { /* the login cancels this anonymous seat */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const authenticatedReaderFixture = (async () => {
+		const conn = await authenticatedReaderConn;
+		try {
+			const lines = await registerSaslReader(conn, "myircnick", "myircnick", "password", "#login", true);
+			const posted = (await lines.next()).value;
+			assert(
+				posted?.command === "PRIVMSG" && posted.params[0] === "#login" &&
+					posted.params[1] === "identity marker",
+				"the authenticated seat did not carry the member's line",
+			);
+			for await (const _ of lines) { /* drain until part */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const collidingReaderFixture = (async () => {
+		const conn = await collidingReaderConn;
+		try {
+			const lines = readIrcLines(conn.readable)[Symbol.asyncIterator]();
+			const nick = (await lines.next()).value;
+			assert(
+				nick?.command === "NICK" && nick.params[0] === "occupiednick",
+				"the exact chosen nick was not tried",
+			);
+			assert((await lines.next()).value?.command === "USER", "the colliding identity registers its user");
+			await writeAll(conn, say(":fixture 433 * occupiednick :Nickname is already in use"));
+			while (!(await lines.next()).done) { /* refusal closes the candidate */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const restoredAfterCollisionFixture = (async () => {
+		const conn = await restoredAfterCollisionConn;
+		try {
+			const lines = await registerSaslReader(conn, "myircnick", "myircnick", "password", "#login", true);
+			const posted = (await lines.next()).value;
+			assert(
+				posted?.command === "PRIVMSG" && posted.params[0] === "#login" &&
+					posted.params[1] === "after collision marker",
+				"the identity restored after a nick collision did not carry the member's line",
+			);
+			for await (const _ of lines) { /* drain until the next replacement */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const refusedReaderFixture = (async () => {
+		const conn = await refusedReaderConn;
+		try {
+			const lines = await registerSaslReader(
+				conn,
+				"badnick",
+				"badaccount",
+				"wrong-password",
+				"#login",
+				false,
+			);
+			for await (const _ of lines) { /* the failed attempt closes */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
+	const restoredReaderFixture = (async () => {
+		const conn = await restoredReaderConn;
+		try {
+			const lines = await registerSaslReader(conn, "myircnick", "myircnick", "password", "#login", true);
+			const posted = (await lines.next()).value;
+			assert(
+				posted?.command === "PRIVMSG" && posted.params[0] === "#login" &&
+					posted.params[1] === "rollback marker",
+				"the restored identity did not carry the member's next line",
+			);
+			for await (const _ of lines) { /* drain until part */ }
+		} finally {
+			try {
+				conn.close();
+			} catch { /* the gateway closed it first */ }
+		}
+	})();
+
 	const server = await roomsListen("127.0.0.1", 0, roomsHost());
 	const serving = (async () => {
 		for await (const session of server) {
+			session.publish(DIRECTORY, directoryBehavior());
 			session.publish("gw", ircGatewayBehavior());
 			void session.serve().catch(() => {});
 		}
 	})();
 	const session = await dial(loopbackTcpDesignator(server.port));
+	let joined = false;
 	try {
 		const gw = await session.fetch("gw");
-		// The wire flow itself is the bridge suite's to prove; what the verb
-		// owns is custody policy: no password rides a cleartext socket, and
-		// malformed credentials are refused before any dial.
+		await within(
+			session.send(gw, JOIN_IRC, ["login-fixture", "#login", "localhost", BigInt(ircPort), true, "gwbot"]),
+			"joining the login fixture",
+		);
+		joined = true;
+		const roomRef = await within(enterOrOpen(session, "login-fixture/#login"), "entering the login fixture");
+		const room = await within(Room.subscribe(session, roomRef, "rooms-name"), "subscribing to the login fixture");
+		await within(initialReaderReady, "the initial IRC registration attempt");
+		const answered = await within(
+			room.ircIdentity("myircnick", "myircnick", "password"),
+			"choosing the IRC identity",
+		);
+		assert(answered.includes("<myircnick>"), `the identity answer was ${answered}`);
+		const linked = await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "rooms-name" &&
+				message.presence.state === "linked",
+		);
+		assert(
+			linked.presence?.kind === "irc-seat" && linked.presence.nick === "myircnick",
+			"the room did not link the Rooms member to the chosen IRC nick",
+		);
+		await within(room.say("identity marker"), "posting through the authenticated identity");
 		let refused = "";
 		try {
-			await within(
-				session.send(gw, JOIN_IRC, ["net2", "#reg", "127.0.0.1", 6667n, false, "gwbot", "acct", "pw"]),
-				"the cleartext refusal",
-			);
+			await within(room.ircIdentity("occupiednick", "", ""), "refusing the occupied chosen nick");
 		} catch (error) {
 			refused = error instanceof Error ? error.message : String(error);
 		}
-		assert(refused.includes("TLS"), `sasl over cleartext was not refused for TLS: "${refused}"`);
+		assert(
+			refused.includes("already in use"),
+			`an explicitly chosen nick was silently changed instead of refused: "${refused}"`,
+		);
+		await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "rooms-name" &&
+				message.presence.state === "linked" && message.presence.nick === "myircnick",
+		);
+		await within(room.say("after collision marker"), "posting after the collision rollback");
 		refused = "";
 		try {
 			await within(
-				session.send(gw, JOIN_IRC, ["net2", "#reg", "127.0.0.1", 6697n, true, "gwbot", "acct", ""]),
-				"the malformed-credential refusal",
+				room.ircIdentity("badnick", "badaccount", "wrong-password"),
+				"refusing the replacement identity",
 			);
 		} catch (error) {
 			refused = error instanceof Error ? error.message : String(error);
 		}
-		assert(refused !== "", "an account with no password was not refused");
+		assert(refused.includes("904"), `the bad replacement was not refused by SASL: "${refused}"`);
+		const restored = await nextMessage(
+			room,
+			(message) =>
+				message.presence?.kind === "irc-seat" && message.presence.name === "rooms-name" &&
+				message.presence.state === "linked" && message.presence.nick === "myircnick",
+		);
+		assert(restored.presence?.kind === "irc-seat", "the rejected identity did not restore the prior seat");
+		await within(room.say("rollback marker"), "posting through the restored identity");
+		await within(session.send(gw, PART_IRC, ["login-fixture", "#login"]), "parting the login fixture");
+		joined = false;
 	} finally {
+		if (joined) {
+			try {
+				const gw = await session.fetch("gw");
+				await session.send(gw, PART_IRC, ["login-fixture", "#login"]);
+			} catch { /* the failed scene may already have ended the gateway */ }
+		}
+		try {
+			ircListener.close();
+		} catch { /* all three fixture connections may already own it */ }
 		await session.close().catch(() => {});
 		(server as unknown as { close?: () => void }).close?.();
-		await Promise.allSettled([serving]);
+		await Promise.allSettled([
+			feedFixture,
+			initialReaderFixture,
+			authenticatedReaderFixture,
+			collidingReaderFixture,
+			restoredAfterCollisionFixture,
+			refusedReaderFixture,
+			restoredReaderFixture,
+			serving,
+		]);
 	}
 });

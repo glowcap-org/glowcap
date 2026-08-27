@@ -151,6 +151,14 @@
 		background: var(--hover);
 	}
 }
+/* Four words across a phone's card leave no air between them at the chrome
+   size; one step down keeps every label whole and the cells apart. */
+@media (max-width: 430px) {
+	.tab {
+		font-size: var(--type-caption);
+		padding: 0 2px;
+	}
+}
 /* The global button ring is 2px / offset 2px, which would sit outside the
    well. Offset 1px parks the ring in the 3px pad, flush with the well's
    inner edge. z-index keeps it above the neighbouring cell. */

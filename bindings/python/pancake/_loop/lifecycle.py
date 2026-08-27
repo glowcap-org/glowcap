@@ -215,6 +215,11 @@ class _LifecycleMixin(DriverLoopMixinBase):
                 if not listener_future.done():
                     listener_future.set_exception(closed)
             self._listener_waiters.clear()
+            for listener_close_future in self._listener_close_waiters.values():
+                if not listener_close_future.done():
+                    listener_close_future.set_result(None)
+            self._listener_close_waiters.clear()
+            self._closing_listeners.clear()
             for close_future in self._session_closes.values():
                 if not close_future.done():
                     close_future.set_exception(closed)

@@ -1,5 +1,6 @@
 // Directory registration: one nick per connection, and introducing inboxes.
 
+import { Ref, type Session } from "@pancake/runtime";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
 import {
 	INTRODUCTION_PENDING,
@@ -9,11 +10,114 @@ import {
 	ROOM_TOO_LONG,
 	RoomError,
 } from "../../lib/errors.ts";
-import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
+import { DIRECT_REQUEST_COALESCE_MS, MAX_DM_INBOXES, MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
 import { loopbackTcpDesignator, roomsHost } from "../../lib/locator.ts";
-import { DIRECTORY, INTRODUCE, NOTIFY, OFFER_INBOX, OPEN, REGISTER } from "../../lib/protocol.ts";
+import {
+	DIRECT_REQUESTED,
+	DIRECTORY,
+	INTRODUCE,
+	MEMBER_REGISTRATION,
+	NOTIFY,
+	OFFER_INBOX,
+	OPEN,
+	REGISTER,
+	REQUEST_DIRECT,
+} from "../../lib/protocol.ts";
 import { Directory } from "../../lib/room_client.ts";
+import {
+	directRequestNoticeDue,
+	dropIntroductions,
+	registerMember,
+	registrationOf,
+} from "../../server/introductions.ts";
 import { assert, delay, dial, refusalCode, registerAndWatch, roomsTest, withServer } from "../support/rooms_server.ts";
+
+Deno.test("reciprocal direct request pressure expires instead of consuming a registration forever", () => {
+	const requests = new Map<string, number>();
+	for (let i = 0; i < MAX_DM_INBOXES; i += 1) requests.set(`peer-${i}`, 0);
+	assert(
+		directRequestNoticeDue(requests, "next-peer", DIRECT_REQUEST_COALESCE_MS),
+		"an expired request window did not admit the next peer",
+	);
+	assert(requests.size === 1 && requests.has("next-peer"), "expired reciprocal requests remained retained");
+
+	assert(
+		!directRequestNoticeDue(requests, "next-peer", DIRECT_REQUEST_COALESCE_MS + 1),
+		"a repeated request inside the coalescing window emitted another notice",
+	);
+	assert(
+		directRequestNoticeDue(requests, "next-peer", DIRECT_REQUEST_COALESCE_MS * 2),
+		"the same peer could not request another route after the coalescing window",
+	);
+});
+
+Deno.test("reciprocal direct requests enforce their active window bound", () => {
+	const requests = new Map<string, number>();
+	for (let i = 0; i < MAX_DM_INBOXES; i += 1) requests.set(`peer-${i}`, 1);
+	let refused = "";
+	try {
+		directRequestNoticeDue(requests, "one-too-many", 1);
+	} catch (error) {
+		refused = error instanceof Error ? error.message : String(error);
+	}
+	assert(refused.includes(`${MAX_DM_INBOXES}`), "the active reciprocal request ceiling was not enforced");
+	assert(requests.size === MAX_DM_INBOXES, "a refused reciprocal request changed the active window");
+});
+
+Deno.test("registration construction failure returns the inbox without claiming a name", () => {
+	const inbox = Object.create(Ref.prototype) as Ref;
+	const released: Ref[] = [];
+	const session = {
+		spawn: () => {
+			throw new Error("name capability spawn refused");
+		},
+		release: (ref: Ref) => released.push(ref),
+	} as unknown as Session;
+	let refusal = "";
+	try {
+		registerMember("bot", "127.0.0.1:1", inbox, session);
+	} catch (error) {
+		refusal = error instanceof Error ? error.message : String(error);
+	}
+	assert(refusal === "name capability spawn refused", "registration construction hid its refusal");
+	assert(released.length === 1 && released[0] === inbox, "registration construction retained the offered inbox");
+	assert(registrationOf(session) === null, "registration construction claimed a name before capability commit");
+});
+
+Deno.test("failed nickname replacement preserves the prior registration", () => {
+	const firstInbox = Object.create(Ref.prototype) as Ref;
+	const replacementInbox = Object.create(Ref.prototype) as Ref;
+	const nameCapability = Object.create(Ref.prototype) as Ref;
+	const released: Ref[] = [];
+	let refuseSpawn = false;
+	const session = {
+		spawn: () => {
+			if (refuseSpawn) throw new Error("replacement name capability refused");
+			return nameCapability;
+		},
+		tell: () => Promise.resolve(),
+		release: (ref: Ref) => released.push(ref),
+	} as unknown as Session;
+	try {
+		registerMember("first", "127.0.0.1:1", firstInbox, session);
+		const prior = registrationOf(session);
+		refuseSpawn = true;
+		let refusal = "";
+		try {
+			registerMember("replacement", "127.0.0.1:1", replacementInbox, session);
+		} catch (error) {
+			refusal = error instanceof Error ? error.message : String(error);
+		}
+		assert(refusal === "replacement name capability refused", "replacement construction hid its refusal");
+		assert(registrationOf(session) === prior, "replacement construction withdrew the prior registration");
+		assert(
+			released.length === 1 && released[0] === replacementInbox,
+			"replacement construction released prior registration authority",
+		);
+	} finally {
+		dropIntroductions(session);
+	}
+});
 
 roomsTest("rooms directory registers a member and acknowledges the name", async () => {
 	await withServer(async (port) => {
@@ -39,6 +143,28 @@ roomsTest("rooms directory registers a member and acknowledges the name", async 
 	});
 });
 
+roomsTest("a directory watch atomically includes existing registration claims", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const member = await Directory.connect(locator, (address) => dial(address));
+		const registrationId = await member.register("bob", locator);
+		const observer = await Directory.connect(locator, (address) => dial(address));
+		const peers: { name: string; registrationId: string }[] = [];
+		try {
+			await observer.watch((event) => {
+				if (event.kind === "registered") peers.push({ name: event.name, registrationId: event.registrationId });
+			});
+			assert(
+				JSON.stringify(peers) === JSON.stringify([{ name: "bob", registrationId }]),
+				"the watch baseline did not carry the exact existing registration",
+			);
+		} finally {
+			await observer.close();
+			await member.close();
+		}
+	});
+});
+
 roomsTest(
 	"rooms directory introduces only to the inbox a member minted for the caller",
 	async () => {
@@ -51,11 +177,17 @@ roomsTest(
 			bob.serve().catch(() => {});
 			const bobDir = await bob.fetch(DIRECTORY);
 			let bobAck = false;
+			let bobClaim = "";
 			let askedFor: string | null = null;
+			let directRequestedBy: string | null = null;
 			const bobReg = bob.spawn((verb, args) => {
 				if (verb !== NOTIFY) return null;
-				if (args[0] === "registered") bobAck = true;
+				if (args[0] === "registered" && typeof args[2] === "string") {
+					bobClaim = args[2];
+					bobAck = true;
+				}
 				if (args[0] === "mintInboxFor" && typeof args[1] === "string") askedFor = args[1];
+				if (args[0] === DIRECT_REQUESTED && typeof args[1] === "string") directRequestedBy = args[1];
 				return null;
 			});
 			await bob.send(bobDir, REGISTER, ["bob", loopbackTcpDesignator(port), bobReg]);
@@ -67,10 +199,14 @@ roomsTest(
 			carol.serve().catch(() => {});
 			const carolDir = await carol.fetch(DIRECTORY);
 			let carolAck = false;
+			let carolClaim = "";
 			let introducible = false;
 			const carolReg = carol.spawn((verb, args) => {
 				if (verb !== NOTIFY) return null;
-				if (args[0] === "registered") carolAck = true;
+				if (args[0] === "registered" && typeof args[2] === "string") {
+					carolClaim = args[2];
+					carolAck = true;
+				}
 				if (args[0] === "introducible" && args[1] === "bob") introducible = true;
 				return null;
 			});
@@ -83,7 +219,7 @@ roomsTest(
 			// for Carol, by the name the directory reads off her connection.
 			let refused: string | null = null;
 			try {
-				await carol.send(carolDir, INTRODUCE, ["bob"]);
+				await carol.send(carolDir, INTRODUCE, ["bob", bobClaim]);
 			} catch (err) {
 				refused = err instanceof Error ? err.message : String(err);
 			}
@@ -95,12 +231,16 @@ roomsTest(
 			const askDeadline = Date.now() + 3_000;
 			while (askedFor === null && Date.now() < askDeadline) await delay(25);
 			assert(askedFor === "carol", `expected bob to be asked for carol, got ${askedFor}`);
+			await carol.send(carolDir, REQUEST_DIRECT, ["bob", bobClaim]);
+			const requestDeadline = Date.now() + 3_000;
+			while (directRequestedBy == null && Date.now() < requestDeadline) await delay(25);
+			assert(directRequestedBy === "carol", "bob was not told who requested the reciprocal direct route");
 
 			// Bob offers one; Carol is told she may ask again.
 			bobHost.publishGiftable("inbox-for-carol", () => null);
 			const offered = bob.publishedRef("inbox-for-carol");
 			assert(offered !== null, "the giftable should hold a position on bob's room session");
-			await bob.send(bobDir, OFFER_INBOX, ["carol", offered]);
+			await bob.send(bobDir, OFFER_INBOX, ["carol", carolClaim, offered]);
 			const okDeadline = Date.now() + 3_000;
 			while (!introducible && Date.now() < okDeadline) await delay(25);
 			assert(introducible, "carol should hear that bob is introducible");
@@ -111,7 +251,7 @@ roomsTest(
 			const strangerDir = await stranger.fetch(DIRECTORY);
 			let strangerRefused = false;
 			try {
-				await stranger.send(strangerDir, INTRODUCE, ["bob"]);
+				await stranger.send(strangerDir, INTRODUCE, ["bob", bobClaim]);
 			} catch {
 				strangerRefused = true;
 			}
@@ -203,7 +343,7 @@ roomsTest(
 			carolHost.publishGiftable("carol-inbox-for-bob", () => null);
 			const offered = carol.publishedRef("carol-inbox-for-bob");
 			assert(offered !== null, "the giftable should hold a position on carol's session");
-			await carol.send(carolDir, OFFER_INBOX, ["bob", offered]);
+			await carol.send(carolDir, OFFER_INBOX, ["bob", bobSaw.registrationId, offered]);
 			const okDeadline = Date.now() + 3_000;
 			while (bobSaw.introducible.length === 0 && Date.now() < okDeadline) await delay(25);
 			assert(bobSaw.introducible.includes("carol"), "bob should hear carol is introducible");
@@ -225,9 +365,21 @@ roomsTest(
 				if (free !== null) await delay(25);
 			}
 			assert(free === null, `mallory should get the freed name, refused ${free}`);
+			const replacementClaim = await carol.send(carolDir, MEMBER_REGISTRATION, ["bob"]);
+			assert(typeof replacementClaim === "string", "the replacement registration had no claim");
+			assert(
+				replacementClaim !== bobSaw.registrationId,
+				"the replacement holder inherited Bob's registration claim",
+			);
+			const staleDirect = await refusalCode(() =>
+				carol.send(carolDir, INTRODUCE, ["bob", bobSaw.registrationId])
+			);
+			assert(staleDirect === PEER_OFFLINE, `the old Bob claim reached the replacement holder: ${staleDirect}`);
 
 			// The inbox Carol minted for the real Bob is not Mallory's to be handed.
-			const code = await refusalCode(() => mallory.send(malloryDir, INTRODUCE, ["carol"]));
+			const code = await refusalCode(() =>
+				mallory.send(malloryDir, INTRODUCE, ["carol", carolSaw.registrationId])
+			);
 			assert(code === INTRODUCTION_PENDING, `expected introduction-pending, got ${code}`);
 			const askDeadline = Date.now() + 3_000;
 			while (carolSaw.askedFor.length === 0 && Date.now() < askDeadline) await delay(25);
@@ -274,16 +426,17 @@ roomsTest("a member re-offers its inboxes after a second registration, minting n
 			},
 		});
 		const locator = loopbackTcpDesignator(port);
-		await dir.register("member", locator, offerer.offer);
-		offerer.offer("carol");
+		const firstMemberClaim = await dir.register("member", locator, offerer.offer);
+		offerer.offer("carol", askerSaw.registrationId);
 		const first = Date.now() + 3_000;
 		while (askerSaw.introducible.length < 1 && Date.now() < first) await delay(25);
 		assert(askerSaw.introducible.includes("member"), "the first offer should land");
 		assert(mints === 1, `expected one mint, saw ${mints}`);
 
 		// Register again on the live session, the shipped path for a nick change.
-		await dir.register("member", locator, offerer.offer);
-		const code = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["member"]));
+		const secondMemberClaim = await dir.register("member", locator, offerer.offer);
+		assert(firstMemberClaim !== secondMemberClaim, "a re-registration reused its incarnation");
+		const code = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["member", secondMemberClaim]));
 		assert(
 			code === INTRODUCTION_PENDING,
 			`the re-register should clear the offer, got ${code}`,
@@ -303,6 +456,32 @@ roomsTest("a member re-offers its inboxes after a second registration, minting n
 	});
 });
 
+roomsTest("a refused nickname change preserves the current name capability", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const member = await Directory.connect(locator, (address) => dial(address));
+		const holder = await Directory.connect(locator, (address) => dial(address));
+		try {
+			await member.register("alice", locator);
+			await holder.register("bob", locator);
+			let refused = false;
+			try {
+				await member.register("bob", locator);
+			} catch (error) {
+				refused = RoomError.from(error instanceof Error ? error.message : String(error))?.code === NICK_TAKEN;
+			}
+			assert(refused, "the directory did not refuse a nickname held by another member");
+			assert(
+				await member.nameVoucher() != null,
+				"a refused nickname change discarded the current registration's name capability",
+			);
+		} finally {
+			await holder.close();
+			await member.close();
+		}
+	});
+});
+
 roomsTest("rooms directory keeps one registered nick per connection", async () => {
 	// `registeredNickOf` reads a caller's own name off the registry, so a
 	// connection holding two rows makes "you" a matter of which one is found
@@ -312,17 +491,17 @@ roomsTest("rooms directory keeps one registered nick per connection", async () =
 		const member = await dial(loopbackTcpDesignator(port));
 		member.serve().catch(() => {});
 		const memberDir = await member.fetch(DIRECTORY);
-		await registerAndWatch(member, memberDir, "alice", loopbackTcpDesignator(port));
-		await registerAndWatch(member, memberDir, "alicia", loopbackTcpDesignator(port));
+		const alice = await registerAndWatch(member, memberDir, "alice", loopbackTcpDesignator(port));
+		const alicia = await registerAndWatch(member, memberDir, "alicia", loopbackTcpDesignator(port));
 
 		const asker = await dial(loopbackTcpDesignator(port));
 		asker.serve().catch(() => {});
 		const askerDir = await asker.fetch(DIRECTORY);
 		await registerAndWatch(asker, askerDir, "dave", "127.0.0.1:1");
 
-		const stale = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["alice"]));
+		const stale = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["alice", alice.registrationId]));
 		assert(stale === PEER_OFFLINE, `the given-up name should be gone, got ${stale}`);
-		const live = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["alicia"]));
+		const live = await refusalCode(() => asker.send(askerDir, INTRODUCE, ["alicia", alicia.registrationId]));
 		assert(live === INTRODUCTION_PENDING, `the held name should answer, got ${live}`);
 
 		asker.close();

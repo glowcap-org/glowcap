@@ -8,7 +8,7 @@
 ;; a native symbol on Goblins but as the binding's `sym` struct on pancake, so a
 ;; symbol result would not compare equal across substrates. Bytes are bytes on
 ;; both, keeping the result — and therefore the check — substrate-agnostic.
-(require (file "/workspaces/pancake/bench/goblins/dispatch.rkt"))
+(require "../dispatch.rkt")
 (provide app-name server-build client-prepare result-ok?)
 
 (define app-name 'taskboard)

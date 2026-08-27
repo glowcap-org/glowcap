@@ -60,7 +60,6 @@ const host_script = "conformance/goblins-peer/racket/goblins-onion-host.rkt";
 const caller_script = "conformance/goblins-peer/racket/pancake-onion-caller.rkt";
 
 const caller_name = "goblins";
-const greeting = "hello goblins, from pancake over tor";
 const greeter_swiss = "pancake-onion-greeter";
 const echo_payload = "pancake-over-tor";
 

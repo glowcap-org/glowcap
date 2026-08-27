@@ -50,12 +50,3 @@ export type EntityId<K extends EntityKind> = K extends "peer" ? PeerId
 	: K extends "session" ? SessionId
 	: K extends "message" ? MessageId
 	: never;
-
-/** Brand-aware cast keyed by entity kind. Convenient for generic code
- * that produces ids of a kind known only at runtime. */
-export function asEntityId<K extends EntityKind>(
-	_kind: K,
-	s: string,
-): EntityId<K> {
-	return s as EntityId<K>;
-}

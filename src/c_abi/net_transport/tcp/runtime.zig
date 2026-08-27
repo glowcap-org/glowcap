@@ -550,10 +550,7 @@ fn providerWriteAll(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, 
 }
 
 fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) void {
-    const slot = out_failure orelse return;
-    const conn = rawConn(conn_raw);
-    slot.* = conn.failure;
-    conn.failure = std.mem.zeroes(c.PancakeProviderFailure);
+    c.transport_provider.takeProviderFailure(&rawConn(conn_raw).failure, out_failure);
 }
 
 fn providerConnClose(

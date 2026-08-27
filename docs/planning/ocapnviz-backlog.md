@@ -45,8 +45,21 @@ With the stage fitted so nothing is culled:
 One fix already landed: `materializeWorldAt` used to scan the document per
 entity (quadratic). Indexing that cut the 2,768-entity case from 51ms to 29ms.
 
-Headless Chromium readings are not usable: SwiftShader rasterizes on the CPU
-and makes every frame look like the app's fault.
+Headless Chromium readings are not usable as absolute frame rates: SwiftShader
+rasterizes on the CPU and makes every frame look like the app's fault. A
+same-host before/after or scene-isolation pass can still locate work.
+
+**Static Timeline cache (landed; real-GPU re-measure pending).** The Scrubber
+used to clear, rebuild, and rasterize every lane mark when only the playhead
+moved. Its viewport-sized static scene is now a retained Pixi texture; the
+playhead, hover ghost, marquee, and snap line paint in a live layer above it.
+Every lane/view/selection input still invalidates the texture. On the same
+production build and SwiftShader host, the 1,384-entity stress document moved
+from 984ms to 121ms frame p50; with Stage bodies hidden, which isolates the
+Timeline more sharply, it moved from 910ms to 34ms. Those are relative
+diagnostics, not GPU claims. Cached and uncached device-scale-2 screenshots
+were pixel-identical across 6.4 million pixels, and the texture's memory is
+bounded by the visible Scrubber viewport rather than document size.
 
 **Edge upload batch (landed; re-measure pending).** At 2,768 entities, about
 42% of playback time was in `bufferSubData` under Pixi's `updateBuffer`: a

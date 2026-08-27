@@ -13,7 +13,7 @@
 //! `capnp_test.zig`. The `handoff` give and receive arms carry a signature whose
 //! signing domain is the decoded record's Syrup canonicalization, so their
 //! cross-codec contract is the re-encode-and-reverify test in
-//! `test/engine/cross_peer_test.zig`.
+//! `test/engine/cross_peer/`.
 //!
 //! For each message, we encode it through Syrup and through Cap'n Proto, decode
 //! each back to the codec-neutral model (the production profile-aware decode path,

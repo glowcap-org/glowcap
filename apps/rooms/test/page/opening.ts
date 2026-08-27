@@ -8,7 +8,10 @@
 import type { Browser, Page } from "playwright";
 import { fail } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
+import { establishLocalSession } from "../support/session_setup.ts";
 import * as linked from "./linked.ts";
+import { establishTestSession } from "./session_establishment.ts";
+import * as settingsForms from "./settings_forms.ts";
 
 export async function run(tab: Page, httpPort: number, browser: Browser): Promise<void> {
 	// ── The opening screen ───────────────────────────────────────────────
@@ -46,7 +49,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (bootMark.painted !== bootMark.brand) {
 		fail(`the opening mark is ${bootMark.painted} where the brand is ${bootMark.brand}`);
 	}
-	await tab.waitForSelector("#joinBtn", { timeout: 60_000 });
+	await establishTestSession(tab);
 
 	const identifierKeys = await tab.evaluate(() => {
 		const of = (id: string) => {
@@ -143,6 +146,36 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await dark.close();
 	}
 
+	// A browser peer must arrive intact. Plain HTTP on another machine cannot
+	// promise that, and its origin is not a secure context. Refuse before loading
+	// the application bundle, with the development paths that preserve the
+	// boundary instead of letting the first restricted API supply the diagnosis.
+	{
+		const plainHttp = await browser.newContext();
+		const lan = await plainHttp.newPage();
+		let bundleAsked = false;
+		lan.on("request", (request) => {
+			if (new URL(request.url()).pathname === "/page.js") bundleAsked = true;
+		});
+		const address = Deno.networkInterfaces().find((entry) =>
+			entry.family === "IPv4" && !entry.address.startsWith("127.")
+		)?.address;
+		if (address === undefined) fail("the secure-origin proof found no non-loopback interface");
+		await lan.goto(`http://${address}:${httpPort}/`);
+		if (await lan.evaluate(() => isSecureContext)) {
+			fail("the secure-origin proof reached a trustworthy context over network HTTP");
+		}
+		if (!await lan.locator(".boot-insecure").isVisible()) {
+			fail("plain network HTTP did not explain the secure-origin requirement");
+		}
+		const explanation = (await lan.locator(".boot-insecure").textContent()) ?? "";
+		if (!explanation.includes("localhost") || !explanation.includes("HTTPS")) {
+			fail("the secure-origin refusal did not give either development path");
+		}
+		if (bundleAsked) fail("an insecure page loaded the Rooms peer bundle before refusing");
+		await plainHttp.close();
+	}
+
 	// The Wasm peer can lose a race with the server building its asset. Hold
 	// that asset down past the slow-start mark: the opening screen must carry
 	// the newest real failure, keep the half-built interface covered, and then
@@ -175,10 +208,12 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		}
 
 		rebuilding = false;
-		await recovering.waitForSelector("#joinBtn", { timeout: 20_000 })
+		await recovering.waitForSelector("#sessionSetup", { timeout: 20_000 })
 			.catch(() => fail("the page did not recover after its Wasm runtime became available"));
 		await recovering.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
 			.catch(() => fail("the recovered runtime left the opening screen over the page"));
+		await establishLocalSession(recovering);
+		await recovering.waitForSelector("#joinBtn", { timeout: 20_000 });
 		if (attempts < 2) fail("the page never retried the unavailable Wasm runtime");
 		await delayed.close();
 	}
@@ -376,6 +411,21 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (catalog.chosen.length > 0) {
 		fail(`the parts catalog does not stand ${catalog.chosen.join(" and ")} beside the rest of the controls`);
 	}
+	const waits = await tab.evaluate(() => {
+		const button = document.getElementById("kitchenBusyButton");
+		const icon = document.getElementById("kitchenBusyIcon");
+		if (button === null || icon === null) return null;
+		const buttonMark = getComputedStyle(button, "::before");
+		const iconMark = getComputedStyle(icon, "::after");
+		return {
+			button: button.dataset.busy === "true" && parseFloat(buttonMark.width) > 0,
+			icon: icon.dataset.busy === "true" && parseFloat(iconMark.width) > 0,
+			iconHidden: getComputedStyle(icon.querySelector("svg")!).visibility === "hidden",
+		};
+	});
+	if (waits === null || !waits.button || !waits.icon || !waits.iconHidden) {
+		fail(`a busy control did not replace its idle mark with visible progress: ${JSON.stringify(waits)}`);
+	}
 	// The segmented row is drawn nowhere else, so the catalog is the only place it
 	// can be held to anything. What it owes a reader is that it says so. A gallery
 	// is shopped from, and an entry that does not say whether anything uses it is
@@ -434,10 +484,12 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (helpAfter !== "false") {
 		fail("closing Help left its control pressed");
 	}
+	// Three tabs: Locators, Data, Advanced. The arrows walk them and carry
+	// focus with the selection; the ends clamp rather than wrap.
 	await tab.click("#settingsTab");
 	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.waitForSelector("#sessionPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
 	await tab.waitForFunction(() =>
 		document.activeElement?.id === "overviewTab" &&
@@ -446,7 +498,22 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	).catch(() => fail("the Settings tabs did not move selection and focus together"));
 	await tab.keyboard.press("ArrowRight");
 	await tab.keyboard.press("ArrowRight");
+	await tab.keyboard.press("ArrowRight");
 	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	const advancedForm = await tab.evaluate(() => {
+		const form = document.getElementById("dmSettingsForm");
+		const hint = document.getElementById("dmReloadHint");
+		const save = document.getElementById("dmSave");
+		return {
+			ownsHint: hint?.closest("form") === form,
+			ownsSave: save?.closest("form") === form,
+			historyAbsent:
+				document.getElementById("settingsPanel")?.contains(document.getElementById("historyLegend")) === false,
+		};
+	});
+	if (!advancedForm.ownsHint || !advancedForm.ownsSave || !advancedForm.historyAbsent) {
+		fail(`the direct-message connection is not a self-contained form: ${JSON.stringify(advancedForm)}`);
+	}
 
 	// The chosen tab's own word, against the pill under it, in both appearances.
 	// That pill is paper with better than a quarter of the accent poured into it,
@@ -492,8 +559,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	{
 		const relayTab = await browser.newPage();
 		await relayTab.goto(`http://127.0.0.1:${httpPort}/?dm=relay`);
-		await relayTab.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
-			.catch(() => fail("the ?dm=relay tab's opening screen never left"));
+		await establishLocalSession(relayTab)
+			.catch(() => fail("the ?dm=relay tab did not establish its local session"));
 		await relayTab.click("#settingsBtn");
 		await relayTab.waitForSelector("#settingsTitle");
 		await relayTab.click("#settingsTab");
@@ -505,6 +572,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		}
 		await relayTab.close();
 	}
+	await settingsForms.run(browser, httpPort);
 
 	await linked.run(tab);
 

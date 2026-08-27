@@ -3,7 +3,7 @@
 ;; purse capability with an initial balance; a purse supports `balance` and
 ;; `deposit`. One client unit creates a purse and deposits into it, exercising
 ;; capability creation, capability passing across the wire, and stateful turns.
-(require (file "/workspaces/pancake/bench/goblins/dispatch.rkt"))
+(require "../dispatch.rkt")
 (provide app-name server-build client-prepare result-ok?)
 
 (define app-name 'mint)

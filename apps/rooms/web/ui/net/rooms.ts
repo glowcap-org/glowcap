@@ -15,9 +15,12 @@ import { type DirId, type DmConv } from "../types.ts";
 
 import { reason } from "./common.ts";
 import { convSession, dirAddress, dirSession, isCurrent } from "./live.ts";
-import { actLocator, notePickedRoom } from "./bootstrap.ts";
-import { dropLine, releaseBackChannel } from "./direct.ts";
+import { actLocator } from "./bootstrap.ts";
+import { dropDirectRoute, releaseBackChannel } from "./direct.ts";
 import { enterRoom } from "./enter.ts";
+import { forgetPeeringForSource } from "./peering.ts";
+import { closeArchiveGeneration } from "./history.ts";
+import { releaseArchiveSharesForConversation } from "./archive_shares.ts";
 export { enterRoom } from "./enter.ts";
 
 // ── Rooms: picking, creating, joining ─────────────────────────────────────
@@ -40,7 +43,7 @@ export function pickRoom(dir: DirId, name: string, at?: string): void {
 	const conv = store.getConv(key);
 	const heldRoom = conv?.type === "room" && conv.held;
 	const held = dirSession(dir);
-	const knownAs = (store.dirNick(dir) || store.reachingNick()) !== "";
+	const knownAs = (store.requestedDirNick(dir) || store.reachingNick()) !== "";
 	const open = conv?.type === "room";
 	const backIn = !heldRoom && held !== null && knownAs && open && !held.rooms.has(key);
 	// Pressing the room being read is how a reader puts the rail away, unless it
@@ -81,7 +84,7 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 	// with the session that carried it, and there is no name to ask for it back
 	// with. Reaching that row shows what was said and nothing else.
 	const held = dirSession(dir);
-	const knownAs = (store.dirNick(dir) || store.reachingNick()) !== "";
+	const knownAs = (store.requestedDirNick(dir) || store.reachingNick()) !== "";
 	const backIn = !heldRoom && held !== null && knownAs && open && !held.rooms.has(key);
 	if (backIn) {
 		enterPickedRoom(dir, name, conv?.type === "room" ? conv.publicationId : publication?.id);
@@ -120,12 +123,13 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 }
 
 function enterPickedRoom(dir: DirId, name: string, publicationId?: string): void {
-	notePickedRoom();
+	const key = publicationId == null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publicationId);
+	store.setRoomMembership(key, "joining");
 	// To the directory the work is about, not whichever one is on screen: read
 	// from another directory's room, this line landed on that one's foot and
 	// stayed, since only the targeted completion write would ever replace it.
 	store.setDirStatus(dir, "entering #" + name + "…");
-	void enterRoom(dir, name, store.dirNick(dir) || store.reachingNick(), { publicationId });
+	void enterRoom(dir, name, store.requestedDirNick(dir) || store.reachingNick(), { publicationId, select: true });
 }
 
 /// A join asked for before the peer session was open. The session is fetched,
@@ -188,16 +192,18 @@ export async function openPrivateRoom(
 	if (signal?.aborted) return "";
 	const session = dirSession(dir);
 	if (session === null) return "not connected to the room directory yet";
-	const nick = asNick || store.dirNick(dir) || store.reachingNick();
+	const nick = asNick || store.requestedDirNick(dir) || store.reachingNick();
 	if (!nick) return "join a room here first, so this directory knows what to call you";
 	try {
-		const room = await session.dir.open(label, true);
+		const room = await session.dir.openPrivate(label);
 		if (!isCurrent(session) || signal?.aborted) return "";
+		const key = store.heldRoomKey();
+		session.stewardClaimable.add(key);
 		// Making a room is asking to be in it, the same as naming a public one.
-		notePickedRoom();
 		return await enterRoom(dir, label, nick, {
-			held: { key: store.heldRoomKey(), room },
+			held: { key, room },
 			requested: nick,
+			select: true,
 			signal,
 		});
 	} catch (err) {
@@ -223,7 +229,9 @@ export async function openPrivateRoom(
 export function leaveRoom(key: string): void {
 	const owner = convSession(key);
 	const room = owner?.rooms.get(key) ?? null;
-	const name = store.getConv(key)?.id ?? "";
+	const conversation = store.getConv(key);
+	const name = conversation?.id ?? "";
+	if (conversation != null) forgetPeeringForSource(conversation.persistId);
 	owner?.rooms.delete(key);
 	// What that membership was told goes with the membership.
 	owner?.standingTold.delete(key);
@@ -279,12 +287,14 @@ export function closeDm(conv: DmConv): void {
 	const key = conv.key;
 	const s = store.get();
 	const owner = dirSession(conv.dir);
+	releaseArchiveSharesForConversation(key);
 	store.forgetConv(key);
+	closeArchiveGeneration(key);
 	// Hand the line's own connection back. A redeemed introduction holds one open
 	// to the member for as long as the line lives, so forgetting the line here
 	// without closing it would leave the connection and the reply inbox on it
 	// standing with nothing on this side referring to them.
-	if (owner) dropLine(owner, key);
+	if (owner) dropDirectRoute(owner, conv.peerRegistrationId);
 	// The back-channel is the other direction: a connection the member opened to
 	// us, captured as it arrived. It carries this conversation and nothing else
 	// (a cold dial is per-peer), so letting the conversation go lets it go.

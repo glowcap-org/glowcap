@@ -7,14 +7,6 @@
 # script in this directory declares its side by calling one of the require
 # helpers first thing, and a script that runs on both calls neither and says
 # so in its header.
-
-# Execution-context guards. The devcontainer image exports
-# PANCAKE_DEVCONTAINER_DIR (present during its build and in the running
-# container), and an attached editor shell or docker exec sees /.dockerenv,
-# so "inside the pancake devcontainer or its image build" is decidable from
-# either side. Scripts declare their side by calling one of the require
-# helpers first thing; a script that may run on both sides calls neither and
-# says so in its header.
 pancake_in_devcontainer() {
     [[ -n "${PANCAKE_DEVCONTAINER_DIR:-}" || -f /.dockerenv || -n "${REMOTE_CONTAINERS:-}" ]]
 }

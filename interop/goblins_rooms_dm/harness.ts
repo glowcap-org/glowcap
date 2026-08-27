@@ -53,6 +53,8 @@ import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
+import { until as untilWithin } from "../../apps/rooms/test/support/page.ts";
 
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
@@ -81,27 +83,15 @@ const GOBLINS_PROFILE = "goblins";
 /** Every diagnostic wait expires before the build's 30-second process owner. */
 const WAIT_MS = 20_000;
 
+/** The shared wait, on this harness's own clock. */
+const until = (ready: () => boolean, what: string, ms = WAIT_MS) => untilWithin(ready, what, ms);
+
 /** How long an iroh endpoint may take to learn a direct address of its own.
  * Shorter than `WAIT_MS`, because nothing here is starting up cold. */
 const IROH_DIRECT_ADDRESSES_MS = 20_000;
 
 function fail(message: string): never {
 	throw new Error(message);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function until(ready: () => boolean, what: string, ms = WAIT_MS): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!ready()) {
-		if (Date.now() > deadline) fail(`timed out waiting for ${what}`);
-		await new Promise((r) => setTimeout(r, 50));
-	}
 }
 
 async function waitForLocator(port: number): Promise<string> {

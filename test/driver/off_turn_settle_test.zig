@@ -18,7 +18,6 @@ const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
 const tcp = net.tcp;
-const ip = std.Io.net;
 
 const Host = driver.core.Host;
 const TcpBridge = driver.Bridge(net.TcpLoop);

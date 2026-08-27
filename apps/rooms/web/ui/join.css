@@ -84,6 +84,7 @@
 	margin: -4px 0 6px;
 	color: var(--ink-soft);
 	font-size: var(--type-body);
+	text-wrap: pretty;
 }
 .join label {
 	font-size: var(--type-caption);

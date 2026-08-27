@@ -9,47 +9,42 @@
 
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type { AttachmentView, Conv, DirId, DirView, LiveRooms, SessionPhase } from "./types.ts";
-import type { JoinAnswers } from "./joining.ts";
+import type { Conv, DirId, DirView, LiveRooms, SendControlPolicy, SessionPhase } from "./types.ts";
+import type { DirectoryDestinationContext, JoinAnswers } from "./joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";
 import { JoinCard } from "./JoinCard.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { RichText } from "./RichText.tsx";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { IconButton } from "./IconButton.tsx";
+import { useRoomsState } from "./hooks.ts";
+import { NO_DRAFT } from "./store.ts";
 
 // How close to the end still counts as "reading the newest message".
 const AT_BOTTOM_SLACK = 80;
 
 export function Stream(
 	{
+		canInteract,
 		conv,
 		nick,
-		draft,
-		draftFiles,
-		changing,
-		draftKeeping,
 		liveRooms,
 		reachable,
 		join,
 		dirs,
-		homeDir,
+		directoryContext,
 		composerEnabled,
 		composerPhase,
+		composerAvailability,
 		ignored,
+		sendControls,
 		mobile,
 	}: {
+		canInteract: boolean;
 		conv: Conv | null;
 		nick: string;
-		draft: string;
-		draftFiles: readonly File[];
-		/** Whether the composer is rewriting a line already posted. */
-		/** The line being rewritten: the composer says so, and the log marks it. */
-		changing: number | undefined;
-		/** The kept files of a file line being changed, when the change is to one.
-		 * Present turns the composer into a view of that line's files. */
-		draftKeeping: readonly AttachmentView[] | undefined;
 		liveRooms: LiveRooms;
 		reachable: ReadonlySet<string>;
 		/** Every join-card field with the evidence behind it, resolved from the
@@ -58,17 +53,21 @@ export function Stream(
 		/** Passed straight through to the join card, which offers the directories
 		 * this tab already holds under its locator field. */
 		dirs: ReadonlyMap<DirId, DirView>;
-		homeDir: DirId | null;
+		directoryContext: DirectoryDestinationContext;
 		composerEnabled: boolean;
 		/** What the conversation's directory is doing, for the field to say when it
 		 * cannot be used. */
 		composerPhase: SessionPhase;
+		composerAvailability: string;
 		/** Names this window is not showing, straight through to the log. */
 		ignored: ReadonlySet<string>;
+		sendControls: SendControlPolicy;
 		mobile: boolean;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
+	const draft = useRoomsState((state) => conv == null ? NO_DRAFT : state.drafts.get(conv.key) ?? NO_DRAFT);
 	const log = useRef<HTMLElement>(null);
 	// Whether the reader was at the end of the conversation before whatever just
 	// happened. Content growing does not raise a scroll event, so this is read at
@@ -198,7 +197,7 @@ export function Stream(
 				if (!dropEnabled || !carriesFiles(e)) return;
 				e.preventDefault();
 				setDragDepth(0);
-				peer.addFiles([...e.dataTransfer.files]);
+				browser.addFiles([...e.dataTransfer.files]);
 			}}
 		>
 			<div id="dropHint" className="drop-hint" aria-hidden="true">
@@ -226,14 +225,14 @@ export function Stream(
 					<span className="topic-said" title={conv.topic}>
 						<RichText text={conv.topic} nick={nick} />
 					</span>
-					{conv.grants.has("topic") && (
+					{canInteract && conv.grants.has("topic") && (
 						<>
 							<IconButton
 								icon="pencil"
 								label="Change the topic"
 								size="small"
 								variant="ghost"
-								onClick={() => peer.setDraft(`/topic ${conv.topic}`)}
+								onClick={() => session.setDraft(`/topic ${conv.topic}`)}
 							/>
 							<IconButton
 								icon="close"
@@ -241,7 +240,7 @@ export function Stream(
 								size="small"
 								variant="ghost"
 								onClick={() =>
-									peer.setDraft("/topic -")}
+									session.setDraft("/topic -")}
 							/>
 						</>
 					)}
@@ -252,16 +251,18 @@ export function Stream(
 					ref={log}
 					conv={conv}
 					nick={nick}
+					sendControls={sendControls}
 					ignored={ignored}
-					changing={changing}
+					changing={draft.changing}
 					hidden={conv === null}
 				/>
 			</ErrorBoundary>
 			<JoinCard
+				canInteract={canInteract}
 				shown={conv === null}
 				answers={join}
 				dirs={dirs}
-				homeDir={homeDir}
+				directoryContext={directoryContext}
 			/>
 			{
 				/* Where the conversation stops being visible. It is not the
@@ -283,15 +284,16 @@ export function Stream(
 			<Composer
 				conv={conv}
 				nick={nick}
-				draft={draft}
-				draftFiles={draftFiles}
-				changing={changing}
-				draftKeeping={draftKeeping}
+				draft={draft.text}
+				draftFiles={draft.files}
+				changing={draft.changing}
+				draftKeeping={draft.keeping}
 				liveRooms={liveRooms}
 				reachable={reachable}
 				mobile={mobile}
 				enabled={composerEnabled}
 				phase={composerPhase}
+				availability={composerAvailability}
 				keepLatestInView={keepLatestInView}
 			/>
 		</div>

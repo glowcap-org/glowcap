@@ -2,10 +2,7 @@ import { CLOSED, INTERNAL } from "@pancake/abi";
 import { PancakeError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 async function assertRejectsCode(promise: Promise<unknown>, code: number): Promise<void> {
 	try {

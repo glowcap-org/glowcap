@@ -111,9 +111,11 @@ async function main(): Promise<void> {
 	// closed first took the connection down with it.
 	const firstLine = await DirectMessage.open(carol, "bob");
 	const secondReplies: string[] = [];
-	const secondLine = await DirectMessage.open(carol, "bob", (text) => {
-		secondReplies.push(text);
-		return null;
+	const secondLine = await DirectMessage.open(carol, "bob", {
+		message: (text) => {
+			secondReplies.push(text);
+			return null;
+		},
 	});
 	await firstLine.close();
 	await secondLine.say("after the sibling closed");

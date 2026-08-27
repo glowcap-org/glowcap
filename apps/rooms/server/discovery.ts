@@ -2,7 +2,8 @@
 
 import type { Argument } from "@pancake/runtime";
 import type { RoomRecordShape } from "../lib/protocol.ts";
-import { localRoomEntry, type PublicRoomEntry, publicRooms, type RoomState } from "./registry.ts";
+import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../lib/limits.ts";
+import { introductions, localRoomEntry, type PublicRoomEntry, publicRooms, type RoomState } from "./registry.ts";
 import { notifyWatchers } from "./watchers.ts";
 
 export type RoomListEvent = "opened" | "closed" | "count";
@@ -29,13 +30,30 @@ export function roomRecord(
 }
 
 /** Every discoverable room, with foreign occupancy left explicitly unknown. */
-export function roomSnapshot(shape: RoomRecordShape): Argument[] {
-	const live: Argument[] = [];
+export function roomSnapshot(shape: RoomRecordShape): { rows: Argument[]; omitted: number } {
+	const rows: Argument[] = [];
+	let omitted = 0;
 	for (const entry of publicRooms.values()) {
 		if (entry.kind === "local" && entry.state.members.length === 0) continue;
-		live.push(roomRecord(entry, shape));
+		if (rows.length === MAX_DIRECTORY_DISCOVERY_ROWS) omitted += 1;
+		else rows.push(roomRecord(entry, shape));
 	}
-	return live;
+	return { rows, omitted };
+}
+
+/** One atomic watch baseline. Rooms and live registrations share the
+ * discovery ceiling; `omitted` tells a client to treat the view as truncated
+ * instead of mistaking a dropped notification for a complete peer set. */
+export function directoryWatchSnapshot(shape: RoomRecordShape): Argument[] {
+	const rooms = roomSnapshot(shape);
+	const remaining = Math.max(0, MAX_DIRECTORY_DISCOVERY_ROWS - rooms.rows.length);
+	const peers: Argument[] = [];
+	for (const intro of introductions.values()) {
+		if (peers.length === remaining) break;
+		peers.push([intro.nick, intro.registrationId]);
+	}
+	const omitted = rooms.omitted + Math.max(0, introductions.size - peers.length);
+	return [rooms.rows, peers, BigInt(omitted)];
 }
 
 /** Announce one exact local-room generation unless it is private. */
@@ -61,6 +79,6 @@ export function notifyPublicRoom(
 }
 
 /** Member reachability shares the watcher but is not a room publication. */
-export function notifyMember(event: MemberListEvent, name: string, count: 0 | 1): void {
-	notifyWatchers([event, name, BigInt(count)]);
+export function notifyMember(event: MemberListEvent, name: string, registrationId: string, count: 0 | 1): void {
+	notifyWatchers([event, name, BigInt(count), registrationId]);
 }

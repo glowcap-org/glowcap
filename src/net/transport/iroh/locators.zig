@@ -1,3 +1,7 @@
+//! The iroh locator vocabulary: the transport symbol the resident signs into
+//! `op:start-session`, the reachability an endpoint is created with, and the
+//! node-id designator shape a locator must carry.
+
 const foundation = @import("foundation");
 const model = @import("model");
 const net = @import("net");

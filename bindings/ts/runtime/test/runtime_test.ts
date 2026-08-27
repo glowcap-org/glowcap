@@ -11,10 +11,7 @@ import type { Session } from "../session.ts";
 import { requireArchiveFingerprint } from "../internal/ffi/runtime.ts";
 import { curlTransportArgs, HardFailError, requireSecureReleaseUrl } from "../internal/ffi/release_security.ts";
 import { deferFinalizerRetry, pendingFinalizerRetryCount } from "../finalizer_retry.ts";
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 function fakeSession(id: number): Session {
 	return { id } as unknown as Session;

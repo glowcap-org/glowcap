@@ -17,6 +17,8 @@ import { assert, assertEquals } from "@std/assert";
 import {
 	iterateRows,
 	LANE_GAP,
+	laneScrollMax,
+	laneViewportHeight,
 	MIN_LANE_HEIGHT,
 	ROW_PITCH,
 	rowStackHeight,
@@ -215,5 +217,39 @@ Deno.test("every row a quantized lane area admits is drawn whole", () => {
 				`a ${row.kind} row straddles the lane bottom at panel height ${panel}`,
 			);
 		}
+	}
+});
+
+Deno.test("the last overflow row can scroll fully into every viewport", () => {
+	const ordered = entities(["a", "b", "c", "d"], ["s1", "s2"], ["m1"]);
+	const expanded = new Set<Exclude<LaneKind, "ruler">>([
+		"peers",
+		"sessions",
+	]);
+	const rows = rowsOf(ALL_LANES, expanded, ordered);
+	const contentHeight = rowStackHeight(
+		ALL_LANES,
+		expanded,
+		ordered,
+		MIN_LANE_HEIGHT,
+	);
+	const last = rows.at(-1);
+	assert(last !== undefined);
+
+	// Exercise every sub-row remainder, including the heights where the raw
+	// pixel viewport is larger than the row-aligned mask. The scroll ceiling
+	// must use the mask's height or that remainder becomes unreachable travel.
+	for (let panel = 0; panel <= 200; panel++) {
+		const viewport = laneViewportHeight(panel);
+		const scrollMax = laneScrollMax(contentHeight, panel);
+		assertEquals(
+			contentHeight - scrollMax,
+			Math.min(contentHeight, viewport),
+			`panel height ${panel} left an unreachable tail`,
+		);
+		assert(
+			last.y + last.height - scrollMax <= viewport,
+			`the last row remained clipped at panel height ${panel}`,
+		);
 	}
 });

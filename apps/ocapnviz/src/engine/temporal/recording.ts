@@ -250,7 +250,6 @@ export const Observation = z.discriminatedUnion("kind", [
 	MessageDeliveredObs,
 ]);
 export type Observation = z.infer<typeof Observation>;
-export type ObservationKind = Observation["kind"];
 
 export const RecordingSourceMeta = z.object({
 	/** Emitter family / kind — "pancake-host" (a live host tap), "griddle"

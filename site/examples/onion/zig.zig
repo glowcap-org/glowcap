@@ -7,7 +7,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
         .socks = "/run/tor/socks",
         .control_endpoint = "/run/tor/control",
     } };
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         onion_resident.netlayer(),
         .{ .designator = "" },
@@ -26,7 +26,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const service_key = service_key_storage[0..key_len];
     _ = service_key; // persist securely to restore this service
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

@@ -8,30 +8,34 @@
 // the pane's list is always the gateway's own answer rather than this file's
 // bookkeeping.
 
-import type { Ref, Session } from "@pancake/runtime";
 import { joinIrcChannel, partIrcChannel, snapshotIrcGateway, takeIrcGateway } from "../../../lib/room_client.ts";
 import * as store from "../store.ts";
-import type { DirId } from "../types.ts";
 import { dirs } from "./live.ts";
 import { opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
+import { invalidateOperations } from "../ops/invalidation.ts";
+import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
 
-let gatewayHeld: { session: Session; cap: Ref; dir: DirId } | null = null;
+let gatewayHeld: HeldDirectoryCapability | null = null;
 
-/** Session teardown's drop: the reference dies with its session, but a
- * remembered swiss survives so the reconnect can take it again. */
+/** Session teardown's drop: return the import while its session is available;
+ * the remembered swiss survives so reconnect can take it again. */
 export function dropIrcHold(): void {
-	if (gatewayHeld === null) return;
+	const held = gatewayHeld;
 	gatewayHeld = null;
 	store.setIrcGateway(null);
+	releaseHeldCapability(held, "IRC gateway capability release failed");
 }
 
 /** The reader's drop, from the Capabilities toggle: the capability goes and
  * so does its remembered swiss. */
-export function dropIrcGatewayCap(): void {
+export function dropIrcGatewayCap(updateVault = true): void {
 	const dir = gatewayHeld?.dir;
+	if (updateVault && dir != null && !forgetOpsSwiss("irc", dir)) {
+		store.noteTrouble("capability storage", "the saved IRC capability could not be removed");
+		return;
+	}
 	dropIrcHold();
-	if (dir !== undefined) forgetOpsSwiss("irc", dir);
 }
 
 /** Fetch the gateway on this directory's session and remember it. Returns an
@@ -42,9 +46,17 @@ export async function takeIrcGatewayCap(pasted: string, remember = false): Promi
 	if (home === null || live === null) return "This directory is not connected yet.";
 	try {
 		const taken = await takeIrcGateway(live.dir.session, pasted);
+		const stored = remember ? rememberOpsSwiss("irc", home, pasted) : forgetOpsSwiss("irc", home);
+		if (!stored) {
+			releaseHeldCapability(
+				{ session: live.dir.session, cap: taken.cap, dir: home },
+				"unsaved IRC gateway capability release failed",
+			);
+			return "This browser refused to update the saved IRC capability.";
+		}
+		const previous = gatewayHeld;
 		gatewayHeld = { session: live.dir.session, cap: taken.cap, dir: home };
-		if (remember) rememberOpsSwiss("irc", home, pasted);
-		else forgetOpsSwiss("irc", home);
+		releaseHeldCapability(previous, "replaced IRC gateway capability release failed");
 		store.setIrcGateway({ bridged: taken.rows });
 		return "";
 	} catch (error) {
@@ -56,10 +68,14 @@ export async function takeIrcGatewayCap(pasted: string, remember = false): Promi
  * capability rather than leaving a stale table under a toggle that says it
  * is held, and says so. */
 export async function refreshIrcGateway(): Promise<void> {
-	if (gatewayHeld === null) return;
+	const held = gatewayHeld;
+	if (held === null) return;
 	try {
-		store.setIrcGateway({ bridged: await snapshotIrcGateway(gatewayHeld.session, gatewayHeld.cap) });
+		const bridged = await snapshotIrcGateway(held.session, held.cap);
+		if (gatewayHeld !== held) return;
+		store.setIrcGateway({ bridged });
 	} catch (error) {
+		if (gatewayHeld !== held) return;
 		dropIrcHold();
 		opsLost("irc", reason(error));
 	}
@@ -81,7 +97,7 @@ export async function joinIrcBridge(
 	if (gatewayHeld === null) return "This tab no longer holds the gateway.";
 	try {
 		await joinIrcChannel(gatewayHeld.session, gatewayHeld.cap, choice);
-		await refreshIrcGateway();
+		await invalidateOperations(gatewayHeld.dir);
 		return "";
 	} catch (error) {
 		return reason(error);
@@ -93,7 +109,7 @@ export async function partIrcBridge(network: string, channel: string): Promise<s
 	if (gatewayHeld === null) return "This tab no longer holds the gateway.";
 	try {
 		await partIrcChannel(gatewayHeld.session, gatewayHeld.cap, network, channel);
-		await refreshIrcGateway();
+		await invalidateOperations(gatewayHeld.dir);
 		return "";
 	} catch (error) {
 		return reason(error);

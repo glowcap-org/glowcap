@@ -15,7 +15,7 @@
 // card puts the catalog back.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { KitchenSink } from "./KitchenSink.tsx";
@@ -30,7 +30,7 @@ export function Help(
 		onLayer: (held: boolean) => void;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
 	const titleId = "helpTitle";
 	const close = useRef<HTMLButtonElement>(null);
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -43,7 +43,7 @@ export function Help(
 		onLayer(held);
 		return () => onLayer(false);
 	}, [held, onLayer]);
-	useModalDialog(dialog, () => peer.closeHelp(), close, open, onExited, retain);
+	useModalDialog(dialog, () => browser.closeHelp(), close, open, onExited, retain);
 	if (!held) return null;
 
 	return (
@@ -53,7 +53,7 @@ export function Help(
 			aria-labelledby={titleId}
 		>
 			<form
-				className={sink ? "modal-card card-plane kitchen-card" : "modal-card"}
+				className={sink ? "modal-card card-plane kitchen-card" : "modal-card card-plane"}
 				onSubmit={(event) => event.preventDefault()}
 			>
 				<SettingsHead
@@ -65,14 +65,16 @@ export function Help(
 					named={open}
 					closeId={open ? "helpClose" : undefined}
 					closeRef={close}
-					onClose={() => peer.closeHelp()}
+					onClose={() => browser.closeHelp()}
 				/>
 				{sink
 					? (
 						<>
-							<Button id="kitchenBack" variant="quiet" onClick={() => setSink(false)}>
-								Back to the glossary
-							</Button>
+							<div className="actions" data-align="start">
+								<Button id="kitchenBack" variant="quiet" onClick={() => setSink(false)}>
+									Back to the glossary
+								</Button>
+							</div>
 							<KitchenSink />
 						</>
 					)
@@ -98,7 +100,7 @@ export function Help(
 								<div>
 									<dt>Capability</dt>
 									<dd>
-										A reference you hold. Holding it is the permission to use it; there is no
+										A reference you hold. Holding it is the permission to use it. There is no
 										separate account check.
 									</dd>
 								</div>
@@ -115,8 +117,8 @@ export function Help(
 											secret
 										</button>, unguessable name a peer will look up for you. Each operations
 										capability is published under one when the app is started with its flag —{" "}
-										<code>--diagnostics</code>, <code>--admin-listeners</code>, or{" "}
-										<code>--peering</code>{" "}
+										<code>--diagnostics</code>, <code>--admin-listeners</code>,{" "}
+										<code>--operator</code>, or <code>--peering</code>{" "}
 										— and that is what the server prints. A durable room link is named by one too.
 									</dd>
 								</div>

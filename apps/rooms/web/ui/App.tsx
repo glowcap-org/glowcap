@@ -9,7 +9,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
-import { useStore } from "./hooks.ts";
+import { useShallow } from "zustand/react/shallow";
+import { useRoomsState } from "./hooks.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import * as store from "./store.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
@@ -18,15 +21,17 @@ import { Members, rosterOf } from "./Members.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { Settings } from "./Settings.tsx";
 import { Help } from "./Help.tsx";
-import { OpsTakeModal } from "./ops/Take.tsx";
 import { opsAddressOf, OpsMain } from "./ops/OpsPage.tsx";
 import { DirectoryCard } from "./DirectoryCard.tsx";
 import { ConvCard } from "./ConvCard.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
 import { Viewer } from "./Viewer.tsx";
 import { Toasts } from "./Toast.tsx";
-import { awayByPeer, awayOf, dirMarkIn, type LiveRooms, opsHeldOf } from "./types.ts";
+import { awayByPeer, awayOf, dirMarkIn, type LiveRooms, opsHeldOf, sendControlsFor } from "./types.ts";
 import { directoryName, dirWhere, roomCalled } from "./text.ts";
+import { useCapabilitySetModel } from "./settings/CapabilitySetModel.tsx";
+import { effectiveRoomsSessionAccess } from "./controller/access.ts";
+import { directoryDestinationContext } from "./joining.ts";
 
 /** How long the "New messages" rule stays up once you have arrived. Long enough
  * to see where you left off, short enough not to become furniture. */
@@ -38,18 +43,32 @@ const EMPTY_PEERS: ReadonlySet<string> = new Set();
 const EMPTY_ROOMS: LiveRooms = new Map();
 
 export function App() {
-	const state = useStore();
+	const state = useRoomsState(useShallow(({ drafts: _drafts, lastSent: _lastSent, ...state }) => state));
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	// Where the address stands: on /ops the content cell shows the operations
 	// surface instead of the conversation, and the rest of the shell stays
 	// exactly what it was.
 	const ops = opsAddressOf(useLocation().pathname);
 	const mobile = state.mobile;
+	const controller = browser.roomsController();
+	if (controller.kind === "none") throw new Error("the Rooms application rendered without an established session");
+	const access = effectiveRoomsSessionAccess(controller, state.sessionAccess);
+	const canInteract = access !== "observe";
+	const sendControls = sendControlsFor(controller.kind);
+	const directoryContext = useMemo(
+		() =>
+			directoryDestinationContext(
+				state.homeDir,
+				session.directoryLocator(),
+				(locator) => session.directoryId(locator),
+			),
+		[state.homeDir, state.dirs, controller.kind],
+	);
 	const returns = state.returns;
 	const conv = state.activeKey === null ? null : state.convs.get(state.activeKey) ?? null;
 	// What is half-written here, which belongs to this conversation and not to the
 	// page: switching rooms leaves it behind and coming back finds it again.
-	const draft = state.activeKey === null ? store.NO_DRAFT : state.drafts.get(state.activeKey) ?? store.NO_DRAFT;
-
 	// Each layout reads its own field, so neither has to be told what the other
 	// did and crossing between them needs no repair.
 	const railShown = mobile ? state.listScreen : state.railOpen;
@@ -127,26 +146,36 @@ export function App() {
 	// Read live from the line it names, so bytes arriving while the viewer is
 	// open reach it rather than settling behind a copy taken when it opened.
 	const viewed = store.viewedAttachment(state);
+	const capabilitySet = useCapabilitySetModel();
 	const [helpLayer, setHelpLayer] = useState(false);
-	const [opsTakeLayer, setOpsTakeLayer] = useState(false);
 	const [dirLayer, setDirLayer] = useState(false);
-	const [errorLayer, setErrorLayer] = useState(false);
 	const [convLayer, setConvLayer] = useState(false);
 	const onHelpLayer = useCallback((held: boolean) => setHelpLayer(held), []);
-	const onOpsTakeLayer = useCallback((held: boolean) => setOpsTakeLayer(held), []);
 	const onDirLayer = useCallback((held: boolean) => setDirLayer(held), []);
-	const onErrorLayer = useCallback((held: boolean) => setErrorLayer(held), []);
 	const onConvLayer = useCallback((held: boolean) => setConvLayer(held), []);
-	// The store state blocks Settings in the same commit that opens the next
-	// layer. The held state keeps it blocked while that layer animates out.
-	// Waiting for a child layout effect alone briefly leaves two modal dialogs
-	// open, which gives the browser two competing focus traps.
-	const settingsBlocked = state.helpOpen || state.opsTake !== null ||
-		helpLayer || opsTakeLayer || state.aboutDir !== null || dirLayer ||
-		state.errorDetail !== null || state.aboutConv || errorLayer || convLayer;
+	// A layer that stands *instead of* Settings blocks it in the same commit
+	// that opens it, and the held state keeps it blocked while that layer
+	// animates out. Waiting for a child layout effect alone briefly leaves two
+	// modal dialogs open, which gives the browser two competing focus traps.
+	//
+	// The error card is not one of those. It is opened from a refusal inside
+	// whichever layer the reader is already in, and it closes back onto that
+	// refusal. Closing the layer under it would put that layer back into the
+	// top layer *after* the card it opened from, so Settings would come back
+	// standing over its own open manager card. Nested dialogs need no such
+	// dance: the browser already makes everything under the topmost one inert.
+	const settingsBlocked = state.helpOpen || capabilitySet.editing !== null || capabilitySet.modalLayer ||
+		helpLayer || state.aboutDir !== null || dirLayer || state.aboutConv || convLayer;
 	// The toggles and the Operations control mirror possession, whose one
 	// authority is the row fields the data layer sets and clears.
-	const opsHeld = opsHeldOf(state.listeners, state.diagnostics, state.irc, state.peering, state.viz);
+	const opsHeld = opsHeldOf(
+		state.listeners,
+		state.diagnostics,
+		state.irc,
+		state.operator,
+		state.peering,
+		state.viz,
+	);
 	// What the peering pane could publish: rooms joined on a directory other
 	// than this one. Memoised on the maps it reads, the same reason the roster
 	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
@@ -160,7 +189,18 @@ export function App() {
 	// reads the first this tab holds.
 	const acting = store.actingDir(state);
 	const activeDir = conv === null ? acting : state.dirs.get(conv.dir) ?? null;
-	const dmablePeers = activeDir?.dmablePeers ?? EMPTY_PEERS;
+	const peerRegistrations = activeDir?.dmablePeers;
+	const dmablePeers = useMemo(
+		() => peerRegistrations == null ? EMPTY_PEERS : new Set(peerRegistrations.keys()),
+		[peerRegistrations],
+	);
+	const currentDirectRegistration = conv?.type === "dm"
+		? activeDir?.dmablePeers.get(conv.id.toLowerCase()) ?? null
+		: null;
+	const directOnline = conv?.type === "dm" &&
+		currentDirectRegistration?.registrationId === conv.peerRegistrationId;
+	const directRegistrationChanged = conv?.type === "dm" && currentDirectRegistration != null &&
+		currentDirectRegistration.registrationId !== conv.peerRegistrationId;
 	// The name is the directory's grant, so "am I this line's author" is answered
 	// by the directory the conversation is in and by no other. Two directories
 	// may each have granted an `alice`, and they are two people.
@@ -182,8 +222,8 @@ export function App() {
 	// replaced only by the verbs that own them, so their identity is the exact
 	// test for whether the answers can have moved.
 	const joining = useMemo(
-		() => store.answers(state),
-		[state.reaching, state.edits, state.remembered, state.homeDir],
+		() => store.answers(state, directoryContext),
+		[state.reaching, state.edits, state.remembered, directoryContext],
 	);
 
 	const appClass = ["app"];
@@ -200,14 +240,27 @@ export function App() {
 	// uses the sheet instead, which `members-open` above drives.
 	const noMembers = ops.on || conv?.type === "dm" ||
 		(conv?.type === "room" && !mobile && !state.rosterOpen);
+	const composerAvailability = !canInteract
+		? "This session capability is read only."
+		: conv?.type === "dm" && conv.line === "closed"
+		? "This direct conversation is closed."
+		: directRegistrationChanged
+		? "This nickname registration ended. Start a new conversation with its current holder."
+		: conv?.type !== "room" || conv.membership === "joined"
+		? ""
+		: conv.membership === "unavailable"
+		? "You are not in this room. Select it in the rooms list to retry."
+		: "Joining this room…";
 
 	return (
 		<div className={appClass.join(" ")}>
 			<Sidebar
+				canInteract={canInteract}
 				cardUp={conv === null && !ops.on}
 				convs={state.convs}
 				dirs={state.dirs}
 				homeDir={state.homeDir}
+				directoryContext={directoryContext}
 				activeKey={state.activeKey}
 				acting={acting?.id ?? null}
 				join={joining}
@@ -243,9 +296,10 @@ export function App() {
 				inert={mobile && state.listScreen ? true : undefined}
 			>
 				<Topbar
+					canInteract={canInteract}
 					conv={conv}
 					ops={ops.on}
-					online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
+					online={directOnline}
 					away={conv?.type === "dm" ? awayOf(awayWords, conv.dir, conv.id) : null}
 					unread={unread}
 					mobile={mobile}
@@ -261,24 +315,27 @@ export function App() {
 					{ops.on ? <OpsMain segment={ops.segment} /> : (
 						<>
 							<Stream
+								canInteract={canInteract}
 								conv={conv}
 								nick={nick}
-								draft={draft.text}
-								draftFiles={draft.files}
-								changing={draft.changing}
-								draftKeeping={draft.keeping}
 								liveRooms={acting?.liveRooms ?? EMPTY_ROOMS}
 								reachable={dmablePeers}
 								join={joining}
 								dirs={state.dirs}
-								homeDir={state.homeDir}
-								composerEnabled={conv !== null && activeDir?.session === "connected"}
+								directoryContext={directoryContext}
+								composerEnabled={canInteract && conv !== null && activeDir?.session === "connected" &&
+									(conv.type === "room"
+										? conv.membership === "joined"
+										: !directRegistrationChanged && conv.line !== "closed")}
 								composerPhase={activeDir?.session ?? "disconnected"}
+								composerAvailability={composerAvailability}
 								ignored={state.ignored}
+								sendControls={sendControls}
 								mobile={mobile}
 							/>
 							<ErrorBoundary part="member list">
 								<Members
+									canInteract={canInteract}
 									conv={room}
 									roster={roster}
 									nick={nick}
@@ -305,17 +362,19 @@ export function App() {
 				dir={onDir}
 				opsHeld={opsHeld}
 				keepHistory={state.keepHistory}
+				archiveTarget={state.archiveTarget}
+				sessionAccess={state.sessionAccess}
 				tab={state.settingsTab}
 			/>
 			<Help
-				open={state.helpOpen && state.errorDetail === null && !errorLayer}
+				open={state.helpOpen}
 				retain={state.helpOpen}
 				theme={state.theme}
 				notifyOn={state.notifyOn}
 				onLayer={onHelpLayer}
 			/>
-			<OpsTakeModal cap={state.opsTake} onLayer={onOpsTakeLayer} />
 			<DirectoryCard
+				canInteract={canInteract}
 				dir={state.aboutDir === null ? null : state.dirs.get(state.aboutDir) ?? null}
 				rooms={state.aboutDir === null ? 0 : store.joinedRooms(state.aboutDir).length}
 				lines={state.aboutDir === null
@@ -329,19 +388,29 @@ export function App() {
 			<ErrorDetail
 				title={state.errorDetail?.title ?? null}
 				text={state.errorDetail?.text ?? null}
-				onLayer={onErrorLayer}
 			/>
 			<ConvCard
+				canInteract={canInteract}
 				conv={state.aboutConv ? conv : null}
+				archiveShares={conv === null
+					? []
+					: state.archiveShares.filter((share) => share.conversationKey === conv.key)}
+				initialPane={state.aboutConvPane}
+				request={state.aboutConvRequest}
+				administeredBridge={conv?.type === "room" && conv.dir === state.homeDir
+					? state.irc?.bridged.find((bridge) =>
+						bridge.roomName === conv.id &&
+						bridge.endpoint === store.bridgedOrigin(activeDir ?? undefined, conv.id)
+					) ?? null
+					: null}
 				dir={conv === null ? null : state.dirs.get(conv.dir) ?? null}
 				homeDir={state.homeDir}
 				mark={conv === null ? undefined : dirMarkIn(conv.dir, state.homeDir, state.dirs)}
 				standing={conv === null || conv.type !== "room" ? "" : store.standingFor(conv.key, state)}
 				follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
-				online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
+				online={directOnline}
 				away={conv?.type === "dm" ? awayOf(awayWords, conv.dir, conv.id) : null}
-				open={state.aboutConv && state.aboutDir === null && !dirLayer &&
-					state.errorDetail === null && !errorLayer}
+				open={state.aboutConv && state.aboutDir === null && !dirLayer}
 				retain={state.aboutConv}
 				onLayer={onConvLayer}
 			/>

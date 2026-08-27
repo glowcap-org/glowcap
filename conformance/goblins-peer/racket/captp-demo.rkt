@@ -7,11 +7,10 @@
 ;; capability-invocation message through Spritely's CapTP, using the
 ;; `fake-intarwebs` netlayer (in-process, but real CapTP semantics).
 ;;
-;; Why this matters for pancake: it's the first time the Vat speaks
-;; OCapN-on-the-wire (in the Spritely sense) rather than just running
-;; its own local accountability loop. The next step toward pancake-side
-;; interop is swapping `fake-intarwebs` for a real netlayer (Tor, custom
-;; TCP, or an iroh netlayer) so a pancake process can be the peer.
+;; This is the Goblins-only, in-process control: it pins CapTP semantics above
+;; a fake netlayer without making a claim about pancake. `tcp-demo.rkt` holds
+;; the corresponding real-socket control; `goblins-interop` and the live
+;; handoff/gift/exporter rows cover the cross-implementation seams.
 ;;
 ;; What this does NOT yet do:
 ;;   - Speak to a non-Goblins peer (the netlayer is in-process).

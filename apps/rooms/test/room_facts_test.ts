@@ -13,6 +13,7 @@
 import { lineNotShowable, lineRoom } from "../web/ui/text.ts";
 import {
 	lineCost,
+	MAX_DIRECTORY_DISCOVERY_ROWS,
 	MAX_LINE,
 	MAX_NICK,
 	MAX_ROOM,
@@ -30,7 +31,9 @@ import {
 	readRoomFacts,
 	readTopic,
 } from "../lib/room_client.ts";
+import { parseDirectoryWatchSnapshot, parseRooms } from "../lib/directory_publications.ts";
 import { assertEquals } from "./assert.ts";
+import { registrationId } from "./support/registration.ts";
 
 const APP_MAX = 8192;
 
@@ -120,6 +123,28 @@ Deno.test("a room states its topic in the same tail", () => {
 	assertEquals(readTopic(["alice", "welcome", "topic", 7n]), undefined, "not text");
 });
 
+Deno.test("a bridged room states one member's IRC seat without exposing an account", () => {
+	assertEquals(
+		readPresence(["room", "", "irc-seat", "alice", "linked", "alice_irc"]),
+		{ kind: "irc-seat", name: "alice", state: "linked", nick: "alice_irc" },
+		"a linked seat",
+	);
+	assertEquals(
+		readPresence(["room", "", "irc-seat", "alice", "rooms", "alice_irc"]),
+		{ kind: "irc-seat", name: "alice", state: "rooms", nick: "alice_irc" },
+		"a cleared seat",
+	);
+	for (
+		const malformed of [
+			["room", "", "irc-seat", "alice", "unknown", "alice_irc"],
+			["room", "", "irc-seat", "alice", "linked"],
+			["room", "", "irc-seat", "a".repeat(MAX_NICK + 1), "linked", "alice_irc"],
+		]
+	) {
+		assertEquals(readPresence(malformed), undefined, `malformed seat ${JSON.stringify(malformed)}`);
+	}
+});
+
 Deno.test("the two room facts do not answer for each other", () => {
 	// They ride the same tail and are told apart by their name alone, so reading
 	// one as the other would put a byte count in the topic bar or a sentence in
@@ -191,12 +216,20 @@ Deno.test("a directory's live feed is read the way its other claims are", () => 
 		count: 1,
 		entry: lobby,
 	});
-	assertEquals(readRoomEvent(["registered", "ada", 1n]), {
+	assertEquals(readRoomEvent(["registered", "ada", 1n, registrationId(1)]), {
 		kind: "registered",
 		name: "ada",
+		registrationId: registrationId(1),
 		count: 1,
 		entry: null,
 	});
+	assertEquals(readRoomEvent(["truncated", 4n]), {
+		kind: "truncated",
+		name: "",
+		count: 4,
+		entry: null,
+	});
+	assertEquals(readRoomEvent(["truncated", 4n, "extra"]), null, "a truncated event accepted trailing data");
 
 	assertEquals(readRoomEvent(["gossip", "lobby", 1n]), null, "a kind nobody knows was taken as one");
 	assertEquals(readRoomEvent(["opened", "", 1n]), null, "an unnamed room was taken");
@@ -233,6 +266,64 @@ Deno.test("a directory's live feed is read the way its other claims are", () => 
 		"a foreign room's unknown occupancy was invented",
 	);
 });
+
+Deno.test("a directory snapshot is complete, bounded, and generation-unique", () => {
+	const local = ["lobby", 1n, "room-generation", "local", "", "local"];
+	assertEquals(parseRooms([local]).map((room) => room.id), ["room-generation"]);
+	let malformed = "";
+	try {
+		parseRooms([local, ["broken"]]);
+	} catch (error) {
+		malformed = error instanceof Error ? error.message : String(error);
+	}
+	assertEquals(malformed.includes("invalid room-list row"), true);
+	let duplicate = "";
+	try {
+		parseRooms([local, local]);
+	} catch (error) {
+		duplicate = error instanceof Error ? error.message : String(error);
+	}
+	assertEquals(duplicate.includes("invalid room-list row"), true);
+	let oversized = "";
+	try {
+		parseRooms(Array.from({ length: MAX_DIRECTORY_DISCOVERY_ROWS + 1 }, () => local));
+	} catch (error) {
+		oversized = error instanceof Error ? error.message : String(error);
+	}
+	assertEquals(oversized.includes("oversized room list"), true);
+});
+
+Deno.test("a directory watch snapshot validates claims and aggregate bounds as one document", () => {
+	const local = ["lobby", 1n, "room-generation", "local", "", "local"];
+	assertEquals(parseDirectoryWatchSnapshot([[local], [["Ada", registrationId(1)]], 0n]), {
+		rooms: [{ id: "room-generation", name: "lobby", kind: "local", count: 1, origin: "", proof: "local" }],
+		peers: [{ name: "Ada", registrationId: registrationId(1) }],
+		omitted: 0,
+	});
+	for (
+		const malformed of [
+			[[local], [["Ada", registrationId(1)], ["ada", registrationId(2)]], 0n],
+			[[local], [["Ada", registrationId(1)], ["Bo", registrationId(1)]], 0n],
+			[[local], [["Ada", ""]], 0n],
+			[[local], [["Ada", registrationId(1)]], -1n],
+		]
+	) {
+		assertEquals(
+			refused(() => parseDirectoryWatchSnapshot(malformed)),
+			true,
+			"a malformed directory watch snapshot was accepted",
+		);
+	}
+});
+
+function refused(run: () => unknown): boolean {
+	try {
+		run();
+		return false;
+	} catch {
+		return true;
+	}
+}
 
 Deno.test("a relayed bring-up is held to a size at both ends of the relay", () => {
 	// The directory carries an offer, an answer, and every candidate between two

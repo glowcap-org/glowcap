@@ -35,10 +35,6 @@ export const explicitBound = (value: number): Bound => ({
  *  context (it can't; it doesn't know about it). */
 export const withExplicit = (b: Bound): Bound => b.explicit ? b : { ...b, explicit: true };
 
-/** Make a bound implicit while preserving its stored value so a
- *  later `withExplicit` can restore the user's last input. */
-export const withImplicit = (b: Bound): Bound => b.explicit ? { ...b, explicit: false } : b;
-
 /** Set the stored value AND mark explicit. The common case for an
  *  authoring intent that takes a user-typed number. */
 export const withValue = (_b: Bound, value: number): Bound => ({

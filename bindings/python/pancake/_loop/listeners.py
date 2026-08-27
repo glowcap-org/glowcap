@@ -171,7 +171,12 @@ class _ListenersMixin(DriverLoopMixinBase):
         )
 
     def close_listener(self, listener: ListenerLike) -> None:
-        """Stop one listener after preserving already committed accepts."""
+        """Commit one listener stop after preserving committed accepts.
+
+        Provider teardown may remain asynchronous. In that case loop progress
+        retries the native barrier; :meth:`wait_listener_closed` observes its
+        terminal result.
+        """
         listener = self._listener_id(listener)
         # A terminal setup event may already be queued while the caller is
         # cancelling its waiter. Consume it before asking native code to
@@ -180,18 +185,56 @@ class _ListenersMixin(DriverLoopMixinBase):
         owner = self._listeners.get(listener)
         if owner is None:
             return
-        _close_listener(self._h, listener)
         owner._closed = True
+        if listener in self._closing_listeners:
+            return
         try:
-            self._dispatch_many(self._pop_events())
-        finally:
-            self._finish_listener_close(listener)
+            closed = _close_listener(self._h, listener)
+        except PancakeError as error:
+            self._finish_listener_close(listener, error)
+            raise
+        if closed:
+            try:
+                self._dispatch_many(self._pop_events())
+            finally:
+                self._finish_listener_close(listener)
+            return
+        self._closing_listeners.add(listener)
+        self.schedule_step()
+        self._rearm_progress_timer()
+
+    async def wait_listener_closed(self, listener: ListenerLike) -> None:
+        """Join a listener stop, including asynchronous provider teardown."""
+        listener = self._listener_id(listener)
+        self.close_listener(listener)
+        if listener not in self._listeners and listener not in self._closing_listeners:
+            return
+        waiter = self._listener_close_waiters.get(listener)
+        if waiter is None:
+            waiter = self._started_loop().create_future()
+            self._listener_close_waiters[listener] = waiter
+        # The listener teardown belongs to the loop, not to any one waiter.
+        # Caller cancellation abandons only this await; a later close can join
+        # the same native barrier and observe its terminal outcome.
+        await asyncio.shield(waiter)
+
+    def _advance_closing_listeners(self) -> None:
+        """Retry native listener barriers after one productive driver step."""
+        for listener in tuple(self._closing_listeners):
+            try:
+                closed = _close_listener(self._h, listener)
+            except PancakeError as error:
+                self._finish_listener_close(listener, error)
+                continue
+            if closed:
+                self._finish_listener_close(listener)
 
     def _finish_listener_close(
         self, listener: int, failure: Optional[PancakeError] = None
     ) -> None:
         """Retire every binding-owned row for one terminal listener."""
         owner = self._listeners.pop(listener, None)
+        self._closing_listeners.discard(listener)
         if owner is not None:
             if failure is not None:
                 owner._mark_failed(failure)
@@ -208,6 +251,12 @@ class _ListenersMixin(DriverLoopMixinBase):
             self._release_unclaimed(listener)
             accepts.put_nowait(failure if failure is not None else _ACCEPTS_CLOSED)
             del self._accepts[listener]
+        close_waiter = self._listener_close_waiters.pop(listener, None)
+        if close_waiter is not None and not close_waiter.done():
+            if failure is None:
+                close_waiter.set_result(None)
+            else:
+                close_waiter.set_exception(failure)
 
     async def wait_listener(self, listener: ListenerLike) -> ListenerOwner:
         """Await provider construction and return the stable listener owner.

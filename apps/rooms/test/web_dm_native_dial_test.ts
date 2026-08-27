@@ -29,6 +29,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_native_dial_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { formatPeerUri, Runtime, TRANSPORT_NOISE_RELAY } from "@pancake/runtime";
 import * as relay from "@pancake/relay";
 import * as tcp from "@pancake/tcp";
@@ -36,46 +37,14 @@ import { dial, roomsHost } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { awaitBubble, fail, openDmTo, until } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi web-bob, from a native peer that cold-dialed your identity";
 const REPLY_TEXT = "got it native-carol, replying over your arriving connection";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up / room not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
-
-async function until(ready: () => boolean, what: string, ms = 30_000): Promise<void> {
-	const start = Date.now();
-	while (!ready()) {
-		if (Date.now() - start > ms) fail(what);
-		await new Promise((r) => setTimeout(r, 50));
-	}
-}
 
 // Join `ROOM` as `nick` in a fresh tab and wait until the composer is live —
 // the signal that the room session is up and the tab has begun
@@ -84,6 +53,7 @@ async function joinAs(browser: Browser, port: number, nick: string): Promise<Pag
 	const tab = await (await browser.newContext()).newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	await tab.goto(`http://127.0.0.1:${port}/?dm=relay`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -96,31 +66,12 @@ async function joinAs(browser: Browser, port: number, nick: string): Promise<Pag
 
 // Open the direct line to `peer` from the tab's members list. The button is
 // there only once `peer` is both in the roster and advertised as DM-able.
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
-}
-
 async function send(tab: Page, text: string): Promise<void> {
 	await tab.fill("#line", text);
 	await tab.press("#line", "Enter");
 }
 
 // Wait until a bubble carrying `text` is on screen in the active conversation.
-async function awaitBubble(tab: Page, text: string, who: string): Promise<void> {
-	await tab.waitForFunction(
-		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
-		text,
-		{ timeout: 30_000 },
-	).catch(async () => {
-		const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
-		console.error(`  [${who} #log] ${JSON.stringify(log)}`);
-		fail(`${who} never rendered "${text}"`);
-	});
-}
-
 const deadline = setTimeout(
 	() => fail("web-dm-native-dial scenario timed out after 120s"),
 	120_000,
@@ -195,9 +146,11 @@ try {
 	// dials web-bob's identity through the relay rendezvous, off-room. The
 	// noise-relay session opens native-to-tab; her line lands on the tab's giftable.
 	const replies: string[] = [];
-	const line = await DirectMessage.open(carol, "web-bob", (text) => {
-		replies.push(text);
-		return null;
+	const line = await DirectMessage.open(carol, "web-bob", {
+		message: (text) => {
+			replies.push(text);
+			return null;
+		},
 	});
 	await line.say(DM_TEXT);
 

@@ -13,7 +13,8 @@ import { dmMode } from "./prefs.ts";
 import { CopyField } from "./Copy.tsx";
 import { Button } from "./Button.tsx";
 import { openModalFrom } from "./modal.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 
 function roomKind(held: boolean): string {
 	return held ? "Private room" : "Public room";
@@ -30,17 +31,20 @@ function dmPath(): string {
 }
 
 export function ConvFacts(
-	{ conv, dir, directory }: { conv: Conv; dir: DirView | null; directory: string },
+	{ conv, dir, directory, bridgeOrigin = null }: {
+		conv: Conv;
+		dir: DirView | null;
+		directory: string;
+		bridgeOrigin?: string | null;
+	},
 ) {
-	const peer = usePeer();
-	const session = dir?.session;
+	const browser = useRoomsBrowser();
+	const rooms = useRoomsSession();
+	const phase = dir?.session;
 	const connection = dir == null ? null : dirConnection(dir.session, dir.statusText);
 	const here = conv.type === "room" ? membersHere(conv.members) : 0;
-	const grants = conv.type === "room" && conv.grants.size > 0
-		? [...conv.grants].sort().map((name) => "/" + name).join(", ")
-		: "";
 	const roomLink = conv.type === "room" ? conv.link : undefined;
-	const locator = roomLink ?? (dir === null ? null : peer.dirAddress(dir.id));
+	const locator = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
 	const locatorKind = roomLink === undefined ? "Directory locator" : "Room link";
 	const locatorLabel = roomLink === undefined ? "Copy the locator for " + directory : "Copy the room link";
 	return (
@@ -57,7 +61,8 @@ export function ConvFacts(
 							id="convcardDir"
 							variant="link"
 							aria-haspopup="dialog"
-							onClick={(event) => openModalFrom(event.currentTarget, () => peer.aboutDirectory(dir.id))}
+							onClick={(event) =>
+								openModalFrom(event.currentTarget, () => browser.aboutDirectory(dir.id))}
 						>
 							{directory}
 						</Button>
@@ -67,7 +72,7 @@ export function ConvFacts(
 					<>
 						<dt>Connection</dt>
 						<dd>
-							<span className={"dot " + session} aria-hidden="true" />
+							<span className={"dot " + phase} aria-hidden="true" />
 							{connection.said}
 							{connection.why !== "" && <span className="dirfact-why">{connection.why}</span>}
 						</dd>
@@ -77,6 +82,12 @@ export function ConvFacts(
 				<dd>{dir === null || dir.nick === "" ? "Not granted yet" : dir.nick}</dd>
 				{conv.type === "room" && (
 					<>
+						{bridgeOrigin !== null && (
+							<>
+								<dt>IRC channel</dt>
+								<dd>Bridged via {bridgeOrigin}</dd>
+							</>
+						)}
 						<dt>Topic</dt>
 						<dd>{conv.topic === undefined || conv.topic === "" ? "None set" : conv.topic}</dd>
 						<dt>Members here</dt>
@@ -85,12 +96,6 @@ export function ConvFacts(
 							<>
 								<dt>Line limit</dt>
 								<dd>{"Up to " + conv.lineBytes + " bytes"}</dd>
-							</>
-						)}
-						{grants !== "" && (
-							<>
-								<dt>This membership can</dt>
-								<dd>{grants}</dd>
 							</>
 						)}
 					</>
@@ -104,7 +109,7 @@ export function ConvFacts(
 					</>
 				)}
 			</dl>
-			<p className="uri-label" id="convcardUriKind">{locatorKind}</p>
+			<p className="field-label" id="convcardUriKind">{locatorKind}</p>
 			<CopyField
 				id="convcardLocator"
 				text={locator}

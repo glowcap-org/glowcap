@@ -142,7 +142,7 @@
 ;; <op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>.
 ;;
 ;; V1_0 Goblins-canonical resolver-callback shape per
-;; src/ocapn/model/mod.zig (ADR-0003) and src/ocapn/codec/syrup/core.zig
+;; src/ocapn/model/mod.zig (ADR-0003) and src/ocapn/codec/syrup/mod.zig
 ;; § "Versioned wire shapes": the fourth `op:deliver` field carries the
 ;; partner-installable `<desc:import-object pos>` resolver descriptor
 ;; (Goblins encodes it via `marshall-local-refr!` in

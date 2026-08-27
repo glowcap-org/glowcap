@@ -71,7 +71,6 @@ const crypto = foundation.crypto;
 const Io = std.Io;
 
 const Netlayer = netlayer.Netlayer;
-const NetLayerListener = netlayer.Listener;
 const Buffers = netlayer.Buffers;
 const Connection = connection.Connection;
 const DialError = netlayer.DialError;
@@ -143,7 +142,8 @@ pub const Resident = struct {
 
     /// Parse a resident that can both dial through `relay_url` and register a
     /// listener at `register_url`. The caller derives `public_key` from the Host
-    /// identity used to sign accepted sessions.
+    /// identity used to sign accepted sessions. Production builds registered
+    /// residents through `Provider`; this direct form is reached only by tests.
     pub fn initRegistered(
         allocator: std.mem.Allocator,
         io: std.Io,
@@ -235,9 +235,10 @@ pub const Resident = struct {
         } };
     }
 
-    /// Open the relay leg without attaching it to a protocol peer. Provider
-    /// archives use this byte seam; the Host above them owns framing and any
-    /// sealed channel selected by the profile.
+    /// Open the relay leg without attaching it to a protocol peer, keeping only
+    /// the failure's classification. The provider archive dials through
+    /// `dialRawOutcome` so it can project the whole failure; this collapsed
+    /// form is reached only by tests.
     pub fn dialRaw(self: *Resident, locator: model.PeerLocator) DialError!RawConnection {
         return switch (self.dialRawOutcome(locator)) {
             .connected => |raw| raw,

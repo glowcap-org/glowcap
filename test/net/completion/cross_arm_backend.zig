@@ -17,27 +17,17 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const tcp = pancake.net.tcp;
-const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../../support/fetch_pump.zig");
 const handshake = @import("../../support/handshake.zig");
-const no_dial = @import("../../support/no_dial_locator.zig");
+const fixtures = @import("../../support/completion_loop_fixtures.zig");
 
-const frame_cap = 4096;
-
-pub fn startSession(designator: []const u8) model.Message {
-    return handshake.startSession(tcp.transport_name, designator);
-}
-
-pub fn makeServerPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
-    _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-    errdefer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-    _ = try peer.registerBootstrapCap("thermostat");
-    try peer.sendCopying(startSession("server"));
-    return peer;
-}
+/// The shared completion-loop fixtures own the peer factory and the outbound
+/// drains; this backend adds only the cross-arm schedule on top of them.
+pub const startSession = fixtures.startSession;
+pub const makeServerPeer = fixtures.makeServerPeer;
+pub const drainOutboundBytes = fixtures.drainOutboundBytes;
+pub const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 
 // ── End to end: a quiet partner hears a cross-armed frame ────────────────────
 
@@ -238,22 +228,3 @@ pub const CrossArmBackend = struct {
         return n;
     }
 };
-
-/// Encode `peer`'s queued sends and append their frame bytes to `sink`.
-pub fn drainOutboundBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
-    while ((try peer.step()) != .idle) {}
-    while (peer.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try sink.appendSlice(allocator, frame.bytes());
-    }
-}
-
-pub fn drainOutboundStreamBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
-    while ((try peer.step()) != .idle) {}
-    while (peer.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        _ = try pancake.net.appendFrameBytes(sink, allocator, frame.bytes());
-    }
-}

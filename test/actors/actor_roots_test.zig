@@ -3,7 +3,7 @@
 //! its borrowed reply safe, the typed refusal a queued turn takes when its
 //! target was reclaimed, and restore's intersect-never-resurrect rule. The
 //! Host-composition rooting relationships (aliases, capability slots, export
-//! bindings, gift rows) are proven in `test/driver/core_host_test.zig`.
+//! bindings, gift rows) are proven in `test/driver/core_host/`.
 
 const std = @import("std");
 const pancake = @import("pancake");

@@ -1,8 +1,8 @@
 /**
  * World — the gospel root context for all temporal inheritance.
- * Starts at 0; runs to infinity. Not user-editable for now; if
- * that changes, only this module updates and the resolvers
- * re-read transparently.
+ * Starts at 0; runs to infinity. It is not user-editable: the
+ * resolvers read it through this one module, so a change to that
+ * boundary lands here and nowhere else.
  *
  * See `docs/temporal-model.md`.
  */

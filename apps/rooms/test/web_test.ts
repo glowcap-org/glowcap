@@ -23,6 +23,7 @@ import {
 } from "../web/relay.ts";
 import { assertEquals } from "./assert.ts";
 import { spawnOwned, stopOwned } from "./support/children.ts";
+import { freePort } from "./support/rooms_server.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
@@ -42,14 +43,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<string> {
+/** Fetch the served index page once the web UI answers on `port`. Not the
+ * `/locator` readiness probe in support: this reads the page body. */
+async function waitForIndex(port: number): Promise<string> {
 	const deadline = Date.now() + 10_000;
 	let lastError: unknown;
 	while (Date.now() < deadline) {
@@ -80,6 +76,34 @@ async function withWeb(
 		await stopOwned(proc);
 	}
 }
+
+Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
+	const httpPort = freePort();
+	const roomPort = freePort();
+	const state = await Deno.makeTempDir({ prefix: "pancake-rooms-web-output-" });
+	const proc = spawnOwned("deno", {
+		args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort), "--operator"],
+		cwd: ROOT,
+		env: { PANCAKE_ROOMS_STATE: state },
+		stdout: "piped",
+		stderr: "piped",
+	});
+	const stdout = new Response(proc.stdout).text();
+	const stderr = new Response(proc.stderr).text();
+	let output = "";
+	try {
+		try {
+			await waitForIndex(httpPort);
+		} finally {
+			await stopOwned(proc);
+		}
+		output = `${await stdout}\n${await stderr}`;
+	} finally {
+		await Deno.remove(state, { recursive: true });
+	}
+	assertEquals(output.match(/^ROOMS-OPERATOR [0-9a-f]{64}$/gm)?.length ?? 0, 1);
+	assert(!output.includes("operator capabilities, paste"), "the supervisor printed a second capability projection");
+});
 
 /** Reach the room server the way the page does: dial its tcp locator through
  * serve.ts's `/relay` and list the directory. Resolves the room count on
@@ -266,7 +290,7 @@ Deno.test("the relay capacity caps admit under the ceiling and refuse at it", ()
 
 Deno.test("a pancake peer reaches the room server through the /relay byte pipe", async () => {
 	await withWeb(async (httpPort, roomPort) => {
-		await waitForHttp(httpPort);
+		await waitForIndex(httpPort);
 		// The relay refuses targets off the allow-list before upgrading.
 		const refused = await fetch(
 			`http://127.0.0.1:${httpPort}/relay?target=127.0.0.1:22`,
@@ -374,9 +398,9 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 	const first = spawnWeb(httpFirst);
 	let second: Deno.ChildProcess | null = null;
 	try {
-		await waitForHttp(httpFirst); // the first now owns roomPort
+		await waitForIndex(httpFirst); // the first now owns roomPort
 		second = spawnWeb(httpSecond);
-		const page = await waitForHttp(httpSecond);
+		const page = await waitForIndex(httpSecond);
 		assert(
 			page.includes("pancake rooms"),
 			"the attached instance should serve the page",
@@ -407,9 +431,9 @@ Deno.test("rooms web UI takes over when an attached room server dies", async () 
 	const first = spawnWeb(httpFirst);
 	let second: Deno.ChildProcess | null = null;
 	try {
-		await waitForHttp(httpFirst);
+		await waitForIndex(httpFirst);
 		second = spawnWeb(httpSecond);
-		await waitForHttp(httpSecond);
+		await waitForIndex(httpSecond);
 
 		try {
 			first.kill("SIGINT");

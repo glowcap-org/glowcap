@@ -5,17 +5,17 @@
 //! quiescent transfer when the driver returns.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 pub const tracks_thread_affinity = std.debug.runtime_safety;
-const unclaimed_owner_thread_id: u64 = 0;
-pub const OwnerThreadId = if (tracks_thread_affinity) u64 else void;
-pub const initial_owner_thread_id: OwnerThreadId = if (tracks_thread_affinity) unclaimed_owner_thread_id else {};
+const OwnerThread = foundation.thread_affinity.OwnerThread(tracks_thread_affinity);
+const unclaimed_owner_thread_id = OwnerThread.unclaimed;
+pub const OwnerThreadId = OwnerThread.Id;
+pub const initial_owner_thread_id = OwnerThread.initial;
 
 fn currentOwnerThreadId() OwnerThreadId {
     if (comptime !tracks_thread_affinity) return {};
-    const token = @as(u64, @intCast(std.Thread.getCurrentId())) +% 1;
-    std.debug.assert(token != unclaimed_owner_thread_id);
-    return token;
+    return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
 }
 
 /// Latch the owning thread at `run` entry. Setup (`init`, `dial`, `attach`)

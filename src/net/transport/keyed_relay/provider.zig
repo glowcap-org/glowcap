@@ -26,6 +26,9 @@ pub const Provider = struct {
         self.finishInit();
     }
 
+    /// The TLS form with the default relay configuration. The native TLS
+    /// provider (`native_mbedtls`) reaches `initConfiguredWithTls` with its own
+    /// configuration; this default form is reached only by tests.
     pub fn initWithTls(
         self: *Provider,
         allocator: std.mem.Allocator,

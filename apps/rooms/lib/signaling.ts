@@ -16,6 +16,7 @@ import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 import { SIG_CANDIDATE, SIG_OFFER } from "./protocol.ts";
 import { relayedSignalFits } from "./limits.ts";
 import { type Directory, signalingRoute } from "./room_client.ts";
+import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 
 const MAX_PENDING_OFFERS = 32;
 const SIGNALING_OPEN_TIMEOUT_MS = 30_000;
@@ -177,29 +178,37 @@ export async function serveWebrtcSignaling(opts: {
 		task.then(retire, retire);
 	};
 	const inbox = d.session.spawn((verb, args) => {
-		const id = typeof args[0] === "string" ? args[0] : "";
-		const payload = typeof args[1] === "string" ? args[1] : "";
+		releaseUnclaimedCapabilityArguments(
+			d.session,
+			args,
+			"the signaling inbox could not return an unexpected capability",
+		);
+		if (verb !== SIG_OFFER && verb !== SIG_CANDIDATE) {
+			throw new Error(`signaling inbox has no method ${verb}`);
+		}
+		if (args.length !== 2 || typeof args[0] !== "string" || typeof args[1] !== "string") {
+			throw new Error(`${verb} needs one exchange id and signaling payload`);
+		}
+		const [id, payload] = args;
 		// A directory holds what it relays to a size, and a directory is whatever
 		// answered the address somebody typed — so what arrives is held to the same
 		// size here, before an exchange id becomes a key or a candidate is parsed.
-		// Dropped rather than answered: a bring-up nobody can act on is not one.
-		if (!relayedSignalFits(verb === SIG_OFFER ? "description" : "candidate", id, payload)) return null;
+		if (!relayedSignalFits(verb === SIG_OFFER ? "description" : "candidate", id, payload)) {
+			throw new Error(`${verb} carries an invalid or oversized signaling payload`);
+		}
 		if (verb === SIG_OFFER) {
 			startOffer(id, payload);
 			return null;
 		}
-		if (verb === SIG_CANDIDATE) {
-			try {
-				const candidate: unknown = JSON.parse(payload);
-				void peers.get(id)?.addRemoteCandidate(candidate).catch(() => {
-					// A late, duplicate, or malformed candidate cannot revive an exchange.
-				});
-			} catch (error) {
-				onError(error);
-			}
-			return null;
+		try {
+			const candidate: unknown = JSON.parse(payload);
+			void peers.get(id)?.addRemoteCandidate(candidate).catch(() => {
+				// A late, duplicate, or malformed candidate cannot revive an exchange.
+			});
+		} catch (error) {
+			onError(error);
 		}
-		throw new Error(`signaling inbox has no method ${verb}`);
+		return null;
 	});
 	await d.offerSignaling(inbox);
 	return {

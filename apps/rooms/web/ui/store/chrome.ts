@@ -13,14 +13,15 @@ import {
 	type ListenerRow,
 	type OpsCap,
 	type PeeringState,
+	type RoomsOperatorState,
 	type ToastKind,
 	type ViewerDirection,
 	type VizPublishState,
 } from "../types.ts";
 import type { IrcGatewayState } from "../types.ts";
+import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
-import { type Draft, KEY, NO_DRAFT, set, type State, state } from "./core.ts";
-import { LS } from "../storage.ts";
+import { type Draft, get, NO_DRAFT, set, type State } from "./core.ts";
 import { actingDir } from "./convs.ts";
 import { markRead } from "./items.ts";
 import { patchDir, setDirStatus } from "./dirs.ts";
@@ -42,28 +43,29 @@ let nextToastId = 1;
  * the others move down. */
 export function toast(kind: ToastKind, text: string): void {
 	const notice = { id: nextToastId++, kind, text };
-	const toasts = [notice, ...state.toasts];
+	const toasts = [notice, ...get().toasts];
 	set({ toasts: toasts.length > MAX_TOASTS ? toasts.slice(0, MAX_TOASTS) : toasts });
 }
 
 /** Take one notice off, by the id it was given. Unknown ids are a no-op so a
  * timer and a press can race without the second one inventing a failure. */
 export function dismissToast(id: number): void {
-	if (!state.toasts.some((notice) => notice.id === id)) return;
-	set({ toasts: state.toasts.filter((notice) => notice.id !== id) });
+	const toasts = get().toasts;
+	if (!toasts.some((notice) => notice.id === id)) return;
+	set({ toasts: toasts.filter((notice) => notice.id !== id) });
 }
 /** What is ready to send in a conversation, or an empty draft.
  *
  * Every reader of a draft goes through here, so "no row yet" and "a row that has
  * been emptied" are one answer rather than two the callers each have to handle. */
 export function draftFor(key: string | null): Draft {
-	return (key === null ? undefined : state.drafts.get(key)) ?? NO_DRAFT;
+	return (key === null ? undefined : get().drafts.get(key)) ?? NO_DRAFT;
 }
 
 /** The draft of the conversation on screen. The composer only exists inside one,
  * so this is what it reads and what its verbs below write. */
 export function activeDraft(): Draft {
-	return draftFor(state.activeKey);
+	return draftFor(get().activeKey);
 }
 
 /** Write the conversation on screen's draft, dropping the row once there is
@@ -73,6 +75,7 @@ export function activeDraft(): Draft {
  * Nothing happens with no conversation on screen: there would be no addressee,
  * and the composer is not drawn there anyway. */
 function setActiveDraft(next: Draft): void {
+	const state = get();
 	const key = state.activeKey;
 	if (key === null) return;
 	const drafts = new Map(state.drafts);
@@ -124,18 +127,27 @@ export function clearDraftFiles(): void {
 }
 /** Record the name `dir` granted.
  *
- * One directory's answer and no other's. A directory may hand back a variant of
- * what was asked for, `alice` is taken so `alice-2`, and that variant is true
- * there and nowhere else. Written once per directory, read wherever the question
- * is "is this line mine", which is always a question about one conversation and
- * therefore about one directory. */
+ * One directory's answer and no other's. Admission accepts the requested
+ * value exactly or refuses it, and an accepted name is true only in this
+ * directory. */
 export function setDirNick(dir: DirId, nick: string): void {
 	patchDir(dir, { nick });
 }
 
+/** Record the exact nickname this workspace will request on reconstruction.
+ * This is intent, not evidence that the directory granted it. */
+export function setRequestedDirNick(dir: DirId, nick: string): void {
+	patchDir(dir, { requestedNick: nick });
+}
+
 /** The name `dir` granted, or empty when it has granted none. */
 export function dirNick(dir: DirId): string {
-	return state.dirs.get(dir)?.nick ?? "";
+	return get().dirs.get(dir)?.nick ?? "";
+}
+
+/** The exact name a reconstructed connection should ask this directory for. */
+export function requestedDirNick(dir: DirId): string {
+	return get().dirs.get(dir)?.requestedNick ?? "";
 }
 /** Open or close the card describing one directory. */
 export function showAboutDir(dir: DirId | null): void {
@@ -149,18 +161,25 @@ export function showErrorDetail(detail: { title: string; text: string }): void {
 
 /** Put the error card away. */
 export function closeErrorDetail(): void {
-	if (state.errorDetail !== null) set({ errorDetail: null });
+	if (get().errorDetail !== null) set({ errorDetail: null });
 }
 
 /** Open the card about the conversation on screen. Nothing happens with none. */
-export function showAboutConv(): void {
+export function showAboutConv(pane: "about" | "irc" = "about"): void {
+	const state = get();
 	if (state.activeKey === null) return;
-	set({ aboutConv: true, errorDetail: null, aboutDir: null });
+	set({
+		aboutConv: true,
+		aboutConvPane: pane,
+		aboutConvRequest: state.aboutConvRequest + 1,
+		errorDetail: null,
+		aboutDir: null,
+	});
 }
 
 /** Put the conversation card away. */
 export function closeAboutConv(): void {
-	if (state.aboutConv) set({ aboutConv: false });
+	if (get().aboutConv) set({ aboutConv: false });
 }
 
 /** Report whether the tab is being looked at. `hooks.ts` is the one caller.
@@ -169,26 +188,24 @@ export function closeAboutConv(): void {
  * store what it already believes is free — which is what lets the seam sync the
  * real value at startup without it reading as a return. */
 export function noteVisibility(visible: boolean): void {
+	const state = get();
 	if (state.visible === visible) return;
 	set({ visible, returns: visible ? state.returns + 1 : state.returns });
 }
 export function setTheme(theme: "light" | "dark"): void {
-	LS.set(KEY.theme, theme);
 	set({ theme });
 }
 export function setNotify(notifyOn: boolean): void {
-	LS.set(KEY.notify, notifyOn ? "1" : "0");
 	set({ notifyOn });
 }
 
 export function openSettings(): void {
 	set({
 		settingsOpen: true,
-		opsTake: null,
 		helpOpen: false,
 		// The last panel the reader chose, not a reset: the store keeps it and
 		// its localStorage twin carries it across reloads.
-		settingsTab: state.settingsTab,
+		settingsTab: get().settingsTab,
 		aboutDir: null,
 		errorDetail: null,
 		aboutConv: false,
@@ -198,16 +215,15 @@ export function openSettings(): void {
 /** Which Settings panel is selected, remembered on this device so the dialog
  * reopens where the reader was. */
 export function setSettingsTab(settingsTab: State["settingsTab"]): void {
-	LS.set(KEY.settingsTab, settingsTab);
 	set({ settingsTab });
 }
 
 export function closeSettings(): void {
-	if (state.settingsOpen || state.helpOpen || state.opsTake !== null) {
+	const state = get();
+	if (state.settingsOpen || state.helpOpen) {
 		set({
 			settingsOpen: false,
 			helpOpen: false,
-			opsTake: null,
 			aboutDir: null,
 			errorDetail: null,
 			aboutConv: false,
@@ -219,7 +235,7 @@ export function closeSettings(): void {
  * Settings session stays open so the Settings control stays pressed, and Help's own
  * copy of that title row keeps the Help control on screen, pressed. */
 export function openHelp(): void {
-	set({ helpOpen: true, opsTake: null });
+	set({ helpOpen: true });
 }
 
 /** Put Settings back after Help. */
@@ -229,35 +245,21 @@ export function closeHelp(): void {
 
 /** Which operations pane the reader stood on last, remembered on this
  * device so /ops lands where they were. */
-export function setOpsTab(opsTab: OpsCap): void {
-	LS.set(KEY.opsTab, opsTab);
-	set({ opsTab });
+export function setOpsPane(opsPane: OpsCap): void {
+	set({ opsPane });
 }
 
-/** Open `cap`'s take modal: asking to hold the capability, which lands only
- * when the take succeeds. Cancel or a failed take leaves nothing held.
- * `from` records who asked — the Settings toggle, or an Operations-page
- * gate — which is where the close returns. */
-export function openOpsTake(cap: OpsCap, from: "settings" | "ops" = "settings"): void {
-	set({ opsTake: cap, opsTakeFrom: from, helpOpen: false });
-}
-
-/** Put the asking surface back after the take modal — Settings on the
- * Capabilities panel for its toggle, nothing at all for an Operations-page gate,
- * which is still standing where it was. */
-/** Flip whether this device keeps direct-message history. The store field
+/** Flip whether the selected archive keeps message history. The store field
  * is what the switch draws; `ui/history.ts` owns the bytes and does the
  * wiping, so the caller hands it the same choice. */
 export function setKeepHistory(keep: boolean): void {
 	set({ keepHistory: keep });
 }
 
-export function closeOpsTake(): void {
-	if (state.opsTakeFrom === "settings") {
-		set({ opsTake: null, settingsOpen: true, settingsTab: "capabilities" });
-		return;
-	}
-	set({ opsTake: null });
+/** Reflect archive connection state without retaining its bearer authority in
+ * the presentation store. */
+export function setArchiveTarget(archiveTarget: ArchiveTargetView): void {
+	set({ archiveTarget });
 }
 
 /** What the row fields say when a capability arrives or goes.
@@ -271,6 +273,7 @@ function patchOpsRows(
 		diagnostics?: readonly DiagnosticRow[] | null;
 		listeners?: readonly ListenerRow[] | null;
 		irc?: IrcGatewayState | null;
+		operator?: RoomsOperatorState | null;
 		peering?: PeeringState | null;
 		viz?: VizPublishState | null;
 	},
@@ -296,6 +299,10 @@ export function setIrcGateway(irc: IrcGatewayState | null): void {
 	patchOpsRows({ irc });
 }
 
+export function setRoomsOperator(operator: RoomsOperatorState | null): void {
+	patchOpsRows({ operator });
+}
+
 /** What the peering possession row says when the capability arrives, a
  * publication changes standing, or the capability goes. */
 export function setPeering(peering: PeeringState | null): void {
@@ -315,7 +322,7 @@ export function openViewer(key: string, id: number): void {
 }
 
 export function closeViewer(): void {
-	if (state.viewing !== null) set({ viewing: null });
+	if (get().viewing !== null) set({ viewing: null });
 }
 
 /** Move to the adjacent picture in this conversation's message order.
@@ -325,6 +332,7 @@ export function closeViewer(): void {
  * end is a no-op rather than an implicit jump across the conversation. Returns
  * the newly selected image so the network edge can fetch it when necessary. */
 export function stepViewer(direction: ViewerDirection): AttachmentView | null {
+	const state = get();
 	const viewing = state.viewing;
 	if (viewing === null) return null;
 	const conv = state.convs.get(viewing.key);
@@ -359,7 +367,9 @@ export function stepViewer(direction: ViewerDirection): AttachmentView | null {
 /** The file the viewer is showing, read live from its line so a fetch landing
  * while it is open reaches it. Null when nothing is open, or when the line it
  * named has gone. */
-export function viewedAttachment(snapshot: Readonly<State>): AttachmentView | null {
+export function viewedAttachment(
+	snapshot: Readonly<Pick<State, "viewing" | "convs">>,
+): AttachmentView | null {
 	if (snapshot.viewing === null) return null;
 	const conv = snapshot.convs.get(snapshot.viewing.key);
 	for (const item of conv?.history ?? []) {
@@ -378,18 +388,18 @@ export function viewedAttachment(snapshot: Readonly<State>): AttachmentView | nu
  * answer rather than a translation of this one's, and nothing has to be
  * repaired at the crossing. */
 export function showRail(shown: boolean): void {
-	set(state.mobile ? { listScreen: shown } : { railOpen: shown });
+	set(get().mobile ? { listScreen: shown } : { railOpen: shown });
 }
 
 /** Show or hide the roster, the same way. */
 export function showRoster(shown: boolean): void {
-	set(state.mobile ? { rosterSheet: shown } : { rosterOpen: shown });
+	set(get().mobile ? { rosterSheet: shown } : { rosterOpen: shown });
 }
 
 /** Dismiss the narrow layout's roster sheet, whatever the layout. Navigation
  * does this; it is not a preference and has no wide-layout meaning. */
 export function closeRosterSheet(): void {
-	if (state.rosterSheet) set({ rosterSheet: false });
+	if (get().rosterSheet) set({ rosterSheet: false });
 }
 
 /** Put a conversation on screen, and nothing else.
@@ -400,7 +410,7 @@ export function closeRosterSheet(): void {
  * the chrome exactly as the reader left it. A *press* means more than that,
  * which is what `switchTo` adds. */
 export function showConv(key: string): void {
-	if (!state.convs.has(key)) return;
+	if (!get().convs.has(key)) return;
 	set({ activeKey: key });
 	markRead(key);
 }
@@ -409,7 +419,7 @@ export function showConv(key: string): void {
  * press was made through. On a wide layout those fields are simply not
  * read. */
 export function switchTo(key: string): void {
-	if (!state.convs.has(key)) return;
+	if (!get().convs.has(key)) return;
 	showConv(key);
 	set({ listScreen: false, rosterSheet: false });
 }

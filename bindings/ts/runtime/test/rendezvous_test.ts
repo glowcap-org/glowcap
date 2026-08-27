@@ -4,22 +4,9 @@ import type { Host } from "../host.ts";
 import type { Locator } from "../locator.ts";
 import { Session } from "../session.ts";
 import { secondaryFailures } from "../errors.ts";
+import { assert, rejects } from "../../dogfood/assert.ts";
 
 const DESIGNATOR = "ab".repeat(32);
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
-
-function rejects(fn: () => unknown, includes: string): void {
-	try {
-		fn();
-	} catch (error) {
-		assert(String(error).includes(includes), `expected ${String(error)} to include ${includes}`);
-		return;
-	}
-	throw new Error(`expected refusal containing ${includes}`);
-}
 
 class FakeHost {
 	advertised: Locator | null = null;

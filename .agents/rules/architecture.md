@@ -238,7 +238,7 @@ root to reach test support.
     (`HostRuntime.startDial`, `HostRuntime.startAcceptWire`), so loops
     on one thread can dial each other and a stalled connector cannot park
     the step.
-    `ProviderRegistry` alone validates and adapts stream/multiplexed tables and
+    `provider_registry.Registry` alone validates and adapts stream/multiplexed tables and
     holds package leases. Listener locator projection and canonicalization use
     one callback ABI across both execution models; their incompatible I/O
     ownership stays separate. `source-check` holds this split.

@@ -60,7 +60,7 @@ pub fn commitPreparedShortening(self: *Peer, prepared: *PreparedShortening) void
             .listener = session.slot.toReference(self.session_state.exportSlot(nomination.resolver_export).?).?,
             .mode = .shortening_only,
         } };
-        self.session_state.recordSend(message) catch unreachable;
+        self.session_state.recordPreparedSend(message);
         self.pushPendingAssume(reservation, .{ .message = message });
     }
     prepared.nominations.deinit(self.allocator);
@@ -140,7 +140,7 @@ pub fn commitSettlingRearm(
             .listener = session.slot.toReference(self.session_state.exportSlot(prepared.listener_export).?).?,
             .mode = .settling_only,
         } };
-        self.session_state.recordSend(message) catch unreachable;
+        self.session_state.recordPreparedSend(message);
         self.pushPendingAssume(prepared.reservation.?, .{ .message = message });
         prepared.reservation = null;
     }
@@ -193,6 +193,6 @@ pub fn prepareIntroducedImportReleases(
 }
 
 pub fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessage) void {
-    self.session_state.recordSend(prepared.message) catch unreachable;
+    self.session_state.recordPreparedSend(prepared.message);
     self.pushPendingAssume(prepared.reservation, .{ .message = prepared.message });
 }

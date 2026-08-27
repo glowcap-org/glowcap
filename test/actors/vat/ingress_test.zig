@@ -10,7 +10,6 @@ const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
-const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
 const poison = @import("../../support/poison.zig");
@@ -24,8 +23,6 @@ const MutateThenRead = harness.MutateThenRead;
 const Sink = harness.Sink;
 const LabelHolder = harness.LabelHolder;
 const PersistentCounter = harness.PersistentCounter;
-const Captured = promise_capture.CapturedBytes;
-const StringCapture = promise_capture.CapturedString;
 
 test "vat id exhaustion refuses before publishing local actor or queued vow" {
     const allocator = std.testing.allocator;

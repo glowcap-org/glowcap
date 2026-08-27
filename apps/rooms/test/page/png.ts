@@ -10,7 +10,7 @@
 //
 // Four by two rather than square, so asserting the reserved shape asserts
 // that the numbers travelled rather than that something was set.
-export const png = [
+export const png = new Uint8Array([
 	0x89,
 	0x50,
 	0x4e,
@@ -100,7 +100,7 @@ export const png = [
 	0x42,
 	0x60,
 	0x82,
-];
+]);
 
 import { Buffer } from "node:buffer";
 import { deflateSync } from "node:zlib";

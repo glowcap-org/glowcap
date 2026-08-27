@@ -19,14 +19,12 @@ export function OpsHead({ children, refresh }: { children: ReactNode; refresh?: 
 			{refresh !== undefined && (
 				<IconButton
 					icon="retry"
-					label="Refresh"
-					title="Refresh"
+					label={asking ? "Refreshing" : "Refresh"}
+					title={asking ? "Refreshing" : "Refresh"}
 					size="small"
 					variant="ghost"
 					className="ops-refresh"
-					data-asking={asking ? "true" : undefined}
-					aria-busy={asking || undefined}
-					disabled={asking}
+					busy={asking}
 					onClick={() => {
 						setAsking(true);
 						void refresh().finally(() => setAsking(false));

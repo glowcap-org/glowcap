@@ -8,7 +8,7 @@
     "build": "deno run -A npm:vite build",
     "preview": "deno run -A npm:vite preview",
     "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
-    "typecheck": "deno check src/main.tsx",
+    "typecheck": "deno check src/main.tsx scripts/*.ts",
     "test": "deno test -A",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
@@ -17,12 +17,12 @@
   },
   "nodeModulesDir": "auto",
   "imports": {
-    "react": "npm:react@^19.2.8",
-    "react/jsx-runtime": "npm:react@^19.2.8/jsx-runtime",
-    "react-dom": "npm:react-dom@^19.2.8",
-    "react-dom/client": "npm:react-dom@^19.2.8/client",
-    "@types/react": "npm:@types/react@^19.2.18",
-    "@types/react-dom": "npm:@types/react-dom@^19.2.4",
+    "react": "npm:react@19.2.8",
+    "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
+    "react-dom": "npm:react-dom@19.2.8",
+    "react-dom/client": "npm:react-dom@19.2.8/client",
+    "@types/react": "npm:@types/react@19.2.18",
+    "@types/react-dom": "npm:@types/react-dom@19.2.4",
     "zod": "npm:zod@^4.4.3",
     "pixi.js": "npm:pixi.js@^8.19.0",
     "pixi-viewport": "npm:pixi-viewport@^6.0.3",
@@ -70,12 +70,12 @@
     "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
-    "exclude": ["dist/", "node_modules/", ".pixi/"]
+    "include": ["src/", "browser/", "scripts/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
+    "exclude": ["dist/", "node_modules/"]
   },
   "lint": {
-    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
-    "exclude": ["dist/", "node_modules/", ".pixi/"],
+    "include": ["src/", "browser/", "scripts/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
+    "exclude": ["dist/", "node_modules/"],
     "rules": {
       // `react` alongside the baseline, because this is a React app
       // whose correctness leans on hook order: a hook reached through a
@@ -89,5 +89,5 @@
   "test": {
     "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "vite-dev-listen.test.ts"]
   },
-  "exclude": ["dist/", "node_modules/", ".pixi/"]
+  "exclude": ["dist/", "node_modules/"]
 }

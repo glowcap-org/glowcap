@@ -193,12 +193,10 @@ not just the version:
      patches/crypto-lib-drop-inject-syntax.patch still applies and update
      CRYPTO_LIB_FFI_*_SHA256 either way. They often do not move, since the
      patch is keyed to crypto-lib rather than to the Racket release.
-  4. Delete the gitignored compiled/ directories under conformance/ and
-     bindings/racket/. They hold bytecode stamped with the old Racket, the
-     new one refuses it, and the workspace is a bind mount, so they survive
-     the rebuild and would fail the interop steps for a reason that looks
-     nothing like a version pin.
-  5. Rebuild, then prove it: zig build check-external.
+  4. Rebuild. post-create.sh removes leftover compiled/ directories from
+     the workspace bind, so bytecode stamped with the previous Racket cannot
+     survive into the new image.
+  5. Prove it: zig build check-external.
 EOF
             ;;
         goblins)

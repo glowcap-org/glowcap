@@ -101,7 +101,7 @@ async fn run() -> Result<(), Fail> {
 
 	// Bring the server (and its readiness loop) down so the accept task ends and
 	// the gate never hangs.
-	server.close()?;
+	server.close().await?;
 	let _ = accept_task.await;
 
 	if failures > 0 {
@@ -127,7 +127,7 @@ async fn run() -> Result<(), Fail> {
 	if closed_accept.is_ok() {
 		return Err("a released Host admitted an iroh session".into());
 	}
-	closing.close()?;
+	closing.close().await?;
 
 	println!(
 		"rust-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \

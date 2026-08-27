@@ -16,7 +16,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AttachmentView } from "./types.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { IconButton } from "./IconButton.tsx";
 import { kindOf } from "./media.ts";
 import { saveAs } from "./download.ts";
@@ -26,7 +27,8 @@ import { ViewerImage } from "./ViewerImage.tsx";
 export function Viewer(
 	{ open, file, convKey }: { open: boolean; file: AttachmentView | null; convKey: string },
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	const dialog = useRef<HTMLDialogElement>(null);
 	const closeButton = useRef<HTMLButtonElement>(null);
 	const last = useRef(file);
@@ -34,7 +36,7 @@ export function Viewer(
 	const shown = last.current;
 	const kind = shown != null ? kindOf(shown.mime) : "file";
 	const { held, onExited } = useHeldModal(open);
-	useModalDialog(dialog, () => peer.closeViewer(), closeButton, open, onExited);
+	useModalDialog(dialog, () => browser.closeViewer(), closeButton, open, onExited);
 	// Fitted or actual size, and whether actual size would show anything more.
 	// Held here rather than in the stage because the bar's zoom button is the
 	// same state with a different handle.
@@ -59,7 +61,7 @@ export function Viewer(
 					(event.key !== "ArrowLeft" && event.key !== "ArrowRight")
 				) return;
 				event.preventDefault();
-				peer.stepViewer(event.key === "ArrowLeft" ? "previous" : "next");
+				session.stepViewer(event.key === "ArrowLeft" ? "previous" : "next");
 			}}
 		>
 			<div className="viewer-bar">
@@ -91,7 +93,7 @@ export function Viewer(
 					label="Close"
 					variant="ghost"
 					tone="inverse"
-					onClick={() => peer.closeViewer()}
+					onClick={() => browser.closeViewer()}
 				/>
 			</div>
 			{shown.url !== undefined && kind === "image"
@@ -103,14 +105,14 @@ export function Viewer(
 						oversized={oversized}
 						onMeasure={setOversized}
 						onToggle={() => setActual(!actual)}
-						onBackdrop={() => peer.closeViewer()}
+						onBackdrop={() => browser.closeViewer()}
 					/>
 				)
 				: (
 					<div
 						className="viewer-stage"
 						onClick={(e) => {
-							if (e.target === e.currentTarget) peer.closeViewer();
+							if (e.target === e.currentTarget) browser.closeViewer();
 						}}
 					>
 						{shown.url === undefined
@@ -125,7 +127,7 @@ export function Viewer(
 												label={`Try ${shown.name} again`}
 												variant="ghost"
 												tone="inverse"
-												onClick={() => peer.openFile(convKey, shown.id)}
+												onClick={() => session.openFile(convKey, shown.id)}
 											/>
 										)}
 									</span>

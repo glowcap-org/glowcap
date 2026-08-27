@@ -50,7 +50,6 @@ const host_session_ingress = @import("host/session/ingress.zig");
 const host_transports = @import("host/transports.zig");
 const host_interception = @import("host/interception.zig");
 const host_ownership = @import("host/ownership.zig");
-const host_pump = @import("host/pump.zig");
 const host_trace = @import("host/trace.zig");
 const enliven_mod = @import("enliven.zig");
 const vows_mod = @import("vows.zig");
@@ -504,6 +503,7 @@ pub const Host = struct {
     pub const provideGiftId = handoff_mod.provideGiftId;
     pub const giftIdFailed = handoff_mod.giftIdFailed;
     pub const acceptGive = handoff_mod.acceptGive;
+    pub const acceptInlineGive = handoff_mod.acceptInlineGive;
     pub const setExporterLocation = handoff_mod.setExporterLocation;
 
     /// Sturdyref enlivenment (`enliven.zig`): a complete sturdyref becomes a

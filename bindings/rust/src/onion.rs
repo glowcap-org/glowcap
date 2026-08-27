@@ -317,7 +317,7 @@ impl Server {
 		.await;
 		if let Err(mut err) = result {
 			if let Some(id) = listener {
-				if let Err(cleanup) = lp.close_listener(id) {
+				if let Err(cleanup) = lp.close_listener(id).await {
 					err = err.with_secondary(cleanup);
 				}
 			}
@@ -331,7 +331,7 @@ impl Server {
 		let service_key = match lp.listener_restoration_state(listener) {
 			Ok(key) => key,
 			Err(err) => {
-				let err = match lp.close_listener(listener) {
+				let err = match lp.close_listener(listener).await {
 					Ok(()) => err,
 					Err(cleanup) => err.with_secondary(cleanup),
 				};
@@ -379,8 +379,8 @@ impl Server {
 
 	/// Stop admitting partners. Already accepted sessions remain live on the
 	/// shared Host, matching [`crate::tcp::Server`] and [`crate::iroh::Server`].
-	pub fn close(&self) -> Result<()> {
-		self.listener.close()
+	pub async fn close(&self) -> Result<()> {
+		self.listener.close().await
 	}
 }
 

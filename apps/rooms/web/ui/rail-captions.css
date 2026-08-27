@@ -1,0 +1,56 @@
+/* Directory context beneath room and direct-message names. The primary line
+   identifies the conversation; this second line is reserved for the directory
+   it belongs to and that directory's connection state. */
+
+.rwhere {
+	display: flex;
+	min-width: 0;
+}
+.rwhere .icon-svg {
+	flex: none;
+	color: var(--dir-mark, currentColor);
+}
+.rwhere-said {
+	flex: 0 1 auto;
+	min-width: 0;
+	opacity: .72;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rwhere-how {
+	flex: none;
+	font-weight: 600;
+}
+.rwhere-said + .rwhere-how::before {
+	content: "·";
+	margin-inline: 5px;
+	font-weight: 400;
+	opacity: .5;
+}
+
+/* A rail caption spans the row beneath the primary control. New-room panels
+   place the same caption class with their own grid rule in rail-rows.css. */
+#roomList li .rwhere,
+#dmList li .rwhere {
+	grid-area: 2 / 1;
+	margin: 0 var(--mark-inset) 0 var(--row-pad);
+	padding-block: 2px;
+}
+@media (hover: none) {
+	#roomList li .rwhere,
+	#dmList li .rwhere {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+}
+#roomList li:has(.rwhere),
+#dmList li:has(.rwhere) {
+	padding-bottom: 6px;
+}
+
+/* A direct line wears its directory on the avatar rim as well as naming it in
+   the caption. The gap exposes the row's actual ground in every state. */
+#dmList li[data-dir] .avatar-chip {
+	outline: 1px solid var(--dir-mark);
+	outline-offset: 2px;
+}

@@ -9,7 +9,7 @@
 ;; deliberately not exercised: the client resolves the capability first and then
 ;; invokes it, so one app source runs the identical two-round-trip shape on both
 ;; substrates and the comparison rewards neither side's pipelining.
-(require (file "/workspaces/pancake/bench/goblins/dispatch.rkt"))
+(require "../dispatch.rkt")
 (provide app-name server-build client-prepare result-ok?)
 
 (define app-name 'registry)

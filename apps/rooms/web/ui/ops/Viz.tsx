@@ -9,18 +9,22 @@
 // ocapnviz's screen, not this one.
 
 import { useEffect, useState } from "react";
-import { usePeer } from "../peer.ts";
+import { useRoomsSession } from "../controller/session.ts";
 import { advertisedViz, current } from "../prefs.ts";
+import { vizOverrideRefusal } from "../../../lib/viz_publish.ts";
 import { Button } from "../Button.tsx";
+import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
 import type { VizPublishState } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 
 export function VizPane({ state }: { state: VizPublishState | null }) {
-	const peer = usePeer();
+	const session = useRoomsSession();
 	const [live] = useState(current);
 	const [viz, setViz] = useState(live.viz);
 	const [hintUrl, setHintUrl] = useState<string | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [saveWhy, setSaveWhy] = useState("");
 	useEffect(() => {
 		let cancelled = false;
 		void advertisedViz().then((url) => {
@@ -34,7 +38,8 @@ export function VizPane({ state }: { state: VizPublishState | null }) {
 	// The modal draws one pane per held capability; see the listeners pane.
 	if (state === null) return null;
 
-	const dirty = viz.trim() !== live.viz.trim();
+	const dirty = viz !== live.viz;
+	const invalid = vizOverrideRefusal(viz);
 
 	return (
 		<div className="ops-pane">
@@ -44,53 +49,77 @@ export function VizPane({ state }: { state: VizPublishState | null }) {
 				timeline, published by the room server from its own side. A direct message has no server in the middle,
 				so its words go nowhere.
 			</OpsHead>
-			<div className="group well">
-				<table className="ops-table">
-					<tbody>
-						<tr>
-							<td className="ops-kind">Endpoint</td>
-							<td>
-								<code>{state.url}</code>
-							</td>
-						</tr>
-						<tr>
-							<td className="ops-kind">Publishing</td>
-							<td id="vizPublishing" data-connected={String(state.connected)}>
-								{state.connected ? "on" : "reconnecting…"}
-							</td>
-						</tr>
-					</tbody>
-				</table>
+			<h3 className="well-title overline" id="vizNowLegend">Publishing now</h3>
+			<div className="group well" role="group" aria-labelledby="vizNowLegend">
+				<dl className="dirfacts">
+					<dt>Endpoint</dt>
+					<dd>
+						<code>{state.url}</code>
+					</dd>
+					<dt>Publishing</dt>
+					<dd id="vizPublishing" data-connected={String(state.connected)}>
+						{state.connected ? "on" : "reconnecting…"}
+					</dd>
+				</dl>
 			</div>
-			<div className="group well" role="group" aria-labelledby="vizLegend">
-				<p className="group-label" id="vizLegend">Publish somewhere else</p>
-				<input
+			<h3 className="well-title overline" id="vizLegend">Publish somewhere else</h3>
+			<form
+				className="group well"
+				role="group"
+				aria-labelledby="vizLegend"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (saving || !dirty || invalid != null) return;
+					setSaving(true);
+					setSaveWhy("");
+					void session.applySettings({ viz }).then((saved) => {
+						if (!saved) setSaveWhy("This browser could not save the visualizer endpoint.");
+					}).finally(() => setSaving(false));
+				}}
+			>
+				<Field
 					id="vizUrl"
-					className="field"
-					name="viz"
-					type="text"
-					inputMode="url"
-					enterKeyHint="done"
-					placeholder={hintUrl ?? "e.g. ws://127.0.0.1:9300/"}
-					value={viz}
-					onChange={(event) => setViz(event.target.value)}
-					{...identifierField}
-					aria-labelledby="vizLegend"
-					aria-describedby="vizHint"
-				/>
-				<p id="vizHint" className="hint">
-					Leave blank to publish to this page's own endpoint (<code>/viz</code>). Saving reloads this window,
-					and the new endpoint asks for its own capability.
-				</p>
-				<Button
-					id="vizUrlSave"
-					type="button"
-					disabled={!dirty}
-					onClick={() => peer.applySettings({ viz })}
+					label="Endpoint"
+					hint={
+						<>
+							Leave blank to publish to this page's own endpoint (<code>/viz</code>). Saving reloads this
+							window, and the new endpoint asks for its own capability.
+						</>
+					}
+					said={invalid ?? saveWhy}
 				>
-					Save and reload
-				</Button>
-			</div>
+					{(wiring) => (
+						<input
+							id={wiring.id}
+							className="field"
+							name="viz"
+							type="text"
+							inputMode="url"
+							enterKeyHint="done"
+							placeholder={hintUrl ?? "e.g. ws://127.0.0.1:9300/"}
+							value={viz}
+							disabled={saving}
+							onChange={(event) => {
+								setViz(event.target.value);
+								setSaveWhy("");
+							}}
+							{...identifierField}
+							aria-describedby={wiring.describedBy}
+							aria-invalid={wiring.invalid}
+						/>
+					)}
+				</Field>
+				<div className="actions">
+					<Button
+						id="vizUrlSave"
+						type="submit"
+						busy={saving}
+						disabled={saving || !dirty || invalid != null}
+					>
+						Save and reload
+					</Button>
+				</div>
+			</form>
 		</div>
 	);
 }

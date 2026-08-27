@@ -67,8 +67,6 @@ pub const PeerHandle = @import("peer_handle.zig").PeerHandle;
 
 const Route = peer_routes.Route;
 
-pub const HandoffWaiterIterator = handoff_waiters.Iterator;
-
 const PeerSlot = peer_membership.Slot;
 
 /// How a session's own signing key is obtained (ADR-0097).
@@ -479,7 +477,6 @@ pub const Node = struct {
     // ── The sans-io redeem serve-step API ─────────────────────────────────────
 
     pub const PendingId = redeem_dials.PendingId;
-    pub const RedeemDestination = redeem.Destination;
 
     pub const FailureDestination = node_actions.FailureDestination;
 
@@ -492,15 +489,6 @@ pub const Node = struct {
     pub const Action = node_actions.Action;
 
     pub const pendingDial = redeem_dials.pendingDial;
-    pub fn parseIdRouteLocator(
-        self: *const Node,
-        allocator: std.mem.Allocator,
-        locator: model.PeerLocator,
-    ) !model.RouteBundle {
-        _ = self;
-        return id_route.parseLocator(allocator, locator);
-    }
-
     pub fn parseIdSturdyrefLocator(
         self: *const Node,
         allocator: std.mem.Allocator,
@@ -516,7 +504,6 @@ pub const Node = struct {
     }
     pub const beginDialEffect = redeem_dials.beginEffect;
     pub const rollbackDialEffect = redeem_dials.rollbackEffect;
-    pub const DialCancellationIterator = redeem_dials.CancellationIterator;
     pub const requestDialCancellations = redeem_dials.requestCancellations;
     pub const pendingDialCount = redeem_dials.count;
 
@@ -542,7 +529,6 @@ pub const Node = struct {
 
     pub const acceptGive = redeem_dial_admission.acceptGive;
     pub const acceptInlineGive = redeem_dial_admission.acceptInlineGive;
-    pub const DialStage = dial_staging.Stage;
     pub const stageDial = dial_staging.stage;
     pub const prepareDialLocator = dial_staging.prepareDialLocator;
     pub const prepareIdRouteBundle = dial_staging.prepareIdRouteBundle;
@@ -557,6 +543,7 @@ pub const Node = struct {
     pub const claimResolve = redeem_withdrawals.claim;
 
     pub const setExporterLocation = gift_recipe.set;
+    pub const replaceDiscoveredExporterLocation = gift_recipe.replaceDiscovered;
 
     pub const proxyForeignPromiseFulfill = proxy_admission.foreignPromiseFulfill;
 

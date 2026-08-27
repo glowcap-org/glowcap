@@ -496,7 +496,7 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message) !void {
     );
     errdefer frame.deinit();
     try self.ensureOutboundCapacity(1);
-    self.session_state.recordSend(message) catch unreachable;
+    self.session_state.recordPreparedSend(message);
     self.outbound.pushAssumeCapacity(frame);
 }
 

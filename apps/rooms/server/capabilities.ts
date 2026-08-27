@@ -17,6 +17,7 @@
 // control, stated in the deploy README.
 
 import { ALL_BOOT_CAPS } from "../lib/boot_caps.ts";
+import { readBoundedText } from "../lib/durable_file.ts";
 
 /** The token lines for whatever `directory` holds: one per minted
  * capability, and a plain sentence for each capability with no swiss there,
@@ -26,7 +27,7 @@ export async function capabilityLines(directory: string): Promise<string[]> {
 	for (const cap of ALL_BOOT_CAPS) {
 		let swiss = "";
 		try {
-			swiss = (await Deno.readTextFile(`${directory}/${cap.file}`)).trim();
+			swiss = (await readBoundedText(`${directory}/${cap.file}`, 256, `${cap.label} capability state`)).trim();
 		} catch {
 			// No file is a capability that was never enabled here.
 		}
@@ -49,5 +50,5 @@ if (import.meta.main) {
 		);
 		Deno.exit(2);
 	}
-	for (const line of await capabilityLines(directory)) console.log(line);
+	console.log((await capabilityLines(directory)).join("\n"));
 }

@@ -97,6 +97,37 @@ roomsTest("a withdrawn line leaves the kept history; an edit reaches it", async 
 	}
 });
 
+roomsTest("a file caption is retained, refiling updates it, and emptying the line forgets it", async () => {
+	const proc = spawnHistoryServer();
+	try {
+		const port = await readPort(proc);
+		const alice = await joined(port, "general", "alice");
+		await alice.stage({ name: "notes.txt", mime: "text/plain", bytes: new Uint8Array([1]) });
+		const posted = await within(alice.postFiles("first caption"), "the captioned file line");
+		if (posted === null) throw new Error("the room granted no file-line reference");
+		let lines = await historySettles(alice, 1);
+		assert(lines.length === 1 && lines[0].text === "first caption", "the file caption was not retained");
+
+		await within(posted.refile("revised caption", [0]), "the caption refile");
+		for (let tries = 0; tries < 50; tries++) {
+			lines = await within(alice.history(), "history after caption refile");
+			if (lines.length === 1 && lines[0].text === "revised caption") break;
+			if (tries === 49) throw new Error("the refile never reached the kept caption");
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		await within(posted.refile("", []), "the empty refile");
+		for (let tries = 0; tries < 50; tries++) {
+			lines = await within(alice.history(), "history after empty refile");
+			if (lines.length === 0) break;
+			if (tries === 49) throw new Error("the emptied file line survived in kept history");
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	} finally {
+		await stopOwned(proc);
+	}
+});
+
 roomsTest("a server without history refuses the verb", async () => {
 	await withServer(async (port) => {
 		const alice = await joined(port, "general", "alice");
@@ -113,28 +144,18 @@ roomsTest("a server without history refuses the verb", async () => {
 roomsTest("kept lines survive the server restarting on its state directory", async () => {
 	const state = await Deno.makeTempDir();
 	let proc = spawnHistoryServer(state);
+	let stopped = false;
 	try {
 		const port = await readPort(proc);
 		const alice = await joined(port, "general", "alice");
 		await within(alice.say("outlives the process"), "the durable line");
 		await historySettles(alice, 1);
-		// The room answers from its in-memory tail, and the disk write behind
-		// it is deliberately fire-and-forget: a kill can lose the last line
-		// without breaking the module's stated posture. Restart durability is
-		// a claim about the file, so the file is what this scene waits for.
-		const file = `${state}/history/${encodeURIComponent("general")}.jsonl`;
-		let onDisk = false;
-		for (let tries = 0; tries < 60 && !onDisk; tries++) {
-			try {
-				onDisk = (await Deno.readTextFile(file)).includes("outlives the process");
-			} catch {
-				/* the first write may not have created the file yet */
-			}
-			if (!onDisk) await new Promise((resolve) => setTimeout(resolve, 50));
-		}
-		assert(onDisk, "the kept line never reached the state directory");
-	} finally {
+		// No storage polling: controlled shutdown owns the durability boundary
+		// and must drain the admitted append before the process exits.
 		await stopOwned(proc);
+		stopped = true;
+	} finally {
+		if (!stopped) await stopOwned(proc);
 	}
 	proc = spawnHistoryServer(state);
 	try {
@@ -145,6 +166,67 @@ roomsTest("kept lines survive the server restarting on its state directory", asy
 			lines.some((line) => line.text === "outlives the process" && line.from === "alice"),
 			"the restarted server did not stand the kept line back up",
 		);
+	} finally {
+		await stopOwned(proc);
+	}
+});
+
+roomsTest("a restarted room edits only the line capability from its own generation", async () => {
+	const state = await Deno.makeTempDir();
+	let proc: Deno.ChildProcess | null = null;
+	try {
+		proc = spawnHistoryServer(state);
+		let port = await readPort(proc);
+		let alice = await joined(port, "general", "alice");
+		await within(alice.say("first generation"), "the first-generation line");
+		await historySettles(alice, 1);
+		await stopOwned(proc);
+		proc = null;
+
+		proc = spawnHistoryServer(state);
+		port = await readPort(proc);
+		alice = await joined(port, "general", "alice");
+		const current = await within(alice.say("second generation"), "the second-generation line");
+		if (current === null) throw new Error("the restarted room granted no line reference");
+		await historySettles(alice, 2);
+		await within(current.edit("second generation, edited"), "the second-generation edit");
+		for (let tries = 0; tries < 50; tries++) {
+			const lines = await within(alice.history(), "history after the restarted edit");
+			if (
+				lines.length === 2 && lines[0].text === "first generation" &&
+				lines[1].text === "second generation, edited"
+			) break;
+			if (tries === 49) throw new Error("the restarted line edited a prior generation's history");
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		await stopOwned(proc);
+		proc = null;
+
+		proc = spawnHistoryServer(state);
+		port = await readPort(proc);
+		const bob = await joined(port, "general", "bob");
+		const lines = await historySettles(bob, 2);
+		assert(
+			lines.length === 2 && lines[0].text === "first generation" &&
+				lines[1].text === "second generation, edited",
+			"both room generations did not survive the next restart exactly",
+		);
+	} finally {
+		if (proc !== null) await stopOwned(proc);
+		await Deno.remove(state, { recursive: true });
+	}
+});
+
+roomsTest("corrupt room history refuses startup before a listener opens", async () => {
+	const state = await Deno.makeTempDir();
+	await Deno.mkdir(`${state}/history`);
+	await Deno.writeTextFile(`${state}/history/general.jsonl`, "not-json\n");
+	const proc = spawnHistoryServer(state);
+	try {
+		const status = await within(proc.status, "the corrupt-history startup refusal");
+		const said = await new Response(proc.stderr).text();
+		assert(!status.success, "the server with corrupt history exited successfully");
+		assert(said.includes("room history for general contains invalid JSON"), `the refusal was: ${said}`);
 	} finally {
 		await stopOwned(proc);
 	}

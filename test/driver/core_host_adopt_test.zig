@@ -23,15 +23,7 @@ const HostSession = driver.core.HostSession;
 
 const frame_cap = 4096;
 
-const Counter = struct {
-    hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
-        self.hits += 1;
-        return .{ .integer = self.hits };
-    }
-};
+const Counter = support_actors.Counter;
 
 const CapturedRef = promise_capture.CapturedRef;
 const CapturedInt = promise_capture.CapturedInt;
@@ -39,6 +31,7 @@ const CapturedInt = promise_capture.CapturedInt;
 /// Move frames client → adopted conn (through `feed`) and back (client is an
 /// ordinary host-owned connection).
 const host_pair = @import("../support/host_pair.zig");
+const support_actors = @import("../support/actors.zig");
 
 /// The adopted conn is an ordinary `Pair` leg: client host/session on one
 /// side, the adopting host and its adopted session on the other.

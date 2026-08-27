@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons.tsx";
 import { IconButton, type IconButtonProps } from "./IconButton.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
 
 /** How long the reply stands. Long enough to read after the eye comes back to
  * the control, short enough that the control is offering again by the time a
@@ -36,7 +36,7 @@ const replyMs = 1600;
  * that was pressed, so the write can take a selection inside a modal rather
  * than on the inert document underneath it. */
 export function useCopy(text: string | null) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
 	const [copied, setCopied] = useState(false);
 	const back = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useEffect(() => () => clearTimeout(back.current), []);
@@ -53,7 +53,7 @@ export function useCopy(text: string | null) {
 		try {
 			await writeClipboard(text, root);
 		} catch {
-			peer.toast("failure", "Your browser would not let the page copy that.");
+			browser.toast("failure", "Your browser would not let the page copy that.");
 			return;
 		}
 		clearTimeout(back.current);
@@ -107,6 +107,11 @@ export type CopyFieldProps = {
 	label: string;
 	/** Names the text itself, for anything that reads what the field shows. */
 	id?: string;
+	/** One line, cut with an ellipsis, for a list where the value is one fact
+	 * among several and the whole of it is on the clipboard and in the title.
+	 * The default lets a locator run to any length, for a card that is about
+	 * that locator. */
+	compact?: boolean;
 };
 
 /** Text the page shows so a reader can take it away.
@@ -121,15 +126,16 @@ export type CopyFieldProps = {
  * the text run to any length. The corner is held open by the field's own
  * padding, so a value that wraps to three lines stops short of the mark on
  * every one of them, and a value that fits on one sits beside it. */
-export function CopyField({ text, label, id }: CopyFieldProps) {
+export function CopyField({ text, label, id, compact = false }: CopyFieldProps) {
 	const { copied, copy } = useCopy(text);
 	return (
 		<button
 			type="button"
 			className="copy-field"
 			aria-label={label}
-			title={label}
+			title={compact && text !== null ? `${label}: ${text}` : label}
 			data-copied={copied ? "" : undefined}
+			data-compact={compact || undefined}
 			disabled={text === null}
 			onClick={copy}
 		>

@@ -3,25 +3,96 @@
 // The portable Host owns no filesystem, by design. Its restart contract is
 // instead reproducibility: an embedder that restores the same publication name
 // and Host identity restores the same sturdyref. Rooms is that embedder. It
-// keeps one identity seed, one HMAC key, and the small set of room names for
-// which somebody explicitly asked for a link. Message history and live room
-// membership remain deliberately ephemeral.
+// keeps one identity seed, one HMAC key, and the small set of room identities
+// for which somebody explicitly asked for a link or minted stewardship. Durable
+// room topics follow those identities; live membership remains ephemeral and
+// retention has its own storage seam.
 
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
-import { ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
-import { MAX_DURABLE_ROOM, MAX_ROOM_LINKS } from "../lib/limits.ts";
+import * as z from "zod/mini";
+import { NO_SUCH_ROOM, NOT_STEWARD, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
+import { isPrivateRoomKey, MAX_DURABLE_ROOM, MAX_ROOM_LINKS, MAX_TOPIC } from "../lib/limits.ts";
+import { fixedHex, nonemptyText, nonnegativeSafeInteger, positiveSafeInteger } from "../lib/schema.ts";
+import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
+import { noteOperatorChange } from "./operator/revision.ts";
 
 const FILE = "rooms.json";
 const VERSION = 1;
 const KEY_BYTES = 32;
+const MAX_STATE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 
-interface DiskState {
-	version: typeof VERSION;
-	identitySeed: string;
-	roomLinkSecret: string;
-	linkedRooms: string[];
+const STEWARD_DOMAIN = "steward\u0000";
+
+export class RoomServerStateError extends Error {}
+
+const durableRoomName = nonemptyText(MAX_DURABLE_ROOM);
+const boundedTopic = nonemptyText(MAX_TOPIC);
+
+export const StewardStateSchema = z.strictObject({
+	name: durableRoomName,
+	generation: nonnegativeSafeInteger,
+	issued: z.boolean(),
+});
+
+const DurableStewardStateSchema = z.strictObject({
+	name: durableRoomName,
+	generation: positiveSafeInteger,
+	issued: z.boolean(),
+});
+
+export const RoomTopicStateSchema = z.strictObject({
+	name: durableRoomName,
+	topic: boundedTopic,
+});
+
+const RoomServerDiskStateShapeSchema = z.strictObject({
+	version: z.literal(VERSION),
+	identitySeed: fixedHex(KEY_BYTES),
+	roomLinkSecret: fixedHex(KEY_BYTES),
+	linkedRooms: z.array(durableRoomName).check(z.maxLength(MAX_ROOM_LINKS)),
+	revokedRooms: z.array(durableRoomName).check(z.maxLength(MAX_ROOM_LINKS)),
+	stewards: z.array(DurableStewardStateSchema).check(z.maxLength(MAX_ROOM_LINKS)),
+	topics: z.array(RoomTopicStateSchema).check(z.maxLength(MAX_ROOM_LINKS)),
+});
+
+type RoomServerDiskStateShape = z.infer<typeof RoomServerDiskStateShapeSchema>;
+
+function hasValidAuthorityRelations(disk: RoomServerDiskStateShape): boolean {
+	const linked = new Set<string>();
+	for (const name of disk.linkedRooms) {
+		const key = name.toLowerCase();
+		if (linked.has(key)) return false;
+		linked.add(key);
+	}
+	const revoked = new Set<string>();
+	for (const name of disk.revokedRooms) {
+		const key = name.toLowerCase();
+		if (linked.has(key) || revoked.has(key)) return false;
+		revoked.add(key);
+	}
+	const stewarded = new Set<string>();
+	for (const steward of disk.stewards) {
+		const key = steward.name.toLowerCase();
+		if (!linked.has(key) || stewarded.has(key)) return false;
+		stewarded.add(key);
+	}
+	const topics = new Set<string>();
+	for (const topic of disk.topics) {
+		const key = topic.name.toLowerCase();
+		if ((isPrivateRoomKey(topic.name) && !linked.has(key)) || topics.has(key)) return false;
+		topics.add(key);
+	}
+	return true;
 }
+
+export const RoomServerDiskStateSchema = RoomServerDiskStateShapeSchema.check(
+	z.refine(hasValidAuthorityRelations, "linked, revoked, and stewarded room authority is inconsistent"),
+);
+
+export type StewardState = z.infer<typeof StewardStateSchema>;
+export type RoomTopicState = z.infer<typeof RoomTopicStateSchema>;
+type DiskState = z.infer<typeof RoomServerDiskStateSchema>;
 
 function hex(bytes: Uint8Array): string {
 	return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -42,56 +113,68 @@ function freshState(): DiskState {
 		identitySeed: hex(crypto.getRandomValues(new Uint8Array(KEY_BYTES))),
 		roomLinkSecret: hex(crypto.getRandomValues(new Uint8Array(KEY_BYTES))),
 		linkedRooms: [],
+		revokedRooms: [],
+		stewards: [],
+		topics: [],
 	};
 }
 
 function parseState(text: string): DiskState {
-	const value: unknown = JSON.parse(text);
-	if (typeof value !== "object" || value === null) throw new Error("rooms state is not an object");
-	const row = value as Partial<DiskState>;
-	if (row.version !== VERSION) throw new Error(`rooms state version ${String(row.version)} is not supported`);
-	unhex(String(row.identitySeed ?? ""), KEY_BYTES, "identity seed");
-	unhex(String(row.roomLinkSecret ?? ""), KEY_BYTES, "room-link secret");
-	if (
-		!Array.isArray(row.linkedRooms) ||
-		row.linkedRooms.length > MAX_ROOM_LINKS ||
-		row.linkedRooms.some((name) => typeof name !== "string" || name.length === 0 || name.length > MAX_DURABLE_ROOM)
-	) {
-		throw new Error("rooms state has invalid linked room names");
+	let decoded: unknown;
+	try {
+		decoded = JSON.parse(text);
+	} catch {
+		throw new Error("rooms state is not JSON");
 	}
-	const keys = new Set<string>();
-	for (const name of row.linkedRooms) {
-		const key = name.toLowerCase();
-		if (keys.has(key)) throw new Error(`rooms state repeats linked room "${name}"`);
-		keys.add(key);
+	const version = typeof decoded === "object" && decoded != null ? (decoded as { version?: unknown }).version : null;
+	if (version !== VERSION) {
+		throw new Error(`rooms state version ${String(version)} is not supported`);
 	}
-	return row as DiskState;
+	const parsed = z.safeParse(RoomServerDiskStateSchema, decoded);
+	if (!parsed.success) throw new Error(`rooms state is invalid:\n${z.prettifyError(parsed.error)}`);
+	return parsed.data;
 }
 
 /** The state a Rooms server restores. With no directory it is intentionally
  * process-local, preserving the application's existing ephemeral default. */
 export class RoomServerState {
-	readonly identitySeed: Uint8Array<ArrayBuffer>;
-	readonly #secret: Uint8Array<ArrayBuffer>;
+	readonly #identitySeed: Uint8Array<ArrayBuffer>;
+	#secret: Uint8Array<ArrayBuffer>;
 	readonly #directory: string | null;
 	readonly #linked = new Map<string, string>();
+	readonly #revoked = new Map<string, string>();
+	readonly #stewards = new Map<string, StewardState>();
+	readonly #topics = new Map<string, { name: string; topic: string }>();
 	#writeTail: Promise<void> = Promise.resolve();
 
 	private constructor(disk: DiskState, directory: string | null) {
-		this.identitySeed = unhex(disk.identitySeed, KEY_BYTES, "identity seed");
+		this.#identitySeed = unhex(disk.identitySeed, KEY_BYTES, "identity seed");
 		this.#secret = unhex(disk.roomLinkSecret, KEY_BYTES, "room-link secret");
 		this.#directory = directory;
 		for (const name of disk.linkedRooms) this.#linked.set(name.toLowerCase(), name);
+		for (const name of disk.revokedRooms) this.#revoked.set(name.toLowerCase(), name);
+		for (const steward of disk.stewards) this.#stewards.set(steward.name.toLowerCase(), { ...steward });
+		for (const topic of disk.topics) this.#topics.set(topic.name.toLowerCase(), { ...topic });
+	}
+
+	get identitySeed(): Uint8Array<ArrayBuffer> {
+		return this.#identitySeed.slice();
 	}
 
 	static async open(directory?: string): Promise<RoomServerState> {
-		if (!directory) return new RoomServerState(freshState(), null);
+		if (directory == null) return new RoomServerState(freshState(), null);
 		await Deno.mkdir(directory, { recursive: true, mode: 0o700 });
 		const path = `${directory}/${FILE}`;
 		try {
-			return new RoomServerState(parseState(await Deno.readTextFile(path)), directory);
+			return new RoomServerState(
+				parseState(await readBoundedText(path, MAX_STATE_BYTES, "rooms state")),
+				directory,
+			);
 		} catch (err) {
-			if (!(err instanceof Deno.errors.NotFound)) throw err;
+			if (!(err instanceof Deno.errors.NotFound)) {
+				if (err instanceof RoomServerStateError) throw err;
+				throw new RoomServerStateError(err instanceof Error ? err.message : String(err), { cause: err });
+			}
 			const disk = freshState();
 			const state = new RoomServerState(disk, directory);
 			await state.#write(disk);
@@ -101,6 +184,75 @@ export class RoomServerState {
 
 	linkedRooms(): string[] {
 		return [...this.#linked.values()];
+	}
+
+	roomLinkActive(name: string): boolean {
+		return this.#linked.has(name.toLowerCase());
+	}
+
+	revokedRooms(): string[] {
+		return [...this.#revoked.values()];
+	}
+
+	stewards(): StewardState[] {
+		return [...this.#stewards.values()].map((steward) => ({ ...steward }));
+	}
+
+	stewardship(name: string): StewardState | null {
+		const steward = this.#stewards.get(name.toLowerCase());
+		return steward == null ? null : { ...steward };
+	}
+
+	hasSteward(name: string): boolean {
+		return this.#stewards.get(name.toLowerCase())?.issued === true;
+	}
+
+	stewardGeneration(name: string): number {
+		return this.#stewards.get(name.toLowerCase())?.generation ?? 0;
+	}
+
+	topic(name: string): string | null {
+		return this.#topics.get(name.toLowerCase())?.topic ?? null;
+	}
+
+	setTopic(name: string, topic: string): Promise<void> {
+		if (topic.length > MAX_TOPIC) throw new Error(`a topic may be at most ${MAX_TOPIC} characters`);
+		const run = this.#writeTail.then(async () => {
+			const key = name.toLowerCase();
+			const durableName = this.#linked.get(key) ?? (isPrivateRoomKey(name) ? null : name);
+			if (durableName == null || this.#topics.get(key)?.topic === topic) return;
+			const nextTopics = new Map(this.#topics);
+			if (topic === "") nextTopics.delete(key);
+			else {
+				if (!nextTopics.has(key) && nextTopics.size === MAX_ROOM_LINKS) {
+					throw new Error(`this server remembers topics for at most ${MAX_ROOM_LINKS} rooms`);
+				}
+				nextTopics.set(key, { name: durableName, topic });
+			}
+			await this.#write({
+				version: VERSION,
+				identitySeed: hex(this.#identitySeed),
+				roomLinkSecret: hex(this.#secret),
+				linkedRooms: [...this.#linked.values()],
+				revokedRooms: [...this.#revoked.values()],
+				stewards: [...this.#stewards.values()],
+				topics: [...nextTopics.values()],
+			});
+			this.#topics.clear();
+			for (const [topicKey, value] of nextTopics) this.#topics.set(topicKey, value);
+			noteOperatorChange();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run;
+	}
+
+	/** Whether one published steward generation still carries authority.
+	 * Behaviors call this for every verb: removing the publication from the
+	 * current index would stop only later redemptions, while a holder may
+	 * already have enlivened the old reference. */
+	stewardGenerationIsCurrent(name: string, generation: number): boolean {
+		const steward = this.#stewards.get(name.toLowerCase());
+		return steward?.issued === true && steward.generation === generation;
 	}
 
 	/** The entropy one room's durable sturdyref is minted from.
@@ -114,7 +266,19 @@ export class RoomServerState {
 	 *
 	 * The room name is not recoverable from the result, so holding one link
 	 * discloses the room it opens and nothing about any other. */
-	async entropyFor(name: string): Promise<Uint8Array<ArrayBuffer>> {
+	async roomEntropyFor(name: string): Promise<Uint8Array<ArrayBuffer>> {
+		return await this.#entropyFor(name.toLowerCase());
+	}
+
+	/** A steward's durable name is reproducible with its room but cannot collide
+	 * with, reveal, or be substituted for the room publication itself. */
+	async stewardEntropyFor(name: string, generation = this.stewardGeneration(name)): Promise<Uint8Array<ArrayBuffer>> {
+		const durable = name.toLowerCase();
+		const message = generation === 0 ? STEWARD_DOMAIN + durable : `${STEWARD_DOMAIN}${generation}\u0000${durable}`;
+		return await this.#entropyFor(message);
+	}
+
+	async #entropyFor(message: string): Promise<Uint8Array<ArrayBuffer>> {
 		const key = await crypto.subtle.importKey(
 			"raw",
 			this.#secret,
@@ -123,7 +287,7 @@ export class RoomServerState {
 			["sign"],
 		);
 		const mac = new Uint8Array(
-			await crypto.subtle.sign("HMAC", key, encoder.encode(name.toLowerCase())),
+			await crypto.subtle.sign("HMAC", key, encoder.encode(message)),
 		);
 		return mac.slice(0, DURABLE_SWISS_ENTROPY_BYTES);
 	}
@@ -131,11 +295,21 @@ export class RoomServerState {
 	/** Persist a newly linked name before its sturdyref is handed out. Writes are
 	 * serialized and replace one complete file atomically, so two concurrent link
 	 * requests cannot lose one another. */
-	remember(name: string): Promise<void> {
+	remember(name: string, topic?: string): Promise<void> {
+		return this.#remember(name, false, topic);
+	}
+
+	rememberSteward(name: string, topic?: string): Promise<void> {
+		return this.#remember(name, true, topic);
+	}
+
+	#remember(name: string, steward: boolean, topic?: string): Promise<void> {
 		const run = this.#writeTail.then(async () => {
 			const key = name.toLowerCase();
-			if (this.#linked.has(key)) return;
-			if (this.#linked.size >= MAX_ROOM_LINKS) {
+			if (this.#revoked.has(key)) throw new RoomError(NO_SUCH_ROOM, `room link "${name}" was revoked`);
+			const needsTopic = topic != null && topic !== "" && !this.#topics.has(key);
+			if (this.#linked.has(key) && (!steward || this.#stewards.get(key)?.issued === true) && !needsTopic) return;
+			if (!this.#linked.has(key) && this.#linked.size + this.#revoked.size >= MAX_ROOM_LINKS) {
 				throw new RoomError(
 					ROOM_LINKS_FULL,
 					`this server has already made ${MAX_ROOM_LINKS} room names durable`,
@@ -143,107 +317,157 @@ export class RoomServerState {
 			}
 			const next = new Map(this.#linked);
 			next.set(key, name);
+			const nextStewards = new Map(this.#stewards);
+			const nextTopics = new Map(this.#topics);
+			if (topic != null && topic !== "" && !nextTopics.has(key)) {
+				if (nextTopics.size === MAX_ROOM_LINKS) {
+					throw new Error(`this server remembers topics for at most ${MAX_ROOM_LINKS} rooms`);
+				}
+				nextTopics.set(key, { name, topic });
+			}
+			if (steward && nextStewards.get(key)?.issued !== true) {
+				const existing = nextStewards.get(key);
+				const generation = existing == null ? 1 : existing.generation + 1;
+				if (generation > Number.MAX_SAFE_INTEGER) {
+					throw new Error(`room "${name}" has exhausted stewardship generations`);
+				}
+				nextStewards.set(
+					key,
+					existing == null ? { name, generation, issued: true } : {
+						...existing,
+						name,
+						generation,
+						issued: true,
+					},
+				);
+			}
 			await this.#write({
 				version: VERSION,
-				identitySeed: hex(this.identitySeed),
+				identitySeed: hex(this.#identitySeed),
 				roomLinkSecret: hex(this.#secret),
 				linkedRooms: [...next.values()],
+				revokedRooms: [...this.#revoked.values()],
+				stewards: [...nextStewards.values()],
+				topics: [...nextTopics.values()],
 			});
 			this.#linked.clear();
 			for (const [roomKey, room] of next) this.#linked.set(roomKey, room);
+			this.#stewards.clear();
+			for (const [roomKey, room] of nextStewards) this.#stewards.set(roomKey, room);
+			this.#topics.clear();
+			for (const [topicKey, value] of nextTopics) this.#topics.set(topicKey, value);
+			noteOperatorChange();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run;
 	}
 
+	/** Permanently tombstone one room publication. Keeping the name prevents a
+	 * later mint from recreating the same derived swiss and reviving old copies. */
+	revokeRoomLink(name: string): Promise<void> {
+		const run = this.#writeTail.then(async () => {
+			const key = name.toLowerCase();
+			const held = this.#linked.get(key);
+			if (held == null) throw new RoomError(NO_SUCH_ROOM, `this server has no room link for "${name}"`);
+			const linked = new Map(this.#linked);
+			linked.delete(key);
+			const revoked = new Map(this.#revoked);
+			revoked.set(key, held);
+			const stewards = new Map(this.#stewards);
+			stewards.delete(key);
+			const topics = isPrivateRoomKey(held)
+				? [...this.#topics.values()].filter((value) => value.name.toLowerCase() !== key)
+				: [...this.#topics.values()];
+			await this.#write({
+				version: VERSION,
+				identitySeed: hex(this.#identitySeed),
+				roomLinkSecret: hex(this.#secret),
+				linkedRooms: [...linked.values()],
+				revokedRooms: [...revoked.values()],
+				stewards: [...stewards.values()],
+				topics,
+			});
+			this.#linked.clear();
+			for (const [entryKey, value] of linked) this.#linked.set(entryKey, value);
+			this.#revoked.clear();
+			for (const [entryKey, value] of revoked) this.#revoked.set(entryKey, value);
+			this.#stewards.clear();
+			for (const [entryKey, value] of stewards) this.#stewards.set(entryKey, value);
+			if (isPrivateRoomKey(held)) this.#topics.delete(key);
+			noteOperatorChange();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run;
+	}
+
+	/** Rotate the durable authority domain and clear its complete registry while
+	 * preserving the Host identity. Old links derive from the retired secret and
+	 * can never collide with authorities minted after this reset. */
+	factoryResetAuthorities(): Promise<void> {
+		const run = this.#writeTail.then(async () => {
+			const secret = crypto.getRandomValues(new Uint8Array(KEY_BYTES));
+			const topics = [...this.#topics.values()].filter((topic) => !isPrivateRoomKey(topic.name));
+			await this.#write({
+				version: VERSION,
+				identitySeed: hex(this.#identitySeed),
+				roomLinkSecret: hex(secret),
+				linkedRooms: [],
+				revokedRooms: [],
+				stewards: [],
+				topics,
+			});
+			this.#secret = secret;
+			this.#linked.clear();
+			this.#revoked.clear();
+			this.#stewards.clear();
+			this.#topics.clear();
+			for (const topic of topics) this.#topics.set(topic.name.toLowerCase(), topic);
+			noteOperatorChange();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run;
+	}
+
+	/** Invalidate the issued generation before the operator hears success. The
+	 * old durable behavior consults this state on every call, so live imports
+	 * and later redemptions lose authority together. A later issue uses the next
+	 * generation's unrelated swiss. */
+	revokeSteward(name: string): Promise<number> {
+		let generation = 0;
+		const run = this.#writeTail.then(async () => {
+			const key = name.toLowerCase();
+			const existing = this.#stewards.get(key);
+			if (existing?.issued !== true) {
+				throw new RoomError(NOT_STEWARD, `room "${name}" has no issued stewardship`);
+			}
+			if (existing.generation === Number.MAX_SAFE_INTEGER) {
+				throw new Error(`room "${name}" has exhausted stewardship generations`);
+			}
+			generation = existing.generation + 1;
+			const nextStewards = new Map(this.#stewards);
+			nextStewards.set(key, { name: existing.name, generation, issued: false });
+			await this.#write({
+				version: VERSION,
+				identitySeed: hex(this.#identitySeed),
+				roomLinkSecret: hex(this.#secret),
+				linkedRooms: [...this.#linked.values()],
+				revokedRooms: [...this.#revoked.values()],
+				stewards: [...nextStewards.values()],
+				topics: [...this.#topics.values()],
+			});
+			this.#stewards.clear();
+			for (const [roomKey, steward] of nextStewards) this.#stewards.set(roomKey, steward);
+			noteOperatorChange();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run.then(() => generation);
+	}
+
 	async #write(disk: DiskState): Promise<void> {
+		const parsed = z.safeParse(RoomServerDiskStateSchema, disk);
+		if (!parsed.success) throw new Error(`rooms state change is invalid:\n${z.prettifyError(parsed.error)}`);
 		if (this.#directory === null) return;
 		const path = `${this.#directory}/${FILE}`;
-		const temp = `${path}.tmp-${crypto.randomUUID()}`;
-		try {
-			await Deno.writeTextFile(temp, JSON.stringify(disk) + "\n", {
-				createNew: true,
-				mode: 0o600,
-			});
-			await Deno.rename(temp, path);
-		} catch (err) {
-			await Deno.remove(temp).catch(() => {});
-			throw err;
-		}
-	}
-}
-
-/** How a linked room reaches the Host that will answer for it: mint the durable
- * publication from this room's derived entropy and hand back the swiss name.
- *
- * A room link is Host-wide rather than published onto each accepted session,
- * because a sturdyref is redeemed by whoever holds it — including a peer whose
- * session opened after the link was minted, and who never asks the directory
- * anything. The turn the redemption arrives on names the caller. */
-type PublishRoomLink = (name: string, entropy: Uint8Array) => string;
-
-/** The stable-name index over RoomServerState: which room names this server has
- * made durable, and the swiss each of them answers to. */
-export class RoomLinks {
-	readonly #state: RoomServerState;
-	readonly #publish: PublishRoomLink;
-	readonly #swiss = new Map<string, string>();
-	#linkTail: Promise<void> = Promise.resolve();
-
-	private constructor(state: RoomServerState, publish: PublishRoomLink) {
-		this.#state = state;
-		this.#publish = publish;
-	}
-
-	/** Republish every room name this server made durable before its last stop.
-	 * Deriving each one's entropy from the restored key is what makes these the
-	 * same sturdyrefs the previous process handed out. */
-	static async restore(state: RoomServerState, publish: PublishRoomLink): Promise<RoomLinks> {
-		const links = new RoomLinks(state, publish);
-		for (const name of state.linkedRooms()) {
-			links.#swiss.set(name.toLowerCase(), publish(name, await state.entropyFor(name)));
-		}
-		return links;
-	}
-
-	/** The durable names this server has published, with the swiss each answers
-	 * to. The inspect capability lists these as real OCapN names, not as labels. */
-	named(): ReadonlyArray<{ name: string; swiss: string }> {
-		const out: { name: string; swiss: string }[] = [];
-		for (const name of this.#state.linkedRooms()) {
-			const swiss = this.#swiss.get(name.toLowerCase());
-			if (swiss !== undefined) out.push({ name, swiss });
-		}
-		return out;
-	}
-
-	/** Persist and publish one room link, answering the same swiss for a name
-	 * already linked.
-	 *
-	 * The promise hop is load-bearing when a directory behavior calls this: the
-	 * Host refuses a publication during a turn, so the mint happens only once
-	 * this deferred answer has returned to the microtask queue.
-	 *
-	 * Persisting before publishing is the safe order rather than the tidy one. A
-	 * name recorded but not published is answered by the next restart, which
-	 * reads it back and publishes it; a name published but not recorded works
-	 * until the process stops and then is gone, with a link already handed out
-	 * for it. Only one of those two failures heals itself. */
-	link(name: string): Promise<string> {
-		let swiss = "";
-		const run = this.#linkTail.then(async () => {
-			const key = name.toLowerCase();
-			const existing = this.#swiss.get(key);
-			if (existing !== undefined) {
-				swiss = existing;
-				return;
-			}
-			const entropy = await this.#state.entropyFor(name);
-			await this.#state.remember(name);
-			swiss = this.#publish(name, entropy);
-			this.#swiss.set(key, swiss);
-		});
-		this.#linkTail = run.catch(() => {});
-		return run.then(() => swiss);
+		await atomicWrite(path, encoder.encode(JSON.stringify(parsed.data) + "\n"));
 	}
 }

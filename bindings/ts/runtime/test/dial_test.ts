@@ -1,15 +1,6 @@
 import { acceptRemoteCandidate } from "../../webrtc/connector.ts";
 import { SignalingSendOwner } from "../signaling.ts";
-
-function assert(value: unknown, message: string): void {
-	if (!value) throw new Error(message);
-}
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
-}
+import { assert, assertEquals } from "../../dogfood/assert.ts";
 
 Deno.test("candidate ownership converts synchronous send throws into dial failure", async () => {
 	const failure = new Error("candidate send failed");

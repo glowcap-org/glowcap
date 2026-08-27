@@ -39,7 +39,7 @@ export function trouble(source: string, err: unknown): void {
 }
 
 export function opsLost(cap: OpsCap, why: string): void {
-	store.toast("failure", `${OPS_CATALOG[cap].pane}: this tab no longer holds that capability. ${why}`);
+	store.toast("failure", `${OPS_CATALOG[cap].short}: this tab no longer holds that capability. ${why}`);
 }
 
 /** Mark how far one of our own messages has got, which is what its bubble

@@ -22,10 +22,6 @@ export const rangeOf = (start: number, end: number): EffectiveRange => ({
 	end,
 });
 
-/** Duration of a range. Always non-negative — clamps to 0 for the
- *  degenerate `start > end` case. */
-export const durationOf = (r: EffectiveRange): number => Math.max(0, r.end - r.start);
-
 /** A range is empty when its end is at or before its start.
  *  Drives the ghost-render gate on the Stage and the "hidden"
  *  state for sessions whose peers don't overlap. */

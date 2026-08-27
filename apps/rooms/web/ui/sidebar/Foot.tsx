@@ -6,7 +6,8 @@
 // part of either list, and why it does not switch with the conversation being
 // read.
 
-import { usePeer } from "../peer.ts";
+import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsSession } from "../controller/session.ts";
 import { type DirId, dirMarkIn, type DirView, type SessionPhase } from "../types.ts";
 import { directoryName, footState } from "../text.ts";
 import { Avatar } from "../Avatar.tsx";
@@ -31,14 +32,16 @@ import { StandingMenu } from "../Standing.tsx";
  * A reader can then see that this name belongs to one of the directories on
  * screen rather than to the page. */
 export function Foot(
-	{ dirs, home, session, standing }: {
+	{ dirs, home, session, standing, canInteract }: {
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
 		session: SessionPhase;
 		standing: string;
+		canInteract: boolean;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const rooms = useRoomsSession();
 	// Every directory that has granted a name, in the order this tab opened
 	// them; the page's own directory answers first while it has granted one.
 	const grants = [...dirs.values()].filter((held) => held.nick !== "");
@@ -54,7 +57,22 @@ export function Foot(
 	// past the ramp nothing is marked at all (`dirsWearMarks`). The title beside
 	// it says every name and its directory in words whatever the colors do.
 	const named = grants.find((held) => held.id === home) ?? grants[0];
+	if (primary === "") return null;
 	const mark = named === undefined ? undefined : dirMarkIn(named.id, home, dirs);
+	const releaseActions = canInteract
+		? grants.map((grant) => {
+			const where = directoryName(grant.id, home);
+			return {
+				label: `Release ${grant.nick} on ${where}`,
+				onPick: () => {
+					void rooms.releaseNick(grant.id).then((why) => {
+						if (why !== "") browser.toast("failure", why);
+						else browser.toast("success", `Released ${grant.nick} on ${where}.`);
+					});
+				},
+			};
+		})
+		: [];
 	// The state row is the one live region the foot carries, in both arms, so a
 	// phase change or a standing change is announced without a second voice.
 	const stateRow = (className?: string) => (
@@ -72,21 +90,16 @@ export function Foot(
 				up
 				faceClass="foot-lockup"
 				label={primary === "" ? undefined : `${whoSaid} — where you are: ${foot.said}`}
-				onSay={(said) => peer.setStanding(said ?? "")}
-				face={primary === ""
-					? (
-						/* Before any directory grants a name there is nobody to draw, so
-						   the dot stands alone beside the state text, as it always has. */
-						<>
-							<span id="dot" className={"dot " + session} />
-							{stateRow()}
-						</>
-					)
-					: (
-						/* While the session cannot reach anybody the chip dims the way an
+				onSay={(said) => rooms.setStanding(said ?? "")}
+				actions={releaseActions}
+				disabled={!canInteract}
+				face={
+					/* While the session cannot reach anybody the chip dims the way an
 						   offline member's does, so the reader's own state is said in the
 						   page's one vocabulary; the dot's shape still names which of the
 						   four phases this is, on the corner seat it has always held. */
+
+
 						<>
 							<span className={"avatar-presence" + (session === "connected" ? "" : " offline")}>
 								<Avatar name={primary} />
@@ -104,7 +117,8 @@ export function Foot(
 								{stateRow(foot.away ? "away-said" : "foot-said")}
 							</span>
 						</>
-					)}
+
+				}
 			/>
 		</div>
 	);

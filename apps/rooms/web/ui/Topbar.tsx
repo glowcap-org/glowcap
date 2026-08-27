@@ -15,7 +15,8 @@ import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
 import { StandingMenu } from "./Standing.tsx";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { openModalFrom } from "./modal.ts";
 import { roomCalled } from "./text.ts";
 
@@ -39,7 +40,7 @@ function titleOf(conv: Conv | null): { name: string; said: string } {
  *
  * A direct line has no roster, so this chip is the whole story, which is why the
  * header carries no second copy of it. The browser offers only WebRTC and
- * Noise-relay direct lines, so a live one is always encrypted peer to peer. A
+ * Noise-relay direct lines, so a live one is always encrypted peer to session. A
  * phone has no room for the full phrase. */
 function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 	if (!online) return "Offline";
@@ -53,6 +54,7 @@ function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 
 function TopbarPane(
 	{
+		canInteract,
 		conv,
 		ops,
 		online,
@@ -67,6 +69,7 @@ function TopbarPane(
 		follows,
 		aboutConv,
 	}: {
+		canInteract: boolean;
 		conv: Conv | null;
 		/** Standing on /ops: the bar keeps its shell controls and wears the
 		 * operations title. */
@@ -90,7 +93,8 @@ function TopbarPane(
 		aboutConv: boolean;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	// The rail toggle is the bar's one constant, whatever the cell shows.
 	const railToggle = (
 		<IconButton
@@ -101,7 +105,7 @@ function TopbarPane(
 			size={mobile ? "large" : "normal"}
 			title={railShown ? "Hide the rooms list" : "Show the rooms list"}
 			aria-pressed={railShown}
-			onClick={() => peer.showRail(true)}
+			onClick={() => browser.showRail(true)}
 		/>
 	);
 	if (ops) {
@@ -177,7 +181,8 @@ function TopbarPane(
 								aria-controls={aboutConv ? "convcardTitle" : undefined}
 								aria-label={about}
 								title={about}
-								onClick={(event) => openModalFrom(event.currentTarget, () => peer.aboutConversation())}
+								onClick={(event) =>
+									openModalFrom(event.currentTarget, () => browser.aboutConversation())}
 							>
 								<span
 									className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
@@ -203,8 +208,8 @@ function TopbarPane(
 						// walked back: a private room, which the label already warns
 						// about in the same condition.
 						tone={heldRoom ? "danger" : "neutral"}
-						hidden={conv === null}
-						onClick={peer.endConv}
+						hidden={conv === null || !canInteract}
+						onClick={session.endConv}
 					/>
 				</span>
 			</h1>
@@ -244,7 +249,8 @@ function TopbarPane(
 					effective={standing}
 					follows={follows}
 					about={roomCalled(conv.id, conv.held)}
-					onSay={(said) => peer.setRoomStanding(conv.key, said)}
+					onSay={(said) => session.setRoomStanding(conv.key, said)}
+					disabled={!canInteract}
 				/>
 			)}
 			<IconButton
@@ -259,11 +265,11 @@ function TopbarPane(
 				// the button answers to.
 				aria-pressed={rosterShown}
 				hidden={!isRoom}
-				onClick={() => peer.showRoster(!rosterShown)}
+				onClick={() => browser.showRoster(!rosterShown)}
 			/>
 		</header>
 	);
 }
 
-// Memoised: see `useStore`. None of these props change with a keystroke.
+// Memoised: see `useRoomsState`. None of these props change with a keystroke.
 export const Topbar = memo(TopbarPane);

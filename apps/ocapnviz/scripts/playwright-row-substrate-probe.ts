@@ -23,11 +23,11 @@ import { chromium } from "playwright";
 
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+	viewport: { width: 1600, height: 1000 },
 });
 const page = await ctx.newPage();
 
@@ -35,11 +35,11 @@ page.on("pageerror", (err) => console.log("[pageerror]", err.message));
 
 // Clear persisted state for a deterministic start.
 await page.addInitScript(() => {
-  try {
-    localStorage.removeItem("ocapnviz:app-state");
-  } catch {
-    // ignored
-  }
+	try {
+		localStorage.removeItem("ocapnviz:app-state");
+	} catch {
+		// ignored
+	}
 });
 
 await page.goto(url, { waitUntil: "networkidle" });
@@ -57,39 +57,39 @@ await Deno.mkdir(outDir, { recursive: true });
 // category expands (intrinsic height pushes the grid row), so
 // measure the actual bottom pane bounds before each snap.
 async function timelineClip(): Promise<
-  { x: number; y: number; width: number; height: number }
+	{ x: number; y: number; width: number; height: number }
 > {
-  return await page.evaluate(() => {
-    // Bottom bar = last direct child of the app-root grid.
-    const root = globalThis.document.querySelector(".ocv-app-root");
-    const panel = root?.lastElementChild;
-    if (!panel) return { x: 0, y: 848, width: 1600, height: 152 };
-    const r = panel.getBoundingClientRect();
-    return {
-      x: Math.floor(r.left),
-      y: Math.floor(r.top),
-      width: Math.floor(r.width),
-      height: Math.floor(r.height),
-    };
-  });
+	return await page.evaluate(() => {
+		// Bottom bar = last direct child of the app-root grid.
+		const root = globalThis.document.querySelector(".ocv-app-root");
+		const panel = root?.lastElementChild;
+		if (!panel) return { x: 0, y: 848, width: 1600, height: 152 };
+		const r = panel.getBoundingClientRect();
+		return {
+			x: Math.floor(r.left),
+			y: Math.floor(r.top),
+			width: Math.floor(r.width),
+			height: Math.floor(r.height),
+		};
+	});
 }
 
 async function snap(name: string): Promise<Uint8Array> {
-  return await page.screenshot({
-    path: `${outDir}/${name}.png`,
-    type: "png",
-    clip: await timelineClip(),
-  });
+	return await page.screenshot({
+		path: `${outDir}/${name}.png`,
+		type: "png",
+		clip: await timelineClip(),
+	});
 }
 
 // Cheap content fingerprint — hash bytes past the PNG header.
 // Different content ⇒ different fingerprint.
 function fingerprint(buf: Uint8Array): string {
-  let hash = 0;
-  for (let i = 200; i < Math.min(2000, buf.length); i++) {
-    hash = ((hash << 5) - hash + buf[i]!) | 0;
-  }
-  return `${buf.length}:${hash}`;
+	let hash = 0;
+	for (let i = 200; i < Math.min(2000, buf.length); i++) {
+		hash = ((hash << 5) - hash + buf[i]!) | 0;
+	}
+	return `${buf.length}:${hash}`;
 }
 
 // (1) Default — everything collapsed.
@@ -102,9 +102,9 @@ console.log(`01-default        fp=${fp1}`);
 // pane-top by (control row + overview + LANE_GAP/2 + lane/2).
 // The pane top shifts when the pane auto-grows on expansion.
 async function peersChevronY(): Promise<number> {
-  const clip = await timelineClip();
-  // Control row ≈ 40, overview = 26, lane/2 ≈ 7. ~73 below pane top.
-  return clip.y + 73;
+	const clip = await timelineClip();
+	// Control row ≈ 40, overview = 26, lane/2 ≈ 7. ~73 below pane top.
+	return clip.y + 73;
 }
 
 // (2) Click the peers chevron at the dynamic y.
@@ -126,17 +126,17 @@ console.log(`03-collapsed-back fp=${fp3}`);
 await browser.close();
 
 const checks = {
-  "expand changed view": fp1 !== fp2,
-  "collapse changed view": fp2 !== fp3,
-  // Round-trip: collapsed view after toggling back should
-  // resemble the original (within fingerprint tolerance — the
-  // PNG bytes are deterministic for static pixel content).
-  "collapse restores original": fp1 === fp3,
+	"expand changed view": fp1 !== fp2,
+	"collapse changed view": fp2 !== fp3,
+	// Round-trip: collapsed view after toggling back should
+	// resemble the original (within fingerprint tolerance — the
+	// PNG bytes are deterministic for static pixel content).
+	"collapse restores original": fp1 === fp3,
 };
 const failures: string[] = [];
 for (const [name, ok] of Object.entries(checks)) {
-  console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
-  if (!ok) failures.push(name);
+	console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
+	if (!ok) failures.push(name);
 }
 console.log("");
 if (failures.length === 0) console.log("ALL PASS");

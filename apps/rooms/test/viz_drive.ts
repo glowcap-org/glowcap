@@ -1,6 +1,8 @@
 // Driving rooms tabs for the visualizer lifecycle proof.
 
 import { type Browser, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
+export { openDmTo } from "./support/page.ts";
 
 export function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -23,6 +25,7 @@ export async function joinAs(
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	await tab.goto(`http://127.0.0.1:${port}/`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", room);
 	await tab.click("#joinBtn");
@@ -31,13 +34,6 @@ export async function joinAs(
 		fail(`${nick} never joined; status="${status}"`);
 	});
 	return tab;
-}
-
-export async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
 }
 
 export async function say(tab: Page, text: string): Promise<void> {

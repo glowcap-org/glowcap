@@ -7,8 +7,11 @@
 // transport, the Visualizer pane the viz endpoint — because both are decided
 // when the peer opens, not mid-session.
 
-import { LS } from "./storage.ts";
 import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { originVizUrl, vizOverrideRefusal } from "../../lib/viz_publish.ts";
+import { setWorkspaceConnectionSettings, workspaceConnectionSettings } from "./workspace_state.ts";
+
+export { originVizUrl } from "../../lib/viz_publish.ts";
 
 export type DmMode = "webrtc" | "relay";
 export type DmTransport = typeof TRANSPORT_WEBRTC | typeof TRANSPORT_NOISE_RELAY;
@@ -18,11 +21,6 @@ export type DmTransport = typeof TRANSPORT_WEBRTC | typeof TRANSPORT_NOISE_RELAY
 export function dmTransportFor(mode: DmMode): DmTransport {
 	return mode === "relay" ? TRANSPORT_NOISE_RELAY : TRANSPORT_WEBRTC;
 }
-
-const KEY = {
-	dm: "rooms.dm",
-	viz: "rooms.viz",
-} as const;
 
 /** Resolve DM transport from a search string and a stored preference. */
 export function dmFrom(search: URLSearchParams, stored: string | null): DmMode {
@@ -40,7 +38,7 @@ export function vizFrom(search: URLSearchParams, stored: string | null): string 
 }
 
 export function dmMode(): DmMode {
-	return dmFrom(new URLSearchParams(location.search), LS.get(KEY.dm));
+	return dmFrom(new URLSearchParams(location.search), workspaceConnectionSettings().dmMode);
 }
 
 export function dmTransport(): DmTransport {
@@ -48,19 +46,11 @@ export function dmTransport(): DmTransport {
 }
 
 export function vizOverride(): string | null {
-	return vizFrom(new URLSearchParams(location.search), LS.get(KEY.viz));
+	return vizFrom(new URLSearchParams(location.search), workspaceConnectionSettings().vizOverride || null);
 }
 
 export function current(): { dm: DmMode; viz: string } {
 	return { dm: dmMode(), viz: vizOverride() ?? "" };
-}
-
-/** The page-origin viz socket URL: `/viz` upgrades and carries the socket to
- * the endpoint, so the browser never needs the endpoint's own port — which
- * may be container-side, unpublished, or plain `ws://` behind an HTTPS
- * page. */
-export function originVizUrl(loc: { protocol: string; host: string }): string {
-	return `${loc.protocol === "https:" ? "wss://" : "ws://"}${loc.host}/viz`;
 }
 
 /** What a blank viz field means: this page's own endpoint through its
@@ -95,8 +85,7 @@ export async function directoryLocator(): Promise<string | null> {
 export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
 	if (next.dm === "relay") url.searchParams.set("dm", "relay");
 	else url.searchParams.delete("dm");
-	const viz = next.viz.trim();
-	if (viz) url.searchParams.set("viz", viz);
+	if (next.viz !== "") url.searchParams.set("viz", next.viz);
 	else url.searchParams.delete("viz");
 }
 
@@ -104,14 +93,13 @@ export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
  * reload so the peer opens with the new locator and viz tap. A caller names
  * only what it owns — Settings the DM transport, the visualizer pane its
  * endpoint — and what it leaves out keeps its current value. */
-export function apply(next: { dm?: DmMode; viz?: string }): void {
+export function apply(next: { dm?: DmMode; viz?: string }): boolean {
 	const whole = { ...current(), ...next };
-	const viz = whole.viz.trim();
-	LS.set(KEY.dm, whole.dm);
-	if (viz) LS.set(KEY.viz, viz);
-	else LS.remove(KEY.viz);
+	if (vizOverrideRefusal(whole.viz) != null) return false;
+	if (!setWorkspaceConnectionSettings({ dmMode: whole.dm, vizOverride: whole.viz })) return false;
 	const url = new URL(location.href);
 	writeSearch(url, whole);
 	history.replaceState(null, "", url);
 	location.reload();
+	return true;
 }

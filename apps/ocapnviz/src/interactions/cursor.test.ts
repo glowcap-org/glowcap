@@ -8,7 +8,7 @@ import {
 	verbIsPan,
 	verbSelectsEntity,
 } from "./cursor.ts";
-import { ALL_SURFACES, dummyHit } from "./gesture-resolver.ts";
+import { ALL_SURFACES, dummyHit } from "./gesture-resolver-test/harness.ts";
 import {
 	type Hit,
 	IDLE_MACHINE,

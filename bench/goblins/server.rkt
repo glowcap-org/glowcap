@@ -1,10 +1,12 @@
 #lang racket/base
+(require racket/runtime-path)
 ;; Bench server entrypoint: racket server.rkt <backend> <suite> <host> <port>.
 ;; Loads the requested app and backend, then serves the app's root on that
 ;; substrate over loopback TCP, printing one NDJSON readiness line and then
 ;; serving until killed.
 (file-stream-buffer-mode (current-output-port) 'line)
 
+(define-runtime-path here ".")
 (define args (current-command-line-arguments))
 (define backend-name (vector-ref args 0)) ; "goblins" | "pancake"
 (define suite (vector-ref args 1))
@@ -12,9 +14,9 @@
 (define port (string->number (vector-ref args 3)))
 
 (define app-path
-  (string->path (format "/workspaces/pancake/bench/goblins/apps/~a.rkt" suite)))
+  (build-path here "apps" (format "~a.rkt" suite)))
 (define backend-path
-  (string->path (format "/workspaces/pancake/bench/goblins/backend-~a.rkt" backend-name)))
+  (build-path here (format "backend-~a.rkt" backend-name)))
 
 (define server-build (dynamic-require app-path 'server-build))
 (define server-run (dynamic-require backend-path 'server-run))

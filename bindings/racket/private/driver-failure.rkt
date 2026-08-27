@@ -143,9 +143,9 @@
     (call/driver-failure
      'driver-listener-close
      (lambda (out) (pancake_driver_listener_close handle listener out))))
-  (when (= code WOULD-BLOCK)
-    (raise-pancake 'driver-listener-close WOULD-BLOCK "listener stop is still pending"))
-  (when failure (raise failure)))
+  (when (= code WOULD-BLOCK) (set! failure #f))
+  (when failure (raise failure))
+  (not (= code WOULD-BLOCK)))
 
 (module+ test
   (require rackunit)

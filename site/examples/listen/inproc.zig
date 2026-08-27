@@ -4,7 +4,7 @@ const pancake = @import("pancake");
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     var network = pancake.net.inproc.Network.init(allocator, io);
     defer network.deinit();
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         network.netlayer(),
         .{ .designator = "greeter" },
@@ -13,7 +13,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     );
     defer server.deinit();
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

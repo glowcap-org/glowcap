@@ -1,4 +1,4 @@
-// Taking an operations capability: the shared half of inspect and listeners.
+// Taking an operations capability on the directory that printed its name.
 //
 // An operations capability is a second object the server publishes under an
 // unguessable name, so holding that name is the whole of the authority. The
@@ -7,24 +7,31 @@
 // What each capability answers differs; how one is taken does not, so that
 // flow lives here once.
 
-import type { CaptpVersion, Ref, Session } from "@pancake/runtime";
-import { parseSturdyRef, retainCleanupFailures } from "@pancake/runtime";
+import type { Ref, Session } from "@pancake/runtime";
+import { retainCleanupFailures } from "@pancake/runtime";
+import { parseRoomsSturdyref } from "./locator.ts";
 
-/** The bootstrap swiss inside a pasted operations capability.
+/** The Host publication name printed by this directory.
  *
- * The operator is handed a swiss (the Host publication name) or a sturdyref
- * URI that carries that swiss. Fetching it on the directory session is what
- * taking the capability is. */
-export function pastedSwiss(pasted: string, captpVersion: CaptpVersion): string {
+ * A sturdyref also names a Host. Stripping that locator and fetching its swiss
+ * on the current directory can silently retarget authority when two servers
+ * restored the same operator state. Operations therefore accepts only the bare
+ * swiss explicitly scoped by the live directory in front of the reader. */
+export function operationsSwiss(pasted: string): string {
 	const trimmed = pasted.trim();
 	if (trimmed.includes("://")) {
-		try {
-			return new TextDecoder().decode(parseSturdyRef(trimmed, captpVersion).swissnum);
-		} catch {
-			return trimmed;
-		}
+		throw new Error("paste the bare swiss number this directory printed, not a sturdyref for another host");
 	}
 	return trimmed;
+}
+
+/** A swiss presented to the endpoint named alongside it. Unlike a capability
+ * fetched on the current directory, the visualizer has a separately selected
+ * endpoint, so accepting its complete sturdyref cannot retarget another Host. */
+export function presentedSwiss(pasted: string): string {
+	const trimmed = pasted.trim();
+	if (!trimmed.includes("://")) return trimmed;
+	return new TextDecoder().decode(parseRoomsSturdyref(trimmed).swissnum);
 }
 
 /** Fetch an operations capability and take its first answer through `first`.
@@ -34,7 +41,7 @@ export async function takeOperationsCap<T>(
 	pasted: string,
 	first: (cap: Ref) => Promise<T>,
 ): Promise<{ cap: Ref; taken: T }> {
-	const swiss = pastedSwiss(pasted, session.profile.captpVersion);
+	const swiss = operationsSwiss(pasted);
 	if (swiss === "") throw new Error("paste the swiss number the server printed");
 	const cap = await session.fetch(swiss);
 	try {

@@ -203,13 +203,9 @@ fn validateTarget(path: []const u8, query: ?[]const u8) error{InvalidRelayUrl}!v
 }
 
 fn validatePercentEncoding(target: []const u8) error{InvalidRelayUrl}!void {
-    var at: usize = 0;
-    while (at < target.len) : (at += 1) {
-        if (target[at] != '%') continue;
-        if (at + 2 >= target.len or !isHex(target[at + 1]) or !isHex(target[at + 2]))
-            return error.InvalidRelayUrl;
-        at += 2;
-    }
+    // The same RFC 3986 escape shape the URI reader owns; only the error
+    // name is this transport's.
+    model.uri.validatePercentEncoding(target) catch return error.InvalidRelayUrl;
 }
 
 fn encodedEquals(encoded: []const u8, expected: []const u8) bool {
@@ -230,10 +226,6 @@ fn encodedEquals(encoded: []const u8, expected: []const u8) bool {
         if (byte != expected[expected_at]) return false;
     }
     return encoded_at == encoded.len and expected_at == expected.len;
-}
-
-fn isHex(byte: u8) bool {
-    return hexValue(byte) != null;
 }
 
 fn hexValue(byte: u8) ?u8 {

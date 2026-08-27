@@ -13,6 +13,7 @@
 // scenario minted one.
 
 import type { Locator, Page } from "playwright";
+import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "./harness.ts";
 import { run as goneRun } from "./gone.ts";
 
@@ -30,7 +31,7 @@ export async function run(
 	// so — a connection nobody could see and therefore nobody could end. So it
 	// keeps a row of its own, the same shape a room gets, because it is the same
 	// kind of thing: somewhere you are.
-	const before = tab.locator("#roomList li").filter({ has: tab.locator('.rname:text-is("elsewhere")') });
+	const before = namedRoomRow(tab, "elsewhere");
 	await before.hover();
 	await before.locator(".room-leave").click();
 	await tab.waitForFunction(
@@ -234,7 +235,7 @@ export async function run(
 
 	// Back on the foreign room so the rail field names that directory: empty
 	// locator means this page's own, and this check is that the other one fills.
-	await tab.click('#roomList li:has(.rname:text-is("elsewhere")) .room-open');
+	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 		.catch(() => fail("could not return to the room on the directory that was not left"));
 

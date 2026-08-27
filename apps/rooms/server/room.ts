@@ -26,6 +26,7 @@ import {
 	POST,
 	POST_FILES,
 	PRIVATE,
+	STEWARD,
 	SUBSCRIBE,
 	TOPIC,
 	TYPING,
@@ -36,10 +37,20 @@ import {
 	BAD_ATTACHMENT,
 	NICK_TAKEN,
 	NICK_TOO_LONG,
+	NO_SUCH_ROOM,
+	NOT_STEWARD,
 	RoomError,
 	UPLOAD_INCOMPLETE,
 } from "../lib/errors.ts";
-import { lineCost, MAX_AWAY, MAX_IMAGE_DIM, MAX_LINE, MAX_MESSAGE_FILES, nickRefusal } from "../lib/limits.ts";
+import {
+	isPrivateRoomKey,
+	lineCost,
+	MAX_AWAY,
+	MAX_IMAGE_DIM,
+	MAX_LINE,
+	MAX_MESSAGE_FILES,
+	nickRefusal,
+} from "../lib/limits.ts";
 import {
 	claimedByAnother,
 	findBySession,
@@ -56,13 +67,15 @@ import {
 	rooms,
 	type RoomState,
 } from "./registry.ts";
+import { noteOperatorChange } from "./operator/revision.ts";
 import { allocateUpload, armUploadTimer, broadcastFiles, dropUpload, postStaged, uploadBehavior } from "./files.ts";
 import { lineBehavior, topicBehavior } from "./lines.ts";
 import { notifyLocalRoom } from "./discovery.ts";
 import { broadcast, broadcastTyping, leaveRoom, statePresence } from "./presence.ts";
 import { redeemNameVoucher, registeredByAnother } from "./introductions.ts";
 import { noteTrouble } from "./journal.ts";
-import { historyEnabled, readRoomLines, recordRoomLine } from "./history.ts";
+import { historyEnabled, liveKeptLine, readRoomLines, recordRoomLine } from "./history.ts";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
 /** The room behavior for one connection. The room grants at most one live
  * membership to the connection, so `post` needs no "from" argument — the
@@ -82,25 +95,50 @@ export function roomBehavior(state: RoomState) {
 	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
 		const session = currentSession();
 		if (session === null) throw new Error("a room is reachable only over a session");
+		if (verb !== SUBSCRIBE && hasCapabilityArguments(args)) {
+			throwAfterReleasingCapabilities(
+				session,
+				args,
+				new Error(`room ${verb} does not take capability arguments`),
+			);
+		}
 		if (verb === SUBSCRIBE) {
-			const nick = typeof args[0] === "string" ? args[0] : "anon";
+			const nick = typeof args[0] === "string" ? args[0] : "";
 			const inbox = args[1];
-			if (!(inbox instanceof Ref)) {
-				throw new Error("subscribe needs an inbox capability");
+			const voucher = args[2];
+			if (
+				(args.length !== 2 && args.length !== 3) || !(inbox instanceof Ref) ||
+				(args.length === 3 && !(voucher instanceof Uint8Array))
+			) {
+				throwAfterReleasingCapabilities(
+					session,
+					args,
+					new Error("subscribe needs an inbox capability, a name, and optional name voucher"),
+				);
 			}
 			// This is where a room grants a name, and every member carries what it
 			// grants: into the roster, into the line saying somebody joined, and in
 			// front of everything they say.
 			const unnameable = nickRefusal(nick);
-			if (unnameable !== null) throw new RoomError(NICK_TOO_LONG, unnameable);
+			if (unnameable != null) {
+				handBack(session, inbox, "refused room subscriber inbox");
+				throw new RoomError(NICK_TOO_LONG, unnameable);
+			}
 			// The one step here that can fail — spawning the topic export — is done
 			// first, before any of the bookkeeping that a failure after it would
 			// leave inconsistent: a spent voucher, an unseated previous member, a
 			// dropped count. A refusal past this point hands the export back rather
 			// than orphaning it. Everything after the spawn is infallible commit.
-			const topic = session.spawn(topicBehavior(state));
+			let topic: Ref;
+			try {
+				topic = session.spawn(topicBehavior(state));
+			} catch (error) {
+				handBack(session, inbox, "unseated room subscriber inbox");
+				throw error;
+			}
 			const refuse = (error: Error): never => {
-				handBack(session, topic);
+				handBack(session, topic, "unseated room topic authority");
+				handBack(session, inbox, "unseated room subscriber inbox");
 				throw error;
 			};
 			// Whether this subscribe carries proof that the caller is the name's own
@@ -109,7 +147,6 @@ export function roomBehavior(state: RoomState) {
 			// so an unneeded voucher is not burnt; both refusals below yield to it,
 			// because both exist to keep one name on one person and the voucher is
 			// the proof this is that person.
-			const voucher = args[2];
 			const entitled = () => voucher instanceof Uint8Array && redeemNameVoucher(nick, voucher);
 			if (claimedByAnother(state, session, nick)) {
 				if (!entitled()) refuse(new RoomError(NICK_TAKEN, `name "${nick}" is already claimed`));
@@ -145,6 +182,7 @@ export function roomBehavior(state: RoomState) {
 			const lines = already?.lines ?? [];
 			if (wasMember) leaveRoom(state, session, true, true);
 			state.members.push({ nick, inbox, session, lines, topic, away: "" });
+			noteOperatorChange();
 			// The one moment this process KNOWS which member a session
 			// carries: state it for the trace, so a viewer can name the peer
 			// instead of showing its claimed address.
@@ -216,6 +254,12 @@ export function roomBehavior(state: RoomState) {
 			return topic;
 		}
 		if (verb === POST) {
+			if (args.length > 1) {
+				throw new RoomError(BAD_ATTACHMENT, "post carries trailing args; attach a file with attach()");
+			}
+			if (args.length !== 1 || typeof args[0] !== "string") {
+				throw new Error("post needs exactly one text line");
+			}
 			const member = findBySession(state, session);
 			if (member === null) {
 				throw new Error("post needs a claimed room membership");
@@ -225,9 +269,6 @@ export function roomBehavior(state: RoomState) {
 			// word — so a post that supplies its own is refused rather than
 			// relayed. A file goes out through `attach`, which is the one path
 			// that puts a record on the wire.
-			if (args.length > 1) {
-				throw new RoomError(BAD_ATTACHMENT, "post carries trailing args; attach a file with attach()");
-			}
 			// The line goes out named, and the reference that governs it comes
 			// back. Holding it is the authority to change or withdraw that one
 			// line, so the verbs on it ask nobody who is calling — the same shape
@@ -246,30 +287,33 @@ export function roomBehavior(state: RoomState) {
 			// had already broadcast it, the poster is told their line failed while
 			// everyone else is reading it, and their retry says it twice.
 			const id = state.nextLine++;
+			const kept = !state.private && historyEnabled() ? liveKeptLine(member.nick, said, Date.now()) : null;
 			// No files: a plain line's set is empty, and a later `refile` may still
 			// give it one, which is what makes a text line and a file line one kind.
-			const line = session.spawn(lineBehavior(state, member.nick, id, []));
+			const line = session.spawn(lineBehavior(state, member.nick, id, [], kept));
 			broadcast(state, member.nick, said, LINE, BigInt(id));
 			// Listed rooms only: a private room is reference-only, and keeping
 			// its lines is a retention decision its holders never made.
-			if (!state.private) recordRoomLine(state.name, { from: member.nick, text: said, at: Date.now(), id });
+			if (kept !== null) recordRoomLine(state.name, kept);
 			// Past the bound the oldest goes back, so a member talking all day
 			// costs the room a fixed number of exports rather than one per line.
 			// Oldest first, because what a member wants to fix is what they just
 			// said.
 			member.lines.push(line);
+			noteOperatorChange();
 			while (member.lines.length > HELD_LINE_REFS) handBack(session, member.lines.shift()!);
 			return line;
 		}
 		if (verb === POST_FILES) {
-			if (args.length > 1 || (args[0] !== undefined && typeof args[0] !== "string")) {
+			if (args.length !== 1 || typeof args[0] !== "string") {
 				throw new RoomError(BAD_ATTACHMENT, "postFiles needs one caption");
 			}
 			const member = findBySession(state, session);
 			if (member === null) throw new Error("postFiles needs a claimed room membership");
 			// Nothing is staged, nothing to post. Checked before any effect so the
 			// refusal changes no state.
-			if ([...state.uploads.get(session) ?? []].every((upload) => upload.posted)) {
+			const staged = [...state.uploads.get(session) ?? []].find((upload) => !upload.posted);
+			if (staged === undefined) {
 				throw new RoomError(UPLOAD_INCOMPLETE, "no files are staged");
 			}
 			// The line's own file set, filled by the commit below. It is spawned
@@ -278,15 +322,26 @@ export function roomBehavior(state: RoomState) {
 			// `post` follows: a line cannot be un-said.
 			const files: PostedFile[] = [];
 			const id = state.nextLine++;
-			const line = session.spawn(lineBehavior(state, member.nick, id, files));
+			const caption = typeof args[0] === "string" && args[0] !== "" ? args[0] : staged.file.name;
+			const kept = !state.private && historyEnabled() ? liveKeptLine(member.nick, caption, Date.now()) : null;
+			const line = session.spawn(lineBehavior(state, member.nick, id, files, kept));
 			postStaged(state, session, files);
-			const caption = typeof args[0] === "string" && args[0] !== "" ? args[0] : files[0].name;
 			broadcastFiles(state, member.nick, caption, files, LINE, id);
+			// The files keep their own bounded bytes; room history keeps only the
+			// caption. The line capability retains this row's in-memory token, so
+			// refiling and withdrawal cannot reach a prior room generation.
+			if (kept !== null) recordRoomLine(state.name, kept);
 			member.lines.push(line);
+			noteOperatorChange();
 			while (member.lines.length > HELD_LINE_REFS) handBack(session, member.lines.shift()!);
 			return line;
 		}
 		if (verb === ATTACH) {
+			if (
+				(args.length !== 3 && args.length !== 5) || typeof args[0] !== "string" ||
+				typeof args[1] !== "string" || typeof args[2] !== "bigint" ||
+				(args.length === 5 && (typeof args[3] !== "bigint" || typeof args[4] !== "bigint"))
+			) throw new Error("attach needs a name, mime type, size, and optional image dimensions");
 			// Begin one upload and answer with the capability that drives it.
 			// Holding that capability is the authority to fill or discard this one
 			// file, so those verbs need no membership check of their own —
@@ -362,6 +417,9 @@ export function roomBehavior(state: RoomState) {
 			return upload.ref;
 		}
 		if (verb === TYPING) {
+			if (args.length !== 1 || typeof args[0] !== "boolean") {
+				throw new Error("typing needs one boolean");
+			}
 			// Ephemeral: only a claimed member can signal, and the signal reaches the
 			// other members alone. An un-subscribed connection is a silent no-op — a
 			// stale typing flag is never worth an error.
@@ -370,6 +428,7 @@ export function roomBehavior(state: RoomState) {
 			return null;
 		}
 		if (verb === HISTORY) {
+			if (args.length !== 0) throw new Error("history takes no arguments");
 			if (!historyEnabled()) throw new Error("room has no method history");
 			if (findBySession(state, session) === null) {
 				throw new Error("history needs a claimed room membership");
@@ -379,7 +438,35 @@ export function roomBehavior(state: RoomState) {
 				lines.map((line) => [line.from, line.text, line.at] as Argument)
 			) as ReturnType<Behavior>;
 		}
+		if (verb === STEWARD) {
+			if (args.length !== 0) throw new Error("steward takes no arguments");
+			// The opener may issue the room's one durable steward. Once issued,
+			// later room generations never infer it from being first to arrive:
+			// they must present the sturdyref. Repeated asks by the issuing
+			// generation are idempotent, so losing the first answer does not lose
+			// the authority forever.
+			if (session !== state.creator) {
+				throw new RoomError(
+					NOT_STEWARD,
+					"the steward is answered only to the connection that opened this room",
+				);
+			}
+			const links = heldRoomLinks();
+			if (links === null) throw new Error("this directory does not publish room links");
+			const durable = state.private ? state.key : state.name;
+			if (links.hasSteward(durable) && !state.stewardIssuedHere) {
+				throw new RoomError(NOT_STEWARD, "this room's steward has already been issued");
+			}
+			// Mark this generation before the durable commit. If the answer is lost
+			// after persistence, its opener may repeat the ask; a reconstructed room
+			// still cannot mistake first arrival for ownership.
+			state.stewardIssuedHere = true;
+			return links.steward(durable, session, state.topic).then((grant) => {
+				return [grant.room, grant.identity, grant.steward] as Argument;
+			}) as ReturnType<Behavior>;
+		}
 		if (verb === CALLED) {
+			if (args.length !== 0) throw new Error("called takes no arguments");
 			// A link is not a name, but the room still has one while it is live:
 			// a public room's directory name, or a private room's label. Empty
 			// when a private room came back from a link with nobody left to
@@ -387,9 +474,11 @@ export function roomBehavior(state: RoomState) {
 			return state.name;
 		}
 		if (verb === PRIVATE) {
+			if (args.length !== 0) throw new Error("private takes no arguments");
 			return state.private ? "private" : "listed";
 		}
 		if (verb === LINK) {
+			if (args.length !== 0) throw new Error("link takes no arguments");
 			// Asked for with the reference, so nothing here asks who is calling:
 			// holding the room is the authority to hold a durable name for it, the
 			// same way holding it is the authority to hand it on.
@@ -401,16 +490,17 @@ export function roomBehavior(state: RoomState) {
 			// label is not an identity.
 			const links = heldRoomLinks();
 			if (links === null) throw new Error("this directory does not publish room links");
-			return links.link(state.private ? state.key : state.name);
+			return links.link(state.private ? state.key : state.name, session, state.topic);
 		}
 		if (verb === AWAY) {
+			if (args.length !== 1 || typeof args[0] !== "string") throw new Error("away needs one reason");
 			const member = findBySession(state, session);
 			if (member === null) throw new Error("away needs a claimed room membership");
-			const why = typeof args[0] === "string" ? args[0].slice(0, MAX_AWAY) : "";
-			// Cut rather than refused: a reason is a courtesy, and losing the tail
-			// of one is a smaller wrong than refusing to mark somebody away.
+			const why = args[0];
+			if (why.length > MAX_AWAY) throw new Error(`an away reason may be at most ${MAX_AWAY} characters`);
 			if (why === member.away) return null;
 			member.away = why;
+			noteOperatorChange();
 			broadcast(
 				state,
 				"room",
@@ -422,6 +512,7 @@ export function roomBehavior(state: RoomState) {
 			return null;
 		}
 		if (verb === LEAVE) {
+			if (args.length !== 0) throw new Error("leave takes no arguments");
 			// Drop just this membership, keeping the connection open so the client can
 			// enter another room. Idempotent: leaving a room you are not in is a no-op.
 			leaveRoom(state, session);
@@ -442,22 +533,40 @@ export function roomBehavior(state: RoomState) {
  * whose session opened long after the mint, and who asks the directory nothing.
  * A Host-wide object belongs to no one session, so the caller is the session
  * whose turn is running, which is what `currentSession` answers. */
-export function linkedRoomBehavior(durable: string): Behavior {
+export function linkedRoomBehavior(durable: string, active: () => boolean = () => true): Behavior {
 	// A durable name is either a room's name or a private room's key, and the
 	// two are told apart the way the table tells them apart. A private room
 	// restored this way has no label: what it is called lives with whoever kept
 	// the link, and the room never needed it.
-	const isPrivate = durable.startsWith("~");
+	const isPrivate = isPrivateRoomKey(durable);
 	const key = isPrivate ? durable : roomKey(durable);
 	return (verb, args) => {
+		if (!active()) throw new RoomError(NO_SUCH_ROOM, "this room link was revoked");
 		const session = currentSession();
-		if (session === null) throw new Error("a room link is reachable only over a session");
+		if (session == null) throw new Error("a room link is reachable only over a session");
+		if (verb !== SUBSCRIBE && hasCapabilityArguments(args)) {
+			throwAfterReleasingCapabilities(
+				session,
+				args,
+				new Error(`room ${verb} does not take capability arguments`),
+			);
+		}
 		let state = rooms.get(key);
 		if (state === undefined) {
-			if (verb === CALLED) return isPrivate ? "" : durable;
-			if (verb === PRIVATE) return isPrivate ? "private" : "listed";
+			if (verb === CALLED) {
+				if (args.length !== 0) throw new Error("called takes no arguments");
+				return isPrivate ? "" : durable;
+			}
+			if (verb === PRIVATE) {
+				if (args.length !== 0) throw new Error("private takes no arguments");
+				return isPrivate ? "private" : "listed";
+			}
 			if (verb !== SUBSCRIBE) throw new Error("subscribe to this room before using it");
-			state = makeRoomState(isPrivate ? "" : durable, session, { private: isPrivate, key });
+			state = makeRoomState(isPrivate ? "" : durable, session, {
+				private: isPrivate,
+				key,
+				topic: heldRoomLinks()?.topic(durable) ?? "",
+			});
 			registerRoom(state);
 			try {
 				return roomBehavior(state)(verb, args);

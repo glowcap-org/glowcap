@@ -79,6 +79,31 @@
 	cursor: pointer;
 	color: inherit;
 }
+/* Taking an invitation is a room-row act, so the row itself stays parked and
+   answers with the same progress ring as the shared controls. The ring takes
+   the badge slot; the invitation's origin remains readable beside it. */
+#roomList .inviterow .invite-take[data-busy] {
+	cursor: progress;
+	opacity: .72;
+}
+#roomList .inviterow .invite-take[data-busy]::after {
+	content: "";
+	box-sizing: border-box;
+	grid-area: marks;
+	justify-self: center;
+	width: 13px;
+	height: 13px;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 50%;
+	animation: control-busy-turn .75s linear infinite;
+}
+#roomList .inviterow .invite-take[data-busy] .rcount {
+	visibility: hidden;
+}
+#roomList .inviterow:has(.invite-take[data-busy]) .room-leave {
+	opacity: 0;
+}
 /* One template row, always. The caption is a sibling of that button and never a
    child of it — a control cannot live inside a control — so a second row here
    would hold nothing and add its own height to every captioned row. */
@@ -103,6 +128,20 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-size: var(--type-body);
+}
+#roomList .rname {
+	display: flex;
+	align-items: center;
+}
+/* The IRC badge is a fixed origin mark. The room name yields space first, so a
+   long name cannot push the fact that it is bridged out of the rail. */
+#roomList .rname-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+#roomList .irc-chip {
+	flex: none;
 }
 /* Centred in the slot rather than pushed to its end, so the mark that replaces
    them arrives on the same point instead of a few pixels to the left.
@@ -211,17 +250,6 @@
 #roomList li.here .rwhere-said,
 #dmList li.here .rwhere-said {
 	opacity: 1;
-}
-/* A bridged room's caption: a fact in the caption's own column, quieter than
-   the name by size and by the said-span's own turning down. Not a control,
-   so it is a span and takes no hover, and it keeps the row's ink: a named
-   soft token fails the 4.5 bar on the selected row's painted ground, which
-   is the lesson the comment above already teaches. */
-.rwhere-bridge {
-	grid-column: 2;
-	display: flex;
-	min-width: 0;
-	font-size: var(--type-caption);
 }
 #roomList li.here:hover {
 	background: color-mix(in srgb, var(--accent) 21%, transparent);
@@ -427,184 +455,4 @@
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
-}
-
-/* One mark per held directory, handed out in order by the store. The applied
-   property is `--dir-mark`, so a surface that wears one names it once and the
-   palette above stays the single place the colours live. This page's own
-   directory is not a slot in that ramp: it is the product, and it wears teal. */
-[data-dir="home"] {
-	--dir-mark: var(--teal);
-}
-[data-dir="1"] {
-	--dir-mark: var(--dir-mark-1);
-}
-[data-dir="2"] {
-	--dir-mark: var(--dir-mark-2);
-}
-[data-dir="3"] {
-	--dir-mark: var(--dir-mark-3);
-}
-[data-dir="4"] {
-	--dir-mark: var(--dir-mark-4);
-}
-[data-dir="5"] {
-	--dir-mark: var(--dir-mark-5);
-}
-/* An address this tab does not hold has no mark of its own to wear, and it is
-   not this page's directory either, so it wears the product's own accent.
-   Saying that here rather than leaving `--dir-mark` unset is what keeps a form
-   agreeing with itself: the card's stripe, its field borders, its hash and its
-   directory mark all read this one property, and with it unset each of them
-   fell back to a different answer. The stripe's fallback was teal, which is
-   what this page's own directory wears, so a card aimed at an address nobody
-   here holds drew itself as if it were aimed at home. */
-[data-dir="unknown"] {
-	--dir-mark: var(--accent);
-}
-/* The rail's second-line slot: a quiet line under a name, saying which
-   directory the thing named above it is on and opening what is known about
-   that directory.
-
-   Two other callers wear the same slot for a neighboring job: a directory with
-   nothing open on it says why it is there, and the panel naming a new room says
-   where the room will land. Neither is a "where" in the sense the class is
-   called, so read the name as the slot as well as as its first tenant.
-
-   It is a line rather than a word, spanning the row's whole content box from the
-   mark column on the left to the edge the count and the leave mark stand on.
-   That is what makes it a target a pointer can find without aiming — the row
-   above it is a full-width control, and the line under it answers the same way.
-
-   What sits in that box is a pair, centred: the directory's glyph and the words
-   naming it, together. It followed the columns above at first, the glyph under
-   the room's sigil and the words under the room's name, which lined the two
-   lines up but left the glyph flat against the left edge of its own rectangle
-   with nothing on the side a reader meets first. A pair in the middle is inset
-   by the whole of what the line does not need, and reads as one thing to press
-   rather than as two column entries that happen to share a row.
-
-   Only the box and what is in it are here. How the line is drawn — its size,
-   how it answers a pointer — belongs to the caption variant of the button
-   family, which is what this class stopped duplicating once that variant
-   existed. The rectangle at rest is this class's own, because it is what the
-   centring needs and no other caption is placed this way. */
-.rwhere {
-	/* The family's box is inline; this one is a line spanning its row. */
-	display: flex;
-	min-width: 0;
-}
-/* The glyph is the directory's own colour, the same one the sigil above it
-   wears, so the two lines of a row are marked as one thing by one colour rather
-   than each explaining itself. */
-.rwhere .icon-svg {
-	flex: none;
-	color: var(--dir-mark, currentColor);
-}
-/* Placed in the second column rather than left to flow into the first. A
-   caption that carries no glyph — a directory you are on with nothing open says
-   only why it is there — would otherwise start its words in the mark column and
-   sit a mark's width left of the name above it. Placing them says the two
-   columns are the row's, not a consequence of what happens to be in them.
-
-   Quieter than the name above by two means: size, and this. Turning it down
-   rather than diluting the ink, because dilution has to name a colour and the
-   only colour worth naming here is the row's own — and `currentColor` inside a
-   `color-mix` does not survive the appearance changing. It freezes at the light
-   arm of every `light-dark` token it reaches, so in syrup this caption went on
-   wearing a dark brown against a dark rail, 1.08 to 1, while the name above it
-   turned cream. Naming the token directly is fine; reaching it through
-   `currentColor` is not. Opacity composites at paint time and cannot freeze. */
-.rwhere-said {
-	/* Shrinks before the mark does, so a long directory name ends in an ellipsis
-	   rather than pushing the glyph it belongs to off the line. */
-	flex: 0 1 auto;
-	min-width: 0;
-	opacity: .72;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-/* How the directory is doing, beside the name of the directory it is about.
-   It keeps its room while the name ellipsises into whatever is left, because
-   the two halves answer different questions and losing either one spoils the
-   other: a standing with no name beside it is news with no owner, and a name
-   with the standing cut off it is an owner with no news.
-
-   Full strength against the dimmed name, which is the same difference the
-   panel's line draws between a fact and the thing that has changed. The words
-   carry this on their own. Nothing here is told by color, and the color the row
-   wears is naming its directory rather than reporting on it. */
-.rwhere-how {
-	flex: none;
-	font-weight: 600;
-}
-/* Drawn rather than written, and only when there is a name for it to come
-   after: it is punctuation between the two and belongs to neither, and a
-   listening reader is given both through the control's own name instead. */
-.rwhere-said + .rwhere-how::before {
-	content: "·";
-	margin-inline: 5px;
-	font-weight: 400;
-	opacity: .5;
-}
-/* Inset to the row's content box, so its two columns line up with the two above
-   it and its right edge stands where the count and the leave mark stand. The
-   caption cannot be inside the button that opens the room — a control inside a
-   control announces as neither — so it is a sibling, and a sibling has to be
-   told where that box is rather than being placed by the same grid. What it is
-   told is the row's own measurements, each named once above and only referred to
-   here, so moving the mark column, the gap, or either inset moves this line with
-   them instead of leaving it behind.
-
-   Its own box hugs its line, and the space under it belongs to the row. Taking
-   the row's bottom padding into this box instead made the rectangle run to the
-   pill's edge, which reads as the target being the bottom of the row rather than
-   the line on it. Two pixels above and below is enough for the ground to clear
-   the words without becoming a band.
-
-   Rows only. The panel that names a new room carries a line of the same class,
-   placed by its own grid a few rules up, so a rule that reached inside it would
-   beat that placement on specificity and pin the panel's line into its first
-   column. The panel is a sibling of these lists rather than a row in one, and
-   `li` is what keeps it that way here. */
-#roomList li .rwhere,
-#dmList li .rwhere {
-	grid-area: 2 / 1;
-	margin: 0 var(--mark-inset) 0 var(--row-pad);
-	padding-block: 2px;
-}
-/* Where there is no pointer the row grows a second column for the mark that
-   leaves it, so the caption has two columns to run under rather than one. It
-   is stated here, against the rule directly above it, and not up in the block
-   that grows that column. Both spellings carry the same weight, so whichever
-   one a browser reads last wins, and the rule above is four hundred lines
-   later in the file: written up there the caption came out pinned into the
-   first column, ending a mark's width short of the line it belongs to. One
-   fact, one place, and the phone arm reads as the exception it is.
-
-   `li` here for the same reason it is on the rule above: the panel that names
-   a new room carries a line of this class placed by its own grid, and a
-   selector that reached inside it would beat that placement and pin it into
-   the panel's first column. */
-@media (hover: none) {
-	#roomList li .rwhere,
-	#dmList li .rwhere {
-		grid-area: 2 / 1 / 3 / 3;
-	}
-}
-/* The row is one line until it has a directory to name, then two, and the space
-   under that second line is the row's to give. Affordable because these lists
-   are what you are in rather than everything a directory advertises, so they are
-   short by construction. */
-#roomList li:has(.rwhere),
-#dmList li:has(.rwhere) {
-	padding-bottom: 6px;
-}
-/* A direct line wears its directory on the avatar's rim. An outline rather than a
-   ring of box-shadows, so the gap shows the row's actual ground in every state
-   instead of a hardcoded one that is wrong on a raised or selected row. */
-#dmList li[data-dir] .avatar-chip {
-	outline: 1px solid var(--dir-mark);
-	outline-offset: 2px;
 }

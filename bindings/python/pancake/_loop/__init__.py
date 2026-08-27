@@ -64,6 +64,8 @@ class DriverLoop(
         self._accepts: "dict[int, asyncio.Queue[Union[int, object]]]" = {}
         self._listeners: dict[int, ListenerOwner] = {}
         self._listener_waiters: dict[int, asyncio.Future[None]] = {}
+        self._closing_listeners: set[int] = set()
+        self._listener_close_waiters: dict[int, asyncio.Future[None]] = {}
         # Event-delivered handles not yet wrapped. The pair preserves both
         # terminal state and its exact failure when SESSION_CLOSED follows an
         # OPENED/ACCEPTED event in the same drain.
@@ -270,6 +272,11 @@ class DriverLoop(
             if not listener_future.done():
                 listener_future.set_exception(failure)
         self._listener_waiters.clear()
+        for close_future in self._listener_close_waiters.values():
+            if not close_future.done():
+                close_future.set_exception(failure)
+        self._listener_close_waiters.clear()
+        self._closing_listeners.clear()
         for completion_future in self._completions.values():
             if not completion_future.done():
                 completion_future.set_exception(failure)

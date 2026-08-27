@@ -48,16 +48,9 @@ export function provider(options: NetlayerOptions): DriverProvider {
 export class OnionServer extends DriverServer {
 	readonly #serviceKey: Uint8Array;
 
-	constructor(listener: DriverListener, ownedLoop?: DriverLoop) {
-		let serviceKey: Uint8Array;
-		try {
-			serviceKey = listener.restorationState();
-		} catch (error) {
-			listener.close();
-			throw error;
-		}
+	constructor(listener: DriverListener, serviceKey: Uint8Array, ownedLoop?: DriverLoop) {
 		super({ listener, ownedLoop });
-		this.#serviceKey = serviceKey;
+		this.#serviceKey = serviceKey.slice();
 	}
 
 	get serviceKey(): Uint8Array {
@@ -77,7 +70,8 @@ export async function listen(options: NetlayerOptions, host?: Host): Promise<Oni
 		await installProvider(loop, options);
 		listener = await DriverListener.open(loop, TRANSPORT_ONION, "", options.signal);
 		listener.select();
-		const server = new OnionServer(listener, host == null ? loop : undefined);
+		const serviceKey = listener.restorationState();
+		const server = new OnionServer(listener, serviceKey, host == null ? loop : undefined);
 		listener = null;
 		return server;
 	} catch (error) {

@@ -80,20 +80,25 @@ bring a second listener up, without every stored reference going stale.
 
 Redeeming one is gated the same way. A Host that opted into `multi_location`
 first reuses any session whose channel already authenticated that key, on any
-transport. Otherwise it stages the concrete `via` routes and dials them in
-order; the first channel that proves the key carries the fetch. The
+transport. Otherwise it stages the concrete `via` routes and races the first
+two in publisher order, refilling that window from the list as attempts fail;
+the first channel that proves the key carries the fetch, and the losing dials
+are cancelled. Only after every strong route fails does it try the weak
+fallbacks, one at a time in their declared order. The
 [multi-home route diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
 draw each of these flows one at a time.
 
 # Rooms runs it
 
 Directory peering in the [rooms app]($link.page('examples')) is the live
-consumer. A server started with `--peering` publishes durable rooms to another
+consumer. A server started with `--peering` can list a durable room in another
 directory through one identity route: its key-proving iroh and Noise listeners
 ride under `via`, while onion and plain-socket listeners stay behind as weak
 fallbacks. A reader joins the room over whichever path
 that reader can open, and the room link does not choose a transport for every
-future reader.
+future reader. The foreign listing belongs to the publisher's destination
+session; revoke or disconnect removes discovery, while a room already handed
+to a reader stays live.
 
 # Standing
 
@@ -104,25 +109,20 @@ ingredients: keyed transports on several byte paths, and a sealed channel that
 proves a durable key over any of them.
 
 Everything above this section is built and held by the build's checks. That
-covers the bundle vocabulary, the ordered dial and its identity discipline,
-the per-session negotiation and lowering, `id` sturdyrefs, and the rooms
-peering suite that exercises them live. What stays open is smaller, and deliberate.
-Dialing walks routes one at a time, where the upstream record asks for
-parallel attempts that race. Ordered fallback keeps one dial in flight per
-peer identity, so which route proved the key is never a concurrent question.
-Racing arrives later as a scheduler change, not a locator change, and an iroh
-first route already races its own paths beneath that one step.
+covers the bundle vocabulary, the ordered dial with its bounded race and
+identity discipline, the per-session negotiation and lowering, `id`
+sturdyrefs, and the rooms peering suite that exercises them live.
 
-The other open question is which shape goes upstream. Two are landed side by
-side so their costs can be measured, and
-[ADR-0119](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0119-multihome-comparison-protocol.md)
-is the record of that comparison. The `id` locator described above is the
-netlayer shape. The counter-proposal, a `pancake/locations` list of full
-locators, rides the same negotiated feature as comparison-only data. It adds
-no dial paths, it is never treated as proof that its entries reach the same
-peer, and a sturdyref built on it is refused. The measured comparison, not
-either shape, is the artifact headed upstream, and whichever shape upstream
-adopts is the one that survives here.
+One shape ships. An earlier design carried a second, comparison-only
+vocabulary beside this one so their costs could be weighed; the comparison is
+[settled](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md),
+and only the `id` locator described above remains. The alternative supplied a
+list but no proof that its entries reached one peer, drove no dial, and backed
+no sturdyref, so keeping it would have grown the vocabulary without growing
+what the product could do. What stays open is the wire vocabulary itself,
+which remains a `pancake-next` extension until OCapN specifies a compatible
+shape — the reason every claim on this page is gated behind negotiation and a
+baseline peer sees none of it.
 
 The whole surface is negotiation-gated: nothing on this page changes what a
 baseline or Goblins peer receives.

@@ -9,7 +9,7 @@
  *
  * `force-layout.ts` owns the anneal itself; `stage-topology.ts` owns who
  * stands at a moment. Cost, reuse, and why the era count stays unbounded
- * are recorded on `KeyframeLayoutSystem` and in `docs/era-collapse-plan.md`.
+ * are recorded on `KeyframeLayoutSystem` and in `docs/era-collapse.md`.
  */
 
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";

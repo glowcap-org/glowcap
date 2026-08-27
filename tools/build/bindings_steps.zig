@@ -155,6 +155,30 @@ pub fn register(
     });
     rust_core_only.step.dependOn(b.getInstallStep());
     dogfood_runs[0].step.dependOn(&rust_core_only.step);
+    // The async driver is independently selectable even when a consumer has
+    // not enabled a listener provider. Event retirement is intrinsic to that
+    // generic loop, not to the public constructors optional features expose.
+    const rust_async_only = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "async",
+    });
+    rust_async_only.step.dependOn(b.getInstallStep());
+    dogfood_runs[0].step.dependOn(&rust_async_only.step);
+    // The application crates are consumers of the public Rust surface, not
+    // fixtures inside it. Compile them separately so a binding API or feature
+    // edge cannot leave the demos stale while the binding's own tests stay
+    // green.
+    const rust_app_manifests = [_][]const u8{
+        "apps/tasks/rust/Cargo.toml",
+        "apps/tools/rust/Cargo.toml",
+        "apps/rooms/clients/rust/Cargo.toml",
+    };
+    for (rust_app_manifests) |manifest| {
+        const check = addRootedSystemCommand(b, .build_tool, &.{
+            "cargo", "check", "--manifest-path", manifest,
+        });
+        check.step.dependOn(b.getInstallStep());
+        dogfood_runs[0].step.dependOn(&check.step);
+    }
     // `raco test` makes a failed rackunit check process-fatal and runs each
     // library's `(module+ test ...)` submodule; compiler-lib in the pinned
     // devcontainer owns that standard command.

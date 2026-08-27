@@ -92,15 +92,17 @@ const selectors = [_]Selector{
     // caption did not open a card about it" — claims about holding more than
     // one directory, made by a name that moved.
     .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"dircardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    // A card's title is drawn by `ModalHead`, so the id a proof presses is
+    // written as `titleId`, the way `stopId` is above.
+    .{ .literal = "titleId=\"dircardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     // The conversation's name opens what this tab knows about it, and a long
     // refusal's Show opens the rest of the words. A rename here reads as "the
     // title did nothing" or "Show did not open the rest" — claims about those
     // cards, made by a name that moved.
     .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "titleId=\"convcardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"kitchenLongWhy\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"errorTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "titleId=\"errorTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"errorBody\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"convcardLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"convcardUriKind\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
@@ -112,7 +114,9 @@ const selectors = [_]Selector{
     .{ .literal = "\"dirfacts\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"settingsAboutDir\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "id=\"dircardLeaveAsk\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"dircardLeave\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    // The commitment inside the leave confirm. Its id is written as `commitId`
+    // because `Confirm` owns the button and `id` names the confirm itself.
+    .{ .literal = "commitId=\"dircardLeave\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     // The opening screen is written in the document rather than by a component,
     // which is what lets it paint before the bundle exists. The proof watches
     // both of its faces from the first frame, so the names are load-bearing in

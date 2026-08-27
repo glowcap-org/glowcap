@@ -17,8 +17,9 @@ import { type StageSelection } from "../../render/types.ts";
 import { useUnifiedCanvas } from "../../render/UnifiedCanvas.tsx";
 import { currentTheme, type Theme } from "../tokens.ts";
 import { TextPool } from "./textPool.ts";
-import { type RowDragSnapshot, RULER_HEIGHT, RULER_TOP_PAD } from "./row-layout.ts";
+import { laneScrollMax, type RowDragSnapshot } from "./row-layout.ts";
 import { gutterWidthOf, type LaneKind, type TimelineView } from "./state.ts";
+import { drawScrubberOverlay } from "./scrubber-overlay-paint.ts";
 import { drawScrubberScene } from "./scrubber-paint.ts";
 import { type DragMode } from "./scrubber-drag.ts";
 
@@ -77,6 +78,9 @@ export function useScrubberScene(args: {
 
 		const scrubberScene = new Container();
 		app.stage.addChild(scrubberScene);
+		const staticScene = new Container();
+		staticScene.eventMode = "none";
+		scrubberScene.addChild(staticScene);
 
 		// Lane content lives in a masked child so rows can render
 		// partially as they scroll past the top/bottom of the lane
@@ -86,7 +90,7 @@ export function useScrubberScene(args: {
 		// playhead, scrollbar, dividers) sits on the outer scene and
 		// is unaffected.
 		const lanesScene = new Container();
-		scrubberScene.addChild(lanesScene);
+		staticScene.addChild(lanesScene);
 
 		// Three layers, in the order a reader needs them: the spans, the
 		// names written on the spans, and the keyframe glyphs over both.
@@ -107,13 +111,18 @@ export function useScrubberScene(args: {
 		lanesScene.addChild(lanesGlyphGfx);
 
 		const laneClip = new Graphics();
-		scrubberScene.addChild(laneClip);
+		staticScene.addChild(laneClip);
 		lanesScene.mask = laneClip;
 
 		const graphics = new Graphics();
-		scrubberScene.addChild(graphics);
+		staticScene.addChild(graphics);
 
-		const labelPool = new TextPool(scrubberScene);
+		const labelPool = new TextPool(staticScene);
+		const overlayGraphics = new Graphics();
+		overlayGraphics.eventMode = "none";
+		scrubberScene.addChild(overlayGraphics);
+		const staticBounds = new Rectangle(0, 0, 0, 0);
+		staticScene.boundsArea = staticBounds;
 
 		let regionWidth = 0;
 		let regionHeight = 0;
@@ -141,6 +150,8 @@ export function useScrubberScene(args: {
 			scrubberScene.position.set(x, y);
 			regionWidth = right - x;
 			regionHeight = bottom - y;
+			staticBounds.width = regionWidth;
+			staticBounds.height = regionHeight;
 			regionSizeRef.current = {
 				width: regionWidth,
 				height: regionHeight,
@@ -148,12 +159,14 @@ export function useScrubberScene(args: {
 		};
 		cleanups.push(regions.register("timeline-scrubber", host));
 		cleanups.push(regions.subscribe("timeline-scrubber", handleRegionRect));
+		// Thousands of lane marks are stable while playback advances. Cache the
+		// bounded static scene once and invalidate it only when a static input
+		// changes; the playhead and gesture affordances remain live above it.
+		staticScene.cacheAsTexture({ antialias: true });
 
-		// Per-frame bail: skip the full scene rebuild when no paint
-		// input changed. The big win is paused playback with no hover.
-		// `events` is compared by reference AND length so live-mode
-		// appends (which mutate the array in place) re-fire the paint
-		// even if duration didn't grow.
+		// Static and frame-rate inputs have separate invalidation. `events` is
+		// compared by reference and length so an in-place Live append refreshes
+		// the cached lanes even when duration did not grow.
 		let lastTheme: Theme | null = null;
 		let lastWindowStart = NaN;
 		let lastWindowEnd = NaN;
@@ -182,25 +195,15 @@ export function useScrubberScene(args: {
 		let lastGutterWidth = NaN;
 		let lastHoverGutterRow: string | null = null;
 		let lastScrollY = NaN;
-		// Hoisted hitArea — avoids `new Rectangle(...)` per paint and
-		// the `instanceof` check inside the draw function.
-		const hitArea = new Rectangle(0, 0, 0, 0);
-		graphics.hitArea = hitArea;
-
+		let lastFocusedEventId: string | null = null;
+		let lastRubberBand: { x: number; y: number; width: number; height: number } | null = null;
+		let lastSnapLineX: number | null = null;
 		const repaint = () => {
 			const p = propsRef.current;
 			if (regionWidth <= 0 || regionHeight <= 0) return;
 			const theme = currentTheme();
-			// Rubber-band is in flight when the rect ref is non-null;
-			// snap-line analogous. Both flip per-frame without ref
-			// identity changes, so the bail must skip those frames.
-			const bandActive = p.rubberBandRef.current !== null;
-			const snapActive = p.snapLineRef.current !== null;
-			// Row-reorder drag — snapshot the drag state so the paint
-			// can draw a lifted source row + insertion indicator at the
-			// resolved target slot. Bail-skipping per frame is the same
-			// idiom as `bandActive` / `snapActive`; the snapshot
-			// captures the live `finalIndex` for each frame.
+			const rubberBand = p.rubberBandRef.current;
+			const snapLineX = p.snapLineRef.current;
 			const drag = dragRef.current;
 			const rowDrag: RowDragSnapshot | null = drag?.kind === "row-drag" && drag.moved
 				? {
@@ -211,125 +214,127 @@ export function useScrubberScene(args: {
 				}
 				: null;
 			const rowDragActive = rowDrag !== null;
-			// Event retimes mutate `doc` inside a transaction without
-			// bumping `docVersion`, so React props stay stale until
-			// release. Read the live document here — `bumpEntities` and
-			// in-place event edits are what the pills must follow mid-drag.
+			// Event retimes mutate the live document inside a transaction, before
+			// React receives a new prop snapshot. The static lane picture must follow.
 			const liveEntities = p.doc.entities;
-			const liveEvents = observationsOf(
-				p.doc,
-			) as readonly TimelineEvent[];
-			// An in-flight event drag (diamond / span edge / body) must
-			// repaint even when the bail's prop snapshot has not moved.
-			const eventDragActive = drag?.kind === "event" && drag.moved &&
-				!drag.selectOnly;
+			const liveEvents = observationsOf(p.doc) as readonly TimelineEvent[];
+			const eventDragActive = drag?.kind === "event" && drag.moved && !drag.selectOnly;
 			const curGutter = gutterWidthOf(p.view);
 			const curHoverRow = hoverGutterRowRef.current;
 			const curScrollY = scrollYRef.current;
 			const curHoverT = hoverTRef.current;
-			if (
-				!bandActive && !snapActive && !rowDragActive &&
-				!eventDragActive &&
-				curScrollY === lastScrollY &&
-				theme === lastTheme &&
-				p.view.windowStart === lastWindowStart &&
-				p.view.windowEnd === lastWindowEnd &&
-				p.expandedLanes === lastExpanded &&
-				p.clock.t === lastClockT &&
-				p.clock.duration === lastDuration &&
-				liveEvents === lastEvents &&
-				liveEvents.length === lastEventsLen &&
-				regionWidth === lastWidth &&
-				regionHeight === lastHeight &&
-				p.laneHeight === lastLaneHeight &&
-				p.scrubbing === lastScrubbing &&
-				curHoverT === lastHoverT &&
-				p.selection === lastSelection &&
-				p.expandedCategories === lastExpandedCategories &&
-				p.rowOrder === lastRowOrder &&
-				p.rowHidden === lastRowHidden &&
-				p.rowLabelHidden === lastRowLabelHidden &&
-				p.rowBodyHidden === lastRowBodyHidden &&
-				p.categoryVisMode === lastCategoryVisMode &&
-				p.selectionSet === lastSelectionSet &&
-				liveEntities === lastEntities &&
-				p.doc === lastDoc &&
-				curGutter === lastGutterWidth &&
-				curHoverRow === lastHoverGutterRow
-			) {
-				return;
+
+			const staticChanged = rowDragActive || eventDragActive ||
+				curScrollY !== lastScrollY ||
+				theme !== lastTheme ||
+				p.view.windowStart !== lastWindowStart ||
+				p.view.windowEnd !== lastWindowEnd ||
+				p.expandedLanes !== lastExpanded ||
+				p.clock.duration !== lastDuration ||
+				liveEvents !== lastEvents ||
+				liveEvents.length !== lastEventsLen ||
+				regionWidth !== lastWidth ||
+				regionHeight !== lastHeight ||
+				p.laneHeight !== lastLaneHeight ||
+				p.selection !== lastSelection ||
+				p.expandedCategories !== lastExpandedCategories ||
+				p.rowOrder !== lastRowOrder ||
+				p.rowHidden !== lastRowHidden ||
+				p.rowLabelHidden !== lastRowLabelHidden ||
+				p.rowBodyHidden !== lastRowBodyHidden ||
+				p.categoryVisMode !== lastCategoryVisMode ||
+				p.selectionSet !== lastSelectionSet ||
+				liveEntities !== lastEntities ||
+				p.doc !== lastDoc ||
+				curGutter !== lastGutterWidth ||
+				curHoverRow !== lastHoverGutterRow ||
+				p.focusedEventId !== lastFocusedEventId;
+
+			if (staticChanged) {
+				lastEntities = liveEntities;
+				lastDoc = p.doc;
+				lastGutterWidth = curGutter;
+				lastHoverGutterRow = curHoverRow;
+				lastScrollY = curScrollY;
+				lastTheme = theme;
+				lastWindowStart = p.view.windowStart;
+				lastWindowEnd = p.view.windowEnd;
+				lastExpanded = p.expandedLanes;
+				lastDuration = p.clock.duration;
+				lastEvents = liveEvents;
+				lastEventsLen = liveEvents.length;
+				lastWidth = regionWidth;
+				lastHeight = regionHeight;
+				lastLaneHeight = p.laneHeight;
+				lastSelection = p.selection;
+				lastExpandedCategories = p.expandedCategories;
+				lastRowOrder = p.rowOrder;
+				lastRowHidden = p.rowHidden;
+				lastRowLabelHidden = p.rowLabelHidden;
+				lastRowBodyHidden = p.rowBodyHidden;
+				lastCategoryVisMode = p.categoryVisMode;
+				lastSelectionSet = p.selectionSet;
+				lastFocusedEventId = p.focusedEventId;
+				const contentHeight = drawScrubberScene(
+					graphics,
+					lanesGfx,
+					lanesGlyphGfx,
+					laneClip,
+					labelPool,
+					lanesLabels,
+					theme,
+					p.view,
+					p.clock.duration,
+					p.doc,
+					liveEvents,
+					p.expandedLanes,
+					p.expandedCategories,
+					p.rowOrder,
+					p.rowHidden,
+					p.rowLabelHidden,
+					p.rowBodyHidden,
+					p.categoryVisMode,
+					regionWidth,
+					regionHeight,
+					p.laneHeight,
+					p.selection,
+					p.selectionSet,
+					curHoverRow,
+					rowDrag,
+					curScrollY,
+					p.focusedEventId,
+				);
+				staticScene.updateCacheTexture();
+				const newMax = laneScrollMax(contentHeight, regionHeight);
+				scrollYMaxRef.current = newMax;
+				if (curScrollY > newMax) scrollYRef.current = newMax;
 			}
-			lastEntities = liveEntities;
-			lastDoc = p.doc;
-			lastGutterWidth = curGutter;
-			lastHoverGutterRow = curHoverRow;
-			lastScrollY = curScrollY;
-			lastTheme = theme;
-			lastWindowStart = p.view.windowStart;
-			lastWindowEnd = p.view.windowEnd;
-			lastExpanded = p.expandedLanes;
+
+			const overlayChanged = staticChanged ||
+				p.clock.t !== lastClockT ||
+				p.scrubbing !== lastScrubbing ||
+				curHoverT !== lastHoverT ||
+				rubberBand !== lastRubberBand ||
+				snapLineX !== lastSnapLineX ||
+				rubberBand !== null || snapLineX !== null;
+			if (!overlayChanged) return;
 			lastClockT = p.clock.t;
-			lastDuration = p.clock.duration;
-			lastEvents = liveEvents;
-			lastEventsLen = liveEvents.length;
-			lastWidth = regionWidth;
-			lastHeight = regionHeight;
-			lastLaneHeight = p.laneHeight;
 			lastScrubbing = p.scrubbing;
 			lastHoverT = curHoverT;
-			lastSelection = p.selection;
-			lastExpandedCategories = p.expandedCategories;
-			lastRowOrder = p.rowOrder;
-			lastRowHidden = p.rowHidden;
-			lastRowLabelHidden = p.rowLabelHidden;
-			lastRowBodyHidden = p.rowBodyHidden;
-			lastCategoryVisMode = p.categoryVisMode;
-			lastSelectionSet = p.selectionSet;
-			hitArea.width = regionWidth;
-			hitArea.height = regionHeight;
-			const contentHeight = drawScrubberScene(
-				graphics,
-				lanesGfx,
-				lanesGlyphGfx,
-				laneClip,
-				labelPool,
-				lanesLabels,
+			lastRubberBand = rubberBand;
+			lastSnapLineX = snapLineX;
+			drawScrubberOverlay(
+				overlayGraphics,
 				theme,
 				p.view,
 				p.clock,
-				p.doc,
-				liveEvents,
-				p.expandedLanes,
-				p.expandedCategories,
-				p.rowOrder,
-				p.rowHidden,
-				p.rowLabelHidden,
-				p.rowBodyHidden,
-				p.categoryVisMode,
 				regionWidth,
 				regionHeight,
-				p.laneHeight,
 				p.scrubbing,
 				curHoverT,
-				p.selection,
-				p.selectionSet,
-				p.rubberBandRef.current,
-				p.snapLineRef.current,
-				curHoverRow,
-				rowDrag,
-				curScrollY,
-				p.focusedEventId,
+				rubberBand,
+				snapLineX,
 			);
-			// Publish the new scroll ceiling for the wheel handler. If
-			// the content shrank (a category collapsed, an entity left
-			// in Live) and we now exceed the new max, clamp down so the
-			// lane stack doesn't end up scrolled into empty space.
-			const lanesViewport = regionHeight - RULER_HEIGHT - RULER_TOP_PAD;
-			const newMax = Math.max(0, contentHeight - lanesViewport);
-			scrollYMaxRef.current = newMax;
-			if (curScrollY > newMax) {
-				scrollYRef.current = newMax;
-			}
 		};
 
 		// Paint each frame. Stage's tick (which calls `engine.tick`)
@@ -341,6 +346,7 @@ export function useScrubberScene(args: {
 		return () => {
 			for (const fn of cleanups) fn();
 			app.stage?.removeChild(scrubberScene);
+			staticScene.cacheAsTexture(false);
 			labelPool.destroy();
 			lanesLabels.destroy();
 			if (!scrubberScene.destroyed) {

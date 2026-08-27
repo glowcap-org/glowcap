@@ -35,7 +35,7 @@ type DocEvent = Record<string, unknown>;
 const decoder = new TextDecoder();
 let input = "";
 for await (const chunk of Deno.stdin.readable) {
-  input += decoder.decode(chunk, { stream: true });
+	input += decoder.decode(chunk, { stream: true });
 }
 
 const events: DocEvent[] = [];
@@ -56,83 +56,83 @@ const nextId = () => `e${++eventSeq}`;
 const toMs = (ns: number) => Math.round(ns / NS_PER_MS);
 
 function sessionFor(t: number, src: number, dst: number): string {
-  const key = pairKey(src, dst);
-  const existing = sessionOf.get(key);
-  if (existing !== undefined) return existing;
-  const sessionId = `s-${key}`;
-  sessionOf.set(key, sessionId);
-  sessions.push(sessionId);
-  events.push({
-    id: nextId(),
-    t,
-    kind: "session-opened",
-    sessionId,
-    a: peerId(src),
-    b: peerId(dst),
-    codec: "syrup",
-    captpVersion: "next",
-  });
-  return sessionId;
+	const key = pairKey(src, dst);
+	const existing = sessionOf.get(key);
+	if (existing !== undefined) return existing;
+	const sessionId = `s-${key}`;
+	sessionOf.set(key, sessionId);
+	sessions.push(sessionId);
+	events.push({
+		id: nextId(),
+		t,
+		kind: "session-opened",
+		sessionId,
+		a: peerId(src),
+		b: peerId(dst),
+		codec: "syrup",
+		captpVersion: "next",
+	});
+	return sessionId;
 }
 
 for (const line of input.split("\n")) {
-  if (line.length === 0) continue;
-  const ev = JSON.parse(line);
-  const t = toMs(ev.sim_t_ns ?? 0);
-  lastT = Math.max(lastT, t);
-  switch (ev.kind) {
-    case "sim_started":
-      scenario = ev.scenario ?? scenario;
-      break;
-    case "host_joined": {
-      peers.push(peerId(ev.id));
-      events.push({
-        id: nextId(),
-        t,
-        kind: "peer-joined",
-        peerId: peerId(ev.id),
-        profile: "pancake",
-      });
-      break;
-    }
-    case "message_in_flight": {
-      const sessionId = sessionFor(t, ev.src, ev.dst);
-      const messageId = `m${++messageSeq}`;
-      const link = `${ev.src}->${ev.dst}`;
-      const queue = inFlight.get(link) ?? [];
-      queue.push(messageId);
-      inFlight.set(link, queue);
-      const arrivalT = toMs(ev.arrive_ns ?? ev.sim_t_ns ?? 0);
-      lastT = Math.max(lastT, arrivalT);
-      events.push({
-        id: nextId(),
-        t,
-        kind: "message-sent",
-        messageId,
-        sessionId,
-        from: peerId(ev.src),
-        to: peerId(ev.dst),
-        arrivalT,
-      });
-      break;
-    }
-    case "message_delivered": {
-      const link = `${ev.src}->${ev.dst}`;
-      const messageId = inFlight.get(link)?.shift();
-      if (messageId === undefined) break; // a delivery with no send is a producer bug; drop rather than invent
-      events.push({ id: nextId(), t, kind: "message-delivered", messageId });
-      break;
-    }
-    default:
-      break; // link_up/link_down/message_lost/captp_* — see the module note
-  }
+	if (line.length === 0) continue;
+	const ev = JSON.parse(line);
+	const t = toMs(ev.sim_t_ns ?? 0);
+	lastT = Math.max(lastT, t);
+	switch (ev.kind) {
+		case "sim_started":
+			scenario = ev.scenario ?? scenario;
+			break;
+		case "host_joined": {
+			peers.push(peerId(ev.id));
+			events.push({
+				id: nextId(),
+				t,
+				kind: "peer-joined",
+				peerId: peerId(ev.id),
+				profile: "pancake",
+			});
+			break;
+		}
+		case "message_in_flight": {
+			const sessionId = sessionFor(t, ev.src, ev.dst);
+			const messageId = `m${++messageSeq}`;
+			const link = `${ev.src}->${ev.dst}`;
+			const queue = inFlight.get(link) ?? [];
+			queue.push(messageId);
+			inFlight.set(link, queue);
+			const arrivalT = toMs(ev.arrive_ns ?? ev.sim_t_ns ?? 0);
+			lastT = Math.max(lastT, arrivalT);
+			events.push({
+				id: nextId(),
+				t,
+				kind: "message-sent",
+				messageId,
+				sessionId,
+				from: peerId(ev.src),
+				to: peerId(ev.dst),
+				arrivalT,
+			});
+			break;
+		}
+		case "message_delivered": {
+			const link = `${ev.src}->${ev.dst}`;
+			const messageId = inFlight.get(link)?.shift();
+			if (messageId === undefined) break; // a delivery with no send is a producer bug; drop rather than invent
+			events.push({ id: nextId(), t, kind: "message-delivered", messageId });
+			break;
+		}
+		default:
+			break; // link_up/link_down/message_lost/captp_* — see the module note
+	}
 }
 
 const doc = {
-  id: `griddle-${scenario}`,
-  duration: lastT + 100,
-  events,
-  rowOrder: { peers, sessions },
+	id: `griddle-${scenario}`,
+	duration: lastT + 100,
+	events,
+	rowOrder: { peers, sessions },
 };
 
 console.log(JSON.stringify(doc, null, "\t"));

@@ -84,9 +84,11 @@ async function main(): Promise<void> {
 	const carolRuntime = await openRoomsRuntime({ host: carolHost });
 	const carol = await Directory.connect(roomLocator, (locator) => dial(locator, carolRuntime));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
-	const line = await DirectMessage.open(carol, "bob", (text) => {
-		carolReplies.push(`bob: ${text}`);
-		return null;
+	const line = await DirectMessage.open(carol, "bob", {
+		message: (text) => {
+			carolReplies.push(`bob: ${text}`);
+			return null;
+		},
 	});
 	await line.say(DM_TEXT);
 

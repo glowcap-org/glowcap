@@ -78,6 +78,11 @@ const bans = [_]Ban{
         .because = "these are string functions; anything that builds an element belongs beside the components",
     },
     .{
+        .file = ui_dir ++ "/member_identity.ts",
+        .needles = &dom_needles,
+        .because = "member identity is a pure projection shared by the roster, messages, mentions, and avatars; it must not read the rendered page back",
+    },
+    .{
         .file = ui_dir ++ "/notify.ts",
         .needles = &dom_needles,
         .because = "whether the tab is being looked at is a store field with one writer",
@@ -203,6 +208,94 @@ pub fn checkRoomsLayerBans(
     }
 
     try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
+}
+
+/// Modal and Operations controls share one visual grammar.
+///
+/// A modal's `card-plane` supplies field and button geometry as well as its
+/// surface. Operations uses the same components and `.field` class. Letting a
+/// caller recreate either locally is how two controls with the same meaning
+/// acquire different heights, focus rings, and pending states.
+pub fn checkRoomsControlSurfaces(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
+        try appendViolation(gpa, violations, "{s}: could not open for the shared-control check", .{ui_dir});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".tsx")) continue;
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
+        defer gpa.free(path);
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
+            try appendViolation(gpa, violations, "{s}: could not read for the shared-control check", .{path});
+            continue;
+        };
+        defer gpa.free(source);
+        const code = try codeOnly(gpa, source);
+        defer gpa.free(code);
+
+        // Inspect string literals individually. A ternary may put two class
+        // strings on one line, so a line-wide search would let the good arm
+        // conceal the bad one.
+        var at: usize = 0;
+        while (at < code.len) {
+            const quote = code[at];
+            if (quote != '"' and quote != '\'' and quote != '`') {
+                at += 1;
+                continue;
+            }
+            const start = at + 1;
+            at = start;
+            while (at < code.len and code[at] != quote) {
+                if (code[at] == '\\' and at + 1 < code.len) at += 2 else at += 1;
+            }
+            const literal = code[start..@min(at, code.len)];
+            if (std.mem.indexOf(u8, literal, "modal-card") != null and
+                std.mem.indexOf(u8, literal, "card-plane") == null)
+            {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s} gives a modal `modal-card` without `card-plane`; every modal inherits its surface and control geometry from the shared card plane",
+                    .{path},
+                );
+            }
+            at = @min(at + 1, code.len);
+        }
+
+        if (!std.mem.startsWith(u8, entry.path, "ops/")) continue;
+        if (std.mem.indexOf(u8, code, "<button") != null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s} draws a raw `<button`; Operations actions use Button or IconButton so size, semantics, focus, and pending feedback stay shared",
+                .{path},
+            );
+        }
+        for ([_][]const u8{ "<input", "<select" }) |tag| {
+            var found_at: usize = 0;
+            while (std.mem.indexOfPos(u8, code, found_at, tag)) |found| {
+                const end = std.mem.indexOfPos(u8, code, found, ">") orelse code.len;
+                const element = code[found..end];
+                if (std.mem.indexOf(u8, element, "className=\"field\"") == null) {
+                    try appendViolation(
+                        gpa,
+                        violations,
+                        "{s} draws `{s}` without the shared `field` class; Operations inputs and selects keep one height, focus treatment, and disabled state",
+                        .{ path, tag },
+                    );
+                }
+                found_at = @min(end + 1, code.len);
+            }
+        }
+    }
 }
 
 /// `/join` of a locator seats from subscribe's listed-ness. Asking `private()`

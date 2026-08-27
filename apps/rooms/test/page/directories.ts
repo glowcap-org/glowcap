@@ -6,6 +6,7 @@
 // locator, and leaving one must not disturb the other.
 
 import type { Page } from "playwright";
+import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "./harness.ts";
 import { run as dirColorsRun } from "./dir_colors.ts";
 import { run as filteringRun } from "./filtering.ts";
@@ -171,10 +172,7 @@ export async function run(
 	// directory this tab holds uses the same card, this page's own included:
 	// Settings keeps the page locator and a button that opens that card, rather
 	// than answering the same three questions twice.
-	const aboutOf = (room: string) =>
-		tab.locator("#roomList li")
-			.filter({ has: tab.locator(`.rname:text-is("${room}")`) })
-			.locator(".rwhere");
+	const aboutOf = (room: string) => namedRoomRow(tab, room).locator(".rwhere");
 	await (aboutOf("lobby")).click();
 	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
 		.catch(() => fail("the directory named on a room in this page's own directory did not open a card about it"));
@@ -212,13 +210,15 @@ export async function run(
 		const group = about?.closest(".group");
 		if (about == null || group == null) return null;
 		return {
-			align: getComputedStyle(about).alignSelf,
+			// Placed by an actions row, at the end of the line, at the width of its
+			// words: the form vocabulary's rule for every act on the plane.
+			placed: about.closest(".actions") !== null,
 			width: about.getBoundingClientRect().width,
 			column: group.getBoundingClientRect().width,
 		};
 	});
 	if (aboutBox == null) fail("Settings had no About this directory to measure");
-	if (aboutBox.align !== "center" || aboutBox.width >= aboutBox.column - 1) {
+	if (!aboutBox.placed || aboutBox.width >= aboutBox.column - 1) {
 		fail(
 			`About this directory spans the card (${aboutBox.width.toFixed(1)}px in a ${
 				aboutBox.column.toFixed(1)
@@ -506,7 +506,7 @@ export async function run(
 		await tab.waitForSelector(theirRow, { timeout: 30_000 })
 			.catch(() => fail(`no direct-line button for ${JSON.stringify(who)} in the room both peers are in`));
 		await tab.click(theirRow);
-		await tab.waitForSelector(`#dmList li:has(.rname:text-is(${JSON.stringify(who)}))`, { timeout: 10_000 })
+		await namedDirectRow(tab, who).waitFor({ timeout: 10_000 })
 			.catch(() => fail("opening a direct line did not put a row for it in the rail"));
 
 		const lines = await tab.evaluate((name) => {
@@ -543,7 +543,7 @@ export async function run(
 		await tab.click('.room-open:has-text("lobby")');
 		await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 			.catch(() => fail("the room did not come back after reading a direct line"));
-		const theirs = second.locator("#roomList li").filter({ has: second.locator('.rname:text-is("lobby")') });
+		const theirs = namedRoomRow(second, "lobby");
 		await theirs.hover();
 		await theirs.locator(".room-leave").click();
 		await second.waitForSelector("#joinBtn", { timeout: 30_000 })

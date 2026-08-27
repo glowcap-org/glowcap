@@ -25,7 +25,12 @@ export const DIRECTORY = "directory";
  * when the process is started with `--diagnostics`. Holding that swiss is the
  * capability: a client fetches it the same way it fetches `directory`, then
  * sends `snapshot` and gets the names this directory currently holds, as
- * `[kind, name, note]` rows. It does not return live room references. */
+ * `[kind, name, note]` rows. It does not return live room references.
+ *
+ * Because its holder is the Rooms operator, the rows include every room the
+ * directory holds, private ones by their label with their occupants: a private
+ * room's privacy is absence from the user-facing `list` and `watch`, not from
+ * the operator who runs the process. */
 export const SNAPSHOT = "snapshot";
 
 /** Directory methods a client sends. `open(name, private?)` creates a room and
@@ -37,8 +42,9 @@ export const SNAPSHOT = "snapshot";
  * `enterPublication(id)`. Keeping this choice in the directory verb avoids
  * coupling an application record shape to CapTP transport negotiation.
  *
- * `open(name, true)` makes a private room, and that second argument is the
- * whole of what private means here. Such a room is in no list, has no deltas,
+ * `open(name, true, recoveryKey)` makes a private room. The boolean is the
+ * whole of what private means here, while the opaque key makes a lost request
+ * safely repeatable. Such a room is in no list, has no deltas,
  * and cannot be entered by name — because none of those is how you reach one.
  * You reach one by holding a reference somebody handed you,
  * which is the rule a posted line's `edit` and a room's `setTopic` already
@@ -51,13 +57,15 @@ export const SNAPSHOT = "snapshot";
  * which is also why `open` cannot answer "that name is taken" for one. That
  * answer is itself the leak.
  *
- * A private room has no sturdyref yet, and that is this directory's shape
- * rather than anything about privacy: `link` is a directory verb that takes a
- * room's name, and a private room has no name in that table. A sturdyref is an
- * unguessable authority like any other, so a mint on the room itself — asked
- * for by somebody already holding it — would be exactly as safe as the
- * reference they asked with. */
+ * An ordinary private `open` answers a live room reference. A holder can ask
+ * that room for a link. A durable session instead uses `openPrivateLink`, which
+ * commits the opaque key and answers its sturdyref as one directory act, with
+ * no temporary reference to strand if the answer is lost. */
 export const OPEN = "open";
+/** Persist and return one private-room sturdyref from an opaque recovery key.
+ * This is one directory act so a lost answer never strands a live room between
+ * creation and link publication. */
+export const OPEN_PRIVATE_LINK = "openPrivateLink";
 export const ENTER = "enter";
 /** Enter the exact public-room generation named by a list/watch record. */
 export const ENTER_PUBLICATION = "enterPublication";
@@ -97,17 +105,62 @@ export const REVOKE = "revoke";
 export const JOIN_IRC = "joinIrc";
 /** Part a bridged channel; its room leaves the directory with it. */
 export const PART_IRC = "partIrc";
-/** A member of a bridged room hands their own registered IRC account to
+/** A member of a bridged room chooses the IRC nick and registered account for
  * their seat: sent once, held in memory beside their connections, gone with
  * the seat. Answered by the gateway's room wrapper, so a native room refuses
  * it as an unknown verb. */
-export const IRC_ACCOUNT = "ircAccount";
+export const IRC_IDENTITY = "ircIdentity";
+/** Stop projecting this Rooms membership into IRC while keeping the room
+ * membership itself. A later IRC_IDENTITY links it again. */
+export const IRC_DISCONNECT = "ircDisconnect";
+/** A bridged room's current projection of one Rooms member onto IRC. The
+ * member name, seat phase, and outward IRC nick follow the display text. */
+export const IRC_SEAT = "irc-seat";
+/** The server-owned lifecycle of one Rooms member's IRC projection. Kept
+ * beside the wire token so the gateway, parser, and interface cannot grow
+ * different phase vocabularies. */
+export type IrcSeatPhase = "rooms" | "connecting" | "linked" | "failed";
 export const UP = "up";
 export const DOWN = "down";
 
-/** Mint the stable sturdyref for one existing room: `link(name)`. The answer is
- * the opaque swissnum, not a second spelling of the peer locator; the caller
- * composes it with the exact locator it used to reach this directory. */
+/** The Rooms operator's stewardship verbs. `giveSteward(name)` returns the
+ * current durable authority for one server-owned room, minting it when none
+ * has been issued. `revokeSteward(name)` rotates that authority: copied links
+ * and already-live references from the old generation both stop governing. */
+export const GIVE_STEWARD = "giveSteward";
+export const REVOKE_STEWARD = "revokeSteward";
+/** Rooms-operator inventory and mutations. Targets are server-issued
+ * session ids or durable room names, never diagnostic display strings. */
+export const OPERATOR_CATEGORIES = [
+	"stewardships",
+	"links",
+	"registrations",
+	"sessions",
+	"rooms",
+	"references",
+	"trouble",
+] as const;
+export type OperatorCategory = (typeof OPERATOR_CATEGORIES)[number];
+
+export function isOperatorCategory(value: unknown): value is OperatorCategory {
+	return typeof value === "string" && (OPERATOR_CATEGORIES as readonly string[]).includes(value);
+}
+export const OPERATOR_SNAPSHOT = "operatorSnapshot";
+export const OPERATOR_RETIRE_MATCHING = "operatorRetireMatching";
+export const OPERATOR_WATCH = "watch";
+export const OPERATOR_UNWATCH = "unwatch";
+export const OPERATOR_CHANGED = "changed";
+export const REVOKE_ROOM_LINK = "revokeRoomLink";
+export const REVOKE_NICK = "revokeNick";
+export const DISCONNECT_SESSION = "disconnectSession";
+export const REMOVE_OPERATOR_ROOM = "removeOperatorRoom";
+export const RELEASE_OPERATOR_REFERENCE = "releaseOperatorReference";
+export const CLEAR_OPERATOR_TROUBLE = "clearOperatorTrouble";
+export const RESET_OPERATOR_SCOPE = "resetOperatorScope";
+
+/** Mint the stable sturdyref for one existing room: `link(name)`. The Host
+ * answers the complete link, composing its durable publication with the
+ * location it authors for this exact session. */
 export const LINK = "link";
 
 /** The wire format every rooms peer speaks.
@@ -177,7 +230,8 @@ export const REFILE = "refile";
  * refused. */
 export const LINE = "line";
 /** Ask a room what it kept of its own conversation. A server that keeps no
- * history refuses the verb, which callers read as an empty answer. */
+ * history refuses the optional verb, distinct from an enabled room answering
+ * with an empty retained tail. */
 export const HISTORY = "history";
 export const EDITED = "edited";
 export const WITHDRAWN = "withdrawn";
@@ -202,6 +256,22 @@ export const UNLISTED = "unlisted";
  * member's own standing is theirs to state and the room already knows which
  * membership is calling. */
 export const AWAY = "away";
+/** Ask the room for its steward authority: the power to remove a member.
+ *
+ * The first successful answer is `[roomSwiss, roomIdentity, stewardSwiss]`.
+ * The two swiss names are durable Host publications derived in separate
+ * domains; `roomIdentity` is a public digest used to validate a handed-over
+ * steward without revealing the room authority. The opener composes the swiss
+ * names with the directory locator and enlivens the steward. Once issued, the
+ * server never grants it again from a nickname or a new connection; later
+ * stewards arrive by holding that sturdyref. */
+export const STEWARD = "steward";
+/** The steward's one verb: ask a member, by nick, to leave. */
+export const KICK = "kick";
+/** Ask a steward which room publication it governs. The answer is the room's
+ * public identity digest, never its bearer swiss number, so a client can prove
+ * a handed-over steward belongs to the room without gaining room authority. */
+export const GOVERNS = "governs";
 
 /** What this room calls itself: `called()`.
  *
@@ -255,6 +325,16 @@ export const SET_TOPIC = "setTopic";
  * later than that means asking for another. */
 export const HAND_ROOM = "handRoom";
 
+/** Hand somebody a scoped archive facet over the direct line already joining
+ * the two members: `handArchive(directory, conversation, archive)`.
+ *
+ * `archive` is a live read-only capability. The two strings name the exact
+ * scope the sender requested, so the recipient can ask only for those records
+ * and validate every returned row against it. The reference crosses through
+ * ordinary third-party handoff; the room and directory carry none of the
+ * history or the authority. */
+export const HAND_ARCHIVE = "handArchive";
+
 /** The durable sibling: `offerRoom(label, link)` on the same inbox, both
  * arguments strings.
  *
@@ -283,21 +363,23 @@ export const OFFER_ROOM = "offerRoom";
  *   `"topic"`, text         what the room is about; empty means taken down
  *   `"line-bytes"`, n       the longest line this room will carry
  *
- * An id names a line within one room for as long as that room lives. The room
- * keeps no history, so an id refers to something only its current subscribers
- * hold — which is why an edit reaches whoever was here and nobody who arrives
- * later, the same way the line itself did. */
+ * An id names a line within one live room generation. Current subscribers use
+ * it to apply edits and withdrawals; when retention is enabled the room uses
+ * the same id to update or remove its kept copy before answering later history
+ * requests. */
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
  * `register(nick, locator, inboxCap)` claims a name and answers
- * `notify("registered", nick)`. The locator is for the directory's own checks
+ * `notify("registered", nick, registrationId)`. The opaque registration ID identifies this exact
+ * live registration without granting authority. The locator is for the directory's own checks
  * (and nick identity); after ADR-0109, gift exporter location comes from the
  * member's signed hello, not from stamping this argument. A second `register` for the same nick replaces
  * the prior intro when it comes from the connection holding it, and is refused
  * `nick-taken` when it comes from another while that connection is open — a
  * registration is a claim on a name, and only its holder or its ending frees it.
- * `introduce(nick)` returns the inbox that member offered for *this* caller (see
+ * `introduce(nick, registrationId)` returns the inbox that registration offered for
+ * *this* caller (see
  * `offerInbox`) as a `desc:handoff-give`: the caller redeems by dialing the
  * member *directly*, and is refused `introduction-pending` until there is one. A
  * caller that has not registered cannot be introduced at all: the directory reads
@@ -329,8 +411,8 @@ export const REGISTER = "register";
 export const VOUCHER = "voucher";
 export const INTRODUCE = "introduce";
 
-/** Offer the directory an inbox to introduce one named peer to:
- * `offerInbox(forNick, inbox)`.
+/** Offer the directory an inbox to introduce one registered peer to:
+ * `offerInbox(forNick, forRegistrationId, inbox)`.
  *
  * This is where a direct message gets its sender. The member minted this inbox
  * for one peer, and the directory hands it to that peer alone, so the inbox a
@@ -346,11 +428,12 @@ export const INTRODUCE = "introduce";
  * decides who may reach *it* and nothing else; an unregistered caller is refused.
  * Offering again for the same peer replaces the previous inbox.
  *
- * The directory asks for one it needs with `notify("mintInboxFor", peer)` on the
+ * The directory asks for one it needs with `notify("mintInboxFor", peer, registrationId)` on the
  * member's register inbox. A member may also offer unasked, which is what a client
  * watching the roster does as members appear.
  *
- * Nicks match case-insensitively, so key your own inbox table the same way. */
+ * Inbox ownership is keyed by registration ID. A reused nickname therefore
+ * receives new authority rather than inheriting the prior holder's inbox. */
 export const OFFER_INBOX = "offerInbox";
 
 /** WebRTC signaling, carried by the directory (ADR-0089).
@@ -501,18 +584,36 @@ export const READ = "read";
  * grant no line-changing authority, exactly as a room may. */
 export const DM = "dm";
 
+/** Establish the reply half of a direct line without inventing a chat message.
+ * A peer that cannot dial the requester's advertised carrier may dial in the
+ * other direction and hand this capability over; later messages and typing use
+ * that direct route with the directory out of their path. */
+export const DIRECT_READY = "directReady";
+
+/** Directory register-inbox notice that another member requested a direct
+ * introduction. A target may answer by opening the reciprocal route. */
+export const DIRECT_REQUESTED = "directRequested";
+export const REQUEST_DIRECT = "requestDirect";
+/** Resolve a nickname to the directory-issued identity of its current live
+ * registration. The registration ID is comparison data, not bearer authority. */
+export const MEMBER_REGISTRATION = "memberRegistration";
+
 /** The one callback verb, on whatever inbox a client hands over.
  *
  * A room calls `notify(from, text)` with each posted line. The directory calls
- * `notify(event, name, count)` on a watcher for every change to its live state:
+ * `notify(event, name, count, registrationId?)` on a watcher for every change to its live state:
  * a room `"opened"` / `"closed"` / `"count"` (where `name` is the room and
  * `count` its members), and a member becoming `"registered"` / `"unregistered"`
- * for direct messages (where `name` is the member's nick and `count` is 1 or 0).
- * A member's own register inbox also hears `notify("registered", nick)`, the
+ * for direct messages (where `name` is the member's nick, `count` is 1 or 0,
+ * and `registrationId` identifies that registration).
+ * A member's own register inbox also hears `notify("registered", nick, registrationId)`, the
  * signal that its name is granted. It hears
- * `notify("mintInboxFor", peer)` when someone has asked to be introduced and
+ * `notify("mintInboxFor", peer, registrationId)` when someone has asked to be introduced and
  * the member has offered no inbox for them yet: mint one and `offerInbox` it.
- * It hears `notify("introducible", peer)` when a peer it was waiting on has
+ * It hears `notify("directRequested", peer, registrationId)` whenever that peer requests an
+ * introduction, so a target with the compatible carrier can establish the
+ * reciprocal route before any user message is sent.
+ * It hears `notify("introducible", peer, registrationId)` when a peer it was waiting on has
  * offered an inbox, so an `introduce` that was refused `introduction-pending`
  * is worth retrying.
  *

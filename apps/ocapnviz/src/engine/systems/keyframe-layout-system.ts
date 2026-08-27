@@ -56,7 +56,7 @@ import {
  * one frame is not a fixed number of simulated milliseconds because the clock
  * scales by playback speed, and the transition window deletes eras a document
  * legitimately states 100 ms apart. It stays unbounded until there is a bound
- * that is derived rather than chosen (`docs/era-collapse-plan.md`).
+ * that is derived rather than chosen (`docs/era-collapse.md`).
  */
 
 export { DEFAULT_LAYOUT_CONFIG, type LayoutConfig, type LayoutMode } from "./layout-eras.ts";

@@ -3,7 +3,7 @@ const pancake = @import("pancake");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         tcp_resident.netlayer(),
         .{ .designator = "127.0.0.1:9099" },
@@ -16,7 +16,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

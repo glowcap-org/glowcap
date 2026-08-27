@@ -65,9 +65,11 @@ class DriverServer:
         A server that minted its own loop requests that loop's retirement.
         Native release runs once those application-owned sessions close; this
         method does not wait for them, so a finally block can still close the
-        sessions it holds. An idle owned loop releases synchronously.
+        sessions it holds. It does join this listener's provider teardown, so
+        success means no later accepted session can name it.
         """
         self._request_close()
+        await self._listener.wait_closed()
 
     def __aiter__(self) -> Self:
         return self

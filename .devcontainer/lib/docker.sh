@@ -5,10 +5,6 @@
 # Dev Containers labels a container with the exact host checkout it was
 # created for, and that label is the authority here. A presentation name
 # would select another clone of the same repository sooner or later.
-
-# Dev Containers labels the running container with the exact host checkout.
-# That label, not a presentation name, is the authority for docker exec: it
-# binds execution to this exact checkout and cannot select another clone.
 pancake_devcontainer_running_container() {
     local checkout="$1" ids count
     ids="$(docker ps --filter "label=devcontainer.local_folder=${checkout}" --format '{{.ID}}')" || return 1

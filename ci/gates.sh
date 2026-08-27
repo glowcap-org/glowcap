@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # A gate that binds a real loopback port has no per-test deadline: a stale peer
-# on a fixed interop port, an orphaned `.zig-cache/o/*/test` process, or a
+# on a fixed interop port, an orphaned Zig test process, or a
 # silent partner parks the gate in a socket wait forever, and nothing here would
 # ever return. Wrap each gate in the portable deadline runner so a true hang
 # fails loud — naming the gate and the remediation — instead of wedging the run
@@ -43,7 +43,7 @@ gate() {
     if wedged_rc "$rc"; then
       echo "  It exceeded $GATE_TIMEOUT and was killed — likely a wedged socket wait" >&2
       echo "  (a stale peer on a fixed interop port, or an orphaned test process from a dead run)." >&2
-      echo "  Sweep for orphans (pkill -f '.zig-cache/o/.*/test'), confirm no concurrent gate is running, and retry." >&2
+      echo "  Sweep for orphans (pkill -f 'zig-cache/o/.*/test|zig-local/o/.*/test'), confirm no concurrent gate is running, and retry." >&2
     elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
       echo "  The command could not be run at all (not found, or not executable)." >&2
     else
@@ -151,10 +151,10 @@ gate zig build goblins-exporter
 # Live inbound op:gc-exports from Goblins after echo drops a near export — the
 # one automated distributed-GC proof against somebody else's implementation.
 gate zig build goblins-gc
-# The listener direction for a binding: a Deno Host publishes an actor and a
-# live Goblins vat dials it. Without this row every binding is only ever the
-# client against Goblins.
-gate zig build deno-goblins-listen
+# The listener direction for every native binding: each Host publishes an actor
+# and a live Goblins vat dials, enlivens, and calls it. This is the reciprocal
+# half of bindings-goblins-interop, which has the bindings dial Goblins.
+gate zig build bindings-goblins-listen
 # The relay's live-Goblins leg: a browser peer holds the keyed session through
 # the byte-transparent reference relay. The relay links no codec, so a re-framed
 # byte would fail the signed handshake against a real partner (needs deno +

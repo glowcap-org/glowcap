@@ -41,6 +41,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_private_room_test.ts`.
 
 import { type Browser, chromium } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
 import {
 	directoriesNamed,
@@ -342,6 +343,7 @@ try {
 	await waitForTcp(foreignRoomPort, "the second room server");
 	const di = await browser.newPage();
 	await di.goto(`http://127.0.0.1:${httpPort}/`);
+	await establishLocalSession(di);
 	await di.waitForSelector("#joinBtn", { timeout: 20_000 });
 	await di.fill("#locator", foreignLocator);
 	await di.fill("#nick", "di");
@@ -469,6 +471,7 @@ try {
 	// live list never shows it.
 	const cold = await browser.newPage();
 	await cold.goto(`http://127.0.0.1:${httpPort}/`);
+	await establishLocalSession(cold);
 	await cold.waitForSelector("#joinBtn", { timeout: 20_000 });
 	await cold.fill("#nick", "cole");
 	await cold.fill("#room", "colddrop");

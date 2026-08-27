@@ -83,14 +83,20 @@ channels use the byte-fed Host instead.
   the pending-dial waist.
 - **Rooms directory peering.** A separately published peering capability adds
   bounded foreign-room generations to a directory and returns exact revocation
-  leases. A source with several listeners advertises one `id` route: iroh and
+  leases. Each listing belongs to its publisher's destination Session: exact
+  revoke or disconnect removes discovery, while already-handed room references
+  stay live. A source with several listeners authors one complete room link;
+  verified enlivenment retains that same canonical route for the later give,
+  with no second advertisement RPC or application-side locator reconstruction.
+  Its `id` route carries iroh and
   Noise paths prove the key under `via`, while onion and baseline socket paths
   remain weak `alt-locators`. The recurring server suite proves profile-gated
   route advertisement, TCP directory peering, exact revocation, and continued
   use of references already handed out. An on-demand iroh scenario additionally
   publishes through an identity route and redeems through its weak TCP fallback
-  when the destination has no iroh provider. Servers without `--peering`
-  publish no such authority.
+  when the destination has no iroh provider. `zig build goblins-rooms-peering`
+  proves the product composition with a real v1.0/Syrup Goblins member through
+  revoke and continued use. Servers without `--peering` publish no such authority.
 - **Three-party handoff.** A capability received from one peer can be returned
   or passed recursively to another. Inbound signed gives become Host-owned
   promises immediately. Outbound foreign objects and promises wait as one
@@ -318,62 +324,13 @@ listening socket can still receive replies and participate in a handoff.
   join a rooms session.
 - The rooms, tasks, and tools examples run one server with clients written in
   several bindings.
-- The rooms application exercises browser peers, room and direct-message file
-  transfer, WebRTC, and Noise-sealed relay rendezvous. Its web server owns the ICE policy
-  both browser halves receive: public STUN by default, explicit none or a
-  deployment-selected STUN configuration when named, plus short-lived TURN
-  credentials when an HTTPS issuer is configured server-side. Each connection
-  refreshes those credentials; the long-lived issuer token never reaches the
-  page. The separately selected relay DM mode is server-reachable without TURN;
-  its Noise channel keeps the room relay outside the plaintext boundary. Direct
-  files are sender-hosted blob capabilities on the existing peer
-  session, so the transport stays below the message contract.
-- `zig build rooms-irc-bridge` presents one IRC channel as a Rooms directory.
-  Its default is read-only. Two-way mode requires TLS and SASL PLAIN for a
-  registered bridge nick, then sends Rooms posts with `<nick>` attribution
-  through a 1.2-second pacer and a 64-line, 32-KiB reconnect queue. The bridge
-  joins on its first Rooms reader and parts after its last reader and queued
-  line. The CapTP side is the ordinary Rooms protocol; the in-tree scenario
-  carries messages both ways through the native profile and the 1.0/Syrup
-  floor. IRC names carry an `irc/` prefix, and roster and viewer tables are
-  bounded.
-- `zig build rooms-irc-front` presents a native Rooms directory to ordinary IRC
-  clients. Each IRC connection owns its Directory, Room memberships, and
-  introduced direct lines; `JOIN`, channel and direct `PRIVMSG`, `NAMES`,
-  `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` translate through those public
-  capabilities. The clear IRC listener is loopback-only unless TLS keys are
-  supplied, while the endpoint registered for direct-message redemption is
-  Noise-sealed and key-authenticated by default. Operators can explicitly
-  select authenticated iroh for Goblins cold-dials, or loopback-only clear TCP
-  for local conformance. Client, room, direct-line, live-inbox,
-  projected-name, and socket-output retention are bounded; disconnect retires
-  aliases without retargeting old issued capabilities. The real-socket
-  scenario drives both DM directions and channel operations through a
-  v1.0/Syrup front Host. The recurring `goblins-rooms-irc` proof composes both
-  IRC edges with a real Goblins vat. Fixture traffic crosses the bridge both
-  ways. An ordinary IRC client reaches Goblins through the front for channel
-  traffic plus an IRC-initiated direct-message reply.
-- Starting the rooms web UI with `--diagnostics` (or `-Ddiagnostics` on the
-  zig step) publishes an inspect object under an unguessable swiss number on
-  that Host. Fetching the swiss number is the capability; the directory itself
-  does not answer `snapshot`. `--admin-listeners` (or `-Dadmin-listeners`)
-  publishes a listener-admin object the same way. Holding its swiss number
-  lists one seat per transport the server can realize, each described in the
-  owning provider package's own words along with the knobs its up accepts.
-  It brings a listener up and takes one down; an up names values for those
-  knobs — the tcp profiles' bind host, port, and advertised host, the relay
-  profiles' relay — and what it leaves out falls to the server's own
-  defaults. The listener carrying the announced locator
-  refuses to go down, and a seat the server already knows cannot come up
-  says so standing, both with words saying why. `--viz` (or `-Dviz`) serves
-  the live timeline endpoint on port 9300 (`PANCAKE_ROOMS_VIZ_PORT` moves
-  it) and mints the viz capability the same way.
-- Changing a line, taking one back, and saying what a room is about are
-  references the room hands out rather than checks it performs. Posting answers
-  with a reference to the line it made, and subscribing answers with the
-  authority to set the topic, so the application contains no role, no rank, and
-  no test of whose line it is. What a member can do differs between two people
-  in one room because they hold different references.
+- The [Rooms application](../apps/rooms/) exercises browser and terminal peers with durable workspaces. Its chat paths
+  cover room and direct-message files, WebRTC, Noise-sealed relay rendezvous, retained room history, and member-owned
+  archives. IRC edges, peering, diagnostics, and revocable operator capabilities complete its operating surface. The
+  Compose deployment starts one durable user workspace beside the room directory under separate custody, exposes no
+  new port or session-root HTTP endpoint, and prints its bearer authorities in one operator handoff after both peers
+  are ready. The first-read page owns that feature inventory. The [development guide](../apps/rooms/developing.md) and
+  [operating guide](../apps/rooms/operating.md) own the runnable checks and deployment controls.
 - ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its
   production Chromium check covers replay, subsequent live observations, and
   exclusion of the observer session from its own topology. The rooms trace

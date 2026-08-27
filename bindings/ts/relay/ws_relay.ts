@@ -30,16 +30,40 @@ export class RelayDialFailed extends Error {
 	}
 }
 
-/** Log one relay-serving rejection in the runtime-line vocabulary: a dial
- * failure is a quiet, coalesced `relay: dial failed` line (identical messages
- * within the window collapse to one line with a count), and anything else
+/** Log one relay-serving rejection in the runtime-line vocabulary. Identical
+ * dial failures report on an exponentially widening interval while the outage
+ * continues, then forget themselves after one quiet interval. Anything else
  * keeps the loud `unexpected error` label it deserves. One authority, so the
  * embedders that host `webSocketRelay` cannot drift apart in wording. */
 export function relayFailureLogger(
 	log: (line: string) => void = (line) => console.error(line),
-	windowMs = 30_000,
+	initialWindowMs = 30_000,
+	maximumWindowMs = initialWindowMs * 20,
 ): (err: unknown) => void {
-	const seen = new Map<string, { count: number; timer: ReturnType<typeof setTimeout> }>();
+	if (
+		!Number.isSafeInteger(initialWindowMs) || initialWindowMs < 1 ||
+		!Number.isSafeInteger(maximumWindowMs) || maximumWindowMs < initialWindowMs
+	) throw new RangeError("relay failure log windows are invalid");
+	interface FailureWindow {
+		count: number;
+		intervalMs: number;
+		timer: ReturnType<typeof setTimeout>;
+	}
+	const seen = new Map<string, FailureWindow>();
+	const schedule = (line: string, entry: FailureWindow): void => {
+		entry.timer = setTimeout(() => {
+			if (entry.count === 0) {
+				seen.delete(line);
+				return;
+			}
+			log(`${line} (repeated ${entry.count} more times)`);
+			entry.count = 0;
+			entry.intervalMs = Math.min(entry.intervalMs * 2, maximumWindowMs);
+			schedule(line, entry);
+		}, entry.intervalMs);
+		// A pending flush must not pin the process open past its last socket.
+		if (typeof entry.timer === "number") Deno.unrefTimer?.(entry.timer);
+	};
 	return (err) => {
 		if (!(err instanceof RelayDialFailed)) {
 			log(`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
@@ -52,14 +76,13 @@ export function relayFailureLogger(
 			return;
 		}
 		log(line);
-		const entry = { count: 0, timer: undefined as unknown as ReturnType<typeof setTimeout> };
-		entry.timer = setTimeout(() => {
-			seen.delete(line);
-			if (entry.count > 0) log(`${line} (repeated ${entry.count} more times)`);
-		}, windowMs);
-		// A pending flush must not pin the process open past its last socket.
-		if (typeof entry.timer === "number") Deno.unrefTimer?.(entry.timer);
+		const entry: FailureWindow = {
+			count: 0,
+			intervalMs: initialWindowMs,
+			timer: undefined as unknown as ReturnType<typeof setTimeout>,
+		};
 		seen.set(line, entry);
+		schedule(line, entry);
 	};
 }
 

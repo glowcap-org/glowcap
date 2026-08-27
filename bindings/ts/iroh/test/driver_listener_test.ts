@@ -1,10 +1,7 @@
 import { Host, Runtime, type Session } from "@pancake/runtime";
 import * as tcp from "@pancake/tcp";
 import { listen, Reachability } from "../impl.ts";
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 Deno.test("supplied iroh Host transfers to the generic driver listener", async () => {
 	const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -16,6 +13,18 @@ Deno.test("supplied iroh Host transfers to the generic driver listener", async (
 		assert(server.uri.includes(".iroh"), "generic driver listener did not advertise iroh");
 		await server.stopAdmission();
 		assert(!host.released, "iroh listener close released its shared Host");
+	} finally {
+		await server.stopAdmission();
+		await host.close();
+	}
+});
+
+Deno.test("iroh adoption takes a publication's already-scheduled drain", async () => {
+	const host = new Host();
+	host.publishDurable(() => undefined);
+	const server = await listen({ reachability: Reachability.Direct }, { host });
+	try {
+		assert(host.driverLoop != null, "published Host did not transfer to the driver");
 	} finally {
 		await server.stopAdmission();
 		await host.close();

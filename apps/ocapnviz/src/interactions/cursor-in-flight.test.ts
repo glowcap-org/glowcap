@@ -22,7 +22,7 @@
 import { assertEquals } from "@std/assert";
 import { type CSSCursor, type CursorContext, cursorFor } from "./cursor.ts";
 import { pointerReducer } from "./pointer-machine.ts";
-import { dummyHit } from "./gesture-resolver.ts";
+import { dummyHit } from "./gesture-resolver-test/harness.ts";
 import {
 	type BuilderTool,
 	type GestureContext,

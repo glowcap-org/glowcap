@@ -1,5 +1,5 @@
-import { assert, assertEquals } from "@std/assert";
-import { DescriptiveMetadata, Iso8601Instant, NAMESPACES, Provenance } from "./provenance.ts";
+import { assertEquals } from "@std/assert";
+import { DescriptiveMetadata, Iso8601Instant, Provenance } from "./provenance.ts";
 
 Deno.test("Iso8601Instant accepts canonical UTC", () => {
 	assertEquals(
@@ -47,10 +47,4 @@ Deno.test("DescriptiveMetadata accepts DC terms", () => {
 		"dct:created": "2026-05-14T10:00:00Z",
 	});
 	assertEquals(result.success, true);
-});
-
-Deno.test("NAMESPACES exports stable IRIs", () => {
-	assertEquals(NAMESPACES.prov, "http://www.w3.org/ns/prov#");
-	assertEquals(NAMESPACES.dct, "http://purl.org/dc/terms/");
-	assert(NAMESPACES.ocapn.startsWith("https://"));
 });

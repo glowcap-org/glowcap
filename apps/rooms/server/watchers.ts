@@ -1,5 +1,6 @@
 // Directory-wide observers of live room and registration state.
 
+import { noteTrouble } from "./journal.ts";
 import { type Argument, type Ref, type Session } from "@pancake/runtime";
 import { NOTIFY, type RoomRecordShape } from "../lib/protocol.ts";
 import { handBack } from "./registry.ts";
@@ -54,7 +55,7 @@ export function notifyWatchers(args: Argument[], publicationArgs: Argument[] = a
 				dropWatchers(watcher.session);
 				return;
 			}
-			console.error(`[rooms] directory watcher notification failed: ${error}`);
+			noteTrouble("a directory watcher notification failed", error);
 		});
 	}
 }

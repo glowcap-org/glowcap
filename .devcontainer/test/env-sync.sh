@@ -16,12 +16,24 @@ devcontainer_json="${dir}/devcontainer.json"
 compose_file="${dir}/docker-compose.yml"
 env_example="${dir}/.env.example"
 
+# grep -F literal. Escape `$` and backticks in double quotes; single quotes
+# around backticks fail post-create's shellcheck (SC2016) and block container open.
 require_literal() {
     local file="$1"
     local needle="$2"
     local label="$3"
     if ! grep -Fq -- "${needle}" "${file}"; then
         echo "${label}: expected literal '${needle}' in ${file}" >&2
+        return 1
+    fi
+}
+
+require_absent() {
+    local file="$1"
+    local needle="$2"
+    local label="$3"
+    if grep -Fq -- "${needle}" "${file}"; then
+        echo "${label}: unexpected '${needle}' in ${file}" >&2
         return 1
     fi
 }
@@ -70,24 +82,50 @@ require_literal "${devcontainer_json}" "\"RUSTUP_HOME\": \"${RUSTUP_HOME}\"" "de
 require_literal "${devcontainer_json}" "\"DENO_DIR\": \"${DENO_DIR}\"" "devcontainer.json DENO_DIR"
 require_literal "${devcontainer_json}" "\"BUN_INSTALL_CACHE_DIR\": \"${BUN_INSTALL_CACHE_DIR}\"" "devcontainer.json BUN_INSTALL_CACHE_DIR"
 require_literal "${devcontainer_json}" "\"ZIG_GLOBAL_CACHE_DIR\": \"${ZIG_CACHE_DIR}\"" "devcontainer.json ZIG_GLOBAL_CACHE_DIR"
+require_literal "${devcontainer_json}" "\"UV_CACHE_DIR\": \"${UV_CACHE_DIR}\"" "devcontainer.json UV_CACHE_DIR"
 require_literal "${devcontainer_json}" "\"npm_config_cache\": \"${NPM_CACHE_DIR}\"" "devcontainer.json npm_config_cache"
 require_literal "${devcontainer_json}" "\"PIP_CACHE_DIR\": \"${PIP_CACHE_DIR}\"" "devcontainer.json PIP_CACHE_DIR"
 require_literal "${devcontainer_json}" "\"PLAYWRIGHT_BROWSERS_PATH\": \"${PLAYWRIGHT_BROWSERS_PATH}\"" "devcontainer.json PLAYWRIGHT_BROWSERS_PATH"
 require_literal "${devcontainer_json}" "\"CLAUDE_CONFIG_DIR\": \"${CLAUDE_CONFIG_DIR}\"" "devcontainer.json CLAUDE_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_CONFIG_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_DATA_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_DATA_DIR"
+if pancake_devcontainer_zls_enabled; then
+    require_literal "${devcontainer_json}" '"zls.enable": true' "devcontainer.json zls.enable follows ZLS_ENABLED"
+else
+    require_literal "${devcontainer_json}" '"zls.enable": false' "devcontainer.json zls.enable follows ZLS_ENABLED"
+fi
 
 require_literal "${dockerfile}" "npm_config_cache=${NPM_CACHE_DIR}" "Dockerfile npm_config_cache"
 require_literal "${dockerfile}" "PIP_CACHE_DIR=${PIP_CACHE_DIR}" "Dockerfile PIP_CACHE_DIR"
-require_literal "${devcontainer_json}" "target=${CARGO_HOME_RUNTIME},type=volume" "devcontainer.json cargo volume"
+require_literal "${dockerfile}" "PATH=/home/vscode/.cache/pancake/cargo/bin:" "Dockerfile runtime cargo bin on PATH"
+# Local Zig cache is work/<worktree>/zig-local, interpolated by Compose.
+# uv's download cache is runtime-only so the image layer does not fill a
+# directory the host bind then hides.
+require_absent "${dockerfile}" "ZIG_LOCAL_CACHE_DIR=" "Dockerfile must not set ZIG_LOCAL_CACHE_DIR"
+require_absent "${dockerfile}" "ZIG_LOCAL_PKG_DIR=" "Dockerfile must not set ZIG_LOCAL_PKG_DIR"
+require_absent "${dockerfile}" "UV_CACHE_DIR=" "Dockerfile must not set UV_CACHE_DIR"
+require_absent "${devcontainer_json}" "ZIG_LOCAL_CACHE_DIR" "devcontainer.json must not pin ZIG_LOCAL_CACHE_DIR (Compose interpolates the worktree)"
+require_absent "${devcontainer_json}" "ZIG_LOCAL_PKG_DIR" "devcontainer.json must not pin ZIG_LOCAL_PKG_DIR (Compose interpolates the worktree)"
+require_absent "${devcontainer_json}" "type=volume" "devcontainer.json caches are host binds, not named volumes"
+require_absent "${compose_file}" "type: volume" "docker-compose.yml caches are host binds, not named volumes"
+if grep -qE '^volumes:' "${compose_file}"; then
+    echo "docker-compose.yml: a top-level volumes key would declare a named volume; caches are host binds" >&2
+    exit 1
+fi
+require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/.cache/pancake,target=${PANCAKE_CACHE_DIR},type=bind" "devcontainer.json pancake cache bind"
+require_literal "${compose_file}" "ZIG_LOCAL_CACHE_DIR: ${WORK_CACHE_DIR}/\${PANCAKE_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-local" "docker-compose.yml ZIG_LOCAL_CACHE_DIR"
+require_literal "${compose_file}" "ZIG_LOCAL_PKG_DIR: ${WORK_CACHE_DIR}/\${PANCAKE_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-pkg" "docker-compose.yml ZIG_LOCAL_PKG_DIR"
+require_literal "${dockerfile}" "/home/vscode/.cache/pancake" "Dockerfile pancake cache mount point"
 require_literal "${devcontainer_json}" '"workspaceFolder": "/workspaces/pancake"' "devcontainer.json workspace path"
-require_literal "${dir}/hooks/initialize.sh" 'pancake_devcontainer_host_state_rows' "hooks/initialize.sh shared host-state inventory"
-require_literal "${dir}/hooks/post-create.sh" 'pancake_devcontainer_host_state_rows' "hooks/post-create.sh shared host-state inventory"
+require_literal "${dir}/hooks/initialize.sh" 'pancake_devcontainer_host_home_bind_rows' "hooks/initialize.sh creates every host-home bind source"
+require_literal "${dir}/hooks/initialize.sh" 'pancake_devcontainer_host_cache_layout' "hooks/initialize.sh creates pancake cache subdirs"
+require_literal "${dir}/hooks/initialize.sh" 'pancake_devcontainer_host_cache_layout_text' "hooks/initialize.sh writes LAYOUT from the one inventory"
+require_literal "${dir}/hooks/post-create.sh" 'pancake_devcontainer_host_home_bind_rows' "hooks/post-create.sh checks every host-home bind"
 expected_host_mounts=0
-owned_dir_block="$(sed -n '/^persistent_dirs=(/,/^)/p' "${dir}/hooks/post-create.sh")"
+owned_dir_block="$(sed -n '/^sudo chown -R vscode:vscode /p' "${dir}/hooks/post-create.sh")"
 while IFS=: read -r host_relative host_target; do
     expected_host_mounts=$((expected_host_mounts + 1))
-    require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/${host_relative},target=${host_target},type=bind" "devcontainer.json shared host-state mount"
+    require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/${host_relative},target=${host_target},type=bind" "devcontainer.json shared host-home mount"
     if grep -Fq "target: ${host_target}" "${compose_file}"; then
         echo "docker-compose.yml: ${host_target} must come from the shared host bind in devcontainer.json" >&2
         exit 1
@@ -96,10 +134,10 @@ while IFS=: read -r host_relative host_target; do
         echo "post-create.sh: shared host path must not be recursively owned by the container: ${host_target}" >&2
         exit 1
     fi
-done <<< "$(pancake_devcontainer_host_state_rows)"
+done <<< "$(pancake_devcontainer_host_home_bind_rows)"
 actual_host_mounts="$(grep -Fc "source=\${localEnv:HOME}/" "${devcontainer_json}")"
 if [[ "${actual_host_mounts}" -ne "${expected_host_mounts}" ]]; then
-    echo "devcontainer.json: every host-home mount must be declared by pancake_devcontainer_host_state_rows" >&2
+    echo "devcontainer.json: every host-home mount must be declared by pancake_devcontainer_host_home_bind_rows" >&2
     exit 1
 fi
 
@@ -132,7 +170,15 @@ require_literal "${dir}/lib/launcher.sh" "tmux list-panes -s -t \"\${window_targ
 require_literal "${dir}/lib/launcher.sh" "pane/host/.bashrc" "pane shells start through the host half of the pane runtime"
 require_literal "${dir}/bin/enter-grid.sh" "-P -F '#{pane_id}'" "enter-grid.sh addresses grid panes by pane id"
 require_literal "${dir}/hooks/post-create.sh" "find \"\${dir}\" -name '*.sh'" "the lint reaches every shell file in the tree, not only the top of it"
+require_literal "${dir}/hooks/post-create.sh" "command -v zsh" "post-create requires the workspace zsh the pane runtime uses"
+require_literal "${dir}/hooks/post-create.sh" '-name compiled' "post-create removes leftover Racket bytecode a rebuild leaves on the workspace bind"
 require_literal "${dir}/hooks/post-create.sh" "conformance/bootstrap-submodules.sh" "post-create fills the conformance submodules so every worktree is a complete checkout"
+require_literal "${dir}/bin/enter-grid.sh" "no worktrees to open" "enter-grid.sh refuses an empty grid instead of expanding an unset column"
+require_literal "${dir}/README.md" "verifies host binds are writable" "README first-open checks host binds, it does not chown a volume"
+require_literal "${dir}/README.md" "The first locked cargo build" "README says an empty cargo/ home fills from a locked crate build"
+require_literal "${dir}/README.md" "Racket \`compiled/\`" "README says post-create deletes leftover Racket bytecode"
+require_literal "${dir}/image/rust.sh" "the cargo/ slice of the host bind" "rust.sh runtime cargo home is the host bind"
+require_literal "${dir}/image/playwright.sh" "runtime host bind" "playwright.sh npm cache is a host bind, not a volume"
 require_literal "${dir}/lib/launcher.sh" "panes_name=panes.sh" "the launchers name the panes.sh contract the runtime defaults to"
 require_literal "${dir}/bin/container-id.sh" "pancake_devcontainer_checkout_entry" "the container lookup finds that checkout's own up.sh"
 require_literal "${dir}/bin/container-id.sh" "bash \"\${lifecycle}\"" "the container lookup runs the lifecycle it found"
@@ -168,13 +214,14 @@ require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml
 require_literal "${dir}/../apps/ocapnviz/vite-dev-listen.ts" "allowedHosts: true" "ocapnviz Vite Host-header policy for a wide bind"
 require_literal "${dir}/../site/docs-serve.sh" 'DOCS_SERVE_HOST:-127.0.0.1' "docs-serve.sh forwards the container-wide bind"
 
-# Every mount target under the container's home must have its parents created,
-# owned by vscode, in the image. Docker creates a missing mount path as root,
-# and it creates missing parents the same way. That is invisible until someone
-# opens a fresh container, which is the worst place to find it.
+# Every bind target under the container's home must itself exist, owned by
+# vscode, in the image. Docker creates a missing mount path as root, and it
+# creates missing parents the same way. A direct child of home is the same
+# case as a nested path: the mount point has to be created, not only its
+# parent.
 #
-# The check reads the mount targets out of devcontainer.json and asserts the
-# Dockerfile's user-space `mkdir -p` covers each one's parent directory.
+# Authority is the host-bind table plus any compose target under home, so a
+# row added to the table still fails until the Dockerfile mkdir covers it.
 home_dir="/home/vscode"
 mkdir_targets="$(sed -n 's|^ *&& *mkdir -p \(.*\) *\\$|\1|p; s|^ *\('"${home_dir}"'/[^ ]*\) *\\$|\1|p' "${dockerfile}")"
 
@@ -190,17 +237,14 @@ covered() {
 
 while read -r target; do
     [ -n "${target}" ] || continue
-    parent="$(dirname "${target}")"
-    # A direct child of home needs nothing: the image creates home itself.
-    [ "${parent}" != "${home_dir}" ] || continue
-    if ! covered "${parent}"; then
-        echo "devcontainer.json mounts ${target}, but ${dockerfile} never creates ${parent}." >&2
+    if ! covered "${target}"; then
+        echo "a host bind mounts ${target}, but ${dockerfile} never creates it." >&2
         echo "  Docker would create it as root and the container's own user could not write beside it." >&2
-        echo "  Add ${parent} to the vscode user-space 'mkdir -p' in the Dockerfile." >&2
+        echo "  Add ${target} to the vscode user-space 'mkdir -p' in the Dockerfile." >&2
         exit 1
     fi
 done <<EOF
-$(sed -n "s|.*target=\(${home_dir}[^,]*\),.*|\1|p" "${devcontainer_json}")
+$(while IFS=: read -r _ host_target; do printf '%s\n' "${host_target}"; done <<< "$(pancake_devcontainer_host_home_bind_rows)")
 $(sed -n "s|^ *target: \(${home_dir}[^ ]*\) *$|\1|p" "${compose_file}")
 EOF
 
@@ -214,15 +258,20 @@ EOF
 # The exceptions are the paths this directory deliberately does not track: a
 # checkout's own .env and its pane configuration, each written locally and
 # each named in prose by the files that read it.
-devcontainer_untracked_paths=".env pane/panes.sh pane/panes-review.sh"
+devcontainer_untracked() {
+    case "$1" in
+        .env | pane/panes.sh | pane/panes-*.sh) return 0 ;;
+    esac
+    return 1
+}
 require_named_paths() {
     local file="$1" label="$2" path relative missing=0
     while IFS= read -r path; do
         relative="${path#.devcontainer/}"
         relative="${relative#\$\{PANCAKE_DEVCONTAINER_DIR\}/}"
-        case " ${devcontainer_untracked_paths} " in
-            *" ${relative} "*) continue ;;
-        esac
+        if devcontainer_untracked "${relative}"; then
+            continue
+        fi
         if [[ ! -e "${dir}/${relative}" ]]; then
             echo "${label} names ${path}, which is not in .devcontainer/" >&2
             missing=1
@@ -247,9 +296,9 @@ done
 require_sibling_paths() {
     local file="$1" path missing=0
     while IFS= read -r path; do
-        case " ${devcontainer_untracked_paths} " in
-            *" ${path} "*) continue ;;
-        esac
+        if devcontainer_untracked "${path}"; then
+            continue
+        fi
         if [[ ! -e "${dir}/${path}" ]]; then
             echo "${file#"${dir}/"} reaches \${dir}/${path}, which is not there" >&2
             missing=1
@@ -261,6 +310,33 @@ require_sibling_paths() {
 while IFS= read -r devcontainer_script; do
     require_sibling_paths "${devcontainer_script}"
 done < <(find "${dir}" -name '*.sh' | sort)
+
+# Every installer in image/ is reached from the Dockerfile or from another
+# installer. verify-toolchains.sh is a checker, not a caller, so a mention
+# in an error string there does not count. An added image/*.sh that nothing
+# invokes is invisible until a rebuild that was supposed to include it does
+# not.
+installer_reached() {
+    local name="$1" other
+    if grep -Fq "image/${name}" "${dockerfile}"; then
+        return 0
+    fi
+    for other in "${dir}"/image/*.sh; do
+        [[ "$(basename "${other}")" == "${name}" ]] && continue
+        [[ "$(basename "${other}")" == verify-toolchains.sh ]] && continue
+        if grep -Fq "image/${name}" "${other}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+while IFS= read -r installer; do
+    name="$(basename "${installer}")"
+    if ! installer_reached "${name}"; then
+        echo "image/${name} is never invoked from the Dockerfile or another image installer" >&2
+        exit 1
+    fi
+done < <(find "${dir}/image" -name '*.sh' | sort)
 
 # The prose beside the scripts is part of the same surface, so a link in it
 # points at something that is there.
@@ -275,7 +351,7 @@ require_doc_links() {
         sed -E 's/^\]\((.*)\)$/\1/' | sort -u)
     return "${missing}"
 }
-for devcontainer_doc in "${dir}"/*.md; do
+for devcontainer_doc in "${dir}"/*.md "${dir}"/docs/*.md; do
     require_doc_links "${devcontainer_doc}"
 done
 

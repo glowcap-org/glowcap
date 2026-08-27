@@ -139,11 +139,25 @@
         [else (claim)])))
   (when prior
     (define close-error #f)
+    (define m (driver-loop-host lp))
     (with-handlers ([exn? (lambda (e) (set! close-error e))])
       (when (loop-native-live? lp)
-        (close-driver-listener! (driver-loop-handle lp) (loop-listener-id listener))))
+        (let join-close ()
+          ;; Arm the generation before the retry. A provider retirement that
+          ;; lands between the call and the park bumps this exact snapshot, so
+          ;; asynchronous close cannot lose its wakeup.
+          (define progress (host-progress-evt m))
+          (unless (close-driver-listener!
+                   (driver-loop-handle lp) (loop-listener-id listener))
+            (check/driver (pancake_driver_wake (driver-loop-handle lp)))
+            (sync progress)
+            (define terminal (unbox state-box))
+            (if (eq? terminal 'failed)
+                (raise (unbox (loop-listener-outcome listener)))
+                (join-close))))))
     (when close-error
-      (set-box! state-box prior)
+      (unless (eq? (unbox state-box) 'failed)
+        (set-box! state-box prior))
       (raise close-error))
     (when (eq? prior 'pending)
       (set-box! (loop-listener-outcome listener) (listener-closed-exn 'close))
@@ -151,13 +165,13 @@
     (set-box! state-box 'closed)
     ;; Preserve events committed before close, including accepted sessions,
     ;; before retiring this listener's routing entry.
-    (define m (driver-loop-host lp))
     (with-host-drain m
       (lambda () (dispatch-events! m lp (pop-events! lp))))
     (hash-remove! (driver-loop-listeners lp) (loop-listener-id listener))
     (async-channel-put (loop-listener-accepts listener) accepts-terminal))
-  ;; Preserve only events committed by earlier steps. Running another step
-  ;; here would make close itself create unrelated transport progress.
+  ;; The running loop may have stepped to finish an asynchronous provider
+  ;; stop. Admission was sealed before that wait, so only already committed
+  ;; accepts can still name this listener.
   (loop-listener-accepts listener))
 
 ;; A listening server over the loop: this owner owns one driver listener and its
@@ -274,4 +288,3 @@
             (drain))))
       (when (loop-server-retire-loop? s)
         (driver-loop-retire! lp)))))
-

@@ -5,8 +5,10 @@
 // the directory's exchange admission. `Directory` owns the session and the
 // local-ref table; this table owns only the exchanges.
 
-import { Ref, retainSecondaryFailure } from "@pancake/runtime";
+import { currentSession, Ref, retainSecondaryFailure } from "@pancake/runtime";
 import type { Session } from "@pancake/runtime";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "./argument_custody.ts";
+import { MAX_SIGNAL_CANDIDATE, MAX_SIGNAL_ID, MAX_SIGNAL_SDP, utf8Fits } from "./limits.ts";
 import {
 	OFFER_SIGNALING,
 	SIG_ACCEPTED,
@@ -43,6 +45,7 @@ export class DirectorySignaling {
 		private readonly session: Session,
 		private readonly directory: Ref,
 		private readonly releaseLocal: (ref: Ref) => void,
+		private readonly sessionFor: () => Session | null = currentSession,
 	) {}
 
 	/** Failures from a stopped exchange that still had to send `signalDone`. */
@@ -186,22 +189,59 @@ export class DirectorySignaling {
 				sink: null as ((ice: string) => void) | null,
 			};
 			fresh.reply = this.session.spawn((verb, args) => {
+				const caller = this.sessionFor();
+				if (caller == null) throw new Error("a signaling reply is reachable only during a session turn");
+				if (hasCapabilityArguments(args)) {
+					throwAfterReleasingCapabilities(
+						caller,
+						args,
+						new Error(`signaling reply ${verb} does not take capability arguments`),
+					);
+				}
 				if (verb === SIG_ACCEPTED) {
-					const id = typeof args[0] === "string" ? args[0] : "";
-					if (id.length > 0) fresh.resolveOfferReady(id);
-				} else if (verb === SIG_ANSWER) {
-					const sdp = typeof args[0] === "string" ? args[0] : "";
-					if (sdp.length > 0) fresh.answer?.resolve(sdp);
-				} else if (verb === SIG_CANDIDATE) {
-					const ice = typeof args[0] === "string" ? args[0] : "";
-					if (ice.length > 0) fresh.sink?.(ice);
-				} else if (verb === SIG_REJECT) {
-					const reason = typeof args[0] === "string" ? args[0] : "signaling exchange failed";
+					if (
+						args.length !== 1 || typeof args[0] !== "string" || args[0] === "" ||
+						!utf8Fits(args[0], MAX_SIGNAL_ID)
+					) {
+						throw new Error("signalAccepted needs one bounded exchange id");
+					}
+					fresh.resolveOfferReady(args[0]);
+					return null;
+				}
+				if (verb === SIG_ANSWER) {
+					if (
+						args.length !== 1 || typeof args[0] !== "string" || args[0] === "" ||
+						!utf8Fits(args[0], MAX_SIGNAL_SDP)
+					) {
+						throw new Error("signalAnswer needs one bounded session description");
+					}
+					fresh.answer?.resolve(args[0]);
+					return null;
+				}
+				if (verb === SIG_CANDIDATE) {
+					if (
+						args.length !== 1 || typeof args[0] !== "string" || args[0] === "" ||
+						!utf8Fits(args[0], MAX_SIGNAL_CANDIDATE)
+					) {
+						throw new Error("signalCandidate needs one bounded ICE candidate");
+					}
+					fresh.sink?.(args[0]);
+					return null;
+				}
+				if (verb === SIG_REJECT) {
+					if (
+						args.length !== 1 || typeof args[0] !== "string" || args[0] === "" ||
+						!utf8Fits(args[0], MAX_SIGNAL_SDP)
+					) {
+						throw new Error("signalReject needs one bounded reason");
+					}
+					const reason = args[0];
 					const error = new Error(`rooms: ${reason}`);
 					fresh.rejectOfferReady(error);
 					fresh.answer?.reject(error);
+					return null;
 				}
-				return null;
+				throw new Error(`signaling reply has no method ${verb}`);
 			});
 			this.#signals.set(designator, fresh);
 			row = fresh;

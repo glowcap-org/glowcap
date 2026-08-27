@@ -25,7 +25,6 @@ const Sink = harness.Sink;
 const LabelHolder = harness.LabelHolder;
 const PersistentCounter = harness.PersistentCounter;
 const Captured = promise_capture.CapturedBytes;
-const StringCapture = promise_capture.CapturedString;
 
 test "far tell delivers with no answer and the partner replies nothing" {
     const allocator = std.testing.allocator;

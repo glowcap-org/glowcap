@@ -96,6 +96,7 @@ pub(crate) struct LoopShared {
 	/// the handle stays valid until adoption or explicit release.
 	unclaimed_sessions: RefCell<HashMap<usize, UnclaimedSession>>,
 	listeners: RefCell<HashSet<u64>>,
+	closing_listeners: RefCell<HashSet<u64>>,
 	listener_failures: RefCell<HashMap<u64, Error>>,
 	accept_wake: Notify,
 	/// Wakes close drivers parked on loop progress. Every path that steps the
@@ -195,6 +196,7 @@ impl LoopShared {
 			accepts: RefCell::new(VecDeque::new()),
 			unclaimed_sessions: RefCell::new(HashMap::new()),
 			listeners: RefCell::new(HashSet::new()),
+			closing_listeners: RefCell::new(HashSet::new()),
 			listener_failures: RefCell::new(HashMap::new()),
 			accept_wake: Notify::new(),
 			activity: Notify::new(),
@@ -229,6 +231,7 @@ impl LoopShared {
 			accepts: RefCell::new(VecDeque::new()),
 			unclaimed_sessions: RefCell::new(HashMap::new()),
 			listeners: RefCell::new(HashSet::new()),
+			closing_listeners: RefCell::new(HashSet::new()),
 			listener_failures: RefCell::new(HashMap::new()),
 			accept_wake: Notify::new(),
 			activity: Notify::new(),
@@ -302,6 +305,7 @@ impl LoopShared {
 			self.fail_close_or_record(terminal);
 		}
 		self.listeners.borrow_mut().clear();
+		self.closing_listeners.borrow_mut().clear();
 		self.accepts.borrow_mut().clear();
 		self.unclaimed_sessions.borrow_mut().clear();
 		self.accept_wake.notify_waiters();

@@ -17,8 +17,8 @@ export PLAYWRIGHT_BROWSERS_PATH
 mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"
 
 # npx caches the downloaded package under npm_config_cache, which points at a
-# runtime volume mount target. Writing there during the image build would leave
-# a root-owned directory for the volume to cover, so send this one download to a
+# runtime host bind. Writing there during the image build would leave a
+# root-owned directory for the bind to cover, so send this one download to a
 # scratch dir instead.
 export npm_config_cache="${tmp}/npm"
 

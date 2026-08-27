@@ -12,6 +12,7 @@ import { vizCapUrl } from "../lib/viz_publish.ts";
 import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { assertEquals } from "./assert.ts";
+import { roomsSturdyrefForSession } from "../lib/locator.ts";
 
 function assert(ok: boolean, what: string): void {
 	if (!ok) throw new Error(what);
@@ -61,7 +62,7 @@ class Viewer {
 			viewer.records.push(JSON.parse(args[0]));
 			return null;
 		});
-		const trace = await session.enliven(sturdyref);
+		const trace = await session.enliven(roomsSturdyrefForSession(sturdyref, session));
 		await session.send(trace, "subscribe", [inbox]);
 		return viewer;
 	}

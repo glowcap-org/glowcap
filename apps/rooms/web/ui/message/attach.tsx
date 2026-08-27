@@ -6,7 +6,7 @@ import { type AttachmentView } from "../types.ts";
 import { AUTO_IMAGE_BYTES } from "../../../lib/limits.ts";
 import { fileSize, kindOf } from "../media.ts";
 import { saveAs } from "../download.ts";
-import { usePeer } from "../peer.ts";
+import { useRoomsSession } from "../controller/session.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Said } from "../Said.tsx";
@@ -104,7 +104,7 @@ function MediaPlaceholder(
 		layout: MediaLayout;
 	},
 ) {
-	const peer = usePeer();
+	const session = useRoomsSession();
 	const kind = kindOf(file.mime);
 	const loading = file.got !== undefined;
 	const pct = loading && file.size > 0 ? Math.round((file.got! / file.size) * 100) : 0;
@@ -143,7 +143,7 @@ function MediaPlaceholder(
 							className="act"
 							title={`${verb} ${file.name}`}
 							aria-label={`${verb} ${file.name}, ${fileSize(file.size)}`}
-							onClick={() => peer.openFile(convKey, id)}
+							onClick={() => session.openFile(convKey, id)}
 						>
 							<Icon name={failed ? "retry" : kind === "video" ? "play" : "image"} />
 							<span>{failed ? "Retry" : fileSize(file.size)}</span>
@@ -172,7 +172,7 @@ function AttachedMedia(
 		layout: MediaLayout;
 	},
 ) {
-	const peer = usePeer();
+	const session = useRoomsSession();
 	const loading = file.got !== undefined;
 	const pct = loading && file.size > 0 ? Math.round((file.got! / file.size) * 100) : 0;
 
@@ -190,7 +190,7 @@ function AttachedMedia(
 					size="small"
 					variant="solid"
 					tone="inverse"
-					onClick={() => peer.openViewer(convKey, id)}
+					onClick={() => session.openViewer(convKey, id)}
 				/>
 			</div>
 		);
@@ -202,7 +202,7 @@ function AttachedMedia(
 			style={shapeOf(file, layout)}
 			title={file.name}
 			aria-label={`View ${file.name}`}
-			onClick={() => peer.openViewer(convKey, id)}
+			onClick={() => session.openViewer(convKey, id)}
 		>
 			<img src={file.url} alt={file.name} />
 			{sending && loading && (
@@ -227,7 +227,7 @@ function AttachedMedia(
 function AttachedAudio(
 	{ file, id, convKey, mine }: { file: AttachmentView; id: number; convKey: string; mine: boolean },
 ) {
-	const peer = usePeer();
+	const session = useRoomsSession();
 	const loading = file.got !== undefined;
 	if (file.url !== undefined) {
 		return (
@@ -244,7 +244,7 @@ function AttachedAudio(
 					icon={file.error !== undefined ? "retry" : "play"}
 					label={file.error !== undefined ? `Retry ${file.name}` : `Play ${file.name}`}
 					disabled={loading}
-					onClick={() => peer.openFile(convKey, id)}
+					onClick={() => session.openFile(convKey, id)}
 				/>
 			)}
 			<TransferStatus file={file} mine={mine} idle={`${file.name} · ${fileSize(file.size)}`} />
@@ -261,7 +261,7 @@ function AttachedAudio(
 function AttachedFile(
 	{ file, id, convKey, mine }: { file: AttachmentView; id: number; convKey: string; mine: boolean },
 ) {
-	const peer = usePeer();
+	const session = useRoomsSession();
 	const [wanted, setWanted] = useState(false);
 	const loading = file.got !== undefined;
 
@@ -299,7 +299,7 @@ function AttachedFile(
 							return;
 						}
 						setWanted(true);
-						peer.openFile(convKey, id);
+						session.openFile(convKey, id);
 					}}
 				/>
 			)}

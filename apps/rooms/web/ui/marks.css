@@ -1,0 +1,108 @@
+/* The marks: small statements of fact worn beside a name or over a
+   control — never controls themselves. The copy reply chip, the state
+   marks in a run of text, the caption voice a section is labeled in,
+   and the IRC cap a bridged identity wears. */
+
+/* Copying, and the control's own reply (see Copy.tsx). Success is a chip over
+   the control that was pressed. A write the browser refused has nothing left
+   on that control to say, and that is a toast. */
+.copy {
+	position: relative;
+	display: inline-flex;
+}
+.copy-said {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 3;
+	padding: 3px 8px;
+	border-radius: var(--radius-chip);
+	background: var(--ink);
+	color: var(--paper);
+	font-size: 11px;
+	font-weight: 700;
+	white-space: nowrap;
+	pointer-events: none;
+	box-shadow: var(--shadow-sm);
+	transition: opacity .16s ease;
+}
+.copy-said:empty {
+	opacity: 0;
+}
+
+/* The little state marks — a padlock on a direct conversation, the sigil in the
+   room title — are icons sitting in a run of text, so they centre on the line
+   rather than on the text baseline. */
+.lock,
+#roomSigil {
+	display: inline-flex;
+	align-items: center;
+}
+
+/* The caption voice: the small tracked capitals a list or section is
+   labeled with. The rails' section heads, the roster's title, and a card
+   section's title outside its well all speak it — a label, not a title
+   competing with the names under it. */
+.overline {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .1em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+
+/* The IRC mark: a small cap beside a bridged identity or room name, in the
+   bridge's own color. The surrounding mark keeps its own identity; this cap
+   says where the projection came from. Not a control; it states a fact. */
+.irc-chip {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 5px 2px;
+	border-radius: 5px;
+	background: var(--irc);
+	color: #fff;
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	line-height: 1.2;
+	vertical-align: 0.12em;
+}
+.irc-chip[data-network="rooms"] {
+	background: var(--ink-soft);
+}
+.irc-chip[data-network="rooms-connecting"] {
+	background: var(--accent-ink);
+}
+.irc-chip[data-network="rooms-linked"] {
+	background: var(--teal-ink);
+}
+.irc-chip[data-network="rooms-failed"] {
+	background: var(--danger);
+}
+
+/* One mark per held directory, handed out in order by the store. The page's
+   own directory is not a ramp slot: it is the product and wears teal. */
+[data-dir="home"] {
+	--dir-mark: var(--teal);
+}
+[data-dir="1"] {
+	--dir-mark: var(--dir-mark-1);
+}
+[data-dir="2"] {
+	--dir-mark: var(--dir-mark-2);
+}
+[data-dir="3"] {
+	--dir-mark: var(--dir-mark-3);
+}
+[data-dir="4"] {
+	--dir-mark: var(--dir-mark-4);
+}
+[data-dir="5"] {
+	--dir-mark: var(--dir-mark-5);
+}
+/* An address this tab does not hold has no ramp mark and is not the page's own
+   directory, so every surface aimed there wears the product accent. */
+[data-dir="unknown"] {
+	--dir-mark: var(--accent);
+}

@@ -15,6 +15,7 @@
 import type { Attachment } from "../../../lib/attachment.ts";
 import type { DirectMessage, Directory, PostedLine, Room } from "../../../lib/room_client.ts";
 import type { WebrtcSignalingServer } from "../../../lib/signaling.ts";
+import type { Ref } from "@pancake/runtime";
 import { type AttachmentView, type DirId, dirId } from "../types.ts";
 import * as store from "../store.ts";
 
@@ -35,7 +36,7 @@ import * as store from "../store.ts";
  * object, and ending it is dropping the object; what is left to do by hand is
  * only what has to be *released*, which is a shorter and more obvious list. */
 export interface HeldFile {
-	attachment: Attachment;
+	attachment: Omit<Attachment, "blob">;
 	fetch: (onProgress?: (got: number) => void) => Promise<Uint8Array>;
 	release: () => void;
 }
@@ -61,6 +62,9 @@ export interface Live {
 	/** The directory peer this session actually reaches. It need not be the
 	 * server that served the page. */
 	readonly locator: string;
+	/** This tab's member-owned archive projected on the concrete session. The
+	 * backend outlives a directory reconnect; this occurrence does not. */
+	readonly archive: Ref;
 	/** Every room this session has us in, by conversation key. None of them is
 	 * necessarily the one on screen, and there is no "current" one: a room is
 	 * addressed by the conversation being acted on.
@@ -69,6 +73,10 @@ export interface Live {
 	 * the connection that fetched it. Dropping the session drops every room with
 	 * it, and a reconnect re-enters them all against the new one. */
 	rooms: Map<string, Room>;
+	/** Rooms this exact directory connection opened and may therefore ask to
+	 * issue stewardship for, by conversation key. This is connection state, not
+	 * a role: reconnecting creates a new session and an empty set. */
+	stewardClaimable: Set<string>;
 	/** What each room on this connection was last told about where this reader
 	 * stands, by conversation key.
 	 *
@@ -80,7 +88,7 @@ export interface Live {
 	/** Introduced direct lines, by conversation. One introduction each: the first
 	 * send opens it, later sends reuse it, and a failed open is dropped so the
 	 * next send retries. */
-	lines: Map<string, Promise<DirectMessage>>;
+	directRoutes: Map<string, Promise<DirectMessage>>;
 	/** Our own room lines painted and awaiting the room's echo. */
 	echoes: { key: string; id: number; attachmentIds: number[]; text: string }[];
 	/** Our own file-set changes awaiting the room's `refiled` echo, by the wire
@@ -105,7 +113,7 @@ export interface Live {
 	 * offer inboxes. */
 	registered: boolean;
 	/** Peers to offer an inbox to as soon as it is. */
-	deferredOffers: Set<string>;
+	deferredOffers: Map<string, string>;
 	/** Fires once this session has lasted long enough to count as stable. */
 	stable: ReturnType<typeof setTimeout> | null;
 	/** How long to wait before the next attempt on *this* directory, doubling per

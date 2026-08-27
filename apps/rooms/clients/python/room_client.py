@@ -42,7 +42,8 @@ from pancake._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E4
 from pancake.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
 
 DIRECTORY = "directory"
-OPEN, ENTER, LIST, WATCH = "open", "enter", "list", "watch"
+OPEN, ENTER = "open", "enter"
+LIST_PUBLICATIONS, WATCH_PUBLICATIONS = "listPublications", "watchPublications"
 REGISTER, INTRODUCE = "register", "introduce"
 SUBSCRIBE, POST, LEAVE, NOTIFY = "subscribe", "post", "leave", "notify"
 DM = "dm"
@@ -68,25 +69,49 @@ class RoomInfo:
 
 
 def _room(raw) -> RoomInfo | None:
-    if not isinstance(raw, list) or len(raw) < 6:
+    if not isinstance(raw, list) or len(raw) != 6:
         return None
     name, count_raw, entry_id, kind, origin, proof = raw[:6]
     if not all(isinstance(value, str) for value in (name, entry_id, kind, origin, proof)):
         return None
-    if count_raw is not None and not isinstance(count_raw, int):
+    if count_raw is not None and (
+        isinstance(count_raw, bool) or not isinstance(count_raw, int) or count_raw < 0
+    ):
         return None
     return RoomInfo(name, count_raw, entry_id, kind, origin, proof)
 
 
 def _rooms(raw) -> "list[RoomInfo]":
-    """Decode the complete list/watch snapshot without inventing occupancy."""
+    """Decode one complete publication list without dropping malformed rows."""
+    if not isinstance(raw, list):
+        raise ValueError("the directory answered a room list that is not a list")
     out: list[RoomInfo] = []
-    if isinstance(raw, list):
-        for item in raw:
-            room = _room(item)
-            if room is not None:
-                out.append(room)
+    for item in raw:
+        room = _room(item)
+        if room is None:
+            raise ValueError("the directory answered a malformed room publication")
+        out.append(room)
     return out
+
+
+def _watch_rooms(raw) -> "list[RoomInfo]":
+    """Decode the atomic rooms, registrations, and omission-count baseline."""
+    if not isinstance(raw, list) or len(raw) != 3:
+        raise ValueError("the directory answered a malformed watch snapshot")
+    rooms, registrations, omitted = raw
+    if not isinstance(registrations, list) or not all(
+        isinstance(row, list)
+        and len(row) == 2
+        and isinstance(row[0], str)
+        and len(row[0]) > 0
+        and isinstance(row[1], str)
+        and len(row[1]) > 0
+        for row in registrations
+    ):
+        raise ValueError("the directory answered malformed registration rows")
+    if isinstance(omitted, bool) or not isinstance(omitted, int) or omitted < 0:
+        raise ValueError("the directory answered an invalid watch omission count")
+    return _rooms(rooms)
 
 
 # Every rooms peer is a pancake peer, so the room speaks pancake's own
@@ -162,7 +187,7 @@ class Directory:
 
     async def list(self) -> "list[RoomInfo]":
         """The directory's exact live local and foreign room publications."""
-        return _rooms(await self.session.send(self._directory, LIST, []))
+        return _rooms(await self.session.send(self._directory, LIST_PUBLICATIONS, []))
 
     async def watch(self, on_event) -> "list[RoomInfo]":
         """Follow the live room list: hand the directory an inbox it calls back
@@ -178,7 +203,7 @@ class Directory:
             return None
 
         inbox = self.session.spawn(observer)
-        return _rooms(await self.session.send(self._directory, WATCH, [inbox]))
+        return _watch_rooms(await self.session.send(self._directory, WATCH_PUBLICATIONS, [inbox]))
 
     async def register(self, nick: str, locator: str) -> None:
         """Announce a dialable DM member. Resolves once the directory acks

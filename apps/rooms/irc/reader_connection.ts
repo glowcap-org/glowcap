@@ -24,7 +24,7 @@ export interface ReaderLink {
 	action(text: string): Promise<void>;
 	/** Step away, or back with an empty reason. */
 	away(reason: string): Promise<void>;
-	close(): void;
+	close(reason?: string): void;
 	readonly down: Promise<string>;
 }
 
@@ -32,17 +32,15 @@ export interface ReaderLink {
 const READER_REGISTRATION_MS = 20_000;
 
 /** Open one reader connection: register as `nick`, join `channel`, and hand
- * back the link. Throws when the network refuses the nick (433 crosses as
- * its own message so the caller can retry a suffixed name once) or refuses
- * the channel. */
+ * back the link. Throws when the network refuses the nick or channel. */
 export function openReaderConnection(
 	endpoint: IrcEndpoint,
 	nick: string,
 	channel: string,
 	sasl?: SaslPlainCredentials,
 	/** The server renamed this connection (services enforcing a registered
-	 * nick is the common cause). The link stays up under the new name; the
-	 * caller keeps its records and its member honest. */
+	 * nick is the common cause). The caller decides whether an automatic
+	 * projection may follow it or an explicitly chosen identity must fail. */
 	onNick?: (nick: string) => void,
 ): Promise<ReaderLink> {
 	return new Promise((resolve, reject) => {
@@ -60,8 +58,17 @@ export function openReaderConnection(
 				return;
 			}
 			let ended = "the IRC server ended the connection";
+			let retainedEnd: string | null = null;
+			const cancelled = () => {
+				ended = "IRC registration was superseded";
+				try {
+					conn.close();
+				} catch { /* the connection already ended */ }
+			};
+			endpoint.signal?.addEventListener("abort", cancelled, { once: true });
+			if (endpoint.signal?.aborted) cancelled();
 			const writer = new IrcSocketWriter(conn, (error) => {
-				ended = error.message;
+				if (retainedEnd == null) ended = error.message;
 				try {
 					conn.close();
 				} catch { /* the peer closed first */ }
@@ -70,9 +77,11 @@ export function openReaderConnection(
 				say: (text) => writer.send("PRIVMSG", [channel, text]),
 				action: (text) => writer.send("PRIVMSG", [channel, ctcpAction(text)]),
 				away: (reason) => writer.send("AWAY", reason === "" ? [] : [reason]),
-				close: () => {
-					// Best-effort courtesy; the close is what actually retires it.
-					void writer.send("QUIT", ["leaving the room"]).catch(() => {});
+				close: (reason) => {
+					if (reason != null) ended = retainedEnd = reason;
+					// Best-effort courtesy for an ordinary departure. A diagnosed
+					// failure closes directly so a refused QUIT cannot replace its cause.
+					else void writer.send("QUIT", ["leaving the room"]).catch(() => {});
 					try {
 						conn.close();
 					} catch { /* already down */ }
@@ -165,9 +174,10 @@ export function openReaderConnection(
 					}
 				}
 			} catch (error) {
-				ended = error instanceof Error ? error.message : String(error);
+				if (retainedEnd == null) ended = error instanceof Error ? error.message : String(error);
 			} finally {
 				clearTimeout(deadline);
+				endpoint.signal?.removeEventListener("abort", cancelled);
 				try {
 					conn.close();
 				} catch { /* already down */ }

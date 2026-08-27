@@ -12,7 +12,6 @@
  * here is narrower: clamp the on-screen rect of a single span,
  * report whether it had to be promoted to its minimum-width stamp.
  */
-import { type TimelineView, tToCanvasPx } from "./state.ts";
 
 /** Minimum visible pill width before paint demotes the span to a
  *  stamp (a fixed-footprint left-anchored marker). Hit-test uses
@@ -88,28 +87,4 @@ export function spanScreenRect(args: {
 	const leftClamped = x0 < plotX;
 	const rightClamped = openEnded || x1Raw > plotRight;
 	return { left, right, isStamp, leftClamped, rightClamped };
-}
-
-/** Convenience wrapper that resolves `tToPx` from a `TimelineView`
- *  and total canvas `width`. The plot band is derived from the same
- *  `plotStartXOf` / `plotWidthOf` helpers paint uses, so callers
- *  don't have to thread the same three params through every call
- *  site. Pass `plotX` and `plotWidth` explicitly only when the
- *  caller is operating on a non-standard band (e.g. Overview's
- *  scaled bird's-eye view). */
-export function spanScreenRectFromView(
-	startT: number,
-	endT: number,
-	view: TimelineView,
-	width: number,
-	plotX: number,
-	plotWidth: number,
-): SpanRect | null {
-	return spanScreenRect({
-		startT,
-		endT,
-		tToPx: (t) => tToCanvasPx(t, width, view),
-		plotX,
-		plotWidth,
-	});
 }

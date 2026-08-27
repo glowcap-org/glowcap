@@ -18,67 +18,11 @@
 
 import { type Argument, Session } from "@pancake/runtime";
 import * as tcp from "@pancake/tcp";
-import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
+import { GRANT, GRANT_REVOCABLE, REVOKE_LAST, TOOLS } from "./protocol.ts";
+import { revocable, toolFor } from "./capabilities.ts";
 
 /** A tool is a plain behavior function. These are the things the coordinator
  * holds; it never hands the agent the functions, only capabilities to them. */
-type Tool = (verb: string, args: Argument[]) => Argument;
-
-/** A clock tool: tells the time, nothing else. */
-const clock: Tool = (verb) => {
-	if (verb === NOW) return BigInt(Date.now());
-	throw new Error(`clock has no method ${verb}`);
-};
-
-/** A files tool: read and write. The coordinator holds the full version; agents
- * usually get an attenuated, read-only view of it. */
-function makeFiles(): Tool {
-	const store = new Map<string, string>([[
-		"report.txt",
-		"all systems nominal",
-	]]);
-	return (verb, args) => {
-		const path = typeof args[0] === "string" ? args[0] : "";
-		if (verb === READ) return store.get(path) ?? `(no such file: ${path})`;
-		if (verb === WRITE) {
-			store.set(path, typeof args[1] === "string" ? args[1] : "");
-			return "ok";
-		}
-		throw new Error(`files has no method ${verb}`);
-	};
-}
-
-/** Attenuation. A read-only view is a function wrapping a function: forward the
- * safe verb, refuse the rest. This is the whole of attenuation. */
-function readOnly(tool: Tool): Tool {
-	return (verb, args) => {
-		if (verb === READ) return tool(verb, args);
-		throw new Error("attenuated: only read is permitted");
-	};
-}
-
-/** Revocation, a forwarder you can switch off. Returns the wrapped behavior and
- * the lever that severs it; after `revoke()`, every call breaks. */
-function revocable(tool: Tool): { behavior: Tool; revoke: () => void } {
-	let live = true;
-	return {
-		behavior: (verb, args) => {
-			if (!live) throw new Error("revoked");
-			return tool(verb, args);
-		},
-		revoke: () => {
-			live = false;
-		},
-	};
-}
-
-function toolFor(name: string): Tool {
-	if (name === "clock") return clock;
-	if (name === "files") return makeFiles();
-	if (name === "files-readonly") return readOnly(makeFiles());
-	throw new Error(`unknown tool: ${name}`);
-}
-
 /** The coordinator behavior for one connected agent. It closes over that agent's
  * connection (to spawn capabilities on it) and the last revocable grant. */
 function coordinatorBehavior(session: Session) {

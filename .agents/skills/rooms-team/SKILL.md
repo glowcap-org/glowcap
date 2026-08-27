@@ -187,7 +187,7 @@ zig build && export PATH="$PWD/zig-out/bin:$PATH"
    [`scripts/lead-watch.sh`](scripts/lead-watch.sh) with harness notify on
    `AGENT_LOOP_WAKE_lead_pending` (`tick --json` — plain stdout never wakes a
    JSON pager) → on every wake drain human DM → human room → peers
-   ([Multi-surface wake](#multi-surface-wake)). `--locator` unless compose
+   ([Multi-surface wake](#multi-surface-wake-room--dm)). `--locator` unless compose
    `rooms-net`.
 2. Spawn **active** members as **background** subagents (member prompt below;
    same `--room`, persona body inlined). Stay under
@@ -299,7 +299,7 @@ Persona:
 | Members rejoin before lead after stop | Presence is lead-owned; stay down until lead assigns rejoin; lead enters first |
 | Over max_bots without dismiss | Call-in blocked — dismiss a seat first; announce swap |
 | Silent dismiss (no room line) | Always announce stand-down before `stop` / Task exit |
-| Slow DM while CapTP already delivered | Wake-loop gap or room-first handling — keep tick waiting; drain human DM then human room per [Multi-surface wake](#multi-surface-wake) |
+| Slow DM while CapTP already delivered | Wake-loop gap or room-first handling — keep tick waiting; drain human DM then human room per [Multi-surface wake](#multi-surface-wake-room--dm) |
 | CapTP room lines unread while DMs answered | Same wake must drain both human surfaces; lead must clear human room every wake |
 | Member dismisses human room + “@lead over to you” | Handoff is not the answer — lead must drain **their** copy; member dismisses **their** copy after optional ping ([Human room ownership](#human-room-ownership)) |
 | Member holds human room “for the lead” | Pending is per-peer — wedges the member; lead already has a separate id |

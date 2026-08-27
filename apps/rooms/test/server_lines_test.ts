@@ -23,6 +23,30 @@ import {
 	withServer,
 } from "./support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "./support/children.ts";
+import { lineBehavior, linkedStewardBehavior, stewardBehavior, topicBehavior } from "../server/lines.ts";
+import type { RoomState } from "../server/registry.ts";
+import { EDIT, GOVERNS, KICK, SET_TOPIC, WITHDRAW } from "../lib/protocol.ts";
+
+Deno.test("line, topic, and moderator capabilities enforce exact data shapes", () => {
+	const state = {} as RoomState;
+	const refused = (run: () => unknown): boolean => {
+		try {
+			run();
+			return false;
+		} catch {
+			return true;
+		}
+	};
+	const line = lineBehavior(state, "ada", 1, [], null);
+	assert(refused(() => line(EDIT, ["text", "surplus"])), "edit accepted surplus data");
+	assert(refused(() => line(WITHDRAW, ["surplus"])), "withdraw accepted surplus data");
+	assert(refused(() => stewardBehavior(state)(KICK, ["member", "surplus"])), "kick accepted surplus data");
+	assert(refused(() => topicBehavior(state)(SET_TOPIC, ["topic", "surplus"])), "setTopic accepted surplus data");
+	assert(
+		refused(() => linkedStewardBehavior("room", "identity", () => true)(GOVERNS, ["surplus"])),
+		"governs accepted surplus data",
+	);
+});
 
 roomsTest(
 	"racket one-shot client exits by its deadline while unrelated traffic continues",
@@ -95,12 +119,14 @@ roomsTest("holding a line's reference is the authority to change or withdraw it"
 		const readerRoom = await Room.subscribe(reader, await enterOrOpen(reader, "edits"), "reader");
 		const heard = readerRoom.messages[Symbol.asyncIterator]();
 		const next = async (): Promise<Message> => {
-			for (;;) {
+			let message: Message | null = null;
+			while (message == null) {
 				const { value, done } = await within(heard.next(), "the next line in the room");
-				assert(!done && value !== undefined, "the reader's stream ended early");
+				assert(!done && value != null, "the reader's stream ended early");
 				// Skip the membership traffic; this test is about one line.
-				if (value.presence === undefined) return value;
+				if (value.presence == null) message = value;
 			}
+			return message;
 		};
 
 		// Posting answers with the line it made. Nothing here says who may change
@@ -184,11 +210,17 @@ roomsTest("a member's own standing is theirs to state, and the room tells the re
 		const back = await nextAway();
 		assert(back.reason === "", `coming back arrived as ${back.reason}`);
 
-		// A reason too long is cut rather than refused: losing the tail of a
-		// courtesy is a smaller wrong than not marking somebody away at all.
-		await firstRoom.away("y".repeat(MAX_AWAY + 40));
-		const cut = await nextAway();
-		assert(cut.reason.length === MAX_AWAY, `a long reason arrived at ${cut.reason.length} characters`);
+		// Authored text is never silently changed. A reason over the limit is
+		// refused, and the exact longest accepted value arrives unchanged.
+		let refused = "";
+		await firstRoom.away("y".repeat(MAX_AWAY + 40)).catch((error) => {
+			refused = error instanceof Error ? error.message : String(error);
+		});
+		assert(refused.includes(`${MAX_AWAY}`), `a long reason was not refused: ${refused}`);
+		const longest = "y".repeat(MAX_AWAY);
+		await firstRoom.away(longest);
+		const accepted = await nextAway();
+		assert(accepted.reason === longest, "the longest accepted away reason was changed");
 	});
 });
 
@@ -202,11 +234,13 @@ roomsTest("holding the topic capability is the authority to say what a room is a
 		const otherRoom = await Room.subscribe(other, await enterOrOpen(other, "topical"), "other");
 		const heard = otherRoom.messages[Symbol.asyncIterator]();
 		const next = async (): Promise<Message> => {
-			for (;;) {
+			let message: Message | null = null;
+			while (message == null) {
 				const { value, done } = await within(heard.next(), "the next line in the room");
-				assert(!done && value !== undefined, "the other member's stream ended early");
-				if (value.presence === undefined) return value;
+				assert(!done && value != null, "the other member's stream ended early");
+				if (value.presence == null) message = value;
 			}
+			return message;
 		};
 
 		// Setting it reaches everybody in the room, as a fact and as a sentence: a

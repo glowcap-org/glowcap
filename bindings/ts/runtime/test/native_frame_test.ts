@@ -4,14 +4,7 @@ import { HostGc } from "../gc.ts";
 import { PancakeError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { AsyncFfiFrame, AsyncFfiWriteQueue, checkedMaxFrameBytes } from "../transport/native_frame.ts";
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-	let resolve!: () => void;
-	const promise = new Promise<void>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
-}
+import { deferred } from "../../dogfood/assert.ts";
 
 async function assertRejectsWith(promise: Promise<unknown>, text: string): Promise<void> {
 	try {

@@ -15,8 +15,10 @@ import {
 	NO_SUCH_LISTENER,
 	roomErrorOf,
 } from "../lib/errors.ts";
-import { loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
-import { ADVERTISED_LOCATION, DIRECTORY } from "../lib/protocol.ts";
+import { loopbackTcpDesignator, parseRoomsSturdyref, roomsHost } from "../lib/locator.ts";
+import { ADVERTISED_LOCATION, DIRECTORY, LIST, UP } from "../lib/protocol.ts";
+import { ListenerRegistry } from "../server/listeners.ts";
+import { listenersBehavior } from "../server/listeners/behavior.ts";
 import {
 	Directory,
 	listenerDown,
@@ -48,13 +50,45 @@ import {
 	HINT_ALT_LOCATORS,
 	HINT_VIA,
 	parseLocator,
-	parseSturdyRef,
 	stringHint,
 	TRANSPORT_ID,
 	TRANSPORT_KEYED_TCP,
+	TRANSPORT_TCP,
 } from "@pancake/runtime";
 import type { Ref, Session } from "@pancake/runtime";
 import { spawnOwned, stopOwned } from "./support/children.ts";
+
+Deno.test("the listeners capability admits exact data before consulting the registry", () => {
+	let read = false;
+	let raised = false;
+	const registry = {
+		rows: () => {
+			read = true;
+			return [];
+		},
+		up: () => {
+			raised = true;
+			return Promise.resolve({});
+		},
+	} as unknown as ListenerRegistry;
+	const listeners = listenersBehavior(registry);
+	let refused = false;
+	try {
+		listeners(LIST, ["surplus"]);
+	} catch {
+		refused = true;
+	}
+	assert(refused, "listeners list accepted surplus data");
+	assert(!read, "listeners list read the registry before refusing surplus data");
+	refused = false;
+	try {
+		listeners(UP, ["tcp", [["port", 9000], ["port", 9001]]]);
+	} catch {
+		refused = true;
+	}
+	assert(refused, "listeners up silently chose between duplicate options");
+	assert(!raised, "listeners up reached the registry with duplicate options");
+});
 
 function spawnAdminServer(stateDir: string, extraEnv: Record<string, string> = {}): Deno.ChildProcess {
 	return spawnOwned("deno", {
@@ -387,6 +421,20 @@ roomsTest("route advertisement follows each caller's negotiated profile", async 
 				stringHint(identity, HINT_ALT_LOCATORS)?.includes(".tcp") === true,
 				"id/via omitted the baseline TCP fallback",
 			);
+			const routed = await Directory.connect(tcpLocator, (address) => dial(address));
+			const routedRoom = await routed.open("routed-link");
+			const routedLink = parseRoomsSturdyref(await routed.link("routed-link")).locator;
+			assert(routedLink.transport === TRANSPORT_ID, "the Host did not put its identity route in a room link");
+			assert(
+				stringHint(routedLink, HINT_VIA) === noise.locator,
+				"the room link did not carry the Host's proving route",
+			);
+			assert(
+				stringHint(routedLink, HINT_ALT_LOCATORS)?.includes(".tcp") === true,
+				"the room link omitted the Host's concrete fallback",
+			);
+			routed.session.release(routedRoom);
+			await routed.close();
 
 			const nextFloorHost = roomsHost(undefined, "next-baseline");
 			const nextFloor = await Directory.connect(tcpLocator, (address) => dial(address, nextFloorHost));
@@ -399,6 +447,13 @@ roomsTest("route advertisement follows each caller's negotiated profile", async 
 				await nextFloor.advertisedLocation() === tcpLocator,
 				"a next caller without the route feature received id/via",
 			);
+			const floorRoom = await nextFloor.open("next-floor-link");
+			const floorLink = parseRoomsSturdyref(await nextFloor.link("next-floor-link")).locator;
+			assert(
+				floorLink.transport === TRANSPORT_TCP && floorLink.designator === tcpLocator,
+				"the feature-limited caller's room link did not carry its concrete route",
+			);
+			nextFloor.session.release(floorRoom);
 
 			const floorHost = roomsHost(undefined, "v1-syrup");
 			const floor = await Directory.connect(tcpLocator, (address) => dial(address, floorHost));
@@ -410,8 +465,14 @@ roomsTest("route advertisement follows each caller's negotiated profile", async 
 			);
 
 			const linked = await floor.open("v1-link");
-			const sturdyref = await floor.link("v1-link", tcpLocator);
-			const swiss = parseSturdyRef(sturdyref, "v1_0").swissnum;
+			const sturdyref = await floor.link("v1-link");
+			const parsedFloorLink = parseRoomsSturdyref(sturdyref);
+			assert(
+				parsedFloorLink.locator.transport === TRANSPORT_TCP &&
+					parsedFloorLink.locator.designator === tcpLocator,
+				"the v1.0 room link did not carry its concrete route",
+			);
+			const swiss = parsedFloorLink.swissnum;
 			const encodedSwiss = sturdyref.match(/\/s\/([^?]+)/)?.[1];
 			const expectedSwiss = btoa(String.fromCharCode(...swiss))
 				.replaceAll("+", "-")

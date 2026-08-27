@@ -12,10 +12,13 @@ import { CAPTP_VERSION, CODEC } from "./protocol.ts";
 import {
 	designatorHostPort,
 	formatLocatorUri,
+	formatSturdyRef,
 	Host,
 	type Locator,
 	parseLocator,
+	parseSturdyRef,
 	type Session,
+	TRANSPORT_ID,
 	TRANSPORT_IROH,
 	TRANSPORT_TCP,
 } from "@pancake/runtime";
@@ -73,9 +76,35 @@ export interface RoomsRuntime {
 
 export type RoomsDial = (locator: string) => Promise<Session>;
 
-/** Parse the two locator spellings Rooms accepts into the shared OCapN value:
- * a complete URI, or the TCP `host:port` shorthand retained for interop and
- * local development. */
+/** Rooms durable capabilities have one URI encoding, independent of the live
+ * CapTP profile that later carries them. The Goblins-compatible base64url form
+ * is the persisted and copyable application contract. */
+const ROOMS_STURDYREF_VERSION = "v1_0" as const;
+
+export function parseRoomsSturdyref(sturdyref: string): ReturnType<typeof parseSturdyRef> {
+	return parseSturdyRef(sturdyref, ROOMS_STURDYREF_VERSION);
+}
+
+export function roomsSturdyrefLocator(sturdyref: string): Locator {
+	return parseRoomsSturdyref(sturdyref).locator;
+}
+
+export function formatRoomsSturdyref(locator: Locator, swissnum: string | Uint8Array): string {
+	return formatSturdyRef(locator, swissnum, ROOMS_STURDYREF_VERSION);
+}
+
+/** Re-encode one Rooms authority for the session that will enliven it. */
+export function roomsSturdyrefForSession(
+	sturdyref: string,
+	session: Pick<Session, "profile">,
+): string {
+	const parsed = parseRoomsSturdyref(sturdyref);
+	return formatSturdyRef(parsed.locator, parsed.swissnum, session.profile.captpVersion);
+}
+
+/** Parse the two locator forms Rooms accepts into the shared OCapN value: a
+ * complete URI, including a negotiated multi-location route, or the TCP
+ * `host:port` shorthand retained for interop and local development. */
 export function roomsLocator(locator: string): Locator {
 	if (isUriLocator(locator)) return parseLocator(locator);
 	const { hostname, port } = designatorHostPort(locator);
@@ -141,9 +170,10 @@ export function roomsListen(
 	return listen(bindHost, port, { host, advertisedHost });
 }
 
-/** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh, an
- * `ocapn://…onion` URI over Tor (in the browser, both ride the relay),
- * otherwise `hostname:port` over TCP. A `host` keys the dial with the host's
+/** Dial a rooms peer from a locator: an `ocapn://…id?via=…` route through its
+ * negotiated alternatives, an iroh URI over iroh, an onion URI over Tor (in
+ * the browser, both concrete transports ride the relay), otherwise
+ * `hostname:port` over TCP. A `host` keys the dial with the host's
  * retained OCapN identity and live-session handoff directory (a member's listen endpoint
  * and its room dial share one Host, so an inbox it publishes giftably is the one
  * a caller's redeem withdraws). Omitted, the dial gets a fresh identity, which is
@@ -158,9 +188,12 @@ export function roomsListen(
 export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = roomsLocator(locator);
-		if (loc.transport !== TRANSPORT_IROH && loc.transport !== TRANSPORT_ONION) {
+		if (
+			loc.transport !== TRANSPORT_ID && loc.transport !== TRANSPORT_IROH &&
+			loc.transport !== TRANSPORT_ONION
+		) {
 			throw new Error(
-				`rooms expected an iroh or onion ocapn:// URI, got "${loc.transport}": ${locator}`,
+				`rooms expected an id, iroh, or onion ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
 		return runtime.connect(loc);

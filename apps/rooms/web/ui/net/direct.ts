@@ -17,49 +17,42 @@
 
 import { Ref, type Session } from "@pancake/runtime";
 import type { Argument } from "@pancake/runtime";
-import {
-	type Attachment,
-	type AttachmentSource,
-	readRefileChange,
-	sendWithAttachments,
-} from "../../../lib/attachment.ts";
+import { type Attachment, type AttachmentSource, readRefileChange } from "../../../lib/attachment.ts";
+import { trouble } from "./common.ts";
 import { DirectMessage, PostedLine } from "../../../lib/room_client.ts";
-import { DM, EDIT, REFILE, WITHDRAW } from "../../../lib/protocol.ts";
+import { EDIT, REFILE, WITHDRAW } from "../../../lib/protocol.ts";
 import { PEER_OFFLINE, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
 import { type DirId, type DmConv, type Item, silencedFrom } from "../types.ts";
 import { lineNotShowable } from "../text.ts";
 import { maybeNotify } from "../notify.ts";
 import { fetchesOnArrival } from "../media.ts";
-import { MAX_PENDING_INVITES } from "../../../lib/limits.ts";
 import { markSend, reason } from "./common.ts";
-import { actingDir, convSession, dirSession, isCurrent, type Live } from "./live.ts";
-import { holdDirectFile, openAttachment, releaseHeldFile } from "./files.ts";
+import { actingDir, convSession, dirSession, type Live } from "./live.ts";
+import { FILE_GONE_WITH_ITS_CONNECTION, holdDirectFile, openAttachment, releaseHeldFile } from "./files.ts";
 import { hydrateDm } from "./history.ts";
+import { applyTyping } from "./typing.ts";
+import { receiveArchiveShare } from "./archive_shares.ts";
+import { releaseIncomingArguments, releaseIncomingAttachments, releaseIncomingRef } from "./direct_custody.ts";
+import { handedRoom, offeredRoom } from "./direct_offers.ts";
+import { MAX_DM_INBOXES } from "../../../lib/limits.ts";
 
 /** Reply routes a peer handed us with an incoming message, by conversation.
  *
  * Homed here rather than on a directory session for the reason the inbox host
- * is: this connection is one the *peer* opened to that host, so a room server
- * respawning has nothing to do with it, and a tab that could still be replied
- * to should still be replyable afterwards. Parked on the session, every
- * reconnect both lost the route and leaked what it named — the peer's
- * connection stayed up with our reply inbox exported on it and nothing left on
- * this side able to reach or close either. */
-interface BackChannel {
-	session: Session;
-	reply: Ref;
-}
-
-const backChannels = new Map<string, BackChannel>();
+ * is: this route arrived over a connection the *peer* opened to that host, so a
+ * room server respawning has nothing to do with it. `DirectMessage.adopt` owns
+ * the imported occurrence without claiming ownership of that shared CapTP
+ * session. */
+const backChannels = new Map<string, DirectMessage>();
 
 /** The live reply route for one conversation. A stale row is retired through
  * the same close owner as every explicit release rather than handed to a
  * caller that can no longer use it. */
-export function activeBackChannel(key: string): BackChannel | null {
+export function activeBackChannel(key: string): DirectMessage | null {
 	const held = backChannels.get(key);
 	if (held === undefined) return null;
-	if (held.session.sessionOpen) return held;
+	if (held.live) return held;
 	releaseBackChannel(key);
 	return null;
 }
@@ -67,10 +60,44 @@ export function activeBackChannel(key: string): BackChannel | null {
 /** Adopt a reply route only when no working route already owns the
  * conversation. The caller retains ownership of `reply` when this returns
  * false and must release that occurrence. */
-export function adoptBackChannel(key: string, session: Session, reply: Ref): boolean {
+function adoptBackChannel(
+	key: string,
+	peer: string,
+	peerRegistrationId: string,
+	session: Session,
+	reply: Ref,
+): boolean {
 	if (activeBackChannel(key) !== null) return false;
-	backChannels.set(key, { session, reply });
+	backChannels.set(key, DirectMessage.adopt(session, reply, peer, peerRegistrationId));
 	return true;
+}
+
+/** Adopt or return one incoming reply occurrence. The conversation becomes
+ * live from route authority itself; no placeholder message is needed. */
+export function takeBackChannel(
+	key: string,
+	peer: string,
+	peerRegistrationId: string,
+	session: Session,
+	reply: Ref,
+): void {
+	if (!adoptBackChannel(key, peer, peerRegistrationId, session, reply)) {
+		releaseIncomingRef(session, reply, "unused direct reply route");
+		return;
+	}
+	const owner = convSession(key);
+	if (owner != null) dropDirectRoute(owner, peerRegistrationId);
+	store.setDmLine(key, "live");
+}
+
+/** Answer a directory introduction request by opening the compatible carrier
+ * in the reciprocal direction and handing over our reply route. */
+export function establishRequestedDirect(dir: DirId, peer: string, peerRegistrationId: string): void {
+	const session = dirSession(dir);
+	if (session == null || store.isSelf(dir, peer)) return;
+	void openDirectRoute(session, peer, peerRegistrationId).then(async (line) => {
+		await line.establishReplyRoute();
+	}).catch((error) => trouble(`could not establish the reciprocal direct route to ${peer}`, error));
 }
 
 // ── Direct messages by introduction ───────────────────────────────────────
@@ -83,7 +110,12 @@ export function startDm(peer: string): void {
 		store.deliverActive(store.sysItem("You can't start a direct message with yourself."));
 		return;
 	}
-	const conv = store.ensureDm(here, peer);
+	const registration = store.peerRegistration(here, peer);
+	if (registration == null) {
+		store.deliverActive(store.sysItem(`${peer} is not registered for direct messages here.`));
+		return;
+	}
+	const conv = store.ensureDm(here, registration.name, registration.registrationId);
 	if (conv === null) return;
 	hydrateDm(conv);
 	noteIgnoredDm(conv.key, peer);
@@ -185,17 +217,11 @@ export async function deliverDm(
 ): Promise<PostedLine | null> {
 	const key = conv.key;
 	const session = dirSession(conv.dir);
-	if (session === null) throw new Error("not connected");
+	if (session == null) throw new Error("not connected");
 	const back = activeBackChannel(key);
 	try {
 		if (back) {
-			// The peer answers a handle to the line it just received, so we can
-			// change or withdraw it later; a `PostedLine` on the arriving connection
-			// holds it, the same as our own room lines.
-			const answer = sources.length > 0
-				? await sendWithAttachments(back.session, back.reply, DM, [text], sources)
-				: await back.session.send(back.reply, DM, [text]);
-			return answer instanceof Ref ? new PostedLine(back.session, answer) : null;
+			return sources.length > 0 ? await back.sendFiles(sources, text) : await back.say(text);
 		}
 		const line = await openDm(conv);
 		return sources.length > 0 ? await line.sendFiles(sources, text) : await line.say(text);
@@ -203,7 +229,7 @@ export async function deliverDm(
 		// Let the dead line go so the next send retries: a stale back-channel
 		// falls back to a fresh introduction, a stale introduction re-redeems.
 		if (back) releaseBackChannel(key);
-		else dropLine(session, key);
+		else dropDirectRoute(session, conv.peerRegistrationId);
 		throw err;
 	}
 }
@@ -231,15 +257,65 @@ function dmFailureText(peer: string, err: unknown): string {
 // opens the direct connection over the member's advertised transport. The
 // line hosts a reply inbox on that connection, so a member's reply lands here and
 // paints in the peer's DM thread — the member never dials us.
-export function openDm(conv: DmConv): Promise<DirectMessage> {
-	const peer = conv.id;
-	const key = conv.key;
-	const session = dirSession(conv.dir);
-	if (session === null) return Promise.reject(new Error("not connected"));
-	if (store.isSelf(conv.dir, peer)) {
-		return Promise.reject(new Error("You can't start a direct message with yourself."));
-	}
-	const existing = session.lines.get(key);
+export function directReceiverFor(dir: DirId, peer: string, peerRegistrationId: string, acceptReplyRoute: boolean) {
+	return {
+		message: (text: string, attachments: Attachment[], via: Session, reply: Ref | null) => {
+			const conv = store.ensureDm(dir, peer, peerRegistrationId);
+			if (conv == null) {
+				if (reply != null) releaseIncomingRef(via, reply, "unused direct reply route");
+				releaseIncomingAttachments(via, attachments, "unused direct message file");
+				return null;
+			}
+			hydrateDm(conv);
+			if (reply != null) {
+				if (acceptReplyRoute) takeBackChannel(conv.key, peer, peerRegistrationId, via, reply);
+				else releaseIncomingRef(via, reply, "redundant direct reply route");
+			}
+			return receiveDm(conv.key, peer, text, attachments, via);
+		},
+		ready: (via: Session, reply: Ref) => {
+			const conv = store.liveDmWith(dir, peer, peerRegistrationId);
+			if (conv == null || !acceptReplyRoute) {
+				releaseIncomingRef(via, reply, "unused direct reply route");
+				return;
+			}
+			takeBackChannel(conv.key, peer, peerRegistrationId, via, reply);
+		},
+		typing: (on: boolean) => {
+			const conv = store.liveDmWith(dir, peer, peerRegistrationId);
+			if (conv != null) applyTyping(conv.key, peer, on);
+		},
+		handArchive: (directory: string, conversation: string, archive: Ref, owner: Session) => {
+			const home = dirSession(dir);
+			if (home == null) {
+				releaseIncomingRef(owner, archive, "refused archive share");
+				throw new Error("they are between connections. Ask again in a moment");
+			}
+			receiveArchiveShare(home, owner, directory, conversation, archive, peer, peerRegistrationId);
+		},
+		handRoom: (label: string, room: Ref, owner: Session) => {
+			const home = dirSession(dir);
+			if (home == null) {
+				releaseIncomingRef(owner, room, "refused room offer");
+				throw new Error("they are between connections. Ask again in a moment");
+			}
+			if (!handedRoom(home, owner, label, room, peer)) {
+				throw new Error("their offers list is full. Ask again once they have answered some");
+			}
+		},
+		offerRoom: (label: string, link: string) => {
+			const home = dirSession(dir);
+			if (home == null) throw new Error("they are between connections. Ask again in a moment");
+			if (!offeredRoom(home, label, link, peer)) {
+				throw new Error("their offers list is full. Ask again once they have answered some");
+			}
+		},
+	};
+}
+
+function openDirectRoute(session: Live, peer: string, peerRegistrationId: string): Promise<DirectMessage> {
+	const key = peerRegistrationId;
+	const existing = session.directRoutes.get(key);
 	if (existing) {
 		// Same staleness as the back-channel above, one step softer: `say` is
 		// async, so a dead line surfaces as a rejection and repairs itself after
@@ -248,70 +324,59 @@ export function openDm(conv: DmConv): Promise<DirectMessage> {
 			// Only if it is still the entry we looked at; a concurrent send may
 			// already have replaced it. Handed back rather than forgotten, for the
 			// same reason the failed send above hands its line back.
-			if (session.lines.get(key) === existing) dropLine(session, key);
-			return openDm(conv);
+			if (session.directRoutes.get(key) === existing) dropDirectRoute(session, peerRegistrationId);
+			return openDirectRoute(session, peer, peerRegistrationId);
 		};
 		return existing.then((line) => (line.live ? line : reopen()), reopen);
 	}
-	// A conversation whose member has gone is never re-introduced: the name is
-	// back in the room's hands and the next holder is a different person, so
-	// continuing here would quietly point this thread at them.
-	if (conv.line === "closed") {
-		return Promise.reject(new Error(`${peer} left, so this conversation is closed`));
+	if (session.directRoutes.size >= MAX_DM_INBOXES) {
+		return Promise.reject(new Error(`this browser holds at most ${MAX_DM_INBOXES} direct routes per directory`));
 	}
 	const line = DirectMessage.open(
 		session.dir,
 		peer,
-		(text, attachments, via) => receiveDm(key, peer, text, attachments, via),
+		directReceiverFor(session.id, peer, peerRegistrationId, false),
+		peerRegistrationId,
 	);
-	session.lines.set(key, line);
+	session.directRoutes.set(key, line);
 	return line;
 }
 
-/** Return one unadopted capability occurrence to the session that projected
- * it. Cleanup failure is observable without replacing the caller's primary
- * refusal or accepted-message outcome. */
-export function releaseIncomingRef(session: Session, ref: Ref, what: string): void {
-	try {
-		session.release(ref);
-	} catch (error) {
-		// The caller's refusal or accepted message remains the primary outcome;
-		// cleanup failure is retained here as process-owner diagnostics rather than
-		// replacing it or disappearing.
-		console.error(`rooms: ${what} could not release its capability:`, reason(error));
+export function openDm(conv: DmConv): Promise<DirectMessage> {
+	const session = dirSession(conv.dir);
+	if (session == null) return Promise.reject(new Error("not connected"));
+	if (store.isSelf(conv.dir, conv.id)) {
+		return Promise.reject(new Error("You can't start a direct message with yourself."));
 	}
+	if (conv.line === "closed") {
+		return Promise.reject(new Error(`${conv.id} left, so this conversation is closed`));
+	}
+	return openDirectRoute(session, conv.id, conv.peerRegistrationId);
 }
 
-/** Let one conversation's arriving back-channel go: drop the row and close the
- * connection the peer opened to us, on which our reply inbox is exported.
+/** Let one conversation's arriving back-channel go: drop the row and release
+ * the imported reply route.
  *
- * One authority, because four sites let a back-channel go and they drifted: the
- * `unregistered` sweep dropped only the row, leaving the peer's connection up
- * with our export on it and nothing on this side able to reach it. Tolerant of
- * a connection already gone — a stale row's session is closed, and closing it
- * again is the same outcome. */
+ * One authority, because four sites let a back-channel go. The adopted line
+ * releases exactly its imported route; the peer that opened the shared CapTP
+ * session remains its lifecycle owner. */
 export function releaseBackChannel(key: string): void {
 	const back = backChannels.get(key);
 	backChannels.delete(key);
 	if (back === undefined) return;
-	try {
-		void back.session.close().catch((err) =>
-			console.error("rooms: an arriving direct connection would not close, so it stays up:", reason(err))
-		);
-	} catch (err) {
-		console.error("rooms: an arriving direct connection would not close, so it stays up:", reason(err));
-	}
+	void back.close().catch((err) => trouble("an arriving direct route would not release", err));
 }
 
-export function dropLine(session: Live, key: string): void {
-	const line = session.lines.get(key);
+export function dropDirectRoute(session: Live, peerRegistrationId: string): void {
+	const key = peerRegistrationId;
+	const line = session.directRoutes.get(key);
 	if (line === undefined) return;
-	session.lines.delete(key);
-	void line.then((l) => l.close()).catch((err) =>
-		console.error(
-			"rooms: a direct line would not close, so its connection stays up:",
-			reason(err),
-		)
+	session.directRoutes.delete(key);
+	void line.then(
+		(l) => l.close().catch((err) => trouble("a direct line would not close, so its connection stays up", err)),
+		// The caller that created this promise owns its open failure. Retirement
+		// owns only the live route that an opening successfully produced.
+		() => undefined,
 	);
 }
 
@@ -331,8 +396,15 @@ export function receiveDm(
 	const unshowable = lineNotShowable(peer, text);
 	if (unshowable !== null) {
 		store.deliver(key, store.sysItem(unshowable));
+		if (via != null) releaseIncomingAttachments(via, attachments, "refused direct message file");
+		else if (attachments.length > 0) throw new Error("direct message files arrived without their owning session");
 		return null;
 	}
+	if (via == null && attachments.length > 0) {
+		throw new Error("direct message files arrived without their owning session");
+	}
+	const owner = convSession(key);
+	const filesAvailable = via != null && owner != null;
 	const views = attachments.map((attachment) =>
 		store.attachmentView({
 			name: attachment.name,
@@ -340,20 +412,27 @@ export function receiveDm(
 			size: attachment.size,
 			width: attachment.width,
 			height: attachment.height,
+			...(filesAvailable ? {} : { lost: true, error: FILE_GONE_WITH_ITS_CONNECTION }),
 		})
 	);
 	const item = store.chatItem(peer, text, false, undefined, views.length > 0 ? views : undefined);
-	store.deliver(key, item);
 	// A direct file is pulled from the sender's own host, so fetching one on its
 	// own from somebody the reader has silenced would be this window reaching out
 	// to exactly the person they asked it to stop hearing from. The reference is
 	// kept either way, so unignoring and pressing the file still works.
 	const silenced = silencedFrom(peer, false, store.get().ignored);
-	if (via) {
+	if (via != null && owner != null) {
 		for (const [index, attachment] of attachments.entries()) {
 			const view = views[index];
-			convSession(key)?.files.set(view.id, holdDirectFile(via, attachment));
-			if (fetchesOnArrival(attachment, silenced)) openAttachment(key, view.id);
+			owner.files.set(view.id, holdDirectFile(via, attachment));
+		}
+	} else if (via != null) {
+		releaseIncomingAttachments(via, attachments, "orphaned direct message file");
+	}
+	store.deliver(key, item);
+	if (via != null && owner != null) {
+		for (const [index, attachment] of attachments.entries()) {
+			if (fetchesOnArrival(attachment, silenced)) openAttachment(key, views[index].id);
 		}
 	}
 	if (store.get().activeKey !== key && !silencedFrom(peer, false, store.get().ignored)) {
@@ -398,8 +477,11 @@ function dmLineBehavior(
 	args: Argument[],
 ): Argument {
 	if (verb === EDIT) {
+		if (args.length !== 1 || typeof args[0] !== "string") {
+			releaseIncomingArguments(session, args, "refused direct line edit argument");
+			throw new Error("edit needs exactly one text argument");
+		}
 		const item = dmHandledItem(key, itemId);
-		if (typeof args[0] !== "string") throw new Error("edit needs text");
 		const text = args[0];
 		// The same bound the first delivery of this line passed through: an edit
 		// is a second delivery of its text, and this is its `lineNotShowable`.
@@ -412,6 +494,10 @@ function dmLineBehavior(
 		return null;
 	}
 	if (verb === WITHDRAW) {
+		if (args.length !== 0) {
+			releaseIncomingArguments(session, args, "refused direct line withdrawal argument");
+			throw new Error("withdraw takes no arguments");
+		}
 		// The line's files went back with it on the sender's side, so nothing here
 		// can fetch them again. The blobs this window held for them are handed
 		// back now rather than at conversation teardown: a withdrawn bubble draws
@@ -426,9 +512,15 @@ function dmLineBehavior(
 		return null;
 	}
 	if (verb === REFILE) {
-		applyDmRefile(key, peer, itemId, session, args);
+		try {
+			applyDmRefile(key, peer, itemId, session, args);
+		} catch (error) {
+			releaseIncomingArguments(session, args, "refused direct line refile argument");
+			throw error;
+		}
 		return null;
 	}
+	releaseIncomingArguments(session, args, "unsupported direct line argument");
 	throw new Error(`a direct line has no method ${verb}`);
 }
 
@@ -461,120 +553,13 @@ function applyDmRefile(key: string, peer: string, itemId: number, session: Sessi
 		if (!keptViews.some((kept) => kept.id === view.id)) releaseHeldFile(owner, view.id);
 	}
 	const nextViews = [...keptViews, ...newViews];
+	records.forEach((record, index) => owner.files.set(newViews[index].id, holdDirectFile(session, record)));
 	store.updateItem(key, item.id, { text: caption, attachments: nextViews.length > 0 ? nextViews : undefined });
 	// The same rule the first delivery follows: nothing is pulled from a peer the
 	// reader has silenced, and a direct file comes from that peer's own host.
 	const silenced = silencedFrom(peer, false, store.get().ignored);
 	records.forEach((record, index) => {
 		const view = newViews[index];
-		owner.files.set(view.id, holdDirectFile(session, record));
 		if (fetchesOnArrival(record, silenced)) openAttachment(key, view.id);
 	});
-}
-
-// ── Invitations, as they arrive ────────────────────────────────────────────
-//
-// A room handed over reaches this tab the same way a message does: on the
-// direct inbox minted for one peer. So taking one in belongs here, beside the
-// inbox that hears it, while acting on it — walking into the room — belongs
-// with rooms. That split is what keeps the two from importing each other.
-
-/** This tab's own name for one invitation. Counted, because two rooms handed
- * over may be called the same thing. */
-let invitationSequence = 0;
-
-/** The live references behind handed invitations, by invitation id.
- *
- * Beside the connections rather than in the store, because a reference is not
- * data: the store draws the row, and this holds what taking it up spends.
- * A row leaves this map exactly once — moved into the room on accept, released
- * on decline — so a second press can never spend a reference twice. */
-export interface PendingHandedRoom {
-	room: Ref;
-	/** Give this occurrence back through the Host that projected it. */
-	release(what: string): void;
-}
-
-const handedRooms = new Map<string, PendingHandedRoom>();
-
-/** Move one handed room out of pending ownership. Exactly one accept or
- * decline caller can receive the reference. */
-export function takeHandedRoom(id: string): PendingHandedRoom | null {
-	const room = handedRooms.get(id) ?? null;
-	handedRooms.delete(id);
-	return room;
-}
-
-// Said where the reader is looking as well as shown in the rail, because a row
-// appearing in a column they are not reading is easy to miss entirely.
-function announceOffer(from: string, label: string): void {
-	store.deliverActive(store.sysItem(`${from} offered you ${label || "a room"}. It is in your rooms list.`));
-}
-
-/** Take in a room somebody handed this tab: the reference is the offer.
- *
- * An offer of a room this tab is already in is not recognisable from here — a
- * reference says nothing about what it opens — so it arrives as another offer,
- * and taking it up re-claims the membership rather than seating the reader
- * twice. */
-export function handedRoom(home: Live, owner: Session, label: string, room: Ref, from: string): boolean {
-	if (!isCurrent(home) || store.get().invites.length >= MAX_PENDING_INVITES) {
-		// Nothing will ever draw this row — the session is gone, or the offers
-		// list is at its ceiling — so the reference goes back now rather than
-		// sitting unspendable until the tab closes. The full list is worth a
-		// sentence on this side too, and a false answer to the caller, so the
-		// sender's own screen says it did not arrive.
-		if (isCurrent(home)) {
-			store.deliverActive(
-				store.sysItem(
-					`${from} offered you ${label || "a room"}, but the offers list is full. ` +
-						`Take up or decline some in the rooms list first, then ask again.`,
-				),
-			);
-		}
-		releaseIncomingRef(owner, room, "refused handed room");
-		return false;
-	}
-	invitationSequence += 1;
-	const id = "invite:" + invitationSequence;
-	handedRooms.set(id, {
-		room,
-		release: (what) => releaseIncomingRef(owner, room, what),
-	});
-	store.addInvite({ id, dir: home.id, way: "handed", label, from, link: "" });
-	announceOffer(from, label);
-	return true;
-}
-
-/** Retire every pending offer filed under a directory the reader gave back.
- * Link offers are only data; handed offers own one capability occurrence and
- * must release it before their presentation row disappears. */
-export function releaseHandedRoomsForDirectory(dir: DirId): void {
-	for (const invite of store.get().invites) {
-		if (invite.dir !== dir) continue;
-		takeHandedRoom(invite.id)?.release("abandoned handed room");
-		store.dropInvite(invite.id);
-	}
-}
-
-/** Take in a room somebody offered this tab as a link.
- *
- * The link is data, so nothing about it belongs to the connection it came on:
- * it is worth keeping across a reconnect, and taking it up later redeems the
- * same string. */
-export function offeredRoom(home: Live, label: string, link: string, from: string): boolean {
-	if (!isCurrent(home)) return false;
-	if (store.get().invites.length >= MAX_PENDING_INVITES) {
-		store.deliverActive(
-			store.sysItem(
-				`${from} offered you ${label || "a room"}, but the offers list is full. ` +
-					`Take up or decline some in the rooms list first, then ask again.`,
-			),
-		);
-		return false;
-	}
-	invitationSequence += 1;
-	store.addInvite({ id: "invite:" + invitationSequence, dir: home.id, way: "link", label, from, link });
-	announceOffer(from, label);
-	return true;
 }

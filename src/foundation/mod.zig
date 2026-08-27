@@ -19,6 +19,7 @@ pub const stream_framing = @import("stream_framing.zig");
 pub const crypto = @import("crypto.zig");
 pub const noise = @import("noise.zig");
 pub const sealed = @import("sealed.zig");
+pub const thread_affinity = @import("thread_affinity.zig");
 
 pub const Frame = frame.Frame;
 pub const FrameShape = frame.FrameShape;

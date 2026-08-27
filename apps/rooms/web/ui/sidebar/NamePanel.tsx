@@ -300,7 +300,7 @@ export function NamePanel(
 						document.querySelector<HTMLFormElement>(link.form)?.requestSubmit();
 						return;
 					}
-					const named = value.trim();
+					const named = value;
 					if (!named) return;
 					if (named.length > max) {
 						onError(tooLong(noun, max));
@@ -385,7 +385,7 @@ export function NamePanel(
 						// screen that this field becomes a second view of, and
 						// taking the field away at the moment it gains its
 						// other half is the opposite of what the press meant.
-						onElsewhere?.(value.trim());
+						onElsewhere?.(value);
 					}}
 				>
 					<Icon name="directory" size={12} />

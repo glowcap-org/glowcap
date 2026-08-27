@@ -16,6 +16,7 @@ comptime {
     _ = @import("driver/fuzz_test.zig");
     _ = @import("model/fuzz_test.zig");
     _ = @import("net/fuzz_test.zig");
+    _ = @import("session/fuzz_test.zig");
     _ = @import("actors/fuzz_test.zig");
     _ = @import("persistent/fuzz_test.zig");
 }

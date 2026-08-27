@@ -1,11 +1,10 @@
 // The Operations flow: capabilities the reader can hold over the server.
 //
-// The Capabilities toggle is the capability: flipping it on opens the take modal
-// — paste the swiss number the server printed, fetch it on the live session —
-// and only a successful take lands the toggle on. Cancel leaves nothing held.
+// The saved capability set is the authority: a toggle opens its value modal,
+// text mode edits the same bundle, and saving reconciles live possession.
 // While anything is held, an Operations control leads the Settings head's
 // toggle row from the left and stands the reader on the /ops page: one
-// address per held capability, a pane nav only for two, never a take form
+// address per held capability, a pane nav from two onward, never a take form
 // inside a held pane — and an address arrived at cold gates on possession.
 // The page keeps the shell: the rail stays, Settings opens over it, and the
 // rail's active row is the way back. The listeners
@@ -13,12 +12,19 @@
 // page wears a marker and a disabled switch instead of a control that could
 // succeed, and a refused `up` comes back as the server's own sentence in the
 // row that asked. Flipping a toggle off drops that capability, pane and
-// swiss with it. The peering pane closes the scene: a room joined on the
-// second directory is published into this one, durably, and revoked from the
-// same row that made it.
+// swiss with it. The Peering scene lives in its own browser module: it proves
+// the source room, session-scoped foreign listing, disconnect cleanup, and
+// exact revoke as one lifecycle.
 
 import type { Page } from "playwright";
+import { Buffer } from "node:buffer";
 import { fail } from "./harness.ts";
+import { verifyCompleteOperationsNav } from "./operations_nav.ts";
+import { runOperatorScene } from "./operations_operator.ts";
+import { runIrcScene } from "./operations_irc.ts";
+import { addCapability, removeCapability, saveCapabilitySet, takeCapability } from "./capability_set.ts";
+import { runPeeringScene } from "./operations_peering.ts";
+import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 
 export async function run(tab: Page, statePath: string, foreignLocator: string): Promise<void> {
 	const listenersSwiss = (await Deno.readTextFile(`${statePath}/admin-listeners`)).trim();
@@ -26,9 +32,10 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	const peeringSwiss = (await Deno.readTextFile(`${statePath}/peering`)).trim();
 	const vizSwiss = (await Deno.readTextFile(`${statePath}/viz`)).trim();
 	const ircSwiss = (await Deno.readTextFile(`${statePath}/irc`)).trim();
+	const operatorSwiss = (await Deno.readTextFile(`${statePath}/operator`)).trim();
 	if (
 		listenersSwiss === "" || diagnosticsSwiss === "" || peeringSwiss === "" || vizSwiss === "" ||
-		ircSwiss === ""
+		ircSwiss === "" || operatorSwiss === ""
 	) {
 		fail("the room server did not persist its operations swiss numbers");
 	}
@@ -39,8 +46,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (await tab.$("#opsBtn") !== null) {
 		fail("the Operations control was drawn before any capability was held");
 	}
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 
 	// The namespace is real: /ops can be arrived at cold. With nothing held
 	// it is the asks; a pane address it cannot name says so where it stands,
@@ -60,103 +67,31 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.goto(new URL("/ops/peering", tab.url()).href);
 	await tab.waitForSelector("#opsGate-peering");
 	await tab.click("#opsGateTake-peering");
-	await tab.waitForSelector("#opsTakeTitle");
-	await tab.click("#opsTakeClose");
-	await tab.waitForSelector("#opsTakeTitle", { state: "detached" });
-	if (await tab.$("#settingsTitle") !== null) fail("closing a gate's take fell back into Settings");
+	await tab.waitForSelector("#settingsTitle");
+	await tab.waitForSelector("#settingsPanel", { state: "visible" });
+	await tab.click("#settingsClose");
+	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
 	// The shell stands under the namespace: the rail and its Settings control
 	// are right here, so nothing has to be left to reach them.
 	if (await tab.$("#roomList") === null) fail("the operations surface dropped the rail");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 
-	// The IRC gateway, end to end at the UI: its toggle takes the capability,
-	// the pane bridges a channel (a dead endpoint is fine — joining registers
-	// the room and the connection retries behind it), the bridged room stands
-	// in the rail's namespace, and parting takes it down. Dropped again at the
-	// end so the surrounding scenes keep their held-capability counts.
-	await tab.click("#opsIrcToggle");
-	await tab.waitForSelector("#opsTakeCap");
-	await tab.fill("#opsTakeCap", ircSwiss);
-	await tab.press("#opsTakeCap", "Enter");
-	await tab.waitForSelector("#opsBtn", { timeout: 15_000 });
-	await tab.click("#opsBtn");
-	await tab.waitForFunction(() => location.pathname === "/ops/irc");
-	if (await tab.$("#opsTabs") !== null) fail("one held capability still drew a pane nav");
-	await tab.waitForSelector("#ircBridgedList");
-	await tab.fill("#ircJoinNetwork", "deadnet");
-	await tab.fill("#ircJoinChannel", "#nowhere");
-	await tab.fill("#ircJoinHost", "127.0.0.1");
-	await tab.fill("#ircJoinPort", "1");
-	await tab.fill("#ircJoinNick", "proofbot");
-	await tab.click("#ircJoinTls");
-	await tab.click("#ircJoinBtn");
-	await tab.waitForSelector('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"]', { timeout: 10_000 });
-	// Entered through the ordinary rail field, the bridged room stands as a
-	// room whose row says where its channel lives — and the field finishes
-	// its name like any other room's, because a bridged channel is a
-	// directory row like any other.
-	await tab.click("#newRoomBtn");
-	await tab.fill("#newRoomInput", "deadnet");
-	await tab.waitForSelector('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")', { timeout: 10_000 })
-		.catch(() => fail("the rail field does not offer the bridged channel's name"));
-	await tab.click('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")');
-	await tab.press("#newRoomInput", "Enter");
-	await tab.waitForSelector("#roomList .rwhere-bridge", { timeout: 10_000 })
-		.catch(() => fail("the bridged room's rail row does not say where its channel lives"));
-	const bridgedSaid = await tab.textContent("#roomList .rwhere-bridge");
-	if (bridgedSaid === null || !bridgedSaid.includes("127.0.0.1:1")) {
-		fail(`the bridged row's caption does not name the network: "${bridgedSaid}"`);
-	}
-	const bridgedRow = tab.locator("#roomList li").filter({ has: tab.locator('.rname:text-is("deadnet/#nowhere")') });
-	await bridgedRow.hover();
-	await bridgedRow.locator(".room-leave").click();
-	await bridgedRow.waitFor({ state: "detached", timeout: 10_000 })
-		.catch(() => fail("the bridged room could not be left"));
-	// Leaving the room stood us back at the front page; the Operations
-	// control lives in the Settings head, so it opens through it.
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#opsBtn");
-	await tab.waitForSelector('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"]', { timeout: 10_000 });
-	// The row's own door: Open enters the room and stands the reader in it.
-	await tab.click('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"] button:has-text("Open")');
-	await tab.waitForFunction(() => location.pathname === "/", undefined, { timeout: 10_000 });
-	await tab.waitForSelector('#roomList li.here .rname:text-is("deadnet/#nowhere")', { timeout: 10_000 })
-		.catch(() => fail("Open on the bridged row did not stand the reader in the room"));
-	const reopenedRow = tab.locator("#roomList li").filter({
-		has: tab.locator('.rname:text-is("deadnet/#nowhere")'),
-	});
-	await reopenedRow.hover();
-	await reopenedRow.locator(".room-leave").click();
-	await reopenedRow.waitFor({ state: "detached", timeout: 10_000 });
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#opsBtn");
-	await tab.waitForSelector('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"]', { timeout: 10_000 });
-	await tab.click('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"] button:has-text("Part")');
-	await tab.waitForFunction(
-		() => document.querySelector('#ircBridgedList .ops-listener[data-room="deadnet/#nowhere"]') === null,
-		undefined,
-		{ timeout: 10_000 },
-	).catch(() => fail("parting the bridged channel did not retire its row"));
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsIrcToggle");
-	await tab.waitForFunction(
-		() => document.getElementById("opsIrcToggle")?.getAttribute("aria-checked") === "false",
-	).catch(() => fail("dropping the gateway did not turn its toggle off"));
+	await runIrcScene(tab, ircSwiss);
 
-	// Flipping a toggle on asks, it does not grant: the take modal opens, and
+	await runOperatorScene(tab, operatorSwiss);
+
+	// Flipping a toggle on asks, it does not grant: the value modal opens, and
 	// dismissing it leaves the toggle off and the control absent.
+	const listenerRowHeight = await tab.locator("#opsListenersToggle").evaluate((toggle) =>
+		(toggle.closest(".capability-set-row") as HTMLElement | null)?.offsetHeight ?? 0
+	);
 	await tab.click("#opsListenersToggle");
-	await tab.waitForSelector("#opsTakeTitle");
-	await tab.click("#opsTakeClose");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.waitForSelector("#capabilityValueTitle");
+	await tab.click("#capabilityValueClose");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	const afterCancel = await tab.evaluate(() => ({
 		checked: document.getElementById("opsListenersToggle")?.getAttribute("aria-checked"),
 		ops: document.getElementById("opsBtn") !== null,
@@ -164,15 +99,63 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (afterCancel.checked !== "false" || afterCancel.ops) {
 		fail(`a dismissed take still granted something: ${JSON.stringify(afterCancel)}`);
 	}
+	await addCapability(tab, "#opsListenersToggle", "discarded-listeners-swiss");
+	const enabledListenerRowHeight = await tab.locator("#opsListenersToggle").evaluate((toggle) =>
+		(toggle.closest(".capability-set-row") as HTMLElement | null)?.offsetHeight ?? 0
+	);
+	if (listenerRowHeight !== enabledListenerRowHeight) {
+		fail(`the capability row changed height from ${listenerRowHeight} to ${enabledListenerRowHeight}`);
+	}
+	if (!await tab.isEnabled("#opsCapabilitySetSave") || !await tab.isEnabled("#opsCapabilitySetDiscard")) {
+		fail("editing the capability set did not enable save and discard");
+	}
+	const actionOrder = await tab.evaluate(() => {
+		const discard = document.getElementById("opsCapabilitySetDiscard")?.getBoundingClientRect();
+		const save = document.getElementById("opsCapabilitySetSave")?.getBoundingClientRect();
+		return discard != null && save != null && discard.left < save.left && Math.abs(discard.top - save.top) < 2;
+	});
+	if (!actionOrder) fail("the capability-set footer did not separate discard on the left from save on the right");
+	await tab.click("#opsCapabilitySetDiscard");
+	if (
+		await tab.getAttribute("#opsListenersToggle", "aria-checked") !== "false" ||
+		await tab.isEnabled("#opsCapabilitySetSave") || await tab.isEnabled("#opsCapabilitySetDiscard")
+	) {
+		fail("discarding the capability draft did not restore its committed baseline");
+	}
 
-	// Ask again and take it — with Remember checked, so a reload below can
-	// prove the swiss auto-redeems. The toggle lands on and the control
-	// appears.
+	// Stale values are separate, visible failures rather than one neutral line
+	// of protocol text. Each names the capability and the current server token
+	// that repairs it.
+	await addCapability(tab, "#opsListenersToggle", "stale-listeners-swiss");
+	await addCapability(tab, "#opsDiagnosticsToggle", "stale-diagnostics-swiss");
+	await tab.click("#opsCapabilitySetSave");
+	const staleFailures = tab.locator('.capability-set-errors .said[data-kind="failure"]');
+	await staleFailures.first().waitFor({ timeout: 15_000 });
+	if (await staleFailures.count() !== 2) fail("two stale capabilities did not produce two failure rows");
+	if (await tab.locator("#opsCapabilitySetSaved").count() !== 0) {
+		fail("a partially refused capability set reported successful saving");
+	}
+	if (
+		!await tab.isEnabled("#opsCapabilitySetSave") ||
+		await tab.textContent("#opsCapabilitySetSave") !== "Retry"
+	) {
+		fail("a partially refused capability set offered no explicit retry");
+	}
+	const staleText = await staleFailures.allTextContents();
+	if (
+		!staleText.some((text) => text.includes("Administer listeners:") && text.includes("ROOMS-ADMIN-LISTENERS")) ||
+		!staleText.some((text) => text.includes("Inspect this directory:") && text.includes("ROOMS-DIAGNOSTICS")) ||
+		staleText.some((text) => !text.includes("does not recognize that swiss number"))
+	) {
+		fail(`stale capability guidance was incomplete: ${JSON.stringify(staleText)}`);
+	}
 	await tab.click("#opsListenersToggle");
-	await tab.waitForSelector("#opsTakeCap");
-	await tab.fill("#opsTakeCap", listenersSwiss);
-	await tab.check("#opsTakeRemember");
-	await tab.press("#opsTakeCap", "Enter");
+	await tab.click("#opsDiagnosticsToggle");
+	await saveCapabilitySet(tab);
+
+	// Ask again and save it into the session capability bundle. The toggle
+	// lands on, the live capability arrives, and reload can redeem it again.
+	await takeCapability(tab, "#opsListenersToggle", listenersSwiss);
 	await tab.waitForSelector("#opsBtn");
 	const granted = await tab.evaluate(() => ({
 		checked: document.getElementById("opsListenersToggle")?.getAttribute("aria-checked"),
@@ -185,7 +168,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (granted.checked !== "true") fail("a successful take did not land the toggle on");
 	if (granted.leads !== true) fail("the Operations control does not lead the toggle row from the left");
 
-	// One held capability: the page is that pane alone — no tab bar, no take
+	// One held capability: the page is that pane alone — no pane navigation, no take
 	// form, one row per transport seat the server itself listed, each with the
 	// owning package's description. The serving tcp listener is up with a
 	// disabled switch and the marker, its locator there to copy; a seat the
@@ -200,12 +183,12 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (await tab.$('#roomList .room-open[aria-current="page"]') !== null) {
 		fail("standing on operations still marks a room selected in the rail");
 	}
-	if (await tab.$("#opsTabs") !== null) fail("one held capability still drew a pane nav");
-	if (await tab.$("#opsTakeCap") !== null) fail("a held pane still carried a take form");
+	if (await tab.$("#opsNav") !== null) fail("one held capability still drew pane navigation");
+	if (await tab.$("#capabilityValueSwiss") !== null) fail("a held pane still carried the bundle value editor");
 	await tab.waitForSelector("#listenersList");
 	const shown = await tab.evaluate(() => {
 		const row = (transport: string) => {
-			const li = document.querySelector(`#listenersList .ops-listener[data-transport="${transport}"]`);
+			const li = document.querySelector(`#listenersList .entry[data-transport="${transport}"]`);
 			const swtch = document.getElementById(`listenerSwitch-${transport}`) as HTMLButtonElement | null;
 			return {
 				up: li?.getAttribute("data-up"),
@@ -217,8 +200,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 			};
 		};
 		return {
-			count: document.querySelectorAll("#listenersList .ops-listener").length,
-			described: [...document.querySelectorAll("#listenersList .ops-listener .hint")]
+			count: document.querySelectorAll("#listenersList .entry").length,
+			described: [...document.querySelectorAll("#listenersList .entry .hint")]
 				.every((hint) => (hint.textContent ?? "").length > 0),
 			tcp: row("tcp"),
 			iroh: row("iroh"),
@@ -281,7 +264,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		{ timeout: 15_000 },
 	).catch(() => fail("the keyed-relay listener did not come up on this page's own relay"));
 	const relayLocator = await tab.evaluate(() =>
-		document.querySelector('#listenersList .ops-listener[data-transport="keyed-relay"] .copy-field-text')
+		document.querySelector('#listenersList .entry[data-transport="keyed-relay"] .copy-field-text')
 			?.textContent ?? ""
 	);
 	if (!relayLocator.includes("rendezvous-relay")) {
@@ -296,24 +279,21 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		{ timeout: 15_000 },
 	).catch(() => fail("the keyed-relay listener did not come down"));
 
-	// Take diagnostics too: the page grows its tab bar, and the diagnostics
+	// Take diagnostics too: the page grows its pane navigation, and the diagnostics
 	// pane arrives holding its table.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsDiagnosticsToggle");
-	await tab.waitForSelector("#opsTakeCap");
-	await tab.fill("#opsTakeCap", diagnosticsSwiss);
-	await tab.press("#opsTakeCap", "Enter");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await takeCapability(tab, "#opsDiagnosticsToggle", diagnosticsSwiss);
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	await tab.click("#opsBtn");
-	await tab.waitForSelector("#opsTabs");
-	await tab.click("#diagnosticsOpsTab");
-	await tab.waitForFunction(() => location.pathname === "/ops/diagnostics");
+	await tab.waitForSelector("#opsNav");
+	await tab.click("#directoryOpsLink");
+	await tab.waitForFunction(() => location.pathname === "/ops/directory");
 	await tab.waitForFunction(
 		() => {
-			const cells = [...document.querySelectorAll("#diagnosticsOpsPanel td")]
+			const cells = [...document.querySelectorAll("#directoryOpsPanel td")]
 				.map((cell) => cell.textContent ?? "");
 			return cells.includes("directory");
 		},
@@ -323,32 +303,28 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// The page's own trouble journal stands beside the directory's holdings,
 	// present even when it has nothing to say.
 	await tab.waitForSelector("#pageTrouble");
-	await tab.click("#listenersOpsTab");
+	await tab.click("#listenersOpsLink");
 	await tab.waitForSelector("#listenersList");
 
 	// The protocol visualizer. Its swiss is presented to
 	// the live timeline endpoint rather than fetched on the directory session,
 	// and taking it is what arms this tab's own trace publishing. With three
-	// held, the tab bar counts three.
+	// held, the navigation counts three.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsVizToggle");
-	await tab.waitForSelector("#opsTakeCap");
-	await tab.fill("#opsTakeCap", vizSwiss);
-	await tab.check("#opsTakeRemember");
-	await tab.press("#opsTakeCap", "Enter");
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await takeCapability(tab, "#opsVizToggle", vizSwiss);
 	await tab.waitForFunction(
 		() => document.getElementById("opsVizToggle")?.getAttribute("aria-checked") === "true",
 		undefined,
 		{ timeout: 15_000 },
 	).catch(() => fail("taking the viz capability did not land its toggle on"));
 	await tab.click("#opsBtn");
-	await tab.waitForSelector("#opsTabs");
-	const three = await tab.getAttribute("#opsTabs", "data-count");
+	await tab.waitForSelector("#opsNav");
+	const three = await tab.getAttribute("#opsNav", "data-count");
 	if (three !== "3") fail(`three held capabilities drew a pane nav of ${three}`);
-	await tab.click("#vizOpsTab");
+	await tab.click("#vizOpsLink");
 	await tab.waitForSelector("#vizPublishing");
 	const publishing = await tab.evaluate(() => ({
 		connected: document.getElementById("vizPublishing")?.getAttribute("data-connected"),
@@ -374,52 +350,135 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 
 	// Dropping the viz capability erases the swiss it was asked to remember,
 	// in the same breath as the toggle falling off.
-	const vizKeys = () =>
-		tab.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("rooms.ops-swiss.viz.")));
-	if ((await vizKeys()).length !== 1) fail("the viz take with Remember kept no swiss");
+	const rememberedCaps = () =>
+		tab.evaluate(() => {
+			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
+			const operations = state?.session?.capabilities?.operations;
+			return Array.isArray(operations) ? operations.map((row: { capability: string }) => row.capability) : [];
+		});
+	if (!(await rememberedCaps()).includes("viz")) fail("the viz take with Remember kept no swiss");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsVizToggle");
-	await tab.waitForFunction(
-		() => document.getElementById("opsVizToggle")?.getAttribute("aria-checked") === "false",
-	).catch(() => fail("dropping the viz capability did not turn its toggle off"));
-	if ((await vizKeys()).length !== 0) fail("dropping the viz capability kept its secret");
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await removeCapability(tab, "#opsVizToggle");
+	if ((await rememberedCaps()).includes("viz")) fail("dropping the viz capability kept its secret");
 
 	// Dropping a capability takes its pane with it: with only listeners
-	// held, the page has no tab bar and nothing of the diagnostics left.
-	// Diagnostics was taken without Remember, so its drop also leaves this
-	// browser holding no memory of it.
-	await tab.click("#opsDiagnosticsToggle");
-	await tab.waitForFunction(
-		() => document.getElementById("opsDiagnosticsToggle")?.getAttribute("aria-checked") === "false",
-	).catch(() => fail("dropping the inspect capability did not turn its toggle off"));
+	// held, the page has no pane navigation and nothing of the diagnostics left.
+	// Removing diagnostics from the one bundle releases the live capability and
+	// its durable recovery word together.
+	await removeCapability(tab, "#opsDiagnosticsToggle");
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#operationsTitle");
-	if (await tab.$("#opsTabs") !== null) fail("one remaining capability still drew a pane nav");
-	if (await tab.$("#diagnosticsOpsPanel") !== null) fail("a dropped capability's pane still answered");
+	if (await tab.$("#opsNav") !== null) fail("one remaining capability still drew pane navigation");
+	if (await tab.$("#directoryOpsPanel") !== null) fail("a dropped capability's pane still answered");
 	await tab.waitForSelector("#listenersList");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	await tab.click("#settingsClose");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
 
+	// The workspace document is application state, not only remembered operation
+	// secrets. Seed independently addressed room and direct histories and drafts,
+	// then return to this explicit operations address before reloading.
+	await tab.click("#newRoomBtn");
+	await tab.fill("#newRoomInput", "workspace-persistence");
+	await tab.press("#newRoomInput", "Enter");
+	await namedRoomRow(tab, "workspace-persistence", true).waitFor({ timeout: 10_000 });
+	await tab.click("#roomAbout");
+	await tab.click("#convcardCapabilitiesTab");
+	if (await tab.locator("#convcardSteward").count() === 0) {
+		await tab.click("#convcardStewardClaim");
+		await tab.waitForSelector("#convcardSteward", { timeout: 10_000 });
+	}
+	await tab.click("#convcardClose");
+	await tab.fill("#line", "workspace room history proof");
+	await tab.press("#line", "Enter");
+	await tab.waitForSelector('.bubble:has-text("workspace room history proof")');
+	await tab.fill("#line", "workspace room draft proof");
+	await tab.click("#railFilter");
+	const clearFilter = tab.locator("#railFilterClear");
+	if (await clearFilter.isEnabled()) await clearFilter.click();
+	await tab.click("#railFilter");
+	if (await tab.locator("#dmList li:has(.dm-open)").count() === 0) {
+		const reachableMember = tab.locator("#members li:has(.dm-btn)").first();
+		await reachableMember.locator(".dm-btn").click();
+		await tab.waitForSelector("#dmList li:has(.dm-open)");
+	}
+	const persistedDm = tab.locator("#dmList li:has(.dm-open)").first();
+	const persistedDmName = await persistedDm.locator(".rname").textContent();
+	if (persistedDmName == null || persistedDmName === "") fail("the workspace proof found no direct conversation");
+	await persistedDm.locator(".dm-open").click();
+	await tab.fill("#line", "workspace dm history proof");
+	await tab.press("#line", "Enter");
+	await tab.waitForSelector('.bubble:has-text("workspace dm history proof")');
+	await tab.setInputFiles("#filePick", {
+		name: "workspace-archive.txt",
+		mimeType: "text/plain",
+		buffer: Buffer.from("workspace archive bytes"),
+	});
+	await tab.click("#sendBtn");
+	await tab.waitForSelector('.attach-file:has(.name:text-is("workspace-archive.txt"))', { timeout: 20_000 });
+	await tab.fill("#line", "workspace dm draft proof");
+	await tab.click("#settingsBtn");
+	await tab.waitForSelector("#settingsTitle");
+	await tab.click("#opsBtn");
+	await tab.waitForFunction(() => location.pathname.startsWith("/ops/"));
+	const workspaceRows = await tab.evaluate(() => ({
+		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname")].map((node) => node.textContent),
+		dms: [...document.querySelectorAll("#dmList li .rname")].map((node) => node.textContent),
+	}));
+
 	// A reload keeps only what the reader asked this browser to remember: the
 	// listeners swiss auto-redeems on the home session coming up, so its
-	// toggle is simply on; diagnostics, taken without Remember, is not held.
-	const rememberedKeys = () =>
-		tab.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("rooms.ops-swiss.")));
-	const before = await rememberedKeys();
+	// toggle is simply on; diagnostics was removed from the saved set.
+	const before = await rememberedCaps();
 	if (before.length !== 1) fail(`expected exactly the listeners swiss remembered: ${JSON.stringify(before)}`);
 	await tab.reload();
 	await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
+	await tab.waitForSelector("#opsPage");
+	const restoredRows = await tab.evaluate(() => ({
+		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname")].map((node) => node.textContent),
+		dms: [...document.querySelectorAll("#dmList li .rname")].map((node) => node.textContent),
+	}));
+	if (JSON.stringify(restoredRows) !== JSON.stringify(workspaceRows)) {
+		fail(`the workspace reload changed its conversations: ${JSON.stringify({ workspaceRows, restoredRows })}`);
+	}
+	await namedRoomRow(tab, "workspace-persistence").locator(".room-open").click();
+	if (await tab.inputValue("#line") !== "workspace room draft proof") fail("the room draft did not survive reload");
+	await tab.waitForSelector('.bubble:has-text("workspace room history proof")', { timeout: 20_000 })
+		.catch(() => fail("the member's room history did not survive reload"));
+	await tab.click("#roomAbout");
+	await tab.click("#convcardCapabilitiesTab");
+	await tab.waitForSelector("#convcardSteward", { timeout: 10_000 })
+		.catch(() => fail("the held room moderator capability did not survive reload"));
+	await tab.click("#convcardClose");
+	await namedDirectRow(tab, persistedDmName).locator(".dm-open").click();
+	if (await tab.inputValue("#line") !== "workspace dm draft proof") fail("the direct draft did not survive reload");
+	await tab.waitForSelector('.bubble:has-text("workspace dm history proof")', { timeout: 20_000 })
+		.catch(() => fail("the member's direct history did not survive reload"));
+	const restoredFile = tab.locator('.attach-file:has(.name:text-is("workspace-archive.txt"))').last();
+	await restoredFile.waitFor({ state: "visible", timeout: 20_000 })
+		.catch(() => fail("the direct file metadata did not survive the device archive reload"));
+	const [download] = await Promise.all([
+		tab.waitForEvent("download", { timeout: 30_000 }),
+		restoredFile.locator("button").click(),
+	]);
+	const downloaded = await download.path();
+	if (downloaded == null || await Deno.readTextFile(downloaded) !== "workspace archive bytes") {
+		fail("the device archive did not restore the direct file bytes after reload");
+	}
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#opsBtn");
+	await tab.waitForSelector("#opsPage");
+	await tab.click("#settingsBtn");
+	await tab.waitForSelector("#settingsTitle");
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	await tab.waitForFunction(
 		() => document.getElementById("opsListenersToggle")?.getAttribute("aria-checked") === "true",
 		undefined,
@@ -435,18 +494,18 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 
 	// Toggling off erases the memory with the capability: nothing is held
 	// after the next reload, and this browser keeps no swiss at all.
-	await tab.click("#opsListenersToggle");
+	await removeCapability(tab, "#opsListenersToggle");
 	await tab.waitForSelector("#opsBtn", { state: "detached" });
-	const afterDrop = await rememberedKeys();
+	const afterDrop = await rememberedCaps();
 	if (afterDrop.length !== 0) fail(`the drop kept a secret: ${JSON.stringify(afterDrop)}`);
 	await tab.reload();
 	await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
-	const afterSecondReload = await rememberedKeys();
+	const afterSecondReload = await rememberedCaps();
 	if (afterSecondReload.length !== 0) fail(`a reload reminted a secret: ${JSON.stringify(afterSecondReload)}`);
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
+	await tab.click("#settingsTab");
+	await tab.waitForSelector("#settingsPanel", { state: "attached" });
 	const nothingHeld = await tab.evaluate(() => ({
 		listeners: document.getElementById("opsListenersToggle")?.getAttribute("aria-checked"),
 		diagnostics: document.getElementById("opsDiagnosticsToggle")?.getAttribute("aria-checked"),
@@ -459,94 +518,13 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.click("#settingsClose");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
 
-	// ── Peering: a room from another directory becomes durable here ──────
-	// Peering publishes across directories, so the pane needs a
-	// room to offer: join one on the second server first, the way a reader
-	// would, through the rail's own field.
-	await tab.setViewportSize({ width: 1280, height: 800 });
-	await tab.click("#newRoomBtn");
-	await tab.fill("#newRoomInput", "annex");
-	await tab.focus("#newRoomElsewhere");
-	await tab.press("#newRoomElsewhere", "Enter");
-	await tab.waitForSelector("#joinForm", { timeout: 10_000 })
-		.catch(() => fail("the rail offered no way to reach a room on another server"));
-	await tab.fill("#locator", foreignLocator);
-	await tab.click("#joinBtn");
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
-		.catch(() => fail("the second directory's room did not open for the peering scene"));
-
-	// Take the peering capability from its Capabilities toggle, like its siblings.
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsPeeringToggle");
-	await tab.waitForSelector("#opsTakeCap");
-	await tab.fill("#opsTakeCap", peeringSwiss);
-	await tab.press("#opsTakeCap", "Enter");
-	await tab.waitForSelector("#opsBtn", { timeout: 15_000 })
-		.catch(() => fail("taking the peering capability did not land its toggle on"));
-
-	// The pane offers exactly the room on the other directory, prefills the
-	// published name with the room's own, and publishing lands a live row.
-	await tab.click("#opsBtn");
-	await tab.waitForSelector("#operationsTitle");
-	await tab.waitForSelector("#peeringSource");
-	const offered = await tab.evaluate(() => ({
-		options: [...document.querySelectorAll("#peeringSource option")].map((opt) => opt.textContent ?? ""),
-		name: (document.getElementById("peeringName") as HTMLInputElement | null)?.value ?? "",
-	}));
-	if (offered.options.length !== 1 || !offered.options[0].includes("annex")) {
-		fail(`the peering pane does not offer the other directory's room: ${JSON.stringify(offered)}`);
-	}
-	if (offered.name !== "annex") {
-		fail(`the published name does not follow the picked room: ${JSON.stringify(offered)}`);
-	}
-	await tab.fill("#peeringName", "annex-here");
-	await tab.click("#peeringPublish");
-	await tab.waitForSelector('#peeringList li[data-phase="live"]', { timeout: 30_000 })
-		.catch(() => fail("publishing the room did not land a live publication row"));
-	const published = await tab.evaluate(() => {
-		const row = document.querySelector("#peeringList li");
-		return {
-			name: row?.querySelector(".ops-pub-name")?.textContent ?? "",
-			source: row?.querySelector("code")?.textContent ?? "",
-		};
+	await runPeeringScene(tab, peeringSwiss, foreignLocator);
+	await verifyCompleteOperationsNav(tab, {
+		listeners: listenersSwiss,
+		diagnostics: diagnosticsSwiss,
+		irc: ircSwiss,
+		operator: operatorSwiss,
+		peering: peeringSwiss,
+		viz: vizSwiss,
 	});
-	if (published.name !== "annex-here" || published.source === "") {
-		fail(`the publication row does not carry its name and source: ${JSON.stringify(published)}`);
-	}
-
-	// Revoking is the row's own act, and it removes the row with the listing.
-	await tab.click("#peeringList li button");
-	await tab.waitForSelector("#peeringList", { state: "detached", timeout: 15_000 })
-		.catch(() => fail("revoking the publication did not retire its row"));
-
-	// Leave the page as the surrounding scenes expect it: dialogs closed,
-	// nothing held, nothing remembered, and the peering scene's room left.
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#capabilitiesTab");
-	await tab.waitForSelector("#capabilitiesPanel", { state: "attached" });
-	await tab.click("#opsPeeringToggle");
-	await tab.waitForFunction(
-		() => document.getElementById("opsPeeringToggle")?.getAttribute("aria-checked") === "false",
-	).catch(() => fail("dropping the peering capability did not turn its toggle off"));
-	const peeringKeys = await tab.evaluate(() =>
-		Object.keys(localStorage).filter((key) => key.startsWith("rooms.ops-swiss."))
-	);
-	if (peeringKeys.length !== 0) fail(`the peering scene left a secret behind: ${JSON.stringify(peeringKeys)}`);
-	await tab.click("#settingsClose");
-	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
-	// The rail is the way back: standing on operations marks no room, and
-	// picking one is the transition that leaves the namespace.
-	await tab.locator("#roomList li").filter({ has: tab.locator('.rname:text-is("annex")') })
-		.locator(".room-open").click();
-	await tab.waitForSelector("#opsPage", { state: "detached" });
-	await tab.waitForSelector("#line");
-	const annexRow = tab.locator("#roomList li").filter({ has: tab.locator('.rname:text-is("annex")') });
-	await annexRow.hover();
-	await annexRow.locator(".room-leave").click();
-	await annexRow.waitFor({ state: "detached", timeout: 15_000 })
-		.catch(() => fail("the peering scene could not leave its room"));
 }

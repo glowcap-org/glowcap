@@ -78,7 +78,18 @@ fn acceptGiveTo(
     const id_identity = if (is_id) identity: {
         const key = crypto.PeerKey.fromDesignator(parsed_locator.designator) orelse break :identity null;
         const designator = key.toDesignator();
-        break :identity std.fmt.bufPrint(&identity_buf, "ocapn://{s}.id", .{designator[0..]}) catch unreachable;
+        // Written through the one URI writer, because the exporter cache's
+        // keys are written the same way: byte equality of the lookup depends
+        // on both sides sharing that single shape owner. The buffer is sized
+        // for exactly this locator, and a key designator's fixed alphabet
+        // excludes every encode error, so incompleteness cannot arise.
+        const written = model.uri.writePeerBounded(.{
+            .transport = model.transport.id,
+            .designator = designator[0..],
+            .hints = model.Hints.emptyFalse(),
+        }, &identity_buf) catch unreachable;
+        std.debug.assert(written.complete);
+        break :identity identity_buf[0..written.len];
     } else null;
     if (id_identity) |identity| if (state.exporters.get(identity)) |exporter_peer| {
         try recipient.session_state.requireNegotiatedLocator(parsed_locator);

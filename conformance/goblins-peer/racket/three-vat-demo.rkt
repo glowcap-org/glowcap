@@ -23,9 +23,10 @@
 ;;      after the introduction. If Carol's traffic had been proxied
 ;;      through Alice, Bob would only ever see Alice's connection.
 ;;
-;; This is the OCapN three-party-handoff test pancake will eventually
-;; participate in. For now it validates that the Goblins reference
-;; implementation actually does it.
+;; This is the Goblins-only control for OCapN three-party handoff. It pins what
+;; the reference implementation does independently of pancake. The live
+;; cross-implementation `goblins-handoff`, `goblins-gift`, and
+;; `goblins-exporter` rows assign pancake each protocol role in turn.
 
 (require goblins
          goblins/ocapn

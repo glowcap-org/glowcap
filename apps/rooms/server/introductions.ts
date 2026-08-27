@@ -9,23 +9,28 @@
 // WebRTC signaling rides here too, because it is the same shape: opaque strings
 // routed between two members the directory already reaches, parsed by nobody.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { currentSession, Ref, type Session } from "@pancake/runtime";
 import type { Argument } from "@pancake/runtime";
 import { designatorHostPort, durableIdentityAuthenticated, parseLocator, TRANSPORT_WEBRTC } from "@pancake/runtime";
 import { addressDesignator } from "@pancake/tcp";
 import { isUriLocator } from "../lib/locator.ts";
 import { notifyMember } from "./discovery.ts";
-import { MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES } from "../lib/limits.ts";
+import { DIRECT_REQUEST_COALESCE_MS, MAX_DM_INBOXES, MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES } from "../lib/limits.ts";
 import { NOTIFY, SIG_REJECT, VOUCHER } from "../lib/protocol.ts";
 import {
 	handBack,
 	hex,
 	type Introduction,
 	introductions,
+	introductionsById,
+	introductionsBySession,
 	nickKey,
 	signalExchanges,
 	webrtcDesignators,
 } from "./registry.ts";
+import { noteOperatorChange } from "./operator/revision.ts";
+import { noteTrouble } from "./journal.ts";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
 export function dropSignalExchange(id: string, reason?: string): void {
 	const exchange = signalExchanges.get(id);
@@ -53,6 +58,31 @@ export function originatedExchange(session: Session, designator: string): string
 		if (exchange.originator === session && exchange.targetKey === targetKey) return id;
 	}
 	return null;
+}
+
+/** Admit one reciprocal-route notification under a live registration.
+ *
+ * The map is a coalescing window, not a history of every peer this member has
+ * met. Expired rows leave lazily at the capacity boundary; the common case is
+ * one lookup and one write, while an attacker can force at most one bounded
+ * scan before either freeing stale rows or receiving a refusal. */
+export function directRequestNoticeDue(
+	requests: Map<string, number>,
+	peer: string,
+	now: number,
+): boolean {
+	const prior = requests.get(peer);
+	if (prior != null && now - prior < DIRECT_REQUEST_COALESCE_MS) return false;
+	if (prior == null && requests.size >= MAX_DM_INBOXES) {
+		for (const [key, requestedAt] of requests) {
+			if (now - requestedAt >= DIRECT_REQUEST_COALESCE_MS) requests.delete(key);
+		}
+		if (requests.size >= MAX_DM_INBOXES) {
+			throw new Error(`a member may track at most ${MAX_DM_INBOXES} reciprocal direct requests`);
+		}
+	}
+	requests.set(peer, now);
+	return true;
 }
 
 /** Whether `locator` names the connection registering it — or, where that cannot
@@ -121,25 +151,28 @@ export function registerMember(
 	// live session, and a row left behind would keep answering with the name it
 	// gave up: offers would file under the old name and the new one could never
 	// collect an inbox.
-	for (const [otherKey, other] of [...introductions]) {
-		if (other.registrar !== session || otherKey === key) continue;
-		withdrawIntroduction(otherKey, other);
+	let webrtcDesignator: string | null = null;
+	try {
+		if (isUriLocator(locator)) {
+			const parsed = parseLocator(locator);
+			if (parsed.transport === TRANSPORT_WEBRTC) webrtcDesignator = parsed.designator;
+		}
+	} catch (error) {
+		handBack(session, inbox, "unregistered member inbox");
+		throw error;
 	}
-	// Only ever this member replacing its own registration: a live one held by
-	// another connection was refused at the verb, and a dead one is theirs to
-	// lose. The name frees when its holder's connection goes, and nothing else
-	// can take it while that connection stands.
-	const prior = introductions.get(key);
-	if (prior !== undefined) withdrawIntroduction(key, prior);
+	let registrationId: string;
+	do registrationId = crypto.randomUUID(); while (introductionsById.has(registrationId));
 	const intro: Introduction = {
 		nick,
+		registrationId,
 		inbox,
 		inboxes: new Map(),
+		directRequests: new Map(),
 		registrar: session,
 		signaling: null,
 		vouchers: new Set(),
 	};
-	introductions.set(key, intro);
 	// The name capability: the holding of this name, detached from the
 	// connection that holds it. Its one verb mints a single-use voucher that
 	// `subscribe` on any connection redeems as being this member — bytes rather
@@ -147,26 +180,69 @@ export function registerMember(
 	// after crossing sessions (the gift-id move). It answers only while this
 	// registration is the current one: a re-register replaces the introduction,
 	// and a capability for the old one must not go on speaking for the name.
-	const nameCap = session.spawn((verb: string): Argument => {
-		if (verb !== VOUCHER) throw new Error(`a name capability has no method ${verb}`);
-		if (introductions.get(key) !== intro) {
-			throw new Error("this name capability is no longer current");
+	let nameCap: Ref;
+	try {
+		nameCap = session.spawn((verb: string, args: Argument[]): Argument => {
+			const caller = currentSession();
+			if (caller == null) throw new Error("a name capability is reachable only over a session");
+			if (hasCapabilityArguments(args)) {
+				throwAfterReleasingCapabilities(
+					caller,
+					args,
+					new Error(`name capability ${verb} does not take capability arguments`),
+				);
+			}
+			if (verb !== VOUCHER) throw new Error(`a name capability has no method ${verb}`);
+			if (args.length !== 0) throw new Error("voucher takes no arguments");
+			if (introductions.get(key) !== intro) {
+				throw new Error("this name capability is no longer current");
+			}
+			if (intro.vouchers.size >= MAX_NAME_VOUCHERS) {
+				throw new Error(`a name may have at most ${MAX_NAME_VOUCHERS} vouchers outstanding`);
+			}
+			const bytes = crypto.getRandomValues(new Uint8Array(NAME_VOUCHER_BYTES));
+			intro.vouchers.add(hex(bytes));
+			return bytes;
+		});
+	} catch (error) {
+		handBack(session, inbox, "unregistered member inbox");
+		throw error;
+	}
+	try {
+		const priorForSession = introductionsBySession.get(session);
+		if (priorForSession != null && priorForSession !== introductions.get(key)) {
+			withdrawIntroduction(nickKey(priorForSession.nick), priorForSession);
 		}
-		if (intro.vouchers.size >= MAX_NAME_VOUCHERS) {
-			throw new Error(`a name may have at most ${MAX_NAME_VOUCHERS} vouchers outstanding`);
-		}
-		const bytes = crypto.getRandomValues(new Uint8Array(NAME_VOUCHER_BYTES));
-		intro.vouchers.add(hex(bytes));
-		return bytes;
-	});
+		// Only ever this member replacing its own registration: a live one held by
+		// another connection was refused at the verb, and a dead one is theirs to
+		// lose. The name frees when its holder's connection goes, and nothing else
+		// can take it while that connection stands.
+		const prior = introductions.get(key);
+		if (prior != null) withdrawIntroduction(key, prior);
+	} catch (error) {
+		handBack(session, nameCap, "uncommitted name capability");
+		handBack(session, inbox, "unregistered member inbox");
+		throw error;
+	}
+	introductions.set(key, intro);
+	introductionsById.set(registrationId, intro);
+	introductionsBySession.set(session, intro);
+	noteOperatorChange();
 	// A `webrtc` locator is reached by signaling, not a socket, so index the
 	// member under its designator for `signalOffer` routing.
-	if (isUriLocator(locator)) {
-		const loc = parseLocator(locator);
-		if (loc.transport === TRANSPORT_WEBRTC) webrtcDesignators.set(loc.designator, key);
+	if (webrtcDesignator != null) webrtcDesignators.set(webrtcDesignator, key);
+	try {
+		session.tell(inbox, NOTIFY, ["registered", nick, intro.registrationId]).catch((error) => {
+			noteTrouble("a registration acknowledgement failed", error);
+		});
+	} catch (error) {
+		noteTrouble("a registration acknowledgement failed", error);
 	}
-	session.tell(inbox, NOTIFY, ["registered", nick]).catch(() => {});
-	notifyMember("registered", nick, 1);
+	try {
+		notifyMember("registered", nick, intro.registrationId, 1);
+	} catch (error) {
+		noteTrouble("a registration discovery notification failed", error);
+	}
 	return nameCap;
 }
 
@@ -179,9 +255,18 @@ export function registerMember(
  * hand the next holder of "bob" the inbox Carol minted for the previous one, and
  * her interface would paint their messages as his with full confidence. */
 function withdrawIntroduction(key: string, intro: Introduction): void {
+	if (introductionsById.get(intro.registrationId) !== intro) {
+		throw new Error("registration ID index does not name its nickname registration");
+	}
+	if (introductionsBySession.get(intro.registrar) !== intro) {
+		throw new Error("registration session index does not name its nickname registration");
+	}
 	introductions.delete(key);
+	introductionsById.delete(intro.registrationId);
+	introductionsBySession.delete(intro.registrar);
+	noteOperatorChange();
 	releaseInboxes(intro);
-	forgetOfferedInboxes(key);
+	forgetOfferedInboxes(intro.registrationId);
 	for (const [designator, owner] of [...webrtcDesignators]) {
 		if (owner === key) webrtcDesignators.delete(designator);
 	}
@@ -202,7 +287,7 @@ function withdrawIntroduction(key: string, intro: Introduction): void {
 	for (const [id, exchange] of [...signalExchanges]) {
 		if (exchange.targetKey === key) dropSignalExchange(id, `"${intro.nick}" is no longer registered`);
 	}
-	notifyMember("unregistered", intro.nick, 0);
+	notifyMember("unregistered", intro.nick, intro.registrationId, 0);
 }
 
 /** Hand back every inbox an introduction collected. */
@@ -211,13 +296,14 @@ function releaseInboxes(intro: Introduction): void {
 	intro.inboxes.clear();
 }
 
-/** Drop the inbox every other member offered for `key`, so an `introduce` naming
+/** Drop the inbox every other member offered for `registrationId`, so an `introduce` naming
  * it is refused `introduction-pending` and the member mints a fresh one. */
-function forgetOfferedInboxes(key: string): void {
+function forgetOfferedInboxes(registrationId: string): void {
 	for (const intro of introductions.values()) {
-		const ref = intro.inboxes.get(key);
+		intro.directRequests.delete(registrationId);
+		const ref = intro.inboxes.get(registrationId);
 		if (ref === undefined) continue;
-		intro.inboxes.delete(key);
+		intro.inboxes.delete(registrationId);
 		handBack(intro.registrar, ref);
 	}
 }
@@ -227,10 +313,12 @@ function forgetOfferedInboxes(key: string): void {
  * granted, never an argument the caller passes. A scan, bounded by the members
  * present. */
 export function registeredNickOf(session: Session): string | null {
-	for (const intro of introductions.values()) {
-		if (intro.registrar === session) return intro.nick;
-	}
-	return null;
+	return registrationOf(session)?.nick ?? null;
+}
+
+/** The exact live registration held by `session`, or null when it holds none. */
+export function registrationOf(session: Session): Introduction | null {
+	return introductionsBySession.get(session) ?? null;
 }
 
 /** Whether another live connection holds `nick` for direct messages.
@@ -256,14 +344,22 @@ export function registeredByAnother(session: Session, nick: string): boolean {
  * every outstanding voucher with it and a stale one fails closed. */
 export function redeemNameVoucher(nick: string, voucher: Uint8Array): boolean {
 	const intro = introductions.get(nickKey(nick));
-	if (intro === undefined || !intro.registrar.sessionOpen) return false;
+	if (intro == null || !intro.registrar.sessionOpen) return false;
 	return intro.vouchers.delete(hex(voucher));
 }
 
 /** Withdraw every introduction a closing connection registered. */
 export function dropIntroductions(session: Session): void {
-	for (const [key, intro] of [...introductions]) {
-		if (intro.registrar !== session) continue;
-		withdrawIntroduction(key, intro);
-	}
+	const intro = introductionsBySession.get(session);
+	if (intro != null) withdrawIntroduction(nickKey(intro.nick), intro);
+}
+
+/** Remove exactly the registration still owned by `session`. A nickname alone
+ * is not an operator target because it may have changed hands since inventory. */
+export function revokeIntroduction(nick: string, session: Session): boolean {
+	const key = nickKey(nick);
+	const intro = introductions.get(key);
+	if (intro == null || intro.registrar !== session) return false;
+	withdrawIntroduction(key, intro);
+	return true;
 }

@@ -19,7 +19,7 @@ export interface ListenerLoop {
 	advertiseListener(listener: bigint, locator: Locator | string): void;
 	selectListener(listener: bigint): void;
 	acceptSession(listener: bigint): Promise<Session | null>;
-	closeListener(listener: bigint): void;
+	closeListener(listener: bigint): Promise<void>;
 }
 
 function closedError(): PancakeError {
@@ -31,6 +31,7 @@ export class DriverListener {
 	readonly #listener: bigint;
 	readonly #host: Host;
 	#closed = false;
+	#closePromise: Promise<void> | null = null;
 
 	private constructor(loop: ListenerLoop, listener: bigint) {
 		this.#loop = loop;
@@ -77,9 +78,10 @@ export class DriverListener {
 
 	/** Seal admission while preserving the Host, sibling listeners, and
 	 * sessions already transferred to the application. */
-	close(): void {
-		if (this.#closed) return;
-		this.#loop.closeListener(this.#listener);
+	close(): Promise<void> {
+		if (this.#closePromise != null) return this.#closePromise;
 		this.#closed = true;
+		this.#closePromise = this.#loop.closeListener(this.#listener);
+		return this.#closePromise;
 	}
 }

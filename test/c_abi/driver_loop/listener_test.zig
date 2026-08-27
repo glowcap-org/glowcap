@@ -6,13 +6,9 @@
 const std = @import("std");
 
 const c = @import("c_abi");
-const cshared = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const crelay = @import("c_abi_net_transport_relay");
-const ctcp = @import("c_abi_net_transport_tcp");
 const pancake = @import("pancake");
-const c_args = @import("../../support/c_abi_args.zig");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -263,7 +259,7 @@ test "listener restoration state preserves the provider failure chain" {
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
 }
 
-test "pending listener close refuses every non-close listener verb" {
+test "pending listener close retains its retry identity and refuses every non-close verb" {
     var resident: TypedResident = .{
         .wake = try pancake.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
@@ -308,6 +304,7 @@ test "pending listener close refuses every non-close listener verb" {
     );
 
     try expectStep(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
+    try expectOk(harness.closeListener(owned_loop.raw, listener_id));
     try std.testing.expectEqual(c.PANCAKE_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener_id));
     try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
 }

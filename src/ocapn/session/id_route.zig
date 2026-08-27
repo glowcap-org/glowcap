@@ -135,15 +135,16 @@ fn validateCarrier(transport: []const u8, designator: []const u8, expected: cryp
     if (!route_key.eql(expected)) return error.UnsupportedId;
 }
 
+/// The durable key an id bundle's identity demands, or null when the bundle
+/// carries no identity to demand. The identity URI is read back through the
+/// same splitter that admits every route URI, so its shape has exactly one
+/// owner and cannot drift from what `writePeer` produces.
 pub fn demandedPartnerKey(bundle: model.RouteBundle) ?crypto.PeerKey {
     if (bundle.source != .id) return null;
-    const prefix = "ocapn://";
-    const suffix = ".id";
-    if (!std.mem.startsWith(u8, bundle.identity, prefix) or
-        !std.mem.endsWith(u8, bundle.identity, suffix))
-        return null;
-    const designator = bundle.identity[prefix.len .. bundle.identity.len - suffix.len];
-    return crypto.PeerKey.fromDesignator(designator);
+    var list = model.route_bundle.RouteListIterator.init(bundle.identity) catch return null;
+    const route = (list.next() catch return null) orelse return null;
+    if (!std.mem.eql(u8, route.transport_encoded, model.transport.id)) return null;
+    return crypto.PeerKey.fromDesignator(route.designator_encoded);
 }
 
 pub fn validateBundle(bundle: model.RouteBundle) Error!void {

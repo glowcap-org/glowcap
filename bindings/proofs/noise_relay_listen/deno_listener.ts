@@ -25,4 +25,5 @@ console.log(`RELAY-LISTENER-READY ${server.uri}`);
 for await (const accepted of server) {
 	await using session = accepted;
 	await session.serve();
+	break;
 }

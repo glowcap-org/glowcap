@@ -24,25 +24,16 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_foreign_room_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort } from "./support/rooms_server.ts";
+import { awaitBubble, fail, openDmTo } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi ada, I am writing from a page that is not yours";
 const REPLY_TEXT = "got it bo, replying from mine";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
 
 // One page server with its own room and relay behind it. `reaches` is the room
 // address this page's relay may dial besides its own: a relay dials iroh
@@ -103,6 +94,7 @@ async function joinAs(
 		}
 	});
 	await tab.goto(`http://127.0.0.1:${port}/?dm=webrtc`);
+	await establishLocalSession(tab);
 	if (directory !== null) await tab.fill("#locator", directory);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
@@ -114,28 +106,9 @@ async function joinAs(
 	return { context, tab };
 }
 
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
-}
-
 async function send(tab: Page, text: string): Promise<void> {
 	await tab.fill("#line", text);
 	await tab.press("#line", "Enter");
-}
-
-async function awaitBubble(tab: Page, text: string, who: string): Promise<void> {
-	await tab.waitForFunction(
-		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
-		text,
-		{ timeout: 30_000 },
-	).catch(async () => {
-		const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
-		console.error(`  [${who} #log] ${JSON.stringify(log)}`);
-		fail(`${who} never rendered "${text}"`);
-	});
 }
 
 const deadline = setTimeout(() => fail("web-dm-foreign-room scenario timed out after 180s"), 180_000);

@@ -1,7 +1,14 @@
 // Hermetic goldens for page settings. The URL wins when it names a value;
 // storage fills in when it does not.
-import { dmFrom, dmTransportFor, originVizUrl, vizFrom, writeSearch } from "../web/ui/prefs.ts";
 import { assertEquals } from "./assert.ts";
+
+Object.defineProperty(globalThis, "matchMedia", {
+	configurable: true,
+	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+
+const { dmFrom, dmTransportFor, originVizUrl, vizFrom, writeSearch } = await import("../web/ui/prefs.ts");
+const { vizOverrideRefusal } = await import("../lib/viz_publish.ts");
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=relay"), "webrtc"), "relay", "url relay");
@@ -42,16 +49,24 @@ Deno.test("dm: an unknown query falls through to storage", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=nope"), "relay"), "relay", "unknown query");
 });
 
-Deno.test("writeSearch: relay and viz land; webrtc and a blank viz come off", () => {
+Deno.test("writeSearch preserves exact visualizer values and removes only empty", () => {
 	const url = new URL("http://rooms.test/?keep=1&dm=relay&viz=ws://old/");
-	writeSearch(url, { dm: "webrtc", viz: "  " });
+	writeSearch(url, { dm: "webrtc", viz: "" });
 	assertEquals(url.searchParams.get("keep"), "1", "other query stays");
 	assertEquals(url.searchParams.get("dm"), null, "webrtc drops dm");
 	assertEquals(url.searchParams.get("viz"), null, "blank viz drops");
 	writeSearch(url, { dm: "relay", viz: " ws://127.0.0.1:9/ " });
 	assertEquals(url.searchParams.get("keep"), "1", "keep still");
 	assertEquals(url.searchParams.get("dm"), "relay", "relay");
-	assertEquals(url.searchParams.get("viz"), "ws://127.0.0.1:9/", "trimmed viz");
+	assertEquals(url.searchParams.get("viz"), " ws://127.0.0.1:9/ ", "exact viz");
+});
+
+Deno.test("visualizer overrides are explicit WebSocket URLs or blank", () => {
+	assertEquals(vizOverrideRefusal(""), null);
+	assertEquals(vizOverrideRefusal("wss://rooms.test/viz"), null);
+	assertEquals(vizOverrideRefusal(" wss://rooms.test/viz")?.includes("whitespace"), true);
+	assertEquals(vizOverrideRefusal("https://rooms.test/viz")?.includes("ws://"), true);
+	assertEquals(vizOverrideRefusal("wss://rooms.test/viz#feed")?.includes("fragment"), true);
 });
 
 Deno.test("originVizUrl: http is ws, https is wss, on the page's own host", () => {

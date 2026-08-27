@@ -202,10 +202,6 @@ fn bridgeDirectionObserved(
     writeServerFrame(dst, .close, &.{}) catch {};
 }
 
-pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void {
-    return bridgeDirectionObserved(src, dst, allocator, null);
-}
-
 /// Accept one registration leg and one rendezvous leg, assert they name the
 /// same key, then bridge bytes between them until either side closes.
 pub fn bridgeOneRendezvous(io: Io, server: *ip.Server, allocator: std.mem.Allocator) !void {

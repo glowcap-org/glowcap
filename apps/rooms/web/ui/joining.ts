@@ -6,7 +6,7 @@
 // reader has typed under it, and what this browser remembers, which is what
 // lets the whole question be answered in a test without a page.
 
-import { type DirId, dirMark, dirMarkIn, type DirView } from "./types.ts";
+import { type DirId, dirMarkIn, type DirView } from "./types.ts";
 import { directoryName } from "./text.ts";
 import {
 	type Act,
@@ -24,6 +24,21 @@ export const JOIN_DEFAULT_ROOM = "general";
 export const JOIN_DEFAULT_NICK = "guest";
 /** Shape of a locator, used when this page's own address is not known yet. */
 export const JOIN_LOCATOR_SHAPE = "ocapn://designator.transport";
+
+export interface DirectoryDestinationContext {
+	readonly home: DirId | null;
+	readonly defaultDirectory: { readonly id: DirId; readonly locator: string } | null;
+}
+
+export function directoryDestinationContext(
+	home: DirId | null,
+	defaultLocator: string | null,
+	resolve: (locator: string) => DirId | null,
+): DirectoryDestinationContext {
+	if (defaultLocator == null) return { home, defaultDirectory: null };
+	const id = resolve(defaultLocator);
+	return { home, defaultDirectory: id == null ? null : { id, locator: defaultLocator } };
+}
 
 /** Whether typed text is a room link: a sturdyref, told apart by the swissnum
  * path it carries. The same tell `/join` uses, so the command and the join
@@ -109,19 +124,28 @@ export function listedOccupancy(listed: boolean | undefined, name: string): bool
  * asks it. */
 export function typedRoomLink(locator: string, room: string): { link: string; label: string } | null {
 	const loc = locator.trim();
-	const name = room.trim();
-	if (looksLikeRoomLink(loc)) return { link: loc, label: name };
-	if (looksLikeRoomLink(name)) return { link: name, label: "" };
+	const roomLink = room.trim();
+	if (looksLikeRoomLink(loc)) return { link: loc, label: room };
+	if (looksLikeRoomLink(roomLink)) return { link: roomLink, label: "" };
 	return null;
 }
 
 /** Empty and this page's own locator are one destination: the field that means
  * "here" stays empty, so a paste of the home locator does not become a second
  * way to say the same thing. */
-export function thisDirectoryLocator(value: string, home: DirId | null): string {
+export function thisDirectoryLocator(
+	value: string,
+	context: DirectoryDestinationContext,
+	typedAs: DirId | null = null,
+): string {
 	const typed = value.trim();
 	if (typed === "") return "";
-	if (home !== null && typed === (home as string)) return "";
+	if (looksLikeRoomLink(typed)) return value;
+	const defaultDirectory = context.defaultDirectory;
+	if (
+		defaultDirectory != null &&
+		(typed === defaultDirectory.locator || typedAs === defaultDirectory.id)
+	) return "";
 	return value;
 }
 
@@ -148,7 +172,7 @@ export function destination(
 	locator: string,
 	typedAs: DirId | null,
 	dirs: ReadonlyMap<DirId, DirView>,
-	home: DirId | null,
+	context: DirectoryDestinationContext,
 	hereWord: string,
 ): { mark: string | undefined; name: string } {
 	// The two arms below answer the ramp's ceiling differently, and the
@@ -165,8 +189,11 @@ export function destination(
 	//
 	// The arm below does ask it, because there a color really is one directory's
 	// answer against the others, and past the ramp there is no answer to give.
-	if (thisDirectoryLocator(locator, home) === "" || (home != null && typedAs === home)) {
-		return { mark: home != null ? dirMark(home, home, undefined) : undefined, name: hereWord };
+	if (thisDirectoryLocator(locator, context, typedAs) === "") {
+		return {
+			mark: context.defaultDirectory != null ? "home" : undefined,
+			name: hereWord,
+		};
 	}
 	const held = typedAs != null ? dirs.get(typedAs) : undefined;
 	// The mark the rail is showing for that directory, and `unknown` when the
@@ -176,7 +203,10 @@ export function destination(
 	// card's stripe take its own fallback, which is the teal this page's own
 	// directory wears, so a card aimed elsewhere would draw itself as home.
 	if (held != null) {
-		return { mark: dirMarkIn(held.id, home, dirs) ?? "unknown", name: directoryName(held.id, home) };
+		return {
+			mark: dirMarkIn(held.id, context.home, dirs) ?? "unknown",
+			name: directoryName(held.id, context.home),
+		};
 	}
 	// Not a directory this tab holds. It may still be a perfectly good address,
 	// so it is named the way any directory is named rather than read back as the
@@ -184,7 +214,10 @@ export function destination(
 	// unmarked. "Unknown" is a mark like any other: every part of the card that
 	// colours itself reads one property, and an absence let each of them fall
 	// back to its own answer instead.
-	return { mark: "unknown", name: typedAs != null ? directoryName(typedAs, home) : "that directory" };
+	return {
+		mark: "unknown",
+		name: typedAs != null ? directoryName(typedAs, context.home) : "that directory",
+	};
 }
 
 /** Every field of the card, each with the evidence behind it, and how the
@@ -206,12 +239,17 @@ export interface JoinAnswers {
  * back from a past visit, and a lock is not. A private room is minted for good
  * on submit, so a lock quietly remembered from last week would mint one nobody
  * asked for. */
-export function joinAnswers(act: Act, edits: Edits, memory: Remembered, home: DirId | null): JoinAnswers {
+export function joinAnswers(
+	act: Act,
+	edits: Edits,
+	memory: Remembered,
+	context: DirectoryDestinationContext,
+): JoinAnswers {
 	const mine = current(edits, act);
 	return {
 		source: act.source,
 		room: settle(mine.room, act.room, keepable(memory.room, JOIN_DEFAULT_ROOM), ""),
-		locator: locatorAnswer(mine.locator, act.locator, memory.locator, home),
+		locator: locatorAnswer(mine.locator, act.locator, memory.locator, context),
 		nick: settle(mine.nick, act.nick, keepable(memory.nick, JOIN_DEFAULT_NICK), ""),
 		secret: settle(mine.secret, act.secret, undefined, false),
 	};
@@ -230,9 +268,9 @@ function locatorAnswer(
 	edited: string | undefined,
 	given: Given<string> | undefined,
 	memory: string,
-	home: DirId | null,
+	context: DirectoryDestinationContext,
 ): Answer<string> {
-	const here = (value: string) => thisDirectoryLocator(value, home);
+	const here = (value: string) => thisDirectoryLocator(value, context);
 	return settle(
 		edited === undefined ? undefined : here(edited),
 		given === undefined ? undefined : { value: here(given.value), firmness: given.firmness },

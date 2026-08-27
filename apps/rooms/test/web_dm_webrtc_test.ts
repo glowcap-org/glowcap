@@ -22,40 +22,17 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_webrtc_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { awaitBubble, fail, openDmTo } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, over a DataChannel the room only signaled";
 const REPLY_TEXT = "got it Alice, replying over the same channel";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up / room not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 // Join `ROOM` as `nick` in a fresh, isolated tab, in webrtc DM mode, and wait
 // until the composer is live — the signal that the keyed session to the room
@@ -81,6 +58,7 @@ async function joinAs(
 		}
 	});
 	await tab.goto(`http://127.0.0.1:${port}/?dm=webrtc`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -93,31 +71,12 @@ async function joinAs(
 
 // Open a direct line to `peer` from `tab` by clicking their direct-line button
 // in the members list.
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
-}
-
 async function send(tab: Page, text: string): Promise<void> {
 	await tab.fill("#line", text);
 	await tab.press("#line", "Enter");
 }
 
 // Wait until a bubble carrying `text` is on screen in the active conversation.
-async function awaitBubble(tab: Page, text: string, who: string): Promise<void> {
-	await tab.waitForFunction(
-		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
-		text,
-		{ timeout: 30_000 },
-	).catch(async () => {
-		const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
-		console.error(`  [${who} #log] ${JSON.stringify(log)}`);
-		fail(`${who} never rendered "${text}"`);
-	});
-}
-
 const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 28s"), 28_000);
 
 const httpPort = freePort();

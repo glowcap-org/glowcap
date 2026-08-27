@@ -309,16 +309,6 @@ test "links scan ocapn and https" {
     try std.testing.expect(spans[1].kind == .https);
 }
 
-test "history prev next draft" {
-    var h = cli.repl_history.History.init(std.testing.allocator);
-    defer h.deinit();
-    try h.push("dial x");
-    try h.push("call greeter greet");
-    try std.testing.expectEqualStrings("call greeter greet", h.prev("").?);
-    try std.testing.expectEqualStrings("dial x", h.prev("").?);
-    try std.testing.expectEqualStrings("call greeter greet", h.next().?);
-}
-
 test "ecs world spawns an entity and stores its screen rectangle" {
     var lab = cli.repl_ecs.LabWorld.init(std.testing.allocator);
     defer lab.deinit();

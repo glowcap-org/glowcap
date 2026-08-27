@@ -11,7 +11,7 @@ import * as store from "../store.ts";
 import { type AttachmentView, type DirId, type DmConv, type Item, type RoomConv, silencedFrom } from "../types.ts";
 import { lineRoom, tooLong } from "../text.ts";
 import { fetchesOnArrival } from "../media.ts";
-import { failRoomSend, markSend, NOT_IN_THIS_ROOM, reason } from "./common.ts";
+import { failRoomSend, markSend, NOT_IN_THIS_ROOM, reason, trouble } from "./common.ts";
 import { convSession, dirSession, isConnected, isCurrent } from "./live.ts";
 import {
 	commitAttachmentUpdates,
@@ -20,9 +20,10 @@ import {
 	measureImage,
 	noteAttachmentProgress,
 	openAttachment,
-	pickedSource,
 	releaseHeldFile,
+	releaseRoomAttachments,
 } from "./files.ts";
+import { pickedSource } from "../file_source.ts";
 import { deliverDm, holdDmLine } from "./direct.ts";
 import { withdraw } from "./send.ts";
 
@@ -63,23 +64,25 @@ export function sendFiles(conv: RoomConv | DmConv, files: File[], caption: strin
 		"sending",
 		attachments,
 	);
-	store.deliver(conv.key, item);
 	// The session owns the picked files, the upload, and the stop that ends it. It
 	// was here a moment ago, when this refused to run offline, and if it has gone
 	// in between there is nothing to own this send: the bubble was already drawn
 	// as going, and nothing left would ever settle it or answer its Stop.
 	const owner = convSession(conv.key);
+	if (owner !== null) {
+		owner.outgoing.set(item.id, {
+			key: conv.key,
+			attachmentIds: attachments.map((file) => file.id),
+			files,
+			caption,
+		});
+	}
+	store.deliver(conv.key, item);
 	if (owner === null) {
 		markSend(conv.key, item.id, "refused");
 		store.deliver(conv.key, store.sysItem("The connection went before these files could be sent."));
 		return;
 	}
-	owner.outgoing.set(item.id, {
-		key: conv.key,
-		attachmentIds: attachments.map((file) => file.id),
-		files,
-		caption,
-	});
 	void uploadPickedFiles(conv.key, item.id);
 }
 
@@ -298,7 +301,14 @@ export async function refileActive(
 	// painted here, once and for good. The kept files are never re-sent — the
 	// receiver holds them — so only the added ones cross the wire.
 	if (conv.type === "dm") {
+		owner.outgoing.set(id, {
+			key: conv.key,
+			attachmentIds: newViews.map((view) => view.id),
+			files: [...newFiles],
+			caption,
+		});
 		store.updateItem(conv.key, id, { text: caption, attachments: nextViews.length > 0 ? nextViews : undefined });
+		owner.outgoing.delete(id);
 		try {
 			await line.refile(caption, keptIndices, sources);
 		} catch (err) {
@@ -326,7 +336,14 @@ export async function refileActive(
 	// Paint the new set and remember it, so the `refiled` echo reconciles against
 	// exactly these views rather than replacing them.
 	owner.refiling.set(lineId, nextViews);
+	owner.outgoing.set(id, {
+		key: conv.key,
+		attachmentIds: newViews.map((view) => view.id),
+		files: [...newFiles],
+		caption,
+	});
 	store.updateItem(conv.key, id, { text: caption, attachments: nextViews });
+	owner.outgoing.delete(id);
 	let uploads: Ref[] = [];
 	try {
 		uploads = await Promise.all(sources.map((source) => room.stage(source)));
@@ -410,12 +427,18 @@ export function applyRefile(
 ): void {
 	const owner = dirSession(dir);
 	const conv = store.getConv(key);
-	if (owner === null || conv === null) return;
+	if (owner === null || conv === null) {
+		releaseRoomAttachments(room, records);
+		return;
+	}
 	const item = conv.history.find((line) => line.kind === "chat" && line.lineId === lineId);
-	if (item?.kind !== "chat") return;
+	if (item?.kind !== "chat") {
+		releaseRoomAttachments(room, records);
+		return;
+	}
 	const old = item.attachments ?? [];
 	const pending = owner.refiling.get(lineId);
-	if (pending !== undefined) {
+	if (pending != null && pending.length === records.length) {
 		owner.refiling.delete(lineId);
 		// The optimistic views are already on the item and in the echoed order, so
 		// hold each fresh blob under its view and leave the URLs alone. A kept file
@@ -435,6 +458,13 @@ export function applyRefile(
 		if (item.text !== caption) store.updateItem(key, item.id, { text: caption });
 		return;
 	}
+	if (pending != null) {
+		owner.refiling.delete(lineId);
+		trouble(
+			"room file refile echo",
+			new Error(`expected ${pending.length} files, received ${records.length}`),
+		);
+	}
 	// Not our doing: replace the set outright. The old files go, and each new one
 	// arrives as a fresh view the reader fetches, images on their own.
 	for (const view of old) releaseHeldFile(owner, view.id);
@@ -447,13 +477,13 @@ export function applyRefile(
 			height: record.height,
 		})
 	);
+	records.forEach((record, index) => owner.files.set(views[index].id, holdRoomFile(room, record)));
 	store.updateItem(key, item.id, { text: caption, attachments: views });
 	// Silenced here for the same reason a first delivery is: a refile is that
 	// member speaking again, and a line the reader will not see fetches nothing.
 	const silenced = silencedFrom(item.from, item.mine, store.get().ignored);
 	records.forEach((record, index) => {
 		const view = views[index];
-		owner.files.set(view.id, holdRoomFile(room, record));
 		if (fetchesOnArrival(record, silenced)) openAttachment(key, view.id);
 	});
 }

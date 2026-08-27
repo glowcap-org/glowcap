@@ -13,7 +13,6 @@
 // that can fail puts the message back the way it was rather than leaving a
 // reader looking at something that never happened.
 
-import { TYPING } from "../../../lib/protocol.ts";
 import { MAX_MESSAGE_FILES } from "../../../lib/limits.ts";
 import * as store from "../store.ts";
 import { type Item, type RoomConv } from "../types.ts";
@@ -23,6 +22,7 @@ import { convSession, type Live } from "./live.ts";
 import { releaseHeldFile } from "./files.ts";
 import { activeBackChannel } from "./direct.ts";
 import { failRoomSend, NOT_IN_THIS_ROOM } from "./common.ts";
+import { draftWithMention, recalledDraft } from "../composer/draft.ts";
 export { applyRefile, refileActive, resendFile, sendFiles, stopSend } from "./send_files.ts";
 
 // ── Sending ───────────────────────────────────────────────────────────────
@@ -59,11 +59,7 @@ export function addFiles(files: readonly File[]): void {
 
 /** Put an @mention of `who` into the composer, from the toolbar on a message. */
 export function mention(who: string): void {
-	// The conversation on screen's own draft, which is the one the message this
-	// came from is sitting in.
-	const text = store.activeDraft().text;
-	const gap = text && !/\s$/.test(text) ? " " : "";
-	store.setDraft(text + gap + "@" + who + " ");
+	store.setDraft(draftWithMention(store.activeDraft().text, who));
 }
 
 export function setDraft(text: string): void {
@@ -77,15 +73,9 @@ export function setDraft(text: string): void {
  * in the log are included, because they were submitted here too. */
 export function recallLastSent(): string | null {
 	const conv = store.activeConv();
-	const draft = store.activeDraft();
-	if (
-		conv === null || draft.changing !== undefined || draft.files.length > 0 ||
-		draft.text.trim() !== ""
-	) {
-		return null;
-	}
-	const last = store.lastSentFor(conv.key);
-	if (last === undefined) return null;
+	if (conv == null) return null;
+	const last = recalledDraft(store.activeDraft(), store.lastSentFor(conv.key));
+	if (last == null) return null;
 	store.setDraft(last);
 	return last;
 }
@@ -277,11 +267,12 @@ export function setTyping(on: boolean): void {
  * (or opening). An ephemeral signal must never cause a dial. */
 function sendDmTyping(key: string, on: boolean): void {
 	const session = convSession(key);
-	if (session === null) return;
+	const conv = store.getConv(key);
+	if (session == null || conv?.type !== "dm") return;
 	const back = activeBackChannel(key);
 	if (back !== null) {
-		back.session.tell(back.reply, TYPING, [on]).catch(() => {});
+		void back.typing(on);
 		return;
 	}
-	session.lines.get(key)?.then((line) => line.typing(on)).catch(() => {});
+	session.directRoutes.get(conv.peerRegistrationId)?.then((line) => line.typing(on)).catch(() => {});
 }

@@ -1,6 +1,6 @@
 // The rooms page surviving the loss of its room server, in a real browser.
 //
-// A page holds two things with two lifetimes, and the whole of `ui/net.ts`'s
+// A page holds two things with two lifetimes, and the whole of `web/ui/net.ts`'s
 // shape is that distinction. A directory session dies whenever the room server
 // restarts, and everything it held dies with it: the room it had us in, the
 // lines redeemed over it, the name it advertised. What the *page* knows does
@@ -51,8 +51,13 @@
 // wasm-driver`), the native archives, and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web_reconnect_test.ts`.
 
+/// <reference lib="dom" />
+
 import { chromium } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { makeRoom, openRailRoom, roomLink } from "./support/private_room_page.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -60,27 +65,6 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
 	throw new Error(message);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
 }
 
 const httpPort = freePort();
@@ -134,6 +118,7 @@ try {
 	});
 
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", "ada");
 	await tab.fill("#room", "workshop");
 	await tab.click("#joinBtn");
@@ -147,6 +132,23 @@ try {
 		before,
 		{ timeout: 30_000 },
 	).catch(() => fail("the room never echoed the first line, so there was nothing to survive"));
+
+	// A private room has no directory name to ask for after this session dies.
+	// Create its durable bearer authority through the visible Capabilities
+	// control, then return to the listed room before the server is killed. The
+	// reconnect below has to recover both by their different authorities.
+	await makeRoom(tab, "retained", true);
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
+	const privateBefore = "private before the room went away";
+	await tab.fill("#line", privateBefore);
+	await tab.press("#line", "Enter");
+	await tab.waitForFunction(
+		(text) => [...document.querySelectorAll(".bubble")].some((bubble) => bubble.textContent?.includes(text)),
+		privateBefore,
+		{ timeout: 30_000 },
+	).catch(() => fail("the private room never echoed the line its reconnect should preserve"));
+	await roomLink(tab, "ada");
+	await openRailRoom(tab, "workshop", false);
 
 	// Stepped away before the ground moves. What the roster shows is the room's
 	// word, and a membership belongs to a connection — so a reconnect grants a
@@ -294,11 +296,31 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("the room list stayed empty after reconnecting, so the directory never replayed"));
 
+	// The private conversation came back by its sturdyref, not by its label.
+	// Press its rail row and send over the recovered membership. The old line is
+	// still page history and the new echo proves the live capability returned.
+	await openRailRoom(tab, "retained", true);
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
+		.catch(() => fail("the linked private room did not re-enter after the directory reconnected"));
+	const privateKept = await tab.evaluate(
+		(text) => [...document.querySelectorAll(".bubble")].some((bubble) => bubble.textContent?.includes(text)),
+		privateBefore,
+	);
+	if (!privateKept) fail("the private conversation was discarded while its durable room was re-entered");
+	const privateAfter = "private after the room came back";
+	await tab.fill("#line", privateAfter);
+	await tab.press("#line", "Enter");
+	await tab.waitForFunction(
+		(text) => [...document.querySelectorAll(".bubble")].some((bubble) => bubble.textContent?.includes(text)),
+		privateAfter,
+		{ timeout: 30_000 },
+	).catch(() => fail("the linked private room did not echo over its recovered membership"));
+
 	console.log(
 		"PASS: the rooms page survived losing its room server — it noticed and closed the " +
-			"composer, reconnected and re-entered its room untouched, kept the conversation " +
-			"the dead session had delivered, round-tripped a line over the new one, and " +
-			"repopulated the directory",
+			"composer, reconnected and re-entered its named room and durable private room, kept " +
+			"the conversations the dead session had delivered, round-tripped lines over the new " +
+			"memberships, and repopulated the directory",
 	);
 } finally {
 	clearTimeout(deadline);

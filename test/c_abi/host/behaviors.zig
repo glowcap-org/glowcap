@@ -11,7 +11,6 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const pancake = @import("pancake");
 const model = pancake.ocapn.model;
-const keyed_relay = pancake.net.relay;
 const stream_framing = pancake.foundation.stream_framing;
 const harness = @import("harness.zig");
 const argInt = harness.argInt;

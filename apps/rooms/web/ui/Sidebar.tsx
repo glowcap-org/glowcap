@@ -20,9 +20,10 @@
 
 import { Link } from "react-router";
 import { memo, useEffect, useMemo, useState } from "react";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { implied, named } from "./intent.ts";
-import { destination, type JoinAnswers } from "./joining.ts";
+import { destination, type DirectoryDestinationContext, type JoinAnswers } from "./joining.ts";
 import {
 	type Conv,
 	type DirId,
@@ -56,10 +57,12 @@ import { RailSection } from "./sidebar/Section.tsx";
 import type { AddField } from "./sidebar/NamePanel.tsx";
 function SidebarPane(
 	{
+		canInteract,
 		cardUp,
 		convs,
 		dirs,
 		homeDir,
+		directoryContext,
 		activeKey,
 		acting,
 		join,
@@ -71,6 +74,7 @@ function SidebarPane(
 		invites,
 		settingsOpen,
 	}: {
+		canInteract: boolean;
 		/** The join card is the workarea: no conversation open and nothing
 		 * else standing in the content cell. App owns what that cell shows,
 		 * so App says. */
@@ -83,6 +87,7 @@ function SidebarPane(
 		 * state used to have nowhere to appear. */
 		emptyDirs: DirView[];
 		homeDir: DirId | null;
+		directoryContext: DirectoryDestinationContext;
 		activeKey: string | null;
 		/** The directory the page is acting on, from the store's one answer: the
 		 * one the open conversation is on, or the first this tab holds while the
@@ -114,7 +119,8 @@ function SidebarPane(
 	const here = acting ?? dirId("");
 	// At most one "+" field is open, which is the rail's rule to keep rather than
 	// each section's, so it is one value here instead of a flag in each.
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const rooms = useRoomsSession();
 	// How much of the rail this reader is looking at. It is a view and it is
 	// theirs, so it is held here rather than in the store: nothing outside the
 	// rail reads it, and no other tab is looking through this reader's eyes.
@@ -145,11 +151,17 @@ function SidebarPane(
 	// standing in the cell nothing is selected and the card is still not up.
 	const linked = cardUp;
 	const aimed = linked
-		? destination(join.locator.value, peer.directoryId(join.locator.value.trim()), dirs, homeDir, "this directory")
+		? destination(
+			join.locator.value,
+			rooms.directoryId(join.locator.value.trim()),
+			dirs,
+			directoryContext,
+			"this directory",
+		)
 		// The same classification, asked of a directory already in hand rather
 		// than of a field: naming the answer twice is how the panel and the card
 		// came to disagree, and this branch is the copy that was left behind.
-		: destination(here, here, dirs, homeDir, "this directory");
+		: destination(here, here, dirs, directoryContext, "this directory");
 	// At most one "+" field is open anywhere in the rail, so this is the open
 	// panel's own id rather than a flag per place that could hold one.
 	const [open, setOpen] = useState<string | null>(null);
@@ -199,14 +211,14 @@ function SidebarPane(
 		placeholder: "room name",
 		max: MAX_ROOM,
 		noun: "room name",
-		canAdd: true,
+		canAdd: canInteract,
 		canBePrivate: true,
 		offers: roomOffers,
 		sigil: "#",
 		onOpen: opener("newRoom"),
 		onSubmit: (name: string, isPrivate: boolean) =>
-			isPrivate ? peer.openPrivateRoom(here, name) : peer.pickRoom(here, name),
-		onError: (text: string) => peer.toast("failure", text),
+			isPrivate ? rooms.openPrivateRoom(here, name) : rooms.pickRoom(here, name),
+		onError: (text: string) => browser.toast("failure", text),
 		// With the join card on screen, this field and that form name one room:
 		// one draft, one lock, and Enter submits the form itself, so the locator
 		// and name the reader filled in over there are honored rather than
@@ -217,8 +229,8 @@ function SidebarPane(
 				form: "#joinForm",
 				value: join.room.value,
 				secret: join.secret.value,
-				onValue: (value: string) => peer.editJoin({ room: value }),
-				onSecret: (secret: boolean) => peer.editJoin({ secret }),
+				onValue: (value: string) => browser.editJoin({ room: value }),
+				onSecret: (secret: boolean) => browser.editJoin({ secret }),
 			}
 			: undefined,
 		// With the card up the destination is one of this tab's own directories
@@ -238,9 +250,9 @@ function SidebarPane(
 					className="where-picks"
 					locator={join.locator.value}
 					dirs={dirs}
-					homeDir={homeDir}
+					context={directoryContext}
 					onPick={(locator) => {
-						peer.editJoin({ locator });
+						browser.editJoin({ locator });
 						close();
 					}}
 					onElsewhere={() =>
@@ -250,7 +262,7 @@ function SidebarPane(
 							// filed. On a phone it is still a screen away, which is
 							// what this brings forward; on a wide window it is
 							// already beside this panel, which stays where it is.
-							peer.showJoinCard();
+							browser.showJoinCard();
 						})}
 				/>
 			)
@@ -267,10 +279,10 @@ function SidebarPane(
 				// The address, not the identity: an act's locator is something to
 				// dial, and an identity is what is left after the routing hints have
 				// been taken off it.
-				peer.reachFor({
+				browser.reachFor({
 					source: "press",
 					room: named(name),
-					locator: implied(peer.dirAddress(here)),
+					locator: implied(rooms.dirAddress(here)),
 				})
 			),
 		// Stated whether or not this tab holds more than one directory. A room row
@@ -291,7 +303,7 @@ function SidebarPane(
 					size={mobile ? "large" : "normal"}
 					title={railShown ? "Hide the rooms list" : "Show the rooms list"}
 					aria-pressed={railShown}
-					onClick={() => peer.showRail(false)}
+					onClick={() => browser.showRail(false)}
 				/>
 				<Link className="wordmark-link" to="/" aria-label="The front page">
 					<Wordmark />
@@ -315,6 +327,7 @@ function SidebarPane(
 					)}
 				>
 					<YourRooms
+						canInteract={canInteract}
 						convs={convs}
 						dirs={dirs}
 						home={homeDir}
@@ -322,15 +335,15 @@ function SidebarPane(
 						empty={emptyDirs}
 						invites={invites}
 						shows={shows}
-						onTake={peer.acceptInvite}
-						onDrop={peer.declineInvite}
-						onPick={(conv) => peer.pickRoom(conv.dir, conv.id, conv.key)}
-						onLeave={peer.leaveRoom}
-						onAbout={peer.aboutDirectory}
+						onTake={rooms.acceptInvite}
+						onDrop={rooms.declineInvite}
+						onPick={(conv) => rooms.pickRoom(conv.dir, conv.id, conv.key)}
+						onLeave={rooms.leaveRoom}
+						onAbout={browser.aboutDirectory}
 						// The address, not the identity: what a row hands over has to be
 						// dialable, and the hints are part of what makes it so.
-						onJoinOn={(dir) => peer.reachFor({ source: "press", locator: named(peer.dirAddress(dir)) })}
-						onLeaveDir={peer.leaveDirectory}
+						onJoinOn={(dir) => browser.reachFor({ source: "press", locator: named(rooms.dirAddress(dir)) })}
+						onLeaveDir={rooms.leaveDirectory}
 					/>
 				</RailSection>
 				<RailSection
@@ -344,33 +357,40 @@ function SidebarPane(
 						placeholder: "member name",
 						max: MAX_NICK,
 						noun: "name",
-						canAdd: inARoom,
+						canAdd: canInteract && inARoom,
 						offers: dmOffers,
 						sigil: "@",
 						onOpen: opener("newDm"),
-						onSubmit: peer.startDm,
-						onError: (text) => peer.toast("failure", text),
+						onSubmit: rooms.startDm,
+						onError: (text) => browser.toast("failure", text),
 					}}
 				>
 					<DmRows
+						canInteract={canInteract}
 						convs={convs}
 						activeKey={activeKey}
 						inARoom={inARoom}
 						dirs={dirs}
 						home={homeDir}
 						shows={shows}
-						onOpen={peer.openConv}
-						onClose={peer.closeDm}
-						onAbout={peer.aboutDirectory}
+						onOpen={rooms.openConv}
+						onClose={rooms.closeDm}
+						onAbout={browser.aboutDirectory}
 					/>
 				</RailSection>
 			</div>
-			<Foot dirs={dirs} home={homeDir} session={session} standing={standing} />
+			<Foot
+				canInteract={canInteract}
+				dirs={dirs}
+				home={homeDir}
+				session={session}
+				standing={standing}
+			/>
 		</nav>
 	);
 }
 
-// Memoised: see `useStore`. Composer keystrokes change none of these props;
+// Memoised: see `useRoomsState`. Composer keystrokes change none of these props;
 // the join card's answers do change per keystroke, but only while the card is
 // on screen, where the rail's linked field has to redraw anyway.
 export const Sidebar = memo(SidebarPane);

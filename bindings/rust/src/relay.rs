@@ -141,8 +141,8 @@ impl Server {
 
 	/// Stop admitting partners. Sessions already returned by
 	/// [`Server::accept`] remain live.
-	pub fn close(&self) -> crate::Result<()> {
-		self.listener.close()
+	pub async fn close(&self) -> crate::Result<()> {
+		self.listener.close().await
 	}
 }
 
@@ -175,7 +175,7 @@ async fn listen_relay_profile(
 	})();
 	match opened {
 		Ok(server) => Ok(server),
-		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener))),
+		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener).await)),
 	}
 }
 

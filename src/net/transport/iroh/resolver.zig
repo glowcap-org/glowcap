@@ -1,3 +1,7 @@
+//! The iroh dial resolver for `completion.Loop`: maps an OCapN locator to a
+//! sidecar connect target and refuses a malformed node id before any network
+//! or sidecar admission is touched.
+
 const std = @import("std");
 
 const model = @import("model");

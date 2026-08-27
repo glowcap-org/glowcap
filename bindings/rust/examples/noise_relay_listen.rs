@@ -4,7 +4,7 @@
 //! (via `zig build rust-noise-relay-listen`), which appends
 //! `<relayUrl> <registerUrl>` and dials the printed locator.
 
-use pancake_rust_dogfood::{relay, Argument};
+use pancake_rust_dogfood::{relay, Argument, PendingWork};
 use tokio::task::LocalSet;
 
 fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
@@ -26,20 +26,13 @@ async fn scene(relay_url: String, register_url: String) -> Result<(), String> {
 		.publish_giftable("greeter", || Box::new(greeter))
 		.map_err(|e| e.to_string())?;
 	println!("RELAY-LISTENER-READY {}", server.uri().map_err(|e| e.to_string())?);
-	// Admission is loop-owned, but serving is an explicit application choice:
-	// start each accepted session's inbound delivery and retain its handle so
-	// the harness's dial stays live until it kills this process.
-	let mut sessions = Vec::new();
-	loop {
-		let session = server.accept().await.map_err(|e| e.to_string())?;
-		let serving = session.serve();
-		tokio::task::spawn_local(async move {
-			if let Err(error) = serving.await {
-				eprintln!("noise-relay accepted session failed: {error}");
-			}
-		});
-		sessions.push(session);
-	}
+	// The proof owns exactly one accepted session. The client closes after its
+	// answered call, so observing `serve` and both close barriers proves the
+	// byte path and the managed listener's clean shutdown together.
+	let session = server.accept().await.map_err(|e| e.to_string())?;
+	session.serve().await.map_err(|e| e.to_string())?;
+	session.close(PendingWork::Cancel).await.map_err(|e| e.to_string())?;
+	server.close().await.map_err(|e| e.to_string())
 }
 
 fn main() {

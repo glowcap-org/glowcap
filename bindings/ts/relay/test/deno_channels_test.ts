@@ -1,14 +1,9 @@
 import { takeRuntimeFailures } from "@pancake/runtime";
 import { denoTcpChannel } from "../deno_channels.ts";
+import { assertEquals } from "../../dogfood/assert.ts";
 
 type TcpConnect = (options: Deno.ConnectOptions) => Promise<Deno.TcpConn>;
 const denoTcp = Deno as unknown as { connect: TcpConnect };
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
-}
 
 Deno.test("denoTcpChannel reports refusal while retiring a timed-out late connection", async () => {
 	takeRuntimeFailures();
@@ -69,6 +64,38 @@ Deno.test("denoTcpChannel returns one close barrier after running every release"
 		assertEquals(first, second);
 		await first.catch((error) => assertEquals(error, closeFailure));
 		assertEquals(socketCloses, 1);
+		assertEquals(readerReleases, 1);
+		assertEquals(writerReleases, 1);
+	} finally {
+		denoTcp.connect = originalConnect;
+	}
+});
+
+Deno.test("denoTcpChannel treats an auto-retired socket as closed", async () => {
+	const originalConnect = denoTcp.connect;
+	let readerReleases = 0;
+	let writerReleases = 0;
+	denoTcp.connect = () =>
+		Promise.resolve({
+			readable: {
+				getReader: () => ({
+					read: () => Promise.resolve({ done: true, value: undefined }),
+					releaseLock: () => readerReleases++,
+				}),
+			},
+			writable: {
+				getWriter: () => ({
+					write: (_chunk: Uint8Array) => Promise.resolve(),
+					releaseLock: () => writerReleases++,
+				}),
+			},
+			close() {
+				throw new Deno.errors.BadResource("socket is already closed");
+			},
+		} as unknown as Deno.TcpConn);
+	try {
+		const channel = await denoTcpChannel("example.invalid", 1);
+		await channel.close();
 		assertEquals(readerReleases, 1);
 		assertEquals(writerReleases, 1);
 	} finally {

@@ -507,8 +507,11 @@
     (define active-failed?
       (and (not setup-failed?)
            (box-cas! (loop-listener-state listener) 'ready 'failed)))
-    (when (or setup-failed? active-failed?)
-      (when active-failed?
+    (define closing-failed?
+      (and (not setup-failed?) (not active-failed?)
+           (box-cas! (loop-listener-state listener) 'closing 'failed)))
+    (when (or setup-failed? active-failed? closing-failed?)
+      (when (or active-failed? closing-failed?)
         (set-box! (loop-listener-outcome listener) error))
       (hash-remove! (driver-loop-listeners lp) listener-id)
       (async-channel-put (loop-listener-accepts listener) error))))

@@ -8,21 +8,21 @@ import { chromium } from "playwright";
 
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
-  colorScheme: "dark",
+	viewport: { width: 1600, height: 1000 },
+	colorScheme: "dark",
 });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.addInitScript(() => {
-  try {
-    localStorage.removeItem("ocapnviz:app-state");
-  } catch {
-    // ignore
-  }
+	try {
+		localStorage.removeItem("ocapnviz:app-state");
+	} catch {
+		// ignore
+	}
 });
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector("canvas#ocv-pixi");

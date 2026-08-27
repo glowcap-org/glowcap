@@ -154,10 +154,14 @@ pub fn setNonblocking(fd: i32) bool {
     return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
 }
 
-/// Suppress SIGPIPE for Darwin sockets the kqueue backend writes. Linux send
-/// completions do not need a socket option here, and the generic blocking TCP
-/// resident still owns its own stream policy.
+/// Suppress SIGPIPE for Darwin sockets the kqueue backend writes. `SO.NOSIGPIPE`
+/// is a BSD socket option that no other platform declares, so the setsockopt is
+/// comptime-scoped to Darwin; Linux suppresses SIGPIPE at send time with
+/// `MSG_NOSIGNAL` and needs nothing here, and the generic blocking TCP resident
+/// still owns its own stream policy. This is `pub` and reached by the public
+/// api-surface walk, so the option name must never be analyzed off Darwin.
 pub fn setNoSigpipe(fd: i32) bool {
+    if (comptime !builtin.target.os.tag.isDarwin()) return true;
     const c = std.c;
     const enable: c_int = 1;
     return c.setsockopt(fd, c.SOL.SOCKET, c.SO.NOSIGPIPE, &enable, @sizeOf(c_int)) >= 0;

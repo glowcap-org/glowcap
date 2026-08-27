@@ -16,31 +16,31 @@ import { chromium } from "playwright";
 
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+	viewport: { width: 1600, height: 1000 },
 });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 
 await page.addInitScript(() => {
-  try {
-    localStorage.removeItem("ocapnviz:app-state");
-  } catch {
-    // ignore
-  }
+	try {
+		localStorage.removeItem("ocapnviz:app-state");
+	} catch {
+		// ignore
+	}
 });
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector("canvas#ocv-pixi");
 await page.waitForTimeout(500);
 
 async function cursor(): Promise<string> {
-  return await page.evaluate(() => {
-    const c = document.querySelector("canvas#ocv-pixi") as HTMLCanvasElement;
-    return c ? getComputedStyle(c).cursor || "(unset)" : "(no-canvas)";
-  });
+	return await page.evaluate(() => {
+		const c = document.querySelector("canvas#ocv-pixi") as HTMLCanvasElement;
+		return c ? getComputedStyle(c).cursor || "(unset)" : "(no-canvas)";
+	});
 }
 
 // Hover over empty stage area.
@@ -72,15 +72,15 @@ console.log(`released:          ${c4}`);
 await browser.close();
 
 const checks = {
-  "shift → copy": c1 === "copy",
-  "shift+option → no-drop": c2 === "no-drop",
-  "release option → copy": c3 === "copy",
-  "release all → matches neutral": c4 === c0,
+	"shift → copy": c1 === "copy",
+	"shift+option → no-drop": c2 === "no-drop",
+	"release option → copy": c3 === "copy",
+	"release all → matches neutral": c4 === c0,
 };
 let failed = 0;
 for (const [name, ok] of Object.entries(checks)) {
-  console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
-  if (!ok) failed++;
+	console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
+	if (!ok) failed++;
 }
 console.log("");
 console.log(failed === 0 ? "ALL PASS" : `FAIL: ${failed}`);

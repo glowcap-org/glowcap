@@ -189,6 +189,52 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## API gaps
 
+- **A Rooms message consumer has a bounded unread queue.** `Room.messages`
+  hands a line directly to a pending read and otherwise retains at most 256
+  unread messages. A consumer that remains stalled past that bound receives a
+  stream error and must subscribe again. Cancellation, overflow, replacement,
+  and leave release every unread file capability; the browser client keeps a
+  read pending during ordinary use.
+
+- **Rooms sessions are capabilities, not accounts.** No ambient login or server
+  account owns a durable session today. The session sturdyref is the authority
+  to attach, and each delegated facet can be revoked independently. A future
+  account capability may retain or mint session grants and durable name claims;
+  it must not turn those powers into identity inferred from a login string.
+
+- **Durable Rooms sessions do not make every resource durable.** Attached views
+  share one network identity and checkpoint. They also share directory
+  discovery, archive choice, capabilities, peering intent, history, live files,
+  operator actions, listener and IRC administration, and visualizer publication.
+  Browser `File` handles and object URLs remain device-local.
+  A live transferred attachment remains available only while its room, direct
+  line, and session custody remain valid. A selected member archive may retain
+  the same message's bytes separately and serve them after restart through its
+  own scoped capability. The checkpoint stores neither copy nor an invented
+  promise that an archive retained one. Room-link invitations are bounded
+  workspace intent: local reconstruction and a durable Rooms session retain
+  the handed sturdyref until the reader accepts or dismisses it.
+
+- **Ordinary session-effect deduplication is bounded.** The durable ledger keeps
+  64 completed operation identities. The browser never automatically retries an
+  ambiguous send, edit, withdrawal, operator mutation, listener change, or IRC
+  change. A manually replayed UUID after it has left that window has no
+  indefinite at-most-once guarantee. Private-room and durable-authority effects
+  instead keep a typed pending result and an idempotent recovery key until
+  resolution.
+
+- **Local browser reconstruction is not a multi-writer merge protocol.** A
+  local workspace uses one coalesced localStorage writer per tab. Explicit
+  import and clear notify sibling tabs, but concurrent ordinary local edits are
+  not merged. Use one durable Rooms session capability when several browsers or
+  tabs must mutate the same workspace and network identity.
+
+- **Directory discovery is a bounded live view.** A list or watch baseline
+  carries at most 256 current room publications. Watch clients receive an
+  explicit truncation event and continue receiving later deltas. A one-shot
+  list has no continuation cursor yet, so callers that need a complete large
+  directory inventory must use the paged operator capability.
+
 - **The IRC adapters have IRC representation and delivery limits.** The bridge mirrors one channel into an
   ordinary Rooms directory and is read-only unless the operator selects
   two-way mode with TLS and SASL credentials. Two-way posts use the bridge's
@@ -264,7 +310,10 @@ assets are not published.
   identity. Discovered route advice becomes available to later gives only
   after one withdrawal succeeds. Rooms composes active listeners into an
   identity route and uses the existing handoff path to publish durable rooms
-  between directories; ordinary member introductions still relay the
+  between directories. A Rooms Host also authors room and steward sturdyrefs
+  with the identity route it advertises on the asking session; the browser can
+  reconnect through that route and try its concrete alternatives without
+  changing room authority. Ordinary member introductions still relay the
   member's signed session location.
 - **Handoff signatures always use Syrup.** That signing domain does not change
   when the surrounding session uses Cap'n Proto.

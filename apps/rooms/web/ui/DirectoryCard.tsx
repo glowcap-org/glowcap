@@ -9,10 +9,12 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DirId, DirView } from "./types.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { directoryName } from "./text.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
-import { IconButton } from "./IconButton.tsx";
+import { ModalHead } from "./ModalHead.tsx";
+import { Confirm } from "./Confirm.tsx";
 import { Button } from "./Button.tsx";
 import { StandingMenu } from "./Standing.tsx";
 import { CopyField } from "./Copy.tsx";
@@ -23,13 +25,14 @@ import { DirectoryFacts, GrantedNameNote } from "./DirectoryFacts.tsx";
  * it arrived. The open/closed decision still belongs out here: the dialog
  * hook keys on that boolean, not on its own mount. */
 export function DirectoryCard(
-	{ dir, rooms, lines, mark, standing, homeDir, onLayer }: {
+	{ dir, rooms, lines, mark, standing, homeDir, canInteract, onLayer }: {
 		dir: DirView | null;
 		rooms: number;
 		lines: number;
 		mark: string | undefined;
 		standing: string;
 		homeDir: DirId | null;
+		canInteract: boolean;
 		onLayer: (held: boolean) => void;
 	},
 ) {
@@ -40,14 +43,15 @@ export function DirectoryCard(
 		mark: string | undefined;
 		standing: string;
 		homeDir: DirId | null;
+		canInteract: boolean;
 	};
 	// The whole painted answer shares the card's held lifetime. Retaining only
 	// the directory while App has already zeroed its counts rewrites the card as
 	// it leaves, so the reverse transition would show facts that were never true.
 	const last = useRef<View | null>(
-		dir === null ? null : { dir, rooms, lines, mark, standing, homeDir },
+		dir === null ? null : { dir, rooms, lines, mark, standing, homeDir, canInteract },
 	);
-	if (dir !== null) last.current = { dir, rooms, lines, mark, standing, homeDir };
+	if (dir !== null) last.current = { dir, rooms, lines, mark, standing, homeDir, canInteract };
 	const shown = last.current;
 	const { held, onExited } = useHeldModal(dir !== null);
 	useLayoutEffect(() => {
@@ -76,7 +80,7 @@ function whatGoes(rooms: number, lines: number): string {
 }
 
 function DirectoryDialog(
-	{ open, onExited, dir, rooms, lines, mark, standing, homeDir }: {
+	{ open, onExited, dir, rooms, lines, mark, standing, homeDir, canInteract }: {
 		open: boolean;
 		onExited: () => void;
 		dir: DirView;
@@ -85,15 +89,17 @@ function DirectoryDialog(
 		mark: string | undefined;
 		standing: string;
 		homeDir: DirId | null;
+		canInteract: boolean;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	const close = useRef<HTMLButtonElement>(null);
 	const dialog = useRef<HTMLDialogElement>(null);
 	// The hook owns the whole modal lifecycle — showing, Escape, the backdrop
 	// press, and where focus lands — so this component never opens a dialog by
 	// hand and never has a second way to close one.
-	useModalDialog(dialog, () => peer.aboutDirectory(null), close, open, onExited);
+	useModalDialog(dialog, () => browser.aboutDirectory(null), close, open, onExited);
 	// Asked before it is done, and asked in this card rather than in one over it:
 	// a dialog on top of a dialog is a shape neither the browser nor a screen
 	// reader handles well, and the question belongs to the thing being described
@@ -116,23 +122,20 @@ function DirectoryDialog(
 				    else on screen is drawing. */
 			}
 			<div className="modal-card card-plane dircard" data-dir={mark}>
-				<div className="settings-head-row">
-					<h2 id="dircardTitle">
-						<span className="dircard-mark" aria-hidden="true">
-							<Icon name="directory" size={14} />
-						</span>
-						{name}
-					</h2>
-					<IconButton
-						ref={close}
-						id="dircardClose"
-						icon="close"
-						label="Close"
-						size="small"
-						variant="ghost"
-						onClick={() => peer.aboutDirectory(null)}
-					/>
-				</div>
+				<ModalHead
+					titleId="dircardTitle"
+					title={
+						<>
+							<span className="dircard-mark" aria-hidden="true">
+								<Icon name="directory" size={14} />
+							</span>
+							{name}
+						</>
+					}
+					closeId="dircardClose"
+					closeRef={close}
+					onClose={() => browser.aboutDirectory(null)}
+				/>
 
 				{
 					/* No label over the field: the heading above is the directory's name.
@@ -142,7 +145,7 @@ function DirectoryDialog(
 				<div className="group well">
 					<CopyField
 						id="dircardLocator"
-						text={peer.dirAddress(dir.id)}
+						text={session.dirAddress(dir.id)}
 						label={"Copy the locator for " + name}
 					/>
 					<DirectoryFacts dir={dir} rooms={rooms} />
@@ -166,39 +169,42 @@ function DirectoryDialog(
 							follows="you"
 							about={name}
 							up
-							onSay={(said) => peer.setDirStanding(dir.id, said)}
+							onSay={(said) => session.setDirStanding(dir.id, said)}
+							disabled={!canInteract}
 						/>
 					</div>
 				</div>
 
 				{
-					/* Stacked as this card's own children, the way Settings stacks its
-				    save and its close: the panel is a column with one gap, so a row
-				    wrapper here would be a second opinion about how far apart two
-				    buttons in a card stand. */
+					/* Leaving asks first, in the card, with what goes counted rather
+					    than described: "your conversations" is exactly the wording
+					    that makes somebody press it and then find out what it meant. */
 				}
-				{asking
+				{canInteract && (asking
 					? (
-						<>
-							<p className="hint" id="dircardLeaveSaid">
-								Leave {name}? {whatGoes(rooms, lines)}{" "}
-								The name it granted you goes back to it, and somebody else may take it.
-							</p>
-							<Button
-								id="dircardLeave"
-								aria-describedby="dircardLeaveSaid"
-								onClick={() => peer.leaveDirectory(dir.id)}
-							>
-								Leave
-							</Button>
-							<Button variant="quiet" onClick={() => setAsking(false)}>Stay</Button>
-						</>
+						<Confirm
+							id="dircardLeaveSaid"
+							label={"Leave " + name}
+							say={
+								<>
+									Leave {name}? {whatGoes(rooms, lines)}{" "}
+									The name it granted you goes back to it, and somebody else may take it.
+								</>
+							}
+							keep="Stay"
+							commit="Leave"
+							commitId="dircardLeave"
+							onKeep={() => setAsking(false)}
+							onCommit={() => session.leaveDirectory(dir.id)}
+						/>
 					)
 					: (
-						<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
-							Leave this directory
-						</Button>
-					)}
+						<div className="actions">
+							<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
+								Leave this directory…
+							</Button>
+						</div>
+					))}
 			</div>
 		</dialog>
 	);

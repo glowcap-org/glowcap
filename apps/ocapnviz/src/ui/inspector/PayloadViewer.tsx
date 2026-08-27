@@ -24,6 +24,7 @@
 import { useMemo, useState } from "react";
 import { formatHexDump, type HexGroupBytes } from "../format.ts";
 import type { Codec } from "../../schema/topology.ts";
+import { loadStoredValue, persistStoredValue } from "../../state/storage.ts";
 import { c, FONT, RADIUS, segmentCellClass, SIZE, SPACE } from "../tokens.ts";
 
 // Lenses answer questions a reader can actually have about an OCapN
@@ -42,19 +43,12 @@ type ViewMode = (typeof VIEW_MODES)[number];
 const VIEW_MODE_STORAGE_KEY = "ocapnviz:payload-view-mode";
 
 export function loadPersistedViewMode(): ViewMode {
-	const storage = (globalThis as { localStorage?: Storage }).localStorage;
-	const raw = storage?.getItem(VIEW_MODE_STORAGE_KEY);
+	const raw = loadStoredValue(VIEW_MODE_STORAGE_KEY);
 	return (VIEW_MODES as readonly string[]).includes(raw ?? "") ? raw as ViewMode : "hex";
 }
 
 function savePersistedViewMode(mode: ViewMode): void {
-	const storage = (globalThis as { localStorage?: Storage }).localStorage;
-	try {
-		storage?.setItem(VIEW_MODE_STORAGE_KEY, mode);
-	} catch {
-		// Quota / private-mode failures are non-fatal — the lens falls
-		// back to the default on next load.
-	}
+	persistStoredValue(VIEW_MODE_STORAGE_KEY, mode);
 }
 
 const paneStyle = {

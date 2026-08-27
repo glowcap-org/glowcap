@@ -20,7 +20,6 @@ const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
-const no_dial = @import("../support/no_dial_locator.zig");
 
 const fixtures = @import("../support/completion_loop_fixtures.zig");
 const startSession = fixtures.startSession;

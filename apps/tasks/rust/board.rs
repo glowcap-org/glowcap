@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, Session};
+use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, Session};
 
 const BOARD: &str = "board";
 
@@ -48,7 +48,7 @@ fn parse_snapshot(arg: &Argument) -> Vec<Task> {
 pub struct Board {
 	session: Rc<Session>,
 	board: pancake::Ref,
-	_runtime: Runtime,
+	runtime: Runtime,
 }
 
 impl Board {
@@ -83,7 +83,7 @@ impl Board {
 		Ok(Board {
 			session,
 			board,
-			_runtime: runtime,
+			runtime,
 		})
 	}
 
@@ -111,7 +111,14 @@ impl Board {
 		Ok(parse_snapshot(&result))
 	}
 
-	pub async fn leave(self) {
-		self.session.close();
+	pub async fn leave(self) -> Result<(), String> {
+		let session_error = self.session.close(PendingWork::Cancel).await.err();
+		let runtime_error = self.runtime.close(PendingWork::Cancel).await.err();
+		match (session_error, runtime_error) {
+			(None, None) => Ok(()),
+			(Some(error), None) => Err(format!("leave session: {error}")),
+			(None, Some(error)) => Err(format!("leave runtime: {error}")),
+			(Some(session), Some(runtime)) => Err(format!("leave session: {session}; leave runtime: {runtime}")),
+		}
 	}
 }

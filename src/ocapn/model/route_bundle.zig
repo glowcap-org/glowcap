@@ -56,6 +56,9 @@ pub fn validateCombinedListBytes(first: []const u8, second: []const u8) ViewErro
     if (total > max_route_list_bytes) return error.UnparseableLocator;
 }
 
+/// Available only to spans that came out of `uri_shape.inspect`, whose first
+/// act validates every escape in the whole URI: a `%` here always has two hex
+/// digits behind it, which is what makes the slice and the parse infallible.
 fn decodedByte(bytes: []const u8, at: *usize) u8 {
     if (bytes[at.*] != '%') {
         defer at.* += 1;
@@ -81,23 +84,39 @@ fn decodedContains(bytes: []const u8, needle: u8) bool {
     return false;
 }
 
+/// The names of a route query's `name=value` segments, in order. An empty query
+/// is an empty hint map (the owned parser in `model.uri` reads it the same
+/// way), so it yields nothing rather than one nameless segment; a segment with
+/// no `=` is a refusal, never an invariant. Both readers below walk a query
+/// through this one iterator, which is what keeps them from disagreeing about
+/// what a segment is.
+const QueryNames = struct {
+    segments: ?std.mem.SplitIterator(u8, .scalar),
+
+    fn init(query: []const u8) QueryNames {
+        return .{ .segments = if (query.len == 0) null else std.mem.splitScalar(u8, query, '&') };
+    }
+
+    fn next(self: *QueryNames) ViewError!?[]const u8 {
+        const segment = (if (self.segments) |*it| it.next() else null) orelse return null;
+        const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return error.UnparseableLocator;
+        return segment[0..eq];
+    }
+};
+
 fn validateQuery(query: []const u8) ViewError!void {
-    if (query.len == 0) return;
     var count: usize = 0;
-    var segments = std.mem.splitScalar(u8, query, '&');
-    while (segments.next()) |segment| {
+    var names = QueryNames.init(query);
+    while (try names.next()) |name| {
         count += 1;
         if (count > model.max_locator_hint_count) return error.UnparseableLocator;
-        const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return error.UnparseableLocator;
-        const name = segment[0..eq];
         if (name.len == 0) return error.UnparseableLocator;
 
         var prior_count: usize = 0;
-        var prior = std.mem.splitScalar(u8, query, '&');
+        var prior = QueryNames.init(query);
         while (prior_count + 1 < count) : (prior_count += 1) {
-            const seen = prior.next() orelse unreachable;
-            const seen_eq = std.mem.indexOfScalar(u8, seen, '=') orelse return error.UnparseableLocator;
-            if (decodedEqual(seen[0..seen_eq], name)) return error.UnparseableLocator;
+            const seen = (try prior.next()) orelse return error.UnparseableLocator;
+            if (decodedEqual(seen, name)) return error.UnparseableLocator;
         }
     }
 }
@@ -109,10 +128,8 @@ pub fn validateDialPathView(route: RouteUriView) ViewError!void {
         decodedContains(route.transport_encoded, '.'))
         return error.UnparseableLocator;
     const query = route.query_encoded orelse return;
-    var segments = std.mem.splitScalar(u8, query, '&');
-    while (segments.next()) |segment| {
-        const eq = std.mem.indexOfScalar(u8, segment, '=') orelse unreachable;
-        const name = segment[0..eq];
+    var names = QueryNames.init(query);
+    while (try names.next()) |name| {
         if (decodedEqual(name, model.transport.hint_alt_locators))
             return error.UnparseableLocator;
     }
@@ -412,16 +429,6 @@ pub fn fromIdLocator(
     locator: model.PeerLocator,
 ) Error!Owned {
     return fromIdLocatorWithPathSet(allocator, locator, .all, AcceptRoute{});
-}
-
-/// Parse only the identity-proving prefix while still validating any weak
-/// fallback suffix. Sturdyrefs use this shape because fallback advice cannot
-/// authorize the durable identity they name.
-pub fn fromIdLocatorIdentityPaths(
-    allocator: std.mem.Allocator,
-    locator: model.PeerLocator,
-) Error!Owned {
-    return fromIdLocatorWithPathSet(allocator, locator, .identity, AcceptRoute{});
 }
 
 pub const Internal = struct {

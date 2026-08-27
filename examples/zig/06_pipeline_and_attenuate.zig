@@ -88,7 +88,7 @@ pub fn main() !void {
     const desk_peer = &pair.p1;
     const listener_peer = &pair.p2;
 
-    var desk_vat = pancake.Vat.init(allocator);
+    var desk_vat = actors.Vat.init(allocator);
     defer desk_vat.deinit();
     var desk_port = actors.Port.init(allocator, desk_peer);
     defer desk_port.deinit(&desk_vat);

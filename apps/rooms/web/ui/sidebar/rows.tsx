@@ -1,6 +1,7 @@
 // Rows in the rooms rail: a room you are in, a directory with nothing open,
 // an invitation waiting, and the mark that ends a row.
 
+import { useState } from "react";
 import { type DirId, type DirView, type Invitation, membersHere, type RoomConv, type SessionPhase } from "../types.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
@@ -31,7 +32,13 @@ export function heldBack(hidden: number): string {
  * exception is `oneWay`, a leave that cannot be walked back: it keeps the
  * danger tone, on the same condition the spoken label already warns about. */
 export function RowClose(
-	{ title, said, oneWay, onClose }: { title: string; said: string; oneWay?: boolean; onClose: () => void },
+	{ title, said, oneWay, disabled, onClose }: {
+		title: string;
+		said: string;
+		oneWay?: boolean;
+		disabled?: boolean;
+		onClose: () => void;
+	},
 ) {
 	return (
 		<IconButton
@@ -42,6 +49,7 @@ export function RowClose(
 			variant="ghost"
 			tone={oneWay ? "danger" : "neutral"}
 			title={title}
+			disabled={disabled}
 			onClick={(e) => {
 				e.stopPropagation();
 				onClose();
@@ -61,7 +69,7 @@ export function RowClose(
  * The badge is unread, for the same reason: a head-count is somebody else's
  * activity, and nothing on this list should move or change because of it. */
 export function RoomRow(
-	{ conv, unread, here, where, home, phase, bridgedFrom, onPick, onLeave, onAbout }: {
+	{ conv, unread, here, where, home, phase, bridgedFrom, canInteract, onPick, onLeave, onAbout }: {
 		conv: RoomConv;
 		/** Where a bridged room's IRC channel lives, or null for every other
 		 * room: a fact about the row, said in words and in its label. */
@@ -78,6 +86,7 @@ export function RoomRow(
 		 * room is on even where the drawn line has nothing worth naming. */
 		home: DirId | null;
 		phase: SessionPhase;
+		canInteract: boolean;
 		onPick: (conv: RoomConv) => void;
 		onLeave: (key: string) => void;
 		onAbout: (dir: DirId) => void;
@@ -115,17 +124,23 @@ export function RoomRow(
 	// pointer — but that was the ordering, not the number, and the ordering is
 	// gone.
 	const people = membersHere(conv.members);
+	const membership = conv.membership === "joined"
+		? ""
+		: conv.membership === "joining"
+		? ", joining"
+		: ", not joined; select to retry";
 	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
 		(bridgedFrom !== null ? ", an IRC channel bridged via " + bridgedFrom : "") +
-		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : "") + unwell;
+		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : membership) + unwell;
 	return (
 		<li
-			className={[here ? "here" : "", conv.held ? "held" : ""].filter(Boolean).join(" ")}
+			className={[here ? "here" : "", conv.held ? "held" : "", `membership-${conv.membership}`].filter(Boolean)
+				.join(" ")}
 			data-dir={where.mark}
 		>
 			<button
 				type="button"
-				className="room-open"
+				className="room-open invite-take"
 				aria-label={said}
 				aria-current={here ? "page" : undefined}
 				onClick={() => onPick(conv)}
@@ -133,11 +148,16 @@ export function RoomRow(
 				<span className="hash" aria-hidden="true">
 					{conv.held ? <Icon name="lock" size={13} /> : "#"}
 				</span>
-				<span className="rname" title={conv.id}>{conv.id}</span>
+				<span className="rname" title={conv.id}>
+					<span className="rname-text">{conv.id}</span>
+					{bridgedFrom !== null && <span className="irc-chip">IRC</span>}
+				</span>
 				{unread > 0
 					? <span className="rcount unread">{unread}</span>
 					: people > 0
 					? <span className="rcount">{people}</span>
+					: conv.membership !== "joined"
+					? <span className="rcount room-state">{conv.membership === "joining" ? "joining" : "retry"}</span>
 					: null}
 			</button>
 			{(directory !== null || standing !== "") && (
@@ -164,20 +184,15 @@ export function RoomRow(
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
-			{bridgedFrom !== null && (
-				// A fact, not a control: where this room's channel actually
-				// lives, in the caption's own column.
-				<span className="rwhere rwhere-bridge" title={bridgedFrom}>
-					<span className="rwhere-said">bridged via {bridgedFrom}</span>
-				</span>
+			{canInteract && (
+				<RowClose
+					title="Leave"
+					said={"Leave " + named + inDir +
+						(conv.held ? ". You can only return if somebody hands it to you again" : "")}
+					oneWay={conv.held}
+					onClose={() => onLeave(conv.key)}
+				/>
 			)}
-			<RowClose
-				title="Leave"
-				said={"Leave " + named + inDir +
-					(conv.held ? ". You can only return if somebody hands it to you again" : "")}
-				oneWay={conv.held}
-				onClose={() => onLeave(conv.key)}
-			/>
 		</li>
 	);
 }
@@ -194,21 +209,30 @@ export function RoomRow(
  * label names the directory it arrived on and it wears that directory's
  * color. */
 export function InviteRow(
-	{ invite, where, onTake, onDrop }: {
+	{ invite, where, canInteract, onTake, onDrop }: {
 		invite: Invitation;
 		where: DirWhere;
-		onTake: (id: string) => void;
+		canInteract: boolean;
+		onTake: (id: string) => Promise<void>;
 		onDrop: (id: string) => void;
 	},
 ) {
+	const [taking, setTaking] = useState(false);
 	const onDir = where.name === null ? "" : " on " + where.name;
 	return (
 		<li className="inviterow" data-dir={where.mark}>
 			<button
 				type="button"
 				className="room-open"
-				aria-label={`Take up ${invite.from}'s invitation to ${invite.label}${onDir}`}
-				onClick={() => onTake(invite.id)}
+				aria-label={taking
+					? `Taking up ${invite.from}'s invitation to ${invite.label}${onDir}`
+					: `Take up ${invite.from}'s invitation to ${invite.label}${onDir}`}
+				data-busy={taking || undefined}
+				disabled={taking || !canInteract}
+				onClick={() => {
+					setTaking(true);
+					void onTake(invite.id).finally(() => setTaking(false));
+				}}
 			>
 				<span className="hash" aria-hidden="true">
 					<Icon name="lock" size={13} />
@@ -216,11 +240,14 @@ export function InviteRow(
 				<span className="rname" title={invite.label}>{invite.label}</span>
 				<span className="rcount invited">from {invite.from}</span>
 			</button>
-			<RowClose
-				title={"Decline " + invite.label}
-				said={`Decline ${invite.from}'s invitation to ${invite.label}${onDir}`}
-				onClose={() => onDrop(invite.id)}
-			/>
+			{canInteract && (
+				<RowClose
+					title={"Decline " + invite.label}
+					said={`Decline ${invite.from}'s invitation to ${invite.label}${onDir}`}
+					disabled={taking}
+					onClose={() => onDrop(invite.id)}
+				/>
+			)}
 		</li>
 	);
 }
@@ -235,10 +262,11 @@ export function InviteRow(
  * already aimed here, which is the one thing anybody wants from a server they
  * are on and in no room on. */
 export function EmptyDirRow(
-	{ dir, home, mark, onJoinOn, onLeave, onAbout }: {
+	{ dir, home, mark, canInteract, onJoinOn, onLeave, onAbout }: {
 		dir: DirView;
 		home: DirId | null;
 		mark: string | undefined;
+		canInteract: boolean;
 		onJoinOn: (dir: DirId) => void;
 		onLeave: (dir: DirId) => void;
 		onAbout: (dir: DirId) => void;
@@ -252,6 +280,7 @@ export function EmptyDirRow(
 				type="button"
 				className="room-open"
 				aria-label={"Join a room on " + name}
+				disabled={!canInteract}
 				onClick={() => onJoinOn(dir.id)}
 			>
 				<span className="hash" aria-hidden="true">
@@ -269,7 +298,7 @@ export function EmptyDirRow(
 					? <span className="rwhere-said">no rooms yet</span>
 					: <span className="rwhere-how">{standing}</span>}
 			</Button>
-			<RowClose title="Leave" said={"Leave " + name} onClose={() => onLeave(dir.id)} />
+			{canInteract && <RowClose title="Leave" said={"Leave " + name} onClose={() => onLeave(dir.id)} />}
 		</li>
 	);
 }

@@ -4,10 +4,10 @@
 ;; correct independent of substrate; the live network paths are proven by the
 ;; orchestrator's runs against real Goblins and pancake servers.
 (require rackunit
-         (prefix-in echo: (file "/workspaces/pancake/bench/goblins/apps/echo.rkt"))
-         (prefix-in reg: (file "/workspaces/pancake/bench/goblins/apps/registry.rkt"))
-         (prefix-in mint: (file "/workspaces/pancake/bench/goblins/apps/mint.rkt"))
-         (prefix-in tb: (file "/workspaces/pancake/bench/goblins/apps/taskboard.rkt")))
+         (prefix-in echo: "apps/echo.rkt")
+         (prefix-in reg: "apps/registry.rkt")
+         (prefix-in mint: "apps/mint.rkt")
+         (prefix-in tb: "apps/taskboard.rkt"))
 
 ;; Local substrate. Goblins hands a constructor a `bcom` procedure, and two of
 ;; the apps below use it for real: the mint's purse and the taskboard's task both

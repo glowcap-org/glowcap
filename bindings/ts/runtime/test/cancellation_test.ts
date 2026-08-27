@@ -1,12 +1,7 @@
 import { INTERNAL } from "@pancake/abi";
 import { takeRuntimeFailures } from "../context.ts";
 import { abortable } from "../internal/cancellation.ts";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
-}
+import { assertEquals } from "../../dogfood/assert.ts";
 
 Deno.test("abortable reports an asynchronous late-owner refusal exactly once", async () => {
 	const controller = new AbortController();

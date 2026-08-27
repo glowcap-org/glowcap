@@ -41,13 +41,6 @@ const foreign_types = [_][]const u8{
     "Ed25519",   "Sha256", "Blake3",  "Managed", "Wyhash",
 };
 
-/// A doc claim: the spelling as written, and where it was written.
-const Claim = struct {
-    path: []const u8,
-    line: usize,
-    text: []const u8,
-};
-
 fn isDocLine(line: []const u8) bool {
     const t = std.mem.trimStart(u8, line, " \t");
     return std.mem.startsWith(u8, t, "///") or std.mem.startsWith(u8, t, "//!");

@@ -9,7 +9,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCoarsePointer, useDismissOnClickOutside } from "./hooks.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { type AttachmentView, type Conv, liveRoomNames, type LiveRooms, type SessionPhase } from "./types.ts";
 import { commandIn, hereOf } from "./commands.ts";
 import { acceptCompletion, type Candidate, commandArgTrigger, completeCandidates, triggerAt } from "./complete.ts";
@@ -34,6 +35,7 @@ export function Composer(
 		mobile,
 		enabled,
 		phase,
+		availability,
 		keepLatestInView,
 	}: {
 		conv: Conv | null;
@@ -59,12 +61,16 @@ export function Composer(
 		/** What this conversation's directory is doing. Read only when the field
 		 * cannot be used, to say why in the one place a reader is already looking. */
 		phase: SessionPhase;
+		/** A room-membership realization that is more specific than its
+		 * directory connection, empty while the membership is live. */
+		availability: string;
 		/** Keep the newest message in view. `force` scrolls even when the reader
 		 * had scrolled up, which is what focusing the field on a phone wants. */
 		keepLatestInView: (force?: boolean) => void;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	const bar = useRef<HTMLDivElement>(null);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const filePick = useRef<HTMLInputElement>(null);
@@ -126,7 +132,7 @@ export function Composer(
 	const accept = (candidate: Candidate) => {
 		if (trigger === null) return;
 		const next = acceptCompletion(draft, trigger, caret, candidate);
-		peer.setDraft(next.text);
+		session.setDraft(next.text);
 		setCaret(next.caret);
 		const box = field.current;
 		queueMicrotask(() => {
@@ -140,13 +146,13 @@ export function Composer(
 	// button's job.
 	const coarse = useCoarsePointer();
 
-	// Only a room has a typing channel; a direct message is peer to peer with none.
-	// Every way of stopping — sending, going idle, blurring, switching away,
-	// closing the tab — is this one condition going false.
+	// Rooms and direct lines both carry an ephemeral typing level. Every way of
+	// stopping — sending, going idle, blurring, switching away, closing the tab —
+	// is this one condition going false.
 	useTypingSignal(
 		enabled && focused && conv !== null && draft.trim() !== "",
 		draft,
-		peer.setTyping,
+		session.setTyping,
 	);
 
 	// Never carry a stray tray across a conversation switch. Arriving at a
@@ -223,7 +229,7 @@ export function Composer(
 		if (!box) return;
 		const start = box.selectionStart ?? draft.length;
 		const end = box.selectionEnd ?? draft.length;
-		peer.setDraft(draft.slice(0, start) + s + draft.slice(end));
+		session.setDraft(draft.slice(0, start) + s + draft.slice(end));
 		queueMicrotask(() => {
 			box.selectionStart = box.selectionEnd = start + s.length;
 			box.focus();
@@ -251,17 +257,13 @@ export function Composer(
 	const emptiesLine = draftKeeping !== undefined && draftKeeping.length === 0 && files.length === 0 &&
 		draft.trim() === "";
 	const said = typingText(conv?.typers ?? [], nick);
-	// A field that cannot be used says why, rather than greying out under an
-	// invitation to type in it. The connection is stated in the rail's foot too,
-	// but that is a small line at the other end of a wide screen and a different
-	// screen entirely on a phone — and with more than one directory held it is
-	// answering about the whole page while this field is refusing for one of
-	// them. What is true belongs where the person is looking.
-	const placeholder = !enabled && conv
-		? PHASE_SAID[phase]
-		: conv
+	const addressee = conv
 		? (conv.type === "dm" ? "Message " + conv.id + " directly" : "Message " + roomCalled(conv.id, conv.held))
 		: "Message";
+	// An enabled placeholder names the addressee; a disabled one says why the
+	// field is unavailable, without repeating that sentence below the field.
+	const unavailable = availability || (!enabled && conv ? PHASE_SAID[phase] : "");
+	const placeholder = enabled ? addressee : unavailable;
 
 	return (
 		<div className="composer" ref={bar}>
@@ -305,7 +307,13 @@ export function Composer(
 							className={i === pick ? "complete-row picked" : "complete-row"}
 							// Keep the field focused, same rule as the emoji tray.
 							onMouseDown={(e) => e.preventDefault()}
-							onMouseEnter={() => setPicked(i)}
+							// A pointer that moves onto a row picks it. Entering is not
+							// enough: the list opens under wherever the pointer last
+							// came to rest, and a row arriving under a parked pointer
+							// would steal the pick from the row the typing narrowed to.
+							onMouseMove={() => {
+								if (i !== pick) setPicked(i);
+							}}
 							onClick={() => accept(candidate)}
 						>
 							{candidate.glyph ? <span className="complete-glyph">{candidate.glyph}</span> : null}
@@ -338,7 +346,7 @@ export function Composer(
 						size="small"
 						variant="ghost"
 						onClick={() => {
-							peer.cancelChange();
+							browser.cancelChange();
 							field.current?.focus();
 						}}
 					/>
@@ -349,7 +357,7 @@ export function Composer(
 				hidden={conv === null}
 				onSubmit={(e) => {
 					e.preventDefault();
-					peer.send();
+					session.send();
 				}}
 			>
 				{
@@ -365,7 +373,7 @@ export function Composer(
 								image={kindOf(file.mime) === "image"}
 								name={file.name}
 								size={file.size}
-								onRemove={() => peer.dropKeptFile(index)}
+								onRemove={() => browser.dropKeptFile(index)}
 							/>
 						))}
 					</div>
@@ -378,7 +386,7 @@ export function Composer(
 								image={kindOf(file.type) === "image"}
 								name={file.name}
 								size={file.size}
-								onRemove={() => peer.removeFile(index)}
+								onRemove={() => browser.removeFile(index)}
 							/>
 						))}
 					</div>
@@ -394,14 +402,14 @@ export function Composer(
 						autoCapitalize="sentences"
 						enterKeyHint="send"
 						role="combobox"
-						aria-label="Message"
+						aria-label={enabled ? "Message" : unavailable || "Message unavailable"}
 						aria-autocomplete="list"
 						aria-expanded={listOpen}
 						aria-controls={listOpen ? "completePop" : undefined}
 						aria-activedescendant={listOpen ? `complete-${pick}` : undefined}
 						disabled={!enabled}
 						onChange={(e) => {
-							peer.setDraft(e.target.value);
+							session.setDraft(e.target.value);
 							syncCaret(e.target);
 						}}
 						onSelect={(e) => syncCaret(e.currentTarget)}
@@ -412,7 +420,7 @@ export function Composer(
 							const files = [...e.clipboardData.files];
 							if (files.length === 0) return;
 							e.preventDefault();
-							peer.addFiles(files);
+							browser.addFiles(files);
 						}}
 						onBlur={() => setFocused(false)}
 						onFocus={() => {
@@ -425,7 +433,13 @@ export function Composer(
 							setTimeout(() => keepLatestInView(true), KEYBOARD_SETTLE_MS);
 						}}
 						onKeyDown={(e) => {
-							if (listOpen) {
+							// Input and selection events update the store before React commits the
+							// next render. A key can arrive in that gap, so only let the rendered
+							// completion list consume it when it describes the textarea's live
+							// value and caret. The send path already reads current store state.
+							const completionCurrent = e.currentTarget.value === draft &&
+								(e.currentTarget.selectionStart ?? 0) === caret;
+							if (listOpen && completionCurrent) {
 								if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 									e.preventDefault();
 									const step = e.key === "ArrowDown" ? 1 : -1;
@@ -453,7 +467,7 @@ export function Composer(
 							// Escape backs out of rewriting a line, which is the one way
 							// out that does not need the mouse. The line stays as posted.
 							if (e.key === "Escape" && changing !== undefined) {
-								peer.cancelChange();
+								browser.cancelChange();
 								return;
 							}
 							// An empty field's Up is otherwise a no-op. Fill it with the last
@@ -467,7 +481,7 @@ export function Composer(
 									e.key === "ArrowUp" && changing === undefined &&
 									draft.trim() === "" && files.length === 0
 								) {
-									const last = peer.recallLastSent();
+									const last = session.recallLastSent();
 									if (last !== null) {
 										e.preventDefault();
 										setRecalled(last);
@@ -482,7 +496,7 @@ export function Composer(
 								}
 								if (e.key === "ArrowDown" && recalled !== null && draft === recalled) {
 									e.preventDefault();
-									peer.setDraft("");
+									session.setDraft("");
 									setRecalled(null);
 									return;
 								}
@@ -493,7 +507,13 @@ export function Composer(
 								!coarse
 							) {
 								e.preventDefault();
-								peer.send();
+								// A native key event can follow the input event before React has
+								// committed the controlled value. The controller reads the store, so
+								// admit the textarea's current word before asking that controller to
+								// send it. `setDraft` is synchronous at the view boundary for both
+								// local and attached controllers.
+								session.setDraft(e.currentTarget.value);
+								session.send();
 							}
 						}}
 					/>
@@ -505,7 +525,7 @@ export function Composer(
 					hidden
 					multiple
 					onChange={(e) => {
-						peer.addFiles([...(e.target.files ?? [])]);
+						browser.addFiles([...(e.target.files ?? [])]);
 						// Clear it, so picking the same file twice in a row is two
 						// posts rather than one and then silence.
 						e.target.value = "";
@@ -561,7 +581,7 @@ export function Composer(
 				    a counter that is always there is furniture. Urgent
 				    once it is past, because then the message will not go. */
 				}
-				{room !== null
+				{unavailable !== "" ? null : room !== null
 					? (
 						<div
 							id="lineRoom"

@@ -17,16 +17,18 @@
 # --port=N (threaded from `zig build ocapn-conformance -Dport=N`) moves the
 # peer off its default 22055 when that port is taken.
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 1
 
 # uv needs writable cache + Python-install dirs; the devcontainer's defaults may
 # be read-only, so fall back to temp dirs when the configured dirs cannot be
 # written.
 if [ -z "${UV_CACHE_DIR:-}" ] || [ ! -w "$UV_CACHE_DIR" ]; then
-  export UV_CACHE_DIR="$(mktemp -d)"
+  UV_CACHE_DIR="$(mktemp -d)"
+  export UV_CACHE_DIR
 fi
 if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] || [ ! -w "$UV_PYTHON_INSTALL_DIR" ]; then
-  export UV_PYTHON_INSTALL_DIR="$(mktemp -d)"
+  UV_PYTHON_INSTALL_DIR="$(mktemp -d)"
+  export UV_PYTHON_INSTALL_DIR
 fi
 
 PEER=zig-out/bin/pancake-ocapn-peer

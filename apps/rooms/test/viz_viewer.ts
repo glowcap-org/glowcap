@@ -10,9 +10,9 @@
 // against.
 
 import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
-import { vizCapUrl } from "../lib/viz_publish.ts";
-import { originVizUrl } from "../web/ui/prefs.ts";
-import { opsSwissKey } from "../web/ui/types.ts";
+import { originVizUrl, vizCapUrl } from "../lib/viz_publish.ts";
+import { WORKSPACE_STATE_KEY, WORKSPACE_STATE_VERSION } from "../lib/rooms_state.ts";
+import { roomsSturdyrefForSession } from "../lib/locator.ts";
 
 export type VizRecord = Record<string, unknown>;
 
@@ -86,8 +86,34 @@ export function vizUrlOf(sturdyref: string): string {
 export function vizMemorySeed(pagePort: number, sturdyref: string): { key: string; value: string } {
 	const endpoint = originVizUrl({ protocol: "http:", host: `127.0.0.1:${pagePort}` });
 	return {
-		key: opsSwissKey("viz", endpoint),
-		value: vizCapOf(sturdyref),
+		key: WORKSPACE_STATE_KEY,
+		value: JSON.stringify({
+			version: WORKSPACE_STATE_VERSION,
+			controller: { kind: "local" },
+			session: {
+				directories: [],
+				conversations: [],
+				active: null,
+				standing: "",
+				ignored: [],
+				keepHistory: true,
+				join: { room: "", locator: "", nick: "" },
+				dmMode: "webrtc",
+				vizOverride: "",
+				capabilities: {
+					operations: [{ capability: "viz", scope: endpoint, swiss: vizCapOf(sturdyref) }],
+					archivePeer: null,
+				},
+			},
+			view: {
+				theme: "light",
+				notifyOn: false,
+				railOpen: true,
+				rosterOpen: true,
+				settingsTab: "overview",
+				opsPane: "viz",
+			},
+		}),
 	};
 }
 
@@ -123,7 +149,7 @@ export async function connectVizViewer(
 		apply(JSON.parse(args[0]) as VizRecord);
 		return null;
 	});
-	const trace = await session.enliven(sturdyref);
+	const trace = await session.enliven(roomsSturdyrefForSession(sturdyref, session));
 	await session.send(trace, "subscribe", [inbox]);
 	return {
 		async close() {

@@ -9,6 +9,63 @@ const appendViolation = util.appendViolation;
 const sectionBody = util.sectionBody;
 const collectBulletSpans = util.collectBulletSpans;
 
+const text_extensions = [_][]const u8{
+    ".c",    ".css",   ".Dockerfile", ".h",      ".html",  ".js",
+    ".json", ".jsonl", ".jsx",        ".lock",   ".map",   ".md",
+    ".mjs",  ".py",    ".python",     ".racket", ".rkt",   ".rs",
+    ".rust", ".scm",   ".sh",         ".shtml",  ".smd",   ".svg",
+    ".toml", ".ts",    ".tsx",        ".txt",    ".typed", ".yaml",
+    ".yml",  ".zig",   ".ziggy",      ".zon",
+};
+
+fn isTextSource(path: []const u8) bool {
+    for (text_extensions) |extension| {
+        if (std.mem.endsWith(u8, path, extension)) return true;
+    }
+    return false;
+}
+
+/// A raw NUL makes a source file binary to ordinary search, diff, and editor
+/// tooling. Runtime separators belong in escaped source text (`\u0000` or the
+/// host language's equivalent), so no first-party text source needs the byte.
+pub fn checkRawNuls(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    for ([_][]const u8{ "src", "cli", "apps", "bindings", "examples", "tools", "docs", "site", "ui" }) |tree| {
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for raw-NUL check with {s}", .{
+                tree,
+                @errorName(err),
+            });
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file or !isTextSource(entry.path) or vendoredOrGenerated(entry.path)) continue;
+            const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(16 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}/{s}: failed to read for raw-NUL check with {s}", .{
+                    tree,
+                    entry.path,
+                    @errorName(err),
+                });
+                continue;
+            };
+            defer gpa.free(contents);
+            if (std.mem.indexOfScalar(u8, contents, 0) != null) try appendViolation(
+                gpa,
+                violations,
+                "{s}/{s}: first-party text source contains a raw NUL byte; write the separator as an escape",
+                .{ tree, entry.path },
+            );
+        }
+    }
+}
+
 /// A map removal that discards its presence bool — `_ = map.remove(k)` and the
 /// `.fetchRemove(` / `.swapRemove(` shapes — throws away a checkable fact: a
 /// logic bug that removed a key the code believed present passes unnoticed. In

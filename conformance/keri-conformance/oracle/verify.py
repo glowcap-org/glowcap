@@ -41,7 +41,6 @@ not a byte-equivalence claim against keripy the library.
 Invoked by stack/substrate/conformance.sh.
 """
 import base64
-import hashlib
 import json
 import os
 import sys
@@ -233,7 +232,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
     """
     ok(f"KEL for {aid}: {len(kel_records)} event(s)")
     if not kel_records:
-        err(f"empty KEL")
+        err("empty KEL")
         return False
     # Carry forward the prior event's signing keys + threshold + next-key
     # commitments so rotations can be verified against prior authority.
@@ -347,7 +346,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
             return False
         ok(
             f"event {i} ({evt['t']}): {len(verified_indices)} of {required} required signature(s) verify"
-            + (f" (multi-sig)" if required > 1 or len(signer_keys_cesr) > 1 else "")
+            + (" (multi-sig)" if required > 1 or len(signer_keys_cesr) > 1 else "")
         )
 
         prior_keys_cesr = keys_cesr
@@ -488,7 +487,7 @@ def main() -> int:
 
     print()
     if failures == 0:
-        print(f"[oracle] PASS — Racket KERI outputs verify against the custom oracle (10/10 documented checks).")
+        print("[oracle] PASS — Racket KERI outputs verify against the custom oracle (10/10 documented checks).")
         return 0
     print(f"[oracle] FAIL — {failures} conformance failure(s).")
     return 1

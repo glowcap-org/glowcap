@@ -15,8 +15,8 @@ amended_by: []
 ## Context
 
 ADR-0119 required two candidate shapes to produce the same measurement. The
-[completed comparison](../../planning/multihome-shape-comparison.md) found that
-only the identity-route shape could answer the capability-semantic question:
+completed comparison, recorded under [Measurement](#measurement) below, found
+that only the identity-route shape could answer the capability-semantic question:
 which fact makes several routes one peer? Its outer durable key is that fact,
 and authenticated channels can prove it. The `pancake/locations` candidate
 carried a list but supplied no same-peer proof, drove no dial, supported no
@@ -53,6 +53,36 @@ Remove all special meaning for `pancake/locations`. It is not a reserved
 tombstone: unknown hints retain the ordinary OCapN hint behavior, while no
 pancake layer parses that name, strips it, treats it as route vocabulary, or
 claims it reaches the same peer.
+
+## Measurement
+
+Both shapes were built on one shared core and measured against the same
+question: can one durable peer remain reachable through several changing
+transports without weakening identity or the OCapN 1.0 compatibility floor?
+
+| Surface | `id/via` identity route | `pancake/locations` locator list |
+| --- | --- | --- |
+| Peer identity | Outer designator is the durable key; every strong route must prove it | Primary locator remains the identity; no rule proves the listed locators name it |
+| Dial behavior | Materializes bounded routes and drives Node pending dials | Added no dial paths; deliberately ignored by the dial planner |
+| Sturdyrefs | Reuses an authenticated same-key session or dials the strong routes | Had to be refused because the list supplied no identity proof |
+| Handoff | Preserved after bilateral negotiation; lowered to one compatible route for a baseline recipient | Could be carried only as inert data and stripped for a baseline recipient |
+| Session state | One negotiated `multi_location` bit admits the private identity-route vocabulary | Used the same bit but added a second hint-name branch to validation |
+| Model and codecs | Generic locator records plus one transport-local `via` parser; no new record arm | Generic locator records plus special detection of one otherwise ordinary hint |
+| Bindings | Generic locator and feature surfaces already carry the shape; no binding owns route semantics | The same generic surfaces carried bytes, but no binding could use them to connect |
+| Compatibility | First-hello silence, bilateral feature admission, signed-give lowering, and unchanged Goblins checks | The same gates proved only that inert data did not leak |
+| Product evidence | Core Host sturdyref scenarios and live Rooms directory peering | No product consumer and no successful multi-route scenario |
+
+The deciding difference is authority, not syntax. An `id` locator names one
+durable public key and admits only `via` routes whose channels can prove that
+key, so it can drive a dial, key the same-peer cache, and support a
+transport-independent sturdyref. A list attached to an ordinary locator has no
+fact that proves its entries name one peer; making it functional would either
+trust unauthenticated advice or add an identity field, at which point it has
+reconstructed the `id` shape less directly. The shared cost is the feature
+negotiation and compatibility boundary. The identity-route-specific cost bought
+bounded parsing, same-key validation, pending-dial scheduling, lowering, and
+durable-reference selection; the list-specific cost bought no behavior and gave
+every reader a second vocabulary whose security semantics could not be stated.
 
 ## Scope (what this does not decide)
 

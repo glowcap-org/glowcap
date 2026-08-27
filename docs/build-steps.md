@@ -69,6 +69,7 @@ zig build racket-test          # Racket unit tests, file by file through `raco t
 zig build docs                 # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site                 # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
+zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site at http://127.0.0.1:1990/pancake/ (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
 zig build -Doptimize=ReleaseSafe release-pack # stage optimized archives, headers, licenses, and product binaries into one versioned, checksummed per-target tarball under zig-out/release/, then prove its extracted static/shared C consumers and CLIs (needs cargo; Debug is refused)
 zig build native-tls-build     # fetch Mbed TLS 4.2.0 by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
@@ -135,7 +136,7 @@ zig build gen-ts-abi                    # regenerate the TypeScript ABI mirror f
 zig build gen-ts-abi-check              # verify the generated TypeScript ABI mirror matches src/c_abi (fails if stale), part of check
 zig build gen-site-examples             # assemble site/examples snippets into SuperMD code-tabs between page markers on the Start, binding, transport, and relay pages
 zig build gen-site-examples-check       # verify those tabs match site/examples (fails if stale), part of check
-zig build site-zig-examples-check       # compile the authoritative Zig transport snippets and the separately rooted iroh locator test, part of check
+zig build site-zig-examples-check       # compile every authoritative Zig transport snippet, rooted so each body is analyzed (`tools/check/site_example_root.zig`), plus the separately rooted iroh locator test, part of check
 zig build site-ts-examples-check        # type-check every .ts transport snippet through the public package map, part of check
 zig build site-python-examples-check    # type-check every .python transport snippet through the public package, part of bindings (needs python3 + uv)
 zig build site-rust-examples-check      # type-check every .rust transport snippet through the public package, part of bindings (needs python3 + cargo)
@@ -160,7 +161,7 @@ Each binding exercises the C ABI as a real consumer. These steps prove the ABI
 is consumable; they are never the authority for Zig semantics.
 
 ```sh
-zig build bindings       # all five binding checks together
+zig build bindings       # every binding dogfood plus the published-example checks
 zig build rust-dogfood   # the Rust binding against the pancake archives (needs cargo)
 zig build deno-dogfood   # the Deno binding against the pancake archives (needs deno)
 zig build bun-dogfood    # the Bun binding, the same multi-runtime JS binding as Deno (needs bun)
@@ -217,7 +218,11 @@ zig build deno-goblins-interop     # that conversation, the Deno binding over th
 zig build python-goblins-interop   # that conversation, the Python binding (needs python3 + racket + goblins)
 zig build rust-goblins-interop     # that conversation, the Rust binding (needs cargo + racket + goblins)
 zig build racket-goblins-interop   # that conversation, the Racket binding (needs racket + goblins)
-zig build deno-goblins-listen      # live keyed listen: the Deno binding publishes and a real Goblins vat dials it (needs deno + racket + goblins)
+zig build bindings-goblins-listen  # reciprocal live conversation: Goblins dials and calls every native binding listener (needs deno + racket + goblins + the runtimes)
+zig build deno-goblins-listen      # that listener conversation, the Deno binding
+zig build python-goblins-listen    # that listener conversation, the Python binding
+zig build rust-goblins-listen      # that listener conversation, the Rust binding
+zig build racket-goblins-listen    # that listener conversation, the Racket binding
 zig build bindings-goblins-handoff # per-binding three-party handoff, the binding as recipient redeeming a Goblins give (needs racket + goblins + the runtimes)
 zig build deno-goblins-handoff     # that handoff, the Deno binding (needs deno + racket + goblins)
 zig build python-goblins-handoff   # that handoff, the Python binding (needs python3 + racket + goblins)
@@ -236,7 +241,7 @@ iroh is the one netlayer whose handshake proves who the far peer is, so most of
 these steps run over real endpoints.
 
 ```sh
-zig build iroh-lib                   # build the iroh netlayer sidecar staticlib in transports/iroh (needs cargo)
+zig build iroh-lib                   # build the iroh netlayer sidecar staticlib into the build cache; every artifact that links it depends on this step by path (needs cargo)
 zig build iroh-sidecar-test          # the sidecar's Rust unit tests, including the connect-timeout positive-fire proof against a bound-but-silent UDP black hole (needs cargo)
 zig build iroh-interop               # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
 zig build iroh-loop                  # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
@@ -373,13 +378,18 @@ zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encryp
 zig build demo-rooms-dm-iroh-discovery # opt-in: the gift names the exporter by node id alone and the recipient resolves it through n0 discovery, no direct-address hints (needs cargo + deno + internet)
 zig build demo-tasks                   # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno)
 zig build tasks-app-test               # bounded task-board state, watcher, stream, and failed-join lifecycle tests (needs deno)
+zig build tools-app-test               # the tools showcase's attenuation and revocation, held in-tree (needs deno)
 zig build demo-tools                   # cross-language capability showcase: delegation, attenuation, and revocation for AI agent harnesses (needs deno)
 zig build accountability               # accountability application on pancake's own runtime over a real loopback TCP socket
 zig build accountability-three-party   # three-Host accountability attribution over a live loopback TCP handoff
+zig build accountability-blake3-test   # pin the accountability app's hand-rolled Blake3 (Deno and Python) against known vectors (needs deno + python3)
 zig build demo-accountability          # cross-language accountability demo: Zig host with Deno and Python callers (needs deno)
 zig build rooms-client                 # run the native Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer                   # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
 zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs deno)
+zig build rooms-archive-test           # prove the member archive contract, bounded durable store, v1/Syrup wire path, and process restart (needs deno)
+zig build rooms-archive                # run the durable archive peer; pass `-- --state=<directory>` (iroh by default, needs cargo + deno)
+zig build rooms-session                # run the durable Rooms session capability; pass `-- --state=<directory> [--checkpoint=<Rooms JSON>]` (iroh by default, needs cargo + deno)
 zig build rooms-web                    # serve the rooms browser UI over iroh (same as rooms-web-iroh); open the printed URL (needs cargo + deno). `-Ddiagnostics` mints an inspect capability and prints its swiss number
 zig build rooms-web-iroh               # the same UI, named by transport. `-Dport` pins the HTTP port (default 8000)
 zig build rooms-web-tcp                # serve the same UI over cleartext TCP, for a peer that speaks nothing else (needs deno). `-Ddiagnostics` as above; `-- --bind= --announce-host=` expose the cleartext room on a LAN
@@ -393,6 +403,7 @@ The rooms browser proofs each drive a real headless Chromium.
 zig build rooms-web-relay-peer    # a wasm browser peer drives the room directory through serve.ts's /relay byte pipe (needs deno)
 zig build rooms-web-browser-peer  # a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)
 zig build rooms-web-page          # the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
+zig build rooms-web-shared-session # two browser profiles mirror one durable Rooms member, workspace, and capability vault (needs deno + a Playwright Chromium)
 zig build rooms-web-reconnect     # the page survives losing its room server: it notices, reconnects, re-enters its room untouched, keeps the conversation the dead session delivered, and reaches the room again over the new one (needs deno + a Playwright Chromium)
 zig build rooms-web-dm            # the page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-tabs       # two tabs DM over the default WebRTC path, including closing and reopening the introduced line (needs deno + a Playwright Chromium)
@@ -406,6 +417,7 @@ zig build rooms-web-dm-viz        # a browser-to-browser direct message reaches 
 zig build rooms-web-dm-retarget   # a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-reopen     # reopening a closed direct conversation opens a second connection and that one carries: the timeline shows the first session gone and a session id nobody had seen, once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)
 zig build rooms-web-viz-lifecycle # the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs are three peers and two sessions, a direct message adds a session with the room off its path, leaving keeps the session and drops the nickname, and a tab going away takes its peer and both its sessions (needs deno + a Playwright Chromium)
+zig build rooms-web-archive       # a reader selects a durable message-archive peer, writes history, closes the browser profile, and recovers the attributed line from the same authority in a fresh profile (needs cargo + deno + a Playwright Chromium)
 ```
 
 ## Benchmarks

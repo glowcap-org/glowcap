@@ -23,7 +23,7 @@ function standingSaid(standing: string): string {
 }
 
 export function StandingMenu(
-	{ own, effective, follows, about, onSay, up, id, face, faceClass, label }: {
+	{ own, effective, follows, about, onSay, actions = [], disabled = false, up, id, face, faceClass, label }: {
 		/** This level's own word, or null while it follows the next one out. */
 		own: string | null;
 		/** What is in force here, once the levels have been read. */
@@ -36,6 +36,11 @@ export function StandingMenu(
 		 * "#lobby". */
 		about: string;
 		onSay: (own: string | null) => void;
+		/** Contextual acts that belong to the trigger rather than to standing. The
+		 * rail footer uses these for its directory-scoped identity grants. */
+		actions?: readonly { label: string; onPick(): void }[];
+		/** Draw the standing as a fact without offering mutation. */
+		disabled?: boolean;
 		/** Whether the menu opens upward, for a control near the foot of the
 		 * page. */
 		up?: boolean;
@@ -68,8 +73,11 @@ export function StandingMenu(
 				className={face !== undefined ? faceClass : away ? "standing-said away" : "standing-said"}
 				aria-haspopup="menu"
 				aria-expanded={open}
+				disabled={disabled}
 				aria-label={label ?? `Where you are${about === "you" ? "" : " in " + about}: ${said.toLowerCase()}`}
-				onClick={() => setOpen((was) => !was)}
+				onClick={() => {
+					if (!disabled) setOpen((was) => !was);
+				}}
 			>
 				{face ?? (
 					<>
@@ -78,7 +86,7 @@ export function StandingMenu(
 					</>
 				)}
 			</button>
-			{open && (
+			{open && !disabled && (
 				<MenuList className={up ? "line-menu standing-menu above" : "line-menu standing-menu"}>
 					{follows !== undefined && (
 						<MenuRow
@@ -94,7 +102,8 @@ export function StandingMenu(
 						className="line-menu-row"
 						marked={own !== null && effective === ""}
 						first={follows === undefined}
-						onPick={() => pick("")}
+						onPick={() =>
+							pick("")}
 					>
 						Here
 					</MenuRow>
@@ -113,7 +122,7 @@ export function StandingMenu(
 					<form
 						className="standing-why"
 						action={() => {
-							const why = reason.trim();
+							const why = reason;
 							setReason("");
 							pick(why);
 						}}
@@ -130,6 +139,22 @@ export function StandingMenu(
 						/>
 						<button type="submit" className="standing-say">Say it</button>
 					</form>
+					{actions.length > 0 && (
+						<div className="standing-actions" role="none">
+							{actions.map((action) => (
+								<MenuRow
+									key={action.label}
+									className="line-menu-row"
+									onPick={() => {
+										setOpen(false);
+										action.onPick();
+									}}
+								>
+									{action.label}
+								</MenuRow>
+							))}
+						</div>
+					)}
 				</MenuList>
 			)}
 		</div>

@@ -1,3 +1,7 @@
+//! The blocking iroh resident: a netlayer over the sidecar's QUIC streams that
+//! dials, listens, and hands each accepted stream to a peer as a framed
+//! `net.Connection`.
+
 const std = @import("std");
 
 const foundation = @import("foundation");

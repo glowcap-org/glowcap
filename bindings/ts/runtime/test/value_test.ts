@@ -11,12 +11,7 @@ import {
 	FEATURE_UNTAG,
 } from "@pancake/abi";
 import { type CaptpVersion, captpVersionId, type Codec, codecId, featureMask, refFromId } from "../value.ts";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
-}
+import { assertEquals } from "../../dogfood/assert.ts";
 
 function assertThrows(fn: () => unknown, message: string): void {
 	try {

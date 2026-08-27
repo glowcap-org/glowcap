@@ -10,12 +10,18 @@ source "${dir}/lib/mod.sh"
 pancake_require_host "hooks/initialize.sh"
 
 # Docker treats a missing bind source as a root-owned directory. Create each
-# host-owned agent-state store first so every worktree mounts the same writable
-# path for the current host user.
+# host-owned store first so every worktree mounts the same writable path for
+# the current host user.
 host_home="${HOME:?initialize.sh: HOME must name the host user directory}"
 while IFS=: read -r host_relative _; do
   mkdir -p "${host_home}/${host_relative}"
-done <<< "$(pancake_devcontainer_host_state_rows)"
+done <<< "$(pancake_devcontainer_host_home_bind_rows)"
+
+cache_root="${host_home}/.cache/pancake"
+while IFS= read -r sub; do
+  mkdir -p "${cache_root}/${sub}"
+done <<< "$(pancake_devcontainer_host_cache_layout)"
+pancake_devcontainer_host_cache_layout_text > "${cache_root}/LAYOUT"
 
 # Containers read Claude Code's account file from inside the bound directory
 # (CLAUDE_CONFIG_DIR in devcontainer.json), while a host Claude Code keeps its

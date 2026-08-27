@@ -58,7 +58,7 @@
  * spec is this module and its siblings.
  */
 
-import { type Bound, explicitBound, implicitBound, withValue } from "./bound.ts";
+import { type Bound, withValue } from "./bound.ts";
 
 export type TimeSpan = {
 	start: Bound;
@@ -95,21 +95,6 @@ export const asAuthored = (v: TimeSpan): TimeSpan =>
  *  change, because it changes the span's authority, not its value —
  *  the same rule as pinning a peer at its current layout position. */
 export const isDerived = (v: TimeSpan): boolean => v.derived === true;
-
-/** Default span for a freshly-created entity with no explicit
- *  authoring yet. Both sides implicit, values seeded at 0. */
-export const implicitTimeSpan = (): TimeSpan => ({
-	start: implicitBound(0),
-	duration: implicitBound(0),
-});
-
-/** Default span for a message — duration is always explicit; the
- *  caller passes the flight ms (default 500 elsewhere). Start is
- *  implicit by default; the authoring intent will normally set it. */
-export const messageTimeSpan = (flightMs: number): TimeSpan => ({
-	start: implicitBound(0),
-	duration: explicitBound(Math.max(0, flightMs)),
-});
 
 /* ------------------------------------------------------------------ *
  * Authoring ops — return a new TimeSpan. Do NOT consult context;

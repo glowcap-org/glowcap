@@ -8,8 +8,9 @@
 // a headless browser to learn the same fact.
 
 import { fetchesOnArrival, fileSize, kindOf } from "../web/ui/media.ts";
-import { attachmentRefusal } from "../lib/attachment.ts";
-import { AUTO_IMAGE_BYTES, MAX_ATTACHMENT_BYTES } from "../lib/limits.ts";
+import { attachmentRefusal, readAttachmentsExact } from "../lib/attachment.ts";
+import { AUTO_IMAGE_BYTES, MAX_ATTACHMENT_BYTES, MAX_MESSAGE_FILES } from "../lib/limits.ts";
+import { Ref } from "@pancake/runtime";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a media type picks how the file is met", () => {
@@ -73,4 +74,49 @@ Deno.test("nothing is fetched on its own from a member the reader has silenced",
 	// message that pull would reach the silenced person's own host. The reference
 	// is still kept, so unignoring and pressing the file works.
 	assertEquals(fetchesOnArrival({ mime: "image/png", size: 1024 }, true), false);
+});
+
+Deno.test("mutation attachment parsing refuses incomplete and over-cap suffixes", () => {
+	const blob = Object.create(Ref.prototype) as Ref;
+	assertEquals(
+		(() => {
+			try {
+				readAttachmentsExact([
+					"operation",
+					0n,
+					"room",
+					"caption",
+					"file",
+					"notes.txt",
+					"text/plain",
+					1n,
+					blob,
+					0n,
+					0n,
+					"trailing",
+				]);
+				return false;
+			} catch {
+				return true;
+			}
+		})(),
+		true,
+	);
+	assertEquals(
+		(() => {
+			try {
+				readAttachmentsExact([
+					"operation",
+					0n,
+					"room",
+					"caption",
+					...Array.from({ length: (MAX_MESSAGE_FILES + 1) * 7 }, () => "file"),
+				]);
+				return false;
+			} catch {
+				return true;
+			}
+		})(),
+		true,
+	);
 });

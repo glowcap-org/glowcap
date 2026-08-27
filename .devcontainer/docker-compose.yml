@@ -32,6 +32,11 @@ services:
       # Zine's docs-serve is the same shape: loopback on a laptop, wide in
       # the container so the published 1990 mapping reaches the process.
       DOCS_SERVE_HOST: 0.0.0.0
+      # Compose interpolates the worktree into the path. The host bind is
+      # ~/.cache/pancake, so these are work/<name>/zig-local and zig-pkg on
+      # both sides.
+      ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/pancake/work/${PANCAKE_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-local
+      ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/pancake/work/${PANCAKE_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-pkg
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/pancake:cached
@@ -41,10 +46,8 @@ services:
       - type: bind
         source: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
         target: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
-      # User-level agent and authentication state comes from the scoped host
-      # binds in devcontainer.json, shared by every pancake worktree.
-    # Editor-owned build caches stay in devcontainer.json because they are safe
-    # to share across worktrees and contain no tool identity.
+      # User-level agent, authentication, and pancake caches come from the
+      # scoped host binds in devcontainer.json, shared by every worktree.
     command: sleep infinity
     # `.env` gives each worktree its own host ports while services retain their
     # canonical container ports. Published on every host interface.

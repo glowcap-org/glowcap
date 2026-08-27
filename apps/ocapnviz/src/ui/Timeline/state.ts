@@ -294,20 +294,6 @@ export function fitAll(v: TimelineView, duration: number): TimelineView {
 	);
 }
 
-/** Make the window slide so that `t` is centered (or as centered as
- * the window edges allow). Used by the live-mode follow logic. */
-export function centerOn(
-	v: TimelineView,
-	t: number,
-	duration: number,
-): TimelineView {
-	const width = v.windowEnd - v.windowStart;
-	return clampView(
-		{ ...v, windowStart: t - width / 2, windowEnd: t + width / 2 },
-		duration,
-	);
-}
-
 /**
  * Convert a pixel offset within the scrubber's rendered width into a
  * sim-time `t`. Inverse of [`tToPx`].

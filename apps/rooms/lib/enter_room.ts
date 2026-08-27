@@ -18,16 +18,26 @@ import { dial, type RoomsRuntime } from "./locator.ts";
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
  * yet. Composes the directory's strict `enter`/`open`; the leniency is here. */
 export async function enterOrOpen(dir: Directory, name: string): Promise<Ref> {
+	return (await enterOrOpenResult(dir, name)).ref;
+}
+
+/** The same friendly lookup, with the one fact an interface needs in order to
+ * offer creator-only operations: whether this exact directory connection
+ * opened the room. Losing an `open` race is an entry, not an opening. */
+export async function enterOrOpenResult(
+	dir: Directory,
+	name: string,
+): Promise<{ ref: Ref; opened: boolean }> {
 	try {
-		return await dir.enter(name);
+		return { ref: await dir.enter(name), opened: false };
 	} catch (err) {
 		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
-		return await dir.open(name);
+		return { ref: await dir.open(name), opened: true };
 	} catch (err) {
 		if (roomErrorOf(err)?.code !== ROOM_EXISTS) throw err;
-		return await dir.enter(name); // lost the race; the room is there now
+		return { ref: await dir.enter(name), opened: false }; // lost the race; the room is there now
 	}
 }
 

@@ -126,7 +126,7 @@ Applications normally use `Session`.
 >         .socks = "/run/tor/socks",
 >         .control_endpoint = "/run/tor/control",
 >     } };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         onion_resident.netlayer(),
 >         .{ .designator = "" },
@@ -145,7 +145,7 @@ Applications normally use `Session`.
 >     const service_key = service_key_storage[0..key_len];
 >     _ = service_key; // persist securely to restore this service
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **TypeScript**

@@ -261,7 +261,7 @@ impl DriverLoop {
 	}
 
 	/// Stop one listener while preserving already committed events.
-	pub fn close_listener(&self, listener: u64) -> Result<()> {
+	pub fn close_listener(&self, listener: u64) -> Result<bool> {
 		crate::driver_failure::close_listener(self.raw, listener)
 	}
 

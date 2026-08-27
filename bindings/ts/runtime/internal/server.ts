@@ -73,14 +73,9 @@ export class DriverServer {
 	}
 
 	stopAdmission(): Promise<void> {
-		if (this.#admissionClosed) return Promise.resolve();
+		if (this.#admissionClosed) return this.#listener.close();
 		this.#admissionClosed = true;
-		try {
-			this.#listener.close();
-			return Promise.resolve();
-		} catch (error) {
-			return Promise.reject(error);
-		}
+		return this.#listener.close();
 	}
 
 	/** Stop admission. A server that minted its own loop requests that loop's

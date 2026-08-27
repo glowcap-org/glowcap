@@ -52,5 +52,14 @@ class ListenerOwner:
             return
         self._loop.close_listener(self.listener)
 
+    async def wait_closed(self) -> None:
+        """Commit and join this listener's provider teardown barrier."""
+        if self._failure is not None:
+            raise self._failure
+        if self._loop._released:
+            self._closed = True
+            return
+        await self._loop.wait_listener_closed(self.listener)
+
 
 ListenerLike = Union[int, ListenerOwner]

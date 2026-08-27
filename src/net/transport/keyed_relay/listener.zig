@@ -1,3 +1,7 @@
+//! The keyed-relay registered listener: opens and holds a registration at the
+//! relay, waits for legs to become acceptable, and presents each accepted leg
+//! to the netlayer as a connection under the profile that registered it.
+
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");

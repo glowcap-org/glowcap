@@ -9,7 +9,7 @@ more ways to reach a peer.
 | 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
 | 2. Performance at scale | Met. Memory and latency budgets run on main-branch pushes and pull requests; a release-mode run held 500,000 authenticated socket sessions live. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
-| 4. C ABI and bindings | Met. Four bindings dial Goblins through the C ABI. Recurring CI has Goblins dial only TypeScript. |
+| 4. C ABI and bindings | Met. All four bindings dial Goblins and are dialed by it through the C ABI. |
 | 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship; Windows support and a deployed public-certificate relay proof remain. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
@@ -124,9 +124,10 @@ Python, and Racket consume the same ABI and archives through generated function
 tables and checked layout mirrors. Each binding runs an ordinary pancake
 conversation and a live Goblins conversation through that ABI.
 
-Those checks cover the shared session API and both application-facing handoff
-roles. They do not make every binding equally exercised as a listener:
-Goblins currently dials only the TypeScript binding in CI.
+Those checks cover the shared session API, both application-facing handoff
+roles, and both session directions. In the reciprocal listener matrix, a real
+Goblins vat dials each binding, enlivens its Host-wide actor, and reads the
+actor's exact reply.
 
 ## 5. Transport reachability
 

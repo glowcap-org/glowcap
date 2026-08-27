@@ -9,10 +9,8 @@ const c = @import("c_abi");
 const cshared = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const crelay = @import("c_abi_net_transport_relay");
 const ctcp = @import("c_abi_net_transport_tcp");
 const pancake = @import("pancake");
-const c_args = @import("../../support/c_abi_args.zig");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");

@@ -24,7 +24,10 @@
 (printf "RELAY-LISTENER-READY ~a\n" (server-uri server))
 (flush-output)
 
-(let loop ()
-  (define session (accept server))
-  (session-serve session)
-  (loop))
+(define session (accept server))
+(dynamic-wind
+ void
+ (lambda () (session-serve session))
+ (lambda ()
+   (session-close! session)
+   (server-close! server)))

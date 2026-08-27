@@ -8,7 +8,7 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
-         (file "/workspaces/pancake/conformance/goblins-peer/racket/tcp-netlayer.rkt")
+         "../../conformance/goblins-peer/racket/tcp-netlayer.rkt"
          racket/async-channel)
 
 (provide server-run client-connect client-fetch client-call client-close)

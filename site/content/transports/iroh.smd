@@ -136,7 +136,7 @@ snippet is not yet published.
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         iroh_resident.netlayer(),
 >         .{ .designator = "" },
@@ -149,7 +149,7 @@ snippet is not yet published.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **TypeScript**
@@ -244,9 +244,11 @@ its own compiled artifact, `libpancake_net_transport_iroh`
 The base archives stay pure Zig and dependency-free; a program links iroh only
 when it wants it. Building the companion archive requires `cargo`.
 
-The same split shows up in the bindings. Each one keeps iroh in a per-transport
-module: the `@pancake/iroh` package, `pancake.iroh`, `pancake-iroh.rkt`, and Rust's
-opt-in `iroh` feature. `connect` loads that module lazily the first time it sees an
+The same split shows up in every language. A Zig build imports
+`pancake.module("pancake_iroh")`, which carries the sidecar link, so a program
+that never names it never starts cargo. Each binding keeps iroh in a
+per-transport module: the `@pancake/iroh` package, `pancake.iroh`,
+`pancake-iroh.rkt`, and Rust's opt-in `iroh` feature. `connect` loads that module lazily the first time it sees an
 `iroh` locator (Rust compiles it in behind the feature instead), so a program that
 only ever speaks TCP never loads it. Hosting over iroh is the same plain
 `listen`, called on that per-transport module. Dialing a peer over iroh goes

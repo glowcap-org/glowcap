@@ -32,6 +32,9 @@
 
 import { chromium } from "playwright";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail } from "./support/page.ts";
+import { bundleProbe } from "../../../bindings/ts/web/test/support.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -46,61 +49,9 @@ const PROBE = new URL("./browser_peer_probe.ts", import.meta.url).pathname;
 // the one under test.
 const PROBE_DOCUMENT = "/locator";
 
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
 // Wait for the room's address, not merely for something to answer: the probe
 // dials the room, and it is grafted onto this very response. A 503 here is
 // serve.ts saying the room is not up yet.
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 200; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts never published a room locator");
-}
-
-const BUNDLE_CONFIG = new URL("../../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
-
-// Bundle the probe for the browser through the web binding's browser-bundle
-// config, which stubs the runtime's non-browser FFI adapters (node:net, bun:ffi)
-// so the single-file bundle resolves without a runtime the browser lacks.
-async function bundleProbe(): Promise<string> {
-	const { code, stdout, stderr } = await new Deno.Command("deno", {
-		args: [
-			"bundle",
-			"--platform",
-			"browser",
-			"--no-lock",
-			"--quiet",
-			"--config",
-			BUNDLE_CONFIG,
-			PROBE,
-		],
-		stdout: "piped",
-		stderr: "piped",
-	}).output();
-	if (code !== 0) {
-		fail("deno bundle of the probe failed: " + new TextDecoder().decode(stderr).trim());
-	}
-	return new TextDecoder().decode(stdout);
-}
-
 const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60s"), 60_000);
 
 const httpPort = freePort();
@@ -129,7 +80,7 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
 	await waitForHttp(httpPort);
 
-	const probeJs = await bundleProbe();
+	const probeJs = await bundleProbe(PROBE);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();

@@ -39,7 +39,7 @@ pub const AbiContext = struct {
     net_mod: *std.Build.Module,
     c_abi_shared_mod: *std.Build.Module,
     resident_mod: *std.Build.Module,
-    sidecar_step: *std.Build.Step,
+    sidecar_archive: std.Build.LazyPath,
 };
 
 pub const AbiRegistration = struct {
@@ -61,7 +61,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         ctx.c_abi_shared_mod,
         ctx.resident_mod,
     );
-    common.linkIrohSidecar(b, link_mod, ctx.target);
+    common.linkIrohSidecar(b, link_mod, ctx.target, ctx.sidecar_archive);
     const shared = b.addLibrary(.{
         .name = "pancake_net_transport_iroh",
         .linkage = .dynamic,
@@ -71,7 +71,6 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
     }
-    shared.step.dependOn(ctx.sidecar_step);
 
     const install = b.addInstallArtifact(shared, .{});
     const header = b.addInstallHeaderFile(
@@ -113,7 +112,9 @@ pub const StepsContext = struct {
 
 pub const StepsRegistration = struct {
     resident_mod: *std.Build.Module,
-    lib_step: *std.Build.Step,
+    /// The cargo-built sidecar staticlib as a build-graph path: link it and
+    /// the cargo step runs first.
+    sidecar_archive: std.Build.LazyPath,
     abi_step: *std.Build.Step,
     abi_test_step: *std.Build.Step,
 };
@@ -130,18 +131,28 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const interop_harness_mod = ctx.interop_harness_mod;
     const check_step = ctx.check_step;
 
-    // ── iroh netlayer (external siblings, plus one offline check object) ────
+    // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
     // The iroh netlayer sidecar (ADR-0055): cargo builds the
     // `libpancake_iroh_sidecar.a` staticlib, and the live gate runs two pancake
     // peers — each with its own
     // real iroh endpoint — through the keyed handshake, a bootstrap fetch, and
     // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
-    // with direct-address hints. The staticlib is also linked by hermetic CLI
-    // tests under `check`, so its build is offline there; live sidecar tests
-    // remain sibling steps with their own external-runtime posture.
+    // with direct-address hints. The Rust build is an explicit Cargo-requiring
+    // sibling, never part of the hermetic Zig compile checks below. `--locked`
+    // makes the committed lockfile authoritative while still allowing a clean
+    // release machine to fetch its exact packages; `--offline` made first use
+    // fail after every dependency bump unless some unrelated command happened
+    // to warm Cargo's cache. The target directory is a build output, so the
+    // staticlib is a graph path every linker depends on by using it, in this
+    // tree and in a downstream package that imports `pancake_iroh`; cargo
+    // still runs on every build (it is its own incremental cache) into the
+    // one stable directory the runner keeps for a side-effect step.
     const iroh_lib = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "build", "--offline", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+        "cargo", "build", "--locked", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
+    const sidecar_target_dir = iroh_lib.addPrefixedOutputDirectoryArg("--target-dir=", "target");
+    iroh_lib.has_side_effects = true;
+    const sidecar_archive = sidecar_target_dir.path(b, "release/libpancake_iroh_sidecar.a");
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
     iroh_lib_step.dependOn(&iroh_lib.step);
 
@@ -149,10 +160,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // that a caller-set connect timeout trips fast against a bound-but-silent UDP
     // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
     const iroh_sidecar_test = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "cargo", "test", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+        "cargo", "test", "--locked", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
     const iroh_sidecar_test_compile = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "test", "--no-run", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+        "cargo", "test", "--locked", "--no-run", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
     iroh_sidecar_test.step.dependOn(&iroh_sidecar_test_compile.step);
     const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
@@ -175,6 +186,23 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // CapTP serving for the scale path is `driver.Bridge` + `driver_core.Host`
     // in the interop drivers; the resident only supplies the netlayer and the
     // completion `Backend` (ADR-0076).
+
+    // The same resident published for a downstream package, with the sidecar
+    // attached, so `pancake.module("pancake_iroh")` is the `iroh` import the
+    // site's Zig tabs name and a program that links it needs nothing beyond
+    // cargo on PATH. It is a second module over the same source because the
+    // in-tree resident stays unlinked: the hermetic compile objects that ride
+    // `check` import that one and never start cargo.
+    const published_iroh_mod = b.addModule("pancake_iroh", .{
+        .root_source_file = b.path("src/net/transport/iroh.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    published_iroh_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
+    published_iroh_mod.addImport("model", host_mods[layerIndex("model")]);
+    published_iroh_mod.addImport("engine", host_mods[layerIndex("engine")]);
+    published_iroh_mod.addImport("net", host_mods[layerIndex("net")]);
+    linkIrohSidecar(b, published_iroh_mod, target, sidecar_archive);
 
     // The iroh driver family, table-driven. Each row is both a runnable sibling
     // of `check` (linking the sidecar through `linkIrohSidecar`, so it needs
@@ -226,9 +254,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         // Runnable sibling of `check`: links the sidecar and runs from the root.
         const run_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
         run_mod.addImport("interop_harness", interop_harness_mod);
-        linkIrohSidecar(b, run_mod, target);
+        linkIrohSidecar(b, run_mod, target, sidecar_archive);
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
-        exe.step.dependOn(&iroh_lib.step);
         const live_step = b.step(drv.step_name, drv.description);
         const run = execution.addArtifact(b, drv.posture, exe);
         run.setCwd(b.path("."));
@@ -274,9 +301,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
         seam_run_mod.addImport("interop_harness", interop_harness_mod);
         seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
-        linkIrohSidecar(b, seam_run_mod, target);
+        linkIrohSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "pancake-iroh-driver-provider", .root_module = seam_run_mod });
-        seam_exe.step.dependOn(&iroh_lib.step);
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
@@ -297,18 +323,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .{ .name = "site-example-listen-iroh", .path = "site/examples/listen/iroh.zig" },
     };
     for (site_iroh_examples) |example| {
-        const example_mod = b.createModule(.{
-            .root_source_file = b.path(example.path),
-            .target = target,
-            .optimize = optimize,
-        });
-        example_mod.addImport("pancake", lib_mod);
-        example_mod.addImport("iroh", iroh_resident_mod);
-        const example_test = b.addTest(.{
-            .name = b.fmt("{s}-compile", .{example.name}),
-            .root_module = example_mod,
-        });
-        ctx.site_zig_examples_check.dependOn(&example_test.step);
+        common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
+            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "iroh", .module = iroh_resident_mod },
+        }, ctx.site_zig_examples_check);
     }
 
     const iroh_locator_test_mod = b.createModule(.{
@@ -385,7 +403,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .net_mod = host_mods[layerIndex("net")],
         .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
         .resident_mod = iroh_resident_mod,
-        .sidecar_step = &iroh_lib.step,
+        .sidecar_archive = sidecar_archive,
     });
     const iroh_abi_install = iroh_abi.install;
     const iroh_abi_step = iroh_abi.step;
@@ -404,12 +422,29 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         "PANCAKE_LIB_DIR",
         common.rootPath(b, "zig-out/lib"),
     );
-    const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI, including off-thread constructor diagnostics (needs cargo + deno)");
+
+    const iroh_driver_listener = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "deno",                                          "test", "--allow-ffi", "--allow-read", "--allow-env", "--allow-net", "--unstable-ffi",
+        "bindings/ts/iroh/test/driver_listener_test.ts",
+    });
+    const iroh_driver_listener_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "bindings/ts/iroh/test/driver_listener_test.ts",
+    });
+    iroh_driver_listener.step.dependOn(&iroh_driver_listener_cache.step);
+    iroh_driver_listener.step.dependOn(&iroh_abi_install.step);
+    iroh_driver_listener.step.dependOn(b.getInstallStep());
+    iroh_driver_listener.setEnvironmentVariable(
+        "PANCAKE_LIB_DIR",
+        common.rootPath(b, "zig-out/lib"),
+    );
+
+    const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI and generic-driver listener adoption (needs cargo + deno)");
     iroh_abi_test_step.dependOn(&iroh_constructor_diagnostic.step);
+    iroh_abi_test_step.dependOn(&iroh_driver_listener.step);
 
     return .{
         .resident_mod = iroh_resident_mod,
-        .lib_step = &iroh_lib.step,
+        .sidecar_archive = sidecar_archive,
         .abi_step = iroh_abi_step,
         .abi_test_step = iroh_abi_test_step,
     };

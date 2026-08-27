@@ -3,7 +3,7 @@
 //! Stamp/GC and resolve-once edge cases for `Peer.applyRelayedResolution` and
 //! `installThirdPartyImport`. The production introducing-session path is
 //! `Node.proxyForeignPromiseFulfill` (Host-driven); Node scenarios live in
-//! `test/engine/node_test.zig`. Enroll-stamped `row_id` covers the deferred
+//! `test/engine/node/`. Enroll-stamped `row_id` covers the deferred
 //! window these units open by applying after session mutation.
 
 const std = @import("std");

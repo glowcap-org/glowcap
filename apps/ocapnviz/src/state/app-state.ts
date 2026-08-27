@@ -12,6 +12,7 @@
 import type { StageVisibility } from "../render/types.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { LaneKind } from "../ui/Timeline/state.ts";
+import { loadStoredValue, persistStoredValue } from "./storage.ts";
 
 /** Three sibling modes operating on one in-memory document buffer.
  * `live` — the feed connects on entry, and nothing renders until
@@ -213,9 +214,7 @@ export type PersistedTimelineView = {
 };
 
 export function loadPersistedTimelineView(): PersistedTimelineView | null {
-	const storage = (globalThis as { localStorage?: Storage }).localStorage;
-	if (!storage) return null;
-	const raw = storage.getItem(TIMELINE_VIEW_STORAGE_KEY);
+	const raw = loadStoredValue(TIMELINE_VIEW_STORAGE_KEY);
 	if (!raw) return null;
 	try {
 		const parsed = JSON.parse(raw) as PersistedTimelineView;
@@ -232,14 +231,7 @@ export function loadPersistedTimelineView(): PersistedTimelineView | null {
 }
 
 export function savePersistedTimelineView(v: PersistedTimelineView): void {
-	const storage = (globalThis as { localStorage?: Storage }).localStorage;
-	if (!storage) return;
-	try {
-		storage.setItem(TIMELINE_VIEW_STORAGE_KEY, JSON.stringify(v));
-	} catch {
-		// Quota / private-mode failures are non-fatal — view state
-		// falls back to defaults on next load.
-	}
+	persistStoredValue(TIMELINE_VIEW_STORAGE_KEY, JSON.stringify(v));
 }
 
 /** Live mode accepts the durable trace capability announced by rooms. */
@@ -264,9 +256,7 @@ export function readLiveOverride(): { liveSturdyref: string } | null {
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
 export function loadPersistedAppState(): Partial<AppState> | null {
-	const storage = (globalThis as { localStorage?: Storage }).localStorage;
-	if (!storage) return null;
-	const raw = storage.getItem(APP_STATE_STORAGE_KEY);
+	const raw = loadStoredValue(APP_STATE_STORAGE_KEY);
 	if (!raw) return null;
 	try {
 		return JSON.parse(raw) as Partial<AppState>;

@@ -31,6 +31,26 @@ export const PRIVATE_ROOM_KEY_BYTES = 16;
  * private room's key, whichever is longer. Both are durable names — the string
  * a room's sturdyref is minted from — so one bound covers them. */
 export const MAX_DURABLE_ROOM = Math.max(MAX_ROOM, 1 + PRIVATE_ROOM_KEY_BYTES * 2);
+
+/** Whether a durable room name is in the private-key namespace. Length is
+ * load-bearing: listed names are one character shorter at most, so a public
+ * room beginning with `~` remains public when linked. */
+export function isPrivateRoomKey(value: string): boolean {
+	if (value.length !== 1 + PRIVATE_ROOM_KEY_BYTES * 2 || value[0] !== "~") return false;
+	for (let at = 1; at < value.length; at += 1) {
+		const code = value.charCodeAt(at);
+		if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) return false;
+	}
+	return true;
+}
+
+/** Mint the opaque recovery authority for one private-room creation.
+ * Repeating an open with this exact value reaches the same room; the label is
+ * presentation and never participates in its identity. */
+export function newPrivateRoomKey(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(PRIVATE_ROOM_KEY_BYTES));
+	return "~" + [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 export const MAX_LINE = 8192;
 
 /** Whether a subscribe that was refused for a held name may present a name
@@ -45,10 +65,9 @@ export const MAX_LINE = 8192;
  * `enliven` refused a peer mismatch. A room that arrived as a reference over a
  * direct line is hosted by whoever handed it over, which is outside the
  * directory's trust domain, and this app cannot tell such an object from a real
- * room by looking. A voucher goes only to a host inside that domain. The cost
- * is named and small: the same reader arriving on a second connection the
- * server cannot recognise as theirs takes a suffixed name in a handed room
- * rather than their own.
+ * room by looking. A voucher goes only to a host inside that domain. A handed
+ * room that cannot recognize the reader refuses their requested name and may
+ * suggest another; it never silently changes their identity.
  *
  * The rest keep one attempt honest. Only the first try may present one, because
  * a voucher the room did not accept will not be accepted twice; only one may be
@@ -75,6 +94,16 @@ export function mayPresentNameVoucher(at: {
 	ownName: boolean;
 }): boolean {
 	return at.trusted && at.nickTaken && at.attempt === 0 && !at.presented && at.ownName;
+}
+
+/** Offer the next conventional spelling without changing what was asked. A
+ * later refusal can suggest the following number; only the reader chooses it. */
+export function suggestedNick(nick: string): string {
+	const match = /^(.*?)(?:-(\d+))?$/.exec(nick);
+	const numbered = match?.[2] == null ? 2 : Number(match[2]) + 1;
+	const suffix = `-${Number.isSafeInteger(numbered) ? numbered : 2}`;
+	const base = (match?.[1] ?? nick).slice(0, MAX_NICK - suffix.length);
+	return base + suffix;
 }
 
 /** Why this app will not answer to `nick`, or null when it will.
@@ -146,6 +175,10 @@ export function lineCost(text: string): number {
  * of our own. */
 export const MAX_SCROLLBACK = 2000;
 
+/** Live room messages awaiting a consumer. The web client normally has one
+ * read pending, so this is outage/flood protection rather than scrollback. */
+export const MAX_ROOM_MESSAGE_BACKLOG = 256;
+
 export const MAX_TOPIC = 300;
 /** The longest reason a member may leave when they step away. Short because it
  * sits beside a name in the member list, where a sentence would push the names
@@ -170,6 +203,9 @@ export const NAME_VOUCHER_BYTES = 32;
  * it, a new offer is declined on arrival and the reader is told, which loses
  * nothing that answering the queue would not recover. */
 export const MAX_PENDING_INVITES = 16;
+/** Read-only archive occurrences one browser will retain from peers before the
+ * reader must use or decline one. Each row holds a live imported capability. */
+export const MAX_PENDING_ARCHIVE_SHARES = 16;
 /** How many departed members a room's roster keeps as "seen".
  *
  * The roster deliberately remembers who has been here, but who joins is not
@@ -178,6 +214,12 @@ export const MAX_PENDING_INVITES = 16;
  * ceiling the oldest offline rows go; the online rows are bounded by the
  * server's live connections and are never evicted. */
 export const MAX_ROSTER_SEEN = 512;
+/** Aggregate live facts carried by one durable-session snapshot. These sit
+ * below the per-object bounds so many valid rooms cannot multiply into an
+ * oversized CapTP answer. */
+export const MAX_SESSION_ROOM_MEMBERS = 256;
+export const MAX_SESSION_DIRECTORY_ROWS = 128;
+export const MAX_DIRECTORY_DISCOVERY_ROWS = 256;
 /** What a reader who steps away without writing a reason is away for.
  *
  * One word said in two places — the menu that sets a standing and the `/away`
@@ -189,6 +231,19 @@ export const PLAIN_AWAY = "away";
  * because its name survives every disconnect and restart. The server therefore
  * refuses the durable allocation once this ceiling is full. */
 export const MAX_ROOM_LINKS = 4096;
+export const MAX_TROUBLE_SOURCE_BYTES = 128;
+export const MAX_TROUBLE_REASON_BYTES = 1024;
+export const MAX_OPERATOR_PAGE = 32;
+/** How long a search over an operator inventory may be. A search is scanned
+ * against every row, so its length is attacker-influenced work per row. */
+export const MAX_OPERATOR_QUERY = 128;
+/** How many rows one bulk retire may take in a single call. The operator's
+ * client runs again for what remains, so this bounds the turn rather than the
+ * act, and keeps a hundred-thousand-row sweep interruptible. */
+export const MAX_OPERATOR_RETIRE_BATCH = 256;
+/** Largest low-frequency operations inventory accepted from one capability. */
+export const MAX_OPERATIONS_ROWS = 1024;
+export const MAX_OPERATOR_MEMBERS_PER_ROOM = 64;
 /** How many rooms one connection may have open at once.
  *
  * A private `open` never collides, a public open with a generated name need not,
@@ -243,6 +298,7 @@ export const MAX_IMAGE_DIM = 65_535;
  * reference that answered zero bytes would look like an empty file. */
 export const MAX_ROOM_ATTACHMENT_BYTES = 64 * 1024 * 1024;
 export const MAX_ROOM_ATTACHMENTS = 128;
+export const MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES = 64 * 1024 * 1024;
 
 /** What one TypeScript process will retain for direct-message recipients that
  * have not fetched their files yet. Direct files have no room server to own
@@ -336,6 +392,15 @@ export const MAX_BLOB_READERS = 256;
  * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
  * peer and the Goblins one. */
 export const MAX_DM_INBOXES = 256;
+/** Opaque directory-issued identity for one live nickname registration. It is
+ * compared as data and grants no authority by itself. */
+/** Repeated requests for the same reciprocal direct route inside this window
+ * produce one notification. Expired rows are removed lazily, so the bound is
+ * on active request pressure rather than every peer seen by a registration. */
+export const DIRECT_REQUEST_COALESCE_MS = 1_000;
+/** A successful reciprocal request must produce a route inside the same
+ * bounded interaction window as other Rooms requests. */
+export const DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS = 15_000;
 
 /** How many WebRTC signaling exchanges the directory holds at once. An
  * exchange is transient scratch for one channel bring-up; the oldest is
@@ -343,6 +408,13 @@ export const MAX_DM_INBOXES = 256;
  * routing rows. A candidate for an evicted exchange is dropped, which a
  * caller experiences as a failed dial, not a wedged directory. */
 export const MAX_SIGNAL_EXCHANGES = 64;
+
+/** Durable attenuated grants issued by one Rooms session. Active grants cost a
+ * Host publication; lifetime rows include revocation tombstones so no old
+ * sturdyref can return through identifier reuse. */
+export const MAX_ACTIVE_SESSION_GRANTS = 32;
+export const MAX_LIFETIME_SESSION_GRANTS = 256;
+export const MAX_SESSION_GRANT_LABEL = 80;
 
 /** How much WebRTC bring-up text the directory will carry between two members.
  * A description follows the sidecar's signal bound; one ICE candidate stays a
@@ -374,6 +446,10 @@ export function utf8Fits(text: string, maxBytes: number): boolean {
 	return utf8ByteLengthUpTo(text, maxBytes) <= maxBytes;
 }
 
+/** UTF-8 bytes of `text`, stopping early once `stopAfter` is passed. The same
+ * counter lives in `bindings/ts/webrtc/signal.ts`; Rooms keeps its own because
+ * a chat app's line budget must not depend on the WebRTC package's internals
+ * for a pure string measurement. */
 function utf8ByteLengthUpTo(text: string, stopAfter?: number): number {
 	let bytes = 0;
 	for (let i = 0; i < text.length; i++) {
@@ -419,13 +495,3 @@ export const TYPING_CLEAR_MS = TYPING_IDLE_MS + 2_000;
  * can label a direct-message path ("encrypted iroh QUIC" vs "a direct TCP
  * connection"). */
 export type Transport = "tcp" | "iroh";
-
-/** A presence change carried on a room line: the full roster, or one member
- * coming or going. */
-export type Presence =
-	| { kind: "roster"; names: string[] }
-	| { kind: "join" | "leave"; name: string }
-	/** A member's own standing. An empty reason is them saying they are back,
-	 * which is a thing somebody does on purpose and so is a change rather than
-	 * nothing said. */
-	| { kind: "away"; name: string; reason: string };

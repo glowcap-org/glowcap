@@ -33,7 +33,6 @@ const multiplexed = c.multiplexed_transport;
 
 const EV_CLOSED = multiplexed.PANCAKE_MULTIPLEXED_EV_CLOSED;
 const EV_ACCEPT = multiplexed.PANCAKE_MULTIPLEXED_EV_ACCEPT;
-const EV_CONNECT = multiplexed.PANCAKE_MULTIPLEXED_EV_CONNECT;
 const EV_LISTEN = multiplexed.PANCAKE_MULTIPLEXED_EV_LISTEN;
 
 const PancakeRelayConfig = contract.PancakeRelayConfig;
@@ -305,10 +304,6 @@ const MultiplexedRuntime = struct {
 
     pub fn findConnectionLocked(self: *MultiplexedRuntime, id: u64) ?*ConnState {
         return self.by_id.get(id);
-    }
-
-    fn findJobLocked(self: *MultiplexedRuntime, request_id: u64) ?*DialState {
-        return DialLifecycle.findLocked(self, request_id);
     }
 
     pub fn completeDial(self: *MultiplexedRuntime, job: *DialState, failure: net.netlayer.DialFailure) void {

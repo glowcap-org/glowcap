@@ -8,12 +8,7 @@ import {
 import { isRendezvousDesignator, Rendezvous } from "../rendezvous.ts";
 import { relayBytes } from "../relay.ts";
 import { secondaryFailures } from "@pancake/runtime";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (actual !== expected) {
-		throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
-	}
-}
+import { assertEquals } from "../../dogfood/assert.ts";
 
 function assertIncludes(actual: string, expected: string): void {
 	if (!actual.includes(expected)) {
@@ -415,9 +410,9 @@ Deno.test("a failed far-side dial closes the browser socket honestly and rejects
 	assertEquals(ws.closeReason, "iroh relay dial failed");
 });
 
-Deno.test("relayFailureLogger coalesces repeated dial failures and keeps unexpected loud", async () => {
+Deno.test("relayFailureLogger widens a continuing outage and keeps unexpected failures loud", async () => {
 	const lines: string[] = [];
-	const log = relayFailureLogger((line) => lines.push(line), 20);
+	const log = relayFailureLogger((line) => lines.push(line), 20, 80);
 	const dial = new RelayDialFailed("iroh relay dial failed", new Error("connect: NetworkUnreachable"));
 	log(dial);
 	log(dial);
@@ -433,4 +428,13 @@ Deno.test("relayFailureLogger coalesces repeated dial failures and keeps unexpec
 	await new Promise((r) => setTimeout(r, 40));
 	assertEquals(lines.length, 3);
 	assertIncludes(lines[2], "repeated 2 more times");
+	log(dial);
+	log(dial);
+	await new Promise((r) => setTimeout(r, 60));
+	assertEquals(lines.length, 4);
+	assertIncludes(lines[3], "repeated 2 more times");
+	await new Promise((r) => setTimeout(r, 100));
+	assertEquals(lines.length, 4);
+	log(dial);
+	assertEquals(lines.length, 5);
 });

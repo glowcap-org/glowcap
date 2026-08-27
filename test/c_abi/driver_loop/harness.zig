@@ -12,23 +12,14 @@ const crelay = @import("c_abi_net_transport_relay");
 const ctcp = @import("c_abi_net_transport_tcp");
 const pancake = @import("pancake");
 
-pub fn sessionLimitOptions(
-    max_frame_bytes: usize,
-    queue_cap: usize,
-    outbound_high_water_bytes: usize,
-    max_retained_sent_answer_bytes: usize,
-) cd.PancakeSessionLimitOptions {
-    return .{
-        .abi_version = cd.PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION,
-        .struct_size = @sizeOf(cd.PancakeSessionLimitOptions),
-        .max_frame_bytes = max_frame_bytes,
-        .queue_cap = queue_cap,
-        .outbound_high_water_bytes = outbound_high_water_bytes,
-        .max_retained_sent_answer_bytes = max_retained_sent_answer_bytes,
-    };
-}
-const c_args = @import("../../support/c_abi_args.zig");
 const ws_relay = @import("../../support/ws_relay.zig");
+const host_harness = @import("../host/harness.zig");
+
+/// The byte-fed Host harness owns these; the loop harness only adds what a
+/// stepping loop needs on top of an accepted session.
+pub const sessionLimitOptions = host_harness.sessionLimitOptions;
+pub const openAccepted = host_harness.openAccepted;
+pub const hostSeed = host_harness.hostSeed;
 
 pub const frame_cap: usize = 4096;
 
@@ -193,28 +184,6 @@ pub fn addStreamProvider(
     return addProvider(loop, &provider);
 }
 
-pub fn openAccepted(
-    host: ?*cd.PancakeHost,
-    transport: ?[*]const u8,
-    transport_len: usize,
-    out_session: ?*?*cd.PancakeHostSession,
-) i32 {
-    // Address scheme with no accepted address: the candidate is the
-    // unreachable-client placeholder, and every test that cares about the
-    // signed locator selects one explicitly first, which the ensure keeps.
-    return cd.pancake_host_session_open_accepted(
-        host,
-        transport,
-        transport_len,
-        cd.PANCAKE_DESIGNATOR_SCHEME_ADDRESS,
-        null,
-        0,
-        null,
-        0,
-        out_session,
-    );
-}
-
 pub fn readListenerLocator(loop: ?*cdrv.PancakeDriverLoop, listener: u64) !pancake.ocapn.model.PeerLocator {
     var borrowed: cdrv.PancakeLocatorView = undefined;
     try expectOk(cdrv.pancake_driver_listener_locator(loop, listener, &borrowed));
@@ -355,15 +324,6 @@ pub fn advertiseParts(loop: ?*cdrv.PancakeDriverLoop, listener: u64, transport: 
             return cdrv.pancake_driver_listener_advertise(ctx.loop, ctx.listener, locator);
         }
     }.call);
-}
-
-/// Durable identity in the first 32 bytes, deterministic session-key root in
-/// the rest — the only seed length the host constructor accepts (ADR-0097).
-pub fn hostSeed(durable_byte: u8) [64]u8 {
-    var seed: [64]u8 = undefined;
-    @memset(seed[0..32], durable_byte);
-    @memset(seed[32..], durable_byte ^ 0xa5);
-    return seed;
 }
 
 pub const TestLoop = struct {

@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
-const netlayer_test = @import("../../support/netlayer.zig");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
@@ -17,7 +16,6 @@ const handshake = @import("../../support/handshake.zig");
 const wait = @import("../../support/wait.zig");
 
 const Io = std.Io;
-const ip = std.Io.net;
 
 const admission = @import("../../support/keyed_relay_admission.zig");
 const AdmissionBackend = admission.AdmissionBackend;

@@ -274,7 +274,8 @@ export interface DirectoryRoomRecord {
 
 export type DirectoryWatchEvent =
 	| { event: "opened" | "closed" | "count"; room: DirectoryRoomRecord }
-	| { event: "registered" | "unregistered"; name: string; count: number };
+	| { event: "registered" | "unregistered"; name: string; registrationId: string; count: number }
+	| { event: "truncated"; count: number };
 
 function directoryRoomRecord(raw: unknown): DirectoryRoomRecord {
 	assert(Array.isArray(raw) && raw.length === 6, "directory room record must have six fields");
@@ -316,15 +317,24 @@ export async function listRooms(session: Session): Promise<DirectoryRoomRecord[]
 
 export function recordDirectoryEvent(events: DirectoryWatchEvent[], args: Argument[]): void {
 	const event = args[0];
+	if (event === "truncated") {
+		const count = Number(args[1]);
+		assert(args.length === 2 && Number.isSafeInteger(count) && count >= 0, "invalid truncation event");
+		events.push({ event, count });
+		return;
+	}
 	if (event === "opened" || event === "closed" || event === "count") {
 		events.push({ event, room: directoryRoomRecord(args.slice(1)) });
 		return;
 	}
 	assert(event === "registered" || event === "unregistered", "directory watcher received an invalid event");
-	assert(args.length === 3 && typeof args[1] === "string", "directory member event has invalid fields");
+	assert(
+		args.length === 4 && typeof args[1] === "string" && typeof args[3] === "string",
+		"directory member event has invalid fields",
+	);
 	const count = Number(args[2]);
 	assert(Number.isSafeInteger(count) && count >= 0, "directory member event has invalid count");
-	events.push({ event, name: args[1], count });
+	events.push({ event, name: args[1], registrationId: args[3], count });
 }
 
 /** Register a directory watcher and retain its complete deltas and snapshot. */
@@ -340,9 +350,19 @@ export async function watchDirectory(session: Session): Promise<{
 		return null;
 	});
 	const raw = await session.send(directory, WATCH_PUBLICATIONS, [observer]) as unknown[];
+	assert(raw.length === 3 && Array.isArray(raw[0]) && Array.isArray(raw[1]), "invalid directory watch snapshot");
+	for (const row of raw[1]) {
+		assert(
+			Array.isArray(row) && row.length === 2 && typeof row[0] === "string" && typeof row[1] === "string",
+			"invalid directory member snapshot row",
+		);
+		events.push({ event: "registered", name: row[0], registrationId: row[1], count: 1 });
+	}
+	const omitted = Number(raw[2]);
+	if (omitted > 0) events.push({ event: "truncated", count: omitted });
 	return {
 		events,
-		snapshot: raw.map(directoryRoomRecord),
+		snapshot: raw[0].map(directoryRoomRecord),
 	};
 }
 
@@ -354,14 +374,18 @@ export async function registerAndWatch(
 	directory: Ref,
 	nick: string,
 	locator: string,
-): Promise<{ askedFor: string[]; introducible: string[] }> {
+): Promise<{ askedFor: string[]; introducible: string[]; registrationId: string }> {
 	const askedFor: string[] = [];
 	const introducible: string[] = [];
 	let acked = false;
+	let claim = "";
 	const inbox = session.spawn((verb, args) => {
 		if (verb !== NOTIFY) return null;
 		const peer = typeof args[1] === "string" ? args[1] : "";
-		if (args[0] === "registered") acked = true;
+		if (args[0] === "registered" && typeof args[2] === "string") {
+			claim = args[2];
+			acked = true;
+		}
 		if (args[0] === "mintInboxFor" && peer) askedFor.push(peer);
 		if (args[0] === "introducible" && peer) introducible.push(peer);
 		return null;
@@ -370,7 +394,7 @@ export async function registerAndWatch(
 	const deadline = Date.now() + 3_000;
 	while (!acked && Date.now() < deadline) await delay(25);
 	assert(acked, `${nick} should be registered`);
-	return { askedFor, introducible };
+	return { askedFor, introducible, registrationId: claim };
 }
 
 /** The room code a verb refused with, or null when it did not refuse. */

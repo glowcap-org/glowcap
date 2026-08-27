@@ -31,39 +31,16 @@
 // Run: `deno run --allow-all apps/rooms/test/web_routes_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const FIRST = "arrivals";
 const SECOND = "departures";
 const PRIVATE = "backroom";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const answer = await fetch(`http://127.0.0.1:${port}/locator`);
-			await answer.body?.cancel();
-			if (answer.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 function watch(tab: Page, who: string): void {
 	tab.on("pageerror", (error) => console.error(`  [${who} page error]`, error.message));
@@ -119,6 +96,7 @@ try {
 
 	// ── A link names where to stand ──────────────────────────────────────
 	await tab.goto(`http://127.0.0.1:${httpPort}/room/${FIRST}`);
+	await establishLocalSession(tab);
 	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
 		.catch(() => fail("the page never left its opening screen at a room address"));
 	await tab.waitForFunction(
@@ -217,6 +195,7 @@ try {
 	const stranger = await (await browser.newContext()).newPage();
 	watch(stranger, "stranger");
 	await stranger.goto(`http://127.0.0.1:${httpPort}${privateAddress}`);
+	await establishLocalSession(stranger);
 	await stranger.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await stranger.waitForSelector("#joinBtn", { timeout: 30_000 })
 		.catch(() => fail("a private room's link did not degrade to the join card"));
@@ -242,13 +221,41 @@ try {
 	// on its own.
 	const returning = await browser.newContext();
 	await returning.addInitScript(() => {
-		localStorage.setItem("rooms.locator", "ocapn://elsewhereelsewhere.iroh");
-		localStorage.setItem("rooms.room", "lobby");
-		localStorage.setItem("rooms.nick", "ada");
+		localStorage.setItem(
+			"rooms.workspace-state",
+			JSON.stringify({
+				version: 1,
+				controller: { kind: "local" },
+				session: {
+					version: 1,
+					directories: [],
+					conversations: [],
+					invitations: [],
+					active: null,
+					standing: "",
+					ignored: [],
+					keepHistory: true,
+					join: { locator: "ocapn://elsewhereelsewhere.iroh", room: "lobby", nick: "ada" },
+					dmMode: "webrtc",
+					vizOverride: "",
+					capabilities: { operations: [], archivePeer: null },
+					peering: [],
+				},
+				view: {
+					theme: "light",
+					notifyOn: false,
+					railOpen: true,
+					rosterOpen: true,
+					settingsTab: "overview",
+					opsPane: "listeners",
+				},
+			}),
+		);
 	});
 	const back = await returning.newPage();
 	watch(back, "returning");
 	await back.goto(`http://127.0.0.1:${httpPort}/room/${FIRST}`);
+	await establishLocalSession(back);
 	await back.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await back.waitForFunction(
 		(room) => (document.querySelector("#room") as HTMLInputElement | null)?.value === room,
@@ -269,6 +276,7 @@ try {
 	}
 	// Nothing named, so what this browser used last is exactly what to offer.
 	await back.goto(`http://127.0.0.1:${httpPort}/join`);
+	await establishLocalSession(back);
 	await back.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await back.waitForFunction(
 		() => (document.querySelector("#locator") as HTMLInputElement | null)?.value !== "",
@@ -282,6 +290,7 @@ try {
 
 	// ── An address nothing answers ───────────────────────────────────────
 	await tab.goto(`http://127.0.0.1:${httpPort}/nowhere/at/all`);
+	await establishLocalSession(tab);
 	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await tab.waitForFunction(() => location.pathname === "/", undefined, { timeout: 30_000 })
 		.catch(async () => fail(`an unanswered address stayed at ${await addressOf(tab)}`));

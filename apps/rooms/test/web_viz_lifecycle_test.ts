@@ -36,6 +36,7 @@ import { type Browser, chromium } from "playwright";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 import { endConversation, fail, joinAs, openConv, openDmTo, say, seesLine } from "./viz_drive.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
  * structure of its own for either, and reads a converted event only through
@@ -129,27 +130,6 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "general";
 const NICK1 = "nick1";
 const NICK2 = "nick2";
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up / room not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 // ── The picture ──────────────────────────────────────────────────────────────
 

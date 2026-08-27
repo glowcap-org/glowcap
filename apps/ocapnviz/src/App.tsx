@@ -29,6 +29,7 @@ import {
 	reducer,
 	TIMELINE_VIEW_STORAGE_KEY,
 } from "./state/app-state.ts";
+import { forgetStoredValue } from "./state/storage.ts";
 import {
 	useAppStatePersistence,
 	useBufferEngine,
@@ -112,7 +113,7 @@ export function App() {
 		// and visibility. Clear the store first, then remount the panel
 		// so its initializer reloads defaults in this session — not only
 		// on the next page load.
-		globalThis.localStorage?.removeItem(TIMELINE_VIEW_STORAGE_KEY);
+		forgetStoredValue(TIMELINE_VIEW_STORAGE_KEY);
 		setTimelineLayoutResetKey((k) => k + 1);
 	}, [
 		resetSizes,

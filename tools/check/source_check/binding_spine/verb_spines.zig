@@ -333,19 +333,6 @@ pub fn checkBindingDialSpine(
             try appendViolation(gpa, violations, "{s}: provider transport inventory duplicates the native registry; providers install, connectors advertise", .{mirror.path});
         }
     }
-
-    const obsolete_compositions = [_][]const u8{
-        "bindings/ts/runtime/transport_composition.ts",
-        "bindings/python/pancake/_transport_composition.py",
-        "bindings/rust/src/transport_composition.rs",
-        "bindings/racket/private/transport-composition.rkt",
-    };
-    for (obsolete_compositions) |path| {
-        // tolerant: access failing means the obsolete file is absent, which
-        // is the passing outcome.
-        root.access(io, path, .{}) catch continue;
-        try appendViolation(gpa, violations, "{s}: obsolete transport-composition dispatcher must stay deleted; Runtime composes explicit providers/connectors", .{path});
-    }
 }
 
 /// Binding spine Pass 3d: each binding keeps transport-specific construction

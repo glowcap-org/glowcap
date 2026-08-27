@@ -5,10 +5,24 @@
 
 import type { DirId } from "../types.ts";
 
-import type { DiagnosticRow, IrcGatewayRow, ListenerRow } from "../../../lib/room_client.ts";
+import type {
+	DiagnosticRow,
+	IrcGatewayRow,
+	ListenerRow,
+	OperatorCategory,
+	OperatorLinkRow,
+	OperatorReferenceRow,
+	OperatorRegistrationRow,
+	OperatorRoomRow,
+	OperatorSessionRow,
+	OperatorTroubleRow,
+	StewardshipRow,
+} from "../../../lib/room_client.ts";
 
 /** One named object the inspect capability reported on this directory. */
 export type { DiagnosticRow } from "../../../lib/room_client.ts";
+export type { OperatorCategory } from "../../../lib/room_client.ts";
+export type { OperatorReferenceRow } from "../../../lib/room_client.ts";
 
 /** One live listener the admin capability reported on this directory. */
 export type { ListenerRow } from "../../../lib/room_client.ts";
@@ -16,22 +30,22 @@ export type { ListenerRow } from "../../../lib/room_client.ts";
 /** The operations capabilities the page knows how to hold. Advanced keeps one
  * toggle per capability; the Operations page draws one pane per held one.
  * The order here is the tab order when more than one is held. */
-export const OPS_CAPS = ["listeners", "diagnostics", "irc", "peering", "viz"] as const;
-export type OpsCap = (typeof OPS_CAPS)[number];
+export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../../../lib/boot_caps.ts";
+import { OPERATIONS_CAPABILITIES as OPS_CAPS } from "../../../lib/boot_caps.ts";
 
 /** One durable room this tab published into this directory while it holds the
  * peering capability. The lease behind the row lives in the data layer; what
  * the pane needs is the words and where the publication stands. */
 export interface PeeringPublication {
 	/** The row's handle for revoking, minted by the data layer. */
-	id: number;
+	id: string | number;
 	/** The name the destination lists the room under. */
 	name: string;
 	/** The directory the room actually lives on, as the address this tab used. */
 	source: string;
 	/** Publishing is in flight, live at the destination, or being revoked. A
 	 * failed publish leaves no row; its reason lands in the form that asked. */
-	phase: "publishing" | "live" | "revoking";
+	phase: "publishing" | "live" | "revoking" | "failed";
 }
 
 /** What this tab holds while the peering capability is in hand: the durable
@@ -77,22 +91,35 @@ export interface IrcGatewayState {
 	readonly bridged: readonly IrcBridgeRow[];
 }
 
+/** One stewardship as the operator pane can act on. The server answers a
+ * swiss; the data layer composes its copyable sturdyref with this directory's
+ * actual route before it reaches the store. */
+export interface StewardshipView extends Omit<StewardshipRow, "steward"> {
+	readonly stewardLink: string | null;
+}
+
+export interface RoomsOperatorState {
+	readonly revision: bigint;
+	readonly stewardships: readonly StewardshipView[];
+	readonly links: readonly OperatorLinkRow[];
+	readonly registrations: readonly OperatorRegistrationRow[];
+	readonly sessions: readonly OperatorSessionRow[];
+	readonly rooms: readonly OperatorRoomRow[];
+	readonly references: readonly OperatorReferenceRow[];
+	readonly trouble: readonly OperatorTroubleRow[];
+	readonly next: Readonly<Record<OperatorCategory, number | null>>;
+	/** How many rows each inventory holds that match the search in force. The
+	 * row arrays above are one page of that; a directory holding a hundred
+	 * thousand references sends thirty-two of them. */
+	readonly totals: Readonly<Record<OperatorCategory, number>>;
+	/** The search these rows and totals answer, empty when the pane is showing
+	 * the whole directory. */
+	readonly search: string;
+}
+
 /** Where a remembered operations swiss was redeemed: a directory for the
  * session-fetched capabilities, the endpoint URL for the visualizer. */
 export type OpsScope = DirId | string;
-
-/** Where `cap`'s swiss for `home` is kept in this browser.
- *
- * The name of a remembered fact is vocabulary, so it is here rather than with
- * the reading and writing of it in `net/ops_memory.ts`: a proof that seeds one
- * of these rows has to seed the row the page will actually look up, and this
- * module imports nothing at runtime, so it can say what that row is called
- * without starting a page. A row under a key nothing reads is silent — the tab
- * arms nothing, goes on working, and the failure surfaces somewhere else
- * entirely — which is worth one export to make impossible. */
-export function opsSwissKey(cap: OpsCap, home: OpsScope): string {
-	return `rooms.ops-swiss.${cap}.${home}`;
-}
 
 /** Which operations capabilities this tab holds now.
  *
@@ -105,6 +132,7 @@ export interface OpsHeld {
 	readonly listeners: boolean;
 	readonly diagnostics: boolean;
 	readonly irc: boolean;
+	readonly operator: boolean;
 	readonly peering: boolean;
 	readonly viz: boolean;
 }
@@ -114,6 +142,7 @@ export function opsHeldOf(
 	listeners: readonly ListenerRow[] | null,
 	diagnostics: readonly DiagnosticRow[] | null,
 	irc: IrcGatewayState | null,
+	operator: RoomsOperatorState | null,
 	peering: PeeringState | null,
 	viz: VizPublishState | null,
 ): OpsHeld {
@@ -121,6 +150,7 @@ export function opsHeldOf(
 		listeners: listeners !== null,
 		diagnostics: diagnostics !== null,
 		irc: irc !== null,
+		operator: operator !== null,
 		peering: peering !== null,
 		viz: viz !== null,
 	};

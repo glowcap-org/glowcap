@@ -331,6 +331,39 @@ test "route bundle parses primary locators and route-list hints through one owne
     try std.testing.expectEqual(moved_designator, moved.paths[0].designator.ptr);
 }
 
+test "route bundle reads an empty route query as an empty hint map" {
+    const allocator = std.testing.allocator;
+
+    // A route whose `?` carries nothing. The owned parser reads it as an empty
+    // hint map; the borrowed view check must agree instead of treating it as
+    // one nameless segment. The fuzzer found the disagreement as a crash, and
+    // `test/session/fuzz_regressions/empty-query-route.bin` replays it.
+    var list = try model.route_bundle.RouteListIterator.init("ocapn://127.0.0.1%3A9051.tcp?");
+    const view = (try list.next()).?;
+    try std.testing.expectEqualStrings("", view.query_encoded.?);
+    try model.route_bundle.validateDialPathView(view);
+    try std.testing.expectEqual(@as(?model.route_bundle.RouteUriView, null), try list.next());
+
+    const routes = [_]model.HintEntry{.{
+        .name = model.transport.hint_via,
+        .value = .{ .string = "ocapn://127.0.0.1%3A9051.tcp?" },
+    }};
+    var id = try model.parseIdRouteBundle(allocator, .{
+        .transport = model.transport.id,
+        .designator = "peer-key",
+        .hints = .{ .entries = &routes },
+    });
+    defer id.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), id.paths.len);
+    try std.testing.expectEqual(@as(usize, 0), id.paths[0].hints.entries.len);
+
+    // A query with content still refuses a segment that names nothing.
+    var bare = try model.route_bundle.RouteListIterator.init("ocapn://127.0.0.1%3A9051.tcp?x");
+    try std.testing.expectError(error.UnparseableLocator, bare.next());
+    var trailing = try model.route_bundle.RouteListIterator.init("ocapn://127.0.0.1%3A9051.tcp?a=1&");
+    try std.testing.expectError(error.UnparseableLocator, trailing.next());
+}
+
 test "route bundle refuses malformed and over-budget route lists" {
     const allocator = std.testing.allocator;
 

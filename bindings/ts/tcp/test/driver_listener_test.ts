@@ -7,10 +7,7 @@ import {
 	Runtime,
 	type Session,
 } from "../../runtime/mod.ts";
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 Deno.test("high-level servers expose the driver's complete listener locator", async () => {
 	const plain = await tcp.listen("127.0.0.1", 0);

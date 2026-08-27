@@ -268,7 +268,6 @@ pub const HostRuntime = struct {
 
     pub const MultiplexedRegistration = provider_package.MultiplexedRegistration;
     pub const ProviderRegistration = provider_package.Registration;
-    pub const ProviderPackageOwner = provider_package.Owner;
     pub const ProviderPackage = provider_package.Package;
     const InstalledProviderPackage = provider_package.Installed;
 

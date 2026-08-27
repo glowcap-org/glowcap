@@ -96,16 +96,3 @@ pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const
         error.MalformedView => return Error.MalformedFrame,
     };
 }
-
-fn recordPrefix(comptime tag: []const u8) []const u8 {
-    return std.fmt.comptimePrint("<{d}'{s}", .{ tag.len, tag });
-}
-
-/// Return the exact borrowed signed-give envelope inside `frame`, if present.
-/// Syrup's own value skipper keeps payload bytes from being mistaken for syntax.
-pub fn spanSignedHandoffGive(frame: []const u8) ?[]const u8 {
-    const start = std.mem.indexOf(u8, frame, recordPrefix("desc:sig-envelope")) orelse return null;
-    var cursor = start;
-    syntax.skipSyrupValue(frame, &cursor) catch return null;
-    return frame[start..cursor];
-}

@@ -1,8 +1,9 @@
 /* The Operations surface and its panes: the control that opens it from the
-   Settings head, the shared pane rhythm, and the two tables the panes draw.
-   Settings owns the toggles that take these capabilities; everything the
-   panes draw lives here, standing on the card plane — ground, well, field —
-   declared in plane.css and worn by modal cards and /ops cards alike. */
+   Settings head, the shared pane rhythm, the pane navigation, and the table
+   the diagnostics pane draws. Settings owns the toggles that take these
+   capabilities. The panes' entries, fields, confirms, and action rows are the
+   shared form vocabulary in forms.css, standing on the card plane declared in
+   plane.css and worn by modal cards and /ops cards alike.
 
 /* The Operations control leads the toggle row from the left, apart from the
    window toggles at its end: it opens a layer about the server rather than
@@ -12,10 +13,15 @@
 }
 
 /* A pane is a column on the card's own gap: the lead and its refresh first,
-   then one well per question. The name width is the one measure the labeled
-   knob rows build on. */
+   then one well per question. The knob rows in a pane are inline fields
+   (forms.css); this is the one width their name column takes here. */
 .ops-pane {
-	--ops-name-w: 72px;
+	--field-name-w: 88px;
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+}
+.ops-section {
 	display: flex;
 	flex-direction: column;
 	gap: 13px;
@@ -65,7 +71,7 @@
    cell would checker the table, and the publication rows' source line keeps
    the same voice. */
 .ops-table code,
-.ops-pub-source code {
+.entry-meta code {
 	font-size: 11px;
 	background: transparent;
 	padding: 0;
@@ -79,21 +85,6 @@
 }
 .ops-note {
 	color: var(--ink-soft);
-}
-.ops-kicker {
-	display: block;
-	font-size: 11px;
-	font-weight: 700;
-	color: var(--ink-soft);
-}
-/* The action cell hugs the line's end; a control there is one small ghost
-   mark, not a labelled button competing with the address beside it. */
-.ops-act {
-	width: 1%;
-	text-align: end;
-	white-space: nowrap;
-	padding-right: 0;
-	vertical-align: middle;
 }
 /* The serving mark: a teal dot and two quiet words where a down control
    would be a dead press. Teal is this page's "you are here" voice — the
@@ -145,113 +136,53 @@
 	color: var(--ink-soft);
 	white-space: nowrap;
 }
-/* A pane with nothing to list says so in the well, quietly, instead of
-   drawing an empty grid. */
-.ops-empty {
-	margin: 0;
-	padding: 6px 0;
-	font-size: var(--type-ui);
-	color: var(--ink-soft);
-}
-
-/* Listeners and publications as rows rather than a table: a locator is one
-   long piece of wire text, and a column beside it only forces it to wrap
-   against its neighbors. One row per entry, its control at the line's end the
-   way the Advanced toggles sit, and the wire text under the name on its own
-   line. */
-.ops-listeners,
-.ops-pubs {
-	list-style: none;
-	margin: 0;
-	padding: 0;
+/* A held capability's first answer. The card is already here, so reserve the
+   same lead-and-well rhythm its contents will use instead of flashing blank.
+   The traveling sheen is deliberately quiet and stops with reduced motion. */
+.ops-loading {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 13px;
 }
-.ops-listener,
-.ops-pub {
+.ops-loading .well {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-}
-.ops-listener + .ops-listener,
-.ops-pub + .ops-pub {
-	padding-top: 12px;
-	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
-}
-.ops-listener-head,
-.ops-pub-head {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	min-height: 24px;
-}
-.ops-listener-name,
-.ops-pub-name {
-	flex: 1;
-	font-size: var(--type-ui);
-	font-weight: 700;
-	color: var(--ink);
-	overflow-wrap: anywhere;
-}
-/* Where a publication came from: a worded line under the name, its locator in
-   the same quiet mono the tables use for wire text. */
-.ops-pub-source {
-	margin: 0;
-	font-size: var(--type-caption);
-	color: var(--ink-soft);
-	overflow-wrap: anywhere;
-}
-.ops-listener .hint {
-	margin: 0;
-}
-/* A seat the server already knows cannot come up fades as one piece, so the
-   disabled switch and its row agree; the standing sentence keeps full ink so
-   the reason stays readable. */
-.ops-listener[data-idle="true"] .ops-listener-name,
-.ops-listener[data-idle="true"] > .hint:first-of-type {
-	opacity: .55;
-}
-.ops-idle {
-	font-style: italic;
-}
-/* One knob of a seat's `up`: the name as a quiet caption leading its field,
-   so three host-shaped fields cannot be told apart only by placeholder. */
-.ops-opt {
-	display: flex;
-	align-items: center;
 	gap: 10px;
 }
-.ops-opt-name {
-	flex: none;
-	width: var(--ops-name-w);
-	font-size: var(--type-caption);
-	font-weight: 700;
-	color: var(--ink-soft);
+.ops-loading-line {
+	display: block;
+	width: 100%;
+	height: 12px;
+	border-radius: var(--radius-chip);
+	background: linear-gradient(
+		100deg,
+		color-mix(in srgb, var(--rule) 62%, transparent) 24%,
+		color-mix(in srgb, var(--paper-raised) 82%, var(--accent) 18%) 42%,
+		color-mix(in srgb, var(--rule) 62%, transparent) 60%
+	);
+	background-size: 240% 100%;
+	animation: ops-loading-sheen 1.35s ease-in-out infinite;
 }
-.ops-opt .field {
-	flex: 1;
-	min-width: 0;
+.ops-loading-line.lead-line {
+	width: min(78%, 620px);
+	height: 16px;
 }
-/* A form inside a well lays its rows on the group's own rhythm; the well's
-   column is the layout, and the form is the submit semantics over it. */
-.ops-pane .well form {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
+.ops-loading-line.title-line {
+	width: min(34%, 180px);
 }
-/* The refresh control says it is asking: the arrow turns until the server's
-   answer lands, so a slow snapshot reads as working rather than dead. */
-.ops-refresh[data-asking="true"] svg {
-	animation: ops-refresh-turn .9s linear infinite;
+.ops-loading-line.short-line {
+	width: min(58%, 360px);
 }
-@keyframes ops-refresh-turn {
+@keyframes ops-loading-sheen {
+	from {
+		background-position: 100% 0;
+	}
 	to {
-		transform: rotate(360deg);
+		background-position: -100% 0;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.ops-refresh[data-asking="true"] svg {
+	.ops-loading-line {
 		animation: none;
 	}
 }
@@ -260,7 +191,7 @@
    /ops stands in the shell's content cell, where the conversation stands:
    the rail, the topbar, and Settings stay up, and the way back is the rail
    itself. The surface scrolls as one column over the page's own ground, the
-   pane nav in its tab well when more than one capability is held, then one
+   pane navigation when more than one capability is held, then one
    raised card per ask or pane. */
 .ops-main {
 	min-height: 0;
@@ -270,6 +201,9 @@
 	display: flex;
 	flex-direction: column;
 	background: var(--page-bg);
+	/* The capability navigation responds to the content cell, not the browser:
+	   the members rail may take a column without changing the viewport. */
+	container-type: inline-size;
 }
 /* The phone's scroll region is the document, exactly as the conversation's
    (stream.css's 820px block): here an inner scroller never overflows, so its
@@ -280,19 +214,87 @@
 		overscroll-behavior: auto;
 	}
 }
-/* The pane nav is the same Tabs bar Settings draws, well, thumb and all;
-   this only places it: centred over the cards, capped so four cells stay
-   word-sized, sticky over the scrolling column with a step of lift beside
-   the track's own recess. */
-.ops-main .tabs {
+/* Operations panes are bookmarkable addresses, so this is a nav rather than
+   the Settings dialog's segmented Tabs control. Every pane fits as one calm
+   destination when there is room, then the row reflows as the content cell
+   narrows. Every destination stays visible and word-sized. */
+.ops-nav {
 	flex: none;
-	align-self: center;
-	width: min(460px, calc(100% - 32px));
+	display: grid;
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+	gap: 4px;
+	width: min(960px, calc(100% - 32px));
+	box-sizing: border-box;
 	margin: 14px auto 0;
+	padding: 4px;
 	position: sticky;
 	top: 10px;
 	z-index: 4;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-well);
+	background: var(--paper);
 	box-shadow: inset 0 1px 2px var(--shadow-sm-color), var(--shadow-sm);
+}
+.ops-nav[data-count="2"] {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ops-nav[data-count="3"] {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ops-nav[data-count="4"] {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.ops-nav[data-count="5"] {
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.ops-nav-item {
+	min-width: 0;
+	min-height: var(--control-h);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	border-radius: calc(var(--radius-well) - 3px);
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+	font-weight: 700;
+	line-height: 1.15;
+	text-align: center;
+	text-decoration: none;
+	overflow-wrap: anywhere;
+	transition: color .12s ease, background-color .12s ease, box-shadow .12s ease;
+}
+.ops-nav-item.here {
+	color: color-mix(in srgb, var(--accent-ink) 70%, var(--ink));
+	font-weight: 800;
+	background: color-mix(in srgb, var(--accent) 28%, var(--paper-raised));
+	box-shadow: var(--shadow-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+@media (hover: hover) {
+	.ops-nav-item:hover:not(.here) {
+		color: var(--ink);
+		background: var(--hover);
+	}
+}
+.ops-nav-item:focus-visible {
+	outline-offset: 1px;
+}
+@container (max-width: 820px) {
+	.ops-nav[data-count="4"] {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.ops-nav[data-count="5"],
+	.ops-nav[data-count="6"] {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+@container (max-width: 430px) {
+	.ops-nav[data-count="3"],
+	.ops-nav[data-count="5"],
+	.ops-nav[data-count="6"] {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 .ops-page-body {
 	width: 100%;
@@ -325,8 +327,129 @@
 	color: var(--ink-soft);
 }
 
-/* One choice for every gate and notice card: the action stands 12px off the
-   prose above it, so "take the capability" and "the held panes" read alike. */
-.ops-gate .button {
-	margin-top: 12px;
+/* The narrow content cell keeps its cards readable: less inset, and the
+   entry rows and confirms already wrap their acts under the words. */
+@container (max-width: 560px) {
+	.ops-page-body {
+		padding-inline: 12px;
+	}
+	.ops-card {
+		padding: 14px;
+	}
+}
+
+@container (max-width: 430px) {
+	.ops-card {
+		padding: 12px;
+	}
+	.ops-page-body {
+		padding-inline: 8px;
+	}
+	.ops-nav {
+		width: calc(100% - 16px);
+		margin-top: 10px;
+	}
+}
+
+/* ── An inventory's shape ───────────────────────────────────────────────── */
+/* How many rows a section holds, said in its own title, because that is the
+   first thing an operator wants from a page of inventories and the eye is
+   already stopping there. */
+.ops-section-count {
+	display: inline-flex;
+	align-items: center;
+	min-width: 18px;
+	height: 17px;
+	margin-inline-start: 7px;
+	padding-inline: 5px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--rule) 55%, transparent);
+	color: var(--ink-soft);
+	font-size: var(--type-tiny);
+	font-weight: 700;
+	letter-spacing: 0;
+	justify-content: center;
+}
+/* Within a section, rows that are all one kind stand under that kind's name.
+   The heading is quieter than the section's own title, so a reader still
+   reads the page as sections first and kinds inside them. */
+.ops-kind-group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.ops-kind-group + .ops-kind-group {
+	margin-top: 4px;
+	padding-top: 12px;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.ops-kind-head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin: 0;
+	font-size: var(--type-ui);
+	font-weight: 700;
+	color: var(--ink);
+}
+/* The kind is the way to ask for that kind alone, so it wears the step-aside
+   word's ink rather than looking like a heading that does nothing. */
+.ops-kind-head .button[data-variant="link"] {
+	font-size: inherit;
+	font-weight: inherit;
+}
+.ops-kind-count {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+
+/* ── The operator's search ──────────────────────────────────────────────── */
+/* One field over every inventory on the pane, because an operator arrives
+   with a name rather than a category. It stands at field height with its
+   mark inside the box, the way the composer's own prefix does, and the
+   sentence under it says what the counts below are counting. */
+.ops-search {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.ops-search-field {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+.ops-search-field .field {
+	padding-inline-start: 38px;
+}
+.ops-search-field:has(.ops-search-clear) .field {
+	padding-inline-end: 64px;
+}
+.ops-search-mark {
+	position: absolute;
+	inset-inline-start: 13px;
+	display: grid;
+	place-items: center;
+	color: var(--ink-soft);
+	pointer-events: none;
+}
+.ops-search-clear {
+	position: absolute;
+	inset-inline-end: 12px;
+}
+/* The engine draws its own cancel glyph inside a search input. The page has
+   its own way out at the line's end, in the page's own word, and two controls
+   that clear the same box is one too many. */
+.ops-search-field .field::-webkit-search-cancel-button {
+	appearance: none;
+	display: none;
+}
+/* A sweep's own line: how many rows have gone and how many are left, beside
+   the control that stops it. */
+.ops-sweep-progress {
+	margin-inline-end: auto;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
 }

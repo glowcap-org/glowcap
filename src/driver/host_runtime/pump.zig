@@ -22,7 +22,6 @@ const Internal = host_runtime.Internal;
 const Budget = driver_core.Budget;
 const Error = driver_core.Error;
 const ExternalEffectMode = lifecycle.ExternalEffectMode;
-const PendingOpen = pending_state.Open;
 const ReadySource = runtime_readiness.Source;
 const Wire = HostRuntime.Wire;
 

@@ -24,6 +24,7 @@
          "../../../../bindings/racket/pancake-tcp.rkt"
          "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
          racket/list
+         racket/match
          racket/string)
 (provide room-connect directory-session dir-open dir-enter dir-list dir-watch
          (struct-out room-info)
@@ -151,7 +152,7 @@
 
 (define (wire-room fields)
   (and (list? fields)
-       (>= (length fields) 6)
+       (= (length fields) 6)
        (let ([name (list-ref fields 0)]
              [count (list-ref fields 1)]
              [id (list-ref fields 2)]
@@ -160,7 +161,25 @@
              [proof (list-ref fields 5)])
          (and (string? name) (string? id) (string? kind)
               (string? origin) (string? proof)
-              (room-info name (and (exact-integer? count) count) id kind origin proof)))))
+              (or (not count) (exact-nonnegative-integer? count))
+              (room-info name count id kind origin proof)))))
+
+(define (wire-rooms who raw)
+  (unless (list? raw) (error who "directory answered a room list that is not a list"))
+  (for/list ([row (in-list raw)])
+    (or (wire-room row) (error who "directory answered a malformed room publication"))))
+
+(define (wire-watch-rooms raw)
+  (match raw
+    [(list rooms registrations (? exact-nonnegative-integer?))
+     (unless (and (list? registrations)
+                  (for/and ([row (in-list registrations)])
+                    (match row
+                      [(list (? non-empty-string?) (? non-empty-string?)) #t]
+                      [_ #f])))
+       (error 'dir-watch "directory answered malformed registration rows"))
+     (wire-rooms 'dir-watch rooms)]
+    [_ (error 'dir-watch "directory answered a malformed watch snapshot")]))
 
 (define (room-connect locator)
   (define-values (runtime c) (dial locator))
@@ -176,7 +195,8 @@
 
 ;; The exact live local and foreign room publications.
 (define (dir-list d)
-  (filter-map wire-room (session-send (directory-session d) (directory-far d) 'list)))
+  (wire-rooms 'dir-list
+              (session-send (directory-session d) (directory-far d) 'listPublications)))
 
 ;; Follow the live room list: spawn an observer the directory calls back with
 ;; each change, register it, and return the current snapshot as a baseline.
@@ -192,7 +212,7 @@
           (define entry (and (pair? args) (wire-room (cdr args))))
           (when entry (on-event (car args) entry))
           (void)))))
-  (filter-map wire-room (session-send c (directory-far d) 'watch observer)))
+  (wire-watch-rooms (session-send c (directory-far d) 'watchPublications observer)))
 
 ;; Subscribe to a room you already hold a reference to, on an open connection:
 ;; spawn an inbox actor the room can call back, hand it over, and start a

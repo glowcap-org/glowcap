@@ -107,18 +107,23 @@ package-local metadata.
   consumers can verify that build provenance independently of the checksum
   file. Per-target hash pins inside packages, Forgejo mirror workflows, and
   language-registry publication remain separate operational surfaces.
-- `releases_published` in `c-abi-resolve.json` is the prerelease valve for
-  hosted C archives: when false, loaders and `tools/c-abi/fetch-c-abi.sh` skip the
-  release download unless `PANCAKE_DOWNLOAD=1`, and the release workflow skips
-  `gh release create`. Hygiene and security refusals (non-HTTPS without a typed
-  escape, checksum miss, zip-slip / link members) always fail closed;
+- `releases_published` in `c-abi-resolve.json` is the consumer-availability
+  valve for hosted C archives: when false, loaders and
+  `tools/c-abi/fetch-c-abi.sh` skip the release download unless
+  `PANCAKE_DOWNLOAD=1`. It is not publication authorization. A matching version
+  tag on an exact commit with a successful `check.yml` run authorizes the
+  release workflow to attest and publish the archives; only after those assets
+  can be downloaded and verified does a separate commit set
+  `releases_published` true. Hygiene and security refusals (non-HTTPS without a
+  typed escape, checksum miss, zip-slip / link members) always fail closed;
   `PANCAKE_STRICT` only hardens soft network/tooling failures.
   `zig build c-abi-extract-check` (part of `check`) runs each port's own
   validator against hostile fixtures in tree: zip-slip, symlink, an owner
   field shaped like a date to move a naive parser's column guess, and a
   regular file whose name contains tar's `" -> "` separator. Flipping
-  `releases_published` to true is the public commit for that
-  surface only; see the flip checklist in `bindings/PACKAGING.md`.
+  `releases_published` to true is the consumer-enablement commit for that
+  surface only; see the publication and enablement checklist in
+  `bindings/PACKAGING.md`.
 - Vendoring platform wheels/cdylibs inside each package remains a future
   packaging optimization; this ADR is the find/download contract either way.
   Pinning per-target hashes _inside_ the package (stronger than the attested,

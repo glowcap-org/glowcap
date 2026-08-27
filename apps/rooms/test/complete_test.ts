@@ -32,6 +32,11 @@ Deno.test("a sigil triggers only at the start of the token under the caret", () 
 	assertEquals(triggerAt("@al done", 8), null);
 });
 
+Deno.test("IRC nickname punctuation stays completable", () => {
+	assertEquals(triggerAt("@some[n", 7), { kind: "nick", start: 0, query: "some[n" });
+	assertEquals(triggerAt("say @a\\`^", 9), { kind: "nick", start: 4, query: "a\\`^" });
+});
+
 Deno.test("completion starts with the first useful character", () => {
 	assertEquals(triggerAt(":f", 2), { kind: "emoji", start: 0, query: "f" });
 	assertEquals(triggerAt(":fi", 3), { kind: "emoji", start: 0, query: "fi" });
@@ -204,6 +209,21 @@ Deno.test("a person-target command does not offer your own name", () => {
 		fail("/invite offered the reader's own name");
 	}
 	if (!names.includes("bo")) fail("/invite hid somebody else with the reader's name");
+});
+
+Deno.test("IRC roster attribution never leaks into a mention", () => {
+	const conv = {
+		type: "room",
+		dir: "d",
+		members: new Map([["irc/alice", {}], ["bob", {}], ["alice", {}]]),
+	} as unknown as Conv;
+	const names = nickSource({ kind: "nick", start: 0, query: "" }, conv, "@", new Set(), "bob");
+	assertEquals(names, ["alice", "bob"]);
+	const rows = completeCandidates({ kind: "nick", start: 0, query: "ali" }, {
+		...SOURCES,
+		nicks: names,
+	});
+	assertEquals(rows.map((row) => row.insert), ["@alice "]);
 });
 
 Deno.test("every spelling of a room-wide call is understood, two are proposed", () => {

@@ -51,6 +51,11 @@ pub fn writeMsg(io: std.Io, msg: []const u8) void {
 /// is evidence for assertions, not a transcript.
 pub fn TestCapture(comptime tag: @TypeOf(.enum_literal)) type {
     return struct {
+        /// Which stream this capture is. Load-bearing even with no reader: a
+        /// returned struct that never mentions `tag` is the same type for every
+        /// tag, and one type is one `storage`, so the stdout and diagnostics
+        /// captures would silently share bytes. Naming the tag here is what
+        /// makes each instantiation its own type with its own storage.
         pub const stream_tag = tag;
 
         var storage: [64 << 10]u8 = undefined;

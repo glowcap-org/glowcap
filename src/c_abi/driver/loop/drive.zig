@@ -55,7 +55,10 @@ pub export fn pancake_driver_step(raw: ?*c.PancakeDriverLoop, timeout_ms: i32) i
     const progress = inst.runtime.stepAny(timeout_ms) catch |err| {
         return operationErrorCode(inst, err);
     };
-    if (inst.runtime.listenerOwnershipRetired() and
+    // An individually closed listener retains its `.retired` C identity until
+    // the caller retries listener_close after WOULD_BLOCK. Whole-loop close
+    // has no such caller-owned retry and may release all projection metadata.
+    if (inst.runtime.lifecyclePhase() != .active and inst.runtime.listenerOwnershipRetired() and
         !releaseRetiredListenerMetadata(inst))
         inst.runtime.noteTerminalFailure(error.ProviderContract);
     if (progress == null and inst.events_head >= inst.events.items.len)

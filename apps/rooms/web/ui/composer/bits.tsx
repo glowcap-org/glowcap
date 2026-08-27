@@ -8,6 +8,7 @@ import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { TYPING_IDLE_MS } from "../../../lib/limits.ts";
+import { ircName } from "../member_identity.ts";
 
 /** Tell the room we are typing while the draft holds text, and stop when we
  * send, go idle, blur, or leave.
@@ -79,7 +80,15 @@ export function nickSource(
 		const mine = you.toLowerCase();
 		return mine === "" ? [...reachable] : [...reachable].filter((name) => name.toLowerCase() !== mine);
 	}
-	return conv.type === "room" ? [...conv.members.keys()] : [conv.id];
+	if (conv.type !== "room") return [conv.id];
+	// `irc/` is attribution in the Rooms roster, not part of an IRC nickname or
+	// valid mention syntax. One visible spelling also covers the rare collision
+	// where a native Rooms member and an IRC participant share a name: `@alice`
+	// reaches the native reader and crosses the bridge to IRC, so two identical
+	// rows would offer no distinct act.
+	const names = new Set<string>();
+	for (const name of conv.members.keys()) names.add(ircName(name) ?? name);
+	return [...names];
 }
 
 /** One file chip in the composer: its kind, its name and size, and the × that

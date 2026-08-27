@@ -116,8 +116,8 @@ impl Server {
 
 	/// Stop admitting partners. Sessions already returned by [`Server::accept`]
 	/// remain live; close them individually or close the shared [`Host`].
-	pub fn close(&self) -> Result<()> {
-		self.listener.close()
+	pub async fn close(&self) -> Result<()> {
+		self.listener.close().await
 	}
 }
 
@@ -258,7 +258,7 @@ async fn listen_tcp_profile(
 	})();
 	match opened {
 		Ok(server) => Ok(server),
-		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener))),
+		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener).await)),
 	}
 }
 
@@ -486,7 +486,7 @@ mod tests {
 				let locator = crate::parse_locator(&uri).unwrap();
 				let client = connect(&locator, ConnectOptions::default()).await.unwrap();
 				ready_rx.await.unwrap();
-				server.close().unwrap();
+				server.close().await.unwrap();
 				assert!(server.accept().await.is_err());
 
 				let cap = client.fetch("svc").await.unwrap();
@@ -507,13 +507,13 @@ mod tests {
 			.run_until(async {
 				let host = Host::from_seed([0x41; 32]).unwrap();
 				let server = listen_with_host("127.0.0.1:0", host.clone()).await.unwrap();
-				server.close().unwrap();
+				server.close().await.unwrap();
 
 				// A second bind proves the first listener released only its native
 				// listener handle. The supplied Host and its adopted loop remain the
 				// authority for subsequent listeners.
 				let sibling = listen_with_host("127.0.0.1:0", host.clone()).await.unwrap();
-				sibling.close().unwrap();
+				sibling.close().await.unwrap();
 				host.close(crate::PendingWork::Cancel).await.unwrap();
 			})
 			.await;
@@ -553,7 +553,7 @@ mod tests {
 					let locator = server.locator().unwrap();
 					assert_eq!(crate::parse_locator(&server.uri().unwrap()).unwrap(), locator);
 					assert_ne!(server.port().unwrap(), 0);
-					server.close().unwrap();
+					server.close().await.unwrap();
 				}
 				host.close(crate::PendingWork::Cancel).await.unwrap();
 			})
@@ -582,7 +582,7 @@ mod tests {
 
 				// Closing the sidecar-backed listener must not close the shared loop
 				// or its unrelated TCP listener.
-				iroh.close().unwrap();
+				iroh.close().await.unwrap();
 				let client = connect(&locator, ConnectOptions::default()).await.unwrap();
 				let accepted = tokio::time::timeout(Duration::from_secs(2), accept_task)
 					.await
@@ -592,7 +592,7 @@ mod tests {
 
 				client.close(crate::PendingWork::Cancel).await.unwrap();
 				accepted.close(crate::PendingWork::Cancel).await.unwrap();
-				tcp.close().unwrap();
+				tcp.close().await.unwrap();
 				host.close(crate::PendingWork::Cancel).await.unwrap();
 			})
 			.await;

@@ -91,6 +91,11 @@
 .kitchen-stack .join-field {
 	width: 100%;
 }
+/* The samples stand on the card plane the way the surfaces do, so a field or
+   an entry here is the drawing a reader meets in Settings. */
+.kitchen-stack {
+	--field-name-w: 88px;
+}
 /* As narrow as the rail this control is really drawn in, so the sink shows what
    a set of answers too wide for one line does. A control that is right on a
    wide row and wrong on a wrapped one is not right. */

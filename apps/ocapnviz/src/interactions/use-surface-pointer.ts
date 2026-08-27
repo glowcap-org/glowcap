@@ -27,7 +27,6 @@ import {
 	type Hit,
 	IDLE_MACHINE,
 	type ModifierSet,
-	NO_MODIFIERS,
 	type PointerMachineState,
 	type PointerSnapshot,
 	type SurfaceId,
@@ -437,16 +436,4 @@ export function modifiersOf(
 		cmd: ev.metaKey || ev.ctrlKey,
 		alt: ev.altKey,
 	};
-}
-
-/** Reusable helper for callers that want to construct a snapshot
- *  from a non-PointerEvent (rare; tests). */
-export function snapshotFromCoords(
-	clientX: number,
-	clientY: number,
-	modifiers: ModifierSet = NO_MODIFIERS,
-	timestampMs = performance.now(),
-	buttons = 1,
-): PointerSnapshot {
-	return { clientX, clientY, buttons, modifiers, timestampMs };
 }

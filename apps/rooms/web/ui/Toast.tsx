@@ -18,7 +18,7 @@ import { Icon, type IconName } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import * as store from "./store.ts";
 import type { ToastKind, ToastNotice } from "./types.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
 import { openModalFrom } from "./modal.ts";
 import { errorDetailTitle, needsErrorDetail } from "./error_text.ts";
 
@@ -45,7 +45,7 @@ export function ToastCard(
 		onExpand?: () => void;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
 	const expandable = needsErrorDetail(text);
 	return (
 		<div className="toast" data-kind={kind} role={kind === "failure" ? "alert" : "status"}>
@@ -61,7 +61,7 @@ export function ToastCard(
 						onClick={(event) =>
 							openModalFrom(event.currentTarget, () => {
 								onExpand?.();
-								peer.showError({ title: errorDetailTitle(kind), text });
+								browser.showError({ title: errorDetailTitle(kind), text });
 							})}
 					>
 						<span className="said-clamp">{text}</span>

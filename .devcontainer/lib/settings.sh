@@ -80,6 +80,37 @@ pancake_devcontainer_host_state_rows() {
         .serena:/home/vscode/.serena
 }
 
+# Build caches the host and every worktree container share by bind, not a
+# named volume, so `ls ~/.cache/pancake` is the same tree in and out. Subdirs
+# under it (tool, cargo, work) are created by initialize.sh; the worktree
+# slice is work/<name>/ at runtime.
+pancake_devcontainer_host_cache_rows() {
+    printf '%s\n' \
+        .cache/pancake:/home/vscode/.cache/pancake
+}
+
+pancake_devcontainer_host_cache_layout() {
+    printf '%s\n' tool cargo work
+}
+
+pancake_devcontainer_host_cache_layout_text() {
+    cat <<'EOF'
+pancake caches — same tree on the host (~/.cache/pancake) and in the
+container (/home/vscode/.cache/pancake). See .devcontainer/README.md
+(Persistent paths).
+
+  tool/                         shared downloads (zig, deno, npm, pip, bun, uv, zls)
+  cargo/                        CARGO_HOME (registry, git, cargo install)
+  work/<worktree>/zig-local     that container's Zig compile objects
+  work/<worktree>/zig-pkg       that container's extracted Zig packages
+EOF
+}
+
+pancake_devcontainer_host_home_bind_rows() {
+    pancake_devcontainer_host_state_rows
+    pancake_devcontainer_host_cache_rows
+}
+
 # The variables Compose reads for a checkout's identity, named once. The guard
 # below refuses an inherited value that disagrees with `.env`, and the host
 # tests have to clear the same set before building checkouts of their own — two

@@ -16,8 +16,9 @@
 // lands in the row that asked, as the server's own sentence.
 
 import { useState } from "react";
-import { usePeer } from "../peer.ts";
+import { useRoomsSession } from "../controller/session.ts";
 import { CopyField } from "../Copy.tsx";
+import { Field } from "../Field.tsx";
 import { Said } from "../Said.tsx";
 import { Switch } from "../Switch.tsx";
 import { identifierField } from "../field.ts";
@@ -40,9 +41,10 @@ function knobStartValue(kind: string, hint: string): string {
 }
 
 export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null }) {
-	const peer = usePeer();
-	/** The transport whose verb is in flight, so only that switch parks. */
-	const [busyOn, setBusyOn] = useState<string | null>(null);
+	const session = useRoomsSession();
+	/** Every transport whose verb is in flight, so each switch remains parked
+	 * until its own answer lands even when another row is asked meanwhile. */
+	const [busyOn, setBusyOn] = useState<ReadonlySet<string>>(() => new Set());
 	/** The last refusal per transport, each shown in the row that asked. */
 	const [refused, setRefused] = useState<Partial<Record<string, string>>>({});
 	/** Edits to the knob fields, keyed `transport/name`; an untouched field
@@ -60,9 +62,13 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 	const flip = (row: ListenerRow) => {
 		setRefused((prior) => ({ ...prior, [row.transport]: undefined }));
 		if (row.id !== null) {
-			setBusyOn(row.transport);
-			void peer.listenerDown(row.id).then((why) => {
-				setBusyOn(null);
+			setBusyOn((prior) => new Set(prior).add(row.transport));
+			void session.listenerDown(row.id).then((why) => {
+				setBusyOn((prior) => {
+					const next = new Set(prior);
+					next.delete(row.transport);
+					return next;
+				});
 				if (why !== "") setRefused((prior) => ({ ...prior, [row.transport]: why }));
 			});
 			return;
@@ -70,7 +76,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 		// Collect the filled knobs; a blank field is the server's own default.
 		const options: Record<string, string | number> = {};
 		for (const knob of row.takes) {
-			const value = fieldValue(row, knob.name, knob.kind, knob.hint).trim();
+			const value = fieldValue(row, knob.name, knob.kind, knob.hint);
 			if (value === "") continue;
 			if (knob.kind === "port") {
 				const port = Number(value);
@@ -86,21 +92,25 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 				options[knob.name] = value;
 			}
 		}
-		setBusyOn(row.transport);
-		void peer.listenerUp(row.transport, Object.keys(options).length === 0 ? undefined : options)
+		setBusyOn((prior) => new Set(prior).add(row.transport));
+		void session.listenerUp(row.transport, Object.keys(options).length === 0 ? undefined : options)
 			.then((why) => {
-				setBusyOn(null);
+				setBusyOn((prior) => {
+					const next = new Set(prior);
+					next.delete(row.transport);
+					return next;
+				});
 				if (why !== "") setRefused((prior) => ({ ...prior, [row.transport]: why }));
 			});
 	};
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => peer.refreshOpsCap("listeners")}>
+			<OpsHead refresh={() => session.refreshOpsCap("listeners")}>
 				Where this server accepts connections: one listener per transport, switched here.
 			</OpsHead>
 			<div className="group well">
-				<ul id="listenersList" className="ops-listeners">
+				<ul id="listenersList" className="entries">
 					{rows.map((row) => {
 						const up = row.id !== null;
 						const idle = row.unavailable !== "" && !up;
@@ -108,13 +118,13 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 						return (
 							<li
 								key={row.transport}
-								className="ops-listener"
+								className="entry"
 								data-transport={row.transport}
 								data-up={String(up)}
 								data-idle={idle ? "true" : undefined}
 							>
-								<div className="ops-listener-head">
-									<span className="ops-listener-name" id={`listenerName-${row.transport}`}>
+								<div className="entry-head">
+									<span className="entry-name" id={`listenerName-${row.transport}`}>
 										{row.transport}
 									</span>
 									{
@@ -138,7 +148,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 											? `Take the ${row.transport} listener down`
 											: `Bring the ${row.transport} listener up`}
 										disabled={row.serving || idle}
-										busy={busyOn === row.transport}
+										busy={busyOn.has(row.transport)}
 										title={row.serving
 											? "This listener is serving this page"
 											: idle
@@ -166,29 +176,37 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 									/>
 								)}
 								{!up && !idle && row.takes.map((knob) => (
-									<label key={knob.name} className="ops-opt">
-										<span className="ops-opt-name">{knob.name}</span>
-										<input
-											id={`listenerOpt-${row.transport}-${knob.name}`}
-											className="field"
-											type="text"
-											inputMode={knob.kind === "port"
-												? "numeric"
-												: knob.kind === "url"
-												? "url"
-												: "text"}
-											enterKeyHint="done"
-											value={fieldValue(row, knob.name, knob.kind, knob.hint)}
-											placeholder={knob.hint}
-											onChange={(event) =>
-												setFields((prior) => ({
-													...prior,
-													[`${row.transport}/${knob.name}`]: event.target.value,
-												}))}
-											{...identifierField}
-											aria-label={`${knob.name} for the ${row.transport} listener`}
-										/>
-									</label>
+									<Field
+										key={knob.name}
+										id={`listenerOpt-${row.transport}-${knob.name}`}
+										label={knob.name}
+										layout="inline"
+										width={knob.kind === "port" ? "short" : undefined}
+									>
+										{(wiring) => (
+											<input
+												id={wiring.id}
+												className="field"
+												type="text"
+												inputMode={knob.kind === "port"
+													? "numeric"
+													: knob.kind === "url"
+													? "url"
+													: "text"}
+												enterKeyHint="done"
+												value={fieldValue(row, knob.name, knob.kind, knob.hint)}
+												disabled={busyOn.has(row.transport)}
+												placeholder={knob.hint}
+												onChange={(event) =>
+													setFields((prior) => ({
+														...prior,
+														[`${row.transport}/${knob.name}`]: event.target.value,
+													}))}
+												{...identifierField}
+												aria-label={`${knob.name} for the ${row.transport} listener`}
+											/>
+										)}
+									</Field>
 								))}
 								{why !== undefined && (
 									<Said id={`listenerWhy-${row.transport}`} kind="failure">{why}</Said>

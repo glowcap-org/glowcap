@@ -80,25 +80,29 @@ Packages that omit the relay archive acquire no TLS artifact or dependency.
 The release workflow uses the same archive set. A manual workflow run builds
 artifacts without publishing a GitHub release.
 
-## Publishing C archives: flip checklist
+## Publishing C archives: publication and enablement checklist
 
-Do not change `releases_published` until the corresponding release assets can
-be downloaded.
+`releases_published` controls whether consumers try the hosted archive URL. It
+does not authorize the release workflow to create those archives. Do not
+change it until the corresponding assets can be downloaded and verified.
 
 1. Run `zig build -Doptimize=ReleaseSafe release-pack` for every published
    target.
 2. Push the release commit and require its exact SHA to complete `check.yml`
    successfully, including both the full gates and macOS runtime jobs.
-3. Set `releases_published` to true in `c-abi-resolve.json`.
-4. Copy the updated contract to every path in its `package_copies` list.
-5. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`. The release
+3. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`. The release
    workflow independently queries the successful exact-SHA check before it
    builds archives.
-6. Push the tag and confirm the release workflow publishes the tarballs and
+4. Push the tag and confirm the release workflow publishes the tarballs and
    `SHA256SUMS`, and records GitHub artifact attestations for both.
-7. Download each archive, verify `SHA256SUMS`, then verify its build provenance
+5. Download each archive, verify `SHA256SUMS`, then verify its build provenance
    with `gh attestation verify --repo OWNER/REPO <archive>`.
-8. Test a cold-cache install against the live release URL.
+6. Set `releases_published` to true in `c-abi-resolve.json`, then copy the
+   updated contract to every path in its `package_copies` list.
+7. Push that consumer-enablement commit and require `check.yml` to pass for its
+   exact SHA.
+8. Test a cold-cache install against the live release URL without
+   `PANCAKE_DOWNLOAD=1`.
 
 Before that switch, `PANCAKE_DOWNLOAD=1` can rehearse the download path against
 staged assets.

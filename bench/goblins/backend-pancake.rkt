@@ -5,8 +5,8 @@
 ;; eventual-send and pump the sans-io peer until the reply settles — so they are
 ;; the fair, idiomatic pancake analog of Goblins' vat loop. No application logic
 ;; lives here.
-(require (file "/workspaces/pancake/bindings/racket/pancake.rkt")
-         (file "/workspaces/pancake/bindings/racket/pancake-tcp.rkt"))
+(require "../../bindings/racket/pancake.rkt"
+         "../../bindings/racket/pancake-tcp.rkt")
 
 (provide server-run client-connect client-fetch client-call client-close)
 

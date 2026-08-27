@@ -1,12 +1,15 @@
 import {
+	DURABLE_SWISS_ENTROPY_BYTES,
 	formatLocatorUri,
 	HINT_ALT_LOCATORS,
 	HINT_VIA,
 	parseLocator,
+	parseSturdyRef,
 	stringHint,
 	TRANSPORT_ID,
 } from "@pancake/runtime";
 import { roomsIdentityRoute } from "../lib/routes.ts";
+import { formatRoomsSturdyref, parseRoomsSturdyref, roomsSturdyrefForSession } from "../lib/locator.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
@@ -65,5 +68,28 @@ Deno.test("an identity route is absent without both proof and added reachability
 	assert(
 		roomsIdentityRoute("node", ["ocapn://room-service.onion", "ocapn://node.tcp"]) === null,
 		"weak routes without identity proof formed an id locator",
+	);
+});
+
+Deno.test("a Rooms sturdyref is parsed from its canonical Swiss encoding", () => {
+	const locator = parseLocator("ocapn://127.0.0.1%3A9000.tcp");
+	const swiss = new Uint8Array(DURABLE_SWISS_ENTROPY_BYTES).fill(0x5a);
+	const sturdyref = formatRoomsSturdyref(locator, swiss);
+	assert(
+		parseRoomsSturdyref(sturdyref).swissnum.every((byte, index) => byte === swiss[index]),
+		"the Rooms sturdyref did not preserve its canonical Swiss bytes",
+	);
+});
+
+Deno.test("a canonical Rooms sturdyref re-encodes only at a live session boundary", () => {
+	const locator = parseLocator("ocapn://127.0.0.1%3A9000.tcp");
+	const swiss = new Uint8Array(DURABLE_SWISS_ENTROPY_BYTES);
+	const sturdyref = formatRoomsSturdyref(locator, swiss);
+	const encoded = roomsSturdyrefForSession(sturdyref, {
+		profile: { captpVersion: "next", codec: "capnp", features: 0 },
+	});
+	assert(
+		parseSturdyRef(encoded, "next").swissnum.every((byte) => byte === 0),
+		"the live session encoding changed the Rooms authority bytes",
 	);
 });

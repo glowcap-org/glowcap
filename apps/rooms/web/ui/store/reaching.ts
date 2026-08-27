@@ -9,10 +9,9 @@
 // with it is `joining.ts`.
 
 import { current, type Reach } from "../intent.ts";
-import { type JoinAnswers, joinAnswers } from "../joining.ts";
+import { type DirectoryDestinationContext, type JoinAnswers, joinAnswers } from "../joining.ts";
 import { clearConv, showJoinCard } from "./chrome.ts";
-import { KEY, set, type State, state } from "./core.ts";
-import { LS } from "../storage.ts";
+import { get, set, type State } from "./core.ts";
 
 /** Somebody has arrived at the join card, and this is how.
  *
@@ -25,7 +24,7 @@ import { LS } from "../storage.ts";
  * somebody asking for anything, so the last real act keeps standing and
  * whatever the reader had typed stays where they left it. */
 export function reach(act: Reach): void {
-	set({ reaching: { ...act, seq: state.reaching.seq + 1 } });
+	set({ reaching: { ...act, seq: get().reaching.seq + 1 } });
 }
 
 /** File an act and put the card up as its answer.
@@ -49,10 +48,11 @@ export function editJoin(
 	// Over what the reader has already said *about this act*, not over whatever
 	// the last one left behind. Filing an act does not clear overrides — the act
 	// they belong to is what makes them apply, and reading through `current` is
-	// the one place that is decided. Spreading `state.edits` raw here would have
+	// the one place that is decided. Spreading `get().edits` raw here would have
 	// been a second answer to the same question, and the wrong one: an override
 	// the reader made two rooms ago would ride back in the moment they touched
 	// any other field.
+	const state = get();
 	set({ edits: { ...current(state.edits, state.reaching), ...patch } });
 }
 
@@ -63,21 +63,21 @@ export function editJoin(
  * and abandoned is not something the reader did, and offering it back would
  * present it as though it were. */
 export function remember(patch: { room?: string; locator?: string; nick?: string }): void {
-	const next = { ...state.remembered, ...patch };
+	const was = get().remembered;
+	const next = { ...was, ...patch };
 	// A reader re-entering the room they always enter is the ordinary case, and
 	// it changes nothing here. Saying so anyway would replace the object every
 	// other surface resolves against and redraw the page for it.
-	const was = state.remembered;
 	if (next.room === was.room && next.locator === was.locator && next.nick === was.nick) return;
-	if (patch.room !== undefined) LS.set(KEY.room, next.room);
-	if (patch.locator !== undefined) LS.set(KEY.locator, next.locator);
-	if (patch.nick !== undefined) LS.set(KEY.nick, next.nick);
 	set({ remembered: next });
 }
 
 /** What the join card shows, and the evidence behind each field. */
-export function answers(snapshot: Readonly<State> = state): JoinAnswers {
-	return joinAnswers(snapshot.reaching, snapshot.edits, snapshot.remembered, snapshot.homeDir);
+export function answers(
+	snapshot: Readonly<Pick<State, "homeDir" | "reaching" | "edits" | "remembered">> = get(),
+	context: DirectoryDestinationContext = { home: snapshot.homeDir, defaultDirectory: null },
+): JoinAnswers {
+	return joinAnswers(snapshot.reaching, snapshot.edits, snapshot.remembered, context);
 }
 
 /** The name this reader goes by when nothing else has granted one.

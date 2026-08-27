@@ -25,7 +25,6 @@ pub const decodeOwned = decode.decodeOwned;
 pub const readLocatorOwned = decode.readLocatorOwned;
 pub const readLocatorView = decode.readLocatorView;
 pub const decodeSignedHandoffGiveOwned = decode.decodeSignedHandoffGiveOwned;
-pub const spanSignedHandoffGive = decode.spanSignedHandoffGive;
 
 pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;

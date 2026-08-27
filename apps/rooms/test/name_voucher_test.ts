@@ -17,7 +17,7 @@
 // mostly re-prove that the page threads a flag through; this states the rule
 // itself, clause by clause.
 
-import { mayPresentNameVoucher } from "../lib/limits.ts";
+import { mayPresentNameVoucher, suggestedNick } from "../lib/limits.ts";
 import { assertEquals } from "./assert.ts";
 
 /** The case where the answer is yes: the ordinary second connection of a reader
@@ -56,8 +56,13 @@ Deno.test("only the first attempt presents one", () => {
 });
 
 Deno.test("a voucher is only for the name this directory granted", () => {
-	// Suffixed to `alice-2` after a collision, or asking for a name this
-	// directory never granted: the voucher proves the registered name and would
-	// prove nothing about the one being claimed.
+	// Asking for a name this directory never granted: the voucher proves the
+	// registered name and would prove nothing about the one being claimed.
 	assertEquals(mayPresentNameVoucher({ ...ordinary, ownName: false }), false);
+});
+
+Deno.test("a nickname alternative is only a suggestion", () => {
+	assertEquals(suggestedNick("alice"), "alice-2");
+	assertEquals(suggestedNick("alice-2"), "alice-3");
+	assertEquals(suggestedNick("a".repeat(32)), `${"a".repeat(30)}-2`);
 });

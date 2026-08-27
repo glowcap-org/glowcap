@@ -135,14 +135,9 @@ const paths = {
 			<circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none" />
 		</>
 	),
-	// A nib over a line: changing what was written, rather than a page or a note,
-	// which would read as composing something new.
-	pencil: (
-		<>
-			<path d="M4 20h4.5L19.3 9.2a2.1 2.1 0 0 0-3-3L5.5 17z" />
-			<path d="M14.8 4.7l4.5 4.5" />
-		</>
-	),
+	// One closed pencil silhouette: changing what was written, with no baseline
+	// or detached cap stroke that can read as a stray line at small sizes.
+	pencil: <path d="M4.5 19.5l1.1-4.1L15.9 5.1a2.1 2.1 0 0 1 3 3L8.6 18.4z" />,
 	// Four corners pulling outward: take this to full size.
 	expand: (
 		<>
@@ -189,11 +184,31 @@ const paths = {
 			<rect x="3.5" y="13.5" width="17" height="6" rx="2" />
 		</>
 	),
+	// A durable application session: one workspace surface with a command line,
+	// distinct from the stacked server bars that identify a room directory.
+	session: (
+		<>
+			<rect x="3.5" y="4.5" width="17" height="15" rx="2.2" />
+			<path d="M3.5 8.5h17M7 12l2 2-2 2M12 16h4" />
+		</>
+	),
 	// A funnel, for the rail's filter: a wide mouth narrowing to a spout, which
 	// is the one glyph that says "less of this" rather than "find one of these".
 	// A magnifier would promise a search across everything, and the rail's
 	// filter only ever narrows the rows already in front of the reader.
 	filter: <path d="M3.8 5.2h16.4l-6.4 7.4v5.6l-3.6 2.6v-8.2z" />,
+	// A magnifier, for the operator's search. The funnel above says why this
+	// glyph was refused there: it promises a search across everything, and the
+	// rail's filter only narrows rows already in front of the reader. The
+	// operator's search does ask the directory about everything it holds,
+	// including the hundred thousand rows this page has not read, so here the
+	// promise is the truth.
+	search: (
+		<>
+			<circle cx="10.5" cy="10.5" r="5.8" />
+			<path d="M14.8 14.8 20 20" />
+		</>
+	),
 	gear: (
 		<>
 			<path d="M4 7h16M4 12h16M4 17h16" />

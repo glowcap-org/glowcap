@@ -12,13 +12,15 @@ import { useActionState, useRef } from "react";
 import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
 import { tooLong } from "./text.ts";
 import { identifierField } from "./field.ts";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { useSuggest } from "./Suggest.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Button } from "./Button.tsx";
 import { Icon } from "./icons.tsx";
 import {
 	destination,
+	type DirectoryDestinationContext,
 	JOIN_DEFAULT_NICK,
 	JOIN_DEFAULT_ROOM,
 	type JoinAnswers,
@@ -38,8 +40,9 @@ import { WorkingAction } from "./WorkingAction.tsx";
 type JoinError = { field: "room" | "nick" | "form"; text: string } | null;
 
 export function JoinCard(
-	{ shown, answers, dirs, homeDir }: {
+	{ shown, answers, dirs, directoryContext, canInteract }: {
 		shown: boolean;
+		canInteract: boolean;
 		/** Every field, with the evidence behind it. Resolved from the act that
 		 * put this card up rather than held as state, so the same card is a gate
 		 * on a link and a blank form from the rail without either one having to
@@ -51,39 +54,42 @@ export function JoinCard(
 		 * own mark, so an address that is already known does not have to be typed
 		 * or pasted again. */
 		dirs: ReadonlyMap<DirId, DirView>;
-		homeDir: DirId | null;
+		directoryContext: DirectoryDestinationContext;
 	},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
+	const homeDir = directoryContext.home;
 	const room = answers.room.value;
 	const locator = answers.locator.value;
 	const nick = answers.nick.value;
 	const secret = answers.secret.value;
+	const defaultDirectoryAddress = directoryContext.defaultDirectory?.locator ?? null;
 	const halt = useRef<AbortController | null>(null);
 	const [error, join, joining] = useActionState(async (_was: JoinError, form: FormData): Promise<JoinError> => {
 		halt.current?.abort();
 		const run = new AbortController();
 		halt.current = run;
-		const typedRoom = String(form.get("room") ?? "").trim();
+		const typedRoom = String(form.get("room") ?? "");
 		// Empty, the bare home authority, and home's hinted route are one
 		// destination: this page's own directory, reached over the session
 		// already open rather than by a fresh dial. A room link is none of
 		// those: collapsing it to home would drop the swissnum.
-		const typed = thisDirectoryLocator(String(form.get("locator") ?? ""), homeDir);
-		const atHome = typed !== "" && homeDir !== null && peer.directoryId(typed.trim()) === homeDir &&
-			!looksLikeRoomLink(typed);
-		const locator = atHome ? "" : typed;
+		const typedText = String(form.get("locator") ?? "");
+		const typed = thisDirectoryLocator(typedText, directoryContext, session.directoryId(typedText.trim()));
+		const locator = typed;
 		const linked = typedRoomLink(locator, typedRoom);
 		// A remembered room name is from a previous join, not a name for this
 		// link. Only a name the reader typed under this paste is a label.
 		const namedTheLink = linked !== null &&
 			(answers.room.from === "edited" || answers.room.from === "named");
 		const room = linked !== null ? (namedTheLink ? linked.label : "") : typedRoom || JOIN_DEFAULT_ROOM;
-		const nick = String(form.get("nick") ?? "").trim() || JOIN_DEFAULT_NICK;
+		const typedNick = String(form.get("nick") ?? "");
+		const nick = typedNick === "" ? JOIN_DEFAULT_NICK : typedNick;
 		if (nick.length > MAX_NICK) return { field: "nick", text: tooLong("name", MAX_NICK) };
 		if (room.length > MAX_ROOM) return { field: "room", text: tooLong("room name", MAX_ROOM) };
 		try {
-			const text = await peer.join(
+			const text = await session.join(
 				{
 					room,
 					locator: linked !== null ? linked.link : locator,
@@ -97,7 +103,7 @@ export function JoinCard(
 			// The lock is an intention about the room just made, and it is now
 			// spent: left pressed, the next name typed here would mint a private
 			// room nobody asked for.
-			if (secret) peer.editJoin({ secret: false });
+			if (secret) browser.editJoin({ secret: false });
 			return null;
 		} finally {
 			if (halt.current === run) halt.current = null;
@@ -109,8 +115,14 @@ export function JoinCard(
 	// same answer.
 	const field = useRef<HTMLInputElement>(null);
 	const asLink = typedRoomLink(locator, room) !== null;
-	const aimed = destination(locator, peer.directoryId(locator.trim()), dirs, homeDir, "this page's directory");
-	const who = nick.trim() || JOIN_DEFAULT_NICK;
+	const aimed = destination(
+		locator,
+		session.directoryId(locator.trim()),
+		dirs,
+		directoryContext,
+		"this page's directory",
+	);
+	const who = nick === "" ? JOIN_DEFAULT_NICK : nick;
 	// The same names the rail's room panel offers, because this field and that
 	// one name one room: they share a draft and a lock, and offering in one and
 	// not the other would make the same words behave differently depending on
@@ -118,7 +130,7 @@ export function JoinCard(
 	//
 	// Rooms on the directory this card is aimed at, which moves with the locator
 	// above: a name advertised somewhere else would open a different room.
-	const aimedAt = peer.directoryId(locator.trim()) ?? homeDir;
+	const aimedAt = session.directoryId(locator.trim()) ?? homeDir;
 	const roomOffers = asLink || aimedAt == null ? [] : liveRoomNames(dirs.get(aimedAt)?.liveRooms ?? new Map());
 	const suggest = useSuggest({
 		id: "room",
@@ -127,7 +139,7 @@ export function JoinCard(
 		value: room,
 		sigil: "#",
 		onTake: (name) => {
-			peer.editJoin({ room: name });
+			browser.editJoin({ room: name });
 			field.current?.focus();
 		},
 	});
@@ -136,21 +148,29 @@ export function JoinCard(
 		<div className="join-wrap" id="joinScreen" hidden={!shown}>
 			<form id="joinForm" className="join" data-dir={aimed.mark} action={join}>
 				<h2>Join a room</h2>
-				<p className="lead">{joinLead(answers, aimed.name)}</p>
-				<div className="join-fields" inert={joining || undefined}>
+				<p className="lead">
+					{canInteract
+						? joinLead(answers, aimed.name)
+						: "This session capability can browse the shared rooms but cannot join one."}
+				</p>
+				<div className="join-fields" inert={joining || !canInteract || undefined}>
 					<label htmlFor="locator">
 						{asLink ? "Room link" : (
 							<>
-								Directory locator <span className="optional">Optional</span>
+								Directory locator{" "}
+								<span className="optional">
+									{homeDir == null && defaultDirectoryAddress != null ? "This page" : "Optional"}
+								</span>
 							</>
 						)}
 					</label>
 					<JoinLocator
 						locator={locator}
 						dirs={dirs}
-						homeDir={homeDir}
-						onPick={(next) => peer.editJoin({ locator: next })}
-						onType={(next) => peer.editJoin({ locator: next })}
+						defaultAddress={defaultDirectoryAddress}
+						directoryContext={directoryContext}
+						onPick={(next) => browser.editJoin({ locator: next })}
+						onType={(next) => browser.editJoin({ locator: next })}
 					/>
 					<label htmlFor="room">{asLink ? "Call it" : secret ? "Private room" : "Room"}</label>
 					{
@@ -168,7 +188,7 @@ export function JoinCard(
 										: "Make this room private, so only people you hand it to can reach it"}
 									aria-pressed={secret}
 									onMouseDown={(event) => event.preventDefault()}
-									onClick={() => peer.editJoin({ secret: !secret })}
+									onClick={() => browser.editJoin({ secret: !secret })}
 								>
 									{secret
 										? <Icon name="lock" size={18} />
@@ -187,14 +207,14 @@ export function JoinCard(
 								value={room}
 								{...suggest.aria}
 								onChange={(e) => {
-									peer.editJoin({ room: e.target.value });
+									browser.editJoin({ room: e.target.value });
 									suggest.typed();
 								}}
 								onPaste={(e) => {
 									const text = e.clipboardData.getData("text").trim();
 									if (!looksLikeRoomLink(text)) return;
 									e.preventDefault();
-									peer.editJoin({ locator: text });
+									browser.editJoin({ locator: text });
 								}}
 								onKeyDown={(e) => {
 									// The list first: while a row is picked, the arrows,
@@ -223,7 +243,7 @@ export function JoinCard(
 							aria-invalid={error?.field === "nick"}
 							maxLength={MAX_NICK}
 							value={nick}
-							onChange={(e) => peer.editJoin({ nick: e.target.value })}
+							onChange={(e) => browser.editJoin({ nick: e.target.value })}
 						/>
 					</JoinField>
 				</div>
@@ -231,17 +251,20 @@ export function JoinCard(
 				<WorkingAction
 					type="submit"
 					id="joinBtn"
+					size="large"
+					block
 					busy={joining}
+					disabled={!canInteract}
 					stopId="joinStop"
 					stopLabel="Stop joining"
 					onStop={() => halt.current?.abort()}
 				>
-					{joining ? "Joining…" : "Join room"}
+					{joining ? "Joining…" : canInteract ? "Join room" : "Read-only session"}
 				</WorkingAction>
 				<Button
 					id="browseRoomsBtn"
 					variant="quiet"
-					onClick={() => peer.showRail(true)}
+					onClick={() => browser.showRail(true)}
 				>
 					Browse live rooms
 				</Button>
@@ -251,15 +274,15 @@ export function JoinCard(
 }
 
 function JoinLocator(
-	{ locator, dirs, homeDir, onPick, onType }: {
+	{ locator, dirs, defaultAddress, directoryContext, onPick, onType }: {
 		locator: string;
 		dirs: ReadonlyMap<DirId, DirView>;
-		homeDir: DirId | null;
+		defaultAddress: string | null;
+		directoryContext: DirectoryDestinationContext;
 		onPick: (locator: string) => void;
 		onType: (locator: string) => void;
 	},
 ) {
-	const peer = usePeer();
 	const { open, setOpen, holder, trigger } = useMenu();
 	return (
 		<div className="join-field-wrap" ref={holder}>
@@ -281,7 +304,7 @@ function JoinLocator(
 					type="text"
 					inputMode="url"
 					enterKeyHint="next"
-					placeholder={joinLocatorPlaceholder(homeDir == null ? null : peer.dirAddress(homeDir))}
+					placeholder={joinLocatorPlaceholder(defaultAddress)}
 					value={locator}
 					onChange={(e) => onType(e.target.value)}
 					{...identifierField}
@@ -302,7 +325,7 @@ function JoinLocator(
 					className="locator-picks"
 					locator={locator}
 					dirs={dirs}
-					homeDir={homeDir}
+					context={directoryContext}
 					onPick={(picked) => {
 						setOpen(false);
 						onPick(picked);

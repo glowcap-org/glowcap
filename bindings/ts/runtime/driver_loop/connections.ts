@@ -106,7 +106,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 			this._pendingListeners.set(listener, waiter);
 			if (signal != null) {
 				const onAbort = (): void =>
-					this.closeListener(
+					this._beginListenerClose(
 						listener,
 						new PancakeError(
 							CLOSED,
@@ -125,7 +125,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 			this.start();
 			this.scheduleStep();
 		} catch (error) {
-			this.closeListener(
+			this._beginListenerClose(
 				listener,
 				error instanceof PancakeError ? error : new PancakeError(IO, String(error)),
 			);
@@ -186,9 +186,38 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		checkDriver(loopS.pancake_driver_listener_select(this._h, listener));
 	}
 
-	/** Stop one listener. Events committed before close remain queued; no later
-	 * accepted event can name it after this returns. */
-	closeListener(listener: bigint, reason: PancakeError = loopClosedError()): void {
+	/** Stop one listener and join the native admission barrier. Events committed
+	 * before close remain queued; after this resolves, no later accepted event
+	 * can name the listener. */
+	closeListener(listener: bigint, reason: PancakeError = loopClosedError()): Promise<void> {
+		if (this._terminalFailure != null) return Promise.reject(this._terminalFailure);
+		if (!this._listeners.has(listener)) return Promise.resolve();
+		let close = this._listenerCloses.get(listener);
+		if (close == null) {
+			let resolve!: () => void;
+			let reject!: (error: PancakeError) => void;
+			const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+				resolve = resolvePromise;
+				reject = rejectPromise;
+			});
+			close = { promise, resolve, reject };
+			this._listenerCloses.set(listener, close);
+		}
+		try {
+			this._beginListenerClose(listener, reason);
+		} catch (error) {
+			const failure = error instanceof PancakeError
+				? error
+				: new PancakeError(IO, `listener close: ${String(error)}`);
+			this._listenerCloses.delete(listener);
+			close.reject(failure);
+		}
+		return close.promise;
+	}
+
+	/** Commit listener shutdown without creating an application waiter. Used by
+	 * setup cancellation, whose listen promise already owns the outcome. */
+	protected _beginListenerClose(listener: bigint, reason: PancakeError): void {
 		if (!this._listeners.has(listener) || this._closingListeners.has(listener)) return;
 		this._closingListeners.set(listener, reason);
 		if (this._released) {
@@ -251,12 +280,14 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 
 	protected _finishListenerClose(listener: bigint, reason?: PancakeError, rejectAccepts = false): void {
 		let failure: unknown = null;
+		const close = this._listenerCloses.get(listener);
 		const waiter = this._pendingListeners.get(listener);
 		if (waiter != null) {
 			this._settleListener(listener, waiter, { error: reason ?? loopClosedError() });
 		}
 		this._listeners.delete(listener);
 		this._closingListeners.delete(listener);
+		this._listenerCloses.delete(listener);
 		for (const waiter of this._acceptWaiters.get(listener)?.splice(0) ?? []) {
 			if (rejectAccepts && reason != null) waiter.reject(reason);
 			else waiter.resolve(null);
@@ -270,6 +301,12 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		}
 		this._accepts.delete(listener);
 		this._acceptWaiters.delete(listener);
+		if (close != null) {
+			if (failure instanceof PancakeError) close.reject(failure);
+			else if (failure != null) close.reject(new PancakeError(IO, `listener close: ${String(failure)}`));
+			else if (rejectAccepts && reason != null) close.reject(reason);
+			else close.resolve();
+		}
 		if (failure != null) throw failure;
 	}
 

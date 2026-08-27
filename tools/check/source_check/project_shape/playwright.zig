@@ -13,7 +13,7 @@ const collectBulletSpans = util.collectBulletSpans;
 const playwright_scan_trees = [_][]const u8{ "apps", "bindings", "bench", "conformance", "interop", "tools", "transports", "test", "src", "cli", "examples", "site" };
 
 /// The Playwright version is written once, in `.devcontainer/pins.sh`, and
-/// everything that needs it derives from there: `install-playwright.sh` reads
+/// everything that needs it derives from there: `image/playwright.sh` reads
 /// the pin to install the browser into the image, and each Deno scope's import
 /// map resolves the `playwright` its scripts import. Those are the same program
 /// in two halves — a browser binary and the library that drives it — and a

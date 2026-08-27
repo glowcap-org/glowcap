@@ -44,7 +44,7 @@ const frame_cap: usize = 1 << 16;
 /// The whole roster wait is bounded, like the Deno/Python/Racket clients'
 /// deadlines: a member that never completes exits 1 with its seen-count
 /// instead of wedging the demo.
-const roster_wait_budget_ms: i64 = 60_000;
+const roster_wait_budget_ms: i64 = 15_000;
 /// One bounded readable-wait per loop turn, so the deadline above is checked
 /// even while the wire is silent.
 const step_poll_ms: i32 = 250;
@@ -126,7 +126,7 @@ fn roomInfo(fields: []const model.Argument) ?RoomInfo {
         fields[3] != .string or fields[4] != .string or fields[5] != .string)
         return null;
     const count: ?i64 = switch (fields[1]) {
-        .integer => |value| value,
+        .integer => |value| if (value >= 0) value else return null,
         .void => null,
         else => return null,
     };
@@ -144,6 +144,20 @@ fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: RoomInfo) void
     std.debug.print("[{s}] directory: {s} {s} (", .{ nick, event_kind, room.name });
     if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
     std.debug.print(")\n", .{});
+}
+
+fn validWatchSnapshot(arg: model.Argument) bool {
+    if (arg != .list or arg.list.len != 3) return false;
+    const fields = arg.list;
+    if (fields[0] != .list or fields[1] != .list or fields[2] != .integer or fields[2].integer < 0) return false;
+    for (fields[0].list) |row| {
+        if (row != .list or roomInfo(row.list) == null) return false;
+    }
+    for (fields[1].list) |row| {
+        if (row != .list or row.list.len != 2 or row.list[0] != .string or row.list[0].string.len == 0 or
+            row.list[1] != .string or row.list[1].string.len == 0) return false;
+    }
+    return true;
 }
 
 /// The directory's watch observer: the room list's live feed.
@@ -174,18 +188,17 @@ fn roomsSessionOpts() driver.SessionOptions {
 }
 
 /// Print a list/watch snapshot without turning unknown foreign occupancy into 0.
-fn printRooms(nick: []const u8, arg: model.Argument) void {
+fn printRooms(nick: []const u8, arg: model.Argument) !void {
     std.debug.print("[{s}] rooms:", .{nick});
     var any = false;
-    if (arg == .list) {
-        for (arg.list) |item| {
-            if (item != .list) continue;
-            const room = roomInfo(item.list) orelse continue;
-            std.debug.print(" {s} (", .{room.name});
-            if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
-            std.debug.print(")", .{});
-            any = true;
-        }
+    if (arg != .list) return error.InvalidRoomList;
+    for (arg.list) |item| {
+        if (item != .list) return error.InvalidRoomList;
+        const room = roomInfo(item.list) orelse return error.InvalidRoomList;
+        std.debug.print(" {s} (", .{room.name});
+        if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
+        std.debug.print(")", .{});
+        any = true;
     }
     if (!any) std.debug.print(" (none yet)", .{});
     std.debug.print("\n", .{});
@@ -398,14 +411,14 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try session.call(directory, .{ .verb = "list" }, scratch)) {
-            .fulfilled => |arg| printRooms(nick, arg),
+        switch (try session.call(directory, .{ .verb = "listPublications" }, scratch)) {
+            .fulfilled => |arg| try printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
             .give => return error.UnexpectedHandoff,
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
-        switch (try session.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
-            .fulfilled => {}, // the snapshot reply; we already listed, so ignore it
+        switch (try session.call(directory, .{ .verb = "watchPublications", .args = &.{watcher.arg()} }, scratch)) {
+            .fulfilled => |arg| if (!validWatchSnapshot(arg)) return error.InvalidWatchSnapshot,
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
             .give => return error.UnexpectedHandoff,
         }

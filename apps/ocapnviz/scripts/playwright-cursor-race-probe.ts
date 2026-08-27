@@ -20,11 +20,11 @@ import { chromium } from "playwright";
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+	viewport: { width: 1600, height: 1000 },
 });
 const page = await ctx.newPage();
 
@@ -39,12 +39,12 @@ await page.getByRole("radio", { name: "Build" }).click();
 await page.waitForTimeout(300);
 
 async function cursorStyle(): Promise<string> {
-  return await page.evaluate(() => {
-    const c = document.querySelector(
-      "canvas#ocv-pixi",
-    ) as HTMLCanvasElement | null;
-    return c ? globalThis.getComputedStyle(c).cursor || "(unset)" : "(no-canvas)";
-  });
+	return await page.evaluate(() => {
+		const c = document.querySelector(
+			"canvas#ocv-pixi",
+		) as HTMLCanvasElement | null;
+		return c ? globalThis.getComputedStyle(c).cursor || "(unset)" : "(no-canvas)";
+	});
 }
 
 // A point near the middle of the stage. Which surface it lands on depends
@@ -90,17 +90,17 @@ await browser.close();
 // write raced the app's. The other checks confirm the ladder around it —
 // the surface answers before the key and again after it.
 const checks = {
-  "before Space, the surface's own cursor": hoverCursor !== "grab" &&
-    hoverCursor !== "grabbing",
-  "space sets grab": spaceCursor === "grab",
-  "moved while space-held stays grab (the race)": moveCursor === "grab",
-  "release returns to non-grab": releaseCursor !== "grab" &&
-    releaseCursor !== "grabbing",
+	"before Space, the surface's own cursor": hoverCursor !== "grab" &&
+		hoverCursor !== "grabbing",
+	"space sets grab": spaceCursor === "grab",
+	"moved while space-held stays grab (the race)": moveCursor === "grab",
+	"release returns to non-grab": releaseCursor !== "grab" &&
+		releaseCursor !== "grabbing",
 };
 let failures = 0;
 for (const [name, ok] of Object.entries(checks)) {
-  console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
-  if (!ok) failures += 1;
+	console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
+	if (!ok) failures += 1;
 }
 console.log("");
 console.log(failures === 0 ? "ALL PASS" : `FAIL: ${failures} check(s)`);

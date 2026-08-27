@@ -280,7 +280,78 @@ const surfaces = @import("bans/surfaces.zig");
 const failure = @import("bans/failure.zig");
 const route_bundle = @import("bans/route_bundle.zig");
 
+const nullish_absence = [_]Ban{.{
+    .where = .{ .files = &.{
+        "apps/rooms/server/operator/rooms.ts",
+        "apps/rooms/server/operator/revision.ts",
+        "apps/rooms/server/operator/behavior.ts",
+        "apps/rooms/server/operator/references.ts",
+        "apps/rooms/server/room_links.ts",
+        "apps/rooms/lib/operator.ts",
+        "apps/rooms/server/peering.ts",
+        "apps/rooms/server/sessions.ts",
+        "apps/rooms/web/ui/workspace_state.ts",
+        "apps/rooms/web/ui/net/operator.ts",
+        "apps/rooms/web/ui/ops/Operator.tsx",
+    } },
+    .kind = .forbid,
+    .needles = &.{ "=== undefined", "!== undefined" },
+    .check = "nullish absence",
+    .why = "JavaScript and TypeScript use `== null` / `!= null` for ordinary optional-value checks",
+}};
+
+const neutral_alerts = [_]Ban{.{
+    .where = .{ .tree = .{ .dir = "apps/rooms/web/ui", .suffixes = &.{".tsx"} } },
+    .kind = .forbid,
+    .needles = &.{ "className=\"hint\" role=\"alert\"", "role=\"alert\" className=\"hint\"" },
+    .check = "Rooms failure presentation",
+    .why = "an alert is not neutral hint text; render refusals through the shared `Said` failure treatment",
+}};
+
+const readable_rooms_loops = [_]Ban{.{
+    .where = .{ .tree = .{ .dir = "apps/rooms", .suffixes = &.{ ".ts", ".tsx" } } },
+    .kind = .forbid,
+    .needles = &.{"for (;;)"},
+    .check = "Rooms loop readability",
+    .why = "a repeated Rooms operation names its continuation state or bound instead of using an unconditional C-style loop",
+}};
+
+const attached_session_authority = [_]Ban{
+    .{
+        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
+        .kind = .forbid,
+        .needles = &.{ "...browser", "createLocalRoomsSession", "RoomsBrowserController &" },
+        .check = "attached Rooms authority",
+        .why = "an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
+    },
+    .{
+        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
+        .kind = .require,
+        .needles = &.{"browser: Pick<RoomsBrowserController"},
+        .check = "attached Rooms authority",
+        .why = "the attached session adapter must name the exact browser actions its command surface needs",
+    },
+    .{
+        .where = .{ .file = "apps/rooms/web/ui/controller/browser.ts" },
+        .kind = .require,
+        .needles = &.{"RoomsBrowserContext = createContext<RoomsBrowserController | null>"},
+        .check = "attached Rooms authority",
+        .why = "browser presentation and establishment authority must have its own stable React context",
+    },
+    .{
+        .where = .{ .file = "apps/rooms/web/ui/controller/session.ts" },
+        .kind = .require,
+        .needles = &.{"RoomsSessionContext = createContext<RoomsSessionController | null>"},
+        .check = "attached Rooms authority",
+        .why = "Rooms commands must be unavailable until an established session context exists",
+    },
+};
+
 pub const all: []const Ban =
+    nullish_absence ++
+    neutral_alerts ++
+    readable_rooms_loops ++
+    attached_session_authority ++
     captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
@@ -426,6 +497,33 @@ test "bans: on_missing violates once per file or skips silently" {
         .{ .where = .{ .file = "missing.txt" }, .kind = .require, .needles = &.{"x"}, .check = "tag2", .why = "unused" },
     });
     try t.expectMessages(&.{"missing.txt: failed to read for tag check with FileNotFound"});
+}
+
+test "bans: attached Rooms controllers keep browser and session authority separate" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    const io = std.testing.io;
+    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/session");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/controller");
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/web/ui/session/attached_session.ts",
+        .data = "export function attachedSession(browser: RoomsBrowserController) { return { ...browser }; }\n",
+    });
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/web/ui/controller/browser.ts",
+        .data = "export interface RoomsBrowserController {}\n",
+    });
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/web/ui/controller/session.ts",
+        .data = "export interface RoomsSessionController {}\n",
+    });
+    try t.run(&attached_session_authority);
+    try t.expectMessages(&.{
+        "apps/rooms/web/ui/session/attached_session.ts: contains `...browser` — an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
+        "apps/rooms/web/ui/session/attached_session.ts: missing `browser: Pick<RoomsBrowserController` — the attached session adapter must name the exact browser actions its command surface needs",
+        "apps/rooms/web/ui/controller/browser.ts: missing `RoomsBrowserContext = createContext<RoomsBrowserController | null>` — browser presentation and establishment authority must have its own stable React context",
+        "apps/rooms/web/ui/controller/session.ts: missing `RoomsSessionContext = createContext<RoomsSessionController | null>` — Rooms commands must be unavailable until an established session context exists",
+    });
 }
 
 test "bans: file_present checks existence without reading" {

@@ -20,34 +20,35 @@
 // name is the directory's lookup key; the room itself is the capability the
 // directory returns.
 
-import { formatSturdyRef, Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
 import type { Session } from "@pancake/runtime";
-import type { Presence } from "./limits.ts";
 import {
 	type Attachment,
 	type AttachmentSource,
 	beginUpload,
 	discardUpload,
 	fetchBlob,
+	fetchBlobChunk,
 	fillUpload,
 	postStagedFiles,
-	readAttachments,
 } from "./attachment.ts";
 import {
 	AWAY,
 	CALLED,
 	HISTORY,
-	IRC_ACCOUNT,
+	IRC_DISCONNECT,
+	IRC_IDENTITY,
 	LEAVE,
-	LINK,
-	NOTIFY,
 	POST,
 	PRIVATE,
 	SET_TOPIC,
 	SUBSCRIBE,
 	TYPING,
 } from "./protocol.ts";
-import { roomsLocator } from "./locator.ts";
+import { RoomStewardship } from "./room_stewardship.ts";
+import { RoomMessageStream } from "./room_message_stream.ts";
+import { settleCapabilityCleanup } from "./capability_cleanup.ts";
+import { roomInboxBehavior } from "./room_inbox.ts";
 
 // Everything this client is, reached through one name. The split is where the
 // code lives; a caller still asks `room_client.ts` for the directory, a direct
@@ -67,6 +68,34 @@ export {
 } from "./irc_gateway_client.ts";
 export { listenerDown, type ListenerRow, listenerUp, listListeners, takeListeners } from "./listeners.ts";
 export {
+	clearOperatorTrouble,
+	disconnectSession,
+	giveStewardship,
+	type OperatorCategory,
+	type OperatorLinkRow,
+	operatorPage,
+	type OperatorReferenceRow,
+	type OperatorRegistrationRow,
+	type OperatorResetScope,
+	type OperatorRetireBatch,
+	operatorRetireMatching,
+	type OperatorRoomKind,
+	type OperatorRoomRow,
+	type OperatorSessionRow,
+	type OperatorSnapshot,
+	type OperatorTroubleRow,
+	releaseOperatorReference,
+	removeOperatorRoom,
+	resetOperatorScope,
+	revokeNick,
+	revokeRoomLink,
+	revokeStewardship,
+	snapshotOperator,
+	type StewardshipRow,
+	subscribeOperator,
+	takeRoomsOperator,
+} from "./operator.ts";
+export {
 	type Message,
 	readLineBytes,
 	readLineChange,
@@ -81,21 +110,18 @@ export {
 
 import { ask } from "./ask.ts";
 import { PostedLine } from "./posted_line.ts";
-import {
-	type Message,
-	readLineChange,
-	readLineId,
-	readPresence,
-	readRoomFacts,
-	type RoomFacts,
-	roomRecordAt,
-} from "./room_message.ts";
+import type { Message } from "./room_message.ts";
 
 /** What a room calls itself, asked of a live reference — including one just
  * enlivened from a link, before subscribe. Empty when it has no label to give. */
 export async function roomCalledAs(session: Session, room: Ref): Promise<string> {
 	const said = await ask(session, room, CALLED, [], "the room did not say what it is called");
-	return typeof said === "string" ? said.trim() : "";
+	return typeof said === "string" ? said : "";
+}
+
+/** Mint or recover a durable link from a raw room capability without joining it. */
+export async function linkRoomReference(session: Session, room: Ref): Promise<string> {
+	return await new RoomStewardship(session, room).link();
 }
 
 /** Whether a live reference is to an unlisted room. A public room's link is
@@ -115,16 +141,17 @@ export class Room {
 	#session: Session;
 	#room: Ref;
 	#inbox: Ref | null = null;
-	// Captured synchronously by the ReadableStream `start` callback.
-	#lines!: ReadableStreamDefaultController<Message>;
-	#leaving = false;
+	readonly #messageStream: RoomMessageStream;
 	/** The authority to say what the room is about, when it offered one. */
 	#topic: Ref | null = null;
+	readonly #stewardship: RoomStewardship;
 	/** What subscribe's arrival said about this occupancy, when it said so. */
 	#listed: boolean | undefined;
 	#arrived = false;
 	#arrival: Promise<void>;
 	#arrive: () => void;
+	#retired = false;
+	#leavePromise: Promise<void> | null = null;
 
 	/** The lines the room sends you, in order, as an async stream. The stream ends
 	 * when you `leave` or the room hangs up. */
@@ -133,6 +160,15 @@ export class Room {
 	private constructor(session: Session, room: Ref) {
 		this.#session = session;
 		this.#room = room;
+		this.#stewardship = new RoomStewardship(session, room);
+		this.#messageStream = new RoomMessageStream((message) => {
+			for (const attachment of message.attachments) {
+				settleCapabilityCleanup(
+					"unread room file capability release failed",
+					() => session.release(attachment.blob),
+				);
+			}
+		});
 		let arrive = () => {};
 		this.#arrival = new Promise((resolve) => {
 			arrive = () => {
@@ -142,11 +178,7 @@ export class Room {
 			};
 		});
 		this.#arrive = arrive;
-		this.messages = new ReadableStream<Message>({
-			start: (controller) => {
-				this.#lines = controller;
-			},
-		});
+		this.messages = this.#messageStream.readable;
 	}
 
 	/** Subscribe to a room you already hold a reference to, on an open connection.
@@ -164,48 +196,20 @@ export class Room {
 
 		// The room calls this back with every line; surface it on `messages`. A system
 		// line may carry a structured presence change after its text.
-		const inbox = session.spawn((verb, args) => {
-			if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
-			// A typing flag is ephemeral presence, not a line: it carries no text and
-			// must never enter the message stream. Route it to `onTyping` and stop.
-			if (args[2] === "typing" && typeof args[3] === "string") {
-				onTyping?.(args[3], args[4] === true);
-				return null;
-			}
-			const from = typeof args[0] === "string" ? args[0] : "?";
-			const text = typeof args[1] === "string" ? args[1] : "";
-			const facts = readRoomFacts(args);
-			const presence = readPresence(args);
-			if (facts?.listed !== undefined) self.#listed = facts.listed;
-			// A listed-ness notify is a fact, not a line. Capture it and keep it
-			// off the stream so the roster and the join line stay what a client
-			// reads first. Subscribe waits for this or for the roster, not for
-			// the join broadcast: that line is sent to every member and can
-			// beat listed-ness, and `/join` of a locator seats from `listed`.
-			if (facts?.listed !== undefined && text === "" && presence === undefined) {
-				self.#arrive();
-				return null;
-			}
-			self.#emit(
-				from,
-				text,
-				presence,
-				readAttachments(args, roomRecordAt(args)),
-				facts,
-				readLineId(args),
-				readLineChange(args),
-			);
-			if (facts?.listed !== undefined || presence?.kind === "roster") self.#arrive();
-			return null;
-		});
+		const inbox = session.spawn(roomInboxBehavior(session, {
+			typing: (from, on) => onTyping?.(from, on),
+			listed: (listed) => self.#listed = listed,
+			line: (message) => self.#messageStream.push(message),
+			arrived: () => self.#arrive(),
+		}));
 		// This local occurrence remains owned by the membership until leave or
 		// replacement. The room owns the wire occurrence it adopted independently.
 		self.#inbox = inbox;
 
-		// End the message stream when the connection closes. A dropped connection
-		// rejects serve(), which is expected here, so catch it rather than leak an
-		// unhandled rejection.
-		session.serve().finally(() => self.#endStream()).catch(() => {});
+		// The session owner reports why a shared connection ended. Each room only
+		// ends its own stream, so one connection loss does not print once per room.
+		const endStream = () => self.#endStream();
+		void session.serve().then(endStream, endStream);
 
 		// Subscribe, handing the room a capability to our inbox. Success is the
 		// resolution — the room delivers the welcome and the roster as our first
@@ -230,7 +234,6 @@ export class Room {
 			await self.#arrival;
 			return self;
 		} catch (error) {
-			self.#leaving = true;
 			self.#endStream();
 			const cleanup = self.#releaseMembershipRefs();
 			if (cleanup !== null) retainSecondaryFailure(error, cleanup);
@@ -238,8 +241,8 @@ export class Room {
 		}
 	}
 
-	/** A durable authority to this room, composed with the address it was
-	 * reached at: the string somebody else can redeem to be in it.
+	/** A durable authority to this room: the string somebody else can redeem to
+	 * be in it. Its Host authors the location and authority together.
 	 *
 	 * It is asked for with the reference, so holding the room is the whole of
 	 * the right to mint one, and what comes back is data — so it travels over
@@ -255,14 +258,10 @@ export class Room {
 	 * the server records the room's durable name for good, against a bounded
 	 * registry. Mint one when an invitation must outlive its sessions; the
 	 * ordinary hand-over is the room itself (`handRoom`), which costs the
-	 * server nothing. The lines said in a room are not kept either way — a link
-	 * preserves the room's identity, not its history. */
-	async link(locator: string): Promise<string> {
-		const swiss = await ask(this.#session, this.#room, LINK, [], "the room did not answer linking itself");
-		if (typeof swiss !== "string" || swiss.length === 0) {
-			throw new Error("link() did not return a swissnum");
-		}
-		return formatSturdyRef(roomsLocator(locator), swiss, this.#session.profile.captpVersion);
+	 * server nothing. A link preserves the room's identity, not its history
+	 * policy: retention is still the Rooms operator's explicit choice. */
+	async link(): Promise<string> {
+		return await this.#stewardship.link();
 	}
 
 	/** What this room calls itself, or "" when it has no label to give.
@@ -311,6 +310,38 @@ export class Room {
 		await ask(this.#session, this.#room, AWAY, [reason], "the room did not answer stepping away");
 	}
 
+	/** Try to mint the room's durable steward authority. Only the exact typed
+	 * `not-steward` answer means this membership does not hold it; transport,
+	 * parser, runtime, and publication failures remain failures. */
+	async claimSteward(): Promise<boolean> {
+		return await this.#stewardship.claim();
+	}
+
+	/** Take a steward sturdyref for this exact room. The imported capability
+	 * identifies the room publication it governs before replacing any authority
+	 * already held, so pasting a valid steward for another room fails closed. */
+	async takeSteward(stewardLink: string): Promise<void> {
+		await this.#stewardship.take(stewardLink);
+	}
+
+	get roomLink(): string | null {
+		return this.#stewardship.roomLink;
+	}
+
+	get stewardLink(): string | null {
+		return this.#stewardship.stewardLink;
+	}
+
+	/** Whether this membership holds the steward. */
+	get canKick(): boolean {
+		return this.#stewardship.held;
+	}
+
+	/** Ask a member, by nick, to leave through the steward already held. */
+	async kick(nick: string): Promise<void> {
+		await this.#stewardship.kick(nick);
+	}
+
 	/** Say what the room is about, for everyone in it and everyone who arrives
 	 * after. An empty string takes the topic down.
 	 *
@@ -322,9 +353,9 @@ export class Room {
 	}
 
 	/** What the room kept of its own conversation, oldest first, when this
-	 * server keeps history at all. A server that keeps none refuses the verb;
-	 * the caller reads that refusal as an empty answer, because it is this
-	 * feature not existing there rather than anything going wrong. */
+	 * server keeps history at all. A server that keeps none refuses the optional
+	 * verb; callers can therefore distinguish unavailable retention from an
+	 * enabled room whose retained tail is empty. */
 	async history(): Promise<{ from: string; text: string; at: number }[]> {
 		const raw = await ask(this.#session, this.#room, HISTORY, [], "the room did not answer its history");
 		if (!Array.isArray(raw)) return [];
@@ -339,17 +370,29 @@ export class Room {
 		return lines;
 	}
 
-	/** Hand a bridged room's seat the reader's own registered IRC account.
-	 * The answer is the gateway's sentence about how they now appear; a room
+	/** Choose the nick and optional registered account for this reader's IRC seat.
+	 * The answer is the gateway's sentence about how they now appear. A room
 	 * with no IRC seat refuses the verb, which the caller shows as the
 	 * refusal it is. */
-	async ircAccount(account: string, password: string): Promise<string> {
+	async ircIdentity(nick: string, account: string, password: string): Promise<string> {
 		const said = await ask(
 			this.#session,
 			this.#room,
-			IRC_ACCOUNT,
-			[account, password],
-			"the room did not answer the account",
+			IRC_IDENTITY,
+			[nick, account, password],
+			"the room did not answer the IRC identity",
+		);
+		return typeof said === "string" ? said : "";
+	}
+
+	/** Stop this membership's IRC projection without leaving the Rooms room. */
+	async disconnectIrc(): Promise<string> {
+		const said = await ask(
+			this.#session,
+			this.#room,
+			IRC_DISCONNECT,
+			[],
+			"the room did not disconnect the IRC identity",
 		);
 		return typeof said === "string" ? said : "";
 	}
@@ -419,6 +462,10 @@ export class Room {
 		return fetchBlob(this.#session, attachment, onProgress);
 	}
 
+	readFile(attachment: Attachment, offset: number, maxLen: number): Promise<Uint8Array> {
+		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
+	}
+
 	/** Give back a file capability this member no longer needs. */
 	release(attachment: Attachment): void {
 		this.#session.release(attachment.blob);
@@ -434,8 +481,15 @@ export class Room {
 	/** Leave this room — drop the membership and end the `messages` stream —
 	 * without closing the connection, so the same connection can enter another
 	 * room. Close the session itself with `Directory.close`. */
-	async leave(): Promise<void> {
-		this.#leaving = true;
+	leave(): Promise<void> {
+		if (this.#leavePromise !== null) return this.#leavePromise;
+		if (this.#retired) return Promise.resolve();
+		this.#retired = true;
+		this.#leavePromise = this.#leave();
+		return this.#leavePromise;
+	}
+
+	async #leave(): Promise<void> {
 		let failure: unknown | null = null;
 		try {
 			await this.#session.send(this.#room, LEAVE, []);
@@ -461,7 +515,8 @@ export class Room {
 	 * already replaced the record on the room's side; what is left is this
 	 * side's stream. */
 	replaced(): void {
-		this.#leaving = true;
+		if (this.#retired) return;
+		this.#retired = true;
 		this.#endStream();
 		const failure = this.#releaseMembershipRefs();
 		if (failure !== null) throw failure;
@@ -481,41 +536,16 @@ export class Room {
 		};
 		release("#inbox", this.#inbox);
 		release("#topic", this.#topic);
-		return failure;
-	}
-
-	#emit(
-		from: string,
-		text: string,
-		presence?: Presence,
-		attachments: Attachment[] = [],
-		facts?: RoomFacts,
-		lineId?: number,
-		change?: "said" | "edited" | "refiled" | "withdrawn",
-	): void {
 		try {
-			this.#lines.enqueue({
-				from,
-				text,
-				system: from === "room",
-				presence,
-				attachments,
-				facts,
-				lineId,
-				change,
-			});
-		} catch {
-			// The stream is already closed (we have left), drop the late line.
+			this.#stewardship.release();
+		} catch (error) {
+			failure = failure === null ? error : retainSecondaryFailure(failure, error);
 		}
+		return failure;
 	}
 
 	#endStream(): void {
 		this.#arrive();
-		if (!this.#leaving) console.error("rooms: the room closed the connection");
-		try {
-			this.#lines.close();
-		} catch {
-			// Already closed.
-		}
+		this.#messageStream.close();
 	}
 }

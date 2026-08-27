@@ -409,11 +409,12 @@ pub const JumpButton = struct {
     h: u16 = 1,
     label: []const u8,
 
+    pub fn rect(self: JumpButton) layout.ScreenRect {
+        return .{ .x = self.x, .y = self.y, .w = self.w, .h = self.h };
+    }
+
     pub fn contains(self: JumpButton, col: i16, row: i16) bool {
-        if (col < 0 or row < 0) return false;
-        const c: u16 = @intCast(col);
-        const r: u16 = @intCast(row);
-        return c >= self.x and r >= self.y and c < self.x +| self.w and r < self.y +| self.h;
+        return self.rect().contains(col, row);
     }
 };
 

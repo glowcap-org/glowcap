@@ -52,9 +52,11 @@ implementations exercised today are the upstream suite and Racket Goblins.
 ADR-0125's `id/via` multi-home shape is a pancake-private extension. It is not
 understood by any external OCapN or Goblins implementation exercised by this
 repository. The existing OCapN and
-Goblins checks prove the baseline remains compatible; focused pancake and
-Rooms scenarios prove route lowering. None proves interoperability with an
-external route-bundle implementation.
+Goblins checks prove the baseline remains compatible;
+`goblins-rooms-peering` proves the Rooms product lowers its private source
+route into a baseline handoff a real Goblins vat can redeem. None proves
+interoperability with an external route-bundle implementation, because the vat
+correctly never receives that private vocabulary.
 
 ## Known gaps
 
@@ -140,8 +142,8 @@ that script, so a removed step cannot remain marked as recurring evidence.
 | `zig build goblins-listen-recipient` | yes | Goblins delivers an unresolved promise to the owning native Session; one `listenTo` is ordered before one later Goblins settlement, whose nested capability pancake lifts, calls, releases, and closes cleanly. | A three-party give in that fulfillment; `goblins-relayed-give` covers the reciprocal gifter topology. |
 | `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. | Outbound GC, `op:gc-answers`, or binding finalizers. |
 | `zig build goblins-rooms-dm` / `-iroh` | no | Three peers across two implementations take the three handoff roles: a pancake room gifts, a real Goblins vat exports, and a pancake browser peer redeems and reaches the vat off-room, over cleartext TCP and over iroh. The vat answers on the arriving connection, then acts as recipient when it starts a direct message to a native pancake exporter over the same selected transport. | Recurring evidence: this heavyweight browser/Goblins topology is absent from `ci/gates.sh` and remains on demand. The iroh row does not make Goblins the gifter or cover a recipient dialing after the exporter's `direct-addresses` update. |
-| Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or any binding as listener. | <!-- ci-gate: bindings-goblins-interop -->
-| `zig build deno-goblins-listen` | yes | Goblins dials a Deno binding and calls its published actor. | The other bindings as listener. |
+| Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or the reciprocal listener direction, which the sibling listener matrix owns. | <!-- ci-gate: bindings-goblins-interop -->
+| Binding `*-goblins-listen` steps | yes | Goblins dials Deno, Python, Rust, and Racket binding Hosts, enlivens one published actor, calls it, and reads its exact reply. | Bun, whose synchronous FFI cannot host the native loop. | <!-- ci-gate: bindings-goblins-listen -->
 | Binding `*-goblins-handoff` / `*-goblins-gift` | yes | Deno, Python, Rust, and Racket act as recipient and gifter against Goblins; each gifter lifts a delegated capability from an ordinary vendor reply, returns it twice in one nested value, and Goblins redeems and calls both gives directly. | Bun or live recursive Tagged/user-record interop, which pinned Goblins does not implement. | <!-- ci-gate: bindings-goblins-handoff, bindings-goblins-gift -->
 | Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient gate covers pancake's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
 | `zig build fuzz` | yes | Coverage-guided inputs exercise codecs, framing, sessions, handoff, locators, the host, actors, persistent collections, and completion-loop accounting. Saved crashes replay under `check`. | Agreement with the specification, unreached code, or a well-formed but wrong decode. The recurring search is shallow. |
@@ -204,7 +206,7 @@ zig build ocapn-conformance
 zig build ocapn-findings-check
 zig build ocapn-conformance-onion
 zig build goblins-interop
-zig build deno-goblins-listen
+zig build bindings-goblins-listen
 zig build goblins-handoff
 zig build goblins-gift
 zig build goblins-gift-hints

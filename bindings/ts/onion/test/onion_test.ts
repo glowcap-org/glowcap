@@ -9,13 +9,6 @@
 
 // Local assertions rather than an external assert package: this scope takes no
 // inline dependency specifiers, and its sibling tests do the same.
-function assert(value: unknown, message = "assertion failed"): void {
-	if (!value) throw new Error(message);
-}
-function assertEquals(actual: unknown, expected: unknown): void {
-	const a = JSON.stringify(actual), b = JSON.stringify(expected);
-	if (a !== b) throw new Error(`expected ${b}, got ${a}`);
-}
 function assertThrows(fn: () => unknown): void {
 	try {
 		fn();
@@ -24,17 +17,9 @@ function assertThrows(fn: () => unknown): void {
 	}
 	throw new Error("expected the call to throw");
 }
-async function assertRejects(fn: () => Promise<unknown>): Promise<unknown> {
-	try {
-		await fn();
-	} catch (error) {
-		return error;
-	}
-	throw new Error("expected the call to reject");
-}
-
 import { DriverLoop, PancakeError } from "@pancake/runtime/transport";
 import { Connection, installProvider, listen, Netlayer, SERVICE_ID_LENGTH } from "../mod.ts";
+import { assert, assertDeepEquals, assertRejects } from "../../dogfood/assert.ts";
 
 /** A real, checksum-valid version 3 id, from the pinned Goblins source. Using a
  * well-formed one matters: the transport refuses anything else before it opens a
@@ -175,15 +160,15 @@ function fakeSocks(): { address: string; close(): void; firstWrite: Promise<Uint
 		};
 
 		const greeting = await readExact(3);
-		assertEquals([...greeting], [0x05, 0x01, 0x00]);
+		assertDeepEquals([...greeting], [0x05, 0x01, 0x00]);
 		await conn.write(new Uint8Array([0x05, 0x00]));
 
 		// Four header bytes, the length byte, the 62-character address, the port.
 		const request = await readExact(69);
-		assertEquals([...request.subarray(0, 5)], [0x05, 0x01, 0x00, 0x03, 62]);
-		assertEquals(new TextDecoder().decode(request.subarray(5, 5 + 62)), `${SERVICE_ID}.onion`);
+		assertDeepEquals([...request.subarray(0, 5)], [0x05, 0x01, 0x00, 0x03, 62]);
+		assertDeepEquals(new TextDecoder().decode(request.subarray(5, 5 + 62)), `${SERVICE_ID}.onion`);
 		// 9045, big-endian.
-		assertEquals([...request.subarray(67)], [0x23, 0x55]);
+		assertDeepEquals([...request.subarray(67)], [0x23, 0x55]);
 
 		await conn.write(new Uint8Array([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
 
@@ -207,7 +192,7 @@ Deno.test("onion: a dial carries a framed message over the circuit", async () =>
 		const payload = new TextEncoder().encode(`<8'op:abort3"bye>`);
 		await conn.writeFrame(payload);
 		const got = await socks.firstWrite;
-		assertEquals(new TextDecoder().decode(got), `${payload.length}:<8'op:abort3"bye>`);
+		assertDeepEquals(new TextDecoder().decode(got), `${payload.length}:<8'op:abort3"bye>`);
 		conn.close();
 	} finally {
 		net.release();
@@ -220,16 +205,16 @@ Deno.test("onion: hosting reports the service Tor named", async () => {
 	const net = new Netlayer({ socks: "127.0.0.1:1", control: control.address });
 	try {
 		const listener = await net.listen();
-		assertEquals(listener.serviceId, SERVICE_ID);
-		assertEquals(listener.serviceId.length, SERVICE_ID_LENGTH);
-		assertEquals(new TextDecoder().decode(listener.serviceKey), SERVICE_KEY);
+		assertDeepEquals(listener.serviceId, SERVICE_ID);
+		assertDeepEquals(listener.serviceId.length, SERVICE_ID_LENGTH);
+		assertDeepEquals(new TextDecoder().decode(listener.serviceKey), SERVICE_KEY);
 		// Nothing has dialed, so the wait expires rather than parking.
 		assert(!(await listener.wait(1)));
 		// Releasing the owner retires borrowed children before its std.Io backend.
 		net.release();
 		assertThrows(() => listener.readinessFd());
 		listener.close(); // idempotent after owner-driven release
-		assertEquals(await control.authenticate, "AUTHENTICATE");
+		assertDeepEquals(await control.authenticate, "AUTHENTICATE");
 	} finally {
 		net.release();
 		control.close();
@@ -244,15 +229,15 @@ Deno.test("onion: a driver lease outlives the provider constructor", async () =>
 		assert(loop.hasTransport("onion"));
 		const listener = await loop.listen("onion", "");
 		const locator = loop.listenerLocator(listener);
-		assertEquals(locator.transport, "onion");
-		assertEquals(locator.designator, SERVICE_ID);
-		assertEquals(
+		assertDeepEquals(locator.transport, "onion");
+		assertDeepEquals(locator.designator, SERVICE_ID);
+		assertDeepEquals(
 			new TextDecoder().decode(loop.listenerRestorationState(listener)),
 			SERVICE_KEY,
 		);
-		loop.closeListener(listener);
+		await loop.closeListener(listener);
 		assertThrows(() => loop.listenerRestorationState(listener));
-		assertEquals(await control.authenticate, "AUTHENTICATE");
+		assertDeepEquals(await control.authenticate, "AUTHENTICATE");
 	} finally {
 		await loop.close();
 		control.close();
@@ -264,16 +249,16 @@ Deno.test("onion: the high-level server owns CapTP admission and projects restor
 	try {
 		const server = await listen({ socks: "127.0.0.1:1", control: control.address });
 		try {
-			assertEquals(server.uri, `ocapn://${SERVICE_ID}.onion`);
-			assertEquals(server.designator, SERVICE_ID);
-			assertEquals(new TextDecoder().decode(server.serviceKey), SERVICE_KEY);
+			assertDeepEquals(server.uri, `ocapn://${SERVICE_ID}.onion`);
+			assertDeepEquals(server.designator, SERVICE_ID);
+			assertDeepEquals(new TextDecoder().decode(server.serviceKey), SERVICE_KEY);
 			const copy = server.serviceKey;
 			copy.fill(0);
-			assertEquals(new TextDecoder().decode(server.serviceKey), SERVICE_KEY);
+			assertDeepEquals(new TextDecoder().decode(server.serviceKey), SERVICE_KEY);
 		} finally {
 			await server.close();
 		}
-		assertEquals(await control.authenticate, "AUTHENTICATE");
+		assertDeepEquals(await control.authenticate, "AUTHENTICATE");
 	} finally {
 		control.close();
 	}
@@ -307,7 +292,7 @@ Deno.test("onion: each credential form reaches the daemon as itself", async () =
 	});
 	try {
 		(await withCookie.listen()).close();
-		assertEquals(await cookie.authenticate, "AUTHENTICATE 00010fff");
+		assertDeepEquals(await cookie.authenticate, "AUTHENTICATE 00010fff");
 	} finally {
 		withCookie.release();
 		cookie.close();
@@ -321,7 +306,7 @@ Deno.test("onion: each credential form reaches the daemon as itself", async () =
 	});
 	try {
 		(await withPassword.listen()).close();
-		assertEquals(await password.authenticate, `AUTHENTICATE "hunter2"`);
+		assertDeepEquals(await password.authenticate, `AUTHENTICATE "hunter2"`);
 	} finally {
 		withPassword.release();
 		password.close();

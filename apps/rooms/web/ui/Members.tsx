@@ -4,10 +4,11 @@
 // The header's count button reads the same roster, through `rosterOf` below, so
 // the number on the button and the list behind it cannot disagree.
 
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { memo } from "react";
 import { membersHere, type RoomConv, type Standing } from "./types.ts";
-import { ircName } from "./text.ts";
+import { memberDetail, memberIdentity } from "./member_identity.ts";
 import { IconButton } from "./IconButton.tsx";
 import { PresenceAvatar } from "./Avatar.tsx";
 
@@ -37,11 +38,12 @@ export function rosterOf(conv: RoomConv | null, you: string): Roster {
 }
 
 function MemberRow(
-	{ name, standing, you, reachable }: {
+	{ name, standing, you, reachable, canInteract }: {
 		name: string;
 		standing: Standing;
 		you: boolean;
 		reachable: boolean;
+		canInteract: boolean;
 	},
 ) {
 	// Presence is worn by the member's own chip: the pip over its corner is a
@@ -50,16 +52,18 @@ function MemberRow(
 	// offers a direct line to any member the directory says is reachable,
 	// other than yourself. Its glyph is two endpoints with nothing in between:
 	// that is the act of opening a line.
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	// Away is a third thing to be, and it is about somebody who is here rather
 	// than a way of being absent: the pip says away, and the reason goes beside
 	// the name where it answers the question the pip raises.
 	const online = standing.online;
 	const away = online && standing.away !== "";
 	const said = away ? "away" : online ? "online" : "offline";
-	const irc = ircName(name);
+	const identity = memberIdentity(name, standing);
+	const detail = memberDetail(identity, standing);
 	return (
-		<li className={said}>
+		<li className={said} data-network={identity.network}>
 			<PresenceAvatar name={name} state={said} reason={away ? standing.away : undefined} />
 			{
 				/* The name truncates, so it carries itself. This row is not a control,
@@ -67,9 +71,12 @@ function MemberRow(
 			    whole of it — a long name would simply have been unreadable. */
 			}
 			<span className="name-line">
-				<span className="name" title={name}>
-					{irc ?? (you ? name + " (you)" : name)}
-					{irc !== null && <span className="irc-chip">IRC</span>}
+				<span className="name" title={identity.name}>
+					{identity.name}
+					{you && " (you)"}
+					{identity.mark !== null && (
+						<span className="irc-chip" data-network={identity.network}>{identity.mark}</span>
+					)}
 				</span>
 				{
 					/* The row's second line: the away reason when one was given, the
@@ -77,33 +84,48 @@ function MemberRow(
 				    so a roster reads as a column of people rather than a ragged
 				    list that reflows when somebody steps away. */
 				}
-				{away
-					? <span className="away-said" title={standing.away}>{standing.away}</span>
-					: <span className="member-said">{said}</span>}
+				<span className={away ? "away-said" : "member-said"} title={away ? standing.away : undefined}>
+					{detail}
+				</span>
 			</span>
-			{!you && reachable && (
-				<IconButton
-					className="dm-btn"
-					icon="direct"
-					label={"Message " + name + " directly"}
-					size="small"
-					tone="teal"
-					onClick={(e) => {
-						e.stopPropagation();
-						peer.startDm(name);
-					}}
-				/>
-			)}
+			{canInteract && you && standing.irc !== undefined
+				? (
+					<IconButton
+						className="dm-btn"
+						icon="gear"
+						label="Manage your IRC identity"
+						size="small"
+						tone="teal"
+						onClick={(event) => {
+							event.stopPropagation();
+							browser.manageIrcIdentity();
+						}}
+					/>
+				)
+				: canInteract && !you && reachable && (
+					<IconButton
+						className="dm-btn"
+						icon="direct"
+						label={"Message " + identity.name + " directly"}
+						size="small"
+						tone="teal"
+						onClick={(e) => {
+							e.stopPropagation();
+							session.startDm(name);
+						}}
+					/>
+				)}
 		</li>
 	);
 }
 
 function MembersPane(
-	{ conv, roster, nick, dmablePeers }: {
+	{ conv, roster, nick, dmablePeers, canInteract }: {
 		conv: RoomConv | null;
 		roster: Roster;
 		nick: string;
 		dmablePeers: ReadonlySet<string>;
+		canInteract: boolean;
 	},
 ) {
 	// Before the first join there is no room to have a roster, so the pane says
@@ -128,6 +150,7 @@ function MembersPane(
 							standing={standing}
 							you={name === nick}
 							reachable={dmablePeers.has(name.toLowerCase())}
+							canInteract={canInteract}
 						/>
 					))}
 			</ul>
@@ -135,5 +158,5 @@ function MembersPane(
 	);
 }
 
-// Memoised: see `useStore`. None of these props change with a keystroke.
+// Memoised: see `useRoomsState`. None of these props change with a keystroke.
 export const Members = memo(MembersPane);

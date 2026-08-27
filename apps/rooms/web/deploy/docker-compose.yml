@@ -74,6 +74,8 @@ services:
       PANCAKE_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
       PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
+      # Mint the server-wide authority that gives and revokes room stewardships.
+      PANCAKE_ROOMS_OPERATOR: "1"
       # Same as --peering: mint the directory-peering capability.
       PANCAKE_ROOMS_PEERING: "1"
       # Same as --viz: serve the live timeline endpoint (default port 9300;
@@ -85,6 +87,13 @@ services:
       # Same as --history: listed rooms keep their last lines in the state
       # volume and serve them to members who join later.
       PANCAKE_ROOMS_HISTORY: "1"
+      # Same as --storage=: one destination whose shape picks where kept
+      # lines persist. Empty keeps the state volume's files. To use the
+      # managed database below instead, bring it up with
+      #   docker compose --profile storage-db up -d
+      # and set this to its URL, e.g.
+      #   postgres://rooms:${STORAGE_DB_PASSWORD}@rooms-storage-db:5432/rooms
+      PANCAKE_ROOMS_STORAGE: ${PANCAKE_ROOMS_STORAGE:-}
     volumes:
       # The TypeScript source and the prebuilt .so, both read-only mounts — neither
       # is baked into the image. Build the .so in the dev container first (above).
@@ -112,6 +121,68 @@ services:
       - rooms-net
       - egress-net
 
+  # One durable user workspace, separate from the room directory's authority.
+  # Its administrator sturdyref never crosses HTTP: ./up.sh reads the
+  # current-start mirror from this container and the intended owner pastes it
+  # into the page's explicit session-establishment form. The page's existing
+  # relay can dial this iroh identity without a published container port.
+  rooms-session:
+    image: pancake-rooms:local
+    container_name: pancake-rooms-session
+    working_dir: /repo
+    command:
+      - run
+      - --allow-ffi=/libs
+      - --unstable-ffi
+      - --allow-read=/repo,/libs,/session-state,/run/rooms-session
+      - --allow-write=/session-state,/run/rooms-session
+      - --allow-net
+      - --allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_SESSION_STATE,PANCAKE_ROOMS_SESSION_TRANSPORT,PANCAKE_ROOMS_SESSION_REACHABILITY
+      - --no-lock
+      - apps/rooms/session/main.ts
+      - --readiness-file=/run/rooms-session/admin.sturdyref
+    environment:
+      PANCAKE_LIB_DIR: /libs
+      DENO_DIR: /deno-dir
+      PANCAKE_ROOMS_SESSION_STATE: /session-state
+      PANCAKE_ROOMS_SESSION_TRANSPORT: iroh
+      PANCAKE_ROOMS_SESSION_REACHABILITY: discovery
+    volumes:
+      - ../../../..:/repo:ro
+      - ../../../../zig-out/lib:/libs:ro
+      - rooms-session-deno-cache:/deno-dir
+      - rooms-session-state:/session-state
+    # Readiness is an incarnation fact, not user state. A tmpfs makes a crash,
+    # container restart, or recreation begin without a stale ready marker.
+    tmpfs:
+      - /run/rooms-session:mode=0700
+    healthcheck:
+      test: ["CMD", "deno", "run", "--allow-read=/run/rooms-session", "--no-lock", "/repo/apps/rooms/web/deploy/session_healthcheck.ts"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+    networks:
+      - rooms-net
+
+  # The managed storage database, opted into with --profile storage-db. The
+  # room server reaches it only over the private compose network; nothing
+  # publishes it to the host. The password comes from the gitignored .env.
+  rooms-storage-db:
+    image: postgres:17-alpine
+    container_name: rooms-storage-db
+    profiles: ["storage-db"]
+    environment:
+      POSTGRES_DB: rooms
+      POSTGRES_USER: rooms
+      POSTGRES_PASSWORD: ${STORAGE_DB_PASSWORD:-}
+    volumes:
+      - rooms-storage-db:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - rooms-net
+
 networks:
   # Shared fabric with the pancake devcontainer: a bot there reaches this
   # container's internal CapTP over this network. Fixed name, external so both
@@ -130,3 +201,6 @@ networks:
 volumes:
   rooms-deno-cache:
   rooms-state:
+  rooms-session-deno-cache:
+  rooms-session-state:
+  rooms-storage-db:

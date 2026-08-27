@@ -85,6 +85,12 @@ name = "rust_client"
 path = "../../interop/goblins_interop/rust_client.rs"
 required-features = ["async", "tcp"]
 
+# Reciprocal live interop proof: a real Goblins vat dials this binding's TCP
+# listener, enlivens its Host-wide actor, and calls it.
+[[example]]
+name = "goblins_listen"
+required-features = ["async", "tcp"]
+
 # Live three-party gift: the binding deposits a capability with a real Goblins
 # exporter and the recipient withdraws it. Run via `zig build rust-goblins-gift`
 # (needs racket + goblins); drives over the `async` I/O surface.

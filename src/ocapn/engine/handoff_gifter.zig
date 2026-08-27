@@ -52,11 +52,7 @@ pub const ExporterLocatorPolicy = struct {
 /// so the arm is unreachable rather than a policy. The decode-and-re-encode
 /// is paid only when a give needs lowering or stripping; the caller owns
 /// non-null bytes.
-pub fn dialableExporterLocation(allocator: std.mem.Allocator, raw: []const u8) !?[]u8 {
-    return exporterLocationForRecipient(allocator, raw, .{});
-}
-
-fn exporterLocationForRecipient(
+pub fn exporterLocationForRecipient(
     allocator: std.mem.Allocator,
     raw: []const u8,
     recipient: RecipientLocatorPolicy,

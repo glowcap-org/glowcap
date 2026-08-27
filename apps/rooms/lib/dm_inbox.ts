@@ -14,19 +14,19 @@
 
 import type { Behavior, Host, Ref } from "@pancake/runtime";
 import { MAX_DM_INBOXES, nickRefusal } from "./limits.ts";
+import { isRegistrationId } from "./directory_publications.ts";
 import type { Directory } from "./room_client.ts";
 
-/** Mints and offers direct-message inboxes for named peers. */
+/** Mints and offers direct-message inboxes for exact live registrations. */
 export interface InboxOfferer {
-	/** Mint an inbox for `peer` if there is none, and offer it to the directory.
-	 * Always re-offers: the directory forgets a member's offers whenever the name
-	 * either side holds changes hands, and the only way back is to say it again. */
-	offer(peer: string): void;
-	/** Forget the inbox minted for `peer`, so a later `offer` mints a fresh one.
-	 * Call it when the peer leaves: the next holder of that name is someone else
+	/** Mint an inbox for `peer`'s registration ID if there is none, and offer it to the
+	 * directory. Always re-offers across a directory reconnect. */
+	offer(peer: string, registrationId: string): void;
+	/** Forget the inbox minted for `registrationId`, so a later `offer` mints a fresh one.
+	 * Call it when the registration leaves: the next holder of that name is someone else
 	 * and must not inherit their inbox. The old issued capability keeps its exact
 	 * revoked/disconnected behavior; it is never retargeted. */
-	forget(peer: string): void;
+	forget(registrationId: string): void;
 	/** Retire every alias owned by this offerer. Resolves after unpublication has
 	 * run outside any delivering Host turn. */
 	close(): Promise<void>;
@@ -45,7 +45,7 @@ export interface InboxOffererOptions {
 	dir: () => Directory | null;
 	/** The inbox behavior for one named peer, which may treat its caller as
 	 * `peer` without checking anything in the message. */
-	behaviorFor: (peer: string) => Behavior;
+	behaviorFor: (peer: string, registrationId: string) => Behavior;
 	/** Peers to skip, such as ourselves. */
 	skip?: (peer: string) => boolean;
 	onError?: (peer: string, err: unknown) => void;
@@ -79,8 +79,8 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 	const retiringNames = new Set<string>();
 	const publisher: InboxPublisher = {
 		offerer(opts: InboxOffererOptions): InboxOfferer {
-			// The name minted for each peer in this directory. The same spelling in
-			// another directory is another authority and gets another alias, but both
+			// The name minted for each registration in this directory. The same
+			// nickname under a later registration ID gets another alias, and both
 			// spend this Host's ledger.
 			const minted = new Map<string, string>();
 			const retirements = new Set<Promise<void>>();
@@ -119,13 +119,13 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 				return pending;
 			};
 			return {
-				offer(peer: string): void {
+				offer(peer: string, registrationId: string): void {
 					if (closed) return;
-					const key = peer.toLowerCase();
+					const key = registrationId;
 					if (opts.skip?.(peer)) return;
 					const unnameable = nickRefusal(peer);
-					if (unnameable !== null) {
-						opts.onError?.(peer, new Error(unnameable));
+					if (unnameable != null || !isRegistrationId(registrationId)) {
+						opts.onError?.(peer, new Error(unnameable ?? "invalid registration ID"));
 						return;
 					}
 					let swiss = minted.get(key);
@@ -156,7 +156,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 						let ref: Ref | null = null;
 						try {
 							if (names.get(name) !== true) {
-								host.publishGiftable(name, opts.behaviorFor(peer));
+								host.publishGiftable(name, opts.behaviorFor(peer, registrationId));
 								names.set(name, true);
 							}
 							ref = dir.session.publishedRef(name);
@@ -171,11 +171,11 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 							opts.onError?.(peer, err);
 							return;
 						}
-						dir.offerInbox(peer, ref).catch((err) => opts.onError?.(peer, err));
+						dir.offerInbox(peer, registrationId, ref).catch((err) => opts.onError?.(peer, err));
 					});
 				},
-				forget(peer: string): void {
-					void retire(peer.toLowerCase());
+				forget(registrationId: string): void {
+					void retire(registrationId);
 				},
 				async close(): Promise<void> {
 					if (closed) return;

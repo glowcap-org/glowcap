@@ -1,0 +1,291 @@
+/* The controls whose meaning is carried by words: the button family
+   (Button.tsx) and the wait a busy commitment stands in. The icon family
+   and the page's base rules stay in controls.css; this sheet is theirs
+   alone, split out by subject so each stays under the file ceiling. */
+
+/* And one baseline for controls whose meaning is carried by words (see
+   Button.tsx). Three boxed variants, because a rooms form asks for three
+   things: the commitment, the commitment that takes something away, and the
+   quiet way out or secondary act beside either. Treatment lives here; the
+   card that contains a button owns where it sits.
+
+   The three share one geometry per size, so a row of them stands at one
+   height and the only thing that differs is what each says about its
+   consequence. `normal` is the in-row height (--control-h), for the acts at
+   the end of an entry, in a confirm, or under a well's form. `large` is the
+   touch-primary height (--field-h), for the button beside a field and for a
+   card's own commitment, which is why it also carries the fuller type. A
+   caller picks the size; it never restates padding or radius.
+
+   Only motion transitions, for the reason the icon family gives: a control can
+   sit on paper, on amber, or over a picture, and interpolating ink and ground
+   independently crosses illegible midpoints even when both ends clear
+   contrast. */
+.button {
+	all: unset;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	font: inherit;
+	line-height: 1.2;
+	text-align: center;
+	cursor: pointer;
+	transition: transform .12s ease;
+}
+.button[data-variant="primary"],
+.button[data-variant="danger"],
+.button[data-variant="quiet"] {
+	min-height: var(--control-h);
+	padding: 0 14px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	font-size: var(--type-ui);
+	font-weight: 700;
+	white-space: nowrap;
+}
+.button[data-size="large"][data-variant="primary"],
+.button[data-size="large"][data-variant="danger"],
+.button[data-size="large"][data-variant="quiet"] {
+	min-height: var(--field-h);
+	padding: 0 18px;
+	border-radius: 11px;
+	font-size: inherit;
+	font-weight: 800;
+}
+/* The whole line, for a card's foot: stated by the caller because it is
+   placement, not a look. */
+.button[data-block] {
+	width: 100%;
+}
+.button[data-variant="primary"] {
+	color: var(--on-accent);
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+}
+/* The commitment that takes something away wears the refusal colour, so it
+   cannot be mistaken for the ordinary commitment beside it however alike the
+   words are. Same gradient move as the failed bubble, for the same ink. */
+.button[data-variant="danger"] {
+	color: var(--on-accent);
+	background: linear-gradient(135deg, var(--danger), color-mix(in srgb, var(--danger) 78%, #000));
+}
+.button[data-variant="danger"]:focus-visible {
+	outline-color: var(--danger);
+}
+.button[data-variant="primary"]:hover:not(:disabled),
+.button[data-variant="danger"]:hover:not(:disabled) {
+	filter: brightness(1.05);
+}
+.button[data-variant="quiet"] {
+	border-color: var(--rule);
+	color: var(--ink-soft);
+	background: transparent;
+}
+.button[data-variant="quiet"]:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--teal) 48%, var(--rule));
+	color: var(--teal-ink);
+	background: color-mix(in srgb, var(--teal) 7%, transparent);
+}
+.button[data-variant="quiet"]:focus-visible {
+	border-color: var(--teal);
+	color: var(--teal-ink);
+	outline: 2px solid var(--teal);
+	outline-offset: 2px;
+}
+/* A step sideways: a word that opens something further, sitting under a line of
+   text rather than in a row of controls. It takes no box at rest, because a box
+   here would make the line it lives under grow around it — which is the whole
+   reason this is its own role and not a smaller `quiet`.
+
+   It does take teal. Quiet is teal on a rectangle; this is teal as a word. A
+   pointer is not a given — a finger never hovers, and even a pointer has to
+   find the word before it can hover it — so idle ink has to be the same signal
+   quiet uses, not the sentence's cocoa waiting for an approach.
+
+   Hover deepens that teal rather than growing a ground. Every place this
+   variant is used sits inside something that is already a hover surface of
+   its own, and a wash appearing inside a wash is two reveals for one gesture.
+
+   Not an underline, and that is a rule rather than a preference: the one thing
+   this interface underlines is a real link inside a message (`.bubble a`).
+   Spending the same mark on a control would make the two indistinguishable, and
+   one of them navigates away from the page while the other opens a card over
+   it. */
+.button[data-variant="link"] {
+	font-size: var(--type-ui);
+	font-weight: 600;
+	line-height: 1.2;
+	color: var(--teal-ink);
+	border-radius: 4px;
+	transition: color .12s ease;
+}
+/* The same word grown into a line of its own, under the name it is about. It is
+   quieter than that name by size, it starts its content instead of centring it
+   the way a shape-shaped control does, and it carries a ground to be approached
+   by rather than only ink.
+
+   All of that is the variant's, not a caller's. It used to be a `link` wearing a
+   class that had to name itself twice to beat this family's `font: inherit` —
+   which is what a missing case looks like from the outside. Where the line goes
+   and how wide its mark column is remain the rail's to say. */
+/* A caption spans a whole line, so what is written on it sits in the middle of
+   that line as one piece: a glyph and the words it belongs to, together, inset
+   by whatever the line does not need. Both halves are stated because only one
+   of them survives a caption that lays its own contents out — `justify-content`
+   places flex children and does nothing to a grid, which is how the words came
+   to centre while the glyph stayed pinned at the far left.
+
+   And it is drawn at rest. A line with content floating in the middle of it and
+   no rectangle underneath reads as a stray caption rather than as something to
+   press, and the ground it takes under a pointer has to arrive as a change of
+   state rather than as the first news that this was a target at all.
+
+   The fill is the row's own tone, lifted: a veil of the page's paper over
+   whatever the row is drawn on, so the plate keeps the hue of the row it sits
+   in and stands a shade out of it. Which way that reads is the appearance's to
+   decide — on cream the plate lightens, in syrup it deepens — because both are
+   the same move, toward the ground the page itself is drawn on.
+
+   Toward paper and not away from it, because the words have nowhere to give.
+   A row being read is one of the two grounds in the rail with no headroom left,
+   which is why the caption on it already runs at full ink; the first fill tried
+   here mixed ink into the ground and took that row from 4.5 to 1 down to 4.36.
+   A tint moving toward paper cannot do that: the ink is chosen against paper
+   and the row's ground is a tint away from it, so this buys contrast rather
+   than spending it, in either appearance. */
+.button[data-variant="caption"] {
+	justify-content: center;
+	text-align: center;
+	font-size: 11px;
+	/* Taller than the rest of the family, because this is the family's smallest
+	   text and it truncates. An element that clips sideways for an ellipsis
+	   clips top and bottom too, and at eleven pixels a line box of 1.25 is a
+	   pixel shorter than this font's own metrics, so the line took a sliver off
+	   every ascender. Nothing looks broken when it does, which is why the
+	   browser proof measures it rather than the stylesheet arguing it. */
+	line-height: 1.5;
+	padding-inline: 12px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-chip);
+	/* Lighter on cream than in syrup. The amber ground and the paper over it are
+	   close in light, so the same veil that clearly deepens a dark row barely
+	   lifts a pale one; the arms are stated apart rather than one number split
+	   the difference and read as almost nothing in the appearance most readers
+	   are in. */
+	--caption-plate: color-mix(in srgb, var(--paper) 78%, transparent);
+	background: var(--caption-plate);
+	transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+@media (hover: hover) {
+	.button[data-variant="link"]:hover:not(:disabled) {
+		color: color-mix(in srgb, var(--teal-ink) 70%, var(--ink));
+	}
+	/* A ground as well as ink, and only for the caption, because that one is not
+	   a word in a sentence: it is a line of its own spanning the row's whole
+	   width, so a reader aims at the line rather than at the words on it and has
+	   to be shown what they have got.
+
+	   Teal against the row's amber, which is this interface's existing pair: amber
+	   is the room, and this line goes somewhere else — to what is known about the
+	   directory the room is on, or to the card where another one is named. Two
+	   grounds nested is normally a muddle; two grounds saying two different things
+	   is the row telling a reader it has two targets in it. */
+	.button[data-variant="caption"]:hover:not(:disabled) {
+		border-color: color-mix(in srgb, var(--dir-mark, var(--teal)) 40%, var(--rule));
+		background: color-mix(in srgb, var(--dir-mark, var(--teal)) 14%, var(--caption-plate));
+	}
+}
+/* The words come up to full strength with it. Part of the same state change —
+   the whole line lights rather than only its ground — and it is what pays for
+   the wash: this text is small, and a tint under it at rest strength left the
+   directory colours sitting on 4.5 to 1 exactly, which is a line to stand clear
+   of rather than to land on. */
+.button[data-variant="caption"]:hover:not(:disabled) .rwhere-said,
+.button[data-variant="caption"]:active:not(:disabled) .rwhere-said {
+	opacity: 1;
+}
+/* Answered on a press as well, because a finger never hovers. Same colour, so
+   the two pointers learn one thing rather than each their own. */
+.button[data-variant="caption"]:active:not(:disabled) {
+	border-color: color-mix(in srgb, var(--dir-mark, var(--teal)) 40%, var(--rule));
+	background: color-mix(in srgb, var(--dir-mark, var(--teal)) 14%, var(--caption-plate));
+}
+/* Focus is the one case ink alone will not carry. A keyboard reader has no
+   pointer to say where they are, so this keeps the ring the rest of the
+   interface uses and lets the ring do the work the ground used to. */
+/* A word offered as a choice says when it is the one in force. Selected has to
+   differ from hovered in kind rather than in degree, so this is weight as well
+   as ink — hovering brings the teal, and choosing keeps it and leans on it.
+   Held by the family because any word offered this way answers the same
+   question, and a call site that drew its own would be the second of two that
+   drift. */
+.button[aria-pressed="true"] {
+	color: var(--teal-ink);
+	font-weight: 700;
+}
+/* And when it is not. Stated as its own arm rather than left to the variant's
+   resting ink, because a word offered this way has two states a reader has to
+   tell apart at a glance, and teal at 600 against teal at 700 is the same word
+   twice. Quieted rather than struck through: it is still a choice they can
+   make, and it comes back with a press. */
+.button[aria-pressed="false"] {
+	color: var(--ink-soft);
+	font-weight: 600;
+}
+.button[data-variant="link"]:focus-visible,
+.button[data-variant="caption"]:focus-visible {
+	color: var(--teal-ink);
+	outline: 2px solid var(--teal);
+	outline-offset: 2px;
+}
+/* A finger cannot approach, so both grow a hit area to be tapped by, taken as
+   padding against a negative margin so the line each sits on is no taller for
+   it. The link is already teal at rest, so a pointerless reader does not need
+   a second colour here; the caption still stays as it is until it is pressed,
+   and answers the press in its directory's colour the way a hover does. */
+@media (hover: none) {
+	.button[data-variant="link"],
+	.button[data-variant="caption"] {
+		padding-block: 7px;
+		margin-block: -7px;
+	}
+}
+.button:active:not(:disabled) {
+	transform: translateY(1px);
+}
+/* Refused and in flight read differently. A refused button is barred and
+   dimmed. A busy one keeps more of its colour, because it is still the thing
+   you asked for, and its cursor says to wait rather than that you may not. */
+.button:disabled {
+	opacity: .45;
+	cursor: not-allowed;
+}
+.button[data-busy] {
+	opacity: .7;
+	cursor: progress;
+}
+/* In flight, and stoppable. The busy button is the wait; the × beside it is
+   how the wait ends, the same mark a send and a file chip already use. */
+.working-action {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.working-action .button {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.working-action .icon-button {
+	flex: 0 0 auto;
+}
+
+/* A browser without light-dark() drops the whole palette to invalid
+   custom properties, so the plain declarations above carry the light
+   arms and this block restores the pair where the function exists.
+   Without it, the page keeps its light face everywhere. */
+@supports (color: light-dark(#000, #fff)) {
+	.button[data-variant="caption"] {
+		--caption-plate: light-dark( color-mix(in srgb, var(--paper) 78%, transparent), color-mix(in srgb, var(--paper) 45%, transparent) );
+	}
+}

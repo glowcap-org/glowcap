@@ -5,28 +5,30 @@
 
 import { Ref } from "@pancake/runtime";
 import { Room } from "../../../lib/room_client.ts";
-import { enterOrOpen } from "../../../lib/enter_room.ts";
-import { MAX_NICK, mayPresentNameVoucher } from "../../../lib/limits.ts";
+import { enterOrOpenResult } from "../../../lib/enter_room.ts";
+import { mayPresentNameVoucher, suggestedNick } from "../../../lib/limits.ts";
 import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
-import { type DirId, silencedFrom } from "../types.ts";
+import { type DirId } from "../types.ts";
 import { listedOccupancy } from "../joining.ts";
-import { lineNotShowable, roomCalled } from "../text.ts";
-import { notifiesYou } from "../commands.ts";
-import { maybeNotify } from "../notify.ts";
-import { fetchesOnArrival } from "../media.ts";
 import { reason, trouble } from "./common.ts";
 import { dirAddress, dirSession, isCurrent } from "./live.ts";
 import { tellStanding } from "./standing.ts";
 import { setRoomTyping } from "./typing.ts";
-import { holdRoomFile, openAttachment, releaseHeldFile } from "./files.ts";
+import { restoreStewardship } from "./stewardship.ts";
+import { replayPeering } from "./peering.ts";
+import { hydrateRoom } from "./history.ts";
 
 import { advertisePresence } from "./reachable.ts";
-import { applyRefile, confirmRoomEcho } from "./send.ts";
-import { takePickedRoom } from "./bootstrap.ts";
+import { automaticSelectionAvailable } from "./bootstrap.ts";
+import { projectRoomMessage } from "./room_messages.ts";
 
 interface EnterRoomOptions {
 	attempt?: number;
+	/** Automatic reconstruction may briefly meet this page's prior connection
+	 * still holding the exact nickname. Retry that claim without changing it. */
+	reentry?: boolean;
+	claimRetries?: number;
 	held?: { key: string; room: Ref };
 	/** Subscribe this already-held reference.
 	 *
@@ -39,11 +41,16 @@ interface EnterRoomOptions {
 	voucher?: Uint8Array;
 	requested?: string;
 	trusted?: boolean;
+	/** Show this room after admission because the reader explicitly chose it. */
+	select?: boolean;
 	signal?: AbortSignal;
 	/** A room link this join already holds, so the conversation can copy it
 	 * without asking the room to mint another. */
 	link?: string;
 }
+
+const REENTRY_CLAIM_RETRY_MS = 500;
+const REENTRY_CLAIM_RETRIES = 8;
 
 // Enter `name` as `nick`: subscribe to the room, which is a capability, and keep
 // it beside every other room this session holds. Resolves with "" once we are
@@ -64,9 +71,11 @@ export async function enterRoom(
 		voucher,
 		requested = nick,
 		trusted = true,
+		select = false,
 		signal,
 	} = options;
 	if (signal?.aborted) return "";
+	store.setRequestedDirNick(dir, requested);
 	const session = dirSession(dir);
 	if (session === null) {
 		// Never silently: a caller that reaches here with no session has a live
@@ -92,11 +101,19 @@ export async function enterRoom(
 			: store.publishedRoomKey(dir, publicationId));
 	let seatedHeld = held !== undefined || options.room !== undefined;
 	try {
-		const ref = given ??
-			(publicationId === undefined
-				? await enterOrOpen(session.dir, name)
-				: await session.dir.enterPublication(publicationId));
+		let ref = given;
+		if (ref === undefined) {
+			if (publicationId === undefined) {
+				const found = await enterOrOpenResult(session.dir, name);
+				ref = found.ref;
+				if (found.opened) session.stewardClaimable.add(key);
+			} else {
+				ref = await session.dir.enterPublication(publicationId);
+			}
+		}
 		if (signal?.aborted) return "";
+		const saved = store.getConv(key);
+		const savedIrc = saved?.type === "room" ? saved.irc : undefined;
 		const next = await Room.subscribe(
 			session.dir.session,
 			ref,
@@ -117,6 +134,7 @@ export async function enterRoom(
 		}
 		const prev = session.rooms.get(key);
 		session.rooms.set(key, next);
+		void replayPeering();
 		// A membership held on this same session has just been replaced by the
 		// subscribe above, which the room treats as this connection re-claiming its
 		// place. Only the old stream is ours to end: telling the room we are
@@ -160,18 +178,50 @@ export async function enterRoom(
 			held: seatedHeld,
 			publicationId,
 			link: options.link,
-		});
+			stewardClaimable: session.stewardClaimable.has(key),
+		}, select);
+		if (savedIrc === null) {
+			try {
+				await next.disconnectIrc();
+			} catch (error) {
+				store.deliver(
+					key,
+					store.sysItem(`Could not restore your Rooms-only IRC choice: ${reason(error)}`),
+				);
+			}
+		} else if (savedIrc != null) {
+			try {
+				await next.ircIdentity(savedIrc.nick, savedIrc.account, savedIrc.password);
+			} catch (error) {
+				store.deliver(
+					key,
+					store.sysItem(`Could not restore your IRC identity: ${reason(error)}`),
+				);
+			}
+		}
+		const entered = store.getConv(key);
+		if (entered?.type === "room") hydrateRoom(entered);
 		// What this membership was handed. Recorded after the conversation exists
 		// and from the membership that answered, so a reader's command list is the
 		// room's answer rather than this file's opinion of what rooms offer.
 		store.setGrants(key, next.canSetTopic ? new Set(["topic"]) : new Set());
-		// What the room kept of itself, stood under a log that has nothing
-		// yet. A server that keeps no history refuses the verb, and that
-		// refusal is this feature not existing there: an empty answer, never
-		// trouble.
+		// A durable steward is minted only by an explicit act. Reconnecting a
+		// conversation that already retained one is different: take that exact
+		// bearer authority back up, and surface any failure rather than silently
+		// losing moderation while leaving the interface looking privileged.
+		restoreStewardship(key, next, () => isCurrent(session));
+		// What the room kept of itself, stood under a log that has nothing yet.
+		// The membership identity is checked again when the answer lands: a slow
+		// answer from the room we replaced must not prepend itself to the new room's
+		// log or settle its loading state.
 		if (store.getConv(key)?.history.length === 0) {
+			store.setEarlierHistory(key, "loading");
 			void next.history().then((lines) => {
-				if (lines.length === 0) return;
+				if (!isCurrent(session) || session.rooms.get(key) !== next) return;
+				if (lines.length === 0) {
+					store.setEarlierHistory(key, "empty");
+					return;
+				}
 				store.prependHistory(
 					key,
 					lines.map((line) => ({
@@ -182,7 +232,13 @@ export async function enterRoom(
 					})),
 					"Earlier messages, kept by this room",
 				);
-			}).catch(() => {/* tolerant: a server without history refuses the verb */});
+				store.setEarlierHistory(key, "shown");
+			}).catch(() => {
+				if (!isCurrent(session) || session.rooms.get(key) !== next) return;
+				// History is an optional room verb. A refusal says that this room did
+				// not provide earlier messages; it must still settle the visible wait.
+				store.setEarlierHistory(key, "unavailable");
+			});
 		}
 		// A membership is a connection's, and this reader's own standing is not.
 		// Said again to the room just entered, so a reconnect does not quietly walk
@@ -246,35 +302,29 @@ export async function enterRoom(
 				return await enterRoom(dir, name, nick, { ...options, attempt, voucher: minted, requested, trusted });
 			}
 		}
-		if (re?.code === NICK_TAKEN && attempt < 20) {
-			// A second tab of the same browser prefills the first tab's persisted
-			// nick, so it dead-ends on the room's duplicate-name guard. Claim a free
-			// variant instead — `alice` → `alice-2` → `alice-3` — so "open a tab,
-			// click Join" just works, which is the whole point of two-tab DMs.
-			//
-			// The retry carries the reference it was given. Without it the attempt
-			// falls back to entering by name, which for a room reached by a link is
-			// a different room that happens to share a label — and for a private
-			// one, a public room of that name, entered while the reader believes
-			// they took up the one they were handed.
-			// Trim the base to leave room for the suffix rather than truncating the
-			// whole thing: a name already at MAX_NICK would otherwise slice its
-			// suffix back off, producing the same refused name twenty times over.
-			const suffix = `-${attempt + 2}`;
-			const base = nick.replace(/-\d+$/, "").slice(0, MAX_NICK - suffix.length);
-			const candidate = base + suffix;
-			return await enterRoom(dir, name, candidate, {
+		if (
+			re?.code === NICK_TAKEN && options.reentry === true &&
+			(options.claimRetries ?? 0) < REENTRY_CLAIM_RETRIES
+		) {
+			store.setDirStatus(dir, `waiting for the previous "${nick}" claim to close…`);
+			await new Promise((resolve) => setTimeout(resolve, REENTRY_CLAIM_RETRY_MS));
+			if (!isCurrent(session) || signal?.aborted) return "";
+			return await enterRoom(dir, name, nick, {
 				...options,
-				attempt: attempt + 1,
-				voucher: undefined,
-				requested,
-				trusted,
+				claimRetries: (options.claimRetries ?? 0) + 1,
 			});
 		}
 		if (re?.code === NICK_TAKEN) {
-			store.showJoinCard();
-			store.setStatus("pick another name");
-			return re.detail;
+			const refusal = `${re.detail} Try "${suggestedNick(nick)}" instead.`;
+			if (store.getConv(key) != null) {
+				store.setRoomMembership(key, "unavailable");
+				store.setDirStatus(dir, "");
+				store.deliver(key, store.sysItem(`Could not re-enter #${shown}: ${refusal}`));
+			} else {
+				store.showJoinCard();
+				store.setStatus(refusal);
+			}
+			return refusal;
 		}
 		if (store.joinedRooms().length === 0) {
 			store.setStatus("could not join");
@@ -313,7 +363,14 @@ function enteredRoom(
 	dir: DirId,
 	name: string,
 	asked: string,
-	identity: { key?: string; held: boolean; publicationId?: string; link?: string },
+	identity: {
+		key?: string;
+		held: boolean;
+		publicationId?: string;
+		link?: string;
+		stewardClaimable: boolean;
+	},
+	select: boolean,
 ): void {
 	// The one moment a join is known to have worked, so it is the one place this
 	// browser writes down what to offer next time: the room, the directory it
@@ -321,12 +378,9 @@ function enteredRoom(
 	// offering back; a private one is not reachable by what it is called, so
 	// remembering its label would offer a way in that does not exist.
 	//
-	// What was asked for rather than what was granted, because this is a
-	// preference and not an identity. A directory that had an `alice` already
-	// grants `alice-2`, which is true there and nowhere else; remembering it
-	// would offer that suffix back on every future visit, including to
-	// directories where the plain name is free. What each directory actually
-	// granted is `setDirNick`, one answer per directory.
+	// The accepted value is the value that was asked for. A collision refuses
+	// without changing it and may offer a separate suggestion, so this records
+	// no server-invented identity.
 	if (!identity.held) {
 		store.remember({
 			room: name,
@@ -335,6 +389,7 @@ function enteredRoom(
 		});
 	}
 	const conv = store.ensureRoom(dir, name, identity);
+	store.setRoomMembership(conv.key, "joined");
 	store.clearMembers(conv.key);
 	// The entering is over, so the "entering #x…" the foot was narrating is too.
 	//
@@ -345,7 +400,7 @@ function enteredRoom(
 	// still holds whatever it last said. Entering the first room on a directory
 	// reached from the join card left the foot announcing that entry for good.
 	store.setDirStatus(dir, "");
-	if (takePickedRoom() || store.activeConv() === null) store.switchTo(conv.key);
+	if (select || (automaticSelectionAvailable() && store.activeConv() === null)) store.switchTo(conv.key);
 }
 
 // Deliver a room's lines to its conversation until we switch away (a newer pump
@@ -393,120 +448,7 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 				await reader.cancel().catch(() => {});
 				return;
 			}
-			const { from, text, system, presence, facts, attachments, lineId, change } = value;
-			// By the key this pump belongs to, never by the room's name: a private
-			// room's name is a label two rooms may share, and deriving a key from
-			// it here minted a second conversation and delivered the room's lines
-			// into it.
-			const conv = store.ensureRoom(dir, name, { key: seated });
-			if (presence) store.applyPresence(conv.key, presence);
-			// Presence first, because it is the room's own word about who is here and
-			// carries no text of its own. Then the same bound the room holds its
-			// members to, held again here: this room is whatever answered the
-			// address, and an edit past the cap arrives on this path too.
-			const unshowable = lineNotShowable(from, text);
-			if (unshowable !== null) {
-				store.deliver(conv.key, store.sysItem(unshowable));
-				continue;
-			}
-			// A line the room says something *about* rather than a line being said.
-			// Applied before anything else and then done with: an edit is not a new
-			// message, so it must not be delivered, counted unread, or notified —
-			// somebody fixing a typo should not light the tab up again.
-			if (change === "edited" && lineId !== undefined) {
-				store.applyLineChange(conv.key, lineId, { text, edited: true });
-				continue;
-			}
-			if (change === "withdrawn" && lineId !== undefined) {
-				// The room freed the line's files with it, so the blobs this window
-				// held for them can only refuse now. Handed back here rather than at
-				// conversation teardown: a withdrawn bubble draws nothing, so nothing
-				// is left that could ask for the bytes.
-				const owner = dirSession(dir);
-				const gone = conv.history.find((row) => row.kind === "chat" && row.lineId === lineId);
-				if (owner !== null && gone?.kind === "chat") {
-					for (const view of gone.attachments ?? []) releaseHeldFile(owner, view.id);
-				}
-				store.applyLineChange(conv.key, lineId, { withdrawn: true });
-				continue;
-			}
-			// A line whose file set changed. Like an edit, it is applied and then
-			// done with: it is not a new message, so it lights no tab and counts as
-			// nothing unread. The records carry the complete new set.
-			if (change === "refiled" && lineId !== undefined) {
-				applyRefile(dir, room, conv.key, lineId, text, attachments);
-				continue;
-			}
-			// What the room says about itself, which arrives the same way a
-			// membership change does and is applied before the line is drawn: a
-			// welcome that carries a topic should have set it by the time anything
-			// under it is read.
-			if (facts?.topic !== undefined) store.setTopic(conv.key, facts.topic);
-			if (facts?.lineBytes !== undefined) store.setLineBytes(conv.key, facts.lineBytes);
-			// A roster went to one reader. The room tells an arrival who is present
-			// with a `tell` to that member's own inbox, never a broadcast, so the
-			// line is theirs rather than the room's and it draws under "Only you"
-			// like anything else this tab is told alone. Every other room line here
-			// did go to everybody.
-			//
-			// The roster is the only one that can be marked from the wire. A topic
-			// sent on arrival is private too and differs from a topic change only in
-			// wording, which is a thin thing to read audience from; the away lines
-			// an arrival is given are byte for byte what a later away change
-			// broadcasts, tag included, so nothing here can tell them apart. What is
-			// missing is that a notify says who a line is about and never who it
-			// went to.
-			if (system) {
-				store.deliver(conv.key, store.sysItem(text, presence?.kind === "roster" ? "here" : "shared"));
-			} else {
-				const nick = store.dirNick(dir);
-				const mine = from === nick;
-				// Our own line was painted optimistically; its echo confirms it in
-				// place rather than painting a duplicate. A file we posted keeps the
-				// local URL it is already showing, so its echo costs no download.
-				const echoed = mine ? confirmRoomEcho(conv.key, text) : null;
-				if (echoed !== null) {
-					// The line was painted before the room had named it. Learning the
-					// name here is what lets a later edit find it.
-					if (lineId !== undefined) store.nameLine(conv.key, echoed.id, lineId);
-					for (const [index, attachment] of attachments.entries()) {
-						const id = echoed.attachmentIds[index];
-						if (id !== undefined) dirSession(dir)?.files.set(id, holdRoomFile(room, attachment));
-					}
-				}
-				if (echoed === null) {
-					const views = attachments.map((attachment) =>
-						store.attachmentView({
-							name: attachment.name,
-							mime: attachment.mime,
-							size: attachment.size,
-							width: attachment.width,
-							height: attachment.height,
-						})
-					);
-					const item = store.chatItem(from, text, mine, undefined, views.length > 0 ? views : undefined);
-					store.deliver(conv.key, lineId === undefined ? item : { ...item, lineId });
-					// The same silence the log draws with, one step earlier: a line the
-					// reader will not see must not fetch anything about itself either.
-					const silenced = silencedFrom(from, mine, store.get().ignored);
-					for (const [index, attachment] of attachments.entries()) {
-						const view = views[index];
-						dirSession(dir)?.files.set(view.id, holdRoomFile(room, attachment));
-						// A picture appears rather than waiting behind a button, the way
-						// it does in every chat client; anything larger is asked for.
-						// Nothing is pulled on its own for a member the reader has
-						// silenced — the reference is kept, so unignoring and pressing
-						// the file still works, but silence is not a thing this window
-						// says while it downloads.
-						if (fetchesOnArrival(attachment, silenced)) openAttachment(conv.key, view.id);
-					}
-				}
-				// The same silence the log draws with, from the same authority: a
-				// line the reader will not see must not ring a bell about itself.
-				if (!mine && !silencedFrom(from, mine, store.get().ignored) && notifiesYou(text, nick)) {
-					maybeNotify(roomCalled(name, conv.held) + " · " + from, text);
-				}
-			}
+			projectRoomMessage(dir, seated, name, room, value);
 		}
 	} catch (err) {
 		// Leaving a room ends the stream cleanly, which arrives as `done` above,

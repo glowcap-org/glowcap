@@ -1,0 +1,165 @@
+/* The session chooser: the whole page until a session is established. The
+   two doors are launch rows (forms.css) in one raised card; this sheet only
+   places the page's own pieces around them. */
+.session-setup {
+	min-height: 100dvh;
+	display: grid;
+	place-items: center;
+	padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+		max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+	background: var(--page-bg);
+	color: var(--ink);
+}
+.session-setup-inner {
+	width: min(680px, 100%);
+	display: grid;
+	gap: 26px;
+}
+/* The lockup as the opening screen draws it — the mark over the logotype,
+   centred, the same lift — because this page is what that screen fades into
+   and the mark should not appear to jump. The logotype is taken at its own
+   size: its metrics are a drawing (mark.css), and a larger font-size here
+   once left the caps standing small against a bigger "pancake". */
+.session-setup-brand {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	color: var(--accent);
+}
+.session-setup-brand .icon-mark {
+	filter: drop-shadow(0 2px 5px var(--shadow-color)) drop-shadow(0 8px 22px var(--shadow-color));
+}
+.session-setup-brand .wordmark {
+	filter: drop-shadow(0 3px 12px var(--shadow-sm-color));
+}
+.session-setup-heading {
+	display: grid;
+	gap: 8px;
+	text-align: center;
+}
+.session-setup-heading h1 {
+	margin: 0;
+	font-size: 30px;
+	line-height: 1.15;
+	letter-spacing: 0;
+}
+.session-setup-heading p {
+	max-width: 46ch;
+	margin: 0 auto;
+	color: var(--ink-soft);
+	text-wrap: pretty;
+}
+/* The card holding the two doors, divided by a hairline rather than stacked
+   as two cards: they are one question with two answers. */
+.session-setup-choices {
+	display: grid;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-card);
+	background: var(--paper-raised);
+	box-shadow: var(--shadow-sm);
+	overflow: hidden;
+}
+.session-setup-choice {
+	padding: 22px;
+}
+.session-setup-choice + .session-setup-choice {
+	border-block-start: 1px solid var(--rule);
+}
+/* A door that is not open yet fades as one piece, its state chip keeping
+   full ink so the word that says why stays readable. */
+.session-setup-choice[data-unavailable="true"] .launch-mark,
+.session-setup-choice[data-unavailable="true"] .launch-copy {
+	opacity: .55;
+}
+.session-setup-choice[data-unavailable="true"] > .tag {
+	justify-self: end;
+}
+/* The doors' acts share one width, so the column of them reads as one
+   column: a button sized to "Attach" beside one sized to "Use this browser"
+   read as two kinds of control. */
+.session-setup-choice .button[data-size="large"] {
+	min-width: 168px;
+}
+/* The page's sentences run a step larger than a card's hint, because they are
+   the page's only prose and nothing here competes with them. */
+.session-setup-choice .hint {
+	font-size: var(--type-body);
+	line-height: 1.45;
+}
+/* A field's label on this page is the caption voice like everywhere else;
+   the field row under it gets a breath of room from the sentence above. */
+.session-setup-choice > .field-row {
+	margin-top: 4px;
+}
+/* The card's foot: the two acts that take saved state away, folded under one
+   word until asked for. */
+.session-setup-advanced {
+	justify-self: center;
+	width: min(100%, 460px);
+	max-width: 100%;
+}
+/* The fold's own word, with the system's chevron rather than the platform's
+   triangle, turned down while it is open. */
+.session-setup-advanced summary {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: fit-content;
+	margin: 0 auto;
+	/* The word sits on the page's centre line and the chevron hangs off its
+	   end: the start padding carries the chevron's width and gap, so the pair
+	   is not what gets centred. */
+	padding: 6px 10px 6px 25px;
+	border-radius: var(--radius-chip);
+	list-style: none;
+	cursor: pointer;
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+	font-weight: 600;
+	transition: color .12s ease, background-color .12s ease;
+}
+.session-setup-advanced summary::-webkit-details-marker {
+	display: none;
+}
+.session-setup-advanced summary::after {
+	content: "";
+	width: 7px;
+	height: 7px;
+	margin-top: -3px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	border-radius: 1px;
+	transform: rotate(45deg);
+	transition: transform .16s ease-out;
+}
+.session-setup-advanced[open] summary::after {
+	margin-top: 3px;
+	transform: rotate(225deg);
+}
+@media (hover: hover) {
+	.session-setup-advanced summary:hover {
+		color: var(--ink);
+		background: var(--hover);
+	}
+}
+.session-setup-advanced summary:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.session-setup-advanced[open] {
+	display: grid;
+	justify-items: center;
+	gap: 14px;
+}
+.session-setup-advanced > .actions {
+	justify-content: center;
+}
+@media (max-width: 620px) {
+	.session-setup-inner {
+		gap: 22px;
+	}
+	.session-setup-choice {
+		padding: 20px;
+	}
+}

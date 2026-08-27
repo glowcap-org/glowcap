@@ -97,14 +97,16 @@ pub fn transportAbiModule(
 /// Apple frameworks cover networking, TLS, and interface discovery, which both
 /// sidecars do; naming them once keeps the two from drifting into "one
 /// platform works and the other does not". The artifact consuming `mod` must
-/// still depend on the matching cargo step so the staticlib exists first.
+/// `archive` is the staticlib as a build-graph path, so an artifact that links
+/// it depends on the cargo step that writes it without naming that step.
 pub fn linkRustSidecar(
     b: *std.Build,
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    archive: []const u8,
+    archive: std.Build.LazyPath,
 ) void {
-    mod.addObjectFile(b.path(archive));
+    _ = b;
+    mod.addObjectFile(archive);
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
     if (target.result.os.tag.isDarwin()) {
@@ -124,6 +126,38 @@ pub fn linkRustSidecar(
     }
 }
 
+/// Compile one `site/examples/` Zig snippet as a checked claim. The snippet
+/// becomes a module rooted by `tools/check/site_example_root.zig`, whose
+/// header says why compiling the snippet file alone would read nothing.
+/// `imports` are the modules the snippet names, `pancake` included.
+pub fn addSiteZigExampleCompile(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    path: []const u8,
+    imports: []const std.Build.Module.Import,
+    check: *std.Build.Step,
+) void {
+    const snippet_mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+        .imports = imports,
+    });
+    const root_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/site_example_root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "snippet", .module = snippet_mod }},
+    });
+    const object = b.addObject(.{
+        .name = b.fmt("{s}-compile", .{name}),
+        .root_module = root_mod,
+    });
+    check.dependOn(&object.step);
+}
+
 /// A sibling-step system command that needs the installed archive set and its
 /// headers and runs from the repository root with side effects, the shape
 /// every cross-language interop and demo orchestrator shares.
@@ -135,14 +169,16 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 }
 
 /// The iroh sidecar (ADR-0055): the drivers and bench, the public C ABI
-/// companion, and the iroh-enabled rooms client all link it, through the
-/// shared `linkRustSidecar` recipe.
+/// companion, the iroh-enabled rooms client, and the published `pancake_iroh`
+/// module all link it through the shared `linkRustSidecar` recipe.
+/// `archive` is the staticlib the iroh family's cargo step emits.
 pub fn linkIrohSidecar(
     b: *std.Build,
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
+    archive: std.Build.LazyPath,
 ) void {
-    linkRustSidecar(b, mod, target, "transports/iroh/target/release/libpancake_iroh_sidecar.a");
+    linkRustSidecar(b, mod, target, archive);
 }
 
 /// A fresh module over an iroh driver root with the `pancake` and injected

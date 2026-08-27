@@ -1,11 +1,100 @@
+import { Ref, type Session } from "@pancake/runtime";
 import { Directory, Room } from "../lib/room_client.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
+import { MAX_AWAY } from "../lib/limits.ts";
+import { AWAY, LEAVE, LIST, POST, SUBSCRIBE, WATCH } from "../lib/protocol.ts";
 import { IRC_ROSTER_LIMIT, IrcBridgeRoom } from "../irc/bridge.ts";
 import { runIrcSession } from "../irc/client.ts";
 import { IrcChannelRelay } from "../irc/outbound.ts";
 import { encodeIrc, readIrcLines } from "../irc/protocol.ts";
 import { assertEquals } from "./assert.ts";
+
+function testRef(): Ref {
+	return Object.create(Ref.prototype) as Ref;
+}
+
+Deno.test("the IRC bridge admits room and directory commands before changing state", () => {
+	const relay = new IrcChannelRelay("#exact", "bridgebot");
+	const bridge = new IrcBridgeRoom("fixture", "#exact", relay, { ownOutbound: true });
+	const released: Ref[] = [];
+	const session = {
+		release: (ref: Ref) => released.push(ref),
+		tell: () => Promise.resolve(),
+		spawn: () => testRef(),
+	} as unknown as Session;
+	const room = bridge.roomBehavior(() => session);
+	const directory = bridge.directoryBehavior(() => session);
+	const refused = (run: () => unknown): boolean => {
+		try {
+			run();
+			return false;
+		} catch {
+			return true;
+		}
+	};
+
+	const rejectedInbox = testRef();
+	assertEquals(refused(() => room(SUBSCRIBE, ["surplus", rejectedInbox, "extra"])), true);
+	assertEquals(released.includes(rejectedInbox), true, "a refused subscription retained its inbox");
+
+	const inbox = testRef();
+	room(SUBSCRIBE, ["reader", inbox]);
+	assertEquals(refused(() => room(POST, ["line", "surplus"])), true);
+	assertEquals(refused(() => room(AWAY, ["x".repeat(MAX_AWAY + 1)])), true);
+	assertEquals(refused(() => room(LEAVE, ["surplus"])), true);
+	const listed = directory(LIST, []) as unknown[][];
+	assertEquals(listed.length, 1, "a refused leave removed the room");
+	assertEquals(listed[0]?.[0], "fixture/#exact");
+	assertEquals(String(listed[0]?.[1]), "1", "a refused leave changed membership");
+
+	const rejectedWatcher = testRef();
+	assertEquals(refused(() => directory(WATCH, [rejectedWatcher, "surplus"])), true);
+	assertEquals(released.includes(rejectedWatcher), true, "a refused watch retained its inbox");
+	assertEquals(refused(() => directory(LIST, ["surplus"])), true);
+
+	room(LEAVE, []);
+});
+
+Deno.test("a handed IRC room capability acts for the session calling it", () => {
+	const relay = new IrcChannelRelay("#handed", "bridgebot");
+	const bridge = new IrcBridgeRoom("fixture", "#handed", relay, { ownOutbound: true });
+	const fakeSession = () =>
+		({
+			release: () => {},
+			tell: () => Promise.resolve(),
+		}) as unknown as Session;
+	const first = fakeSession();
+	const second = fakeSession();
+	let active = first;
+	const room = bridge.roomBehavior(() => active);
+	room(SUBSCRIBE, ["first", testRef()]);
+	active = second;
+	room(SUBSCRIBE, ["second", testRef()]);
+	const listed = bridge.directoryBehavior(() => first)(LIST, []) as unknown[][];
+	assertEquals(String(listed[0]?.[1]), "2", "a handed room capability retained the first caller session");
+	room(LEAVE, []);
+	active = first;
+	room(LEAVE, []);
+});
+
+Deno.test("an IRC bridge reports a live member notification failure", async () => {
+	const trouble: string[] = [];
+	const relay = new IrcChannelRelay("#trouble", "bridgebot");
+	const bridge = new IrcBridgeRoom("fixture", "#trouble", relay, {
+		ownOutbound: true,
+		onTrouble: (context) => trouble.push(context),
+	});
+	const session = {
+		sessionOpen: true,
+		release: () => {},
+		tell: () => Promise.reject(new Error("injected notification refusal")),
+	} as unknown as Session;
+	bridge.roomBehavior(() => session)(SUBSCRIBE, ["reader", testRef()]);
+	await Promise.resolve();
+	assertEquals(trouble.some((context) => context.includes("member notification")), true);
+	bridge.retire(session);
+});
 
 Deno.test("the IRC bridge bounds the roster before retaining another name", () => {
 	const relay = new IrcChannelRelay("#bounded", "bridgebot");
@@ -166,6 +255,8 @@ Deno.test({
 		);
 		const listed = await directory.list();
 		assertEquals(listed.map((room) => room.name), [bridge.roomName]);
+		const watched = await directory.watch(() => {});
+		assertEquals(watched.map((room) => room.name), [bridge.roomName]);
 		let reserved = "";
 		try {
 			await Room.subscribe(directory.session, await directory.enter(bridge.roomName), "IRC/alice");

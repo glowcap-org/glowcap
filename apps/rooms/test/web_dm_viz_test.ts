@@ -30,39 +30,16 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_viz_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail, openDmTo } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hello over the direct line, and onto the timeline";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up / room not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 /** A viewer on the endpoint, exactly as ocapnviz connects: the WebSocket is
  * only the byte channel, and records arrive through an inbox capability after
@@ -87,6 +64,7 @@ async function joinAs(
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	await tab.goto(`http://127.0.0.1:${port}/`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -95,13 +73,6 @@ async function joinAs(
 		fail(`${nick} never joined; status="${status}"`);
 	});
 	return tab;
-}
-
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
 }
 
 const deadline = setTimeout(() => fail("web-dm-viz scenario timed out after 150s"), 150_000);

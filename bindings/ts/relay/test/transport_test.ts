@@ -3,6 +3,7 @@ import type { Host, Locator } from "@pancake/runtime";
 import routeCorpusJson from "../../../../test/net/fixtures/relay_routes.json" with { type: "json" };
 import { connector } from "../transport.ts";
 import { dialUrl, keyed, noise, routeFromLocator } from "../route.ts";
+import { assert, rejects } from "../../dogfood/assert.ts";
 
 const DESIGNATOR = "ab".repeat(32);
 
@@ -13,20 +14,6 @@ interface RouteCorpus {
 }
 
 const routeCorpus = routeCorpusJson as RouteCorpus;
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
-
-function rejects(fn: () => unknown, includes: string): void {
-	try {
-		fn();
-	} catch (error) {
-		assert(String(error).includes(includes), `expected ${String(error)} to include ${includes}`);
-		return;
-	}
-	throw new Error(`expected refusal containing ${includes}`);
-}
 
 Deno.test("managed relay connector advertises clear and Noise profiles", () => {
 	const managed = connector();

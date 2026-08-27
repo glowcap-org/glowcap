@@ -39,9 +39,9 @@ async def main() -> None:
         server.host.publish_giftable("greeter", greet)
         print(f"RELAY-LISTENER-READY {server.uri}", flush=True)
 
-        async for accepted in server:
-            async with accepted as session:
-                await session.serve()
+        accepted = await server.__anext__()
+        async with accepted as session:
+            await session.serve()
 
 
 if __name__ == "__main__":

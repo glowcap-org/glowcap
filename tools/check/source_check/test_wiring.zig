@@ -28,6 +28,8 @@ pub fn check(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
+    try checkRoomsTypeScript(io, gpa, root, violations);
+
     var root_contents: [suite_roots.len][]const u8 = undefined;
     var loaded: usize = 0;
     defer for (root_contents[0..loaded]) |contents| gpa.free(contents);
@@ -87,6 +89,61 @@ pub fn check(
                 .{ path, target, target_path, @errorName(err) },
             );
         }
+    }
+}
+
+/// Every Rooms TypeScript test is either in the ordinary aggregate batches or
+/// owns a named product scenario in the Rooms build package. Merely placing a
+/// `Deno.test` file under the test directory does not make any build step run
+/// it, so `rooms.zig` and its subject modules are the one authority this
+/// inventory checks.
+fn checkRoomsTypeScript(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const owner_path = "tools/build/rooms.zig + tools/build/rooms/";
+    const parent = root.readFileAlloc(io, "tools/build/rooms.zig", gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: failed to read Rooms test owner with {s}",
+            .{ owner_path, @errorName(err) },
+        );
+        return;
+    };
+    defer gpa.free(parent);
+    const children = (try @import("util.zig").readSourceSubject(io, gpa, root, "tools/build/rooms/")) orelse {
+        try appendViolation(gpa, violations, "{s}: failed to read Rooms test owner package", .{owner_path});
+        return;
+    };
+    defer gpa.free(children);
+
+    var test_dir = root.openDir(io, "apps/rooms/test", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "apps/rooms/test: failed to open for test wiring check with {s}", .{
+            @errorName(err),
+        });
+        return;
+    };
+    defer test_dir.close(io);
+    var walker = try test_dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, "_test.ts")) continue;
+        var needle_buf: [256]u8 = undefined;
+        const needle = std.fmt.bufPrint(&needle_buf, "\"apps/rooms/test/{s}\"", .{entry.path}) catch {
+            try appendViolation(gpa, violations, "apps/rooms/test/{s}: path too long for test wiring check", .{
+                entry.path,
+            });
+            continue;
+        };
+        if (std.mem.indexOf(u8, parent, needle) == null and std.mem.indexOf(u8, children, needle) == null) try appendViolation(
+            gpa,
+            violations,
+            "apps/rooms/test/{s}: not registered in {s}, so no build step runs it",
+            .{ entry.path, owner_path },
+        );
     }
 }
 

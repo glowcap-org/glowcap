@@ -1,11 +1,9 @@
 // A row of tabs over panels that take turns, with the sliding thumb behind
 // the chosen one.
 //
-// Settings and Operations both draw one. They had a tab bar each, identical
-// down to the arrow walking and the thumb's index, which is two places to fix
-// a keyboard bug and two places for the markup to drift apart. The shape is
-// the same because the ARIA pattern is the same, so it is one component and
-// the callers differ only in which tabs they hand it.
+// Settings draws this control wherever several panels take turns. The ARIA
+// pattern and keyboard walking live here rather than in each dialog that uses
+// it, so focus and the sliding thumb cannot drift apart.
 //
 // Walking with the arrows moves focus onto the tab it lands on, which is what
 // makes a keyboard reader hear where they are; clicking one leaves focus

@@ -1,5 +1,5 @@
 //! The per-binding client families: one emitter over every `bindings-*`
-//! aggregate — Goblins interop/handoff/gift, iroh loop/handoff/redeem/
+//! aggregate — Goblins interop/listen/handoff/gift, iroh loop/handoff/redeem/
 //! reachability, and keyed-tcp restart — with rows ordered deno → python →
 //! rust → racket wherever a language is present. Native one-off drivers stay
 //! in the goblins family module.
@@ -116,6 +116,36 @@ const goblins_interop_clients = [_]BindingClientRow{
         .step_name = "racket-goblins-interop",
         .description = "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)",
         .argv = &.{ "racket", "-y", "interop/goblins_interop/racket_client.rkt" },
+        .posture = .{ .deterministic = 30 },
+    },
+};
+
+// The reciprocal application direction: a real Goblins vat dials each binding,
+// enlivens one Host-wide actor, and calls it. One Deno harness owns the outside
+// peer and exact reply assertion; each row varies only the binding listener.
+const goblins_listen_clients = [_]BindingClientRow{
+    .{
+        .step_name = "deno-goblins-listen",
+        .description = "Live listener conversation: Goblins dials, enlivens, and calls a Deno binding host (needs deno + racket + goblins)",
+        .argv = &.{ "deno", "run", "-A", "interop/goblins_interop/binding_listen_harness.ts", "--", "deno", "run", "-A", "interop/goblins_interop/deno_listen_client.ts" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "python-goblins-listen",
+        .description = "Live listener conversation: Goblins dials, enlivens, and calls a Python binding host (needs deno + uv + racket + goblins)",
+        .argv = &.{ "deno", "run", "-A", "interop/goblins_interop/binding_listen_harness.ts", "--", "uv", "run", "--project", "bindings/python", "--locked", "python3", "interop/goblins_interop/python_listen_client.py" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "rust-goblins-listen",
+        .description = "Live listener conversation: Goblins dials, enlivens, and calls a Rust binding host (needs deno + cargo + racket + goblins)",
+        .argv = &.{ "deno", "run", "-A", "interop/goblins_interop/binding_listen_harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "goblins_listen", "--" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "racket-goblins-listen",
+        .description = "Live listener conversation: Goblins dials, enlivens, and calls a Racket binding host (needs deno + racket + goblins)",
+        .argv = &.{ "deno", "run", "-A", "interop/goblins_interop/binding_listen_harness.ts", "--", "racket", "-y", "interop/goblins_interop/racket_listen_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },
 };
@@ -457,6 +487,12 @@ const binding_families = [_]BindingFamily{
         .aggregate_desc = "Live keyed conversation vs a real Goblins vat through Deno, Python, Rust, and Racket bindings (needs racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
         .rows = &goblins_interop_clients,
+    },
+    .{
+        .aggregate_name = "bindings-goblins-listen",
+        .aggregate_desc = "Live listener conversation: a real Goblins vat dials and calls Deno, Python, Rust, and Racket binding hosts",
+        .needs_iroh_abi = false,
+        .rows = &goblins_listen_clients,
     },
     .{
         .aggregate_name = "bindings-goblins-handoff",

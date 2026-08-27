@@ -9,9 +9,9 @@
 
 import { INVALID_ARGUMENT } from "@pancake/abi";
 import type { WebRuntime } from "@pancake/web";
-import { formatPeerUri, type Locator, PancakeError, parseSturdyRef } from "@pancake/runtime";
-import { roomsAddress, roomsLocator } from "../../../lib/locator.ts";
-import { CAPTP_VERSION } from "../../../lib/protocol.ts";
+import { type Locator, PancakeError } from "@pancake/runtime";
+import { parseRoomsSturdyref, roomsAddress, roomsLocator } from "../../../lib/locator.ts";
+import { roomsPeerAuthority } from "../../../lib/routes.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
 import { type DirId, dirId } from "../types.ts";
@@ -45,9 +45,9 @@ let homeDirectoryLocator: string | null = null;
  * propagate unchanged, because reporting those as malformed input hides the
  * broken component and sends the reader back to an address that was valid.
  *
- * The shared locator parser remains the grammar authority; this application
- * decides only that one directory is one transport/designator pair across
- * address changes. */
+ * The shared locator parser remains the grammar authority. Rooms files every
+ * identity-proving transport under the same Host key; weak transports keep
+ * their own transport/designator authority. */
 export function directoryId(locator: string): DirId | null {
 	// Empty text is the join field's resting state, not an address to parse:
 	// asking the grammar about it made every fresh render a refusal.
@@ -68,7 +68,7 @@ function invalidArgumentOrThrow(error: unknown): null {
 
 /** The authority half of a parsed locator, which is what one directory is. */
 function directoryAuthority(locator: Locator): DirId {
-	return dirId(formatPeerUri(locator.transport, locator.designator));
+	return dirId(roomsPeerAuthority(locator));
 }
 
 /** The directory a room link belongs to: which one it is, and the address to
@@ -83,7 +83,7 @@ function directoryAuthority(locator: Locator): DirId {
  * dial needs if it does not. */
 export function linkDirectory(link: string): { id: DirId; address: string } | null {
 	try {
-		const { locator } = parseSturdyRef(link.trim(), CAPTP_VERSION);
+		const { locator } = parseRoomsSturdyref(link.trim());
 		return { id: directoryAuthority(locator), address: roomsAddress(locator) };
 	} catch (err) {
 		return invalidArgumentOrThrow(err);
@@ -156,21 +156,18 @@ export function directoryLocator(): string | null {
  * holds does. A caller that already holds the session it is acting for takes the
  * directory from that session instead and never asks this. */
 
-let pickedByReader = false;
+let selectionReservedByAddress = false;
 
-/** Whether the reader asked for the room being entered, rather than this tab
- * re-entering one on its own after a reconnect. Read once and cleared, because
- * it answers a single question: should entering switch the screen to it. Kept
- * behind two verbs rather than handed out as a flag, so the answer has one
- * writer and nobody can leave it set. */
-export function notePickedRoom(): void {
-	pickedByReader = true;
+/** Keep reconnect/re-entry from choosing a conversation before an explicit
+ * page address has acted. A later reader pick still wins through
+ * An explicit join carries its own selection intent; this only distinguishes
+ * an address-owned empty selection from an unclaimed front page. */
+export function reserveSelectionForAddress(): void {
+	selectionReservedByAddress = true;
 }
 
-export function takePickedRoom(): boolean {
-	const was = pickedByReader;
-	pickedByReader = false;
-	return was;
+export function automaticSelectionAvailable(): boolean {
+	return !selectionReservedByAddress;
 }
 
 let runtimeReady: Promise<WebRuntime> | null = null;

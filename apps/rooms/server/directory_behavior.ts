@@ -14,7 +14,7 @@ import {
 	TRANSPORT_WEBRTC,
 } from "@pancake/runtime";
 import { isUriLocator } from "../lib/locator.ts";
-import { troubleRows } from "./journal.ts";
+import { noteTrouble, troubleRows } from "./journal.ts";
 import {
 	INTRODUCTION_PENDING,
 	NICK_TAKEN,
@@ -27,17 +27,12 @@ import {
 	ROOM_TOO_LONG,
 	RoomError,
 } from "../lib/errors.ts";
-import {
-	MAX_DM_INBOXES,
-	MAX_ROOM,
-	MAX_SIGNAL_EXCHANGES,
-	MAX_SIGNAL_SDP,
-	nickRefusal,
-	relayedSignalFits,
-	SIGNAL_EXCHANGE_TIMEOUT_MS,
-} from "../lib/limits.ts";
+import { isPrivateRoomKey, MAX_DM_INBOXES, MAX_ROOM, nickRefusal } from "../lib/limits.ts";
+import { isRegistrationId } from "../lib/directory_publications.ts";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import {
 	ADVERTISED_LOCATION,
+	DIRECT_REQUESTED,
 	DIRECTORY,
 	ENTER,
 	ENTER_PUBLICATION,
@@ -45,41 +40,33 @@ import {
 	LINK,
 	LIST,
 	LIST_PUBLICATIONS,
+	MEMBER_REGISTRATION,
 	NOTIFY,
 	OFFER_INBOX,
-	OFFER_SIGNALING,
 	OPEN,
+	OPEN_PRIVATE_LINK,
 	REGISTER,
-	SIG_ACCEPTED,
-	SIG_ANSWER,
-	SIG_CANDIDATE,
-	SIG_OFFER,
-	SIGNAL_ANSWER,
-	SIGNAL_CANDIDATE,
-	SIGNAL_DONE,
-	SIGNAL_OFFER,
+	REQUEST_DIRECT,
 	SNAPSHOT,
 	WATCH,
 	WATCH_PUBLICATIONS,
 } from "../lib/protocol.ts";
-import { RoomLinks } from "./state.ts";
+import { RoomLinks } from "./room_links.ts";
 import { roomBehavior } from "./room.ts";
 import {
 	claimsOwnLocator,
-	dropSignalExchange,
-	originatedExchange,
+	directRequestNoticeDue,
 	registeredByAnother,
-	registeredNickOf,
 	registerMember,
+	registrationOf,
 } from "./introductions.ts";
-import { roomSnapshot } from "./discovery.ts";
+import { directoryWatchSnapshot, roomSnapshot } from "./discovery.ts";
 import { dropWatchers, watchers } from "./watchers.ts";
 import {
 	handBack,
 	heldRoomLinks,
 	introductions,
 	makeRoomState,
-	mintSignalExchangeId,
 	nickKey,
 	publicRoomById,
 	publicRoomNameTaken,
@@ -87,9 +74,25 @@ import {
 	registerRoom,
 	roomKey,
 	rooms,
-	signalExchanges,
 	webrtcDesignators,
 } from "./registry.ts";
+import {
+	DIRECTORY_SIGNALING_CAPABILITY_VERBS,
+	DIRECTORY_SIGNALING_UNHANDLED,
+	dispatchDirectorySignaling,
+} from "./directory_signaling.ts";
+
+function refuseDirectoryCall(session: Session, args: readonly Argument[], error: unknown): never {
+	throwAfterReleasingCapabilities(session, args, error);
+}
+
+const DIRECTORY_CAPABILITY_VERBS = new Set([
+	REGISTER,
+	OFFER_INBOX,
+	WATCH,
+	WATCH_PUBLICATIONS,
+	...DIRECTORY_SIGNALING_CAPABILITY_VERBS,
+]);
 
 /** The directory behavior for one connection. `open`/`enter` return a live
  * reference to a room — the per-connection room view spawned here — so the room
@@ -101,52 +104,51 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 		// on that: a registration, an introduction and a signaling exchange are
 		// all facts about a connection.
 		const session = currentSession();
-		if (session === null) throw new Error("the directory is reachable only over a session");
+		if (session == null) throw new Error("the directory is reachable only over a session");
+		if (!DIRECTORY_CAPABILITY_VERBS.has(verb) && hasCapabilityArguments(args)) {
+			refuseDirectoryCall(session, args, new Error(`directory ${verb} does not take capability arguments`));
+		}
 		if (verb === REGISTER) {
 			const nick = typeof args[0] === "string" ? args[0] : "";
 			const locator = typeof args[1] === "string" ? args[1] : "";
 			const inbox = args[2];
-			if (nick.length === 0 || locator.length === 0) {
-				throw new Error("register needs a nick and a locator");
+			if (args.length !== 3 || nick.length === 0 || locator.length === 0 || !(inbox instanceof Ref)) {
+				refuseDirectoryCall(session, args, new Error("register needs a nick, locator, and inbox capability"));
 			}
-			if (!(inbox instanceof Ref)) {
-				throw new Error("register needs an inbox capability");
-			}
-			// Only the directory can hold this: every member it introduces files an
-			// inbox under this name and keeps it for good, so a name granted here
-			// without a ceiling is an allocation the caller spends in somebody
-			// else's process.
-			const unregisterable = nickRefusal(nick);
-			if (unregisterable !== null) throw new RoomError(NICK_TOO_LONG, unregisterable);
-			if (!isUriLocator(locator)) {
+			try {
+				// Only the directory can hold this: every member it introduces files an
+				// inbox under this name and keeps it for good, so a name granted here
+				// without a ceiling is an allocation the caller spends in somebody
+				// else's process.
+				const unregisterable = nickRefusal(nick);
+				if (unregisterable != null) throw new RoomError(NICK_TOO_LONG, unregisterable);
+				let claimed: ReturnType<typeof parseLocator> | null = null;
 				try {
-					designatorHostPort(locator);
-				} catch {
-					throw new Error("register locator must be hostname:port or an ocapn:// URI");
+					if (isUriLocator(locator)) claimed = parseLocator(locator);
+					else designatorHostPort(locator);
+				} catch (cause) {
+					throw new Error("register locator must be hostname:port or an ocapn:// URI", { cause });
 				}
-			}
-			if (!claimsOwnLocator(session, locator)) {
-				throw new RoomError(
-					NOT_YOUR_LOCATOR,
-					`the locator "${locator}" does not name the connection registering it`,
-				);
-			}
-			if (registeredByAnother(session, nick)) {
-				throw new RoomError(
-					NICK_TAKEN,
-					`"${nick}" is registered by another member; it frees when they disconnect`,
-				);
-			}
-			// A `webrtc` designator routes signaling, and an unkeyed connection's
-			// claim to one cannot be verified (`claimsOwnLocator` says why, and
-			// what full verification would take). What *can* be refused without any
-			// keys is a claim to a designator another live registration already
-			// routes by: accepting it overwrote the holder's row, and every DM
-			// bring-up aimed at them landed in the claimant's signaling inbox.
-			// First writer holds the designator while their connection stands.
-			if (isUriLocator(locator)) {
-				const claimed = parseLocator(locator);
-				if (claimed.transport === TRANSPORT_WEBRTC) {
+				if (!claimsOwnLocator(session, locator)) {
+					throw new RoomError(
+						NOT_YOUR_LOCATOR,
+						`the locator "${locator}" does not name the connection registering it`,
+					);
+				}
+				if (registeredByAnother(session, nick)) {
+					throw new RoomError(
+						NICK_TAKEN,
+						`"${nick}" is registered by another member; it frees when they disconnect`,
+					);
+				}
+				// A `webrtc` designator routes signaling, and an unkeyed connection's
+				// claim to one cannot be verified (`claimsOwnLocator` says why, and
+				// what full verification would take). What *can* be refused without any
+				// keys is a claim to a designator another live registration already
+				// routes by: accepting it overwrote the holder's row, and every DM
+				// bring-up aimed at them landed in the claimant's signaling inbox.
+				// First writer holds the designator while their connection stands.
+				if (claimed?.transport === TRANSPORT_WEBRTC) {
 					const holderKey = webrtcDesignators.get(claimed.designator);
 					const holder = holderKey === undefined ? undefined : introductions.get(holderKey);
 					if (holder !== undefined && holder.registrar !== session && holder.registrar.sessionOpen) {
@@ -156,6 +158,9 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 						);
 					}
 				}
+			} catch (error) {
+				handBack(session, inbox);
+				throw error;
 			}
 			// The reply is the name capability: the holding of the name, which is
 			// what lets its holder be this member from another connection.
@@ -163,181 +168,135 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 		}
 		if (verb === OFFER_INBOX) {
 			const forNick = typeof args[0] === "string" ? args[0] : "";
-			const offered = args[1];
-			if (!(offered instanceof Ref)) {
-				throw new Error("offerInbox needs an inbox capability");
+			const forRegistrationId = typeof args[1] === "string" ? args[1] : "";
+			const offered = args[2];
+			if (args.length !== 3 || !(offered instanceof Ref)) {
+				refuseDirectoryCall(
+					session,
+					args,
+					new Error("offerInbox needs a nick, registration ID, and inbox capability"),
+				);
 			}
 			const unofferable = nickRefusal(forNick);
-			if (unofferable !== null) throw new RoomError(NICK_TOO_LONG, unofferable);
+			if (unofferable != null || !isRegistrationId(forRegistrationId)) {
+				handBack(session, offered);
+				throw new RoomError(NICK_TOO_LONG, unofferable ?? "offerInbox has an invalid registration ID");
+			}
 			// A member may only decide who reaches *it*, so the offer is filed under
 			// the offering connection's own registration. An unregistered caller has
 			// no record to file it under, which is the refusal.
-			const ownNick = registeredNickOf(session);
-			if (ownNick === null) {
+			const own = registrationOf(session);
+			if (own == null) {
+				handBack(session, offered);
 				throw new RoomError(NOT_REGISTERED, "offerInbox needs a registered name");
 			}
-			const intro = introductions.get(nickKey(ownNick));
-			if (intro === undefined) throw new Error("offerInbox found no registration");
-			const key = nickKey(forNick);
+			const waiting = introductions.get(nickKey(forNick));
+			if (waiting?.registrationId !== forRegistrationId) {
+				handBack(session, offered);
+				throw new RoomError(PEER_OFFLINE, `the registration for "${forNick}" changed before its inbox arrived`);
+			}
+			const key = forRegistrationId;
 			// The row is one per peer the member has offered for, and the member
 			// chooses the peers, so the directory holds the same ceiling its members
 			// do rather than growing a map on their word.
-			if (!intro.inboxes.has(key) && intro.inboxes.size >= MAX_DM_INBOXES) {
+			if (!own.inboxes.has(key) && own.inboxes.size >= MAX_DM_INBOXES) {
+				handBack(session, offered);
 				throw new Error(`a member may offer at most ${MAX_DM_INBOXES} inboxes`);
 			}
 			// The Host identity is already valid across this host's sessions; storing
 			// it preserves exactly the capability the member offered.
 			const token = offered;
-			const prior = intro.inboxes.get(key);
-			intro.inboxes.set(key, token);
+			const prior = own.inboxes.get(key);
+			own.inboxes.set(key, token);
 			if (prior !== undefined) handBack(session, prior);
 			// Whoever was told to wait can ask again now.
-			const waiting = introductions.get(key);
-			if (waiting !== undefined) {
-				waiting.registrar.tell(waiting.inbox, NOTIFY, ["introducible", ownNick])
-					.catch(() => {});
-			}
+			waiting.registrar.tell(waiting.inbox, NOTIFY, ["introducible", own.nick, own.registrationId]).catch(
+				() => {},
+			);
 			return null;
 		}
-		if (verb === OFFER_SIGNALING) {
-			const offered = args[0];
-			if (!(offered instanceof Ref)) {
-				throw new Error("offerSignaling needs an inbox capability");
+		const signaling = dispatchDirectorySignaling(verb, args, session);
+		if (signaling !== DIRECTORY_SIGNALING_UNHANDLED) return signaling;
+		if (verb === REQUEST_DIRECT) {
+			if (
+				args.length !== 2 || typeof args[0] !== "string" || nickRefusal(args[0]) != null ||
+				!isRegistrationId(args[1])
+			) {
+				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				throw new Error("requestDirect takes a valid registered name and its registration ID");
 			}
-			// One signaling inbox per member, filed under the caller's own
-			// registration exactly as `offerInbox` files a DM inbox.
-			const ownNick = registeredNickOf(session);
-			if (ownNick === null) {
-				throw new RoomError(NOT_REGISTERED, "offerSignaling needs a registered name");
+			const nick = args[0];
+			const intro = introductions.get(nickKey(nick));
+			if (intro == null || intro.registrationId !== args[1] || !intro.registrar.sessionOpen) {
+				throw new RoomError(PEER_OFFLINE, `no member named "${nick}" is registered`);
 			}
-			const intro = introductions.get(nickKey(ownNick));
-			if (intro === undefined) throw new Error("offerSignaling found no registration");
-			if (intro.signaling !== null) handBack(session, intro.signaling);
-			intro.signaling = offered;
-			return null;
-		}
-		if (verb === SIGNAL_OFFER) {
-			const toDesignator = typeof args[0] === "string" ? args[0] : "";
-			const sdp = typeof args[1] === "string" ? args[1] : "";
-			const reply = args[2];
-			// The room carries this to the other member as it stands, so its size is
-			// this room's to bound rather than the sender's to choose.
-			if (!relayedSignalFits("description", toDesignator, sdp)) {
-				throw new Error(
-					`signalOffer needs a designator and an offer sdp of at most ${MAX_SIGNAL_SDP} bytes`,
+			const caller = registrationOf(session);
+			if (caller == null) {
+				throw new RoomError(NOT_REGISTERED, "requestDirect needs a registered name");
+			}
+			const requestKey = caller.registrationId;
+			if (directRequestNoticeDue(intro.directRequests, requestKey, performance.now())) {
+				intro.registrar.tell(intro.inbox, NOTIFY, [DIRECT_REQUESTED, caller.nick, caller.registrationId]).catch(
+					(error) => {
+						noteTrouble("a reciprocal direct request notification failed", error);
+					},
 				);
 			}
-			if (!(reply instanceof Ref)) {
-				throw new Error("signalOffer needs a reply capability");
-			}
-			if (registeredNickOf(session) === null) {
-				throw new RoomError(NOT_REGISTERED, "signalOffer needs a registered name");
-			}
-			const targetKey = webrtcDesignators.get(toDesignator);
-			const target = targetKey === undefined ? undefined : introductions.get(targetKey);
-			if (target === undefined || target.signaling === null) {
-				throw new RoomError(PEER_OFFLINE, "no signaling inbox for that designator");
-			}
-			// One live exchange per (caller, target): a repeat offer replaces the
-			// prior bring-up attempt, so a retry cannot strand rows.
-			const prior = originatedExchange(session, toDesignator);
-			if (prior !== null) dropSignalExchange(prior, "signaling exchange was replaced");
-			const id = mintSignalExchangeId();
-			const expires = setTimeout(
-				() => dropSignalExchange(id, "signaling exchange timed out"),
-				SIGNAL_EXCHANGE_TIMEOUT_MS,
-			);
-			signalExchanges.set(id, {
-				originator: session,
-				reply,
-				targetKey: targetKey!,
-				expires,
-			});
-			while (signalExchanges.size > MAX_SIGNAL_EXCHANGES) {
-				// Map iteration is insertion ordered and contains only live rows. Using
-				// it directly keeps active exchange ownership and eviction order one fact.
-				const oldest = signalExchanges.keys().next();
-				if (oldest.done) throw new Error("signal exchange cap accounting drift");
-				dropSignalExchange(oldest.value, "signaling exchange was evicted");
-			}
-			// Admission is explicit because the minted id is the stable identity for
-			// candidates and retirement. A designator can name a later exchange.
-			session.tell(reply, SIG_ACCEPTED, [id]).catch(() => {});
-			target.registrar.tell(target.signaling, SIG_OFFER, [id, sdp]).catch(() => {});
 			return null;
 		}
-		if (verb === SIGNAL_ANSWER) {
-			const id = typeof args[0] === "string" ? args[0] : "";
-			const sdp = typeof args[1] === "string" ? args[1] : "";
-			if (!relayedSignalFits("description", id, sdp)) {
-				throw new Error(`a signaling answer may be at most ${MAX_SIGNAL_SDP} bytes`);
+		if (verb === MEMBER_REGISTRATION) {
+			if (args.length !== 1 || typeof args[0] !== "string" || nickRefusal(args[0]) != null) {
+				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				throw new Error("memberRegistration takes one valid registered name");
 			}
-			const exchange = signalExchanges.get(id);
-			if (exchange === undefined) return null; // evicted or settled: drop
-			// Only the exchange's target may answer it: the caller's session must be
-			// the registrar holding the target registration.
-			const target = introductions.get(exchange.targetKey);
-			if (target === undefined || target.registrar !== session) {
-				throw new Error("signalAnswer from a session that does not answer this exchange");
+			const intro = introductions.get(nickKey(args[0]));
+			if (intro == null || !intro.registrar.sessionOpen) {
+				throw new RoomError(PEER_OFFLINE, `no member named "${args[0]}" is registered`);
 			}
-			exchange.originator.tell(exchange.reply, SIG_ANSWER, [sdp]).catch(() => {});
-			return null;
-		}
-		if (verb === SIGNAL_CANDIDATE) {
-			const key = typeof args[0] === "string" ? args[0] : "";
-			const ice = typeof args[1] === "string" ? args[1] : "";
-			// One candidate is a line of text. Dropped rather than refused, because a
-			// candidate is best-effort on both sides and one lost costs a route, not
-			// the bring-up.
-			if (!relayedSignalFits("candidate", key, ice)) return null;
-			// Both sides name the exact exchange. Session ownership decides the
-			// direction, so neither side can inject into another exchange.
-			const exchange = signalExchanges.get(key);
-			if (exchange === undefined) return null; // evicted or settled: drop
-			if (exchange.originator === session) {
-				const target = introductions.get(exchange.targetKey);
-				if (target === undefined || target.signaling === null) return null;
-				target.registrar.tell(target.signaling, SIG_CANDIDATE, [key, ice])
-					.catch(() => {});
-				return null;
-			}
-			const target = introductions.get(exchange.targetKey);
-			if (target === undefined || target.registrar !== session) return null;
-			exchange.originator.tell(exchange.reply, SIG_CANDIDATE, [ice]).catch(() => {});
-			return null;
-		}
-		if (verb === SIGNAL_DONE) {
-			const id = typeof args[0] === "string" ? args[0] : "";
-			const exchange = signalExchanges.get(id);
-			if (exchange !== undefined && exchange.originator === session) {
-				dropSignalExchange(id);
-			}
-			return null;
+			return intro.registrationId;
 		}
 		if (verb === INTRODUCE) {
 			const nick = typeof args[0] === "string" ? args[0] : "";
+			const expectedRegistrationId = typeof args[1] === "string" ? args[1] : "";
+			if (
+				args.length !== 2 || nickRefusal(nick) != null || !isRegistrationId(expectedRegistrationId)
+			) {
+				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				throw new Error("introduce takes a valid registered name and its registration ID");
+			}
 			const intro = introductions.get(nickKey(nick));
 			// The same liveness `register` reads: a holder whose connection has gone
 			// but whose close callback has not run yet is nobody to be introduced to.
-			if (intro === undefined || !intro.registrar.sessionOpen) {
+			if (intro == null || intro.registrationId !== expectedRegistrationId || !intro.registrar.sessionOpen) {
 				throw new RoomError(PEER_OFFLINE, `no member named "${nick}" is registered`);
 			}
 			// The caller's registered nick is the key the member filed their inbox
-			// under, so an unregistered caller has no name one could have been minted
-			// for and no inbox the directory could ask for one on.
-			const callerNick = registeredNickOf(session);
-			if (callerNick === null) {
+			// under, so an unregistered caller has no name one could have been minted.
+			const caller = registrationOf(session);
+			if (caller == null) {
 				throw new RoomError(NOT_REGISTERED, "introduce needs a registered name");
 			}
-			const inbox = intro.inboxes.get(nickKey(callerNick));
+			const requestKey = caller.registrationId;
+			const inbox = intro.inboxes.get(requestKey);
 			if (inbox === undefined) {
 				// Genuine first contact. Ask the member for an inbox for this caller
-				// and tell the caller to come back.
-				intro.registrar.tell(intro.inbox, NOTIFY, ["mintInboxFor", callerNick])
-					.catch(() => {});
-				throw new RoomError(
-					INTRODUCTION_PENDING,
-					`"${nick}" has been asked for an inbox for "${callerNick}"; try again`,
+				// and tell the caller to come back only after the target session has
+				// accepted that notification locally.
+				return intro.registrar.tell(
+					intro.inbox,
+					NOTIFY,
+					["mintInboxFor", caller.nick, caller.registrationId],
+				).then(
+					() => {
+						throw new RoomError(
+							INTRODUCTION_PENDING,
+							`"${nick}" has been asked for an inbox for "${caller.nick}"; try again`,
+						);
+					},
+					(error) => {
+						noteTrouble(`could not ask ${nick} for a direct-message inbox`, error);
+						throw new RoomError(PEER_OFFLINE, `"${nick}" could not be reached for direct messages`);
+					},
 				);
 			}
 			// Returning a reference whose home is the directory-to-member connection
@@ -346,13 +305,30 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 		}
 		const name = typeof args[0] === "string" ? args[0] : "";
 		if (verb === LINK) {
-			if (links === undefined) throw new Error("this directory does not publish room links");
+			if (args.length !== 1 || name.length === 0 || name.length > MAX_ROOM) {
+				throw new Error(`link needs one room name of at most ${MAX_ROOM} characters`);
+			}
+			if (links == null) throw new Error("this directory does not publish room links");
 			const entry = publicRooms.get(roomKey(name));
 			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
 			if (entry.kind !== "local") throw new Error("a foreign room is linked by its source directory");
-			return links.link(entry.state.name);
+			return links.link(entry.state.name, session);
+		}
+		if (verb === OPEN_PRIVATE_LINK) {
+			if (links === undefined) throw new Error("this directory does not publish room links");
+			if (args.length !== 1 || !isPrivateRoomKey(name)) {
+				throw new Error("openPrivateLink needs one opaque private room key");
+			}
+			return links.link(name, session);
 		}
 		if (verb === OPEN) {
+			if (
+				args.length < 1 || args.length > 3 || typeof args[0] !== "string" ||
+				(args.length >= 2 && typeof args[1] !== "boolean") ||
+				(args.length === 3 && (args[1] !== true || typeof args[2] !== "string"))
+			) {
+				throw new Error("open needs a room name, optional private flag, and optional recovery key");
+			}
 			if (name.length === 0) throw new Error("open needs a room name");
 			if (name.length > MAX_ROOM) {
 				throw new RoomError(
@@ -365,6 +341,13 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			// listed, and one that could be opened up would surprise the people
 			// who were invited into it.
 			const wantsPrivate = args[1] === true;
+			const recoveryKey = args[2];
+			if (
+				wantsPrivate && recoveryKey != null &&
+				(typeof recoveryKey !== "string" || !isPrivateRoomKey(recoveryKey))
+			) {
+				throw new Error("a private room recovery key is invalid");
+			}
 			// Only a public name is taken, because only a public name is a way in.
 			// Two readers may each keep a private room called "notes", and neither
 			// learns that the other has one — which is also why this cannot answer
@@ -372,39 +355,58 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			if (!wantsPrivate && publicRoomNameTaken(name)) {
 				throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
 			}
-			const state = makeRoomState(name, session, { private: wantsPrivate });
+			if (wantsPrivate && typeof recoveryKey === "string") {
+				const recovered = rooms.get(recoveryKey);
+				if (recovered != null) return session.spawn(roomBehavior(recovered));
+			}
+			const state = makeRoomState(name, session, {
+				private: wantsPrivate,
+				...(typeof recoveryKey === "string" ? { key: recoveryKey } : {}),
+				topic: links?.topic(typeof recoveryKey === "string" ? recoveryKey : name) ?? "",
+			});
 			registerRoom(state);
 			return session.spawn(roomBehavior(state));
 		}
 		if (verb === ENTER) {
+			if (args.length !== 1 || typeof args[0] !== "string" || name.length === 0) {
+				throw new Error("enter needs one room name");
+			}
 			const entry = publicRooms.get(roomKey(name));
 			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
 			return entry.kind === "local"
 				? session.spawn(roomBehavior(entry.state))
 				: entry.kind === "bridge"
-				? session.spawn(entry.bridge.roomBehavior(session))
+				? session.spawn(entry.bridge.roomBehavior())
 				: entry.room;
 		}
 		if (verb === ENTER_PUBLICATION) {
 			const id = typeof args[0] === "string" ? args[0] : "";
+			if (args.length !== 1 || id === "") throw new Error("enterPublication needs one publication id");
 			const entry = publicRoomById(id);
 			if (entry === null) throw new RoomError(NO_SUCH_ROOM, "that room publication is no longer current");
 			return entry.kind === "local"
 				? session.spawn(roomBehavior(entry.state))
 				: entry.kind === "bridge"
-				? session.spawn(entry.bridge.roomBehavior(session))
+				? session.spawn(entry.bridge.roomBehavior())
 				: entry.room;
 		}
-		if (verb === LIST) return roomSnapshot("baseline");
-		if (verb === LIST_PUBLICATIONS) return roomSnapshot("publication");
+		if (verb === LIST) {
+			if (args.length !== 0) throw new Error("list takes no arguments");
+			return roomSnapshot("baseline").rows;
+		}
+		if (verb === LIST_PUBLICATIONS) {
+			if (args.length !== 0) throw new Error("listPublications takes no arguments");
+			return roomSnapshot("publication").rows;
+		}
 		if (verb === ADVERTISED_LOCATION) {
+			if (args.length !== 0) throw new Error("advertisedLocation takes no arguments");
 			if (advertisedLocation === undefined) throw new Error("this directory does not publish a location");
 			return advertisedLocation(session);
 		}
 		if (verb === WATCH || verb === WATCH_PUBLICATIONS) {
 			const observer = args[0];
-			if (!(observer instanceof Ref)) {
-				throw new Error("watch needs an inbox capability");
+			if (args.length !== 1 || !(observer instanceof Ref)) {
+				refuseDirectoryCall(session, args, new Error("watch needs exactly one inbox capability"));
 			}
 			// One live view of the directory per connection. Every room event walks
 			// this list, so a connection able to add rows to it without limit would
@@ -413,19 +415,22 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			// the same way a connection re-claiming its place in a room replaces its
 			// membership rather than being seated twice.
 			dropWatchers(session);
-			watchers.push({
-				observer,
-				session,
-				records: verb === WATCH_PUBLICATIONS ? "publication" : "baseline",
-			});
-			// Replay the members already introducible for direct messages, so a
-			// fresh watcher (a browser tab, say) starts with the same DM-able set
-			// everyone else already knows. The room-list baseline is the return
-			// value; these arrive as ordinary deltas on the inbox.
-			for (const intro of introductions.values()) {
-				session.tell(observer, NOTIFY, ["registered", intro.nick, 1n]).catch(() => {});
+			let admitted = false;
+			try {
+				watchers.push({
+					observer,
+					session,
+					records: verb === WATCH_PUBLICATIONS ? "publication" : "baseline",
+				});
+				admitted = true;
+				return verb === WATCH_PUBLICATIONS
+					? directoryWatchSnapshot("publication")
+					: roomSnapshot("baseline").rows;
+			} catch (error) {
+				if (admitted) dropWatchers(session);
+				else handBack(session, observer, "refused directory watcher");
+				throw error;
 			}
-			return roomSnapshot(verb === WATCH_PUBLICATIONS ? "publication" : "baseline"); // deltas follow on the inbox
 		}
 		throw new Error(`directory has no method ${verb}`);
 	};
@@ -434,9 +439,17 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 /** What the inspect capability can currently see of this directory.
  *
  * Rows are `[kind, name, note]`. Live room references are not handed out here:
- * holding inspect is the right to *see* the namespace, and entering a room is
- * still `enter` / `open` on the directory the caller already fetched. Durable
- * room links are listed by the swiss they answer to, which is the OCapN name. */
+ * holding inspect is the right to *see* what the directory holds, and entering
+ * a room is still `enter` / `open` on the directory the caller already fetched.
+ * Durable room links are listed by the swiss they answer to, which is the OCapN
+ * name.
+ *
+ * This is the Rooms operator's own view, so it shows every room including
+ * private ones, by label and with their occupants. That is not the leak a
+ * private room is protected from: privacy here is being absent from the
+ * user-facing `list` and `watch`, unreachable except through a reference
+ * somebody handed you. The operator, who holds the `--diagnostics` swiss and
+ * runs the process, is the one principal that view was never hiding from. */
 function diagnosticSnapshot(): Argument[] {
 	const rows: Argument[] = [[
 		"directory",
@@ -463,8 +476,11 @@ function diagnosticSnapshot(): Argument[] {
 	}
 	const links = heldRoomLinks();
 	if (links !== null) {
-		for (const { name, swiss } of links.named()) {
-			rows.push(["link", name, swiss]);
+		for (const { name } of links.named()) {
+			// Inspect observes that the durable publication exists. Its swiss is
+			// bearer authority to enter the room and belongs only on a separately
+			// granted recovery/control surface.
+			rows.push(["link", name, "durable publication active"]);
 		}
 	}
 	// The server's own trouble journal rides the same snapshot, so an operator
@@ -480,8 +496,16 @@ function diagnosticSnapshot(): Argument[] {
 }
 
 export function inspectBehavior(): Behavior {
-	return (verb: string): ReturnType<Behavior> => {
-		if (verb === SNAPSHOT) return diagnosticSnapshot();
+	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
+		const session = currentSession();
+		if (session == null) throw new Error("diagnostics is reachable only over a session");
+		if (hasCapabilityArguments(args)) {
+			refuseDirectoryCall(session, args, new Error(`diagnostics ${verb} does not take capability arguments`));
+		}
+		if (verb === SNAPSHOT) {
+			if (args.length !== 0) throw new Error("snapshot takes no arguments");
+			return diagnosticSnapshot();
+		}
 		throw new Error(`diagnostics has no method ${verb}`);
 	};
 }

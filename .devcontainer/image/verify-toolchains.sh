@@ -161,7 +161,7 @@ if require_pin "playwright" PLAYWRIGHT_BROWSERS_PATH; then
     )
     shopt -u nullglob
     if [[ "${#playwright_bins[@]}" -lt 2 ]]; then
-        fail "playwright: expected a Chromium and a headless shell under ${browsers_path}; install-playwright.sh puts them there during the image build, so rebuild the container"
+        fail "playwright: expected a Chromium and a headless shell under ${browsers_path}; image/playwright.sh puts them there during the image build, so rebuild the container"
     else
         for bin in "${playwright_bins[@]}"; do
             expect_ok "playwright" "${bin}" --version

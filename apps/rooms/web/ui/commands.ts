@@ -43,11 +43,6 @@
 // has no ranks to hand out — and a member can pass it to a bot that keeps the
 // topic without the room learning what a bot is.
 //
-// The rest name a grant nothing answers with, which is what `grant` records:
-// they are named but not held, so a conversation leaves them off the reader's
-// list and running one says what it waits for rather than pretending. The UI
-// above them is finished; what is missing is on the other side of the wire.
-//
 // What that buys beyond tidiness is the thing roles are usually invented for. A
 // handle can be given away, so a member can pass one to somebody they want to be
 // able to take their line down, and a room can hand its own copy to whoever it
@@ -68,7 +63,8 @@ export type {
 	CommandPowers,
 	HeldDirectory,
 } from "./commands/types.ts";
-export { held, hereOf, inviteWhy, known } from "./commands/catalog.ts";
+export { held, hereOf, known } from "./commands/catalog.ts";
+export { inviteWhy } from "./commands/targets.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
 import { COMMANDS } from "./commands/catalog.ts";
 
@@ -130,6 +126,8 @@ const NO_POWERS: CommandPowers = {
 	setTopic: () => reading(),
 	setAway: () => reading(),
 	invite: () => reading(),
+	kick: () => reading(),
+	steward: () => reading(),
 	roomLink: () => reading(),
 	standingHere: () => reading(),
 	directories: () => reading(),
@@ -138,7 +136,6 @@ const NO_POWERS: CommandPowers = {
 	roster: () => reading(),
 	quitDirectory: () => reading(),
 	aboutConversation: () => reading(),
-	ircLogin: () => reading(),
 };
 
 function reading(): never {

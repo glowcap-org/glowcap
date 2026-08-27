@@ -26,6 +26,7 @@ import { dropIntroductions, dropSignalExchange } from "./introductions.ts";
 import { notifyLocalRoom, notifyPublicRoom } from "./discovery.ts";
 import { dropWatchers } from "./watchers.ts";
 import { noteTrouble } from "./journal.ts";
+import { noteOperatorChange } from "./operator/revision.ts";
 
 /** Push `from: text` to every subscriber of `state` by calling the inbox
  * capability it gave us. `tell` is the fire-and-forget eventual-send: a notify
@@ -147,6 +148,7 @@ export function leaveRoom(
 	// gone but the connection stays, which is exactly the moment the room
 	// stops knowing it by that name.
 	if (!silent && removed) statePresence(session);
+	if (removed) noteOperatorChange();
 	// A real departure changes the live room list: the room closed if it emptied,
 	// else its count dropped. A silent resubscribe leaves the count unchanged.
 	if (!silent && removed) {
@@ -180,6 +182,7 @@ function flushDisconnects(): void {
 	for (const state of [...rooms.values()]) {
 		const removed = state.members.filter((member) => departing.has(member.session));
 		if (removed.length !== 0) {
+			noteOperatorChange();
 			for (const session of new Set(removed.map((member) => member.session))) dropUploads(state, session);
 			state.members = state.members.filter((member) => !departing.has(member.session));
 

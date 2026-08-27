@@ -8,8 +8,6 @@ const c = @import("c_abi");
 const cshared = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const crelay = @import("c_abi_net_transport_relay");
-const ctcp = @import("c_abi_net_transport_tcp");
 const pancake = @import("pancake");
 
 const residents = @import("residents.zig");

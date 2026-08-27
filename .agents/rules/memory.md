@@ -261,7 +261,7 @@ pointing it at nothing.
 - **Crypto fixed-width materialization** — `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`. `std.crypto` takes fixed arrays and offers no
   allocator pattern; the wire has slices.
-- **Give-location dialable form** — `handoff_gifter.dialableExporterLocation`.
+- **Give-location dialable form** — `handoff_gifter.exporterLocationForRecipient`.
   One decode-and-re-encode per give whose *onion* exporter hello carried
   `pancake/*` profile hints and whose recipient is not known to be pancake
   (ADR-0118); every other give — every non-onion transport, every Goblins
@@ -542,7 +542,7 @@ pointing it at nothing.
   skips stale rows without touching freed memory. Sink and close-observer
   appends remain best-effort under allocation failure, named at their
   declarations.
-- **Host session indexes** — `Host.partner_by_side`, `dialed_by_designator`
+- **Host session indexes** — `Host.partner_by_side`, `Host.dialed_by_target`
   (ADR-0012). O(1) dial and partner-key refusal at the 500k tier, on the gpa with
   precise frees, because rows leave individually.
 - **Session close timing** — `Host.session_close_timing` (ADR-0114). One gpa map

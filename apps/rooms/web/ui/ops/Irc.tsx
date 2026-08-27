@@ -10,17 +10,19 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { usePeer } from "../peer.ts";
-import { useStore } from "../hooks.ts";
+import { useRoomsSession } from "../controller/session.ts";
+import { useRoomsState } from "../hooks.ts";
 import type { IrcGatewayState } from "../types.ts";
 import { Button } from "../Button.tsx";
+import { Field } from "../Field.tsx";
 import { Switch } from "../Switch.tsx";
 import { Said } from "../Said.tsx";
+import { identifierField } from "../field.ts";
 import { OpsHead } from "./Head.tsx";
 
 export function IrcPane({ state }: { state: IrcGatewayState | null }) {
-	const peer = usePeer();
-	const home = useStore().homeDir;
+	const session = useRoomsSession();
+	const home = useRoomsState((state) => state.homeDir);
 	const navigate = useNavigate();
 	const [network, setNetwork] = useState("");
 	const [channel, setChannel] = useState("");
@@ -31,31 +33,53 @@ export function IrcPane({ state }: { state: IrcGatewayState | null }) {
 	const [saslPassword, setSaslPassword] = useState("");
 	const [tls, setTls] = useState(true);
 	const [joining, setJoining] = useState(false);
+	const [bridged, setBridged] = useState("");
 	const [why, setWhy] = useState<string | null>(null);
+	const [parting, setParting] = useState<ReadonlySet<string>>(() => new Set());
+	const [partWhy, setPartWhy] = useState<Partial<Record<string, string>>>({});
 
 	// The page draws one pane per held capability; see the listeners pane.
 	if (state === null) return null;
+	const portNumber = port === "" ? (tls ? 6697 : 6667) : Number(port);
+	const canBridge = network !== "" && channel !== "" && host !== "" && nick !== "" &&
+		Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
 
 	const bridge = () => {
 		setWhy(null);
+		setBridged("");
 		setJoining(true);
-		void peer.joinIrc({
-			network: network.trim(),
-			channel: channel.trim(),
-			host: host.trim(),
-			port: port.trim() === "" ? (tls ? 6697 : 6667) : Number(port.trim()),
+		void session.joinIrc({
+			network,
+			channel,
+			host,
+			port: portNumber,
 			tls,
-			nick: nick.trim(),
-			sasl: saslAccount.trim() === "" ? undefined : { account: saslAccount.trim(), password: saslPassword },
+			nick,
+			sasl: saslAccount === "" ? undefined : { account: saslAccount, password: saslPassword },
 		}).then((refused) => {
 			setJoining(false);
 			if (refused !== "") {
 				setWhy(refused);
 				return;
 			}
+			setBridged(`${network}/${channel} is bridged; its room is listed below.`);
 			setNetwork("");
 			setChannel("");
 			setSaslPassword("");
+		});
+	};
+
+	const part = (network: string, channel: string) => {
+		const key = `${network}\n${channel}`;
+		setParting((prior) => new Set(prior).add(key));
+		setPartWhy((prior) => ({ ...prior, [key]: undefined }));
+		void session.partIrc(network, channel).then((refused) => {
+			setParting((prior) => {
+				const next = new Set(prior);
+				next.delete(key);
+				return next;
+			});
+			if (refused !== "") setPartWhy((prior) => ({ ...prior, [key]: refused }));
 		});
 	};
 
@@ -66,114 +90,137 @@ export function IrcPane({ state }: { state: IrcGatewayState | null }) {
 		onValue: (next: string) => void,
 		placeholder: string,
 	) => (
-		<div className="ops-opt">
-			<span className="ops-opt-name">{name}</span>
-			<input
-				id={id}
-				className="field"
-				value={value}
-				placeholder={placeholder}
-				onChange={(event) => onValue(event.currentTarget.value)}
-			/>
-		</div>
+		<Field id={id} label={name} layout="inline" width={id === "ircJoinPort" ? "short" : undefined}>
+			{(wiring) => (
+				<input
+					id={wiring.id}
+					className="field"
+					type={id === "ircJoinPort" ? "number" : "text"}
+					inputMode={id === "ircJoinPort" ? "numeric" : undefined}
+					min={id === "ircJoinPort" ? 1 : undefined}
+					max={id === "ircJoinPort" ? 65535 : undefined}
+					value={value}
+					placeholder={placeholder}
+					disabled={joining}
+					required={id !== "ircJoinPort" && id !== "ircJoinSaslAccount"}
+					{...identifierField}
+					onChange={(event) => onValue(event.currentTarget.value)}
+				/>
+			)}
+		</Field>
 	);
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => peer.refreshOpsCap("irc")}>
+			<OpsHead refresh={() => session.refreshOpsCap("irc")}>
 				IRC channels bridged into this directory as rooms, and the form that bridges another. Members are IRC
 				citizens: each appears on the channel under their own nick and their lines go to IRC as them.
 			</OpsHead>
-			<p className="well-title overline">Bridge a channel</p>
-			<div className="group well" role="group" aria-labelledby="ircJoinLegend">
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						bridge();
-					}}
-				>
-					{field("ircJoinNetwork", "network", network, setNetwork, "libera")}
-					{field("ircJoinChannel", "channel", channel, setChannel, "#ocapn")}
-					{field("ircJoinHost", "host", host, setHost, "irc.libera.chat")}
-					{field("ircJoinPort", "port", port, setPort, tls ? "6697" : "6667")}
-					{field("ircJoinNick", "bot nick", nick, setNick, "pancake-rooms")}
-					{field(
-						"ircJoinSaslAccount",
-						"bot account",
-						saslAccount,
-						setSaslAccount,
-						"registered account (optional)",
-					)}
-					<div className="ops-opt">
-						<span className="ops-opt-name">password</span>
+			<h3 className="well-title overline" id="ircJoinLegend">Bridge a channel</h3>
+			<form
+				className="group well"
+				role="group"
+				aria-labelledby="ircJoinLegend"
+				onSubmit={(event) => {
+					event.preventDefault();
+					bridge();
+				}}
+			>
+				{field("ircJoinNetwork", "Network", network, setNetwork, "libera")}
+				{field("ircJoinChannel", "Channel", channel, setChannel, "#ocapn")}
+				{field("ircJoinHost", "Host", host, setHost, "irc.libera.chat")}
+				{field("ircJoinPort", "Port", port, setPort, tls ? "6697" : "6667")}
+				{field("ircJoinNick", "Bot nick", nick, setNick, "pancake-rooms")}
+				{field(
+					"ircJoinSaslAccount",
+					"Bot account",
+					saslAccount,
+					setSaslAccount,
+					"registered account (optional)",
+				)}
+				<Field id="ircJoinSaslPassword" label="Password" layout="inline">
+					{(wiring) => (
 						<input
-							id="ircJoinSaslPassword"
+							id={wiring.id}
 							className="field"
 							type="password"
 							value={saslPassword}
-							placeholder="its password; sent once, never kept"
+							placeholder="sent once and never kept"
+							disabled={joining}
+							{...identifierField}
 							onChange={(event) => setSaslPassword(event.currentTarget.value)}
 						/>
-					</div>
-					<p className="hint">
-						The bot is the bridge's own connection: it carries the channel into the room under this nick,
-						while each member speaks on IRC under their own. Networks that require a registered account take
-						the bot's at connect time (SASL) and need TLS; the password goes to your rooms server once and
-						is not remembered here.
-					</p>
-					<div className="switch-row">
-						<p className="group-label" id="ircJoinTlsLegend">TLS</p>
-						<Switch
-							id="ircJoinTls"
-							checked={tls}
-							label="TLS"
-							aria-labelledby="ircJoinTlsLegend"
-							onClick={() => setTls(!tls)}
-						/>
-					</div>
-					<Button id="ircJoinBtn" type="submit" disabled={joining}>
+					)}
+				</Field>
+				<p className="hint">
+					The bot is the bridge's own connection: it carries the channel into the room under this nick, while
+					each member speaks on IRC under their own. Networks that require a registered account take the bot's
+					at connect time (SASL) and need TLS. The password goes to your rooms server once and is not
+					remembered here.
+				</p>
+				<div className="switch-row">
+					<p className="group-label" id="ircJoinTlsLegend">TLS</p>
+					<Switch
+						id="ircJoinTls"
+						checked={tls}
+						label="TLS"
+						aria-labelledby="ircJoinTlsLegend"
+						disabled={joining}
+						onClick={() => setTls(!tls)}
+					/>
+				</div>
+				<div className="actions">
+					<Button id="ircJoinBtn" type="submit" busy={joining} disabled={!canBridge}>
 						{joining ? "Bridging…" : "Bridge the channel"}
 					</Button>
-					{why !== null && <Said id="ircJoinWhy" kind="failure">{why}</Said>}
-				</form>
-			</div>
-			<p className="well-title overline">Bridged channels</p>
-			<div className="group well" id="ircBridgedList">
+				</div>
+				{bridged !== "" && <Said kind="success">{bridged}</Said>}
+				{why !== null && <Said id="ircJoinWhy" kind="failure">{why}</Said>}
+			</form>
+			<h3 className="well-title overline" id="ircBridgedLegend">Bridged channels</h3>
+			<div className="group well" id="ircBridgedList" role="group" aria-labelledby="ircBridgedLegend">
 				{state.bridged.length === 0
-					? <p className="ops-empty">Nothing is bridged right now.</p>
+					? <p className="empty">Nothing is bridged right now.</p>
 					: (
-						<ul className="ops-listeners">
-							{state.bridged.map((row) => (
-								<li className="ops-listener" key={row.roomName} data-room={row.roomName}>
-									<div className="ops-listener-head">
-										<span className="ops-listener-name">{row.roomName}</span>
-										{row.status === "up"
-											? <span className="ops-serving">connected</span>
-											: <span className="ops-note">{row.status}</span>}
-										{home !== null && (
-											<Button
-												variant="quiet"
-												onClick={() => {
-													peer.pickRoom(home, row.roomName);
-													navigate("/");
-												}}
-											>
-												Open
-											</Button>
-										)}
-										<Button
-											variant="quiet"
-											onClick={() =>
-												void peer.partIrc(row.network, row.channel)}
-										>
-											Part
-										</Button>
-									</div>
-									<p className="hint">
-										<code>{row.endpoint}</code>
-									</p>
-								</li>
-							))}
+						<ul className="entries">
+							{state.bridged.map((row) => {
+								const key = `${row.network}\n${row.channel}`;
+								const waiting = parting.has(key);
+								return (
+									<li className="entry" key={row.roomName} data-room={row.roomName}>
+										<div className="entry-head">
+											<span className="entry-name">{row.roomName}</span>
+											{row.status === "up"
+												? <span className="ops-serving">connected</span>
+												: <span className="entry-meta">{row.status}</span>}
+											<div className="actions">
+												{home !== null && (
+													<Button
+														variant="quiet"
+														onClick={() => {
+															session.pickRoom(home, row.roomName);
+															navigate("/");
+														}}
+													>
+														Open
+													</Button>
+												)}
+												<Button
+													variant="quiet"
+													busy={waiting}
+													onClick={() => part(row.network, row.channel)}
+												>
+													{waiting ? "Parting…" : "Part"}
+												</Button>
+											</div>
+										</div>
+										<p className="entry-meta">
+											<code>{row.endpoint}</code>
+										</p>
+										{partWhy[key] !== undefined && <Said kind="failure">{partWhy[key]}</Said>}
+									</li>
+								);
+							})}
 						</ul>
 					)}
 			</div>

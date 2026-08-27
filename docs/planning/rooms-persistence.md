@@ -1,12 +1,51 @@
 # Persistence as a capability
 
-Status: active plan. Nothing here has shipped. It argues a shape for Rooms and
-names what would have to be decided to build it.
+Status: active plan. Browser workspace reconstruction, bounded room retention,
+member-owned room and direct-message history, the member-owned archive
+capability, a durable archive peer, explicit browser selection, monotonic
+facets, and direct-line handover ship. A durable Rooms session capability now
+lets several views control one network identity. Its durable
+checkpoint, attenuated facets, bounded revision and event watches, default file
+archive, capability vault, room and direct-message restoration, room sends,
+file proxy, operator path, listener and IRC administration, diagnostics, public
+directory joins, and browser reconnect now ship. Archive reconciliation keeps
+the source, conversation generation, and record id instead of treating a
+reconnect-local line number as durable identity. The controller contract
+prevents attached views from falling through to local network effects. Private
+rooms now use an opaque idempotent creation key and a typed result journal that
+replays authority into the checkpoint across every local crash boundary. The
+workspace state surface exposes pending session effects for explicit resume or
+resolution without depending on the directory's separate operator capability.
+Invitations, peering leases, visualizer publishing, direct and room attachment
+projection, file-set changes, live room facts, and bounded directory discovery
+now run through the durable owner. Operator-managed server listeners and IRC
+bridges have their own replayable server document. Broader archive views,
+indefinite ordinary-effect deduplication, and local-tab merging remain open.
+Restart-stable attenuated session grants now have their own bounded ledger,
+deterministic durable publications, revocation tombstones, and access-aware
+attached UI. Interaction grants operate ordinary workspace intent without
+receiving or replacing the session's retained operations and archive bearers;
+that custody remains on the administration facet.
+Archive lines retain bounded attachment metadata and content-addressed blobs.
 
-Rooms forgets. Restart the server and every room is empty; reload a tab and the
-conversation on screen is gone. That is written down as a deliberate default in
-[`apps/rooms/README.md`](../../apps/rooms/README.md) and in the header of
-`apps/rooms/server/state.ts`, and for a chat application it is a strange one.
+Rooms forgets by default, not unconditionally. An operator can retain the last
+lines of listed public rooms in memory, state-directory files, or PostgreSQL;
+private rooms never record. A browser keeps bounded room and direct-message
+text plus attachment metadata and bytes in
+IndexedDB when the reader leaves the visible history switch on. These are
+local policies. The browser implements the archive object below and can project
+it on a live session. A standalone peer hosts the same object behind a durable
+sturdyref. Settings can select that whole-archive authority for
+direct-message reads and writes. A conversation card can hand the other member
+a read-only facet narrowed to that direct line. The server retention path does
+not implement the archive object. The member archive retains attachment bytes;
+room-owned server history still keeps only file captions.
+
+The remaining questions concern broader archive views, restart-stable session
+grants, and durable or independently revocable offers. This page records both
+the shipped object and that remaining shape. The operational behavior that
+exists today lives in
+[`apps/rooms/operating.md`](../../apps/rooms/operating.md#storage-and-room-history).
 
 The temptation is to answer it with storage: pick a database, write the lines
 into it, read them back. That answers the wrong question first. What a member
@@ -19,20 +58,25 @@ first, then the shape that serves them.
 Four things a member should be able to come back to. They are separate
 features, and a design that serves one does not automatically serve the next.
 
-**Where I was.** The directories I hold, the rooms I had joined on each, and
-the name I was using there. Rooms already keeps a thin version of this: the
-browser remembers `rooms.nick`, `rooms.room`, and `rooms.locator`, and the join
-card answers from them. That is one device's worth, and it is not shareable.
+**Where I was.** The browser keeps one versioned state bundle with a session
+checkpoint, view-local preferences, and an explicitly exportable capability
+vault. It can reconstruct that bundle locally or attach to a durable session
+capability so several views mutate one owner instead of reconstructing several
+peers from the same file.
 
-**What was said here.** Arriving in a room I have been in before, I see the tail
-of what I saw last time, above whatever has happened since.
+**What was said here.** A retained public room answers its bounded tail to a
+current member. The member archive also records the room lines that reached
+this browser as a separately attributed observed account.
 
 **What was said between us.** A direct message is a session between two members
-and the room server never carries a byte of it, so nothing but the two ends can
-possibly keep it.
+and the room server never carries a byte of it. Each browser now keeps its own
+bounded text through the archive object or an explicitly selected peer. The
+page can hand the other member a read-only facet for that direct conversation.
 
-**What was attached.** A file somebody posted is a blob with its own size and
-its own lifetime, and it is worth deciding separately from the lines.
+**What was attached.** An archived line retains each file's bounded name, media
+type, size, image dimensions, and archive-minted content digest. The digest is
+data; the scoped blob capability returned by the archive is the authority to
+read its bytes.
 
 ## History belongs to whoever holds a reference to it
 
@@ -45,10 +89,10 @@ That is also what makes the authority passable. A member can hand a line's
 reference on, and a room could keep a copy to give whoever it wants moderating,
 without either side learning what a moderator is.
 
-Persistence is the same kind of thing. An **archive** is an object that keeps
-what it is told and hands back what it kept, and holding a reference to one is
-the whole of the authority to use it. Nothing about it is a property of the
-room.
+Shareable persistence is the same kind of thing. An **archive** is an object
+that keeps what it is told and hands back what it kept, and holding a reference
+to one is the whole of the authority to use it. Nothing about it is a property
+of the room.
 
 That has a consequence worth stating plainly, because it is the point where
 this design parts company with the obvious one. Two members standing in the
@@ -85,11 +129,13 @@ No network, works offline, and it ends with the browser profile. This is the
 one that makes the reads above true for a single reader on a single device, and
 it needs no server anywhere.
 
-**A peer you run.** An archive with a locator, dialed like any other peer.
-Because it is a peer, its reference can be handed to somebody else, which is
-how a second device of mine gets my history and how a friend gets a copy of a
-room they missed. Nothing about this peer is special to Rooms: it hosts one
-object and answers two verbs.
+**A peer you run.** `zig build rooms-archive -- --state=<directory>` hosts the
+archive at a durable sturdyref. It uses discovery-backed authenticated iroh by
+default and can use cleartext TCP for local inspection. Ordinary OCapN code can dial and hand
+on its reference. Settings selects this peer as the direct-message
+recorder, so a second device holding the same whole-archive sturdyref can read
+what it kept. A direct-conversation card narrows from that selected recorder
+before sharing, so the recipient never receives the whole sturdyref.
 
 **Offered by a directory.** A room server can host an archive and hand its
 reference out, which is the shape people mean by a central database. It is not
@@ -100,10 +146,26 @@ So distributed, local, and central are three deployments of one interface, and
 a member can hold several at once. That is the answer to "which one should
 Rooms have": it should have the seam, and let the reference decide.
 
-## The member's tab is the writer
+## Selecting a recorder
+
+The archive-peer form accepts one whole-archive sturdyref and validates it before
+changing where the member's room and direct-message history goes. Remembering that bearer in the
+browser is a separate opt-in. A target change drains work already assigned to
+the old recorder and does not copy its records into the new one.
+
+A tab holding only a peer archive declines archive writes while the peer is
+unreachable and tells the reader that the selected recorder is unavailable. It
+never silently creates a second device-store history. Retry or an explicit
+return to this browser chooses the next destination. This custody and offline
+posture is recorded in
+[ADR-0131](../decisions/adr/ADR-0131-browser-archive-peer-selection.md).
+
+## A personal archive is fed by the member's tab
 
 Every line a member sees arrives at their tab, because the tab renders it. So
-the tab is what feeds the archive, and the room is not involved at all.
+the tab would feed a personal archive; the room need not participate in that
+member-owned record. This is distinct from the shipped room-owned retention
+policy, which the room itself serves to current members.
 
 That is what makes this work for direct messages, which the room never sees,
 and it means the first version needs no change to the room server. It also
@@ -112,18 +174,40 @@ member saw, not an authority on what happened. It cannot be consulted about who
 is in a room or whether a line was withdrawn, because it was never the thing
 that knew.
 
-## What would be kept
+## What the contract keeps
 
 Three kinds of record, matching the reads:
 
-- **Standing.** Which directories, which rooms on each, and the name held there.
-  Small, changes rarely, and it is the one that makes a reload feel like coming
-  back rather than starting.
-- **Lines.** What was said, keyed by the conversation and the room's own line
-  number, with the sender, the time, and any edit or withdrawal that followed.
-- **Attachments.** The blobs, which are large enough to deserve their own
-  policy. An archive could keep only the fact that a file was posted and let the
-  bytes go, and that may be the right default.
+- **Workspace intent.** Which directories and rooms to reconstruct, plus the
+  exact nickname requested on each directory. A live grant remains the
+  directory's runtime fact rather than a claim made by the document.
+- **Lines.** What was said, keyed by recorder source, conversation generation,
+  and stable record identity, with the sender, time, and any edit or withdrawal
+  that followed. A reconnect-local room line number is never the durable key.
+- **Attachments.** Bounded metadata is part of the line record. Blob bytes stay
+  behind the archive capability, under a separate aggregate byte ceiling, and
+  are fetched lazily rather than riding history pages.
+
+## Identity and attribution constraints
+
+A directory nickname is an address within one live namespace, not a durable
+person identity. The directory may grant it to somebody else after its holder
+leaves. The shipped device-local DM history therefore presents recovered lines
+as messages associated with that directory name and warns that its holder may
+have changed. It is context, not identity evidence.
+
+A shareable archive cannot make a stronger claim from the same input. Each
+recorder must mint an opaque conversation generation and keep its own source
+identity beside that generation. An authenticated durable peer identity may be
+attached when the realized channel proved one, but it remains evidence rather
+than the record's primary key. A fresh session key, an unauthenticated locator
+claim, or a nickname must never merge two generations.
+
+This also fixes how an archive read enters the interface. Recovered records
+stand under their archive source and generation; they do not become an
+unmarked continuation of the live conversation. Two archives can report the
+same room or directory name without either report being silently treated as
+the other.
 
 ## Sharing, and what it costs
 
@@ -139,45 +223,48 @@ everything that was said in front of the member who kept it.
 
 ## Open questions
 
-These are the parts that are not decided, and each of them can change the shape
-above.
+These are the parts that remain open after the bounded `put`/`read` contract in
+[ADR-0129](../decisions/adr/ADR-0129-member-owned-archive-capability.md).
 
 **Merging.** Two of my devices writing to one archive, or my archive plus one
 somebody gave me, produce records about the same room from more than one
-source. Room lines carry the room's own number, so those merge cleanly. Direct
-messages have no server to number them, so they need a key of their own, and
-the honest candidate is the sender's identity plus their own count.
-
-**Eviction.** An archive is bounded like everything else in this application.
-Rooms already trims its scrollback at `MAX_SCROLLBACK` and hands what falls off
-to a release seam. An archive needs the same discipline and a stated answer for
-what happens when it is full.
-
-**Offline writes.** A tab holding only a peer archive cannot write while the
-peer is unreachable. Either it queues, which is a second store, or it declines,
-which the reader has to be told about.
-
-**Blobs.** Whether an archive keeps file bytes at all, and if so whether it
-serves them back as the same kind of attachment reference the room hands out.
+source. Room lines carry the room's own number, but that number is only unique
+inside one live room generation. Direct messages have no server to number them
+at all. The archive therefore keeps source and conversation generation in
+every key. Whether a later, evidence-backed view coalesces records from several
+sources is a presentation decision, never a destructive rewrite of those keys.
 
 **Trust.** A record somebody hands me is their account of a room, not the
-room's. The interface should not let a shared archive's lines look
-indistinguishable from lines this tab watched arrive.
+room's. The source and generation constraints above keep that distinction in
+the data. A future combined view must let a reader choose among several archive
+sources without mistaking any of them for live traffic.
 
 ## Where to start
 
 The order below builds the least first and keeps every step useful on its own.
+The shipped retention paths prove the storage policies, not these capability
+rungs.
 
-1. **Name the reads in the interface.** Decide what a returning member sees,
-   with no persistence behind it. This is the product work, and everything
-   after it is implementation.
-2. **The archive interface, and the tab's own implementation.** One object, two
-   verbs, backed by the browser's own store. This makes the reads real for one
-   reader on one device and proves the seam without a network.
-3. **The archive as a peer.** The same interface over CapTP, which is what
-   makes it shareable and what makes a second device possible.
-4. **Attenuation and handover.** Narrowed and read-only references, and the
-   interface for giving one away.
+1. **Shipped — name the capability reads in the interface.** A held archive
+   reads standings and room or direct-message lines as one member recorded
+   them, independently of the room's retention policy.
+2. **Shipped — the archive interface, and the tab's own implementation.** One
+   object answers bounded `put` and `read`, backed by the browser's existing
+   IndexedDB database. Every record retains recorder source and conversation
+   generation, and pre-contract rows remain device-local rather than receiving
+   invented provenance.
+3. **Shipped — the archive as a peer.** The same interface runs on a durable
+   v1/Syrup Host. Its required state directory retains identity, authority, and
+   a bounded synced revision log, while iroh gives the ordinary deployment an
+   authenticated encrypted channel.
+4. **Shipped — explicit recorder selection.** The archive-peer form validates a
+   whole-archive sturdyref before an ordered swap. Remembering the bearer is
+   opt-in, and an unavailable selection declines writes without device fallback.
+5. **Shipped — direct-line attenuation and handover.** `narrow` intersects
+   exact filters and cannot restore removed write authority. The conversation
+   card hands the other member a read-only facet for that line; the receiver
+   explicitly reads it once or gives it back, with bounded custody and separate
+   attribution.
 
-A test archive that keeps its records in memory would serve steps two through
-four, the way the in-process transport already serves the transport tests.
+The memory archive remains the focused contract implementation. The standalone
+peer proves the same behavior across the live wire and a process restart.

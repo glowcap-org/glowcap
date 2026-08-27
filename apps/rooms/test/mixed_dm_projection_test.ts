@@ -1,0 +1,151 @@
+/// <reference lib="dom" />
+
+Object.defineProperty(globalThis, "matchMedia", {
+	configurable: true,
+	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+
+const { emptyRoomsSessionState } = await import("../lib/rooms_state.ts");
+const { AttachedSessionProjection } = await import("../web/ui/session/projection.ts");
+const store = await import("../web/ui/store.ts");
+const { assertEquals } = await import("./assert.ts");
+const { roomsSessionSnapshot } = await import("./support/session_snapshot.ts");
+const { registrationId } = await import("./support/registration.ts");
+
+Deno.test("mixed DM projection recovers liveness without crossing lines", () => {
+	store.set(store.initial);
+	const projection = new AttachedSessionProjection();
+	const checkpoint = {
+		...emptyRoomsSessionState(),
+		directories: [{ id: "directory", locator: "127.0.0.1:1", home: true, nick: "alice", standing: null }],
+		conversations: [{
+			kind: "direct" as const,
+			id: "alice-bob",
+			directory: "directory",
+			peer: "bob",
+			peerRegistrationId: registrationId(1),
+			closed: false,
+			draft: "",
+		}],
+	};
+	projection.apply(roomsSessionSnapshot({
+		revision: 1,
+		checkpoint,
+		issues: [{ subject: "direct:directory:alice-bob", reason: "bob was unavailable" }],
+	}));
+	const direct = [...store.get().convs.values()].find((conversation) => conversation.persistId === "alice-bob");
+	if (direct?.type !== "dm") throw new Error("the mixed direct fixture was not projected");
+	const lineState = () => {
+		const conversation = store.getConv(direct.key);
+		return conversation?.type === "dm" ? conversation.line : null;
+	};
+	assertEquals(direct.line, "introducing");
+
+	projection.line({
+		source: "mixed-lines",
+		sequence: 1,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "first",
+		at: 1,
+		lineId: 1,
+		change: "said",
+		editable: true,
+		system: false,
+		history: { source: "archive", generation: "direct-generation", id: "1" },
+		attachments: [],
+	});
+	projection.line({
+		source: "mixed-lines",
+		sequence: 2,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "second",
+		at: 2,
+		lineId: 2,
+		change: "said",
+		editable: true,
+		system: false,
+		history: { source: "archive", generation: "direct-generation", id: "2" },
+		attachments: [],
+	});
+	assertEquals(lineState(), "live");
+	assertEquals(store.getConv(direct.key)?.history.map((item) => item.kind === "chat" ? item.text : ""), [
+		"first",
+		"second",
+	]);
+	assertEquals(store.getConv(direct.key)?.unread.kind, "unread");
+
+	projection.apply(roomsSessionSnapshot({
+		revision: 1,
+		checkpoint,
+		issues: [],
+		connectedDirectories: ["directory"],
+	}));
+	assertEquals(lineState(), "live");
+
+	projection.line({
+		source: "mixed-lines",
+		sequence: 3,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "first edited",
+		at: 3,
+		lineId: 1,
+		change: "edited",
+		editable: true,
+		system: false,
+		history: { source: "archive", generation: "direct-generation", id: "1" },
+		attachments: [],
+	});
+	projection.line({
+		source: "mixed-lines",
+		sequence: 4,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "",
+		at: 4,
+		lineId: 2,
+		change: "withdrawn",
+		editable: false,
+		system: false,
+		history: { source: "archive", generation: "direct-generation", id: "2" },
+		attachments: [],
+	});
+	const lines = store.getConv(direct.key)?.history.filter((item) => item.kind === "chat") ?? [];
+	assertEquals(lines.map((item) => item.kind === "chat" ? item.text : ""), ["first edited", "second"]);
+	assertEquals(lines.map((item) => item.kind === "chat" ? item.withdrawn === true : false), [false, true]);
+
+	projection.line({
+		source: "mixed-lines",
+		sequence: 5,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "",
+		at: 5,
+		lineId: null,
+		change: null,
+		editable: false,
+		system: true,
+		presence: { kind: "typing", name: "bob", on: true },
+		history: null,
+		attachments: [],
+	});
+	assertEquals([...(store.getConv(direct.key)?.typers ?? [])], ["bob"]);
+	projection.line({
+		source: "mixed-lines",
+		sequence: 6,
+		conversationId: "alice-bob",
+		from: "bob",
+		text: "",
+		at: 6,
+		lineId: null,
+		change: null,
+		editable: false,
+		system: true,
+		presence: { kind: "typing", name: "bob", on: false },
+		history: null,
+		attachments: [],
+	});
+	assertEquals([...(store.getConv(direct.key)?.typers ?? [])], []);
+});

@@ -127,6 +127,11 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	>();
 	protected readonly _listeners = new Set<bigint>();
 	protected readonly _closingListeners = new Map<bigint, PancakeError>();
+	protected readonly _listenerCloses = new Map<bigint, {
+		readonly promise: Promise<void>;
+		readonly resolve: () => void;
+		readonly reject: (error: PancakeError) => void;
+	}>();
 	// A loop step may deliver for any session. The step carrier supplies the
 	// wrapper Host; each callback turn supplies its actual ingress session.
 	protected constructor(handle: Ptr, wrapper: Host) {
@@ -169,6 +174,8 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 		}
 		this._acceptWaiters.clear();
 		this._accepts.clear();
+		for (const waiter of this._listenerCloses.values()) waiter.reject(failure);
+		this._listenerCloses.clear();
 		this._listeners.clear();
 		this._closingListeners.clear();
 		this._unclaimedSessions.clear();

@@ -180,6 +180,21 @@ Deno.test("watcher delivery failure removes and releases only that watcher", asy
 	assert(failures.length === 1, "watcher delivery failure was not observed");
 });
 
+Deno.test("terminal session cleanup leaves watcher imports to the session", () => {
+	const releases: Ref[] = [];
+	const failures: unknown[] = [];
+	const session = {
+		closing: true,
+		release: (ref: Ref) => releases.push(ref),
+	} as unknown as Session;
+	const table = new TaskWatcherTable((_message, error) => failures.push(error));
+	table.register(session, "watcher" as unknown as Ref);
+	table.remove(session);
+	assert(table.length === 0, "terminal watcher remained registered");
+	assert(releases.length === 0, "terminal cleanup released an import the session already owns");
+	assert(failures.length === 0, "terminal cleanup reported a spurious release failure");
+});
+
 Deno.test("watcher capacity releases the refused capability", () => {
 	const table = new TaskWatcherTable(() => {});
 	for (let i = 0; i < MAX_WATCHERS; i += 1) {

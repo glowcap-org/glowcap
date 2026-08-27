@@ -22,7 +22,6 @@ const HostRuntime = host_runtime.HostRuntime;
 const Internal = host_runtime.Internal;
 const crypto = foundation.crypto;
 const Error = driver_core.Error;
-const AdmissionError = Error || error{ProviderContract};
 const ExternalAdoptionRole = HostRuntime.ExternalAdoptionRole;
 const OpenAdmissionAuthority = lifecycle.OpenAdmissionAuthority;
 const OpenAdmission = pending.OpenAdmission;

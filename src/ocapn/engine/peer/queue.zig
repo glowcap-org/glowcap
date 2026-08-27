@@ -31,13 +31,6 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
             self.addWeight(&value);
         }
 
-        /// Reserve one append so publication can become infallible after a
-        /// preceding step has transferred ownership. This is the record/queue
-        /// atomicity seam for stored resolutions and listener-fire accounting.
-        pub fn ensureUnusedCapacityForOne(self: *Self, allocator: std.mem.Allocator) !void {
-            try self.ensureUnusedCapacity(allocator, 1);
-        }
-
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, count: usize) !void {
             if (count > self.items.capacity - self.items.items.len) self.compactForAppend();
             try self.items.ensureUnusedCapacity(allocator, count);

@@ -9,6 +9,7 @@
 // answered either one wrongly would be found by nobody.
 
 import { assertEquals } from "./assert.ts";
+import { registrationId } from "./support/registration.ts";
 import {
 	type DirId,
 	dirId,
@@ -47,20 +48,36 @@ function room(id: string, unread: Unread): RoomConv {
 	return {
 		type: "room",
 		id,
+		persistId: "room-" + id,
 		key: home + "/" + id,
 		dir: home,
 		history: [],
+		membership: "joined",
+		earlierHistory: "unasked",
 		unread,
 		members: new Map(),
 		typers: new Set(),
 		grants: new Set(),
+		stewardClaimable: false,
 		standing: null,
+		ircIssue: "",
 		held: false,
 	};
 }
 
 function line(id: string, unread: Unread): DmConv {
-	return { type: "dm", id, key: "dm:" + id, dir: home, history: [], unread, line: "live", typers: new Set() };
+	return {
+		type: "dm",
+		id,
+		persistId: "dm-" + id,
+		key: "dm:" + id,
+		dir: home,
+		peerRegistrationId: registrationId(id === "alice" ? 1 : 2),
+		history: [],
+		unread,
+		line: "live",
+		typers: new Set(),
+	};
 }
 
 Deno.test("a room with lines nobody has read answers the unread question", () => {
@@ -98,8 +115,10 @@ Deno.test("a row with no conversation behind it stays in view either way", () =>
 	const invite: Invitation = { id: "1", dir: home, way: "handed", label: "orchard", from: "alice", link: "" };
 	const bare: DirView = {
 		id: home,
+		locator: home,
 		liveRooms: new Map(),
-		dmablePeers: new Set(),
+		dmablePeers: new Map(),
+		requestedNick: "alice",
 		nick: "alice",
 		slot: 0,
 		reached: true,

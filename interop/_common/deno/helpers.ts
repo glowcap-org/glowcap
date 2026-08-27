@@ -83,16 +83,3 @@ export async function awaitGreeterReady(
 	}
 	fail(gate, miss);
 }
-
-export async function drainStderr(stderr: ReadableStream<Uint8Array>): Promise<string> {
-	const chunks: Uint8Array[] = [];
-	for await (const chunk of stderr) chunks.push(chunk);
-	return new TextDecoder().decode(
-		chunks.reduce((acc, c) => {
-			const merged = new Uint8Array(acc.length + c.length);
-			merged.set(acc);
-			merged.set(c, acc.length);
-			return merged;
-		}, new Uint8Array()),
-	);
-}

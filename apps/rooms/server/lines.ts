@@ -12,23 +12,36 @@
 // set. Refiling down to nothing takes the line back, because a message with no
 // files and nothing said is not a message.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument, Session } from "@pancake/runtime";
 import { currentSession } from "@pancake/runtime";
-import { EDIT, EDITED, REFILE, REFILED, SET_TOPIC, TOPIC, WITHDRAW, WITHDRAWN } from "../lib/protocol.ts";
-import { lineCost, MAX_LINE, MAX_MESSAGE_FILES, MAX_TOPIC } from "../lib/limits.ts";
-import type { PostedFile, RoomState } from "./registry.ts";
+import {
+	EDIT,
+	EDITED,
+	GOVERNS,
+	KICK,
+	NOTIFY,
+	REFILE,
+	REFILED,
+	SET_TOPIC,
+	TOPIC,
+	WITHDRAW,
+	WITHDRAWN,
+} from "../lib/protocol.ts";
+import { isPrivateRoomKey, lineCost, MAX_LINE, MAX_MESSAGE_FILES, MAX_TOPIC } from "../lib/limits.ts";
+import { NOT_STEWARD, RoomError } from "../lib/errors.ts";
+import { heldRoomLinks, nickKey, type PostedFile, roomKey, rooms, type RoomState } from "./registry.ts";
 import { broadcastFiles, dropFileBytes, forgetFile, postStaged } from "./files.ts";
-import { broadcast } from "./presence.ts";
-import { forgetRoomLine, updateRoomLine } from "./history.ts";
+import { broadcast, leaveRoom } from "./presence.ts";
+import { forgetRoomLine, type LiveKeptLine, updateRoomLine } from "./history.ts";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
-/** The upload capability `attach` answers with: one file being staged into a
- * message, spent when that message is posted or the file is discarded.
- *
- * Holding it is the whole authority — the room minted it in reply to that
- * member's `attach` on this connection, so `write` and `discard` ask no
- * questions about who is calling. What `write` checks is the file: bytes past
- * the declared size are refused rather than truncated.
- */
+function refuseCapabilityArguments(args: Argument[], surface: string): void {
+	if (!hasCapabilityArguments(args)) return;
+	const session = currentSession();
+	if (session == null) throw new Error(`${surface} is reachable only over a session`);
+	throwAfterReleasingCapabilities(session, args, new Error(`${surface} does not take capability arguments`));
+}
+
 /** What holding a line's reference lets somebody do to it.
  *
  * Nothing here asks who is calling, and that is the whole design rather than an
@@ -50,12 +63,19 @@ import { forgetRoomLine, updateRoomLine } from "./history.ts";
  * freeing whatever it drops. Naming the files here rather than leaving them
  * loose in the room's held list is what makes a file line's edit and takedown
  * mean the same thing a text line's do. */
-export function lineBehavior(state: RoomState, from: string, id: number, files: PostedFile[]) {
+export function lineBehavior(
+	state: RoomState,
+	from: string,
+	id: number,
+	files: PostedFile[],
+	kept: LiveKeptLine | null,
+) {
 	let withdrawn = false;
 	return (verb: string, args: Argument[]): Argument => {
+		refuseCapabilityArguments(args, "a line");
 		if (verb === EDIT) {
 			if (withdrawn) throw new Error("that line was withdrawn");
-			if (typeof args[0] !== "string") throw new Error("edit needs text");
+			if (args.length !== 1 || typeof args[0] !== "string") throw new Error("edit needs one text value");
 			const text = args[0];
 			// Counted the way the wire counts and the way a poster's own composer
 			// counts. In JavaScript's own units this let an edit through at four
@@ -67,7 +87,7 @@ export function lineBehavior(state: RoomState, from: string, id: number, files: 
 			// members keep the blobs they hold, and the room re-sends none. `refile`
 			// is the one verb that changes what a line carries.
 			broadcast(state, from, text, EDITED, BigInt(id));
-			if (!state.private) updateRoomLine(state.name, id, text);
+			if (kept !== null) updateRoomLine(state.name, kept, text);
 			return null;
 		}
 		if (verb === REFILE) {
@@ -75,10 +95,13 @@ export function lineBehavior(state: RoomState, from: string, id: number, files: 
 			// A refile down to nothing withdraws the line, and the reference must
 			// stop answering just as `withdraw` makes it: editing a blank line back
 			// into existence is the state this flag exists to forbid.
-			withdrawn = refileLine(state, from, id, files, args);
+			const session = currentSession();
+			if (session == null) throw new Error("a line is reachable only over a session");
+			withdrawn = refileLine(state, from, id, files, kept, args, session);
 			return null;
 		}
 		if (verb === WITHDRAW) {
+			if (args.length !== 0) throw new Error("withdraw takes no arguments");
 			// Saying so twice is not an error. The line is gone either way, and a
 			// second attempt is somebody making sure rather than doing something
 			// wrong.
@@ -89,7 +112,7 @@ export function lineBehavior(state: RoomState, from: string, id: number, files: 
 				// nobody can see. A plain line's set is empty and this is a no-op.
 				freeLineFiles(files);
 				broadcast(state, from, "", WITHDRAWN, BigInt(id));
-				if (!state.private) forgetRoomLine(state.name, id);
+				if (kept !== null) forgetRoomLine(state.name, kept);
 			}
 			return null;
 		}
@@ -116,7 +139,15 @@ function freeLineFiles(files: PostedFile[]): void {
  *
  * Answers whether the line is now withdrawn, which a refile to no files and no
  * caption does. */
-function refileLine(state: RoomState, from: string, id: number, files: PostedFile[], args: Argument[]): boolean {
+function refileLine(
+	state: RoomState,
+	from: string,
+	id: number,
+	files: PostedFile[],
+	keptLine: LiveKeptLine | null,
+	args: Argument[],
+	session: Session,
+): boolean {
 	if (typeof args[0] !== "string") throw new Error("refile needs a caption");
 	const caption = args[0];
 	if (lineCost(caption) > MAX_LINE) throw new Error(`a caption may be at most ${MAX_LINE} bytes`);
@@ -135,8 +166,6 @@ function refileLine(state: RoomState, from: string, id: number, files: PostedFil
 		seen.add(at);
 		kept.push(files[at]);
 	}
-	const session = currentSession();
-	if (session === null) throw new Error("a line is reachable only over a session");
 	const staged = [...state.uploads.get(session) ?? []].filter((upload) => !upload.posted);
 	if (kept.length + staged.length > MAX_MESSAGE_FILES) {
 		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
@@ -154,11 +183,72 @@ function refileLine(state: RoomState, from: string, id: number, files: PostedFil
 		// empty takes it back rather than leaving a blank bubble. The takedown is
 		// the room's own word, tagged so an older client draws it too.
 		broadcast(state, from, "", WITHDRAWN, BigInt(id));
-		if (!state.private) forgetRoomLine(state.name, id);
+		if (keptLine !== null) forgetRoomLine(state.name, keptLine);
 		return true;
 	}
 	broadcastFiles(state, from, caption, files, REFILED, id);
+	if (keptLine !== null) updateRoomLine(state.name, keptLine, caption);
 	return false;
+}
+
+/** The authority to remove a member, as a capability.
+ *
+ * The room publishes this only when its opening connection claims it. From
+ * there the durable reference can be shared with whoever should moderate, and
+ * the room never learns a rank or a moderator identity. Nothing here asks who
+ * is calling — possession is the whole answer, the same shape as a line's
+ * reference and the topic's.
+ *
+ * A kick is an ordinary departure with the steward's word said first: the
+ * member hears it themselves, everyone reads why the leave that follows
+ * happened, and nothing durable is minted — the person can walk straight
+ * back in, which is what tells asking-to-leave apart from banishment. A
+ * ban would need an identity to hold against a name, and a nick is not
+ * one; that boundary stays stated here until identity gives it ground. */
+export function stewardBehavior(state: RoomState) {
+	return (verb: string, args: Argument[]): Argument => {
+		refuseCapabilityArguments(args, "a steward");
+		if (verb !== KICK) throw new Error(`a steward has no method ${verb}`);
+		if (args.length !== 1 || typeof args[0] !== "string") throw new Error("kick needs one member name");
+		const nick = args[0];
+		if (nick === "") throw new Error("kick names the member to ask out");
+		const key = nickKey(nick);
+		const member = state.members.find((m) => nickKey(m.nick) === key);
+		if (member === undefined) throw new Error(`nobody here answers to "${nick}"`);
+		// The member hears it first and directly, while the room still holds
+		// their inbox; the broadcast then says why the leave every member is
+		// about to read happened.
+		member.session.tell(member.inbox, NOTIFY, ["room", `you were asked to leave #${state.name}`]).catch(() => {
+			// tolerant: a member being removed for deadness may hear nothing
+		});
+		broadcast(state, "room", `${member.nick} was asked to leave`);
+		leaveRoom(state, member.session);
+		return null;
+	};
+}
+
+/** The durable steward publication for one room identity.
+ *
+ * It captures no live room state: a restart or an empty-room reclamation makes
+ * a new `RoomState`, and a durable capability retaining the old object would
+ * govern a dead generation. `governs` remains answerable while the room is
+ * empty so a client can validate the authority before anybody joins; `kick`
+ * resolves the current generation at the moment it is used. */
+export function linkedStewardBehavior(durable: string, roomIdentity: string, active: () => boolean) {
+	const key = isPrivateRoomKey(durable) ? durable : roomKey(durable);
+	return (verb: string, args: Argument[]): Argument => {
+		refuseCapabilityArguments(args, "a durable steward");
+		if (!active()) {
+			throw new RoomError(NOT_STEWARD, "this steward capability was revoked");
+		}
+		if (verb === GOVERNS) {
+			if (args.length !== 0) throw new Error("governs takes no arguments");
+			return roomIdentity;
+		}
+		const state = rooms.get(key);
+		if (state === undefined) throw new Error("that room is not occupied");
+		return stewardBehavior(state)(verb, args);
+	};
 }
 
 /** What this room is about, as a capability.
@@ -175,21 +265,27 @@ function refileLine(state: RoomState, from: string, id: number, files: PostedFil
  * reference, which may not be the member it was handed to, and a room that
  * cannot know who acted should not claim to. */
 export function topicBehavior(state: RoomState) {
-	return (verb: string, args: Argument[]): Argument => {
+	return (verb: string, args: Argument[]): Argument | Promise<Argument> => {
+		refuseCapabilityArguments(args, "a room topic");
 		if (verb !== SET_TOPIC) throw new Error(`a topic has no method ${verb}`);
-		const said = typeof args[0] === "string" ? args[0] : "";
+		if (args.length !== 1 || typeof args[0] !== "string") throw new Error("setTopic needs one text value");
+		const said = args[0];
 		if (said.length > MAX_TOPIC) {
 			throw new Error(`a topic may be at most ${MAX_TOPIC} characters`);
 		}
 		if (said === state.topic) return null;
-		state.topic = said;
-		broadcast(
-			state,
-			"room",
-			said === "" ? "the topic was taken down" : `the topic is now: ${said}`,
-			TOPIC,
-			said,
-		);
-		return null;
+		const durable = state.private ? state.key : state.name;
+		const links = heldRoomLinks();
+		return (links == null ? Promise.resolve() : links.setTopic(durable, said)).then(() => {
+			state.topic = said;
+			broadcast(
+				state,
+				"room",
+				said === "" ? "the topic was taken down" : `the topic is now: ${said}`,
+				TOPIC,
+				said,
+			);
+			return null;
+		});
 	};
 }

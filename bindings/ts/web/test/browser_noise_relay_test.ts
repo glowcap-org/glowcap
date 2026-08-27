@@ -4,6 +4,7 @@
 // object hosted in the page. Rooms is deliberately absent from this proof.
 
 import { chromium } from "playwright";
+import { bundleProbe, fail, freePort } from "./support.ts";
 
 declare global {
 	var pancakeNoiseReady: {
@@ -14,34 +15,10 @@ declare global {
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const PROBE = new URL("./browser_noise_relay_probe.ts", import.meta.url).pathname;
-const CONFIG = new URL("../browser-bundle.json", import.meta.url).pathname;
 const WASM = new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 const TLS_CERT = new URL("../../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;
 const TLS_KEY = new URL("../../../../test/net/fixtures/tls_server.key", import.meta.url).pathname;
 const TLS_ROOT = new URL("../../../../test/net/fixtures/tls_root.pem", import.meta.url).pathname;
-
-function fail(message: string): never {
-	throw new Error(message);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function bundleProbe(): Promise<string> {
-	const result = await new Deno.Command(Deno.execPath(), {
-		args: ["bundle", "--platform", "browser", "--no-lock", "--quiet", "--config", CONFIG, PROBE],
-		stdout: "piped",
-		stderr: "piped",
-	}).output();
-	if (!result.success) {
-		fail(`browser Noise probe bundle failed: ${new TextDecoder().decode(result.stderr)}`);
-	}
-	return new TextDecoder().decode(result.stdout);
-}
 
 interface RelayOutput {
 	port: number;
@@ -72,7 +49,7 @@ async function finishRelayOutput(output: RelayOutput): Promise<string> {
 }
 
 export async function proveChromiumNoiseRelay(): Promise<void> {
-	const bundle = await bundleProbe();
+	const bundle = await bundleProbe(PROBE);
 	const wasm = await Deno.readFile(WASM);
 	const pagePort = freePort();
 	const assets = new AbortController();

@@ -21,22 +21,22 @@ import { chromium } from "playwright";
 
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+	viewport: { width: 1600, height: 1000 },
 });
 const page = await ctx.newPage();
 
 page.on("pageerror", (err) => console.log("[pageerror]", err.message));
 
 await page.addInitScript(() => {
-  try {
-    localStorage.removeItem("ocapnviz:app-state");
-  } catch {
-    // ignored
-  }
+	try {
+		localStorage.removeItem("ocapnviz:app-state");
+	} catch {
+		// ignored
+	}
 });
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector("canvas#ocv-pixi");
@@ -54,18 +54,18 @@ await Deno.mkdir(outDir, { recursive: true });
 const timelineClip = { x: 0, y: 848, width: 1600, height: 152 };
 
 async function snap(name: string): Promise<Uint8Array> {
-  return await page.screenshot({
-    path: `${outDir}/${name}.png`,
-    type: "png",
-    clip: timelineClip,
-  });
+	return await page.screenshot({
+		path: `${outDir}/${name}.png`,
+		type: "png",
+		clip: timelineClip,
+	});
 }
 function fingerprint(buf: Uint8Array): string {
-  let hash = 0;
-  for (let i = 200; i < Math.min(2000, buf.length); i++) {
-    hash = ((hash << 5) - hash + buf[i]!) | 0;
-  }
-  return `${buf.length}:${hash}`;
+	let hash = 0;
+	for (let i = 200; i < Math.min(2000, buf.length); i++) {
+		hash = ((hash << 5) - hash + buf[i]!) | 0;
+	}
+	return `${buf.length}:${hash}`;
 }
 
 const buf1 = await snap("01-default");
@@ -77,7 +77,7 @@ console.log(`01-default              fp=${fp1}`);
 // (browser-default for "clear text selection") gets handled
 // before our keydown listener sees it.
 await page.evaluate(() => {
-  (globalThis.document.activeElement as HTMLElement | null)?.blur();
+	(globalThis.document.activeElement as HTMLElement | null)?.blur();
 });
 await page.waitForTimeout(150);
 
@@ -95,8 +95,8 @@ console.log(`02-cmd-a-selected       fp=${fp2}`);
 await page.mouse.move(200, 940);
 await page.mouse.down({ button: "left" });
 for (let x = 200; x <= 900; x += 60) {
-  await page.mouse.move(x, 960);
-  await page.waitForTimeout(15);
+	await page.mouse.move(x, 960);
+	await page.waitForTimeout(15);
 }
 await page.mouse.up({ button: "left" });
 await page.waitForTimeout(200);
@@ -107,13 +107,13 @@ console.log(`03-rubber-band-selected fp=${fp3}`);
 await browser.close();
 
 const checks = {
-  "Cmd-A changed view": fp1 !== fp2,
-  "rubber-band changed view": fp2 !== fp3,
+	"Cmd-A changed view": fp1 !== fp2,
+	"rubber-band changed view": fp2 !== fp3,
 };
 const failures: string[] = [];
 for (const [name, ok] of Object.entries(checks)) {
-  console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
-  if (!ok) failures.push(name);
+	console.log(`  ${ok ? "PASS" : "FAIL"} — ${name}`);
+	if (!ok) failures.push(name);
 }
 console.log("");
 if (failures.length === 0) console.log("ALL PASS");

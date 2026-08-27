@@ -1,8 +1,8 @@
 //! Third-party handoff for the byte-fed host core: the node-service
 //! callbacks that project, capture, and release local gift targets, the
 //! embedder's dial-ticket seam (`pendingDial` / `exporterDialed` /
-//! `dialFailed` / `provideGiftId`), and the give verbs (`acceptGive` /
-//! `setExporterLocation`).
+//! `dialFailed` / `provideGiftId`), and the give verbs (`acceptGive`,
+//! `acceptInlineGive`, and `setExporterLocation`).
 //!
 //! One of `host.zig`'s responsibilities, kept beside it rather than in it.
 //! The `Host` still owns the state and presents each verb as its own through
@@ -18,6 +18,7 @@ const actors = @import("actors");
 
 const host_mod = @import("host.zig");
 const host_pump = @import("host/pump.zig");
+const capability_promise = @import("capability_promise.zig");
 const enliven_mod = @import("enliven.zig");
 const capability = @import("capability.zig");
 const pending_dial_identity = @import("pending_dial_identity.zig");
@@ -202,18 +203,11 @@ pub fn giftIdFailed(self: *Host, ticket: u64) !void {
     finishCommittedEffect(self);
 }
 
-/// Redeem a `desc:handoff-give` this recipient `session` received outside
-/// the auto-redeem path — a give delivered to an application object rather
-/// than surfaced as the `op:resolve` `hostBeforeServe` claims — by dialing
-/// the exporter `exporter_locator` names and withdrawing the gift under the
-/// host identity, settling `answer` with the redeemed capability. This is
-/// the same node redeem the before-serve hook runs for an inbound
-/// give-as-resolve (ADR-0009), exposed for an embedder whose protocol
-/// carries gives another way — the OCapN conformance greeter delivers the
-/// give as a plain argument. Running it as a host verb (not a raw
-/// `node.acceptGive`) is what moves the queued dial onto the embedder's
-/// action queue; a bare node call strands it. Top-level: refused from
-/// inside a callback.
+/// Redeem a signed give that must settle the partner-owned wire `answer`.
+/// Embedders use this when their protocol has already installed that answer;
+/// an application-delivered inline give uses `acceptInlineGive` instead.
+/// Running this as a Host verb moves a queued exporter dial onto the action
+/// queue. Top-level: refused from inside a callback.
 pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const u8, exporter_locator: []const u8) !void {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -221,6 +215,28 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
     try self.checkSession(session);
     try self.node.acceptGive(session.peer_handle, answer, give, exporter_locator);
     finishCommittedEffect(self);
+}
+
+/// Redeem a typed `desc:handoff-give` this recipient `session` received as an
+/// application value. The returned Host capability is an eventual identity:
+/// it can be used immediately or released immediately when the application
+/// only needed the withdrawal side effect. Its Host-owned deferred id is not a
+/// wire answer position, so a plain delivered give never invents authority in
+/// the partner-owned answer namespace.
+///
+/// This is the top-level twin of the automatic inline-Passable lift. Running
+/// it as a Host verb moves a queued exporter dial onto the embedder's action
+/// queue; a bare `Node.acceptInlineGive` would strand that effect. `give` is
+/// borrowed for the call. Top-level: refused from inside a callback.
+pub fn acceptInlineGive(self: *Host, session: *HostSession, give: model.HandoffGive) !capability.Ref {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
+    try self.checkSession(session);
+    const lifted = try capability_promise.liftInlineGive(self, session, give);
+    self.commitCapabilityLift(lifted);
+    finishCommittedEffect(self);
+    return lifted.ref;
 }
 
 /// Record the exporter locator to embed in gives whose exporter is `session`

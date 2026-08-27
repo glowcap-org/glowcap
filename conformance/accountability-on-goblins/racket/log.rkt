@@ -90,10 +90,6 @@
 ;; Merkle tree (RFC 6962 / Certificate Transparency style)
 ;; ============================================================================
 
-;; Hash a leaf node: H(0x00 || data).
-(define (mt-hash-leaf bs)
-  (id:blake3-256 (bytes-append #"\0" bs)))
-
 ;; Hash an internal node: H(0x01 || left || right).
 (define (mt-hash-node left right)
   (id:blake3-256 (bytes-append #"\x01" left right)))

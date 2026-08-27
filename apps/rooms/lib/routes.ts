@@ -1,5 +1,6 @@
 import {
 	formatLocatorUri,
+	formatPeerUri,
 	HINT_ALT_LOCATORS,
 	HINT_VIA,
 	type Locator,
@@ -16,6 +17,19 @@ import { roomsLocator } from "./locator.ts";
 
 const ROUTE_ORDER = [TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP] as const;
 const FALLBACK_ORDER = [TRANSPORT_ONION, TRANSPORT_TCP, TRANSPORT_KEYED_TCP, TRANSPORT_KEYED_RELAY] as const;
+
+/** The stable authority Rooms uses to file one directory.
+ *
+ * An identity route and each transport that proves its Host key name the same
+ * peer when their designators match. Weak fallback transports remain separate:
+ * reaching the same process over cleartext TCP does not prove it is the holder
+ * of an `id` route's key. This shares `ROUTE_ORDER`, the route composer's one
+ * authority for that distinction. */
+export function roomsPeerAuthority(locator: Locator): string {
+	const provesHost = locator.transport === TRANSPORT_ID ||
+		ROUTE_ORDER.includes(locator.transport as (typeof ROUTE_ORDER)[number]);
+	return formatPeerUri(provesHost ? TRANSPORT_ID : locator.transport, locator.designator);
+}
 
 /** Compose the identity-first location a Rooms host may advertise.
  *

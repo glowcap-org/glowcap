@@ -218,6 +218,7 @@ pub fn build(b: *std.Build) void {
     const attach = b.option(bool, "attach", "With -Dport: demo orchestrators join an already-running server on that port instead of spawning one") orelse false;
     const rooms_diagnostics = b.option(bool, "diagnostics", "When serving the rooms web UI, mint an inspect capability and print its swiss") orelse false;
     const rooms_admin_listeners = b.option(bool, "admin-listeners", "When serving the rooms web UI, mint a listener-admin capability and print its swiss") orelse false;
+    const rooms_operator = b.option(bool, "operator", "When serving the rooms web UI, mint a room-steward operator capability and print its swiss") orelse false;
     const rooms_peering = b.option(bool, "peering", "When serving the rooms web UI, mint a directory-peering capability and print its swiss") orelse false;
     const rooms_viz = b.option(bool, "viz", "When serving the rooms web UI, serve the live timeline endpoint (default port 9300; PANCAKE_ROOMS_VIZ_PORT overrides) and mint the viz capability") orelse false;
     if (attach and pin_port == null) {
@@ -481,7 +482,7 @@ pub fn build(b: *std.Build) void {
         .site_zig_examples_check = site_reg.zig_examples_check,
     });
     const iroh_resident_mod = iroh_reg.resident_mod;
-    const iroh_lib_step_h = iroh_reg.lib_step;
+    const iroh_sidecar_archive = iroh_reg.sidecar_archive;
     const iroh_abi_step = iroh_reg.abi_step;
     for (bindings_steps_build.dogfoods, dogfood_runs) |dogfood, run| {
         if (dogfood.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
@@ -590,7 +591,7 @@ pub fn build(b: *std.Build) void {
         .browser_preflight = &browser_preflight.step,
         .wasm_driver_install = wasm_driver_install_step,
         .iroh_abi_step = iroh_abi_step,
-        .iroh_lib_step = iroh_lib_step_h,
+        .iroh_sidecar_archive = iroh_sidecar_archive,
         .ocapn_install = &ocapn_archive.dynamic_install.step,
         .host_install = &host_archive.dynamic_install.step,
         .driver_install = &driver_archive.dynamic_install.step,
@@ -600,6 +601,7 @@ pub fn build(b: *std.Build) void {
         .attach = attach,
         .diagnostics = rooms_diagnostics,
         .admin_listeners = rooms_admin_listeners,
+        .operator = rooms_operator,
         .peering = rooms_peering,
         .viz = rooms_viz,
     });
@@ -613,7 +615,7 @@ pub fn build(b: *std.Build) void {
         .check_relay = native_relay.check_relay,
         .rooms_profile = rooms_profile_mod,
         .version = abi_version,
-        .iroh_library = iroh_lib_step_h,
+        .iroh_sidecar_archive = iroh_sidecar_archive,
         .check = check_step,
         .test_filter = test_filter,
     });

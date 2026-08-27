@@ -18,10 +18,14 @@
     "react-dom": "npm:react-dom@19.2.8",
     "react-dom/client": "npm:react-dom@19.2.8/client",
     "react-dom/server": "npm:react-dom@19.2.8/server",
-    "react-router": "npm:react-router@7.18.2",
-    "@types/react": "npm:@types/react@19.2.18",
+		"react-router": "npm:react-router@7.18.2",
+		"zustand": "npm:zustand@5.0.15",
+		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
+		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
+		"@types/react": "npm:@types/react@19.2.18",
     "@types/react-dom": "npm:@types/react-dom@19.2.4",
-    "zod": "npm:zod@^4.4.3"
+    "zod": "npm:zod@^4.4.3",
+    "zod/mini": "npm:zod@^4.4.3/mini"
   },
   // ocapnviz stays its own scope for everything else, but the rooms viz proofs
   // load its real converter and its real `Observation` schema at run time

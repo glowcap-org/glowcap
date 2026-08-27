@@ -1,4 +1,4 @@
-//! The avatar tint ramp: `--avatar-N` slot count parity between `text.ts`
+//! The avatar tint ramp: `--avatar-N` slot count parity between `member_identity.ts`
 //! and the stylesheet, and the WCAG 4.5:1 contrast promise every tint makes
 //! to the white initials drawn on it. Split from `rooms_ui.zig`, whose
 //! shared stylesheet loader this leans on.
@@ -14,7 +14,8 @@ const ui_dir = rooms_ui.ui_dir;
 /// The avatar ramp: one slot count in two homes, and a contrast floor the
 /// tints owe the chip's white initials.
 ///
-/// `hueOf` in `text.ts` picks `var(--avatar-N)` with N in `1..AVATAR_SLOTS`,
+/// `hueOf` in `member_identity.ts` picks `var(--avatar-N)` with N in
+/// `1..AVATAR_SLOTS`,
 /// and the stylesheet defines the tints. A count that drifts in either
 /// direction fails quietly at run time: a picked slot with no definition draws
 /// white initials on no background at all. And every tint carries the same
@@ -26,18 +27,18 @@ pub fn checkAvatarRamp(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const text_ts = root.readFileAlloc(io, ui_dir ++ "/text.ts", gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}/text.ts: could not be read for the avatar-ramp check", .{ui_dir});
+    const identity_ts = root.readFileAlloc(io, ui_dir ++ "/member_identity.ts", gpa, .limited(1 << 20)) catch {
+        try appendViolation(gpa, violations, "{s}/member_identity.ts: could not be read for the avatar-ramp check", .{ui_dir});
         return;
     };
-    defer gpa.free(text_ts);
+    defer gpa.free(identity_ts);
     const slots_decl = "const AVATAR_SLOTS = ";
-    const at = std.mem.indexOf(u8, text_ts, slots_decl) orelse {
-        try appendViolation(gpa, violations, "{s}/text.ts: `const AVATAR_SLOTS = ` is gone; hueOf's slot count is the half of the avatar ramp this check reads", .{ui_dir});
+    const at = std.mem.indexOf(u8, identity_ts, slots_decl) orelse {
+        try appendViolation(gpa, violations, "{s}/member_identity.ts: `const AVATAR_SLOTS = ` is gone; hueOf's slot count is the half of the avatar ramp this check reads", .{ui_dir});
         return;
     };
-    const slots = util.firstIntIn(text_ts[at + slots_decl.len ..]) orelse {
-        try appendViolation(gpa, violations, "{s}/text.ts: AVATAR_SLOTS is not a literal count", .{ui_dir});
+    const slots = util.firstIntIn(identity_ts[at + slots_decl.len ..]) orelse {
+        try appendViolation(gpa, violations, "{s}/member_identity.ts: AVATAR_SLOTS is not a literal count", .{ui_dir});
         return;
     };
 
@@ -48,7 +49,7 @@ pub fn checkAvatarRamp(
         var name_buf: [32]u8 = undefined;
         const needle = std.fmt.bufPrint(&name_buf, "--avatar-{d}: #", .{n + 1}) catch unreachable;
         const def = std.mem.indexOf(u8, sheet, needle) orelse {
-            try appendViolation(gpa, violations, "the rooms stylesheets define no `--avatar-{d}` while text.ts's AVATAR_SLOTS is {d}; a picked slot with no tint draws white initials on nothing", .{ n + 1, slots });
+            try appendViolation(gpa, violations, "the rooms stylesheets define no `--avatar-{d}` while member_identity.ts's AVATAR_SLOTS is {d}; a picked slot with no tint draws white initials on nothing", .{ n + 1, slots });
             continue;
         };
         const hex = sheet[def + needle.len ..];
@@ -66,7 +67,7 @@ pub fn checkAvatarRamp(
         var name_buf: [32]u8 = undefined;
         const extra = std.fmt.bufPrint(&name_buf, "--avatar-{d}: #", .{slots + 1}) catch unreachable;
         if (std.mem.indexOf(u8, sheet, extra) != null) {
-            try appendViolation(gpa, violations, "the rooms stylesheets define `--avatar-{d}` but text.ts's AVATAR_SLOTS is {d}; hueOf can never pick it", .{ slots + 1, slots });
+            try appendViolation(gpa, violations, "the rooms stylesheets define `--avatar-{d}` but member_identity.ts's AVATAR_SLOTS is {d}; hueOf can never pick it", .{ slots + 1, slots });
         }
     }
 }

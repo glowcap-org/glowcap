@@ -5,9 +5,10 @@
 // see a banner is decided here.
 
 import { memo, type ReactNode, type Ref, useMemo } from "react";
-import type { ChatItem, Conv, Unread } from "./types.ts";
+import type { ChatItem, Conv, SendControlPolicy, Unread } from "./types.ts";
 import { MessageGroup } from "./Message.tsx";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { type Block, blocksOf } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
@@ -20,10 +21,11 @@ function rulePlace(unread: Unread): number | null {
 // The panel at the top of a conversation. A log that starts mid-air reads as if
 // something failed to load, and the top of the log is the one place with room to
 // say what this room actually is. It opens by saying where the reader's view
-// begins, because a room outlives any one arrival and none of what was said
-// before an arrival is sent to it: calling this the beginning of the room told
-// somebody who joined a day-old conversation that they were looking at all of
-// it. Each kind then says the true thing about itself: a
+// begins, because a room outlives any one arrival. When the room keeps earlier
+// messages it can place them above that arrival; the state below says exactly
+// which answer this membership received. Calling this the beginning of the room
+// would tell somebody joining a day-old conversation that they were looking at
+// all of it. Each kind then says the true thing about itself: a
 // public room is open to anyone holding its name, a private one to nobody who
 // was not handed it, and a direct message is the part worth understanding: a
 // line the room introduced and then stepped out of.
@@ -33,16 +35,25 @@ function rulePlace(unread: Unread): number | null {
 // rewrites itself when the introduction lands.
 function introBody(conv: Conv): string {
 	if (conv.type === "room") {
+		const beginning = conv.earlierHistory === "loading"
+			? "Your live view begins with this arrival. Checking whether the room kept earlier messages. "
+			: conv.earlierHistory === "shown"
+			? "The room placed its kept recent messages above the point where you joined. New lines arrive live. "
+			: conv.earlierHistory === "empty"
+			? "The room returned no earlier messages, so your view starts with this arrival. "
+			: conv.earlierHistory === "unavailable"
+			? "The room did not provide earlier messages, so your view starts with this arrival. "
+			: "Your live view begins with this arrival. ";
 		// The two rooms say opposite things about who can walk in, and the panel
 		// is where a reader finds out which kind they are in. Saying the open
 		// sentence over a private room would be the worst wrong answer here.
 		if (conv.held) {
-			return "Nothing said before you joined is sent to you, so your view starts here. " +
+			return beginning +
 				"The room is private: it is in no list, and nobody can enter it by name. " +
 				"Everybody here was handed it by somebody who was already in. Hand it on " +
 				"with /invite, and whoever holds it can do the same.";
 		}
-		return "Nothing said before you joined is sent to you, so your view starts here. " +
+		return beginning +
 			"Anyone who knows the room's name can join, and nobody had to make an account: " +
 			"the name you picked is a display name, not an identity anyone checked.";
 	}
@@ -51,15 +62,17 @@ function introBody(conv: Conv): string {
 			" left the room, which takes their name back and may grant it to " +
 			"someone else, so there is no way from here to tell a later " +
 			conv.id + " from the one you were talking to. The messages above are " +
-			"yours to keep; starting a new conversation with that name reaches " +
+			"yours to keep. Starting a new conversation with that name reaches " +
 			"whoever holds it now.";
 	}
 	return conv.line === "live"
-		? "This line is direct. The room introduced the two of you and then stepped " +
-			"out of the path, so these messages travel peer to peer and the room never " +
+		? "This line is direct. The directory introduced the exact live registration that held this name when the conversation opened. " +
+			"A later holder cannot inherit it, though the registration is not a durable account identity. " +
+			"The directory then stepped " +
+			"out of the path, so these messages travel peer to peer and the directory never " +
 			"sees them."
-		: "This line is not open yet. Sending the first message opens it: the room " +
-			"introduces the two of you, the introduction is redeemed, and the room then " +
+		: "This line is not open yet. Sending the first message asks the directory to introduce the exact " +
+			"registration this conversation recorded; if the name changed hands, it refuses. The introduction is redeemed, and the directory then " +
 			"drops out of the path so what you say travels peer to peer.";
 }
 
@@ -72,6 +85,7 @@ function drawBlock(
 	onEdit: (item: ChatItem) => void,
 	onWithdraw: (id: number) => void,
 	onMention: (who: string) => void,
+	sendControls: SendControlPolicy,
 	changing: number | undefined,
 ): ReactNode {
 	switch (block.kind) {
@@ -131,6 +145,7 @@ function drawBlock(
 					onEdit={onEdit}
 					onWithdraw={onWithdraw}
 					onMention={onMention}
+					sendControls={sendControls}
 					changing={changing}
 				/>
 			);
@@ -138,7 +153,7 @@ function drawBlock(
 }
 
 function LogPane(
-	{ conv, nick, hidden, ignored, changing, ref }: {
+	{ conv, nick, hidden, ignored, sendControls, changing, ref }: {
 		conv: Conv | null;
 		nick: string;
 		hidden: boolean;
@@ -150,6 +165,7 @@ function LogPane(
 		 * log keeps being a function of its props, and so unignoring somebody
 		 * repaints for the same reason an arriving line does. */
 		ignored: ReadonlySet<string>;
+		sendControls: SendControlPolicy;
 		ref: Ref<HTMLElement>;
 	},
 ) {
@@ -164,16 +180,17 @@ function LogPane(
 	// Bound once per conversation, so the rows below keep comparing equal while
 	// you type. The verb table never changes, so this only moves when the
 	// conversation does.
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
 	const retry = useMemo(
-		() => (id: number) => conv && peer.retry(conv.key, id),
-		[conv?.key, peer],
+		() => (id: number) => conv && session.retry(conv.key, id),
+		[conv?.key, session],
 	);
 	// Memoised like the retry beside it, and for the same reason: the message
 	// group is memoised on these being the same function between renders.
 	const stop = useMemo(
-		() => (id: number) => conv && peer.stopSend(conv.key, id),
-		[conv?.key, peer],
+		() => (id: number) => conv && session.stopSend(conv.key, id),
+		[conv?.key, session],
 	);
 	// Changing a line puts its words back in the composer, which is where text
 	// is written, and names the line they came from. The name is the part that
@@ -182,13 +199,13 @@ function LogPane(
 	const edit = useMemo(
 		() => (item: ChatItem) =>
 			item.attachments !== undefined && item.attachments.length > 0
-				? peer.changeFiles(item.id, item.text, item.attachments)
-				: peer.changeLine(item.id, item.text),
-		[peer],
+				? browser.changeFiles(item.id, item.text, item.attachments)
+				: browser.changeLine(item.id, item.text),
+		[browser],
 	);
 	const withdraw = useMemo(
-		() => (id: number) => conv && peer.withdraw(conv.key, id),
-		[conv?.key, peer],
+		() => (id: number) => conv && session.withdraw(conv.key, id),
+		[conv?.key, session],
 	);
 	return (
 		<section id="log" ref={ref} aria-live="polite" aria-label="Messages" hidden={hidden}>
@@ -217,8 +234,25 @@ function LogPane(
 						</h2>
 						<p>{introBody(conv)}</p>
 					</div>
+					{conv.type === "room" && conv.earlierHistory === "loading" && (
+						<div className="history-loading" role="status" aria-label="Loading earlier messages">
+							<span className="history-loading-line shimmer" />
+							<span className="history-loading-line short shimmer" />
+						</div>
+					)}
 					{blocks.map((block) =>
-						drawBlock(block, nick, conv.key, retry, stop, edit, withdraw, peer.mention, changing)
+						drawBlock(
+							block,
+							nick,
+							conv.key,
+							retry,
+							stop,
+							edit,
+							withdraw,
+							session.mention,
+							sendControls,
+							changing,
+						)
 					)}
 				</>
 			)}

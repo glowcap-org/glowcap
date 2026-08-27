@@ -27,8 +27,6 @@ fn name32(label: []const u8) [32]u8 {
 }
 
 const session_a = name32("session-a");
-const session_1 = name32("session-1");
-const session_2 = name32("session-2");
 const recipient_side = name32("recipient-side");
 
 /// Every fixture below withdraws as the same synthetic recipient on the same

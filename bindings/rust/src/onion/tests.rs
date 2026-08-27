@@ -118,7 +118,7 @@ fn high_level_listener_projects_driver_locator_and_restoration_key() {
 		assert_eq!(server.uri().unwrap(), format!("ocapn://{SERVICE_ID}.onion"));
 		assert_eq!(server.service_key(), b"ED25519-V3:c3RvcmVk");
 
-		server.close().unwrap();
+		server.close().await.unwrap();
 		let accepted = server.accept().await;
 		assert_eq!(accepted.err().map(|err| err.code()), Some(crate::sys::ERR_CLOSED));
 	});
@@ -147,7 +147,7 @@ fn caller_owned_host_survives_onion_listener_close() {
 		)
 		.await
 		.unwrap();
-		server.close().unwrap();
+		server.close().await.unwrap();
 		assert!(host.designator().is_ok());
 		drop(server);
 		host.close(crate::PendingWork::Cancel).await.unwrap();
@@ -177,7 +177,7 @@ fn caller_owned_host_rejects_incompatible_onion_provider_config() {
 		)
 		.await
 		.unwrap();
-		server.close().unwrap();
+		server.close().await.unwrap();
 
 		let incompatible = Config::dial_only("127.0.0.1:1")
 			.with_control(&control, Auth::None)

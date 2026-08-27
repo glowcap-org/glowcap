@@ -159,7 +159,7 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // terminal failure to arrive on a connection with a recv already armed *and*
 // something to flush — armed alone goes straight to closing, where the liveness
 // guard drops the late recv first. `onSend`'s terminal back-swap needs the same
-// overlap from the other side. `test/net/completion_cross_arm_test.zig` holds
+// overlap from the other side. `test/net/completion/cross_arm_test.zig` holds
 // the first of them with a scripted backend, which is the right tool: a
 // schedule that has to arrange an overlap is a worse instrument than a script
 // that simply states it.
@@ -175,7 +175,6 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 
 const completion = net.completion;
 const engine = pancake.ocapn.engine;
-const no_dial = @import("../support/no_dial_locator.zig");
 
 /// Completion schedules the fuzzer found here, replayed by the ordinary suite
 /// so a lifecycle bug it caught cannot come back quietly. Separate from the

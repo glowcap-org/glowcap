@@ -1,10 +1,11 @@
-/* The card plane: the ground, well, and field vocabulary a raised card's
-   content stands on. It began as the modal's own three planes, and then the
-   Operations page stood its cards on the same treatment, so the system moved
-   here and surfaces opt in by wearing `card-plane` beside their own card
-   class — every modal card, and the /ops page's pane and gate cards. One
-   class and one authority: a group, a well, a field, a hint, or a choice
-   reads identically wherever the plane is worn. */
+/* The card plane: the ground and well vocabulary a raised card's content
+   stands on. It began as the modal's own planes, and then the Operations page
+   and session setup stood their cards on the same treatment, so the system
+   moved here and surfaces opt in by wearing `card-plane` beside their own
+   card class — every modal card, the /ops pane and gate cards, and the setup
+   page. One class and one authority: a group, a well, or a choice reads
+   identically wherever the plane is worn, and forms.css draws what stands on
+   it in the same way. */
 
 .card-plane {
 	/* Native radios and checkboxes take the brand's accent instead of the
@@ -125,80 +126,26 @@
 	color: var(--ink);
 	margin-bottom: 2px;
 }
-.card-plane .field {
-	font: inherit;
-	padding: 11px 13px;
-	border-radius: 11px;
-	border: 1px solid var(--rule);
-	background: var(--field-fill);
-	box-shadow: var(--field-lift);
-	color: var(--ink);
+/* Prose on the plane never strands one word on its last line, and a heading
+   breaks into even halves rather than a long line and a short one. Stated
+   for the plane as a whole so no surface has to remember it per paragraph. */
+.card-plane p,
+.card-plane dd,
+.card-plane .choice span,
+.card-plane .check-row > span,
+.card-plane .empty,
+.card-plane .said {
+	text-wrap: pretty;
 }
-.card-plane .field:focus {
-	outline: none;
-	border-color: var(--accent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+.card-plane h1,
+.card-plane h2,
+.card-plane h3,
+.card-plane .launch-title,
+.card-plane .entry-name {
+	text-wrap: balance;
 }
-/* A select in a card wears the field's clothes: the platform arrow and fill
-   go, the app's own chevron sits at the line's end, and the closed control is
-   exactly the text field beside it. The open list stays the platform's. */
-.card-plane .select-wrap {
-	position: relative;
-	display: flex;
-}
-.card-plane .select-wrap .field {
-	appearance: none;
-	width: 100%;
-	padding-right: 38px;
-	text-overflow: ellipsis;
-	cursor: pointer;
-}
-.card-plane .select-wrap::after {
-	content: "";
-	position: absolute;
-	right: 16px;
-	top: 50%;
-	width: 8px;
-	height: 8px;
-	border-right: 2px solid var(--ink-soft);
-	border-bottom: 2px solid var(--ink-soft);
-	border-radius: 1px;
-	transform: translateY(-70%) rotate(45deg);
-	pointer-events: none;
-}
-/* A field's own written label, for a form whose group label cannot name every
-   field: the group label's voice, one step into the form. */
-.card-plane .field-label {
-	font-size: var(--type-caption);
-	font-weight: 700;
-	color: var(--ink-soft);
-	margin-top: 2px;
-}
-.card-plane p.hint {
-	margin: 0;
-	font-size: var(--type-caption);
-	color: var(--ink-soft);
-	line-height: 1.4;
-}
-.card-plane p.hint code {
-	font-size: 11px;
-}
-/* Quiet is the way out of a card, and it sits at the width of its words.
-   Direct children used to be the only ones that did: Close, Leave, Stay. A
-   quiet button inside a group — About this directory, under the locator —
-   stretched with the column instead, which is a different control from the
-   same variant at the foot of the same card. */
-.card-plane .button[data-variant="quiet"] {
-	align-self: center;
-}
-.card-plane .field[aria-invalid="true"] {
-	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
-}
-.card-plane .field[aria-invalid="true"]:focus {
-	outline: none;
-	border-color: var(--danger);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
-}
+/* Fields, labels, hints, action rows, confirms, and entry lists — everything
+   that stands on this plane — are forms.css's. This sheet ends at the ground. */
 
 /* A link inside plane content speaks accent ink, not the browser's blue:
    the panes' hints cite pages ("about Noise") and nothing else on the plane

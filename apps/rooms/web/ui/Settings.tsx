@@ -1,23 +1,28 @@
 // The page's settings dialog: this window's locators, its appearance, whether
 // it asks the browser to notify, how it advertises itself for direct messages,
-// and one toggle per operations
-// capability. A toggle that is on means this tab holds that capability:
-// flipping it on opens the take modal — paste the swiss number, fetch it —
-// and only a successful take lands it on. Flipping it off lets the
-// capability go. While any is held, an Operations control in the head stands
-// the reader on the /ops page with the held panes.
+// and one saved operations-capability bundle. The bundle has one switch per
+// capability and one text projection; saving reconciles both possession and
+// durable custody. While any capability is held, an Operations control in the
+// head stands the reader on the /ops page with the held panes.
 
 import { useEffect, useRef, useState } from "react";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { current, type DmMode } from "./prefs.ts";
 import { Button } from "./Button.tsx";
-import { Switch } from "./Switch.tsx";
 import { CopyField } from "./Copy.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { openModalFrom, useHeldModal, useModalDialog } from "./modal.ts";
 import { type TabFace, Tabs } from "./Tabs.tsx";
-import { anyOpsHeld, type DirView, OPS_CAPS, type OpsCap, type OpsHeld, type SettingsTab } from "./types.ts";
-import { OPS_CATALOG } from "./ops/catalog.ts";
+import { anyOpsHeld, type DirView, type OpsHeld, type SettingsTab } from "./types.ts";
+import type { ArchiveTargetView } from "./archive_model.ts";
+import { CapabilitySetForm } from "./settings/CapabilitySet.tsx";
+import { useCapabilitySetModel } from "./settings/CapabilitySetModel.tsx";
+import { Confirm } from "./Confirm.tsx";
+import { SessionSettings } from "./settings/Session.tsx";
+import { Said } from "./Said.tsx";
+import type { RoomsSessionFacet } from "../../lib/rooms_session.ts";
+import { effectiveRoomsSessionAccess } from "./controller/access.ts";
 
 interface SettingsProps {
 	open: boolean;
@@ -27,12 +32,15 @@ interface SettingsProps {
 	 * before it has answered and after it has been given back, when Settings
 	 * still knows the locator and has no session to open a card about. */
 	dir: DirView | null;
-	/** Which operations capabilities this tab holds, which is what the toggles
-	 * say and what draws the Operations control in the head. */
+	/** Which operations capabilities this tab holds, which draws the Operations control in the head. */
 	opsHeld: OpsHeld;
-	/** Whether this device keeps direct-message history; the Advanced switch
-	 * draws it and `peer.setKeepHistory` flips it. */
+	/** Whether the selected archive keeps message history; the Capabilities switch
+	 * draws it and `session.setKeepHistory` flips it. */
 	keepHistory: boolean;
+	/** Where member-owned history is currently written. */
+	archiveTarget: ArchiveTargetView;
+	/** Null for a local controller; otherwise the authority carried by this attached facet. */
+	sessionAccess: RoomsSessionFacet | null;
 	/** Which panel to show when this dialog mounts. Returning from a take
 	 * lands on Capabilities rather than resetting to Locators. */
 	tab: SettingsTab;
@@ -41,7 +49,8 @@ interface SettingsProps {
 }
 
 export function Settings(
-	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, tab }: SettingsProps,
+	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, sessionAccess, tab }:
+		SettingsProps,
 ) {
 	const { held, onExited } = useHeldModal(open, retain);
 	if (!held) return null;
@@ -55,35 +64,60 @@ export function Settings(
 			dir={dir}
 			opsHeld={opsHeld}
 			keepHistory={keepHistory}
+			archiveTarget={archiveTarget}
+			sessionAccess={sessionAccess}
 			tab={tab}
 		/>
 	);
 }
 
 function SettingsDialog(
-	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, keepHistory, tab }: Omit<SettingsProps, "retain"> & {
-		retain?: boolean;
-		onExited: () => void;
-	},
+	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, sessionAccess, tab }:
+		& Omit<
+			SettingsProps,
+			"retain"
+		>
+		& {
+			retain?: boolean;
+			onExited: () => void;
+		},
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
+	const session = useRoomsSession();
+	const capabilitySet = useCapabilitySetModel();
+	const controller = browser.roomsController();
+	const access = effectiveRoomsSessionAccess(controller, sessionAccess);
+	const canInteract = access != null && access !== "observe";
+	const canAdminister = access === "admin";
 	const titleId = "settingsTitle";
 	const dialog = useRef<HTMLDialogElement>(null);
 	// The chosen tab, which is what the dialog opens focus onto.
 	const chosenTab = useRef<HTMLButtonElement>(null);
 	const [live] = useState(current);
-	const [pane, setPane] = useState<SettingsTab>(tab);
-	const [dm, setDm] = useState<DmMode>(live.dm);
-	const [roomLoc, setRoomLoc] = useState<string | null>(null);
-	const [selfLoc, setSelfLoc] = useState<string | null>(null);
 	const tabs: readonly TabFace<SettingsTab>[] = [
 		{ id: "overview", domId: "overviewTab", label: "Locators", panelId: "overviewPanel" },
-		{ id: "capabilities", domId: "capabilitiesTab", label: "Capabilities", panelId: "capabilitiesPanel" },
-		{ id: "settings", domId: "settingsTab", label: "Advanced", panelId: "settingsPanel" },
+		{ id: "session", domId: "sessionTab", label: "Data", panelId: "sessionPanel" },
+		...(canInteract
+			? [
+				{ id: "settings", domId: "settingsTab", label: "Advanced", panelId: "settingsPanel" },
+			] as const
+			: []),
 	];
+	// The operations capability set lives under Advanced now; a remembered
+	// "capabilities" tab still lands there.
+	const asked: SettingsTab = tab === "capabilities" ? "settings" : tab;
+	const [pane, setPane] = useState<SettingsTab>(
+		tabs.some((candidate) => candidate.id === asked) ? asked : "overview",
+	);
+	const [dm, setDm] = useState<DmMode>(live.dm);
+	const [dmError, setDmError] = useState("");
+	const [roomLoc, setRoomLoc] = useState<string | null>(null);
+	const [selfLoc, setSelfLoc] = useState<string | null>(null);
+	const [dmBusy, setDmBusy] = useState(false);
+	const [guarding, setGuarding] = useState(false);
 	useModalDialog(
 		dialog,
-		() => peer.closeSettings(),
+		() => requestCloseRef.current(),
 		chosenTab,
 		open,
 		onExited,
@@ -93,27 +127,54 @@ function SettingsDialog(
 	useEffect(() => {
 		let cancelled = false;
 		const showSelf = () => {
-			if (!cancelled) setSelfLoc(peer.selfLocator());
+			if (!cancelled) setSelfLoc(session.selfLocator());
 		};
 		showSelf();
-		void peer.directoryReady.then(showSelf);
-		setRoomLoc(peer.directoryLocator());
+		void session.directoryReady.then(showSelf);
+		setRoomLoc(session.directoryLocator());
 		return () => {
 			cancelled = true;
 		};
-	}, [peer]);
+	}, [session]);
 
+	// What closing this window would throw away, named in the reader's words.
+	// Both live under Advanced, so the question is asked there, above the form
+	// that holds the changes, rather than as a bare "are you sure" on top of a
+	// panel the reader cannot see from.
+	const unsaved = [
+		dm !== live.dm ? "the direct message connection" : "",
+		capabilitySet.dirty ? "the capability set" : "",
+	].filter((subject) => subject !== "");
 	const dirty = dm !== live.dm;
 	const selectPane = (next: SettingsTab) => {
 		setPane(next);
-		peer.setSettingsTab(next);
+		setGuarding(false);
+		browser.setSettingsTab(next);
 	};
-	const save = () => {
-		if (!dirty) {
-			peer.closeSettings();
+	const requestCloseRef = useRef(() => {});
+	const requestClose = () => {
+		if (unsaved.length === 0) {
+			browser.closeSettings();
 			return;
 		}
-		peer.applySettings({ dm });
+		setPane("settings");
+		setGuarding(true);
+	};
+	requestCloseRef.current = requestClose;
+	const save = async () => {
+		if (!dirty) {
+			browser.closeSettings();
+			return;
+		}
+		setDmBusy(true);
+		setDmError("");
+		try {
+			if (!await session.applySettings({ dm })) {
+				setDmError("This browser refused to save the connection choice.");
+			}
+		} finally {
+			setDmBusy(false);
+		}
 	};
 
 	// One panel is in the document at a time, rather than two that take turns
@@ -133,13 +194,9 @@ function SettingsDialog(
 			className="modal"
 			aria-labelledby={titleId}
 		>
-			<form
+			<div
 				className="modal-card card-plane"
 				data-dir="home"
-				onSubmit={(e) => {
-					e.preventDefault();
-					save();
-				}}
 			>
 				<SettingsHead
 					titleId={titleId}
@@ -153,12 +210,11 @@ function SettingsDialog(
 							// Operations is its own page now, so the control
 							// navigates rather than layering: never pressed.
 							open: false,
-							onOpen: () => peer.openOperations(),
+							onOpen: () => browser.openOperations(),
 						}
 						: undefined}
 					closeId={open ? "settingsClose" : undefined}
-					closeLabel={dirty ? "Discard changes and close" : "Close"}
-					onClose={() => peer.closeSettings()}
+					onClose={requestClose}
 				>
 					<Tabs
 						tabs={tabs}
@@ -179,8 +235,8 @@ function SettingsDialog(
 						    Leave live on its card — the same card a room's caption opens —
 						    so this panel does not answer those twice. */
 						}
-						<p className="well-title overline">This directory</p>
-						<div className="group well">
+						<h3 className="well-title overline" id="directoryLegend">This directory</h3>
+						<div className="group well" role="group" aria-labelledby="directoryLegend">
 							<CopyField
 								id="directoryLocator"
 								text={roomLoc}
@@ -188,19 +244,21 @@ function SettingsDialog(
 							/>
 							<p className="hint">This is the address of the room directory the page is showing.</p>
 							{dir !== null && (
-								<Button
-									id="settingsAboutDir"
-									type="button"
-									variant="quiet"
-									onClick={(event) =>
-										openModalFrom(event.currentTarget, () => peer.aboutDirectory(dir.id))}
-								>
-									About this directory
-								</Button>
+								<div className="actions">
+									<Button
+										id="settingsAboutDir"
+										type="button"
+										variant="quiet"
+										onClick={(event) =>
+											openModalFrom(event.currentTarget, () => browser.aboutDirectory(dir.id))}
+									>
+										About this directory
+									</Button>
+								</div>
 							)}
 						</div>
-						<p className="well-title overline">This browser</p>
-						<div className="group well">
+						<h3 className="well-title overline" id="browserLegend">This browser</h3>
+						<div className="group well" role="group" aria-labelledby="browserLegend">
 							<CopyField
 								id="selfLocator"
 								text={selfLoc}
@@ -212,39 +270,13 @@ function SettingsDialog(
 						</div>
 					</div>
 				)}
-				{pane === "capabilities" && (
+				{pane === "session" && (
 					<div
-						id="capabilitiesPanel"
+						id="sessionPanel"
 						role="tabpanel"
-						aria-labelledby="capabilitiesTab"
+						aria-labelledby="sessionTab"
 					>
-						{
-							/* One toggle per operations capability, and the toggle is the
-						    capability: on means this tab holds it. Flipping one on opens
-						    the take modal, and only a successful take lands it on;
-						    flipping it off lets the capability go, pane and swiss with
-						    it. The Operations control in the head appears while any is
-						    held. */
-						}
-						<p className="well-title overline" id="opsLegend">Operations</p>
-						<div className="group well" role="group" aria-labelledby="opsLegend">
-							{OPS_CAPS.map((cap: OpsCap) => (
-								<div className="switch-row" key={cap}>
-									<p className="group-label" id={`ops-${cap}-legend`}>{OPS_CATALOG[cap].label}</p>
-									<Switch
-										id={OPS_CATALOG[cap].toggleId}
-										checked={opsHeld[cap]}
-										label={OPS_CATALOG[cap].label}
-										aria-labelledby={`ops-${cap}-legend`}
-										onClick={(event) => {
-											if (opsHeld[cap]) {
-												peer.dropOpsCap(cap);
-											} else openModalFrom(event.currentTarget, () => peer.openOpsTake(cap));
-										}}
-									/>
-								</div>
-							))}
-						</div>
+						<SessionSettings keepHistory={keepHistory} archiveTarget={archiveTarget} />
 					</div>
 				)}
 				{pane === "settings" && (
@@ -253,11 +285,32 @@ function SettingsDialog(
 						role="tabpanel"
 						aria-labelledby="settingsTab"
 					>
-						<p className="lead">
-							Saving reloads this window.
-						</p>
-						<p className="well-title overline" id="dmLegend">Direct message connection</p>
-						<div className="group well" role="group" aria-labelledby="dmLegend">
+						{guarding && (
+							<Confirm
+								id="settingsUnsaved"
+								label="Unsaved changes"
+								say={`Closing now throws away your changes to ${
+									unsaved.length === 2 ? unsaved.join(" and ") : unsaved[0]
+								}.`}
+								keep="Keep editing"
+								commit="Discard and close"
+								keepId="settingsUnsavedKeep"
+								commitId="settingsUnsavedDiscard"
+								onKeep={() => setGuarding(false)}
+								onCommit={() => browser.closeSettings()}
+							/>
+						)}
+						<h3 className="well-title overline" id="dmLegend">Direct message connection</h3>
+						<form
+							id="dmSettingsForm"
+							className="group well"
+							role="group"
+							aria-labelledby="dmLegend"
+							onSubmit={(event) => {
+								event.preventDefault();
+								void save();
+							}}
+						>
 							<label className="choice">
 								<input
 									type="radio"
@@ -282,31 +335,34 @@ function SettingsDialog(
 								<span>
 									<strong>Through the room relay</strong>
 									A peer that is not a browser can write first. Noise encrypts the direct connection
-									end to end; the relay carries only ciphertext.
+									end to end. The relay carries only ciphertext.
 								</span>
 							</label>
-						</div>
-						<p className="well-title overline" id="historyLegend">This device</p>
-						<div className="group well" role="group" aria-labelledby="historyLegend">
-							<div className="switch-row">
-								<p className="group-label" id="keepHistoryLegend">Keep direct-message history</p>
-								<Switch
-									id="keepHistoryToggle"
-									checked={keepHistory}
-									label="Keep direct-message history"
-									aria-labelledby="keepHistoryLegend"
-									onClick={() => peer.setKeepHistory(!keepHistory)}
-								/>
+							<p className="hint" id="dmReloadHint">Saving reloads this window.</p>
+							{dmError !== "" && <Said kind="failure">{dmError}</Said>}
+							<div className="actions">
+								<Button id="dmSave" type="submit" busy={dmBusy} disabled={!dirty}>
+									Save and reload
+								</Button>
 							</div>
-							<p className="hint">
-								Direct messages are end-to-end encrypted, so their history can only live here, on this
-								device. Turning this off erases what this browser has kept.
-							</p>
-						</div>
-						<Button type="submit" disabled={!dirty}>Save and reload</Button>
+						</form>
+
+						{
+							/* Which operator capabilities this tab holds, for an
+						    administering capability only: the rarest setting, under
+						    the connection choice anyone with interact access sees. */
+						}
+						{canAdminister && (
+							<>
+								<h3 className="well-title overline" id="opsLegend">Operations</h3>
+								<div className="group well" role="group" aria-labelledby="opsLegend">
+									<CapabilitySetForm />
+								</div>
+							</>
+						)}
 					</div>
 				)}
-			</form>
+			</div>
 		</dialog>
 	);
 }

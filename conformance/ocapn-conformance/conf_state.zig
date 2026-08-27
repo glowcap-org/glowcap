@@ -116,14 +116,12 @@ pub const PendingEnliven = struct {
 
 /// A Host-driving effect classified under the before-serve callback latch and
 /// executed after Host.serveEvent unwinds. The hook may inspect and claim an
-/// event, but Host.fetch/acceptGive and Bridge.dialOutbound are deliberately
+/// event, but Host.fetch/acceptInlineGive and Bridge.dialOutbound are deliberately
 /// top-level operations and reject callback re-entry.
 pub const DeferredAction = union(enum) {
     accept_give: struct {
         session: *HostSession,
-        answer: u64,
-        give: []u8,
-        uri: []u8,
+        give: model.HandoffGive,
     },
     fetch: struct {
         exporter: *HostSession,
@@ -135,10 +133,7 @@ pub const DeferredAction = union(enum) {
 
     pub fn deinit(self: DeferredAction, allocator: std.mem.Allocator) void {
         switch (self) {
-            .accept_give => |action| {
-                allocator.free(action.give);
-                allocator.free(action.uri);
-            },
+            .accept_give => |action| model.freeHandoffGive(allocator, action.give),
             .fetch => |action| allocator.free(action.swiss),
             .dial => |designator| allocator.free(designator),
         }

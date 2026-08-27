@@ -1,8 +1,10 @@
-import type { PartnerIdentity, Session } from "@pancake/runtime";
+import type { PartnerIdentity, Ref, Session } from "@pancake/runtime";
 import { ROOM_EXISTS, RoomError, TOO_MANY_PEERED_ROOMS } from "../lib/errors.ts";
 import { MAX_PEERED_ROOMS, MAX_PEERED_ROOMS_PER_SOURCE } from "../lib/limits.ts";
 import {
 	cancelForeignRoom,
+	commitForeignRoom,
+	forgetForeignRoom,
 	forgetRoom,
 	makeRoomState,
 	publicRoomById,
@@ -40,6 +42,21 @@ function expectRoomError(action: () => unknown, code: string): void {
 		return;
 	}
 	throw new Error(`expected ${code}`);
+}
+
+/** A session that records every capability it is asked to release, so a test
+ * can assert a peered room's capability is handed back exactly once and never
+ * twice. */
+function countingSession(index: number): { session: Session; released: Ref[] } {
+	const released: Ref[] = [];
+	const base = fakeSession(index);
+	const session = {
+		partnerIdentity: base.partnerIdentity.bind(base),
+		release: (ref: Ref) => {
+			released.push(ref);
+		},
+	} as unknown as Session;
+	return { session, released };
 }
 
 Deno.test("pending peering reservations occupy the one public namespace without becoming discoverable", () => {
@@ -139,4 +156,57 @@ Deno.test("stale local cleanup cannot remove a replacement room generation", () 
 	} finally {
 		forgetRoom(replacement);
 	}
+});
+
+Deno.test("a committed peered room is discoverable, and forgetting it releases its capability once and frees the slot", () => {
+	const { session, released } = countingSession(40);
+	const room = { id: 1n } as unknown as Ref;
+	const reservation = reserveForeignRoom("owned-peer", session);
+	const entry = commitForeignRoom(reservation, room);
+	try {
+		assert(publicRoomById(entry.id) === entry, "a committed peered room is not discoverable by id");
+		assert(publicRooms.get(reservation.key) === entry, "a committed peered room is not in the public namespace");
+		// Snapshot the count into a fresh local each time: asserting on
+		// `released.length` directly would narrow it to a literal and hide the
+		// mutation that forget performs between the checks.
+		const releasedAtCommit = released.length;
+		assert(releasedAtCommit === 0, "committing a peered room released its capability early");
+
+		const forgotten = forgetForeignRoom(entry.id);
+		assert(forgotten === entry, "forget did not return the committed entry");
+		const releasedAtForget = released.length;
+		assert(
+			releasedAtForget === 1 && released[0] === room,
+			"the peered room capability was not released exactly once",
+		);
+		assert(publicRoomById(entry.id) === null, "a forgotten peered room is still discoverable");
+
+		// Idempotent: a second forget of the same generation finds nothing and
+		// releases nothing, so a stale lease cannot double-release.
+		assert(forgetForeignRoom(entry.id) === null, "double forget found a ghost entry");
+		const releasedAtDoubleForget = released.length;
+		assert(releasedAtDoubleForget === 1, "double forget released the capability a second time");
+
+		// The slot the reservation held is free again: the same source can
+		// reserve the same name without hitting a phantom collision or quota.
+		const again = reserveForeignRoom("owned-peer", session);
+		cancelForeignRoom(again);
+	} finally {
+		// Defensive: if an assertion failed before forget, do not leak the row.
+		if (publicRoomById(entry.id) !== null) forgetForeignRoom(entry.id);
+	}
+});
+
+Deno.test("committing a peered room whose reservation was revoked first is refused", () => {
+	const { session } = countingSession(41);
+	const reservation = reserveForeignRoom("revoked-early", session);
+	assert(cancelForeignRoom(reservation), "a live reservation should cancel");
+	let refused = false;
+	try {
+		commitForeignRoom(reservation, { id: 2n } as unknown as Ref);
+	} catch {
+		refused = true;
+	}
+	assert(refused, "committing a capability onto a cancelled reservation must be refused");
+	assert(publicRooms.get(reservation.key) === undefined, "a refused commit left a public namespace row");
 });

@@ -9,9 +9,10 @@
 // dialing that peer, WebRTC signaling routed between two members who cannot
 // dial each other at all.
 
-import { formatSturdyRef, Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
 import type { Session } from "@pancake/runtime";
-import { type RoomsDial, roomsLocator } from "./locator.ts";
+import type { RoomsDial } from "./locator.ts";
+import { isPrivateRoomKey, MAX_DM_INBOXES, newPrivateRoomKey } from "./limits.ts";
 import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
 	ADVERTISED_LOCATION,
@@ -22,21 +23,23 @@ import {
 	LINK,
 	LIST_PUBLICATIONS,
 	NOTIFY,
-	OFFER_INBOX,
 	OPEN,
-	REGISTER,
-	VOUCHER,
+	OPEN_PRIVATE_LINK,
 	WATCH_PUBLICATIONS,
 } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import { DirectorySignaling } from "./directory_signal.ts";
-import { parseRooms, readRoomEvent, type RoomEvent, type RoomInfo } from "./directory_publications.ts";
-
-// How long `register` waits for the directory's `notify("registered")` before it
-// rejects. A registration whose ack never lands (the server's `registerMember`
-// threw) must surface as a failure the caller can retry, not a silent hang; the
-// window sits far above the round-trip a healthy directory answers within.
-const REGISTER_ACK_TIMEOUT_MS = 10_000;
+import { DirectoryRegistration } from "./directory_registration.ts";
+import {
+	parseDirectoryWatchSnapshot,
+	parseRegistrationId,
+	parseRooms,
+	readRoomEvent,
+	type RoomEvent,
+	type RoomInfo,
+} from "./directory_publications.ts";
+import { parseRoomsSturdyref } from "./locator.ts";
+import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
 // directory has asked them for one. Bounded, because the peer may never answer.
@@ -110,14 +113,8 @@ export class Directory {
 	readonly #localRefs = new Set<Ref>();
 	#retainedFailure: unknown | null = null;
 	readonly #signaling: DirectorySignaling;
+	readonly #registration: DirectoryRegistration;
 	#closePromise: Promise<void> | null = null;
-	// The name capability the directory answered `register` with. A promise,
-	// because `register` resolves on the directory's ack and the capability rides
-	// the reply, which can land after it: a caller who registers and immediately
-	// mints a voucher must wait for the capture, not read a null that is about to
-	// stop being true. Settles null when a directory grants no transferable name
-	// authority, and on a failed register, so no waiter hangs on it.
-	#nameCap: Promise<Ref | null> = Promise.resolve(null);
 	// Callers parked in `introduceVia` waiting for a peer to offer them an inbox,
 	// by the peer's lowercased nick. Fed by the register inbox's `introducible`.
 	readonly #introducible = new Map<string, (() => void)[]>();
@@ -135,6 +132,12 @@ export class Directory {
 			session,
 			directory,
 			(ref) => this.#releaseLocal(ref),
+		);
+		this.#registration = new DirectoryRegistration(
+			session,
+			directory,
+			(ref) => this.#releaseLocal(ref),
+			(peer, registrationId) => this.#wakeIntroducible(peer, registrationId),
 		);
 	}
 
@@ -183,14 +186,45 @@ export class Directory {
 	 * is reached only by holding the reference this answers with or one passed on
 	 * from it with `invite`. Two of them may share a label, and neither reader
 	 * learns of the other's. */
-	open(name: string, isPrivate = false): Promise<Ref> {
+	open(name: string): Promise<Ref> {
 		return ask(
 			this.session,
 			this.#directory,
 			OPEN,
-			isPrivate ? [name, true] : [name],
+			[name],
 			`the directory did not answer opening "${name}"`,
 		) as Promise<Ref>;
+	}
+
+	/** Create or recover one private room under an opaque caller-held key.
+	 * A repeated call with the same key returns the same room, so a lost answer
+	 * can be retried without creating another room. */
+	openPrivate(label: string, recoveryKey = newPrivateRoomKey()): Promise<Ref> {
+		if (!isPrivateRoomKey(recoveryKey)) throw new Error("a private room recovery key is invalid");
+		return ask(
+			this.session,
+			this.#directory,
+			OPEN,
+			[label, true, recoveryKey],
+			`the directory did not answer opening private room "${label}"`,
+		) as Promise<Ref>;
+	}
+
+	/** Persist and return a private room's durable authority as one directory
+	 * act. Repeating the opaque key returns the same sturdyref across restarts. */
+	async openPrivateLink(recoveryKey = newPrivateRoomKey()): Promise<string> {
+		if (!isPrivateRoomKey(recoveryKey)) throw new Error("a private room recovery key is invalid");
+		const answer = await ask(
+			this.session,
+			this.#directory,
+			OPEN_PRIVATE_LINK,
+			[recoveryKey],
+			"the directory did not answer creating a private room link",
+		);
+		if (typeof answer !== "string" || answer === "") {
+			throw new Error("the directory answered private room creation without a sturdyref");
+		}
+		return answer;
 	}
 
 	/** Return a reference to an existing room. Rejects if there is no such room. */
@@ -215,22 +249,22 @@ export class Directory {
 		) as Promise<Ref>;
 	}
 
-	/** The stable room sturdyref this directory minted. The peer half comes from
-	 * the locator the caller actually used, preserving its authenticated route
-	 * and current reachability hints; the server answers only the opaque swiss
-	 * authority it owns. */
-	async link(name: string, locator: string): Promise<string> {
-		const swiss = await ask(
+	/** The stable room sturdyref this directory minted. The room Host authors
+	 * both its durable authority and the location current for this session, so a
+	 * client cannot accidentally splice that authority onto one stale route. */
+	async link(name: string): Promise<string> {
+		const sturdyref = await ask(
 			this.session,
 			this.#directory,
 			LINK,
 			[name],
 			`the directory did not answer linking "${name}"`,
 		);
-		if (typeof swiss !== "string" || swiss.length === 0) {
-			throw new Error(`link("${name}") did not return a swissnum`);
+		if (typeof sturdyref !== "string" || sturdyref.length === 0) {
+			throw new Error(`link("${name}") did not return a sturdyref`);
 		}
-		return formatSturdyRef(roomsLocator(locator), swiss, this.session.profile.captpVersion);
+		parseRoomsSturdyref(sturdyref);
+		return sturdyref;
 	}
 
 	/** The live rooms right now, the ones with people in them. */
@@ -266,6 +300,11 @@ export class Directory {
 	 * `onEvent` then fires on every open/close/count change. */
 	async watch(onEvent: (event: RoomEvent) => void): Promise<RoomInfo[]> {
 		const observer = this.session.spawn((verb, args) => {
+			releaseUnclaimedCapabilityArguments(
+				this.session,
+				args,
+				"the directory watch inbox could not return an unexpected capability",
+			);
 			if (verb !== NOTIFY) throw new Error(`watch inbox has no method ${verb}`);
 			const event = readRoomEvent(args);
 			if (event !== null) onEvent(event);
@@ -279,8 +318,21 @@ export class Directory {
 				[observer],
 				"the directory did not answer watching its rooms",
 			);
+			const snapshot = parseDirectoryWatchSnapshot(raw);
+			for (const peer of snapshot.peers) {
+				onEvent({
+					kind: "registered",
+					name: peer.name,
+					registrationId: peer.registrationId,
+					count: 1,
+					entry: null,
+				});
+			}
+			if (snapshot.omitted > 0) {
+				onEvent({ kind: "truncated", name: "", count: snapshot.omitted, entry: null });
+			}
 			this.#releaseLocal(observer);
-			return parseRooms(raw);
+			return snapshot.rooms;
 		} catch (error) {
 			throw await retainCleanupFailures(error, [() => this.session.release(observer)]);
 		}
@@ -295,53 +347,20 @@ export class Directory {
 	register(
 		nick: string,
 		locator: string,
-		onMintInboxFor?: (peer: string) => void,
-	): Promise<void> {
-		return new Promise((resolve, reject) => {
-			// The timeout is armed before `settle` exists because `settle` has to
-			// clear it. Neither forward reference runs early: the callback below
-			// is stored, not called, and the block finishes before any task can
-			// fire it.
-			const timer = setTimeout(
-				() => settle(() => reject(new Error(`register("${nick}") was not acknowledged in time`))),
-				REGISTER_ACK_TIMEOUT_MS,
-			);
-			const settle = (run: () => void) => {
-				clearTimeout(timer);
-				run();
-			};
-			const inbox = this.session.spawn((verb, args) => {
-				if (verb !== NOTIFY) return null;
-				const event = args[0];
-				const peer = typeof args[1] === "string" ? args[1] : "";
-				if (event === "registered") settle(resolve);
-				else if (event === "mintInboxFor" && peer) onMintInboxFor?.(peer);
-				else if (event === "introducible" && peer) this.#wakeIntroducible(peer);
-				return null;
-			});
-			// A real reject edge: a dropped `send` (the directory session died
-			// mid-register) and an ack that never arrives both surface as a failure
-			// the caller can retry, instead of a promise that only ever resolves or
-			// hangs — a hang would pin the caller out of the DM roster silently.
-			//
-			// The reply is the name capability: the holding of the granted name,
-			// detached from this connection. Kept on the Directory because a later
-			// subscribe on another connection proves itself with a voucher this
-			// capability mints. A directory may grant no transferable name authority;
-			// every voucher path then degrades to the refusal it already had.
-			const sent = this.session.send(this.#directory, REGISTER, [nick, locator, inbox]);
-			this.#nameCap = sent.then(
-				(reply) => (reply instanceof Ref ? reply : null),
-				() => null,
-			);
-			void sent.then(
-				() => this.#releaseLocal(inbox),
-				async (error) => {
-					const primary = await retainCleanupFailures(error, [() => this.session.release(inbox)]);
-					settle(() => reject(primary));
-				},
-			);
-		});
+		onMintInboxFor?: (peer: string, registrationId: string) => void,
+		onDirectRequested?: (peer: string, registrationId: string) => void,
+	): Promise<string> {
+		return this.#registration.register(nick, locator, onMintInboxFor, onDirectRequested);
+	}
+
+	/** Ask a registered peer to establish the reciprocal direct carrier after
+	 * this side learned it cannot dial the peer's advertised one. */
+	async requestDirect(peer: string, registrationId: string): Promise<void> {
+		await this.#registration.requestDirect(peer, registrationId);
+	}
+
+	async memberRegistration(peer: string): Promise<string> {
+		return await this.#registration.memberRegistration(peer);
 	}
 
 	/** A single-use proof that the caller holds this directory's registered
@@ -349,16 +368,7 @@ export class Directory {
 	 * directory minted no name capability. Each voucher redeems once, and only
 	 * while the registration stands. */
 	async nameVoucher(): Promise<Uint8Array | null> {
-		const nameCap = await this.#nameCap;
-		if (nameCap === null) return null;
-		const voucher = await ask(
-			this.session,
-			nameCap,
-			VOUCHER,
-			[],
-			"the directory did not answer minting a name voucher",
-		);
-		return voucher instanceof Uint8Array ? voucher : null;
+		return await this.#registration.nameVoucher();
 	}
 
 	/** Ask the directory to introduce us to a registered member, returning a live
@@ -371,8 +381,8 @@ export class Directory {
 	 * registration, never from the message, so an unregistered caller has no name
 	 * an inbox could have been minted for. Rejects if no member with that nick is
 	 * registered. */
-	async introduce(nick: string): Promise<Ref> {
-		return (await this.introduceVia(nick)).dm;
+	async introduce(nick: string, registrationId: string): Promise<Ref> {
+		return (await this.introduceVia(nick, registrationId)).dm;
 	}
 
 	/** Introduce us to a member, returning both the member's `dm` reference and
@@ -383,9 +393,14 @@ export class Directory {
 	 * say) that cannot itself be dialed. `via` is null only if the reply named no
 	 * fresh redeem. Requires a `register`, like `introduce`. Rejects if no member
 	 * with that nick is registered. */
-	async introduceVia(nick: string): Promise<{ dm: Ref; via: Session | null }> {
+	async introduceVia(
+		nick: string,
+		expectedRegistrationId?: string,
+	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
+		const registrationId = expectedRegistrationId ?? await this.memberRegistration(nick);
+		parseRegistrationId(registrationId, `introduce("${nick}")`);
 		try {
-			return await this.#introduceOnce(nick);
+			return await this.#introduceOnce(nick, registrationId);
 		} catch (err) {
 			if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 		}
@@ -398,9 +413,9 @@ export class Directory {
 		// retry refused again therefore waits for a fresh notify rather than
 		// reporting failure on the strength of an old one.
 		for (let attempt = 0; attempt < 2; attempt += 1) {
-			await this.#awaitIntroducible(nick, attempt === 0);
+			await this.#awaitIntroducible(nick, registrationId, attempt === 0);
 			try {
-				return await this.#introduceOnce(nick);
+				return await this.#introduceOnce(nick, registrationId);
 			} catch (err) {
 				if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 			}
@@ -411,27 +426,34 @@ export class Directory {
 		);
 	}
 
-	async #introduceOnce(nick: string): Promise<{ dm: Ref; via: Session | null }> {
+	async #introduceOnce(
+		nick: string,
+		expectedRegistrationId: string,
+	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
 		// Named as this directory's redeem: the dial it raises may need signaling,
 		// and only this side knows which directory is vouching for the peer.
 		const { reply, via } = await redeemingThrough(
 			this,
-			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick]),
+			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick, expectedRegistrationId]),
 		);
 		if (!(reply instanceof Ref)) {
 			throw new Error(`introduce("${nick}") did not return a capability`);
 		}
-		return { dm: reply, via };
+		return { dm: reply, via, registrationId: expectedRegistrationId };
 	}
 
-	#wakeIntroducible(peer: string): void {
-		const key = peer.toLowerCase();
+	#wakeIntroducible(_peer: string, registrationId: string): void {
+		const key = registrationId;
 		const waiting = this.#introducible.get(key);
 		this.#introducible.delete(key);
 		// A list every waiter has timed out of is the same as no list: bank the
 		// wakeup, or it reaches nobody and the next caller parks on a signal that
 		// has already been sent.
 		if (waiting === undefined || waiting.length === 0) {
+			if (!this.#introducibleSeen.has(key) && this.#introducibleSeen.size >= MAX_DM_INBOXES) {
+				const oldest = this.#introducibleSeen.values().next().value;
+				if (oldest != null) this.#introducibleSeen.delete(oldest);
+			}
 			this.#introducibleSeen.add(key);
 			return;
 		}
@@ -441,10 +463,14 @@ export class Directory {
 	/** Wait for `nick` to offer us an inbox. `useBanked` spends a wakeup that
 	 * arrived before this call; the retry pass passes false, so it waits for a
 	 * fresh one. */
-	#awaitIntroducible(nick: string, useBanked: boolean): Promise<void> {
-		const key = nick.toLowerCase();
+	#awaitIntroducible(nick: string, registrationId: string, useBanked: boolean): Promise<void> {
+		const key = registrationId;
 		if (useBanked && this.#introducibleSeen.delete(key)) return Promise.resolve();
 		return new Promise((resolve, reject) => {
+			if (!this.#introducible.has(key) && this.#introducible.size >= MAX_DM_INBOXES) {
+				reject(new Error(`a directory connection may await at most ${MAX_DM_INBOXES} direct introductions`));
+				return;
+			}
 			const timer = setTimeout(() => {
 				const waiting = this.#introducible.get(key);
 				if (waiting !== undefined) {
@@ -473,14 +499,8 @@ export class Directory {
 
 	/** Offer the directory an inbox for one named peer, the answer to a
 	 * `mintInboxFor` request. */
-	async offerInbox(forNick: string, inbox: Ref): Promise<void> {
-		await ask(
-			this.session,
-			this.#directory,
-			OFFER_INBOX,
-			[forNick, inbox],
-			`the directory did not answer offering an inbox for ${forNick}`,
-		);
+	async offerInbox(forNick: string, forRegistrationId: string, inbox: Ref): Promise<void> {
+		await this.#registration.offerInbox(forNick, forRegistrationId, inbox);
 	}
 
 	/** File this member's WebRTC signaling inbox with the directory. */
@@ -538,7 +558,7 @@ export class Directory {
 		}
 		for (const ref of [...this.#localRefs]) release(ref);
 		release(this.#directory);
-		const nameCap = await this.#nameCap.catch(() => null);
+		const nameCap = await this.#registration.takeNameCapability();
 		if (nameCap !== null) release(nameCap);
 		try {
 			await this.session.close();

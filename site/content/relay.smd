@@ -287,7 +287,8 @@ A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
 the advertised locator survives a restart. TypeScript, Python, Rust, and
 Racket provide managed `noise-relay` listeners. Zig registers through the
-native relay provider and `driver.listen`, with platform trust for `wss://`.
+native relay provider (`pancake.module("pancake_native_relay")`, which builds
+Mbed TLS from source) and `driver.listen`, with platform trust for `wss://`.
 A browser never listens.
 
 Cleartext keyed registration uses the same constructor with the keyed profile:
@@ -321,7 +322,7 @@ relay path is not sealed.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -334,7 +335,7 @@ relay path is not sealed.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **TypeScript**

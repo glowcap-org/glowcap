@@ -481,4 +481,3 @@ fn readError(bytes: []const u8, cursor: *usize, limit: usize) Error!model.BreakR
 }
 
 pub const decodeSignedHandoffGiveOwned = handoff.decodeSignedHandoffGiveOwned;
-pub const spanSignedHandoffGive = handoff.spanSignedHandoffGive;

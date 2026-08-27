@@ -58,7 +58,7 @@ impl Server {
 			Ok(server) => Ok(server),
 			Err(mut error) => {
 				if let Some(id) = listener {
-					error = crate::retain_cleanup_failure(error, loop_shared.close_listener(id));
+					error = crate::retain_cleanup_failure(error, loop_shared.close_listener(id).await);
 				}
 				if owns_loop {
 					loop_shared.close();
@@ -100,8 +100,8 @@ impl Server {
 	/// Stop iroh admission through this listener. Sessions already returned by
 	/// [`Server::accept`] remain live on the shared Host; [`Host::close`]
 	/// is the terminal endpoint and session release barrier.
-	pub fn close(&self) -> Result<()> {
-		self.listener.close()
+	pub async fn close(&self) -> Result<()> {
+		self.listener.close().await
 	}
 }
 

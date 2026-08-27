@@ -6,7 +6,7 @@ import * as tcp from "@pancake/tcp";
 // This probe is the smallest such page: it dials, fetches the directory, lists
 // the rooms, and writes the result into `#status` for `browser_peer_test.ts` to
 // read from a real headless Chromium. The full page's data layer replaces
-// `ui/net.ts`'s JSON client with exactly these calls.
+// `web/ui/net.ts`'s JSON client with exactly these calls.
 
 import { init } from "@pancake/web";
 import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";

@@ -24,8 +24,6 @@ const fetch_pump = @import("../../support/fetch_pump.zig");
 const handshake = @import("../../support/handshake.zig");
 const no_dial = @import("../../support/no_dial_locator.zig");
 
-const frame_cap = 4096;
-
 const backend_support = @import("cross_arm_backend.zig");
 const CrossArmBackend = backend_support.CrossArmBackend;
 const startSession = backend_support.startSession;

@@ -398,16 +398,7 @@ test "event serve OOM condemns the consumed event instead of retrying it" {
     try std.testing.expect(saw_close);
 }
 
-/// The amplification target: each queued `hit` is one local turn.
-const Counter = struct {
-    hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
-        self.hits += 1;
-        return .{ .integer = self.hits };
-    }
-};
+const Counter = support_actors.Counter;
 
 /// A behavior whose one inbound `flood` queues more local turns than the
 /// budget admits on its Port ingress, so the breach belongs to the fed
@@ -442,6 +433,7 @@ const SiblingFlood = struct {
 };
 
 const host_pair = @import("../support/host_pair.zig");
+const support_actors = @import("../support/actors.zig");
 const Pair = host_pair.Pair;
 const pumpToQuiescence = host_pair.pumpToQuiescence;
 const openPair = host_pair.openPair;

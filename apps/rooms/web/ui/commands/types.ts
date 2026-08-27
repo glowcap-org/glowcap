@@ -75,6 +75,15 @@ export interface CommandPowers {
 	 * `roomLink`. False when there is no room membership to hand over, or when
 	 * `nick` is this reader — they already hold the room. */
 	invite(nick: string): boolean;
+	/** Ask a member to leave the room this was typed in, through the room's
+	 * steward capability. The room answers that capability only to the
+	 * connection that opened it, so for everyone else the room's own refusal
+	 * comes back in the conversation. False when this is not a room. */
+	kick(nick: string): boolean;
+	/** Claim, show, or take this room's durable steward capability. With no
+	 * sturdyref, claim it if unissued or show the one this tab holds; with one,
+	 * validate and take that exact room's handed-over authority. */
+	steward(link?: string): boolean;
 	/** The name this conversation's directory granted this reader, or empty
 	 * until it has. Direct lines and invitations are toward somebody else, so a
 	 * command that names this string is refused rather than opening a line to
@@ -104,10 +113,6 @@ export interface CommandPowers {
 	quitDirectory(): void;
 	/** Open the card about the conversation this was typed in. */
 	aboutConversation(): void;
-	/** Hand this room's IRC seat the reader's own registered account. Fires
-	 * the ask; the room's answer — or its refusal, including a native room
-	 * refusing the verb outright — lands as a system line where they typed. */
-	ircLogin(account: string, password: string): void;
 }
 
 /** What running a command comes to.
@@ -161,7 +166,8 @@ export interface Command {
 	 * so a reader holds them by having spoken.
 	 *
 	 * A command naming a grant nothing ever answers with is simply never held,
-	 * which is the honest state of `/kick` and its neighbours today. */
+	 * so every named grant must correspond to a capability the conversation can
+	 * actually hand over. */
 	grant?: string;
 	/** Where this command can succeed. Absent means any conversation this tab
 	 * can type in. `"room"` means it would refuse in a direct line, and offering

@@ -245,6 +245,16 @@ pub fn register(
     const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a pancake peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
     goblins_rooms_step.dependOn(&goblins_rooms.step);
 
+    // Product-level Peering evidence: the generic handoff fixtures prove the
+    // substrate, while this composition includes the foreign-room registry,
+    // readiness lease, profile lowering, discovery revoke, and continued use
+    // of the already-handed room by a real Goblins vat.
+    const goblins_rooms_peering = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "deno", "run", "--allow-all", "interop/goblins_rooms_peering/harness.ts",
+    });
+    const goblins_rooms_peering_step = b.step("goblins-rooms-peering", "Live Goblins through Rooms Peering: enter a pancake foreign listing over v1.0/Syrup, revoke discovery, and keep using the handed room (needs deno + racket + goblins)");
+    goblins_rooms_peering_step.dependOn(&goblins_rooms_peering.step);
+
     // Both shipped IRC application edges against the outside protocol
     // authority. The bridge phase drives a local TLS/SASL IRC fixture in both
     // directions; the front phase adds a native room, an ordinary IRC socket,

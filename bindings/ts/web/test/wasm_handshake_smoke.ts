@@ -10,7 +10,7 @@
 // sturdyref is refused before any frame is emitted. The signed handshake,
 // keyed crypto, Syrup framing, entropy seam, URI parsing, and peer check all
 // run inside the wasm sandbox. It mirrors the native
-// `test/driver/core_host_test.zig` "two hosts complete the keyed handshake over
+// `test/driver/core_host/` "two hosts complete the keyed handshake over
 // fed bytes" scenario, one layer out through the wasm exports.
 //
 // The full binding lives one directory up: `mod.ts` / `adapter.ts` grow the

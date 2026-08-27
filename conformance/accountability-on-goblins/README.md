@@ -31,6 +31,7 @@ the protocol core.
 | `racket/identity.rkt`                          | KERI primitives in Racket.                    |
 | `racket/episode.rkt`                           | Episode emission.                             |
 | `racket/log.rkt`                               | Local transparency log.                       |
+| `racket/shapes/episode.ttl`                    | SHACL shape naming every property an Episode carries; nothing validates against it. |
 | [`racket/doc/KERNEL.md`](racket/doc/KERNEL.md) | Human-readable kernel walkthrough.            |
 
 ## Generated State
@@ -42,13 +43,13 @@ output should stay generated state.
 
 The initial commit landed one round of that output before the rule above was
 written, so twenty KERI secret keys (`.data/keys/*.sk`) and their key event
-logs are in the repository's history. They are demo material the kernel
+logs remain in the repository's history. They are demo material the kernel
 generated on one machine, they hold authority over nothing outside these
-scenarios, and nothing needs rotating. They are named here rather than quietly
-dropped, because a reader who finds key material in a project that publishes a
-security policy deserves to be told what it is instead of discovering it.
-Regenerate the tree by running the kernel demo below; the directory is ignored
-now, so a fresh run stays out of the index.
+scenarios, and nothing needs rotating. They are named here rather than passed
+over, because a reader who finds key material in a project that publishes a
+security policy deserves to be told what it is instead of discovering it. The
+working tree carries none of it: both directories are ignored, and the kernel
+demo below regenerates them.
 
 ## Running
 

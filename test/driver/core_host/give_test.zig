@@ -14,10 +14,15 @@ const driver = pancake.driver;
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const engine = pancake.ocapn.engine;
+const session_inspect = pancake.ocapn.session.inspect;
 const crypto = pancake.foundation.crypto;
 const stream_framing = pancake.foundation.stream_framing;
 
 const harness = @import("harness.zig");
+const node_harness = @import("../../engine/node/harness.zig");
+
+/// The one signed give every lifecycle case redeems, shared with the Node tests.
+const signedGiveForLifecycleTest = node_harness.testGiveBytes;
 const frame_cap = harness.frame_cap;
 const Widget = harness.Widget;
 const FairCounter = harness.FairCounter;
@@ -48,25 +53,6 @@ const TraceLog = harness.TraceLog;
 const give_capture = @import("give/capture.zig");
 const NestedCallCapture = give_capture.NestedCallCapture;
 
-fn signedGiveForLifecycleTest(allocator: std.mem.Allocator) ![]u8 {
-    const location = try engine.encodePeerLocatorRecord(allocator, .{
-        .transport = "tcp",
-        .designator = "127.0.0.1:9099",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer allocator.free(location);
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x77)));
-    return engine.handoff_gifter.buildSignedGive(
-        allocator,
-        secret,
-        &(@as([32]u8, @splat(0x01))),
-        location,
-        &(@as([32]u8, @splat(0x02))),
-        &(@as([32]u8, @splat(0x03))),
-        &(@as([32]u8, @splat(0x04))),
-    );
-}
-
 test "core local capability verbs share admission and publication identity" {
     var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x47)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
@@ -93,6 +79,58 @@ test "core local capability verbs share admission and publication identity" {
     try std.testing.expectError(error.SessionCondemned, host.spawn(session, Widget, .{}));
     try std.testing.expectError(error.SessionCondemned, host.publishedCapability(session, "widget"));
     try host.releaseCapability(published, 1);
+}
+
+test "application-delivered give uses Host identity without fabricating wire rows" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x70)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    var partner = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
+    defer partner.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |dial| allocator.free(dial.designator);
+        dials.deinit(allocator);
+    }
+    const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7109", &dials);
+    const session = pair.a;
+
+    const signed = try signedGiveForLifecycleTest(allocator);
+    defer allocator.free(signed);
+    const give = try pancake.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
+    defer model.freeHandoffGive(allocator, give);
+
+    const exports_before = session_inspect.exportCount(&session.served.port.peer.session_state);
+    const answers_before = session_inspect.inboundAnswerCount(&session.served.port.peer.session_state);
+    const pending = try host.acceptInlineGive(session, give);
+    try std.testing.expectEqual(@as(usize, 1), host.capability_promises.count());
+    try std.testing.expectEqual(exports_before, session_inspect.exportCount(&session.served.port.peer.session_state));
+    try std.testing.expectEqual(answers_before, session_inspect.inboundAnswerCount(&session.served.port.peer.session_state));
+
+    // This suite-shaped caller only needs the withdrawal to happen. Dropping
+    // the eventual Host capability leaves one typed terminal recipient until
+    // the dial outcome arrives; it does not leave a wire answer the partner
+    // never learned how to release.
+    try host.releaseCapability(pending, 1);
+    var dial_ticket: ?engine.Node.PendingId = null;
+    var dial_route_index: usize = 0;
+    while (try host.nextAction()) |action| switch (action) {
+        .dial => |value| {
+            dial_ticket = value.ticket;
+            dial_route_index = value.route_index;
+        },
+        .flush => {},
+        else => return error.UnexpectedAction,
+    };
+    try host.dialFailed(dial_ticket orelse return error.MissingDial, dial_route_index, "fixture exporter unavailable");
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => {},
+        else => return error.UnexpectedAction,
+    };
+
+    try std.testing.expectEqual(@as(usize, 0), host.capability_promises.count());
+    try std.testing.expectEqual(exports_before, session_inspect.exportCount(&session.served.port.peer.session_state));
+    try std.testing.expectEqual(answers_before, session_inspect.inboundAnswerCount(&session.served.port.peer.session_state));
 }
 
 test "failed application operation leaves a provisional exporter retireable" {

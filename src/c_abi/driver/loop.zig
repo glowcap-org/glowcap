@@ -34,7 +34,6 @@ const ch = @import("c_abi_host");
 const c = @import("mod.zig");
 
 const crypto = foundation.crypto;
-const LocatorProjection = shared.locator_adapter.Projection;
 const FailureProjection = c.FailureProjection;
 
 const PANCAKE_OK = shared.PANCAKE_OK;

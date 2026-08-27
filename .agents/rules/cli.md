@@ -39,15 +39,18 @@ because each needs an outside authority or a whole language runtime of its own.
 ### A hang is usually contention, not your change
 
 Run `zig build` from the repository root: from a subdirectory it drops
-`zig-out/` and `.zig-cache/` debris where it stands and resolves relative
-manifest paths wrong. Test runs are exclusive, because the suite and the interop
-steps bind real loopback ports. Two concurrent runs (a second agent, an editor's
-build-on-save, a stale run a crashed session left behind) wedge each other's
-test binaries in silent socket waits that look like hangs. Three faces of the
-same problem, each with its own sweep:
+`zig-out/` where it stands (and `.zig-cache/` / `zig-pkg/` when the container
+local-cache env is unset) and resolves relative manifest paths wrong. Test runs
+are exclusive, because the suite and the interop steps bind real loopback
+ports. Two concurrent runs (a second agent, an editor's build-on-save, a stale
+run a crashed session left behind) wedge each other's test binaries in silent
+socket waits that look like hangs. Three faces of the same problem, each with
+its own sweep:
 
-- A "hung" gate: sweep for orphaned `.zig-cache/o/*/test` processes from a dead
-  session, then run the gate alone.
+- A "hung" gate: sweep for orphaned Zig test processes from a dead session
+  (`pkill -f 'zig-cache/o/.*/test|zig-local/o/.*/test'` covers a checkout
+  `.zig-cache` and the container `ZIG_LOCAL_CACHE_DIR`), then run the gate
+  alone.
 - A `check` that fails compiling executables which build fine alone: a live
   rival builder is racing the cache. Find it with `ps aux | grep 'zig build'`
   before touching code.
@@ -121,13 +124,18 @@ Generated state is ignored and must not be committed:
 
 - `.zig-cache/`
 - `zig-out/`
-- `zig-pkg/` (Zig's extracted-package dir; appears at `site/zig-pkg/` for the
-  site sub-build)
+- `zig-pkg/` (Zig's extracted-package dir; appears at `site/zig-pkg/` and
+  `tools/consumer/zig-pkg/` when `ZIG_LOCAL_PKG_DIR` is unset)
 - `.serena/cache/`
 - `.serena/logs/`
 - `.serena/memories/` unless a maintainer explicitly asks to share a memory
 - `bindings/rust/target/`
 - `bindings/rust/Cargo.lock`
+
+In the devcontainer, Zig's local cache and extracted packages live under
+`~/.cache/pancake/work/<worktree>/` (`ZIG_LOCAL_CACHE_DIR`,
+`ZIG_LOCAL_PKG_DIR`), not in the checkout. `zig-out/` stays at the worktree
+root: it is the install prefix.
 
 If generated cache appears in status, fix `.gitignore` rather than relying on
 manual cleanup.

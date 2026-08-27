@@ -25,11 +25,26 @@ questions are [watched separately](upstream-watch.md).
   checks and macOS jobs, and verify the repository, badge, and run are visible
   without authentication.
 - **Published C archives.** No versioned assets are live. Publication needs
-  green packages for every target, the `releases_published` switch in
-  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json), and a
-  cold-cache smoke against the real release URL. The checklist is in the
-  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives-flip-checklist).
+  green packages for every target, a tagged exact-SHA release, verified live
+  assets, then the `releases_published` consumer switch in
+  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json) and a
+  cold-cache smoke against the real release URL. The order is fixed by the
+  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives-publication-and-enablement-checklist).
 
+## Rooms capability completion
+
+- **Shareable archives.** The bounded member-owned `put`/`read` archive
+  capability, the tab's IndexedDB implementation, and a durable standalone
+  archive peer ship, with recorder source and conversation generation retained
+  in every key. Advanced Settings selects that peer explicitly, optionally
+  remembers its whole-archive bearer, and reports an unreachable selection
+  without silently forking writes into the device store. The archive can mint
+  monotonic scoped and read-only facets, and a direct-conversation card hands
+  the other member only that line's read facet for an explicit one-shot read or
+  give-back. The remaining work is room and standing handover, independently
+  revocable or durable offers, multi-source views, and durable attachment homes
+  addressed by hash. The design is in
+  [`docs/planning/rooms-persistence.md`](planning/rooms-persistence.md).
 ## Beyond the library
 
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by

@@ -146,16 +146,11 @@ pub fn register(ctx: Context) Registered {
     const site_zig_examples_check = b.step("site-zig-examples-check", "Compile the authoritative Zig transport site examples");
     check_step.dependOn(site_zig_examples_check);
     for (site_zig_snippets.items) |snippet_path| {
-        const example_mod = b.createModule(.{
-            .root_source_file = b.path(snippet_path),
-            .target = ctx.target,
-            .optimize = ctx.optimize,
-        });
-        example_mod.addImport("pancake", ctx.lib_mod);
         const name = b.fmt("site-example-{s}", .{snippet_path["site/examples/".len .. snippet_path.len - ".zig".len]});
         std.mem.replaceScalar(u8, name, '/', '-');
-        const example_test = b.addTest(.{ .name = b.fmt("{s}-compile", .{name}), .root_module = example_mod });
-        site_zig_examples_check.dependOn(&example_test.step);
+        common.addSiteZigExampleCompile(b, ctx.target, ctx.optimize, name, snippet_path, &.{
+            .{ .name = "pancake", .module = ctx.lib_mod },
+        }, site_zig_examples_check);
     }
 
     const site_ts_examples_check = b.step("site-ts-examples-check", "Type-check the authoritative TypeScript transport site examples");
@@ -267,6 +262,21 @@ pub fn register(ctx: Context) Registered {
     site_render_check.step.dependOn(ctx.browser_preflight);
     const site_render_check_step = b.step("site-render-check", "Render every built site page at phone width in the pinned Chromium (fails on console errors or horizontal overflow)");
     site_render_check_step.dependOn(&site_render_check.step);
+
+    // Press the code-tabs on every built page and prove the example switches.
+    // `site-render-check` above proves the pages load and do not overflow but
+    // never clicks, so a broken tab `select()` would pass it. On-demand like
+    // every browser proof, and a sibling rather than a member of
+    // `site-render-check` because its authority is interaction, not layout.
+    const site_tabs_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+        "deno", "run", "--allow-all", "tools/check/site_tabs.ts", common.rootPath(b, "zig-out/site"),
+    });
+    site_tabs_check.setCwd(b.path("."));
+    site_tabs_check.has_side_effects = true;
+    site_tabs_check.step.dependOn(&autodoc_access.step);
+    site_tabs_check.step.dependOn(ctx.browser_preflight);
+    const site_tabs_check_step = b.step("site-tabs-check", "Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel");
+    site_tabs_check_step.dependOn(&site_tabs_check.step);
 
     // `docs-serve` is the normal local preview: Zine's development server
     // rebuilds and reloads as the content and templates change. It serves the

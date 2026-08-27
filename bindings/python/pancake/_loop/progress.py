@@ -79,6 +79,7 @@ class _ProgressMixin(DriverLoopMixinBase):
             while self._step_native(wait_ms):
                 progressed = True
                 self._dispatch_many(self._pop_events())
+                self._advance_closing_listeners()
                 if self._wrapper is not None:
                     self._wrapper.drain_parked_releases()
                 if self._released:

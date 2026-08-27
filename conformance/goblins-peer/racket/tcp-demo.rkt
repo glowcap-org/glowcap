@@ -7,10 +7,9 @@
 ;; process, but each binds its own port and dials the other over the
 ;; loopback interface.
 ;;
-;; This is the netlayer that pancake's spike will dial in a follow-on
-;; commit. Goblins-side: this file proves the netlayer works. pancake-
-;; side: a TCP transport plus an OCapN-message-record vocabulary on
-;; the existing Syrup codec gets us across the seam.
+;; This is the Goblins-only real-socket control. It proves the reference
+;; netlayer independently of pancake; `goblins-interop` and the live
+;; handoff/gift/exporter rows cover pancake on the other end of that seam.
 
 (require goblins
          goblins/ocapn
@@ -75,9 +74,8 @@
    (printf "~n[demo] OK — TCP CapTP roundtrip~n")
    (printf "       Side-B heard back: ~a~n" (cadr reply))
    (printf "       The bytes flowed through real TCP sockets on 127.0.0.1.~n")
-   (printf "       pancake's spike can dial 127.0.0.1:~a as the next step~n" a-port)
-   (printf "       (Syrup codec already at full spec; OCapN message records~n")
-   (printf "       are the next pancake-side piece).~n")
+   (printf "       This is the Goblins-only control used beside pancake's~n")
+   (printf "       live cross-implementation matrices.~n")
    (exit 0)]
   [(err)
    (printf "~n[demo] FAILED — broken promise: ~v~n" (cadr reply))

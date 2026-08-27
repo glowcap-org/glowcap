@@ -1,0 +1,404 @@
+// The bounded, versioned document that can leave and re-enter a Rooms browser.
+
+import * as z from "zod/mini";
+import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./boot_caps.ts";
+import { MAX_NICK, MAX_PENDING_INVITES, MAX_ROOM, nickRefusal } from "./limits.ts";
+import { RegistrationIdSchema } from "./directory_publications.ts";
+import { roomsLocator } from "./locator.ts";
+import { roomsPeerAuthority } from "./routes.ts";
+import { boundedText as boundedSchemaText, nonemptyText as nonemptySchemaText } from "./schema.ts";
+import { vizOverrideRefusal } from "./viz_publish.ts";
+
+export const WORKSPACE_STATE_KEY = "rooms.workspace-state";
+export const WORKSPACE_STATE_VERSION = 1;
+export const ROOMS_SESSION_STATE_VERSION = 1;
+export const MAX_WORKSPACE_DOCUMENT_CHARS = 512 * 1024;
+export const MAX_WORKSPACE_DIRECTORIES = 32;
+export const MAX_WORKSPACE_CONVERSATIONS = 256;
+export const MAX_WORKSPACE_IGNORED_NAMES = 512;
+export const MAX_WORKSPACE_OPERATION_CREDENTIALS = 64;
+export const MAX_WORKSPACE_INVITATIONS = MAX_PENDING_INVITES;
+export const MAX_WORKSPACE_PEERING = 256;
+const MAX_FIELD_CHARS = 64 * 1024;
+const MAX_BEARER_CHARS = 16 * 1024;
+
+const boundedText = (max = MAX_FIELD_CHARS) => boundedSchemaText(max);
+const nonemptyText = (max = MAX_FIELD_CHARS) => nonemptySchemaText(max);
+const nullableText = z.nullable(boundedText());
+const sturdyrefText = boundedText(MAX_BEARER_CHARS).check(
+	z.startsWith("ocapn://"),
+	z.includes("/s/"),
+);
+const optionalSturdyrefText = z.optional(z.pipe(
+	z.nullable(sturdyrefText),
+	z.transform((value) => value ?? undefined),
+));
+const nickText = boundedText().check(z.refine((value) => value === "" || nickRefusal(value) == null));
+const peerText = nonemptyText().check(z.refine((value) => nickRefusal(value) == null));
+const operationsSwissText = boundedText(MAX_BEARER_CHARS).check(
+	z.overwrite((value) => value.trim()),
+	z.refine((value) => value.length > 0),
+	z.refine((value) => !value.includes("://") && !/\s/.test(value)),
+);
+const operationsCapability = z.custom<OperationsCapability>((value) =>
+	(OPERATIONS_CAPABILITIES as readonly unknown[]).includes(value)
+);
+
+export const WorkspaceOperationCredentialSchema = z.strictObject({
+	capability: operationsCapability,
+	scope: nonemptyText(MAX_BEARER_CHARS),
+	swiss: operationsSwissText,
+});
+
+export const WorkspaceDirectorySchema = z.strictObject({
+	id: nonemptyText(),
+	locator: nonemptyText(),
+	home: z.boolean(),
+	nick: nickText,
+	standing: nullableText,
+});
+
+export const WorkspaceRoomIrcIdentitySchema = z.strictObject({
+	nick: nonemptyText(MAX_NICK),
+	account: boundedText(MAX_FIELD_CHARS),
+	password: boundedText(MAX_FIELD_CHARS),
+}).check(z.refine((identity) => (identity.account === "") === (identity.password === "")));
+
+export const WorkspaceRoomConversationSchema = z.strictObject({
+	kind: z.literal("room"),
+	id: nonemptyText(),
+	directory: nonemptyText(),
+	name: nonemptyText(MAX_ROOM),
+	held: z.boolean(),
+	link: optionalSturdyrefText,
+	steward: optionalSturdyrefText,
+	publicationId: z.optional(z.pipe(
+		z.nullable(boundedText()),
+		z.transform((value) => value ?? undefined),
+	)),
+	standing: nullableText,
+	draft: boundedText(),
+	// Missing keeps the bridge's automatic projected seat. Null is the user's
+	// durable Rooms-only choice. An identity asks for that exact IRC login.
+	irc: z.optional(z.nullable(WorkspaceRoomIrcIdentitySchema)),
+});
+
+/** Desired foreign-room publication. The lease and DirectoryPeering stay live
+ * in the session runtime; this row is the restartable operation intent. */
+export const WorkspacePeeringIntentSchema = z.strictObject({
+	id: nonemptyText(),
+	destination: nonemptyText(MAX_BEARER_CHARS),
+	source: nonemptyText(),
+	name: nonemptyText(MAX_ROOM),
+});
+
+export const WorkspaceDirectConversationSchema = z.strictObject({
+	kind: z.literal("direct"),
+	id: nonemptyText(),
+	directory: nonemptyText(),
+	peer: peerText,
+	peerRegistrationId: RegistrationIdSchema,
+	closed: z.boolean(),
+	draft: boundedText(),
+});
+
+export const WorkspaceConversationSchema = z.union([
+	WorkspaceRoomConversationSchema,
+	WorkspaceDirectConversationSchema,
+]);
+
+export const RoomsRoomJoinIntentSchema = z.strictObject({
+	locator: nonemptyText(MAX_BEARER_CHARS),
+	nick: nickText,
+	conversation: WorkspaceRoomConversationSchema,
+});
+
+export const WorkspaceInvitationSchema = z.strictObject({
+	kind: z.literal("room-link"),
+	id: nonemptyText(),
+	directory: nonemptyText(),
+	locator: nonemptyText(MAX_BEARER_CHARS),
+	nick: nickText,
+	label: boundedText(),
+	from: boundedText(),
+	link: sturdyrefText,
+});
+
+export const WorkspaceOperationCredentialsSchema = z.array(WorkspaceOperationCredentialSchema).check(
+	z.maxLength(MAX_WORKSPACE_OPERATION_CREDENTIALS),
+);
+export const RoomsIgnoredNamesSchema = z.array(boundedText()).check(z.maxLength(MAX_WORKSPACE_IGNORED_NAMES));
+
+const EstablishedRoomsControllerSelectionSchema = z.union([
+	z.strictObject({ kind: z.literal("local") }),
+	z.strictObject({ kind: z.literal("attached"), sturdyref: sturdyrefText }),
+]);
+export const RoomsControllerSelectionSchema = z.union([
+	z.strictObject({ kind: z.literal("none") }),
+	EstablishedRoomsControllerSelectionSchema,
+]);
+
+const RoomsSessionStateShapeSchema = z.strictObject({
+	version: z.literal(ROOMS_SESSION_STATE_VERSION),
+	directories: z.array(WorkspaceDirectorySchema).check(z.maxLength(MAX_WORKSPACE_DIRECTORIES)),
+	conversations: z.array(WorkspaceConversationSchema).check(z.maxLength(MAX_WORKSPACE_CONVERSATIONS)),
+	invitations: z.array(WorkspaceInvitationSchema).check(z.maxLength(MAX_PENDING_INVITES)),
+	active: z.nullable(boundedText()),
+	standing: boundedText(),
+	ignored: RoomsIgnoredNamesSchema,
+	keepHistory: z.boolean(),
+	join: z.strictObject({ room: boundedText(), locator: boundedText(), nick: boundedText() }),
+	dmMode: z.enum(["webrtc", "relay"]),
+	vizOverride: boundedText(),
+	capabilities: z.strictObject({
+		operations: WorkspaceOperationCredentialsSchema,
+		archivePeer: z.nullable(sturdyrefText),
+	}),
+	peering: z.array(WorkspacePeeringIntentSchema).check(z.maxLength(MAX_WORKSPACE_PEERING)),
+});
+
+type RoomsSessionStateShape = z.infer<typeof RoomsSessionStateShapeSchema>;
+
+export const RoomsSessionStateSchema = RoomsSessionStateShapeSchema.check(
+	z.refine(hasValidSessionRelations),
+	z.refine((state) => vizOverrideRefusal(state.vizOverride) == null),
+);
+
+export const RoomsViewStateSchema = z.strictObject({
+	theme: z.enum(["light", "dark"]),
+	notifyOn: z.boolean(),
+	railOpen: z.boolean(),
+	rosterOpen: z.boolean(),
+	settingsTab: z.enum(["overview", "session", "capabilities", "settings"]),
+	opsPane: operationsCapability,
+});
+
+const RoomsWorkspaceStateShapeSchema = z.strictObject({
+	version: z.literal(WORKSPACE_STATE_VERSION),
+	controller: RoomsControllerSelectionSchema,
+	session: RoomsSessionStateSchema,
+	view: RoomsViewStateSchema,
+});
+
+function isVizScope(scope: string): boolean {
+	try {
+		const url = new URL(scope);
+		return (url.protocol === "ws:" || url.protocol === "wss:") && url.href === scope;
+	} catch {
+		return false;
+	}
+}
+
+function hasValidSessionRelations(session: RoomsSessionStateShape): boolean {
+	const directories = new Map<string, WorkspaceDirectory>();
+	let homes = 0;
+	for (const directory of session.directories) {
+		if (directories.has(directory.id)) return false;
+		if (routeAuthority(directory.locator) !== directory.id) return false;
+		directories.set(directory.id, directory);
+		if (directory.home) homes += 1;
+	}
+	if (homes > 1) return false;
+
+	const conversations = new Map<string, WorkspaceConversation>();
+	const publicRooms = new Set<string>();
+	const heldRoomLinks = new Set<string>();
+	const openDirects = new Set<string>();
+	for (const conversation of session.conversations) {
+		const directory = directories.get(conversation.directory);
+		if (directory == null || conversations.has(conversation.id)) return false;
+		if (conversation.kind === "direct") {
+			if (conversation.peer.toLowerCase() === directory.nick.toLowerCase()) return false;
+			if (!conversation.closed) {
+				const key = `${conversation.directory}\u0000${conversation.peerRegistrationId}`;
+				if (openDirects.has(key)) return false;
+				openDirects.add(key);
+			}
+		} else {
+			if (conversation.link != null && sturdyrefAuthority(conversation.link) !== conversation.directory) {
+				return false;
+			}
+			if (conversation.steward != null) {
+				if (conversation.link == null || sturdyrefAuthority(conversation.steward) !== conversation.directory) {
+					return false;
+				}
+			}
+			if (!conversation.held) {
+				const key = `${conversation.directory}\u0000${conversation.name.toLowerCase()}`;
+				if (publicRooms.has(key)) return false;
+				publicRooms.add(key);
+			} else if (conversation.link != null) {
+				if (heldRoomLinks.has(conversation.link)) return false;
+				heldRoomLinks.add(conversation.link);
+			}
+		}
+		conversations.set(conversation.id, conversation);
+	}
+	if (session.active != null && !conversations.has(session.active)) return false;
+	const invitationIds = new Set<string>();
+	for (const invitation of session.invitations) {
+		// A pending invitation is the durable route to a directory that may not
+		// have been joined yet. Acceptance is the authority boundary that checks
+		// the route and materializes that directory record.
+		if (invitationIds.has(invitation.id) || sturdyrefAuthority(invitation.link) !== invitation.directory) {
+			return false;
+		}
+		invitationIds.add(invitation.id);
+	}
+
+	const operationKeys = new Set<string>();
+	let visualizers = 0;
+	for (const credential of session.capabilities.operations) {
+		const key = `${credential.capability}\u0000${credential.scope}`;
+		if (operationKeys.has(key)) return false;
+		if (credential.capability === "viz" ? !isVizScope(credential.scope) : !directories.has(credential.scope)) {
+			return false;
+		}
+		if (credential.capability === "viz" && ++visualizers > 1) return false;
+		operationKeys.add(key);
+	}
+	const peeringIds = new Set<string>();
+	const peeringNames = new Set<string>();
+	for (const intent of session.peering) {
+		const source = conversations.get(intent.source);
+		if (
+			peeringIds.has(intent.id) || !directories.has(intent.destination) || source?.kind !== "room" ||
+			source.directory === intent.destination ||
+			!sessionOperationsAuthorizePeering(session.capabilities.operations, intent)
+		) return false;
+		const nameKey = `${intent.destination}\u0000${intent.name.toLowerCase()}`;
+		if (peeringNames.has(nameKey)) return false;
+		peeringIds.add(intent.id);
+		peeringNames.add(nameKey);
+	}
+	return true;
+}
+
+export function sessionOperationsAuthorizePeering(
+	operations: readonly { capability: string; scope: string }[],
+	intent: { destination: string },
+): boolean {
+	return operations.some((entry) => entry.capability === "peering" && entry.scope === intent.destination);
+}
+
+export function peeringIntentsForOperations(
+	operations: readonly { capability: string; scope: string }[],
+	peering: readonly WorkspacePeeringIntent[],
+): WorkspacePeeringIntent[] {
+	return peering.filter((intent) => sessionOperationsAuthorizePeering(operations, intent));
+}
+
+/** Resolve the authority carried by a durable route without making the schema
+ * parser responsible for dialing it. This low-frequency check is shared by
+ * workspace/session imports and every command that validates a new aggregate. */
+function routeAuthority(locator: string): string | null {
+	try {
+		return roomsPeerAuthority(roomsLocator(locator));
+	} catch {
+		return null;
+	}
+}
+
+function sturdyrefAuthority(sturdyref: string): string | null {
+	const at = sturdyref.indexOf("/s/");
+	return at < 0 ? null : routeAuthority(sturdyref.slice(0, at));
+}
+
+export const RoomsWorkspaceStateSchema = RoomsWorkspaceStateShapeSchema;
+
+export type RoomsSettingsTab = z.infer<typeof RoomsViewStateSchema>["settingsTab"];
+export type WorkspaceOperationCredential = z.infer<typeof WorkspaceOperationCredentialSchema>;
+export type WorkspaceDirectory = z.infer<typeof WorkspaceDirectorySchema>;
+export type WorkspaceConversation = z.infer<typeof WorkspaceConversationSchema>;
+export type RoomsRoomJoinIntent = z.infer<typeof RoomsRoomJoinIntentSchema>;
+export type WorkspaceRoomIrcIdentity = z.infer<typeof WorkspaceRoomIrcIdentitySchema>;
+export type WorkspacePeeringIntent = z.infer<typeof WorkspacePeeringIntentSchema>;
+export type WorkspaceInvitation = z.infer<typeof WorkspaceInvitationSchema>;
+export type RoomsControllerSelection = z.infer<typeof RoomsControllerSelectionSchema>;
+export type RoomsWorkspaceState = z.infer<typeof RoomsWorkspaceStateSchema>;
+export type RoomsSessionState = z.infer<typeof RoomsSessionStateSchema>;
+export type RoomsViewState = z.infer<typeof RoomsViewStateSchema>;
+
+export function parseWorkspaceOperationCredentials(raw: unknown): WorkspaceOperationCredential[] | null {
+	const parsed = z.safeParse(WorkspaceOperationCredentialsSchema, raw);
+	return parsed.success ? parsed.data : null;
+}
+
+export const DEFAULT_ROOMS_VIEW_STATE: RoomsViewState = {
+	theme: "light",
+	notifyOn: false,
+	railOpen: true,
+	rosterOpen: true,
+	settingsTab: "overview",
+	opsPane: "listeners",
+};
+
+export function emptyRoomsSessionState(): RoomsSessionState {
+	return {
+		version: ROOMS_SESSION_STATE_VERSION,
+		directories: [],
+		conversations: [],
+		invitations: [],
+		active: null,
+		standing: "",
+		ignored: [],
+		keepHistory: true,
+		join: { room: "", locator: "", nick: "" },
+		dmMode: "webrtc",
+		vizOverride: "",
+		capabilities: { operations: [], archivePeer: null },
+		peering: [],
+	};
+}
+
+function decodedJson(raw: string | null, max: number): unknown | null {
+	if (raw == null || raw.length === 0 || raw.length > max) return null;
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
+}
+
+/** Parse and validate the complete document or refuse it as one unit. */
+export function parseWorkspaceState(raw: string | null): RoomsWorkspaceState | null {
+	const decoded = decodedJson(raw, MAX_WORKSPACE_DOCUMENT_CHARS);
+	if (decoded == null) return null;
+	const parsed = z.safeParse(RoomsWorkspaceStateSchema, decoded);
+	return parsed.success ? parsed.data : null;
+}
+
+export function parseRoomsSessionStateValue(decoded: unknown): RoomsSessionState | null {
+	const parsed = z.safeParse(RoomsSessionStateSchema, decoded);
+	return parsed.success ? parsed.data : null;
+}
+
+export function parseRoomsSessionState(raw: string | null): RoomsSessionState | null {
+	const decoded = decodedJson(raw, MAX_WORKSPACE_DOCUMENT_CHARS);
+	return decoded == null ? null : parseRoomsSessionStateValue(decoded);
+}
+
+export function redactRoomsSessionCapabilities(session: RoomsSessionState): RoomsSessionState {
+	return {
+		...session,
+		conversations: session.conversations.map((conversation) => {
+			if (conversation.kind === "direct") return conversation;
+			if (conversation.irc == null) return conversation;
+			const { link: _link, steward: _steward, irc: _irc, ...redacted } = conversation;
+			return redacted;
+		}),
+		invitations: [],
+		capabilities: { operations: [], archivePeer: null },
+		peering: [],
+	};
+}
+
+/** Produce a portable workspace without bearer authority. Private and handed
+ * rooms remain visible but require authority to be supplied again. */
+export function redactWorkspaceCapabilities(document: RoomsWorkspaceState): RoomsWorkspaceState {
+	return {
+		...document,
+		controller: { kind: "local" },
+		session: redactRoomsSessionCapabilities(document.session),
+	};
+}

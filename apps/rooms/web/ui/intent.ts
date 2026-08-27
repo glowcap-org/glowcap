@@ -171,6 +171,5 @@ export function current(edits: Edits, act: Act): Edits {
  * blank the application would have shown anyway. Offering it back as "recent"
  * would say the reader chose it. */
 export function keepable(value: string, fallback: string): string | undefined {
-	const named = value.trim();
-	return named === "" || named === fallback ? undefined : named;
+	return value === "" || value === fallback ? undefined : value;
 }

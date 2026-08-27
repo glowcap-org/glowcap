@@ -11,7 +11,6 @@ const c = @import("../mod.zig");
 
 const Internal = root.Internal;
 const Instance = Internal.Instance;
-const LocatorProjection = shared.locator_adapter.Projection;
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;

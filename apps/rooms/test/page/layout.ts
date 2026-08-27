@@ -5,6 +5,7 @@
 // Two rooms at once is the other half: what a room keeps while it is off screen.
 
 import type { Page } from "playwright";
+import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "./harness.ts";
 
 export async function run(
@@ -400,7 +401,7 @@ export async function run(
 	{
 		// No click to get here: this tab is already reading the lobby, and pressing
 		// the room you are already in is how a reader puts the rail away.
-		const lobby = tab.locator("#roomList li").filter({ has: tab.locator('.rname:text-is("lobby")') });
+		const lobby = namedRoomRow(tab, "lobby");
 		await tab.waitForFunction(
 			() => {
 				const row = [...document.querySelectorAll("#roomList li")]
@@ -413,7 +414,7 @@ export async function run(
 
 		// The other member leaves, by the way a reader leaves: the mark on its own
 		// row in its own rail.
-		const theirs = second.locator("#roomList li").filter({ has: second.locator('.rname:text-is("lobby")') });
+		const theirs = namedRoomRow(second, "lobby");
 		await theirs.hover();
 		await theirs.locator(".room-leave").click();
 

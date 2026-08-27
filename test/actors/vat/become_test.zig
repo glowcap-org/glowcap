@@ -24,8 +24,6 @@ const MutateThenRead = harness.MutateThenRead;
 const Sink = harness.Sink;
 const LabelHolder = harness.LabelHolder;
 const PersistentCounter = harness.PersistentCounter;
-const Captured = promise_capture.CapturedBytes;
-const StringCapture = promise_capture.CapturedString;
 
 test "a handler error discards the pending become" {
     const allocator = std.testing.allocator;

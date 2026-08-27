@@ -1,6 +1,6 @@
+import { ALL_TOOLS } from "./gesture-resolver-test/harness.ts";
 import { assertEquals } from "@std/assert";
 import { layerInteractivity } from "./layer-interactivity.ts";
-import { ALL_TOOLS } from "./gesture-resolver.ts";
 
 Deno.test("Space held → every layer pointer-transparent", () => {
 	for (const tool of ALL_TOOLS) {

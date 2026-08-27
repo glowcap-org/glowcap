@@ -17,3 +17,15 @@ export function needsErrorDetail(text: string): boolean {
 export function errorDetailTitle(kind: "failure" | "warning" | "success"): string {
 	return kind === "failure" ? "What went wrong" : "The full message";
 }
+
+/** A refusal in the reader's words for a pasted link the peer could not read.
+ *
+ * The parser's sentence names the shape it could not read, which says what to
+ * do only once it is said as that: paste the whole link. The parser's own
+ * words stay after it, for whoever is debugging. `noun` names what the link
+ * was meant to be, so the sentence is about the reader's mistake and not the
+ * parser's. */
+export function locatorRefusal(why: string, noun: string): string {
+	if (why === "" || !why.startsWith("pancake error")) return why;
+	return `This is not a whole ${noun}. Paste everything that was printed, from ocapn:// to the end. (${why})`;
+}

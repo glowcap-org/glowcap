@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { type Bound, explicitBound, implicitBound, withExplicit, withImplicit, withValue } from "./bound.ts";
+import { type Bound, explicitBound, implicitBound, withExplicit, withValue } from "./bound.ts";
 
 Deno.test("implicitBound seeds value, explicit=false", () => {
 	assertEquals(implicitBound(7), { value: 7, explicit: false });
@@ -18,16 +18,6 @@ Deno.test("withExplicit preserves stored value when flipping on", () => {
 Deno.test("withExplicit is a no-op when already explicit", () => {
 	const b: Bound = { value: 3, explicit: true };
 	assertEquals(withExplicit(b), b);
-});
-
-Deno.test("withImplicit preserves stored value when flipping off", () => {
-	const b: Bound = { value: 9, explicit: true };
-	assertEquals(withImplicit(b), { value: 9, explicit: false });
-});
-
-Deno.test("withImplicit is a no-op when already implicit", () => {
-	const b: Bound = { value: 1, explicit: false };
-	assertEquals(withImplicit(b), b);
 });
 
 Deno.test("withValue sets value and marks explicit", () => {

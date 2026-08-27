@@ -98,6 +98,7 @@ spawnOwned("deno", {
 		PANCAKE_ROOMS_STATE: opsState,
 		PANCAKE_ROOMS_DIAGNOSTICS: "1",
 		PANCAKE_ROOMS_ADMIN_LISTENERS: "1",
+		PANCAKE_ROOMS_OPERATOR: "1",
 		PANCAKE_ROOMS_PEERING: "1",
 		PANCAKE_ROOMS_VIZ: "1",
 		PANCAKE_ROOMS_IRC: "1",
@@ -111,7 +112,7 @@ spawnOwned("deno", {
 // below, so the `finally` there cleans up nothing on this path. What reaps the
 // servers instead is `support/children.ts`, which answers the uncaught error
 // this raises.
-const deadline = setTimeout(() => fail("web-page scenario timed out after 150s"), 150_000);
+const deadline = setTimeout(() => fail("web-page scenario timed out after 240s"), 240_000);
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 

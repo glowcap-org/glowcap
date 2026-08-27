@@ -17,20 +17,21 @@
 		// before the body has been laid out and there is no frame in which the
 		// page looks like anything else.
 		//
-		// The first is that this page is opening under a script. Unstamped is
-		// what a browser with scripting off is left holding, and that is the
-		// state the document is written for: the message below, saying why there
-		// is nothing here. Outside the try, because a browser that refuses
-		// storage is still running scripts and must not be told it is not.
+		// The first names whether this page may open a peer. Unstamped is what a
+		// browser with scripting off is left holding; an insecure network origin
+		// gets its own refusal; every trustworthy scripted origin starts opening.
+		// Outside the try, because a browser that refuses storage is still running
+		// scripts and must not be told it is not.
 		//
 		// The second is a remembered theme. Without it the page paints once in
 		// the default palette and repaints when the module runs, which on a cold
 		// load is a visible flash.
 		//
 		// ES5 only, so a parse error cannot take either of them out.
-		document.documentElement.dataset.boot = "opening";
+		document.documentElement.dataset.boot = window.isSecureContext === true ? "opening" : "insecure";
 		try {
-			var t = localStorage.getItem("rooms.theme");
+			var saved = JSON.parse(localStorage.getItem("rooms.workspace-state") || "null");
+			var t = saved && saved.version >= 3 && saved.version <= 7 && saved.view ? saved.view.theme : null;
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 		} catch (_) { /* private mode: the stylesheet's media query answers */ }
 		</script>
@@ -65,25 +66,39 @@
 				<p>If scripting is on and you are still reading this, the page
 					script did not load. Reloading is worth a try.</p>
 			</div>
+			<div class="boot-insecure">
+				<h1>pancake rooms needs a secure address</h1>
+				<p>This page becomes a peer: it holds your room capabilities and
+					direct messages. Over plain network HTTP, somebody on the path could
+					replace it before it becomes yours, and the browser withholds APIs
+					Rooms needs.</p>
+				<p>Forward this port to your computer and open it at
+					<code>http://localhost</code>, or serve Rooms through HTTPS.</p>
+			</div>
 		</div>
-		<script id="pageScript" type="module" src="/page.js"></script>
 		<script>
-		// A page that draws itself owes a reader an explanation when it cannot,
-		// and there are two ways it cannot: the bundle never arrives, or it
-		// throws on its way up. Both announce themselves — an error on the script
-		// element, an error on the window — so neither is guessed at from elapsed
-		// time, which would eventually accuse a slow network of a failure it had
-		// not committed. Only a page still opening can be declared lost: once
-		// ui/boot.ts marks it running, a later error is the running page's
-		// business and leaves the screen alone. ES5 only, so a parse error cannot
-		// take it out.
+		// A trustworthy page that draws itself owes a reader an explanation when
+		// the bundle never arrives or throws on its way up. Both announce
+		// themselves — an error on the script element, an error on the window — so
+		// neither is guessed at from elapsed time, which would eventually accuse a
+		// slow network of a failure it had not committed. Only a page still opening
+		// can be declared lost: once ui/boot.ts marks it running, a later error is
+		// the running page's business and leaves the screen alone. An insecure page
+		// already has its answer and loads no application code. ES5 only, so a parse
+		// error cannot take this watcher out.
 		(function () {
+			if (document.documentElement.dataset.boot === "insecure") return;
 			function lost() {
 				var root = document.documentElement;
 				if (root.dataset.boot === "opening") root.dataset.boot = "lost";
 			}
-			document.getElementById("pageScript").addEventListener("error", lost);
+			var pageScript = document.createElement("script");
+			pageScript.id = "pageScript";
+			pageScript.type = "module";
+			pageScript.src = "/page.js";
+			pageScript.addEventListener("error", lost);
 			addEventListener("error", lost);
+			document.body.appendChild(pageScript);
 		})();
 		</script>
 	</body>

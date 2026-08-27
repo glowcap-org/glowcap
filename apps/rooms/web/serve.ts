@@ -60,16 +60,20 @@ const ADMIN_LISTENERS = flagOrEnv(flags, BOOT_CAPS.adminListeners.flag, BOOT_CAP
 const PEERING = flagOrEnv(flags, BOOT_CAPS.peering.flag, BOOT_CAPS.peering.env);
 // `--viz` (or `PANCAKE_ROOMS_VIZ=1`) has the room server serve the live
 // timeline endpoint and mint the viz capability, the same enabling shape as
-// the two above.
+// the other entries.
 // `--irc` (or `PANCAKE_ROOMS_IRC=1`) mints the IRC gateway capability:
 // holding it bridges IRC channels into this directory as ordinary rooms.
 const IRC = flagOrEnv(flags, BOOT_CAPS.irc.flag, BOOT_CAPS.irc.env);
+const OPERATOR = flagOrEnv(flags, BOOT_CAPS.operator.flag, BOOT_CAPS.operator.env);
 const VIZ = flagOrEnv(flags, BOOT_CAPS.viz.flag, BOOT_CAPS.viz.env);
 // `--history` (or `PANCAKE_ROOMS_HISTORY=1`) has the room server keep listed
 // rooms' last lines in its state directory and answer them to members. A
 // policy flag, not a capability: there is no swiss to take, only a stated
 // retention the room's own divider names.
 const HISTORY = flagOrEnv(flags, "--history", "PANCAKE_ROOMS_HISTORY");
+// `--storage=` rides to the server as the env var it honors, the same road
+// the LAN flags take: one destination, its shape judged by the server alone.
+const flagStorage = flags.findLast((a) => a.startsWith("--storage="))?.slice("--storage=".length) || undefined;
 // `--transport=<tcp|iroh|onion>` (or `PANCAKE_ROOMS_TRANSPORT`) picks the room's wire.
 // Over iroh and onion the server announces an ocapn:// URI; over onion ROOM_PORT
 // becomes the local endpoint Tor forwards the service to, which is also where
@@ -267,6 +271,7 @@ function spawnRoomServer(): Deno.ChildProcess {
 	if (ADMIN_LISTENERS) serverArgs.push(BOOT_CAPS.adminListeners.flag);
 	if (PEERING) serverArgs.push(BOOT_CAPS.peering.flag);
 	if (IRC) serverArgs.push(BOOT_CAPS.irc.flag);
+	if (OPERATOR) serverArgs.push(BOOT_CAPS.operator.flag);
 	if (VIZ) serverArgs.push(BOOT_CAPS.viz.flag);
 	if (HISTORY) serverArgs.push("--history");
 	return new Deno.Command("deno", {
@@ -278,10 +283,12 @@ function spawnRoomServer(): Deno.ChildProcess {
 			PANCAKE_ROOMS_SUPERVISED: "1",
 			...(DIAGNOSTICS ? { PANCAKE_ROOMS_DIAGNOSTICS: "1" } : {}),
 			...(ADMIN_LISTENERS ? { PANCAKE_ROOMS_ADMIN_LISTENERS: "1" } : {}),
+			...(OPERATOR ? { PANCAKE_ROOMS_OPERATOR: "1" } : {}),
 			...(PEERING ? { PANCAKE_ROOMS_PEERING: "1" } : {}),
 			...(VIZ ? { PANCAKE_ROOMS_VIZ: "1" } : {}),
 			// The LAN flags ride to the server as the env vars it honors; env
 			// vars an operator set directly are inherited untouched.
+			...(flagStorage !== undefined ? { PANCAKE_ROOMS_STORAGE: flagStorage } : {}),
 			...(flagBind !== undefined ? { PANCAKE_ROOMS_BIND: flagBind } : {}),
 			...(flagAnnounceHost !== undefined ? { PANCAKE_ROOMS_ANNOUNCE_HOST: flagAnnounceHost } : {}),
 			...(tor !== null ? { PANCAKE_ONION_SOCKS: tor.socks, PANCAKE_ONION_CONTROL: tor.control } : {}),
@@ -418,13 +425,6 @@ async function watchAttachedServer(): Promise<void> {
 			child = spawnRoomServer();
 			roomLocator = await readAnnouncedLocator(child, ANNOUNCE_DEADLINE_MS);
 			console.error(`rooms: now supervising room server at ${roomLocator}`);
-			// The taken-over child minted fresh swiss numbers in this
-			// supervisor's state, so the ones on screen no longer answer.
-			const held = await heldOperatorCapabilities();
-			if (held.length > 0) {
-				console.error("rooms: operator capabilities republished:");
-				for (const row of capabilityRows(held)) console.error(row);
-			}
 			await respawnOwnedServer();
 			return;
 		} catch (err) {
@@ -483,56 +483,10 @@ async function superviseServer(): Promise<void> {
 	void respawnOwnedServer();
 }
 
-/** Read an operations capability's swiss only after this process spawned the
- * room server that wrote it. Attach mode shares another process's port, not
- * this supervisor's empty `PANCAKE_ROOMS_STATE`, so reading our file there would print
- * a name nothing answers. One table row per capability, so the diagnostics and
- * listener-admin announcements cannot drift apart. */
-const OPERATIONS_CAPS = [
-	{ enabled: () => ADMIN_LISTENERS, ...BOOT_CAPS.adminListeners },
-	{ enabled: () => DIAGNOSTICS, ...BOOT_CAPS.diagnostics },
-	{ enabled: () => IRC, ...BOOT_CAPS.irc },
-	{ enabled: () => PEERING, ...BOOT_CAPS.peering },
-	// Enabling the timeline endpoint is what mints its capability: the swiss
-	// below admits every viz socket, producers and viewers alike.
-	{ enabled: () => VIZ, ...BOOT_CAPS.viz },
-] as const;
-
-async function heldOperatorCapabilities(): Promise<{ label: string; swiss: string }[]> {
-	const held: { label: string; swiss: string }[] = [];
-	for (const cap of OPERATIONS_CAPS) {
-		if (!cap.enabled()) continue;
-		try {
-			const swiss = (await Deno.readTextFile(`${ROOM_STATE}/${cap.file}`)).trim();
-			if (swiss !== "") {
-				held.push({ label: cap.label, swiss });
-				continue;
-			}
-		} catch {
-			// Fall through: the child did not write a swiss.
-		}
-		console.error(`rooms: ${cap.flag} was set but the room server did not publish its capability`);
-	}
-	return held;
-}
-
-/** The aligned label-and-value lines of the operator-capability table, shared
- * by the boot block and a take-over's re-announcement so the two cannot say
- * it differently. */
-function capabilityRows(held: readonly { label: string; swiss: string }[]): string[] {
-	const width = Math.max(...held.map((cap) => cap.label.length));
-	return held.map((cap) => `  ${cap.label.padEnd(width)}   ${cap.swiss}`);
-}
-
-/** The serving block: everything an operator needs, in one piece, printed
- * once the HTTP server is actually listening so the ready line under it is
- * true. Labels sit in one aligned column and every copyable value — URL,
- * locator, terminal command, swiss — ends its own line, with no prose to
- * trim out of a selection. Startup chatter (tor, iroh, the room child's
- * token lines) has already happened by the time this prints, so the block
- * stays whole. */
-async function printServingBlock(): Promise<void> {
-	const held = await heldOperatorCapabilities();
+/** The serving block, printed once the HTTP server is actually listening.
+ * The room child has already printed the one canonical, pasteable `ROOMS-*`
+ * capability bundle, so this block does not render those swisses a second way. */
+function printServingBlock(): void {
 	console.log("rooms: serving");
 	console.log("");
 	console.log(`  web ui           http://localhost:${HTTP_PORT}`);
@@ -560,11 +514,6 @@ async function printServingBlock(): Promise<void> {
 		const chat = new URL(`file://${ROOT}../clients/deno/chat.ts`).pathname;
 		console.log("  join from a terminal:");
 		console.log(`  deno run ${chatFlags.join(" ")} ${chat} ${roomLocator} <room> <nick>`);
-	}
-	if (held.length > 0) {
-		console.log("");
-		console.log("  operator capabilities, paste each when flipping its toggle on in Settings under Capabilities:");
-		for (const row of capabilityRows(held)) console.log(row);
 	}
 	console.log("");
 	console.log("rooms: ready");
@@ -597,4 +546,4 @@ await prepareAndListen({
 
 // Last, after everything above is serving: one block, ending on the ready
 // line, because the last lines are the ones an operator sees.
-await printServingBlock();
+printServingBlock();

@@ -3,12 +3,12 @@
 // Size, label, and pressed state are stated once so the two cannot drift.
 
 import { IconButton } from "./IconButton.tsx";
-import { usePeer } from "./peer.ts";
+import { useRoomsBrowser } from "./controller/browser.ts";
 
 export function SettingsButton(
 	{ id, mobile, settingsOpen }: { id: string; mobile: boolean; settingsOpen: boolean },
 ) {
-	const peer = usePeer();
+	const browser = useRoomsBrowser();
 	return (
 		<IconButton
 			id={id}
@@ -16,7 +16,7 @@ export function SettingsButton(
 			label="Settings"
 			size={mobile ? "large" : "normal"}
 			aria-pressed={settingsOpen}
-			onClick={() => settingsOpen ? peer.closeSettings() : peer.openSettings()}
+			onClick={() => settingsOpen ? browser.closeSettings() : browser.openSettings()}
 		/>
 	);
 }

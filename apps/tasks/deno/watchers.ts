@@ -94,6 +94,11 @@ export class TaskWatcherTable {
 	#retire(watcher: Watcher): void {
 		watcher.active = false;
 		watcher.pending = null;
+		// Once transport retirement starts, the Session owns every remaining
+		// import. An application release at that boundary is both redundant and
+		// invalid; live replacement and delivery-failure paths still release
+		// deterministically below.
+		if (watcher.session.closing) return;
 		try {
 			watcher.session.release(watcher.ref);
 		} catch (error) {

@@ -35,7 +35,7 @@
    The label is text and whatever sits at the line's end is a mark, so they take
    the two insets their kinds take, which is also what puts a section's "+" on
    the vertical the counts and leave marks below it stand on. The type itself
-   is the shared caption voice, `.overline` in controls.css; this rule keeps
+   is the shared caption voice, `.overline` in marks.css; this rule keeps
    only the rails' layout. */
 .section-head,
 .members h2 {

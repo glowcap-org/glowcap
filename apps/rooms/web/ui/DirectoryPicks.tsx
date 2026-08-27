@@ -21,20 +21,20 @@
 // one, and the rail has to bring the card forward first.
 
 import { flushSync } from "react-dom";
-import { usePeer } from "./peer.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
-import { thisDirectoryLocator } from "./joining.ts";
+import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
 import type { DirId, DirView } from "./types.ts";
 
 export function DirectoryPicks(
-	{ className, locator, dirs, homeDir, onPick, onElsewhere }: {
+	{ className, locator, dirs, context, onPick, onElsewhere }: {
 		className: string;
 		/** The locator field these rows are choosing for, which decides which row
 		 * is marked. */
 		locator: string;
 		dirs: ReadonlyMap<DirId, DirView>;
-		homeDir: DirId | null;
+		context: DirectoryDestinationContext;
 		onPick: (locator: string) => void;
 		/** Take the reader where an address this tab does not hold can be typed.
 		 * `typeAnotherAddress` below is the whole of it on the card; the rail
@@ -42,10 +42,11 @@ export function DirectoryPicks(
 		onElsewhere: () => void;
 	},
 ) {
-	const peer = usePeer();
+	const session = useRoomsSession();
+	const homeDir = context.home;
 	const others = [...dirs.values()].filter((dir) => dir.id !== homeDir);
-	const typedAs = peer.directoryId(locator.trim());
-	const here = thisDirectoryLocator(locator, homeDir) === "" || (homeDir != null && typedAs === homeDir);
+	const typedAs = session.directoryId(locator.trim());
+	const here = thisDirectoryLocator(locator, context, typedAs) === "";
 	return (
 		<MenuList className={className}>
 			<MenuRow className="line-menu-row" first marked={here} onPick={() => onPick("")}>
@@ -56,7 +57,7 @@ export function DirectoryPicks(
 					key={dir.id}
 					className="line-menu-row"
 					marked={typedAs === dir.id}
-					onPick={() => onPick(peer.dirAddress(dir.id))}
+					onPick={() => onPick(session.dirAddress(dir.id))}
 				>
 					{directoryName(dir.id, homeDir)}
 				</MenuRow>

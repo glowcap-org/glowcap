@@ -2,12 +2,7 @@
 
 import { rtcChannel } from "../channel.ts";
 import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@pancake/abi";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-		throw new Error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-	}
-}
+import { assertDeepEquals } from "../../dogfood/assert.ts";
 
 class FakeDataChannel extends EventTarget {
 	binaryType: BinaryType = "blob";
@@ -53,7 +48,7 @@ Deno.test("rtcChannel writes one DataChannel message per packet", async () => {
 	const channel = rtcChannel(dc as unknown as RTCDataChannel);
 	await channel.write(new Uint8Array([1, 2, 3]));
 	await channel.write(new Uint8Array([4]));
-	assertEquals(dc.sent.map((frame) => [...frame]), [[1, 2, 3], [4]]);
+	assertDeepEquals(dc.sent.map((frame) => [...frame]), [[1, 2, 3], [4]]);
 });
 
 Deno.test("rtcChannel bounds concurrent outbound writes", async () => {
@@ -79,7 +74,7 @@ Deno.test("rtcChannel rejects outbound packets over the WebRTC transport cap", a
 	const channel = rtcChannel(dc as unknown as RTCDataChannel);
 	const error = await rejectionOf(channel.write(new Uint8Array(TRANSPORT_WEBRTC_MAX_PACKET_BYTES + 1)));
 	if (!String(error).includes("transport cap")) throw error;
-	assertEquals(dc.sent.length, 0);
+	assertDeepEquals(dc.sent.length, 0);
 });
 
 Deno.test("rtcChannel rejects a write when the channel closes before drain", async () => {
@@ -97,10 +92,10 @@ Deno.test("rtcChannel reads one DataChannel message per packet", async () => {
 	const channel = rtcChannel(dc as unknown as RTCDataChannel);
 	dc.deliver(new Uint8Array([9, 8]).buffer);
 	dc.deliver(new Uint8Array([7]).buffer);
-	assertEquals([...(await channel.read() ?? new Uint8Array())], [9, 8]);
-	assertEquals([...(await channel.read() ?? new Uint8Array())], [7]);
+	assertDeepEquals([...(await channel.read() ?? new Uint8Array())], [9, 8]);
+	assertDeepEquals([...(await channel.read() ?? new Uint8Array())], [7]);
 	dc.close();
-	assertEquals(await channel.read(), null);
+	assertDeepEquals(await channel.read(), null);
 });
 
 Deno.test("rtcChannel rejects non-binary messages", async () => {
@@ -129,7 +124,7 @@ Deno.test("rtcChannel bounds queued inbound bytes", async () => {
 	dc.deliver(new Uint8Array([1]).buffer);
 	for (let i = 0; i < accepted; i += 1) {
 		const packet = await channel.read();
-		assertEquals(packet?.byteLength, TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
+		assertDeepEquals(packet?.byteLength, TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
 	}
 	const error = await rejectionOf(channel.read());
 	if (!String(error).includes("queue overflow")) throw error;

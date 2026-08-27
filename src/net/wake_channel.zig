@@ -16,6 +16,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const socket = @import("socket.zig");
+
 const linux = std.os.linux;
 const is_linux = builtin.os.tag == .linux;
 
@@ -85,7 +87,7 @@ pub const WakeChannel = struct {
         // arm reaches (Darwin); Linux takes the syscall arm above.
         if (socketpair(1, 1, 0, &sv) < 0) return error.WakeChannelFailed;
         for (sv) |fd| {
-            if (!setNonblockingC(fd) or !setNoSigpipeC(fd)) {
+            if (!socket.setNonblocking(fd) or !socket.setNoSigpipe(fd)) {
                 _ = close(sv[0]);
                 _ = close(sv[1]);
                 return error.WakeChannelFailed;
@@ -173,20 +175,6 @@ pub const WakeChannel = struct {
         }
     }
 };
-
-fn setNonblockingC(fd: c_int) bool {
-    const c = std.c;
-    const flags = c.fcntl(fd, c.F.GETFL, @as(c_int, 0));
-    if (flags < 0) return false;
-    const nonblock: c_int = @bitCast(c.O{ .NONBLOCK = true });
-    return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
-}
-
-fn setNoSigpipeC(fd: c_int) bool {
-    const c = std.c;
-    const enable: c_int = 1;
-    return c.setsockopt(fd, c.SOL.SOCKET, c.SO.NOSIGPIPE, &enable, @sizeOf(c_int)) >= 0;
-}
 
 fn closeFd(fd: i32) void {
     if (is_linux) {

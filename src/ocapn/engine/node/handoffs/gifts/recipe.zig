@@ -96,6 +96,23 @@ pub fn putDiscoveredReserved(self: *Node, peer_handle: PeerHandle, location_byte
     self.gifts.recipe.by_exporter.putAssumeCapacity(peer_handle, .{ .discovered = location_bytes });
 }
 
+/// Replace the discovered recipe with one complete route just verified by
+/// enlivenment. A sturdyref is authored as one `(location, swiss)` authority;
+/// if listener state changed since an earlier dial, its location is the newer
+/// advice and later gives must not stay pinned to the old route. Explicit
+/// application policy remains effective above it.
+pub fn replaceDiscovered(self: *Node, peer_handle: PeerHandle, location: model.PeerLocator) !void {
+    const owned = try engine.encodePeerLocatorRecord(self.allocator, location);
+    errdefer self.allocator.free(owned);
+    if (self.gifts.recipe.by_exporter.getPtr(peer_handle)) |locations| {
+        if (locations.discovered) |previous| self.allocator.free(previous);
+        locations.discovered = owned;
+        return;
+    }
+    try self.gifts.recipe.by_exporter.ensureUnusedCapacity(self.allocator, 1);
+    self.gifts.recipe.by_exporter.putAssumeCapacity(peer_handle, .{ .discovered = owned });
+}
+
 pub fn get(self: *const Node, peer_handle: PeerHandle) []const u8 {
     const locations = self.gifts.recipe.by_exporter.get(peer_handle) orelse return "";
     return locations.effective();

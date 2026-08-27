@@ -7,7 +7,8 @@ source "${dir}/lib/mod.sh"
 pancake_devcontainer_init "${dir}" checksums
 pancake_require_devcontainer "image/rust"
 
-# Image build uses CARGO_HOME_IMAGE; container open remaps to CARGO_HOME_RUNTIME (volume).
+# Image build uses CARGO_HOME_IMAGE; container open remaps to CARGO_HOME_RUNTIME
+# (the cargo/ slice of the host bind).
 export CARGO_HOME="${CARGO_HOME_IMAGE}"
 export RUSTUP_HOME="${RUSTUP_HOME}"
 

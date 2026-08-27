@@ -100,8 +100,12 @@ impl Directory {
 
 	/// The directory's exact live local and foreign room publications.
 	pub async fn list(&self) -> Result<Vec<RoomInfo>, String> {
-		let arg = self.session.send(&self.directory, "list", &[]).await.map_err(reason)?;
-		Ok(parse_rooms(&arg))
+		let arg = self
+			.session
+			.send(&self.directory, "listPublications", &[])
+			.await
+			.map_err(reason)?;
+		parse_rooms(&arg)
 	}
 
 	/// Follow the live room list: spawn an observer the directory calls back with
@@ -126,10 +130,10 @@ impl Directory {
 			.map_err(|e| format!("spawn watch inbox: {e:?}"))?;
 		let arg = self
 			.session
-			.send(&self.directory, "watch", &[(&observer).into()])
+			.send(&self.directory, "watchPublications", &[(&observer).into()])
 			.await
 			.map_err(reason)?;
-		Ok(parse_rooms(&arg))
+		parse_watch_rooms(&arg)
 	}
 }
 
@@ -144,13 +148,13 @@ pub struct RoomInfo {
 }
 
 fn parse_room(fields: &[Argument]) -> Option<RoomInfo> {
-	if fields.len() < 6 {
+	if fields.len() != 6 {
 		return None;
 	}
 	let count = if fields[1].is_void() {
 		None
 	} else {
-		Some(fields[1].as_i64()?)
+		Some(fields[1].as_i64().filter(|count| *count >= 0)?)
 	};
 	Some(RoomInfo {
 		name: fields[0].as_str()?.to_string(),
@@ -162,14 +166,44 @@ fn parse_room(fields: &[Argument]) -> Option<RoomInfo> {
 	})
 }
 
-fn parse_rooms(arg: &Argument) -> Vec<RoomInfo> {
+fn parse_rooms(arg: &Argument) -> Result<Vec<RoomInfo>, String> {
+	let rows = arg
+		.as_list()
+		.ok_or_else(|| "the directory answered a room list that is not a list".to_string())?;
 	let mut out = Vec::new();
-	for item in arg.as_list().unwrap_or(&[]) {
-		if let Some(room) = item.as_list().and_then(parse_room) {
-			out.push(room);
-		}
+	for item in rows {
+		let room = item
+			.as_list()
+			.and_then(parse_room)
+			.ok_or_else(|| "the directory answered a malformed room publication".to_string())?;
+		out.push(room);
 	}
-	out
+	Ok(out)
+}
+
+fn parse_watch_rooms(arg: &Argument) -> Result<Vec<RoomInfo>, String> {
+	let fields = arg
+		.as_list()
+		.filter(|fields| fields.len() == 3)
+		.ok_or_else(|| "the directory answered a malformed watch snapshot".to_string())?;
+	let registrations = fields[1]
+		.as_list()
+		.ok_or_else(|| "the directory answered malformed registration rows".to_string())?;
+	if registrations.iter().any(|row| {
+		row.as_list()
+			.map(|values| {
+				values.len() != 2
+					|| values[0].as_str().map(str::is_empty).unwrap_or(true)
+					|| values[1].as_str().map(str::is_empty).unwrap_or(true)
+			})
+			.unwrap_or(true)
+	}) {
+		return Err("the directory answered malformed registration rows".to_string());
+	}
+	if fields[2].as_i64().filter(|omitted| *omitted >= 0).is_none() {
+		return Err("the directory answered an invalid watch omission count".to_string());
+	}
+	parse_rooms(&fields[0])
 }
 
 /// Dial a transport-neutral rooms locator: an `ocapn://…iroh` URI joins over

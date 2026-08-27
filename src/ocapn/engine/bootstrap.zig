@@ -303,14 +303,6 @@ pub const PendingReceive = struct {
     }
 };
 
-fn borrowedGiftClaim(receive: model.view.HandoffReceive) gifts.WithdrawGiftClaim {
-    return .{
-        .handoff_count = receive.handoff_count,
-        .gift_id = receive.signed_give.gift_id,
-        .recipient_key = receive.signed_give.recipient_key,
-    };
-}
-
 fn pendingGiftClaim(receive: PendingReceive) gifts.WithdrawGiftClaim {
     return .{
         .handoff_count = receive.handoff_count,
@@ -450,7 +442,7 @@ pub fn resolveForWithdraw(
         gifter_session.gifts,
         local_projection,
         scope,
-        borrowedGiftClaim(borrowed_receive),
+        gifts.giftClaim(borrowed_receive),
         request.answer,
     ) };
 }

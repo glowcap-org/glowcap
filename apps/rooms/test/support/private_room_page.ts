@@ -4,33 +4,13 @@
 
 import type { Browser, Page } from "playwright";
 
+import { fail } from "./page.ts";
+import { freePort, waitForHttp } from "./rooms_server.ts";
+import { establishLocalSession } from "./session_setup.ts";
+
+export { fail, freePort, waitForHttp };
+
 export const ROOM = "lobby";
-
-export function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-export function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-export async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const answer = await fetch(`http://127.0.0.1:${port}/locator`);
-			await answer.body?.cancel();
-			if (answer.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 export async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
 	const context = await browser.newContext();
@@ -40,7 +20,7 @@ export async function joinAs(browser: Browser, port: number, nick: string): Prom
 		if (message.type() === "error") console.error(`  [${nick} console.error]`, message.text());
 	});
 	await tab.goto(`http://127.0.0.1:${port}/`);
-	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -130,20 +110,26 @@ export async function waitForTcp(port: number, what: string): Promise<void> {
 
 /** The link one tab reads out of its own room, as copyable text. */
 export async function roomLink(tab: Page, who: string): Promise<string> {
-	await say(tab, "/link");
-	const shown = await tab.waitForFunction(
-		() => {
-			const line = [...document.querySelectorAll("#log .sys")]
-				.map((row) => row.textContent ?? "")
-				.find((text) => text.includes("ocapn://"));
-			return line === undefined ? null : (line.match(/ocapn:\/\/\S+/) ?? [null])[0];
-		},
-		undefined,
-		{ timeout: 30_000 },
-	).then((handle) => handle.jsonValue()).catch(() => null);
-	if (typeof shown !== "string" || !shown.includes("/s/")) {
-		fail(`/link did not say a link to ${who}'s room: ${JSON.stringify(shown)}`);
+	await tab.click("#roomAbout");
+	await tab.click("#convcardCapabilitiesTab");
+	const explanation = (await tab.textContent("#convcardRoomLinkHint")) ?? "";
+	if (
+		!explanation.includes("durable bearer link") || !explanation.includes("pass it on") ||
+		!explanation.includes("across restarts") || !explanation.includes("message history")
+	) {
+		fail(`the room-link control did not explain its authority and lifetime: ${JSON.stringify(explanation)}`);
 	}
+	if (await tab.locator("#convcardCreateRoomLink").count() !== 1) {
+		fail(`the Capabilities tab did not offer a room-link control for ${who}`);
+	}
+	await tab.click("#convcardCreateRoomLink");
+	await tab.waitForSelector("#convcardRoomLink", { timeout: 30_000 })
+		.catch(() => fail(`pressing Create room link did not expose ${who}'s link`));
+	const shown = (await tab.textContent("#convcardRoomLink"))?.trim() ?? null;
+	if (typeof shown !== "string" || !shown.includes("/s/")) {
+		fail(`Create room link did not expose a link to ${who}'s room: ${JSON.stringify(shown)}`);
+	}
+	await tab.click("#convcardClose");
 	return shown;
 }
 

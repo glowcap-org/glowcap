@@ -9,21 +9,13 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const capture = @import("../support/capture.zig");
+const support_actors = @import("../support/actors.zig");
 
-const Counter = struct {
-    hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
-        self.hits += 1;
-        return .{ .integer = self.hits };
-    }
-};
+const Counter = support_actors.Counter;
 
 test "drivePostBatch refuses a batch past its budget and the residual drains under a later one" {
     const allocator = std.testing.allocator;

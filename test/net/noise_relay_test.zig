@@ -17,7 +17,6 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
-const support_actors = @import("../support/actors.zig");
 const ws_relay = @import("../support/ws_relay.zig");
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 

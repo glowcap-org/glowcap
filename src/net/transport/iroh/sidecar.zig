@@ -1,3 +1,7 @@
+//! The iroh sidecar's C ABI as Zig sees it: opaque endpoint and connection
+//! handles, the extern structs mirrored field for field from
+//! `transports/iroh/include/pancake_iroh_sidecar.h`, and the imported verbs.
+
 const foundation = @import("foundation");
 
 const crypto = foundation.crypto;

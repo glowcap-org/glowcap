@@ -14,6 +14,7 @@
 //   deno run --allow-all apps/rooms/test/web_dm_test.ts
 
 import { chromium } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
@@ -23,32 +24,14 @@ import { enterOrOpen } from "../lib/enter_room.ts";
 import { dial, roomsHost } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort } from "./support/rooms_server.ts";
+import { fail, until } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a browser";
 const REPLY_TEXT = `got your DM: ${DM_TEXT}`;
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function until(ready: () => boolean, what: string, ms = 30_000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!ready()) {
-		if (Date.now() > deadline) fail(`timed out waiting for ${what}`);
-		await new Promise((r) => setTimeout(r, 50));
-	}
-}
 
 async function locatorFrom(port: number): Promise<string> {
 	for (let i = 0; i < 400; i++) {
@@ -133,6 +116,7 @@ try {
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
 
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", "web-alice");
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");

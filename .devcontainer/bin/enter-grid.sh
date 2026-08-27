@@ -18,10 +18,9 @@
 # Each column shares enter.sh's lifecycle: that worktree's own up.sh starts
 # or reuses its container, whether the file still sits beside compose or has
 # moved into bin/. Every pane in the column opens a shell in it. The pane
-# runtime is this launcher's; it sources the worktree's panes.sh in
-# each pane's container shell when that checkout has one.
-# each pane's container shell, and the paneN function matching the pane's
-# row runs as its startup command; .devcontainer/pane/panes.example.sh shows the
+# runtime is this launcher's; it sources the worktree's panes.sh in each
+# pane's container shell, and the paneN function matching the pane's row
+# runs as its startup command. .devcontainer/pane/panes.example.sh shows the
 # shape. With --session NAME a panes-NAME.sh file is preferred when it
 # exists. Splitting by percentage needs tmux 3.1 or newer.
 #
@@ -88,6 +87,10 @@ if [[ ${worktree_count} -eq 0 ]]; then
         worktrees[worktree_count]="${candidate}"
         worktree_count=$((worktree_count + 1))
     done < <(pancake_devcontainer_registered_worktrees "${primary_checkout}")
+fi
+if [[ ${worktree_count} -eq 0 ]]; then
+    echo "enter-grid.sh: no worktrees to open" >&2
+    exit 1
 fi
 
 for ((i = 0; i < worktree_count; i++)); do

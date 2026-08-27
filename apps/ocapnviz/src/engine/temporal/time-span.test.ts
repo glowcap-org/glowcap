@@ -3,9 +3,7 @@ import {
 	clearDuration,
 	clearEnd,
 	clearStart,
-	implicitTimeSpan,
 	markDerived,
-	messageTimeSpan,
 	moveBy,
 	resize,
 	setDuration,
@@ -16,23 +14,10 @@ import {
 	type TimeSpan,
 	translateSpan,
 } from "./time-span.ts";
+import { implicitBound } from "./bound.ts";
 
-Deno.test("implicitTimeSpan — both sides implicit", () => {
-	const v = implicitTimeSpan();
-	assertEquals(v.start.explicit, false);
-	assertEquals(v.duration.explicit, false);
-});
-
-Deno.test("messageTimeSpan — duration explicit at flight ms", () => {
-	const v = messageTimeSpan(500);
-	assertEquals(v.start.explicit, false);
-	assertEquals(v.duration, { value: 500, explicit: true });
-});
-
-Deno.test("messageTimeSpan clamps negative flight to 0", () => {
-	const v = messageTimeSpan(-100);
-	assertEquals(v.duration, { value: 0, explicit: true });
-});
+/** A fresh span with both sides implicit, the fixture every verb starts from. */
+const implicitTimeSpan = (): TimeSpan => ({ start: implicitBound(), duration: implicitBound() });
 
 Deno.test("setStart marks explicit with value", () => {
 	const v = setStart(implicitTimeSpan(), 7);

@@ -3,7 +3,7 @@
 ;; `server-build` ignores `mint-cap`. One client unit is a single round-trip.
 ;; Backend-blind: uses only the procs the harness passes (a synchronous `call` on
 ;; the client, `mint-cap`/`dispatch` on the server).
-(require (file "/workspaces/pancake/bench/goblins/dispatch.rkt"))
+(require "../dispatch.rkt")
 (provide app-name server-build client-prepare result-ok?)
 
 (define app-name 'echo)

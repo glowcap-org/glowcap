@@ -11,9 +11,10 @@
 // An evicted file breaks on read rather than answering empty, which a reader
 // can tell apart from a file that really was empty.
 
-import type { Session } from "@pancake/runtime";
+import { currentSession, type Session } from "@pancake/runtime";
 import type { Argument } from "@pancake/runtime";
 import { attachmentArgs } from "../lib/attachment.ts";
+import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import { DISCARD, LINE, NOTIFY, READ, REFILED, WRITE } from "../lib/protocol.ts";
 import { ATTACHMENT_REFUSED, BLOB_EXPIRED, RoomError, UPLOAD_INCOMPLETE } from "../lib/errors.ts";
 import {
@@ -194,10 +195,20 @@ export function armUploadTimer(state: RoomState, session: Session, upload: Pendi
 
 export function uploadBehavior(state: RoomState, session: Session, upload: PendingUpload) {
 	return (verb: string, args: Argument[]): Argument => {
+		const caller = currentSession();
+		if (caller == null) throw new Error("an upload is reachable only over a session");
+		if (hasCapabilityArguments(args)) {
+			throwAfterReleasingCapabilities(
+				caller,
+				args,
+				new Error(`upload ${verb} does not take capability arguments`),
+			);
+		}
 		if (upload.spent) {
 			throw new RoomError(UPLOAD_INCOMPLETE, "this upload is spent; attach again");
 		}
 		if (verb === WRITE) {
+			if (args.length !== 1) throw new Error("write needs one byte chunk");
 			if (!upload.posted) {
 				throw new RoomError(UPLOAD_INCOMPLETE, "publish this upload before writing its bytes");
 			}
@@ -217,6 +228,7 @@ export function uploadBehavior(state: RoomState, session: Session, upload: Pendi
 			return null;
 		}
 		if (verb === DISCARD) {
+			if (args.length !== 0) throw new Error("discard takes no arguments");
 			dropUpload(state, session, upload);
 			return null;
 		}
@@ -299,7 +311,17 @@ export function broadcastFiles(
  * empty file. */
 function blobBehavior(file: PostedFile) {
 	return (verb: string, args: Argument[]): Argument | Promise<Uint8Array> => {
+		const caller = currentSession();
+		if (caller == null) throw new Error("a blob is reachable only over a session");
+		if (hasCapabilityArguments(args)) {
+			throwAfterReleasingCapabilities(
+				caller,
+				args,
+				new Error(`blob ${verb} does not take capability arguments`),
+			);
+		}
 		if (verb !== READ) throw new Error(`blob has no method ${verb}`);
+		if (args.length !== 2) throw new Error("read needs an offset and maximum length");
 		if (file.bytes === null) {
 			throw new RoomError(BLOB_EXPIRED, `"${file.name}" is no longer held by this room`);
 		}

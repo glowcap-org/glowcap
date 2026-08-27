@@ -501,14 +501,3 @@ pub const white_box = if (builtin.is_test) struct {
         return linux.errno(rc) == .SUCCESS and value != 0;
     }
 } else struct {};
-
-// `openListener`/`openSocket` delegate their socket/bind/listen naming to
-// `socket_tcp`, so the one syscall this backend checks itself is `getsockname`
-// (the kernel-chosen port after a port-0 bind). Name it rather than collapse it
-// to a generic syscall fault (ADR-0081, contract 1).
-fn check(rc: usize) error{GetSockNameFailed}!void {
-    return switch (linux.errno(rc)) {
-        .SUCCESS => {},
-        else => error.GetSockNameFailed,
-    };
-}

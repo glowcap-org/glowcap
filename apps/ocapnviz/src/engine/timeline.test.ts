@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { observationsInRange, TimelineDocument } from "./timeline.ts";
+import { TimelineDocument, type TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 
 const goodDoc = TimelineDocument.parse({
@@ -32,6 +32,23 @@ const goodDoc = TimelineDocument.parse({
 		},
 	],
 });
+
+/** Every observation with `t` in the half-open `[fromT, toT)`, source by source. */
+function observationsInRange(
+	doc: TimelineDocument,
+	fromT: number,
+	toT: number,
+): TimelineEvent[] {
+	const out: TimelineEvent[] = [];
+	for (const src of doc.recording?.sources ?? []) {
+		for (const ev of src.observations) {
+			if (ev.t < fromT) continue;
+			if (ev.t >= toT) continue;
+			out.push(ev as TimelineEvent);
+		}
+	}
+	return out;
+}
 
 Deno.test("TimelineDocument accepts a well-formed document", () => {
 	// Post-parse, observations live in recording.sources, projected
@@ -223,20 +240,6 @@ Deno.test("TimelineDocument validates event-kind discriminant", () => {
 		],
 	});
 	assertEquals(result.success, false);
-});
-
-Deno.test("observationsInRange returns half-open slice", () => {
-	const all = observationsInRange(goodDoc, 0, 5000);
-	assertEquals(all.length, 3);
-
-	const middle = observationsInRange(goodDoc, 500, 2000);
-	assertEquals(middle.map((e) => e.id), ["e2"]);
-
-	const before = observationsInRange(goodDoc, 0, 1);
-	assertEquals(before.map((e) => e.id), ["e1"]);
-
-	const after = observationsInRange(goodDoc, 3000, 5000);
-	assertEquals(after.length, 0);
 });
 
 Deno.test("observationsInRange treats fromT inclusive, toT exclusive", () => {

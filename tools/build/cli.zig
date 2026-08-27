@@ -13,7 +13,7 @@ pub const Inputs = struct {
     check_relay: *std.Build.Module,
     rooms_profile: *std.Build.Module,
     version: std.SemanticVersion,
-    iroh_library: *std.Build.Step,
+    iroh_sidecar_archive: std.Build.LazyPath,
     check: *std.Build.Step,
     test_filter: ?[]const u8,
 };
@@ -31,7 +31,6 @@ pub fn add(b: *std.Build, in: Inputs) void {
 
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.native_relay);
     const exe = b.addExecutable(.{ .name = "pancake", .root_module = product });
-    exe.step.dependOn(in.iroh_library);
     b.installArtifact(exe);
     const run = execution.addArtifact(b, .service, exe);
     run.setCwd(b.path("."));
@@ -122,7 +121,7 @@ fn cliModule(
     module.addImport("vaxis", vaxis);
     module.addImport("rooms_profile", in.rooms_profile);
     module.addOptions("build_options", options);
-    if (link_iroh) common.linkIrohSidecar(b, module, in.target);
+    if (link_iroh) common.linkIrohSidecar(b, module, in.target, in.iroh_sidecar_archive);
     return module;
 }
 

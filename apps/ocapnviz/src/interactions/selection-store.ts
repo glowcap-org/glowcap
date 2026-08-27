@@ -218,15 +218,3 @@ function assertNever(x: never): never {
 }
 
 // ─────────────────────── Selectors (helpers for consumers) ─────────────
-
-/** Decode the selection set back to typed EntityRefs. */
-export function selectionRefs(
-	state: SelectionState,
-): readonly EntityRef[] {
-	return [...state.selection].map(parseEntityKey);
-}
-
-/** True if the selection is non-empty. */
-export function hasAnySelection(state: SelectionState): boolean {
-	return state.selection.size > 0;
-}

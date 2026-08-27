@@ -24,12 +24,21 @@ directories into every worktree:
 | Agent resources | `~/.config/agents` | User-level resources for `.agents/` |
 | Serena | `~/.serena` | User-level configuration |
 
-`initialize.sh` creates every host path before Docker starts. A login or user
-setting made on the host or in any pancake worktree is therefore available in
-every other worktree and survives container replacement. A checkout can read
-and update these stores, so open only trusted code in these containers.
+Build caches use the same bind pattern so they are findable on either side of
+the container: host `~/.cache/pancake` is container `/home/vscode/.cache/pancake`.
+`tool/` is shared downloads, `cargo/` is `CARGO_HOME`, and
+`work/<worktree>/` holds that container's Zig objects (`zig-local`) and
+extracted packages (`zig-pkg`). A `LAYOUT` file sits at the root of that
+directory. The [README](../README.md#persistent-paths) is the inventory.
 
-The mounts target only the tool directories above. Mounting all of `~/.config`
+`initialize.sh` creates every host path before Docker starts. A login, user
+setting, or cache fill made on the host or in any pancake worktree is therefore
+available in every other worktree (caches: the shared `tool/` and `cargo/`
+trees; each worktree still has its own `work/<name>/`) and survives container
+replacement. A checkout can read and update these stores, so open only trusted
+code in these containers.
+
+The mounts target only the directories above. Mounting all of `~/.config`
 would expose unrelated host configuration and overlap the narrower mounts.
 `post-create.sh` checks access without changing ownership of host files.
 Serena's per-clone memories remain under the workspace's `.serena/` directory,

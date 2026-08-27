@@ -21,18 +21,18 @@
 // is owned here, at module scope, so a remount, a StrictMode double-pass, or an
 // error boundary catching a render never disturbs a live conversation.
 
-import { lineCost, MAX_DIRECT_ATTACHMENT_BYTES, MAX_LINE, MAX_MESSAGE_FILES } from "../../lib/limits.ts";
-import { validateAttachmentSource } from "../../lib/attachment.ts";
+import { lineCost, MAX_LINE } from "../../lib/limits.ts";
 import { typedRoomLink } from "./joining.ts";
 import { type DirId, liveRoomCounts, type RoomDestination } from "./types.ts";
 import type { Reach } from "./intent.ts";
 import * as store from "./store.ts";
 import { directoryName, lineRoom, roomCalled, tooLong } from "./text.ts";
-import { commandIn, type CommandPowers } from "./commands.ts";
+import { type CommandPowers } from "./commands.ts";
+import { prepareComposerSend } from "./composer/send.ts";
 import { reason } from "./net/common.ts";
-import { pickedSource } from "./net/files.ts";
 import { dmSay, openDm, startDm } from "./net/direct.ts";
 import { convSession, dirAddress, dirSession, isConnected } from "./net/live.ts";
+import { prepareDirectArchiveFacet } from "./net/archive_target.ts";
 
 // The page reaches this layer through one namespace, so what moved into a
 // module of its own is named here as well. The split is where the code lives,
@@ -41,30 +41,74 @@ export { openAttachment, stepViewer } from "./net/files.ts";
 export { startDm } from "./net/direct.ts";
 export { retrySend, selfLocator } from "./net/reachable.ts";
 export { connect, leaveDirectory } from "./net/connection.ts";
+export { releaseDirectoryNick } from "./net/directory_identity.ts";
+export { openDirectory } from "./net/connection.ts";
 export { bootRuntime } from "./net/runtime_boot.ts";
-export { dropOpsCap, refreshOpsCap, takeOpsCap } from "./net/ops.ts";
+export { readOpsBundle, refreshOpsCap, replaceOpsBundle } from "./net/ops.ts";
 export { joinIrcBridge, partIrcBridge } from "./net/irc.ts";
+export { connectIrcIdentity, disconnectIrcIdentity } from "./net/irc_identity.ts";
 export { requestListenerDown, requestListenerUp } from "./net/listeners.ts";
+export {
+	loadMoreOperator,
+	refreshOperator,
+	requestNickRevoke,
+	requestOperatorReferenceRelease,
+	requestOperatorReset,
+	requestOperatorRoomRemove,
+	requestOperatorTroubleClear,
+	requestRoomLinkRevoke,
+	requestSessionDisconnect,
+	requestStewardGive,
+	requestStewardRevoke,
+	retireMatchingOperator,
+} from "./net/operator.ts";
+export { restoreArchivePeer, retryArchivePeer, takeArchivePeer, useDeviceArchive } from "./net/archive_target.ts";
+export { dropArchiveShare, readArchiveShare } from "./net/archive_shares.ts";
 export { publishPeeredRoom, revokePeeredPublication } from "./net/peering.ts";
+export { askMemberOut, askMemberOutSettled, steward, takeStewardship } from "./net/stewardship.ts";
 import { leaveDirectory, openDirectory } from "./net/connection.ts";
 export { setDirStanding, setRoomStanding, setStanding } from "./net/standing.ts";
 export { directoryId, directoryLocator, directoryReady } from "./net/bootstrap.ts";
+export { FIRST_BACKOFF_MS } from "./net/bootstrap.ts";
+export { reserveSelectionForAddress } from "./net/bootstrap.ts";
 export { dirAddress } from "./net/live.ts";
 export { acceptInvite, declineInvite } from "./net/invites.ts";
 export { closeDm, endConversation, leaveRoom, openPrivateRoom, pickRoom, showRoom } from "./net/rooms.ts";
-import { mintRoomLink, takeRoomLink } from "./net/invites.ts";
+export { createRoomLink } from "./net/room_links.ts";
+import { takeRoomLink } from "./net/invites.ts";
+import { mintRoomLink } from "./net/room_links.ts";
 import { abandonJoin, endConversation, enterRoom, openPrivateRoom, pickRoom, stageJoin } from "./net/rooms.ts";
-import {
-	actLocator,
-	directoryId,
-	FIRST_BACKOFF_MS,
-	notALocator,
-	notePickedRoom,
-	requestedLocator,
-} from "./net/bootstrap.ts";
+import { actLocator, directoryId, FIRST_BACKOFF_MS, notALocator, requestedLocator } from "./net/bootstrap.ts";
 import { setDirStanding, setRoomStanding, setStanding } from "./net/standing.ts";
 export { addFiles, mention, recallLastSent, setDraft, setTyping, stopSend, withdraw } from "./net/send.ts";
 import { editLine, lastLineOfOurs, refileActive, sayLine, sendFiles, withdraw } from "./net/send.ts";
+import { askMemberOut, steward } from "./net/stewardship.ts";
+
+/** Hand the selected archive's read-only account of one direct conversation
+ * to its other member. The narrowed occurrence is retained only for the ask;
+ * the receiver owns the projected occurrence it accepts. */
+export async function shareArchiveHistory(key: string): Promise<string> {
+	const conv = store.getConv(key);
+	const home = convSession(key);
+	if (conv?.type !== "dm" || home === null) return "This direct conversation is not connected right now.";
+	let facet: Awaited<ReturnType<typeof prepareDirectArchiveFacet>> | null = null;
+	try {
+		facet = await prepareDirectArchiveFacet(home, conv.persistId);
+		const dm = await openDm(conv);
+		await dm.handArchive(home.id, conv.persistId, facet.ref);
+		store.deliver(
+			key,
+			store.sysItem(`You shared a read-only archive account of this conversation with ${conv.id}.`),
+		);
+		return "";
+	} catch (error) {
+		const why = reason(error);
+		store.deliver(key, store.sysItem(`Could not share this conversation's archive history: ${why}`));
+		return why;
+	} finally {
+		facet?.release();
+	}
+}
 
 /** What a slash command may reach.
  *
@@ -77,23 +121,6 @@ const NO_GRANTS: ReadonlySet<string> = new Set();
 const POWERS: CommandPowers = {
 	say(text) {
 		store.deliverActive(store.sysItem(text));
-	},
-	ircLogin(account, password) {
-		const conv = store.activeConv();
-		if (conv?.type !== "room") {
-			store.deliverActive(store.sysItem("Log in from the bridged room you are in."));
-			return;
-		}
-		const key = conv.key;
-		const room = convSession(key)?.rooms.get(key);
-		if (room === undefined) {
-			store.deliver(key, store.sysItem("This membership is not connected right now."));
-			return;
-		}
-		void room.ircAccount(account, password).then(
-			(said) => store.deliver(key, store.sysItem(said === "" ? "The account was taken." : said)),
-			(err) => store.deliver(key, store.sysItem(`The room did not take the account: ${reason(err)}`)),
-		);
 	},
 	joinRoom(name) {
 		const conv = store.activeConv();
@@ -159,6 +186,14 @@ const POWERS: CommandPowers = {
 		});
 		return true;
 	},
+	kick(who) {
+		const conv = store.activeConv();
+		return conv?.type === "room" ? askMemberOut(conv.key, who) : false;
+	},
+	steward(link) {
+		const conv = store.activeConv();
+		return conv?.type === "room" ? steward(conv.key, link) : false;
+	},
 	setAway(why) {
 		const conv = store.activeConv();
 		if (conv?.type !== "room") return false;
@@ -179,7 +214,6 @@ const POWERS: CommandPowers = {
 		// called, from the directory they are reading if it has granted them one.
 		const dir = store.activeConv()?.dir ?? store.actingDir()?.id ?? null;
 		const nick = (dir === null ? "" : store.dirNick(dir)) || store.reachingNick();
-		notePickedRoom();
 		void takeRoomLink(link, label, nick).then((why) => {
 			if (why !== "") store.deliverActive(store.sysItem(`That link did not open a room: ${why}`));
 		}, (error) => {
@@ -203,8 +237,10 @@ const POWERS: CommandPowers = {
 		// something unbidden. Only on a line that did not already exist: a
 		// standing conversation should not gain a system line every invite.
 		const label = conv.id;
-		const existed = store.liveDmWith(session.id, nick) !== null;
-		const line = store.ensureDm(session.id, nick);
+		const registration = store.peerRegistration(session.id, nick);
+		if (registration == null) return false;
+		const existed = store.liveDmWith(session.id, registration.name, registration.registrationId) != null;
+		const line = store.ensureDm(session.id, registration.name, registration.registrationId);
 		if (line === null) return false;
 		const conversation = store.getConv(line.key);
 		if (conversation?.type !== "dm") return false;
@@ -238,7 +274,7 @@ const POWERS: CommandPowers = {
 			const dir = conv?.dir ?? store.actingDir()?.id ?? null;
 			const session = dir === null ? null : dirSession(dir);
 			if (session === null) return false;
-			void session.dir.link(asked, dirAddress(session.id))
+			void session.dir.link(asked)
 				.then((link) => {
 					const target = store.joinedRooms(session.id).find((row) =>
 						!row.held && row.id.toLowerCase() === asked.toLowerCase()
@@ -329,13 +365,13 @@ const POWERS: CommandPowers = {
 /** Send whatever is in the composer to whatever is on screen. */
 export function send(): void {
 	const draft = store.activeDraft();
-	const text = draft.text.trim();
+	const text = draft.text;
 	const files = [...draft.files];
 	const conv = store.activeConv();
 	// An empty composer sends nothing — unless it is changing a file line, where
 	// empty is a real instruction: every file removed and no caption left takes
 	// the line down. `keeping` is what tells the two apart.
-	if ((!text && files.length === 0 && draft.keeping === undefined) || !conv) return;
+	if ((text.trim() === "" && files.length === 0 && draft.keeping === undefined) || !conv) return;
 	if (!isConnected()) {
 		store.deliverActive(store.sysItem("Not connected, your message was not sent"));
 		return;
@@ -372,54 +408,26 @@ export function send(): void {
 		}
 		return;
 	}
-	// A slash command runs before anything is sent, and what it hands back is
-	// what the ordinary path then carries — so a command cannot post something
-	// this function would have refused, and there is still one place that decides
-	// what reaches a room.
-	const named = commandIn(text);
-	let said = text;
-	if (named !== null) {
-		const outcome = named.command.run(named.rest, POWERS, conv);
-		if (outcome.kind === "done") {
-			store.rememberLastSent(conv.key, text);
-			store.setDraft("");
-			store.clearDraftFiles();
-			return;
-		}
-		if (outcome.kind === "refused") {
-			store.deliverActive(store.sysItem(outcome.why));
-			return;
-		}
-		if (outcome.kind === "action" && files.length > 0) {
-			store.deliverActive(store.sysItem("An /me action cannot carry files; send them as a separate message."));
-			return;
-		}
-		said = outcome.kind === "action" ? `/me ${outcome.text}` : outcome.text;
-	}
-	if (files.length > MAX_MESSAGE_FILES) {
-		store.deliverActive(store.sysItem(`A message may carry at most ${MAX_MESSAGE_FILES} files.`));
+	const prepared = prepareComposerSend(conv, draft, POWERS);
+	if (prepared.kind === "nothing") return;
+	if (prepared.kind === "refused") {
+		store.deliverActive(store.sysItem(prepared.why));
 		return;
 	}
-	if (conv.type === "dm" && files.reduce((sum, file) => sum + file.size, 0) > MAX_DIRECT_ATTACHMENT_BYTES) {
-		store.deliverActive(
-			store.sysItem(`A direct message may carry at most ${MAX_DIRECT_ATTACHMENT_BYTES / (1024 * 1024)} MB.`),
-		);
-		return;
-	}
-	try {
-		for (const file of files) validateAttachmentSource(pickedSource(file));
-	} catch (err) {
-		store.deliverActive(store.sysItem(reason(err)));
+	if (prepared.kind === "handled") {
+		store.rememberLastSent(conv.key, prepared.original);
+		store.setDraft("");
+		store.clearDraftFiles();
 		return;
 	}
 	// A room echoes every post back to every member, which is what confirms our
 	// own line. A direct message has no echo, so it is confirmed by the send
 	// settling instead.
-	if (files.length > 0) {
-		sendFiles(conv, files, said);
-	} else if (conv.type === "room") sayLine(conv, said);
-	else dmSay(conv, said);
-	store.rememberLastSent(conv.key, text);
+	if (prepared.files.length > 0) {
+		sendFiles(conv, [...prepared.files], prepared.text);
+	} else if (conv.type === "room") sayLine(conv, prepared.text);
+	else dmSay(conv, prepared.text);
+	store.rememberLastSent(conv.key, prepared.original);
 	store.setDraft("");
 	store.clearDraftFiles();
 }
@@ -499,7 +507,6 @@ export function joinRoom(
 			const linked = typedRoomLink(destination.locator, room);
 			if (linked !== null) {
 				if (signal?.aborted) return "";
-				notePickedRoom();
 				store.setStatus("taking up the room link…");
 				return await takeRoomLink(linked.link, linked.label, nick);
 			}
@@ -530,7 +537,10 @@ export function joinRoom(
 				// Said by the name the rail would give it, never the raw locator:
 				// forty characters of designator are an address, not a sentence.
 				store.setStatus("reaching " + directoryName(wanted, store.get().homeDir) + "…");
-				const opened = await openDirectory(locator, FIRST_BACKOFF_MS, signal);
+				// Stop owns only a directory this Join introduced. Existing room intent
+				// still needs its directory reconstructed after this form is canceled.
+				const openingSignal = store.joinedRooms(wanted).length === 0 ? signal : undefined;
+				const opened = await openDirectory(locator, FIRST_BACKOFF_MS, openingSignal);
 				if (signal?.aborted) return "";
 				if (opened !== "") return opened;
 			}
@@ -546,7 +556,7 @@ export function joinRoom(
 			if (signal?.aborted) return "";
 			store.setDirStatus(entering, "entering #" + room + "…");
 			if (destination.hidden === true) return openPrivateRoom(entering, room, nick, signal);
-			return enterRoom(entering, room, nick, { requested: nick, signal });
+			return enterRoom(entering, room, nick, { requested: nick, select: true, signal });
 		} catch (err) {
 			if (signal?.aborted) return "";
 			return reason(err);

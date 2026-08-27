@@ -514,24 +514,6 @@ export function sessionTrajectoryRows(
 	return out.sort((x, y) => x.t - y.t);
 }
 
-/** Every moment of ONE of a session's properties, in time order.
- *
- *  What bounds a moment's move is its own property's neighbours and
- *  nothing else: a state change may pass an endpoint attribution freely,
- *  because the two tracks are read separately and neither can shadow the
- *  other. Bounding a row by the whole list instead both over-constrained
- *  it — an unrelated end's moment held a state change in place — and
- *  under-constrained it, because the moment right beside it in its own
- *  track was not the neighbour the row was measuring against. */
-export function sessionPropertyMoments(
-	doc: TimelineDocument,
-	sessionId: string,
-	property: SessionProperty,
-): SessionMoment[] {
-	return sessionTrajectoryRows(doc, sessionId)
-		.filter((m) => m.property === property);
-}
-
 /** Which of a session's properties an observation states, and for which
  *  session — null when it states none of them.
  *

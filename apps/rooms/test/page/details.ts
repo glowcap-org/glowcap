@@ -102,9 +102,52 @@ export async function run(tab: Page): Promise<void> {
 	if (!about.facts.includes("Public room") || !about.facts.includes("Connected")) {
 		fail(`the conversation card did not say what this room is: ${JSON.stringify(about.facts)}`);
 	}
+	if ((await tab.getAttribute("#convcardAboutTab", "aria-selected")) !== "true") {
+		fail("the room card did not open on About");
+	}
+	if (await tab.locator("#convcardModerationTab").count() !== 0) {
+		fail("the room card offered moderation without its capability");
+	}
+	await tab.click("#convcardCapabilitiesTab");
+	const capGroup = (await tab.locator('[aria-label="Room capabilities"]').textContent()) ?? "";
+	if (!capGroup.includes("Available to this room's creator connection")) {
+		fail(`the conversation card did not show its moderation capability: ${JSON.stringify(capGroup)}`);
+	}
+	if (await tab.locator("#convcardStewardClaim").count() !== 1) {
+		fail("the room creator's details did not offer its moderator capability claim");
+	}
+	if (await tab.locator("#convcardStewardTake").count() !== 1) {
+		fail("the conversation card did not offer a place to take a shared moderator capability");
+	}
+	await tab.click("#convcardStewardClaim");
+	await tab.waitForFunction(() =>
+		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this tab") === true
+	).catch(() => fail("claiming moderation did not make possession visible in the room details"));
+	await tab.waitForSelector("#convcardSteward").catch(() =>
+		fail("claiming moderation did not expose its handover capability in the room details")
+	);
+	if (await tab.locator("#convcardStewardClaim").count() !== 0) {
+		fail("claiming moderation left the creator-only action available a second time");
+	}
+	const steward = (await tab.textContent("#convcardSteward"))?.trim() ?? "";
+	if (!steward.startsWith("ocapn://") || !steward.includes("/s/")) {
+		fail(`the conversation card exposed an invalid moderator capability: ${JSON.stringify(steward)}`);
+	}
+	const stewardHint = (await tab.textContent("#convcardStewardHint")) ?? "";
+	if (!stewardHint.includes("bearer authority") || !stewardHint.includes("Share it only")) {
+		fail(`the moderator capability did not explain the authority being copied: ${JSON.stringify(stewardHint)}`);
+	}
+	await tab.waitForSelector("#convcardModerationTab").catch(() =>
+		fail("holding moderation authority did not reveal the room's moderation operations")
+	);
+	await tab.click("#convcardModerationTab");
+	if (await tab.locator('[aria-label="Room moderation"]').count() !== 1) {
+		fail("the Moderation tab did not contain the room-scoped operations");
+	}
 	if (about.pressed !== "true") fail("the title did not say the card was open");
 	const hash = await tab.evaluate(() => document.querySelector("#convcardTitle .hash")?.textContent ?? "");
 	if (hash !== "#") fail("a public room's card did not wear the hash the rest of the page wears");
+	await tab.click("#convcardAboutTab");
 	await tab.click("#convcardDir");
 	await tab.waitForSelector("#dircardTitle").catch(() =>
 		fail("the directory named on the conversation card did not open that directory")

@@ -106,9 +106,9 @@ barrier for the Host it adopts.
   Racket waits at the call site and needs no queue.
 - Racket keeps its native actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
   and `methods`.
-- Only TypeScript currently has a recurring check in which Goblins dials the
-  binding as a server. All four bindings dial Goblins and exercise both
-  application-facing handoff roles.
+- Every binding has a recurring check in which Goblins dials it as a server,
+  enlivens a Host-wide actor, and calls it. All four also dial Goblins and
+  exercise both application-facing handoff roles.
 
 A `send` or `tell` to an actor spawned by the same session stays in process in
 every binding.
@@ -168,6 +168,8 @@ The complete binding check needs Cargo, Deno, Bun, Python, and Racket. The
 devcontainer includes them. Focused build steps are listed in each language
 README.
 
-Binding maintainers should read [Developing a binding](DEVELOPING.md).
+Binding maintainers should read [Developing a binding](DEVELOPING.md). The
+per-binding proof families, one scenario run once per language, live in
+[`proofs/`](proofs/README.md).
 Packagers and release operators should read
 [Finding and publishing the C archives](PACKAGING.md).

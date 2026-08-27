@@ -53,12 +53,6 @@ pub fn createEmptyRouteAdvice(self: *Node) !*RouteAdvice {
     return advice;
 }
 
-pub fn createRouteAdvice(self: *Node, location: []u8) !*RouteAdvice {
-    const advice = try createEmptyRouteAdvice(self);
-    advice.location = location;
-    return advice;
-}
-
 /// Release a candidate that no successfully queued withdrawal adopted.
 pub fn finishRouteAdviceSetup(self: *Node, advice: ?*RouteAdvice) void {
     const candidate = advice orelse return;

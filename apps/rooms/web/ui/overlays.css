@@ -411,6 +411,18 @@
 .standing-menu {
 	min-width: 210px;
 }
+.standing-actions {
+	display: grid;
+	gap: 1px;
+	padding-top: 4px;
+	margin-top: 4px;
+	border-top: 1px solid var(--rule);
+}
+.standing-actions .line-menu-row > span:last-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 .standing-why {
 	display: flex;
 	gap: 6px;

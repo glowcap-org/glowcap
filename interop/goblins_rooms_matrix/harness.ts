@@ -6,6 +6,7 @@
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const WEB = new URL("../../apps/rooms/web/serve.ts", import.meta.url).pathname;
@@ -33,13 +34,6 @@ const WEB_A = "web-ada";
 const WEB_B = "web-bob";
 const GOB_A = "goblins-carol";
 const GOB_B = "goblins-dan";
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
 
 async function until(
 	ready: () => boolean | Promise<boolean>,

@@ -3,11 +3,9 @@
 // /page.js by serve.ts at startup, so there is no committed build artifact.
 //
 // Two things start here, and they are deliberately not the same thing. React
-// mounts the interface, which is a function of the store. `connect()` opens the
-// CapTP session, which is owned by `net.ts` at module scope and outlives every
-// render — so a remount, StrictMode's double pass, or an error boundary catching
-// a crash never disturbs a live conversation. Nothing below reaches into the
-// tree, and nothing in the tree reaches into the session.
+// mounts a view of the store. `createLocalRoomsSession` selects the in-tab
+// session controller, whose CapTP connections outlive every render. A later
+// attached controller can stand behind the same view boundary.
 //
 // One thing ends here. The screen page.html has been holding up since the first
 // parse is handed over by `boot.ts`, and that call comes last, because reaching
@@ -17,122 +15,29 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo, RoomsRouter } from "./router.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
-import { handOffWhenReady } from "./boot.ts";
+import { handOffNow, handOffWhenReady, type RoomsOpeningReadiness } from "./boot.ts";
 import * as net from "./net.ts";
 import * as store from "./store.ts";
 import * as prefs from "./prefs.ts";
-import { type Peer, PeerProvider } from "./peer.ts";
-import { installHistoryRecorder } from "./net/history.ts";
-import { setHistoryKept } from "./history.ts";
+import { hydrateConversation, installHistoryRecorder } from "./net/history.ts";
+import { restoreHistoryPreference } from "./history.ts";
+import { createLocalRoomsSession } from "./session/local.ts";
+import { installWorkspaceStatePersistence, restoreWorkspaceState } from "./workspace_state.ts";
+import { CapabilitySetProvider } from "./settings/CapabilitySetModel.tsx";
+import { connectAttachedRoomsSession } from "./session/attached_connection.ts";
+import { AttachedSessionProjection } from "./session/projection.ts";
+import { createAttachedRoomsSession } from "./session/attached_session.ts";
+import { AttachedSessionFiles } from "./session/attached_files.ts";
+import { workspaceControllerSelection } from "./workspace_state.ts";
+import { SessionSetup } from "./SessionSetup.tsx";
+import { RoomsBrowserProvider } from "./controller/browser.ts";
+import { RoomsSessionProvider } from "./controller/session.ts";
+import { createRoomsBrowserController } from "./controller/create_browser.ts";
+import { attachedSessionFailureText } from "./session/attached_failure.ts";
 
-// The one binding of what the interface can ask for to what performs it. Built
-// here and never rebuilt, so no component below re-renders on account of it, and
-// no component below imports the peer.
-// Standing on /ops nothing is selected, so picking a conversation is always
-// a transition the router's mirror answers by leaving the namespace. The one
-// act the mirror cannot see is opening the join card, which changes no
-// selection; these two verbs carry their own step out. Deferred, because the
-// rail commits the join-card act inside flushSync, where a synchronous
-// navigation is at the renderer's mercy.
-function backToRooms<A extends unknown[]>(act: (...args: A) => void): (...args: A) => void {
-	return (...args: A): void => {
-		act(...args);
-		if (location.pathname.startsWith("/ops")) {
-			queueMicrotask(() => navigateTo(addressOfActive()));
-		}
-	};
-}
-
-const peer: Peer = {
-	directoryReady: net.directoryReady,
-	showRail: store.showRail,
-	pickRoom: net.pickRoom,
-	leaveRoom: net.leaveRoom,
-	reachFor: backToRooms(net.reachFor),
-	showJoinCard: backToRooms(store.showJoinCard),
-	openPrivateRoom: (dir, label) => {
-		void net.openPrivateRoom(dir, label).then((why) => {
-			if (why !== "") store.toast("failure", why);
-		});
-	},
-	acceptInvite: (id) => {
-		void net.acceptInvite(id).then((why) => {
-			if (why !== "") store.toast("failure", why);
-		});
-	},
-	declineInvite: net.declineInvite,
-	setStanding: net.setStanding,
-	setDirStanding: net.setDirStanding,
-	setRoomStanding: net.setRoomStanding,
-	aboutDirectory: net.aboutDirectory,
-	aboutConversation: store.showAboutConv,
-	closeAboutConversation: store.closeAboutConv,
-	showError: store.showErrorDetail,
-	closeError: store.closeErrorDetail,
-	leaveDirectory: net.leaveDirectory,
-	openConv: store.switchTo,
-	closeDm: net.closeDm,
-	toast: store.toast,
-	showRoster: store.showRoster,
-	endConv: net.endConversation,
-	setTheme: store.setTheme,
-	toggleNotify: net.toggleNotify,
-	openSettings: store.openSettings,
-	closeSettings: store.closeSettings,
-	setSettingsTab: store.setSettingsTab,
-	applySettings: prefs.apply,
-	selfLocator: net.selfLocator,
-	directoryLocator: net.directoryLocator,
-	dirAddress: net.dirAddress,
-	directoryId: net.directoryId,
-	openHelp: store.openHelp,
-	closeHelp: store.closeHelp,
-	joinIrc: net.joinIrcBridge,
-	partIrc: net.partIrcBridge,
-	setKeepHistory: (keep) => {
-		store.setKeepHistory(keep);
-		setHistoryKept(keep);
-	},
-	openOperations: () => {
-		store.closeSettings();
-		navigateTo("/ops");
-	},
-	openOpsTake: store.openOpsTake,
-	closeOpsTake: store.closeOpsTake,
-	// Each capability's take, drop, and refresh live in one table below the
-	// page, so these three are the whole of what the page asks. The drop
-	// clears that capability's rows, and possession is derived from the rows,
-	// so the toggle falls off in the same store change.
-	takeOpsCap: net.takeOpsCap,
-	dropOpsCap: net.dropOpsCap,
-	refreshOpsCap: net.refreshOpsCap,
-	setOpsTab: store.setOpsTab,
-	listenerUp: net.requestListenerUp,
-	listenerDown: net.requestListenerDown,
-	publishPeeredRoom: net.publishPeeredRoom,
-	revokePeeredPublication: net.revokePeeredPublication,
-	startDm: net.startDm,
-	retry: net.retrySend,
-	stopSend: net.stopSend,
-	withdraw: net.withdraw,
-	changeLine: store.startChange,
-	changeFiles: store.startRefile,
-	dropKeptFile: store.dropKeptFile,
-	cancelChange: store.cancelChange,
-	mention: net.mention,
-	setDraft: net.setDraft,
-	recallLastSent: net.recallLastSent,
-	send: net.send,
-	addFiles: net.addFiles,
-	removeFile: store.removeDraftFile,
-	openFile: net.openAttachment,
-	openViewer: store.openViewer,
-	stepViewer: net.stepViewer,
-	closeViewer: store.closeViewer,
-	setTyping: net.setTyping,
-	editJoin: store.editJoin,
-	join: net.joinRoom,
-};
+const browser = createRoomsBrowserController(navigateTo, addressOfActive);
+const localSession = createLocalRoomsSession();
+let session = localSession;
 
 const mount = document.getElementById("root");
 if (!mount) throw new Error("rooms: page.html is missing its #root element");
@@ -145,6 +50,21 @@ if (!mount) throw new Error("rooms: page.html is missing its #root element");
 const RUNTIME_RETRY_FLOOR_MS = 500;
 const RUNTIME_RETRY_CEILING_MS = 5_000;
 const RUNTIME_SLOW_AFTER_MS = 4_000;
+const RESTORE_DIRECTORY_CONCURRENCY = 4;
+
+async function restoreDirectories(locators: readonly string[]): Promise<void> {
+	let next = 0;
+	const worker = async () => {
+		while (next < locators.length) {
+			const locator = locators[next];
+			next += 1;
+			await net.openDirectory(locator, net.FIRST_BACKOFF_MS);
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(RESTORE_DIRECTORY_CONCURRENCY, locators.length) }, worker),
+	);
+}
 
 /** Say on the opening screen why it is still up. The screen is page.html's
  * own markup, so this speaks to it directly: the note line turns patient,
@@ -166,10 +86,6 @@ function noteBootDelay(why: string): void {
 	detail.textContent = why;
 }
 
-// History records through the store's one deliver seam; the store stays
-// sync, this side owns the writing.
-installHistoryRecorder();
-
 const root = createRoot(mount, {
 	// React's own error reporting, rather than the console it would otherwise
 	// write to unattended. `onCaughtError` is what a boundary below already
@@ -181,6 +97,17 @@ const root = createRoot(mount, {
 	onRecoverableError: (error: unknown) => console.warn("rooms: React recovered from:", error),
 });
 
+function showSessionSetup(initialCapability = "", initialError = ""): void {
+	root.render(
+		<StrictMode>
+			<RoomsBrowserProvider value={browser}>
+				<SessionSetup initialCapability={initialCapability} initialError={initialError} />
+			</RoomsBrowserProvider>
+		</StrictMode>,
+	);
+	handOffNow();
+}
+
 // The opening screen is already up — page.html draws it on first parse — so
 // the wasm runtime boots behind it, and nothing renders until the FFI
 // adapter exists: locator parsing is native-backed, and a component that
@@ -190,10 +117,11 @@ const root = createRoot(mount, {
 async function start(): Promise<void> {
 	const slowAt = Date.now() + RUNTIME_SLOW_AFTER_MS;
 	let backoff = RUNTIME_RETRY_FLOOR_MS;
-	for (;;) {
+	let ready = false;
+	while (!ready) {
 		try {
 			await net.bootRuntime();
-			break;
+			ready = true;
 		} catch (err) {
 			console.error("rooms: the runtime did not come up, retrying:", err);
 			if (Date.now() >= slowAt) {
@@ -203,19 +131,73 @@ async function start(): Promise<void> {
 			backoff = Math.min(backoff * 2, RUNTIME_RETRY_CEILING_MS);
 		}
 	}
+	const pageLocator = prefs.directoryLocator();
+	const restored = restoreWorkspaceState(
+		net.directoryId,
+		location.pathname === "/",
+	);
+	const controllerSelection = workspaceControllerSelection();
+	if (controllerSelection.kind === "none") {
+		showSessionSetup();
+		return;
+	}
+	let openingReadiness: RoomsOpeningReadiness;
+	if (controllerSelection.kind === "attached") {
+		let attached: Awaited<ReturnType<typeof connectAttachedRoomsSession>>;
+		try {
+			attached = await connectAttachedRoomsSession(controllerSelection.sturdyref);
+		} catch (error) {
+			showSessionSetup(controllerSelection.sturdyref, attachedSessionFailureText(error));
+			return;
+		}
+		const files = new AttachedSessionFiles(attached);
+		const projection = new AttachedSessionProjection(files);
+		const stopProjection = projection.bind(attached);
+		session = createAttachedRoomsSession(browser, attached, files, {
+			defaultDirectoryLocator: await pageLocator,
+		});
+		addEventListener("pagehide", () => {
+			stopProjection();
+			files.close();
+			void attached.close();
+		}, { once: true });
+		openingReadiness = "controller-snapshot";
+	} else {
+		// A local controller owns this browser's archive writes. Attached views
+		// receive lines already recorded by the durable session owner.
+		installHistoryRecorder();
+		await net.restoreArchivePeer();
+		for (const conversation of store.get().convs.values()) hydrateConversation(conversation);
+		openingReadiness = "directory-attempt";
+	}
+	restoreHistoryPreference(store.get().keepHistory);
+	if (location.pathname !== "/") net.reserveSelectionForAddress();
+	installWorkspaceStatePersistence();
 	root.render(
 		<StrictMode>
-			<PeerProvider value={peer}>
-				<ErrorBoundary part="page">
-					<RoomsRouter />
-				</ErrorBoundary>
-			</PeerProvider>
+			<RoomsBrowserProvider value={browser}>
+				<RoomsSessionProvider value={session}>
+					<CapabilitySetProvider>
+						<ErrorBoundary part="page">
+							<RoomsRouter />
+						</ErrorBoundary>
+					</CapabilitySetProvider>
+				</RoomsSessionProvider>
+			</RoomsBrowserProvider>
 		</StrictMode>,
 	);
 
-	net.connect();
+	if (controllerSelection.kind === "local") {
+		net.connect();
+		void restoreDirectories(restored.foreignLocators);
+		void pageLocator.then((current) => {
+			if (current === null || restored.savedHomeLocator === null) return;
+			if (net.directoryId(current) === net.directoryId(restored.savedHomeLocator)) return;
+			void net.openDirectory(restored.savedHomeLocator, net.FIRST_BACKOFF_MS);
+		});
+	}
 
-	handOffWhenReady();
+	handOffWhenReady(openingReadiness);
 }
 
 void start();

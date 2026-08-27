@@ -78,7 +78,7 @@ pub fn main() !void {
     const caller_peer = &pair.p2;
 
     // The Vat owns actors and turns. The Port owns this session's wire names.
-    var host_vat = pancake.Vat.init(allocator);
+    var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
     defer host_port.deinit(&host_vat);

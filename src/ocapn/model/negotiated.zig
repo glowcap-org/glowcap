@@ -79,7 +79,7 @@ pub const CaptpVersion = enum {
     /// and a new version is covered the moment it has a `wireString` arm.
     /// Spellings `wireString` never emits (including the former lenient
     /// `"ocapn-1.0"` alias) are refused — pinned by `test/model/model_test.zig`
-    /// and the Syrup decode negative in `test/codec/syrup_test.zig`.
+    /// and the Syrup decode negative in `test/codec/syrup/decode_test.zig`.
     pub fn fromWireString(wire: []const u8) ?CaptpVersion {
         inline for (@typeInfo(CaptpVersion).@"enum".field_values) |field_value| {
             const version: CaptpVersion = @fromBackingInt(@intCast(field_value));

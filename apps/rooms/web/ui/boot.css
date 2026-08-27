@@ -228,12 +228,11 @@
 	font-size: 13.5px;
 	color: var(--ink-soft);
 }
-/* The other face: why there is nothing here to use. A page that is opening
-   hides it. The two ways a page is not opening are named together, once, so
-   neither carries its own copy of what to show: nothing stamped the document,
-   which means scripting is off, or the bundle never arrived and the watcher
-   put the message back. */
-.boot-explain {
+/* Why there is nothing here to use. An opening page hides both explanations.
+   Nothing stamped the document means scripting is off; `lost` means the bundle
+   never arrived; `insecure` is a deliberate refusal before the bundle. */
+.boot-explain,
+.boot-insecure {
 	display: none;
 	max-width: 34rem;
 	color: var(--ink);
@@ -241,21 +240,30 @@
 	line-height: 1.55;
 }
 :root:not([data-boot]) .boot-wait,
-:root[data-boot="lost"] .boot-wait {
+:root[data-boot="lost"] .boot-wait,
+:root[data-boot="insecure"] .boot-wait {
 	display: none;
 }
 :root:not([data-boot]) .boot-explain,
 :root[data-boot="lost"] .boot-explain {
 	display: block;
 }
-.boot-explain h1 {
+:root[data-boot="insecure"] .boot-insecure {
+	display: block;
+}
+.boot-explain h1,
+.boot-insecure h1 {
 	margin: 0 0 10px;
 	font-size: 19px;
-	letter-spacing: -.01em;
 }
-.boot-explain p {
+.boot-explain p,
+.boot-insecure p {
 	margin: 0 0 10px;
 	color: var(--ink-soft);
+}
+.boot-insecure code {
+	font-family: var(--font-mono);
+	font-size: .92em;
 }
 
 /* The reason the screen is still up, when it has been up long enough to owe

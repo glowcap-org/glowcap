@@ -85,6 +85,29 @@ pub fn recordSend(self: *Session, message: model.Message) !void {
     }
 }
 
+/// The commit half of the engine's prepare/commit pairs records through
+/// here, and nowhere else does. A prepare, in the same turn, created or
+/// proved-held every position its message names, reserved its queue seat,
+/// and left the session open — so admission is a turn-atomic assertion,
+/// validation is the prepare's own construction, and `applySend` below is
+/// infallible for the kinds a prepare builds: a listen's wire-delta retain
+/// increments rows the prepare established (a found row's `getOrPut` takes
+/// no allocation), an export release decrements counts the prepare's own
+/// introductions retained, and an answer release retires a row the pending
+/// carrier's mint proved live. Every arm then only forgets. `recordSend`'s
+/// checks exist because its callers carry no such proof: its GC
+/// re-verification may spill fold scratch to the heap, and a commit that has
+/// spent its reservations has no honest answer to that arm.
+pub fn recordPreparedSend(self: *Session, message: model.Message) void {
+    std.debug.assert(self.state == .open);
+    switch (message) {
+        .listen, .gc_export, .gc_answer => apply.applySend(self, message) catch unreachable,
+        // Only the kinds the prepare/commit pairs build; a new prepared kind
+        // extends this switch with its own infallibility argument.
+        else => unreachable,
+    }
+}
+
 /// Record one semantic inbound-answer settlement whose identity may be a wire
 /// position or a session-local virtual answer. Consumes `resolution` always.
 pub fn recordSentResolutionNamed(

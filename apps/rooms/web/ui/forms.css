@@ -1,0 +1,521 @@
+/* The form vocabulary: how a question, its answer, and the act that commits
+   it are laid out on the card plane, wherever the plane is worn. Settings,
+   the room and directory cards, session setup, and every Operations pane
+   draw from this one sheet, so a field, a row of actions, or a confirmation
+   is the same drawing on all of them. plane.css owns the ground these stand
+   on (the card, the well, the group); this sheet owns what stands on it.
+
+   Two heights run through everything here, and both come from page.css.
+   `--field-h` (44px) is the touch-primary height: a single-line field, the
+   button that sits beside one, and a card's commitment. `--control-h` (36px)
+   is the in-row height: the buttons at the end of an entry, in a confirm, or
+   under a well's form. A field and the button beside it share the first; a
+   row of actions shares the second; nothing here tunes a height per call
+   site, which is how three fields and three buttons came to stand at five
+   different heights before this sheet existed.
+
+   The rule for where an act stands: words lead the line and controls end it.
+   A switch sits at the end of its name, an entry's actions sit at the end of
+   its head, and a form's actions sit at the end of the form, trailing, with
+   the commitment last. The one exception is a card's own foot, where the
+   commitment fills the width because the card is about that one act. */
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+/* A single-line field is exactly `--field-h` tall, so the button beside it
+   and the field agree without either knowing the other's padding. A textarea
+   grows; a file input keeps the platform's own control inside the same box. */
+.card-plane .field {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: var(--field-h);
+	padding: 0 13px;
+	font: inherit;
+	line-height: normal;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	color: var(--ink);
+}
+.card-plane textarea.field {
+	height: auto;
+	min-height: calc(var(--field-h) * 2);
+	padding: 10px 13px;
+	line-height: 1.45;
+	resize: vertical;
+}
+.card-plane input[type="file"].field {
+	padding-block: 8px;
+	line-height: calc(var(--field-h) - 18px);
+}
+.card-plane .field:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.card-plane .field:disabled {
+	opacity: .55;
+	cursor: not-allowed;
+}
+.card-plane .field[aria-invalid="true"] {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.card-plane .field[aria-invalid="true"]:focus {
+	border-color: var(--danger);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+/* A select wears the field's clothes: the platform arrow and fill go, the
+   app's own chevron sits at the line's end, and the closed control is exactly
+   the text field beside it. The open list stays the platform's. */
+.card-plane .select-wrap {
+	position: relative;
+	display: flex;
+	min-width: 0;
+}
+.card-plane .select-wrap .field {
+	appearance: none;
+	padding-right: 38px;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+.card-plane .select-wrap::after {
+	content: "";
+	position: absolute;
+	right: 16px;
+	top: 50%;
+	width: 8px;
+	height: 8px;
+	border-right: 2px solid var(--ink-soft);
+	border-bottom: 2px solid var(--ink-soft);
+	border-radius: 1px;
+	transform: translateY(-70%) rotate(45deg);
+	pointer-events: none;
+}
+
+/* A field's written label and the sentence under it. The label is the caption
+   voice, the same one a group's name speaks, so a form reads as questions in
+   one register. `.optional` is the quiet aside beside a question that may go
+   unanswered. */
+.card-plane .field-label {
+	margin: 0;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	line-height: 1.5;
+	color: var(--ink-soft);
+}
+.card-plane .field-label .optional {
+	margin-left: 4px;
+	font-weight: 500;
+	opacity: .72;
+}
+.card-plane .hint {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+.card-plane .hint code {
+	font-size: 11px;
+}
+
+/* One question: label, hint, the control, and the refusal it answered with,
+   stacked on a tight rhythm inside the group's looser one. Inline lays the
+   name to the left of the control for a short list of knobs that would read
+   as a form three times taller stacked; the name column is one width for the
+   whole list so the fields line up down it. */
+.field-stack {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+}
+.field-stack[data-layout="inline"] {
+	--field-name-w: 88px;
+	grid-template-columns: var(--field-name-w) minmax(0, 1fr);
+	align-items: center;
+	column-gap: 10px;
+}
+.field-stack[data-layout="inline"] > .hint,
+.field-stack[data-layout="inline"] > .said {
+	grid-column: 1 / -1;
+}
+/* The label belongs to the box under it, so it stays at the stack's own gap.
+   The sentence and the refusal are about the answer rather than the question,
+   and at the same six pixels the four lines read as one flat list; two more
+   is enough to group the label with its control and step the commentary
+   back from it. */
+.field-stack > .hint,
+.field-stack > .said {
+	margin-top: 2px;
+}
+/* A short answer takes a short box. The box says how long an answer it
+   expects, and a five-digit port in a line-wide field said "paragraph". */
+.field-stack[data-width="short"] .field {
+	max-width: 20ch;
+}
+/* A field with the one act that takes it, on one line. Both stand at
+   `--field-h`, so the pair reads as one control with two halves. On a phone
+   the act drops under the field at full width, because a button squeezed
+   beside a forty-character address is a button nobody can read. */
+.field-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: start;
+	min-width: 0;
+}
+.field-row > .field-stack,
+.field-row > .field,
+.field-row > .select-wrap {
+	min-width: 0;
+}
+/* Beside a labelled question the button stands level with the control, not
+   with the label: one caption line and the stack's gap down. A number the
+   label's own metrics decide, which is why the label states its line height
+   above rather than leaving it to inherit. */
+.field-row:has(> .field-stack > .field-label) > .button {
+	margin-top: calc(var(--type-caption) * 1.5 + 6px);
+}
+@media (max-width: 520px) {
+	.field-row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.field-row > .button,
+	.field-row:has(> .field-stack > .field-label) > .button {
+		width: 100%;
+		margin-top: 0;
+	}
+}
+
+/* ── Acts ───────────────────────────────────────────────────────────────── */
+/* The acts a surface offers, at the end of the line they belong to, the
+   commitment last. Trailing rather than leading because every other control
+   on the plane already ends its line — the switch, the entry's buttons, the
+   copy mark — and an act that led would be the one control facing the other
+   way. `data-fill` is the card's own foot: equal widths, because the card is
+   about that act and a natural-width button under a full-width field reads
+   as an afterthought. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	min-width: 0;
+}
+.actions[data-fill] > .button {
+	flex: 1 1 0;
+	min-width: 0;
+}
+/* A form's acts are not another line of the form. Four pixels over the
+   group's own gap reads as "and then this" without opening a hole in a well
+   that holds two rows. */
+.card-plane .group > .actions {
+	margin-top: 4px;
+}
+/* The one leading act: a way back at the top of a card, before the content
+   it returns from. */
+.actions[data-align="start"] {
+	justify-content: flex-start;
+}
+@media (max-width: 520px) {
+	.actions[data-stack-narrow] {
+		flex-direction: column;
+		align-items: stretch;
+	}
+	.actions[data-stack-narrow] > .button {
+		width: 100%;
+	}
+}
+
+/* A second step inside the thing it acts on. The sentence says what will be
+   lost, in the reader's terms, before the act is offered; the acts then follow
+   the ordinary rule, the way out first and the commitment last. The rule at
+   the left is the tone of the commitment, so a danger confirm is visibly not
+   the ordinary row it interrupts and a plain one is. It stays inline rather
+   than opening a dialog because the question belongs to the row, and a modal
+   over a modal is a shape neither the browser nor a screen reader handles
+   well. */
+.confirm {
+	display: grid;
+	gap: 10px;
+	min-width: 0;
+	padding: 8px 0 2px 12px;
+	border-inline-start: 2px solid color-mix(in srgb, var(--danger) 65%, var(--rule));
+	/* It settles into place from a little above rather than appearing between
+	   two frames, so a reader sees where the question came from: the act they
+	   just pressed. Short and decelerating, the way something arriving moves;
+	   the page's reduced-motion rule takes the travel and keeps the fade. */
+	animation: confirm-settle .16s ease-out backwards;
+}
+@keyframes confirm-settle {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+.confirm[data-tone="primary"] {
+	border-inline-start-color: color-mix(in srgb, var(--accent) 65%, var(--rule));
+}
+.confirm > p {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink);
+	line-height: 1.45;
+	text-wrap: pretty;
+}
+
+/* ── Entries ────────────────────────────────────────────────────────────── */
+/* A list of things the surface knows about, one entry each: a listener, a
+   publication, a grant, a member, an operation waiting to be resumed. The
+   head carries the name, whatever short fact qualifies it, and the acts at
+   the line's end; the body under it carries the longer facts, one line each.
+   Rows rather than a table because the long fact in most of these is a piece
+   of wire text, and a column beside a locator only forces it to wrap against
+   its neighbors. */
+.entries {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-width: 0;
+}
+.entry {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+.entry + .entry {
+	padding-top: 12px;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.entry-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px 10px;
+	min-height: var(--control-h);
+}
+.entry-name {
+	flex: 1 1 10rem;
+	min-width: 0;
+	font-size: var(--type-ui);
+	font-weight: 700;
+	color: var(--ink);
+	overflow-wrap: anywhere;
+}
+/* A short fact beside the name stays on the head's line; the same voice as a
+   body line under the head carries wire text, which breaks anywhere. */
+.entry-meta {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+}
+.entry-head > .entry-meta {
+	white-space: nowrap;
+}
+.entry-meta code {
+	font-size: 11px;
+}
+.entry-head > .actions {
+	margin-inline-start: auto;
+}
+/* An entry that cannot act fades as one piece; the sentence saying why keeps
+   full ink so the reason stays readable. */
+.entry[data-idle="true"] .entry-name,
+.entry[data-idle="true"] > .hint:first-of-type {
+	opacity: .55;
+}
+/* Nothing to list says so in the well, quietly, instead of an empty grid. */
+.card-plane .empty {
+	margin: 0;
+	padding: 4px 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+
+/* ── The launch row ─────────────────────────────────────────────────────── */
+/* A named door: a mark, the name and one sentence, and the act that goes
+   through it at the line's end. Session setup's two choices and the Session
+   tab's managers are this row. On a phone the act drops under the copy at
+   full width, so a long name and a wide button never fight for one line. */
+.launch {
+	display: grid;
+	grid-template-columns: 38px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+.launch-mark {
+	width: 38px;
+	height: 38px;
+	display: grid;
+	place-items: center;
+	border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--rule));
+	border-radius: 50%;
+	color: var(--teal);
+	background: color-mix(in srgb, var(--teal) 8%, transparent);
+}
+.launch-copy {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+.launch-copy .group-label,
+.launch-copy .hint {
+	margin: 0;
+}
+.launch-title {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin: 0;
+	font-size: var(--type-body);
+	font-weight: 700;
+	color: var(--ink);
+}
+/* A launch whose act is a field and its button spans the copy's own column
+   with them, one line below the sentence. */
+.launch > .field-row,
+.launch > .field-stack {
+	grid-column: 2 / -1;
+}
+/* A launch whose door is not open carries a state where the act would be. */
+.launch > .tag {
+	justify-self: end;
+}
+/* In a modal card the row is too narrow for a name, a sentence, and a wide
+   act on one line, so the act drops under the copy, at the line's end like
+   every other act. The setup page's wider card keeps the one-line form. */
+.modal-card .launch {
+	grid-template-columns: 38px minmax(0, 1fr);
+}
+.modal-card .launch > .button {
+	grid-column: 2 / -1;
+	justify-self: end;
+}
+@media (max-width: 520px) {
+	.launch {
+		grid-template-columns: 38px minmax(0, 1fr);
+	}
+	.launch > .button,
+	.modal-card .launch > .button {
+		grid-column: 1 / -1;
+		justify-self: stretch;
+		width: 100%;
+	}
+	.launch > .field-row,
+	.launch > .field-stack {
+		grid-column: 1 / -1;
+	}
+	.launch > .tag {
+		grid-column: 2 / -1;
+		justify-self: start;
+	}
+}
+
+/* ── Small marks ────────────────────────────────────────────────────────── */
+/* A short fact worn as a chip beside a name: who owns a session, what a grant
+   may do. A state, never an act, in the teal the plane says "you are here"
+   in. */
+.tag {
+	display: inline-flex;
+	align-items: center;
+	min-height: 20px;
+	padding-inline: 7px;
+	border: 1px solid color-mix(in srgb, var(--teal) 32%, var(--rule));
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--teal) 8%, transparent);
+	color: var(--teal-ink);
+	font-size: var(--type-tiny);
+	font-weight: 700;
+	white-space: nowrap;
+}
+/* A labeled checkbox row whose label has a sentence under it: the name stays
+   on the mark's line and the sentence wraps under the name, not under the
+   box. The mark's own row rule lives with the checkbox in toggles.css. */
+.card-plane .check-row:has(strong) {
+	align-items: flex-start;
+	line-height: 1.4;
+}
+.card-plane .check-row:has(strong) .checkbox {
+	margin-top: 2px;
+}
+.card-plane .check-row:has(strong) > span {
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.card-plane .check-row strong {
+	display: block;
+	margin-bottom: 2px;
+	font-size: var(--type-ui);
+	color: var(--ink);
+}
+
+/* ── Choosing a file ────────────────────────────────────────────────────── */
+/* The platform's own file control cannot be dressed, so the page draws the
+   face and the real input lies transparent over the whole of it: a press or a
+   Tab reaches the input, and the face shows what it holds. It stands at field
+   height beside the fields it sits with, and wears the field's focus ring
+   through `:focus-within` because the thing being focused is invisible. */
+.file-pick {
+	position: relative;
+	display: block;
+	min-height: var(--field-h);
+}
+.file-pick-input {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+.file-pick-input:disabled {
+	cursor: not-allowed;
+}
+.file-pick-face {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-height: var(--field-h);
+	box-sizing: border-box;
+	padding: 0 12px;
+	border: 1px dashed color-mix(in srgb, var(--rule) 90%, var(--ink));
+	border-radius: var(--radius-control);
+	background: var(--paper);
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+}
+.file-pick[data-chosen] .file-pick-face {
+	border-style: solid;
+	color: var(--ink);
+	font-weight: 700;
+}
+.file-pick-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+@media (hover: hover) {
+	.file-pick:not([data-disabled]):hover .file-pick-face {
+		border-color: color-mix(in srgb, var(--accent) 55%, var(--rule));
+		background: var(--hover);
+	}
+}
+.file-pick:focus-within .file-pick-face {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.file-pick[data-disabled] .file-pick-face {
+	opacity: .55;
+}

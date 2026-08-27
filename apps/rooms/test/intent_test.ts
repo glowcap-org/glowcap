@@ -28,6 +28,10 @@ const { implied, named, settle } = intent;
 
 const HOME = dirId("ocapn://home.iroh");
 const AWAY = "ocapn://elsewhere.iroh";
+const HOME_CONTEXT: import("../web/ui/joining.ts").DirectoryDestinationContext = {
+	home: HOME,
+	defaultDirectory: { id: HOME, locator: HOME },
+};
 const NOTHING: import("../web/ui/intent.ts").Remembered = { room: "", locator: "", nick: "" };
 
 function assert(ok: boolean, what: string): asserts ok {
@@ -46,7 +50,7 @@ function card(
 		{ ...act, seq },
 		{ seq, ...edits },
 		{ ...NOTHING, ...memory },
-		HOME,
+		HOME_CONTEXT,
 	);
 }
 
@@ -111,6 +115,7 @@ Deno.test("the application's own defaults are not offered back as choices", () =
 	const answers = card({ source: "restore" }, { room: "general", nick: "guest" });
 	assert(answers.room.value === "" && answers.room.from === "default", "a default room came back as a preference");
 	assert(answers.nick.value === "" && answers.nick.from === "default", "a default name came back as a preference");
+	assert(intent.keepable(" alice ", "guest") === " alice ", "a remembered name was silently trimmed");
 });
 
 Deno.test("a lock is never offered from a past visit", () => {
@@ -162,6 +167,8 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 		fromLocator !== null && fromLocator.link === link && fromLocator.label === "plans",
 		"a link in the locator field was not taken as one",
 	);
+	const exactLabel = joining.typedRoomLink(link, " plans ");
+	assert(exactLabel?.label === " plans ", "a room-link label was silently trimmed");
 	const unlabeled = joining.typedRoomLink(link, "");
 	assert(unlabeled !== null && unlabeled.label === "", "a link with no name invented a label");
 	const fromRoom = joining.typedRoomLink("", link);
@@ -270,12 +277,17 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 		import("../web/ui/types.ts").DirView
 	>;
 	const aimed = (locator: string, typedAs: import("../web/ui/types.ts").DirId | null) =>
-		joining.destination(locator, typedAs, held, HOME, "this directory");
+		joining.destination(locator, typedAs, held, HOME_CONTEXT, "this directory");
 
 	// The empty field is this page's own directory, and so is an address that
 	// resolves to it however it was written.
 	assert(aimed("", null).name === "this directory", "an empty field was not read as this page's directory");
 	assert(aimed("", null).mark === "home", "this page's directory did not wear its own mark");
+	const resetContext = { home: null, defaultDirectory: { id: HOME, locator: HOME } };
+	assert(
+		joining.destination("", null, new Map(), resetContext, "this directory").mark === "home",
+		"an unheld page-default directory did not wear the home mark",
+	);
 	assert(
 		aimed("ocapn://home.iroh?hint=1", HOME).name === "this directory",
 		"a hinted route to this page's directory was read as somewhere else",
@@ -314,13 +326,13 @@ Deno.test("past the ramp the join card stops claiming a color the rail is not sh
 		import("../web/ui/types.ts").DirView
 	>;
 	const crowded = dirId("ocapn://dir-3.iroh");
-	const aimed = joining.destination("ocapn://dir-3.iroh", crowded, ramp, HOME, "this directory");
+	const aimed = joining.destination("ocapn://dir-3.iroh", crowded, ramp, HOME_CONTEXT, "this directory");
 	assert(aimed.name === "dir-3", "a held directory stopped being named when its color went");
 	assert(aimed.mark === "unknown", `the card wore ${JSON.stringify(aimed.mark)} where the rail wears nothing`);
 
 	// And within the ramp it still wears the slot the rail wears, so this is a
 	// ceiling rather than the card giving up on color.
 	const few = new Map([...ramp].slice(0, 3)) as typeof ramp;
-	const inRamp = joining.destination("ocapn://dir-3.iroh", crowded, few, HOME, "this directory");
+	const inRamp = joining.destination("ocapn://dir-3.iroh", crowded, few, HOME_CONTEXT, "this directory");
 	assert(inRamp.mark === "3", `a held directory within the ramp wore ${JSON.stringify(inRamp.mark)}`);
 });

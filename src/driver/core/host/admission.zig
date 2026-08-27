@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const engine = @import("engine");
+const foundation = @import("foundation");
 
 const host_mod = @import("../host.zig");
 const session_wire = @import("session.zig");
@@ -18,15 +19,14 @@ const HostError = host_mod.HostError;
 const HostSession = session_wire.HostSession;
 
 pub const tracks_thread_affinity = builtin.os.tag != .freestanding;
-const unclaimed_owner_thread_id: u64 = 0;
-pub const OwnerThreadId = if (tracks_thread_affinity) u64 else void;
-pub const initial_owner_thread_id: OwnerThreadId = if (tracks_thread_affinity) unclaimed_owner_thread_id else {};
+const OwnerThread = foundation.thread_affinity.OwnerThread(tracks_thread_affinity);
+const unclaimed_owner_thread_id = OwnerThread.unclaimed;
+pub const OwnerThreadId = OwnerThread.Id;
+pub const initial_owner_thread_id = OwnerThread.initial;
 
 fn currentOwnerThreadId() OwnerThreadId {
     if (comptime !tracks_thread_affinity) return {};
-    const token = @as(u64, @intCast(std.Thread.getCurrentId())) +% 1;
-    std.debug.assert(token != unclaimed_owner_thread_id);
-    return token;
+    return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
 }
 
 /// A committed owner-level operation whose terminal outcome still has to

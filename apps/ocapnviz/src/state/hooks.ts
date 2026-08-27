@@ -37,6 +37,7 @@ import {
 	THEME_STORAGE_KEY,
 	VISIBILITY_STORAGE_KEY,
 } from "./app-state.ts";
+import { forgetStoredValue, loadStoredValue, persistStoredValue } from "./storage.ts";
 
 /** Pane sizes, persisted to localStorage. `set` accepts a partial
  * or an updater function; values are clamped to their min/max. */
@@ -47,7 +48,7 @@ export function useLayoutSizes(): [
 ] {
 	const [sizes, setSizes] = useState<LayoutSizes>(() => {
 		if (typeof globalThis.window === "undefined") return DEFAULT_SIZES;
-		const raw = globalThis.localStorage?.getItem(SIZES_STORAGE_KEY);
+		const raw = loadStoredValue(SIZES_STORAGE_KEY);
 		if (!raw) return DEFAULT_SIZES;
 		try {
 			const parsed = JSON.parse(raw) as Partial<LayoutSizes>;
@@ -57,7 +58,7 @@ export function useLayoutSizes(): [
 		}
 	});
 	useEffect(() => {
-		globalThis.localStorage?.setItem(
+		persistStoredValue(
 			SIZES_STORAGE_KEY,
 			JSON.stringify(sizes),
 		);
@@ -82,7 +83,7 @@ export function useLayoutSizes(): [
 	// so there's no flash from a default value paint followed by an
 	// effect-driven re-pin on the next tick.
 	const reset = useCallback((override?: Partial<LayoutSizes>) => {
-		globalThis.localStorage?.removeItem(SIZES_STORAGE_KEY);
+		forgetStoredValue(SIZES_STORAGE_KEY);
 		setSizes(clampSizes({ ...DEFAULT_SIZES, ...override }));
 	}, []);
 	return [sizes, update, reset];
@@ -97,7 +98,7 @@ export function useStageVisibility(): [
 ] {
 	const [visibility, setVisibility] = useState<StageVisibility>(() => {
 		if (typeof globalThis.window === "undefined") return DEFAULT_VISIBILITY;
-		const raw = globalThis.localStorage?.getItem(VISIBILITY_STORAGE_KEY);
+		const raw = loadStoredValue(VISIBILITY_STORAGE_KEY);
 		if (!raw) return DEFAULT_VISIBILITY;
 		try {
 			const parsed = JSON.parse(raw) as Partial<StageVisibility>;
@@ -107,7 +108,7 @@ export function useStageVisibility(): [
 		}
 	});
 	useEffect(() => {
-		globalThis.localStorage?.setItem(
+		persistStoredValue(
 			VISIBILITY_STORAGE_KEY,
 			JSON.stringify(visibility),
 		);
@@ -117,7 +118,7 @@ export function useStageVisibility(): [
 		[],
 	);
 	const reset = useCallback(() => {
-		globalThis.localStorage?.removeItem(VISIBILITY_STORAGE_KEY);
+		forgetStoredValue(VISIBILITY_STORAGE_KEY);
 		setVisibility(DEFAULT_VISIBILITY);
 	}, []);
 	return [visibility, toggle, reset];
@@ -129,13 +130,13 @@ export function useStageVisibility(): [
 export function useTheme(): [Theme, () => void] {
 	const [theme, setTheme] = useState<Theme>(() => {
 		if (typeof globalThis.window === "undefined") return "light";
-		const stored = globalThis.localStorage?.getItem(THEME_STORAGE_KEY);
+		const stored = loadStoredValue(THEME_STORAGE_KEY);
 		if (stored === "dark" || stored === "light") return stored;
 		return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 	});
 	useEffect(() => {
 		document.documentElement.dataset.theme = theme;
-		globalThis.localStorage?.setItem(THEME_STORAGE_KEY, theme);
+		persistStoredValue(THEME_STORAGE_KEY, theme);
 	}, [theme]);
 	const toggle = useCallback(
 		() => setTheme((t) => (t === "dark" ? "light" : "dark")),
@@ -285,14 +286,7 @@ export function useOverStage(): boolean {
 export function useAppStatePersistence(state: AppState): void {
 	useEffect(() => {
 		if (typeof globalThis.window === "undefined") return;
-		try {
-			globalThis.localStorage?.setItem(
-				APP_STATE_STORAGE_KEY,
-				JSON.stringify(state),
-			);
-		} catch {
-			// give up
-		}
+		persistStoredValue(APP_STATE_STORAGE_KEY, JSON.stringify(state));
 	}, [state]);
 }
 

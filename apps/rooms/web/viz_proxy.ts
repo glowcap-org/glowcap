@@ -42,8 +42,11 @@ export function pipeVizSocket(inbound: WebSocket, targetUrl: string): void {
 	}
 	inbound.binaryType = "arraybuffer";
 	outbound.binaryType = "arraybuffer";
-	const parked: (string | ArrayBuffer)[] = [];
-	let parkedBytes = 0;
+	const toOutbound: (string | ArrayBuffer)[] = [];
+	const toInbound: (string | ArrayBuffer)[] = [];
+	let toOutboundBytes = 0;
+	let toInboundBytes = 0;
+	let inboundOpen = inbound.readyState === WebSocket.OPEN;
 	let outboundOpen = false;
 
 	const teardown = (code: number, reason: string): void => {
@@ -64,18 +67,33 @@ export function pipeVizSocket(inbound: WebSocket, targetUrl: string): void {
 			forward(outbound, data);
 			return;
 		}
-		parked.push(data);
-		parkedBytes += typeof data === "string" ? data.length : data.byteLength;
-		if (parkedBytes > MAX_BUFFERED_BYTES) {
+		toOutbound.push(data);
+		toOutboundBytes += typeof data === "string" ? data.length : data.byteLength;
+		if (toOutboundBytes > MAX_BUFFERED_BYTES) {
 			teardown(1011, "viz socket stopped draining");
 		}
 	});
+	inbound.addEventListener("open", () => {
+		inboundOpen = true;
+		for (const data of toInbound.splice(0)) forward(inbound, data);
+		toInboundBytes = 0;
+	});
 	outbound.addEventListener("open", () => {
 		outboundOpen = true;
-		for (const data of parked.splice(0)) forward(outbound, data);
+		for (const data of toOutbound.splice(0)) forward(outbound, data);
+		toOutboundBytes = 0;
 	});
 	outbound.addEventListener("message", (event) => {
-		forward(inbound, event.data as string | ArrayBuffer);
+		const data = event.data as string | ArrayBuffer;
+		if (inboundOpen) {
+			forward(inbound, data);
+			return;
+		}
+		toInbound.push(data);
+		toInboundBytes += typeof data === "string" ? data.length : data.byteLength;
+		if (toInboundBytes > MAX_BUFFERED_BYTES) {
+			teardown(1011, "viz socket stopped draining");
+		}
 	});
 	// A close on either side carries its code across, so the endpoint's typed
 	// refusal reaches the browser; an error is a plain end.

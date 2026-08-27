@@ -438,6 +438,7 @@ pub const Session = struct {
     pub const admits = protocol.admits;
 
     pub const recordSend = protocol.recordSend;
+    pub const recordPreparedSend = protocol.recordPreparedSend;
     pub const recordSentResolutionNamed = protocol.recordSentResolutionNamed;
     pub const recordRecv = protocol.recordRecv;
 
@@ -510,7 +511,6 @@ pub const Session = struct {
     pub const abandonOutboundAnswer = answer_lifecycle.abandonOutbound;
     pub const claimOutboundAnswerRelease = answer_lifecycle.claimOutboundRelease;
     pub const releaseOutboundAnswer = answer_lifecycle.releaseOutbound;
-    pub const abandonUnsharedInboundAnswer = answer_lifecycle.abandonUnsharedInbound;
     pub const abandonUnsharedInboundAnswerNamed = answer_lifecycle.abandonUnsharedInboundNamed;
     pub const releaseInboundAnswerCell = answer_lifecycle.releaseInboundCell;
 
@@ -530,7 +530,6 @@ pub const Session = struct {
     pub const durable_swiss_len = bootstrap_references.durable_swiss_len;
     pub const isDurableSwiss = bootstrap_references.isDurableSwiss;
     pub const registerBootstrapCap = bootstrap_references.register;
-    pub const bindBootstrapCap = bootstrap_references.bind;
     pub const bootstrapLookup = bootstrap_references.lookup;
     pub const restoreBootstrapMapping = bootstrap_references.restore;
 
@@ -591,7 +590,6 @@ pub const Session = struct {
     pub const promiseSettlingConsumerClaimed = imported_promise.settlingConsumerClaimed;
     pub const discardUnconsumedPromiseSettlingListener = imported_promise.discardUnconsumedSettlingListener;
     pub const detachPromiseSettlingNodeConsumer = imported_promise.detachSettlingNodeConsumer;
-    pub const promiseSettlingFollowersForAnswer = imported_promise.settlingFollowersForAnswer;
     pub const validatePromiseSettlingFollowers = imported_promise.validateSettlingFollowers;
     pub const applyPromiseSettlingFollowers = imported_promise.applySettlingFollowers;
     pub const takePromiseSettlingFollowers = imported_promise.takeSettlingFollowers;

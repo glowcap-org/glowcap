@@ -2,17 +2,22 @@
    ui/tokens.css, linked first in page.html. This file owns rooms-only tokens
    and pulls in the sheets split along the page's existing sections. */
 @import url("controls.css");
+@import url("buttons.css");
+@import url("marks.css");
 @import url("mark.css");
 @import url("toggles.css");
 @import url("rails.css");
 @import url("rail-rows.css");
+@import url("rail-captions.css");
 @import url("filter.css");
 @import url("workarea.css");
 @import url("members.css");
 @import url("composer.css");
 @import url("join.css");
 @import url("plane.css");
+@import url("forms.css");
 @import url("settings.css");
+@import url("session-setup.css");
 @import url("operations.css");
 @import url("bubbles.css");
 @import url("irc.css");
@@ -107,10 +112,9 @@ code {
 	--avatar-8: #3a7d8c;
 	--avatar-9: #7a5c34;
 	--avatar-10: #2f6f78;
-	/* The one color IRC wears. Every bridged identity takes this instead of a
-	   ramp slot, so "same color as the IRC chip" is itself the mark: constant
-	   like the ramp above, and outside it, because a bridged person must not
-	   be mistakable for the tenth regular. */
+	/* IRC's origin color. The badge carries it consistently while the avatar
+	   keeps the person's name-derived tint; origin and identity answer different
+	   questions and should not erase one another. */
 	--irc: #6b5fa8;
 	/* Which directory a room or a direct line belongs to. Handed out in order,
 	   one per directory this tab holds, and never derived from a name.
@@ -142,6 +146,10 @@ code {
 	--icon-button-normal: 36px;
 	--icon-button-large: 42px;
 	--control-h: 36px;
+	/* The touch-primary height: a single-line field on the card plane, the
+	   button beside one, and a card's own commitment. In-row buttons stay at
+	   --control-h. forms.css says which control takes which. */
+	--field-h: 44px;
 	/* The composer's own text line. The padding that centres a single line in the
 	   input is derived from these two, so raising the control height for touch
 	   moves the padding with it. Held apart, the phone's taller control kept the

@@ -1,6 +1,6 @@
 //! The give's exporter-location form (ADR-0118): a `desc:handoff-give`
 //! embeds the exporter's hello location in the form its recipient can use.
-//! `handoff_gifter.dialableExporterLocation` keeps ADR-0118's byte-exact
+//! `handoff_gifter.exporterLocationForRecipient` keeps ADR-0118's byte-exact
 //! profile behavior while stripping pancake-private route vocabulary before a
 //! give reaches an unknown recipient, so a Goblins recipient sees one concrete
 //! baseline route rather than private vocabulary it never negotiated.
@@ -27,7 +27,7 @@ test "a bare exporter location needs no stripping and allocates nothing" {
     defer allocator.free(raw);
     try std.testing.expectEqual(
         @as(?[]u8, null),
-        try engine.handoff_gifter.dialableExporterLocation(allocator, raw),
+        try engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{}),
     );
 }
 
@@ -43,7 +43,7 @@ test "profile hints strip to the bare onion form" {
         .hints = .{ .entries = &hints },
     });
     defer allocator.free(raw);
-    const stripped = (try engine.handoff_gifter.dialableExporterLocation(allocator, raw)).?;
+    const stripped = (try engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{})).?;
     defer allocator.free(stripped);
     const bare = try recordBytes(allocator, .{
         .transport = model.transport.onion,
@@ -66,7 +66,7 @@ test "routing hints a receiver needs survive the onion profile strip" {
         .hints = .{ .entries = &hints },
     });
     defer allocator.free(raw);
-    const stripped = (try engine.handoff_gifter.dialableExporterLocation(allocator, raw)).?;
+    const stripped = (try engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{})).?;
     defer allocator.free(stripped);
     const routing_only = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },
@@ -98,7 +98,7 @@ test "a profile-only non-onion give keeps the exporter's hello verbatim" {
     defer allocator.free(raw);
     try std.testing.expectEqual(
         @as(?[]u8, null),
-        try engine.handoff_gifter.dialableExporterLocation(allocator, raw),
+        try engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{}),
     );
 }
 
@@ -143,7 +143,7 @@ test "id gives fail closed for recipients without route vocabulary" {
     defer allocator.free(id_raw);
     try std.testing.expectError(
         error.UnsupportedArgument,
-        engine.handoff_gifter.dialableExporterLocation(allocator, id_raw),
+        engine.handoff_gifter.exporterLocationForRecipient(allocator, id_raw, .{}),
     );
 }
 
@@ -186,7 +186,7 @@ test "id gives without a recipient-compatible baseline route fail closed for unk
     defer allocator.free(raw);
     try std.testing.expectError(
         error.UnsupportedArgument,
-        engine.handoff_gifter.dialableExporterLocation(allocator, raw),
+        engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{}),
     );
 }
 
@@ -204,7 +204,7 @@ test "via remains an ordinary unknown hint outside the id transport" {
     defer allocator.free(raw);
     try std.testing.expectEqual(
         @as(?[]u8, null),
-        try engine.handoff_gifter.dialableExporterLocation(allocator, raw),
+        try engine.handoff_gifter.exporterLocationForRecipient(allocator, raw, .{}),
     );
 }
 

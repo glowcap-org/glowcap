@@ -9,7 +9,6 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const pancake = @import("pancake");
 const model = pancake.ocapn.model;
-const keyed_relay = pancake.net.relay;
 const stream_framing = pancake.foundation.stream_framing;
 
 const harness = @import("harness.zig");
@@ -365,7 +364,7 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
 
     // The seam's own refusals: a null target or vow slot never reaches the
     // core (the InvalidReference semantics for a bad target are pinned at the
-    // core tier, `test/driver/core_host_test.zig`).
+    // core tier, `test/driver/core_host/`).
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NULL_POINTER,
         cd.pancake_host_session_listen(pair.a, null, &listen_vow),

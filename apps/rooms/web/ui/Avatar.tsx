@@ -1,7 +1,7 @@
 // The person chip. Initials on a stable tint today; a custom picture will fill
 // the same box, so every place that names a person already has one owner for it.
 
-import { hueOf, initials } from "./text.ts";
+import { hueOf, initials } from "./member_identity.ts";
 
 export type PresenceState = "online" | "away" | "offline";
 

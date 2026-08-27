@@ -22,8 +22,8 @@
   // Do not also ask the editor to forward them: that creates a second host-port
   // allocator and makes two otherwise independent worktrees collide again.
   "containerEnv": {
-    "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
-    "CARGO_HOME": "/home/vscode/.cargo",
+    "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/pancake/tool/bun/install",
+    "CARGO_HOME": "/home/vscode/.cache/pancake/cargo",
     "CARGO_TERM_COLOR": "always",
     // Claude Code and the Cursor agent CLI each pick their state directory from
     // an environment variable, so a bind alone does not share their login.
@@ -33,21 +33,17 @@
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     "CURSOR_CONFIG_DIR": "/home/vscode/.cursor",
     "CURSOR_DATA_DIR": "/home/vscode/.cursor",
-    "DENO_DIR": "/home/vscode/.cache/deno",
-    "npm_config_cache": "/home/vscode/.cache/npm",
-    "PIP_CACHE_DIR": "/home/vscode/.cache/pip",
+    "DENO_DIR": "/home/vscode/.cache/pancake/tool/deno",
+    "npm_config_cache": "/home/vscode/.cache/pancake/tool/npm",
+    "PIP_CACHE_DIR": "/home/vscode/.cache/pancake/tool/pip",
     "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/ms-playwright",
     "PLTUSERHOME": "/opt/pancake-racket-userhome",
     "RUSTUP_HOME": "/usr/local/rustup",
-    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/zig"
+    "UV_CACHE_DIR": "/home/vscode/.cache/pancake/tool/uv",
+    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/pancake/tool/zig"
   },
   "mounts": [
-    "source=pancake-dev-bun-cache,target=/home/vscode/.cache/bun,type=volume",
-    "source=pancake-dev-cargo-home,target=/home/vscode/.cargo,type=volume",
-    "source=pancake-dev-deno-cache,target=/home/vscode/.cache/deno,type=volume",
-    "source=pancake-dev-npm-cache,target=/home/vscode/.cache/npm,type=volume",
-    "source=pancake-dev-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume",
+    "source=${localEnv:HOME}/.cache/pancake,target=/home/vscode/.cache/pancake,type=bind",
     // Agent tools authenticate and keep user-level harness state for the host
     // user, not one checkout. These scoped binds give every worktree the same
     // login, sessions, configuration, and user resources without mounting all
@@ -80,7 +76,7 @@
         "files.watcherExclude": {
           "**/.cache/**": true,
           "**/.zig-cache/**": true,
-          "**/rust-dogfood/target/**": true,
+          "**/target/**": true,
           "**/zig-out/**": true
         }
       }

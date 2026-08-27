@@ -10,10 +10,12 @@
 // arguments are a peer's and a malformed one means the room said nothing.
 
 import type { Argument } from "@pancake/runtime";
+import * as z from "zod/mini";
 import type { Attachment } from "./attachment.ts";
-import type { Presence } from "./limits.ts";
 import { MAX_NICK, MAX_TOPIC } from "./limits.ts";
-import { AWAY, EDITED, LINE, LINE_BYTES, LISTED, REFILED, TOPIC, UNLISTED, WITHDRAWN } from "./protocol.ts";
+import type { Presence } from "./room_presence.ts";
+import { boundedText, positiveSafeInteger } from "./schema.ts";
+import { AWAY, EDITED, IRC_SEAT, LINE, LINE_BYTES, LISTED, REFILED, TOPIC, UNLISTED, WITHDRAWN } from "./protocol.ts";
 
 /** One line in the room. `system` is true for the room's own announcements (a
  * member joining, your welcome); otherwise `from` is the member who said it.
@@ -75,14 +77,16 @@ export function roomRecordAt(args: Argument[]): number {
  *
  * Both are optional and independent: a line carries whichever the room chose to
  * put on it, usually the welcome, and carries neither the rest of the time. */
-export interface RoomFacts {
+export const RoomFactsSchema = z.strictObject({
 	/** See `readTopic`. An empty string is a topic taken down on purpose. */
-	topic?: string;
+	topic: z.optional(boundedText(MAX_TOPIC)),
 	/** See `readLineBytes`. */
-	lineBytes?: number;
+	lineBytes: z.optional(positiveSafeInteger),
 	/** See `readListed`. Whether this occupancy is a name on the directory. */
-	listed?: boolean;
-}
+	listed: z.optional(z.boolean()),
+});
+
+export type RoomFacts = z.infer<typeof RoomFactsSchema>;
 
 /** Everything a room said about itself on one line, or nothing.
  *
@@ -131,6 +135,16 @@ export function readPresence(args: Argument[]): Presence | undefined {
 	}
 	if (kind === AWAY && typeof args[3] === "string") {
 		return { kind: "away", name: args[3], reason: typeof args[4] === "string" ? args[4] : "" };
+	}
+	if (kind === "typing" && typeof args[3] === "string" && typeof args[4] === "boolean") {
+		return { kind, name: args[3], on: args[4] };
+	}
+	if (
+		kind === IRC_SEAT && named(args[3]) &&
+		(args[4] === "rooms" || args[4] === "connecting" || args[4] === "linked" || args[4] === "failed") &&
+		named(args[5])
+	) {
+		return { kind, name: args[3], state: args[4], nick: args[5] };
 	}
 	return undefined;
 }

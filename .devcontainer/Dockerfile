@@ -13,20 +13,20 @@ LABEL org.opencontainers.image.title="pancake-dev:local" \
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     DENO_INSTALL=/usr/local \
-    DENO_DIR=/home/vscode/.cache/deno \
-    BUN_INSTALL_CACHE_DIR=/home/vscode/.cache/bun/install \
-    npm_config_cache=/home/vscode/.cache/npm \
-    PIP_CACHE_DIR=/home/vscode/.cache/pip \
+    DENO_DIR=/home/vscode/.cache/pancake/tool/deno \
+    BUN_INSTALL_CACHE_DIR=/home/vscode/.cache/pancake/tool/bun/install \
+    npm_config_cache=/home/vscode/.cache/pancake/tool/npm \
+    PIP_CACHE_DIR=/home/vscode/.cache/pancake/tool/pip \
     UV_TOOL_DIR=/usr/local/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
-    ZIG_GLOBAL_CACHE_DIR=/home/vscode/.cache/zig \
+    ZIG_GLOBAL_CACHE_DIR=/home/vscode/.cache/pancake/tool/zig \
     PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
     PLTUSERHOME=/opt/pancake-racket-userhome \
     CLAUDE_CONFIG_DIR=/home/vscode/.claude \
     CURSOR_CONFIG_DIR=/home/vscode/.cursor \
     CURSOR_DATA_DIR=/home/vscode/.cursor \
-    PATH=/home/vscode/.cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
+    PATH=/home/vscode/.cache/pancake/cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
 
 # `tor` is here for the `onion` netlayer (ADR-0108), whose live checks talk to a
 # Tor daemon over SOCKS and the control protocol. pancake never starts,
@@ -47,13 +47,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ==============================================================================
 # The vscode user space, created before any bind mount lands in it.
 #
-# Every directory a devcontainer.json mount targets exists here first with the
-# runtime user's ownership. Empty named volumes inherit that shape on first use;
-# a missing mount point would otherwise be created as root.
+# Every directory a host bind targets exists here first with the runtime
+# user's ownership. A missing mount point would otherwise be created as root.
 # ==============================================================================
 RUN groupadd --gid 1000 vscode \
 && useradd --uid 1000 --gid 1000 -m -s /bin/bash vscode \
 && mkdir -p /home/vscode/.cache \
+     /home/vscode/.cache/pancake \
      /home/vscode/.claude \
      /home/vscode/.codex \
      /home/vscode/.config \
@@ -65,6 +65,7 @@ RUN groupadd --gid 1000 vscode \
      /home/vscode/.local/share \
      /home/vscode/.local/share/opencode \
      /home/vscode/.local/state \
+     /home/vscode/.serena \
 && chown -R vscode:vscode /home/vscode
 # ==============================================================================
 

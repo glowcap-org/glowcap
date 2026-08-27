@@ -9,36 +9,39 @@
 // It lives on the session it was fetched on, so a reconnect drops it and the
 // reader takes it again if they still want it.
 
-import type { Ref, Session } from "@pancake/runtime";
 import { snapshotDiagnostics, takeDiagnostics } from "../../../lib/room_client.ts";
 import * as store from "../store.ts";
-import type { DirId } from "../types.ts";
 import { dirs } from "./live.ts";
 import { opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
+import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
 
 /** The inspect capability this tab fetched, while it still holds it.
  *
  * The swiss number is the capability. Fetching it on this directory's session is how
  * it is taken; the rows in the store are only what it last said. A reconnect
  * drops the reference because it lived on the session. */
-let inspectHeld: { session: Session; cap: Ref; dir: DirId } | null = null;
+let inspectHeld: HeldDirectoryCapability | null = null;
 
-/** Session teardown's drop: the reference dies with its session, but a
- * remembered swiss survives so the reconnect can take it again. */
+/** Session teardown's drop: return the import while its session is available;
+ * the remembered swiss survives so reconnect can take it again. */
 export function dropInspect(): void {
-	if (inspectHeld === null) return;
+	const held = inspectHeld;
 	inspectHeld = null;
 	store.setDiagnostics(null);
+	releaseHeldCapability(held, "diagnostics capability release failed");
 }
 
 /** The reader's drop, from the Capabilities toggle: the capability goes and so
  * does its remembered swiss — no path may drop the cap but keep the secret
  * the reader asked to give up. */
-export function dropDiagnosticCap(): void {
+export function dropDiagnosticCap(updateVault = true): void {
 	const dir = inspectHeld?.dir;
+	if (updateVault && dir != null && !forgetOpsSwiss("diagnostics", dir)) {
+		store.noteTrouble("capability storage", "the saved diagnostics capability could not be removed");
+		return;
+	}
 	dropInspect();
-	if (dir !== undefined) forgetOpsSwiss("diagnostics", dir);
 }
 
 /** Fetch the inspect capability on this directory's session and remember it.
@@ -51,12 +54,20 @@ export async function takeDiagnosticCap(pasted: string, remember = false): Promi
 	if (home === null || live === null) return "This directory is not connected yet.";
 	try {
 		const taken = await takeDiagnostics(live.dir.session, pasted);
-		inspectHeld = { session: live.dir.session, cap: taken.cap, dir: home };
 		// The checkbox is the reader's current word on remembering, so an
 		// unchecked take erases an earlier memory rather than leaving it to
 		// auto-redeem against their answer.
-		if (remember) rememberOpsSwiss("diagnostics", home, pasted);
-		else forgetOpsSwiss("diagnostics", home);
+		const stored = remember ? rememberOpsSwiss("diagnostics", home, pasted) : forgetOpsSwiss("diagnostics", home);
+		if (!stored) {
+			releaseHeldCapability(
+				{ session: live.dir.session, cap: taken.cap, dir: home },
+				"unsaved diagnostics capability release failed",
+			);
+			return "This browser refused to update the saved diagnostics capability.";
+		}
+		const previous = inspectHeld;
+		inspectHeld = { session: live.dir.session, cap: taken.cap, dir: home };
+		releaseHeldCapability(previous, "replaced diagnostics capability release failed");
 		store.setDiagnostics(taken.rows);
 		return "";
 	} catch (error) {
@@ -70,10 +81,14 @@ export async function takeDiagnosticCap(pasted: string, remember = false): Promi
  * under a toggle that says it is held, and says so: this is the one way a
  * capability goes that the reader did not ask for and cannot see coming. */
 export async function refreshDiagnostics(): Promise<void> {
-	if (inspectHeld === null) return;
+	const held = inspectHeld;
+	if (held === null) return;
 	try {
-		store.setDiagnostics(await snapshotDiagnostics(inspectHeld.session, inspectHeld.cap));
+		const rows = await snapshotDiagnostics(held.session, held.cap);
+		if (inspectHeld !== held) return;
+		store.setDiagnostics(rows);
 	} catch (error) {
+		if (inspectHeld !== held) return;
 		dropInspect();
 		opsLost("diagnostics", reason(error));
 	}

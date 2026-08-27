@@ -361,10 +361,6 @@ pub fn plainArgumentFromC(inst: *Instance, arg: shared.PancakeArgument) !model.A
     return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);
 }
 
-fn encodeHostReference(ctx: HostRefContext, ref: model.Reference) anyerror!shared.PancakeReference {
-    return .{ .id = (try ctx.inst.core.liftCapability(ctx.session, ref)).raw() };
-}
-
 pub fn hostArgumentFromCOwned(
     inst: *Instance,
     session: *HostSession,

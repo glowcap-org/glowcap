@@ -1,25 +1,14 @@
-// The seam between the store and React.
-//
-// Everything the interface reads about the outside world — the layout in force,
-// whether the tab is being looked at — is a store field written by one
-// subscriber, so it is read here like any other fact. What is left is this: one
-// subscription to the store, and the one query that is genuinely a component's
-// own business.
+// React bindings for the page projection and browser media facts.
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { get, noteVisibility, State, subscribe } from "./store.ts";
+import { useStore } from "zustand";
+import { noteVisibility, roomsProjection, State } from "./store.ts";
 
-/** The whole state, re-read whenever any of it changes.
- *
- * One subscription for the application. The page is small enough that a change
- * anywhere is cheap to re-derive everywhere, and the alternative — a selector
- * per component — buys speed this app cannot spend and costs a class of bug (a
- * selector that forgets a dependency) it would rather not have. What it does
- * cost is that a keystroke in the composer, whose draft is a store field,
- * re-renders from the root; the panes that cannot differ because of a keystroke
- * are memoised, which is where that cost would otherwise land. */
-export function useStore(): State {
-	return useSyncExternalStore(subscribe, get, get);
+/** Subscribe a component to the projection it renders. The selector result is
+ * compared by identity, so aggregate selectors use Zustand's `useShallow` and
+ * leaf selectors return the retained map, row, or primitive directly. */
+export function useRoomsState<T>(selector: (state: Readonly<State>) => T): T {
+	return useStore(roomsProjection, selector);
 }
 
 // One list per distinct query, shared by every caller. Built lazily and never

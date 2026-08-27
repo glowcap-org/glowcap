@@ -63,16 +63,17 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 });
 
 Deno.test("a capability that stops answering is named, with the reason", () => {
-	clearToasts();
-	for (const cap of OPS_CAPS) opsLost(cap, "the server said no.");
-	const said = store.get().toasts.map((notice) => [notice.kind, notice.text]).reverse();
-	assertEquals(
-		said,
-		OPS_CAPS.map((cap) => [
-			"failure",
-			`${OPS_CATALOG[cap].pane}: this tab no longer holds that capability. the server said no.`,
-		]),
-		"every capability the page knows can say it has gone, by the name its pane wears",
-	);
+	for (const cap of OPS_CAPS) {
+		clearToasts();
+		opsLost(cap, "the server said no.");
+		assertEquals(
+			store.get().toasts.map((notice) => [notice.kind, notice.text]),
+			[[
+				"failure",
+				`${OPS_CATALOG[cap].short}: this tab no longer holds that capability. the server said no.`,
+			]],
+			"every capability the page knows can say it has gone, by the name its pane wears",
+		);
+	}
 	clearToasts();
 });

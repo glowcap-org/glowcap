@@ -1,8 +1,5 @@
 import { retainCleanupFailures, retainSecondaryFailure, secondaryFailureCount, secondaryFailures } from "../errors.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 Deno.test("secondary failures retain the exact primary, including when frozen", () => {
 	const primary = Object.freeze(new Error("primary"));

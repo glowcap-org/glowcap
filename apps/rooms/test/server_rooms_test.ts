@@ -6,7 +6,7 @@
 
 import { ATTACHMENT_REFUSED, TOO_MANY_ROOMS } from "../lib/errors.ts";
 import { MAX_ATTACHMENT_BYTES, MAX_ROOMS_PER_CREATOR, MAX_SERVER_PENDING_BYTES } from "../lib/limits.ts";
-import { loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
+import { loopbackTcpDesignator, roomsHost, roomsSturdyrefForSession } from "../lib/locator.ts";
 import {
 	ATTACH,
 	DIRECTORY,
@@ -156,7 +156,7 @@ roomsTest("a connection cannot open rooms without limit", async () => {
 				linkedRef,
 				"linker",
 			);
-			const link = await linked.link(loopbackTcpDesignator(port));
+			const link = await linked.link();
 			await linked.leave();
 			for (let i = 0; i < MAX_ROOMS_PER_CREATOR; i += 1) {
 				const room = await session.send(directory, OPEN, [`room-${i}`, true]);
@@ -164,7 +164,7 @@ roomsTest("a connection cannot open rooms without limit", async () => {
 			}
 			const refused = await refusalCode(() => session.send(directory, OPEN, ["one-too-many", true]));
 			assert(refused === TOO_MANY_ROOMS, `the ${MAX_ROOMS_PER_CREATOR + 1}th open should refuse, got ${refused}`);
-			const coldLinkedRef = await session.enliven(link);
+			const coldLinkedRef = await session.enliven(roomsSturdyrefForSession(link, session));
 			const linkedRefused = await refusalCode(() => Room.subscribe(session, coldLinkedRef, "overflow"));
 			assert(
 				linkedRefused === TOO_MANY_ROOMS,
@@ -399,7 +399,10 @@ roomsTest("rooms publication records are an explicit application extension", asy
 				return null;
 			});
 			const baseline = await floor.session.send(directory, WATCH, [observer]) as unknown[];
-			assert(baseline.length === 0, "a fresh baseline watch did not start empty");
+			assert(
+				baseline.length === 0,
+				"a fresh baseline watch did not start empty",
+			);
 
 			room = await Room.subscribe(owner.session, await owner.open("portable"), "owner");
 			await until(() => baselineEvents.length === 1, "the baseline watcher did not receive the room opening");
@@ -537,7 +540,7 @@ roomsTest("a connection watching the directory twice is watching it once", async
 	});
 });
 
-roomsTest("one connection re-entering a room keeps its place, and a leave after it would not", async () => {
+roomsTest("one connection re-entering a room retires its replaced membership exactly once", async () => {
 	await withServer(async (port) => {
 		const member = await dial(loopbackTcpDesignator(port));
 		const ref = await enterOrOpen(member, "revolving");
@@ -570,19 +573,20 @@ roomsTest("one connection re-entering a room keeps its place, and a leave after 
 		}
 		assert(heard === "still here", `a re-entered member was not heard: ${JSON.stringify(heard)}`);
 
-		// And why `replaced` exists rather than `leave`. A departure is keyed by the
-		// connection, so a leave sent on the membership that was replaced takes back
-		// the place the re-entry had just made, leaving a member who believes they
-		// are in a room the room no longer has them in.
+		// The retired object cannot later send a departure keyed only by connection
+		// and take back the replacement membership.
 		await first.leave();
 		let refused = "";
 		await second.say("anybody there").catch((err) => {
 			refused = err instanceof Error ? err.message : String(err);
 		});
 		assert(
-			refused !== "",
-			"a leave on a replaced membership left the re-entered one standing, so the two are not one place",
+			refused === "",
+			`a retired membership took down its replacement: ${refused}`,
 		);
+		const leaving = second.leave();
+		assert(second.leave() === leaving, "repeated room leave did not share one terminal result");
+		await leaving;
 
 		seen.releaseLock();
 	});

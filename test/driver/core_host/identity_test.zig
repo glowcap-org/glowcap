@@ -5,7 +5,6 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const test_host = @import("../../support/core_host.zig");
-const promise_capture = @import("../../support/capture.zig");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;

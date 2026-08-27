@@ -150,13 +150,19 @@
 	flex-direction: column;
 	gap: 10px;
 }
-.settings-head-row {
+/* The first line of every card that opens over the page: the name, and the
+   marks that act on the whole card at the line's end, the dismiss last. */
+.modal-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
+	min-width: 0;
 }
-.error-actions {
+.modal-head h2 {
+	min-width: 0;
+}
+.modal-head-actions {
 	display: flex;
 	align-items: center;
 	gap: 4px;
@@ -263,16 +269,6 @@
 .modal-card [role="tabpanel"] {
 	display: contents;
 }
-.modal-card .uri-label {
-	font-size: var(--type-caption);
-	font-weight: 700;
-	color: var(--ink-soft);
-	margin: 0;
-}
-.modal-card .uri-label code {
-	font-weight: 600;
-	font-size: 11px;
-}
 /* The way into the parts catalog: the word "secret" in the glossary is the
    door — tappable and focusable, and only the cursor gives it away. A
    development surface earns an easter egg's affordance, not a button's. */
@@ -348,6 +344,25 @@
 	word-break: break-all;
 	user-select: all;
 }
+/* The compact form: one line at the in-row height, cut with an ellipsis, the
+   whole value in the title and on the clipboard. For a list where the value
+   is one fact among several. */
+.copy-field[data-compact] {
+	min-height: var(--control-h);
+	padding: 0 32px 0 10px;
+	display: flex;
+	align-items: center;
+}
+.copy-field[data-compact] .copy-field-text {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	word-break: normal;
+}
+.copy-field[data-compact] .copy-field-mark {
+	top: 50%;
+	transform: translateY(-50%);
+}
 /* Pinned to the top of the box, so a locator taking three lines leaves the mark
    where a locator taking one put it. It answers to the field rather than to
    itself: it is quiet until the field is under a pointer or holds focus, and it
@@ -380,4 +395,105 @@
 .join .said {
 	min-height: 1.2em;
 	margin: -4px 0 0;
+}
+
+/* The capability-set draft has one model and two projections. Its tiny action
+   swaps the complete controls for the complete text block; neither projection
+   is a second form or a nested card. */
+.capability-set-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: var(--icon-button-small);
+}
+.capability-set-head .field-label {
+	margin: 0;
+}
+.capability-set-head .icon-button {
+	margin-inline-end: -4px;
+}
+.capability-set-controls {
+	display: flex;
+	flex-direction: column;
+	border-block: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+}
+.capability-set-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 9px 2px;
+}
+.capability-set-row + .capability-set-row {
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.capability-set-row .switch-row {
+	min-height: var(--icon-button-small);
+}
+.capability-set-row .field {
+	box-sizing: border-box;
+	width: 100%;
+	font-family: var(--font-mono);
+	font-size: var(--type-caption);
+}
+.capability-set-label {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) var(--icon-button-small);
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.capability-set-edit-slot {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--icon-button-small);
+	height: var(--icon-button-small);
+}
+.card-plane .capability-set-text {
+	font-family: var(--font-mono);
+	font-size: var(--type-caption);
+}
+.capability-set-errors {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+/* The Data tab's managers open cards of their own. A grant list and a state
+   file want more room than Settings itself; a single pasted capability wants
+   less, so the card does not stand three times taller than the one question
+   on it. */
+.session-data-modal {
+	width: min(620px, 100%);
+}
+.session-access-modal {
+	width: min(680px, 100%);
+}
+.session-attach-modal,
+.archive-peer-modal {
+	width: min(540px, 100%);
+}
+/* The grant form's two questions side by side: the name takes the room, the
+   access picker its own; one column on a phone. */
+.session-grant-fields {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(150px, .45fr);
+	gap: 10px;
+}
+@media (max-width: 520px) {
+	.session-grant-fields {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+/* The settings form is a dense inventory: keep its controls aligned while
+   letting the descriptive line breathe below each capability on a phone. */
+@media (max-width: 430px) {
+	.capability-set-row .switch-row {
+		align-items: flex-start;
+	}
+	.capability-set-row .switch {
+		margin-top: 1px;
+	}
+	.capability-set-head .icon-button {
+		margin-inline-end: 0;
+	}
 }

@@ -37,6 +37,16 @@ const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("pancake", pancake.module("pancake"));
 ```
 
+The `pancake` module is pure Zig. Two of the tabs below import a transport
+module of their own, and each brings its native dependency with it:
+
+```zig
+// iroh: links the Rust sidecar, so the build needs cargo on PATH.
+exe.root_module.addImport("iroh", pancake.module("pancake_iroh"));
+// noise-relay and keyed-relay: builds Mbed TLS from source.
+exe.root_module.addImport("native_relay", pancake.module("pancake_native_relay"));
+```
+
 # Dial
 
 The first tab is **iroh**: encrypted QUIC, the peer's node id is the identity.
@@ -249,7 +259,7 @@ empty and the transport fills the advertised locator.
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         iroh_resident.netlayer(),
 >         .{ .designator = "" },
@@ -262,7 +272,7 @@ empty and the transport fills the advertised locator.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **noise-tcp**
@@ -274,7 +284,7 @@ empty and the transport fills the advertised locator.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         noise_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -287,7 +297,7 @@ empty and the transport fills the advertised locator.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise proves this durable key to dialers
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **noise-relay**
@@ -312,7 +322,7 @@ empty and the transport fills the advertised locator.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -325,7 +335,7 @@ empty and the transport fills the advertised locator.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **onion**
@@ -339,7 +349,7 @@ empty and the transport fills the advertised locator.
 >         .socks = "/run/tor/socks",
 >         .control_endpoint = "/run/tor/control",
 >     } };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         onion_resident.netlayer(),
 >         .{ .designator = "" },
@@ -358,7 +368,7 @@ empty and the transport fills the advertised locator.
 >     const service_key = service_key_storage[0..key_len];
 >     _ = service_key; // persist securely to restore this service
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **keyed-tcp**
@@ -370,7 +380,7 @@ empty and the transport fills the advertised locator.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var keyed_resident = pancake.net.tcp.keyed.Resident{ .io = io };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         keyed_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -383,7 +393,7 @@ empty and the transport fills the advertised locator.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // key designator plus direct-addresses hint
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **tcp**
@@ -393,7 +403,7 @@ empty and the transport fills the advertised locator.
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         tcp_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -406,7 +416,7 @@ empty and the transport fills the advertised locator.
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 > **inproc**
@@ -417,7 +427,7 @@ empty and the transport fills the advertised locator.
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     var network = pancake.net.inproc.Network.init(allocator, io);
 >     defer network.deinit();
->     var server = try pancake.driver.listen(
+>     const server = try pancake.driver.listen(
 >         allocator,
 >         network.netlayer(),
 >         .{ .designator = "greeter" },
@@ -426,7 +436,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     try serve(&server);
+>     try serve(server);
 > }
 > ```
 

@@ -42,8 +42,11 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_reopen_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail, openDmTo } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -56,32 +59,6 @@ const MODES = [
 	{ name: "webrtc", query: "?dm=webrtc", transport: "webrtc", first: "alice", second: "bob" },
 	{ name: "noise-relay", query: "?dm=relay", transport: "noise-relay", first: "carol", second: "dave" },
 ] as const;
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up / room not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 // ── The timeline, as a viewer sees it ────────────────────────────────────────
 
@@ -178,6 +155,7 @@ async function joinAs(
 		if (m.type() === "error") console.error(`  [${nick} console.error]`, m.text());
 	});
 	await tab.goto(`http://127.0.0.1:${port}/${query}`);
+	await establishLocalSession(tab);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -186,20 +164,6 @@ async function joinAs(
 		fail(`${nick} never joined; status="${status}"`);
 	});
 	return tab;
-}
-
-/** Open a direct line from the members list, which is the only way back to a
- * person once the conversation with them has been closed and left the rail. */
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	if (!(await button.isVisible().catch(() => false))) {
-		await tab.click("#backBtn").catch(() => {});
-	}
-	await button.waitFor({ state: "visible", timeout: 60_000 }).catch(() =>
-		fail(`the members list never offered a direct line to ${peer}`)
-	);
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
 }
 
 async function say(tab: Page, text: string): Promise<void> {

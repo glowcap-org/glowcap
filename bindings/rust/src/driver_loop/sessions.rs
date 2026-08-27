@@ -30,29 +30,80 @@ impl LoopShared {
 	}
 
 	/// Stop one listener while keeping the loop and yielded sessions alive.
+	/// Provider teardown may span steps; the returned future joins that native
+	/// barrier and preserves its exact asynchronous failure.
 	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
-	pub(crate) fn close_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
-		self.guard_handle()?;
-		self.close_native_listener(listener)?;
-		let removed = self.listeners.borrow_mut().remove(&listener);
-		if !removed {
-			return Err(Error::with_detail(
-				sys::ERR_INTERNAL,
-				format!("native driver closed unknown listener {listener}"),
-			));
+	pub(crate) async fn close_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
+		self.begin_listener_close(listener)?;
+		loop {
+			let notified = self.accept_wake.notified();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
+			if let Some(error) = self.terminal_failure.borrow().clone() {
+				return Err(error);
+			}
+			if self.released.get() {
+				return Ok(());
+			}
+			if let Some(error) = self.listener_failures.borrow_mut().remove(&listener) {
+				return Err(error);
+			}
+			if !self.listeners.borrow().contains(&listener) && !self.closing_listeners.borrow().contains(&listener) {
+				return Ok(());
+			}
+			self.schedule_step();
+			notified.await;
 		}
-		self.accept_wake.notify_waiters();
-		Ok(())
 	}
 
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
-	fn close_native_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
-		self.driver.close_listener(listener)?;
+	pub(crate) fn begin_listener_close(self: &Rc<Self>, listener: u64) -> Result<()> {
+		self.guard_handle()?;
+		if self.closing_listeners.borrow().contains(&listener) {
+			return Ok(());
+		}
+		if !self.listeners.borrow().contains(&listener) {
+			if let Some(error) = self.listener_failures.borrow().get(&listener) {
+				return Err(error.clone());
+			}
+			return Ok(());
+		}
+		let closed = self.driver.close_listener(listener)?;
 		let events = self.driver.drain_events()?;
 		if !events.is_empty() {
 			self.dispatch(events);
 		}
+		if closed {
+			self.finish_listener_close(listener);
+		} else {
+			self.closing_listeners.borrow_mut().insert(listener);
+			self.note_step_activity();
+			self.schedule_step();
+		}
 		Ok(())
+	}
+
+	pub(super) fn advance_closing_listeners(self: &Rc<Self>) {
+		let closing: Vec<u64> = self.closing_listeners.borrow().iter().copied().collect();
+		for listener in closing {
+			match self.driver.close_listener(listener) {
+				Ok(true) => self.finish_listener_close(listener),
+				Ok(false) => {}
+				Err(error) => {
+					self.closing_listeners.borrow_mut().remove(&listener);
+					self.listeners.borrow_mut().remove(&listener);
+					self.discard_accepts(listener);
+					self.listener_failures.borrow_mut().insert(listener, error);
+					self.accept_wake.notify_waiters();
+				}
+			}
+		}
+	}
+
+	fn finish_listener_close(&self, listener: u64) {
+		self.closing_listeners.borrow_mut().remove(&listener);
+		self.listeners.borrow_mut().remove(&listener);
+		self.discard_accepts(listener);
+		self.accept_wake.notify_waiters();
 	}
 
 	/// A dropped setup future may race a committed READY event. Remove its
@@ -64,19 +115,15 @@ impl LoopShared {
 		if self.released.get() {
 			return;
 		}
-		if let Err(error) = self.close_native_listener(listener) {
+		self.listeners.borrow_mut().insert(listener);
+		if let Err(error) = self.begin_listener_close(listener) {
 			self.fail_background(error);
-			return;
 		}
-		self.listeners.borrow_mut().remove(&listener);
-		self.discard_accepts(listener);
-		self.accept_wake.notify_waiters();
 	}
 
 	/// Release accepted sessions that a closing server never yielded. The
 	/// native listener-close contract preserves committed events; the public
 	/// server contract transfers only sessions returned by `accept`.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
 	pub(crate) fn discard_accepts(&self, listener: u64) {
 		let queued = self.accepts.borrow().len();
 		for _ in 0..queued {

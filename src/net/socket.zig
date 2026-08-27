@@ -29,6 +29,7 @@ pub const openListenerReuseAddr = socket_tcp.openListenerReuseAddr;
 pub const BoundListener = socket_tcp.BoundListener;
 pub const boundIp4 = socket_tcp.boundIp4;
 pub const setNonblocking = socket_tcp.setNonblocking;
+pub const setNoSigpipe = socket_tcp.setNoSigpipe;
 pub const sendNonblocking = socket_tcp.sendNonblocking;
 pub const receiveNonblocking = socket_tcp.receiveNonblocking;
 

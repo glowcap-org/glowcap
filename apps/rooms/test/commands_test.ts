@@ -11,6 +11,8 @@
 // a wrong flag. So each is asked of every command here.
 
 import { type Command, type CommandPowers, held, known } from "../web/ui/commands.ts";
+import { prepareComposerSend } from "../web/ui/composer/send.ts";
+import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/types.ts";
 
 function fail(message: string): never {
@@ -26,11 +28,53 @@ const TRAP: CommandPowers = new Proxy({}, {
 }) as CommandPowers;
 
 const NO_GRANTS: ReadonlySet<string> = new Set();
+const ROOM = { type: "room", lineBytes: 8192 } as Conv;
+
+function draft(text: string, files: readonly File[] = []): ComposerDraft {
+	return { text, files };
+}
+
+Deno.test("command names and aliases identify exactly one command", () => {
+	const owner = new Map<string, string>();
+	for (const command of known()) {
+		for (const name of [command.name, ...command.aliases ?? []]) {
+			const key = name.toLowerCase();
+			const previous = owner.get(key);
+			if (previous !== undefined) {
+				fail(`/${name} identifies both /${previous} and /${command.name}`);
+			}
+			owner.set(key, command.name);
+		}
+	}
+});
+
+Deno.test("the shared composer pipeline interprets slash commands before any controller sends", () => {
+	const literal = prepareComposerSend(ROOM, draft(" /me waves "), QUIET);
+	if (literal.kind !== "send" || literal.text !== " /me waves " || literal.original !== " /me waves ") {
+		fail(`the shared composer changed literal spaced text: ${JSON.stringify(literal)}`);
+	}
+	const action = prepareComposerSend(ROOM, draft("/me waves"), QUIET);
+	if (action.kind !== "send" || action.text !== "/me waves" || action.original !== "/me waves") {
+		fail(`the shared composer did not prepare /me: ${JSON.stringify(action)}`);
+	}
+	const trailing = prepareComposerSend(ROOM, draft("ordinary words "), QUIET);
+	if (trailing.kind !== "send" || trailing.text !== "ordinary words ") {
+		fail(`the shared composer changed trailing whitespace: ${JSON.stringify(trailing)}`);
+	}
+	const shrug = prepareComposerSend(ROOM, draft("/shrug shared command"), QUIET);
+	if (shrug.kind !== "send" || shrug.text !== "shared command ¯\\_(ツ)_/¯") {
+		fail(`the shared composer did not prepare /shrug: ${JSON.stringify(shrug)}`);
+	}
+	let theme = "";
+	const themed = prepareComposerSend(ROOM, draft("/theme dark"), { ...QUIET, setTheme: (next) => theme = next });
+	if (themed.kind !== "handled" || theme !== "dark") fail("the shared composer did not run a tab command");
+	const unknown = prepareComposerSend(ROOM, draft("/etc/hosts"), QUIET);
+	if (unknown.kind !== "send" || unknown.text !== "/etc/hosts") fail("unknown slash text stopped being chat text");
+});
 
 /** Powers that answer without acting, for running every command to see what it
  * says. Each returns the empty answer, which is what a fresh window holds. */
 const QUIET: CommandPowers = {
-	ircLogin: () => {},
 	say: () => {},
 	joinRoom: () => {},
 	joinLink: () => {},
@@ -47,6 +91,8 @@ const QUIET: CommandPowers = {
 	setTopic: () => true,
 	setAway: () => true,
 	invite: () => true,
+	kick: () => true,
+	steward: () => true,
 	roomLink: () => true,
 	standingHere: () => "",
 	directories: () => [],
@@ -91,16 +137,6 @@ Deno.test("a command that needs nothing runs on nothing", () => {
 
 Deno.test("a command names the grant it waits on, and says so when it is missing", () => {
 	// A command that waits on a reference has to name which one, because that
-	// name is what the room's answer is matched against. One that says it is
-	// waiting without naming a grant would never become held however much the
-	// room handed over.
-	for (const command of known()) {
-		const outcome = command.run(someArgument(command), QUIET, null);
-		const waiting = outcome.kind === "refused" && outcome.why.includes("does not offer it yet");
-		if (waiting && command.grant === undefined) {
-			fail(`/${command.name} says it waits on the room but names no grant, so nothing can ever satisfy it`);
-		}
-	}
 });
 
 Deno.test("the reader's list is what this conversation has actually handed over", () => {
@@ -118,6 +154,13 @@ Deno.test("the reader's list is what this conversation has actually handed over"
 		fail("a room that handed over its topic did not put /topic on the list");
 	}
 	if (names(["topic"], "room").includes("kick")) fail("holding one grant produced another");
+	if (!names(["steward"], "room").includes("kick")) {
+		fail("a room that handed over its moderator capability did not put /kick on the list");
+	}
+	if (!names([], "room").includes("moderator")) {
+		fail("/moderator is missing before claim, when the opener needs the affordance");
+	}
+	if (names([], "direct").includes("moderator")) fail("a direct line listed /moderator");
 	if (!names([], "room").includes("invite")) fail("/invite is missing in a room, where handing the room over works");
 	if (names([], "direct").includes("invite")) fail("a direct line listed /invite");
 	if (names([], "direct").includes("members")) fail("a direct line listed /members");

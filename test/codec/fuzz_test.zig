@@ -300,18 +300,9 @@ fn handoffGiveOne(_: void, smith: *std.testing.Smith) anyerror!void {
     if (syrup.decodeSignedHandoffGiveOwned(gpa, input)) |give| {
         model.freeHandoffGive(gpa, give);
     } else |_| {}
-
-    // The span is what gets relayed onward verbatim, so it has to point inside
-    // the bytes it was found in. A span that reaches past them would hand a
-    // partner storage from somewhere else entirely.
-    if (syrup.spanSignedHandoffGive(input)) |span| {
-        try std.testing.expect(span.len <= input.len);
-        try std.testing.expect(@intFromPtr(span.ptr) >= @intFromPtr(input.ptr));
-        try std.testing.expect(@intFromPtr(span.ptr) + span.len <= @intFromPtr(input.ptr) + input.len);
-    }
 }
 
-test "fuzz: handoff give decode and span stay inside the bytes they were given" {
+test "fuzz: standalone handoff give decode is total" {
     const give = seed(@embedFile("../oracle/corpus/desc_handoff_give_signed.bin"));
     const receive = seed(@embedFile("../oracle/corpus/desc_handoff_receive_signed.bin"));
     // Plus the regressions, for the reason the target above gives.

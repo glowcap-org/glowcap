@@ -5,7 +5,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
     var keyed_resident = pancake.net.tcp.keyed.Resident{ .io = io };
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         keyed_resident.netlayer(),
         .{ .designator = "127.0.0.1:9099" },
@@ -18,7 +18,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // key designator plus direct-addresses hint
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

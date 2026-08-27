@@ -4,7 +4,9 @@
 // is that setting one moves exactly the rooms taking their answer from it.
 
 import type { Browser, Page } from "playwright";
+import { establishLocalSession } from "../support/session_setup.ts";
 import { fail, fillSettled } from "./harness.ts";
+import { namedDirectRow } from "../support/conversation_row.ts";
 
 export async function run(
 	tab: Page,
@@ -32,6 +34,16 @@ export async function run(
 		// roster can show it: what a member's row says is the room's word about
 		// them, not this tab's intention.
 		await tab.click("#standingBtn");
+		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(" — where")[0];
+		const releaseRows = (await tab.locator(".standing-actions [role=menuitem]").allTextContents())
+			.map((row) => row.trim());
+		const expectedReleases = identity === "" ? [] : identity.split(", ").map((grant) => `Release ${grant}`);
+		if (JSON.stringify(releaseRows) !== JSON.stringify(expectedReleases)) {
+			fail(
+				`the identity menu does not match its live directory grants: ` +
+					JSON.stringify({ identity, releaseRows }),
+			);
+		}
 		// Typed a character at a time, not filled: a menu holding a field
 		// re-renders on every keystroke, and a row that takes the keyboard as the
 		// menu opens will take it again on each of those renders unless it is
@@ -217,7 +229,7 @@ export async function run(
 		try {
 			const finger = await touch.newPage();
 			await finger.goto(`http://127.0.0.1:${httpPort}/`);
-			await finger.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
+			await establishLocalSession(finger);
 			await finger.fill("#nick", "touchy");
 			await finger.fill("#room", "lobby");
 			await finger.click("#joinBtn");
@@ -345,15 +357,15 @@ export async function run(
 				fail(`no direct-line button for ${JSON.stringify(who)}; the roster holds ${JSON.stringify(roster)}`);
 			});
 		await tab.click(`#members li:has(.name:text-is(${JSON.stringify(who)})) .dm-btn`);
-		const dmRow = `#dmList li:has(.rname:text-is(${JSON.stringify(who)}))`;
-		await tab.waitForSelector(dmRow, { timeout: 10_000 })
+		const dmRow = namedDirectRow(tab, who);
+		await dmRow.waitFor({ timeout: 10_000 })
 			.catch(() => fail("opening a direct line did not put a row for it in the rail"));
 		await second.fill("#line", "/away fetching coffee");
 		await second.press("#line", "Enter");
-		const awayPip = `${dmRow} .avatar-presence.away .presence-pip`;
-		await tab.waitForSelector(awayPip, { timeout: 30_000 })
+		const awayPip = dmRow.locator(".avatar-presence.away .presence-pip");
+		await awayPip.waitFor({ timeout: 30_000 })
 			.catch(() => fail("the direct row's chip did not pick up the away the shared room was told"));
-		const pipSaid = await tab.getAttribute(awayPip, "title");
+		const pipSaid = await awayPip.getAttribute("title");
 		if (pipSaid !== "away: fetching coffee") {
 			fail(`the direct row's pip does not carry the reason: ${JSON.stringify(pipSaid)}`);
 		}
@@ -364,7 +376,7 @@ export async function run(
 		// And back: away is a state, not a scar.
 		await second.fill("#line", "/away");
 		await second.press("#line", "Enter");
-		await tab.waitForSelector(awayPip, { state: "detached", timeout: 30_000 })
+		await awayPip.waitFor({ state: "detached", timeout: 30_000 })
 			.catch(() => fail("coming back did not clear the direct row's away"));
 	}
 }

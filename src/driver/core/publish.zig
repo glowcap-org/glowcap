@@ -13,7 +13,6 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
-const host_pump = @import("host/pump.zig");
 const capability = @import("capability.zig");
 const vocab = @import("vocab.zig");
 

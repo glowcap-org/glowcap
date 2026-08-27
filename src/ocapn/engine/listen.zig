@@ -83,6 +83,9 @@ pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
 /// Install the protocol-required shortening-only listener for one imported
 /// remote promise. Its resolver is private session maintenance: callbacks are
 /// consumed by inbound dispatch and never mint an application answer.
+/// Production installs the listener through `inbound_shortening`'s prepare and
+/// commit pair inside the dispatch transaction; this direct form is reached
+/// only by tests that stage the listener before driving a scenario.
 pub fn ensureShorteningListener(peer: *Peer, source: model.ImportPosition) !void {
     if (peer.session_state.captp_version != .next) return;
     const nomination = (try peer.session_state.nominateShorteningResolver(source)) orelse return;

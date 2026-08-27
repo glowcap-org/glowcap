@@ -15,40 +15,19 @@
 
 import { serveRendezvous } from "@pancake/web";
 import type { RendezvousHandle, WebRuntime } from "@pancake/web";
-import {
-	annotateSession,
-	type Argument,
-	currentSession,
-	formatLocatorUri,
-	formatPeerUri,
-	type Host,
-	Ref,
-	TRANSPORT_NOISE_RELAY,
-	TRANSPORT_WEBRTC,
-} from "@pancake/runtime";
+import { formatLocatorUri, formatPeerUri, type Host, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { directMessageReceiverBehavior } from "../../../lib/direct_message.ts";
 import { serveWebrtcSignaling } from "../../../lib/signaling.ts";
 import type { IceServer } from "../../../lib/ice.ts";
-import { readAttachments } from "../../../lib/attachment.ts";
 import { type InboxOfferer, type InboxPublisher, inboxPublisher } from "../../../lib/dm_inbox.ts";
-import { DM, HAND_ROOM, OFFER_ROOM, TYPING } from "../../../lib/protocol.ts";
 import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
 import type { DirId } from "../types.ts";
 import { reason, trouble } from "./common.ts";
 import { convSession, dirSession, isCurrent, type Live } from "./live.ts";
-import { applyTyping } from "./typing.ts";
-import {
-	adoptBackChannel,
-	handedRoom,
-	noteIgnoredDm,
-	offeredRoom,
-	receiveDm,
-	releaseIncomingRef,
-	sendDm,
-} from "./direct.ts";
+import { directReceiverFor, establishRequestedDirect, sendDm } from "./direct.ts";
 import { resendFile, resendRoomLine } from "./send.ts";
-import { hydrateDm } from "./history.ts";
 
 // ── Cold-dial rendezvous: being reachable as a browser (ADR-0088) ──────────
 // The one inbox host per page. It dials the directory AND accepts cold-dials,
@@ -86,7 +65,7 @@ let rendezvous: RendezvousHandle | null = null;
 // a peer that opened no listener — rather than cold-dialing them back.
 //
 // Keyed on the conversation, not the nick. A route reaches one connection, and a
-// nick is a claim the room hands back: keyed by name, closing a stale
+// nick is a name the directory can reclaim: keyed by name, closing a stale
 // conversation with a member who had left and rejoined took the live one's reply
 // route with it. Keyed here, a row lives and dies with the conversation it
 // belongs to.
@@ -102,82 +81,8 @@ let rendezvous: RendezvousHandle | null = null;
 // happened to be up at mint time: after a reconnect, a peer's reply route was
 // filed on the dead session's table and a handed room was refused as if the
 // offers list were full, on a tab where everything was healthy.
-function inboxFor(dir: DirId, peer: string): (verb: string, args: unknown[]) => Argument {
-	return (verb: string, args: unknown[]): Argument => {
-		const home = dirSession(dir);
-		// The ephemeral sibling of a message: the peer's typing flag,
-		// same auto-clear rule as a room's.
-		if (verb === TYPING) {
-			const conv = store.ensureDm(dir, peer);
-			if (conv === null) return null;
-			hydrateDm(conv);
-			applyTyping(conv.key, peer, args[0] === true);
-			return null;
-		}
-		if (verb === HAND_ROOM) {
-			const label = typeof args[0] === "string" ? args[0] : "";
-			const room = args[1];
-			if (!(room instanceof Ref)) return null;
-			const arriving = currentSession();
-			if (arriving === null) {
-				throw new Error("a handed room is reachable only during its arriving session turn");
-			}
-			// Between connections to this directory there is nobody to file the
-			// offer under, so it is refused loudly and the reference handed back on
-			// the connection it arrived over rather than parked unspendably.
-			if (home === null) {
-				releaseIncomingRef(arriving, room, "refused room offer");
-				throw new Error("they are between connections; ask again in a moment");
-			}
-			// Thrown rather than swallowed when the offer cannot be kept, so the
-			// sender's send rejects and their screen tells the truth — a quiet
-			// decline here would leave them believing it arrived.
-			if (!handedRoom(home, arriving, label, room, peer)) {
-				throw new Error("their offers list is full; ask again once they have answered some");
-			}
-			return null;
-		}
-		if (verb === OFFER_ROOM) {
-			const label = typeof args[0] === "string" ? args[0] : "";
-			const link = typeof args[1] === "string" ? args[1] : "";
-			if (link === "") return null;
-			if (home === null) throw new Error("they are between connections; ask again in a moment");
-			// The same loud refusal as a handed room: a sender told "delivered"
-			// about an offer this side let go is being lied to.
-			if (!offeredRoom(home, label, link, peer)) {
-				throw new Error("their offers list is full; ask again once they have answered some");
-			}
-			return null;
-		}
-		if (verb !== DM) throw new Error(`dm inbox has no method ${verb}`);
-		const text = typeof args[0] === "string" ? args[0] : "";
-		const reply = args[1];
-		const attachments = readAttachments(args as Argument[], reply instanceof Ref ? 2 : 1);
-		// The arriving connection has to be read inside the turn; it is null once
-		// the turn returns, and our reply sends on a later one.
-		const conv = store.ensureDm(dir, peer);
-		if (conv === null) return null;
-		hydrateDm(conv);
-		const key = conv.key;
-		noteIgnoredDm(key, peer);
-		const session = currentSession();
-		// Name the arriving direct connection for whoever is watching the live
-		// timeline. The dialer names it too, from the other end; either end's
-		// annotation is enough, and a watcher only ever hears the one whose
-		// view of this wire it is being shown.
-		if (session !== null) annotateSession(session, { label: peer });
-		if (session !== null && reply instanceof Ref) {
-			const adopted = home !== null && adoptBackChannel(key, session, reply);
-			// Every projected capability occurrence owns a retain. A duplicate reply
-			// route, or one arriving while its directory is down, is not adopted and
-			// must be handed back rather than falling out of the callback unowned.
-			if (!adopted) releaseIncomingRef(session, reply, "unused direct reply route");
-		}
-		// Answer the sender the handle to this line, so a later edit or withdrawal
-		// reaches it. A message we will not show, or one with no connection to host
-		// a handle on, answers nothing and simply cannot be changed.
-		return receiveDm(key, peer, text, attachments, session);
-	};
+function inboxFor(dir: DirId, peer: string, registrationId: string) {
+	return directMessageReceiverBehavior(directReceiverFor(dir, peer, registrationId, true));
 }
 
 // Mint and offer one inbox per peer, on the inbox host so a redeem dial finds
@@ -192,7 +97,7 @@ export function ensureOfferer(dir: DirId): InboxOfferer {
 	if (held !== undefined) return held;
 	const offerer = requireInboxPublisher().offerer({
 		dir: () => dirSession(dir)?.dir ?? null,
-		behaviorFor: (peer) => inboxFor(dir, peer),
+		behaviorFor: (peer, registrationId) => inboxFor(dir, peer, registrationId),
 		skip: (peer) => store.isSelf(dir, peer),
 		// That one person's direct messages toward this tab will not arrive,
 		// and they are told only that the send failed — so this side says which
@@ -223,18 +128,18 @@ export function forgetOfferer(dir: DirId): void {
 // inside the inbound feed while the acknowledgement lands on a microtask, so the
 // first peer to ask arrives before the flag does.
 
-export function offerInboxFor(home: Live, peer: string): void {
+export function offerInboxFor(home: Live, peer: string, registrationId: string): void {
 	if (!home.registered) {
-		home.deferredOffers.add(peer);
+		home.deferredOffers.set(registrationId, peer);
 		return;
 	}
-	ensureOfferer(home.id).offer(peer);
+	ensureOfferer(home.id).offer(peer, registrationId);
 }
 
 function flushDeferredOffers(home: Live): void {
 	const waiting = [...home.deferredOffers];
 	home.deferredOffers.clear();
-	for (const peer of waiting) offerInboxFor(home, peer);
+	for (const [registrationId, peer] of waiting) offerInboxFor(home, peer, registrationId);
 }
 
 // What publishes the giftables an offer is made of. Reaching it before the inbox
@@ -252,7 +157,7 @@ export function ensureInbox(runtime: WebRuntime, iceServers: () => Promise<IceSe
 	if (inboxOwner !== null) return inboxOwner.host;
 	const host = runtime.host;
 	// This Host owns the locator advertised in handoff gives. The directory
-	// relays that signed claim; it does not replace it with registration input.
+	// relays that signed locator claim; it does not replace it with registration input.
 	if (DM_TRANSPORT === TRANSPORT_WEBRTC) {
 		host.setAdvertisedLocator({
 			transport: DM_TRANSPORT,
@@ -286,7 +191,7 @@ export function ensureInbox(runtime: WebRuntime, iceServers: () => Promise<IceSe
 				// then guaranteed the warning was never said at all.
 				saidRendezvousTrouble = store.deliverActive(store.sysItem(
 					`The relay would not take this tab's registration (${reason(err)}). ` +
-						"Others may not be able to reach you directly until it does; it keeps trying.",
+						"Others may not be able to reach you directly until it does. It keeps trying.",
 				));
 			},
 		});
@@ -319,7 +224,15 @@ export function advertisePresence(session: Live): void {
 	const host = owner.host;
 	const locator = selfLocator();
 	if (locator === null) return;
-	session.dir.register(nick, locator, (peer) => offerInboxFor(session, peer))
+	session.dir.register(
+		nick,
+		locator,
+		(peer, registrationId) => offerInboxFor(session, peer, registrationId),
+		(peer, registrationId) => {
+			offerInboxFor(session, peer, registrationId);
+			establishRequestedDirect(session.id, peer, registrationId);
+		},
+	)
 		.then(() => {
 			// The session may have died while the room was answering it; a dead one
 			// has nothing to flush and nothing to remember.
@@ -351,7 +264,7 @@ export function advertisePresence(session: Live): void {
 					// With no signaling answerer, browser-to-browser direct
 					// messages toward this tab cannot open, while every roster
 					// goes on listing it as reachable. Said on the surface built
-					// for exactly this claim, not only to the console.
+					// for exactly this registration, not only to the console.
 					if (!isCurrent(session)) return;
 					store.setDmUnreachable(
 						session.id,
@@ -467,7 +380,7 @@ export function retrySend(key: string, id: number): void {
 			// it. Say so, because a press that quietly does nothing reads as a
 			// broken control rather than as a file that has to be picked again.
 			store.deliverActive(
-				store.sysItem("These files are no longer held by this tab; attach them again to send this message."),
+				store.sysItem("These files are no longer held by this tab. Attach them again to send this message."),
 			);
 		}
 		return;

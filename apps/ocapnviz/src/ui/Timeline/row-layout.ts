@@ -63,6 +63,16 @@ export function wholeRowsHeight(available: number): number {
 	return Math.floor(available / ROW_PITCH) * ROW_PITCH;
 }
 
+/** The lane viewport shared by painting, interaction, and scroll clamping. */
+export function laneViewportHeight(hostHeight: number): number {
+	return wholeRowsHeight(hostHeight - RULER_HEIGHT - RULER_TOP_PAD);
+}
+
+/** Furthest a row stack can scroll while keeping its end at the viewport. */
+export function laneScrollMax(contentHeight: number, hostHeight: number): number {
+	return Math.max(0, contentHeight - laneViewportHeight(hostHeight));
+}
+
 /** Height of an expanded category-header row. Pinned to
  *  `MIN_LANE_HEIGHT` so the header DOESN'T grow when the user
  *  expands the category — every gutter row (collapsed-category,
@@ -176,15 +186,6 @@ export function* iterateRows(
 	}
 }
 
-/** Marquee-clamp bounds for the Scrubber's plot content rect.
- *  The marquee is meaningful only over t-content, so the gutter,
- *  left pad, right pad, and ruler footer are all excluded. One
- *  source of truth shared between the paint-side rubber-band
- *  (scrubber-paint.ts) and the commit-side selection (Scrubber.tsx)
- *  so the visible marching-ants band and the entities the release
- *  selects are pixel-identical (WYSIWYG). `hostHeight` is allowed
- *  to underflow the ruler reserve — the `Math.max(0, ...)` keeps
- *  `maxY` from going negative when the panel collapses. */
 /**
  * How tall the row stack `iterateRows` yields actually is.
  *
@@ -231,6 +232,7 @@ export function rowStackHeight(
 	return bottom;
 }
 
+/** Marquee-clamp bounds for the Scrubber's painted plot content rect. */
 export function scrubberPlotBounds(
 	view: TimelineView,
 	hostWidth: number,
@@ -242,6 +244,6 @@ export function scrubberPlotBounds(
 		minX: plotX,
 		minY: 0,
 		maxX: plotX + plotW,
-		maxY: Math.max(0, hostHeight - RULER_HEIGHT - RULER_TOP_PAD),
+		maxY: laneViewportHeight(hostHeight),
 	};
 }

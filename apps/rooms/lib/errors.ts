@@ -34,6 +34,10 @@ export const TOO_MANY_PEERED_ROOMS = "too-many-peered-rooms";
 /** A `link` that would make one more room name durable after the server has
  * reached `MAX_ROOM_LINKS`. Existing linked rooms still return their links. */
 export const ROOM_LINKS_FULL = "room-links-full";
+/** A request for a room's steward from a connection that did not open it, an
+ * operator revoke where none is issued, or any call through a revoked steward
+ * generation. */
+export const NOT_STEWARD = "not-steward";
 /** An introduction to a member the directory has no registration for. */
 export const PEER_OFFLINE = "peer-offline";
 /** An introduction the member has not minted an inbox for. The directory has
@@ -91,6 +95,7 @@ export type RoomErrorCode =
 	| typeof TOO_MANY_ROOMS
 	| typeof TOO_MANY_PEERED_ROOMS
 	| typeof ROOM_LINKS_FULL
+	| typeof NOT_STEWARD
 	| typeof PEER_OFFLINE
 	| typeof INTRODUCTION_PENDING
 	| typeof NOT_REGISTERED
@@ -113,6 +118,7 @@ const CODES = new Set<string>([
 	TOO_MANY_ROOMS,
 	TOO_MANY_PEERED_ROOMS,
 	ROOM_LINKS_FULL,
+	NOT_STEWARD,
 	PEER_OFFLINE,
 	INTRODUCTION_PENDING,
 	NOT_REGISTERED,

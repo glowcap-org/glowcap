@@ -179,7 +179,6 @@ pub const MultiplexedExternalClaimRawOutcome = multiplexed_resident.RawExternalC
 /// parks on.
 pub const readiness = @import("readiness.zig");
 pub const ReadySet = readiness.ReadySet;
-pub const ReadyInterest = readiness.Interest;
 
 /// The portable completion-loop server, generic over its platform backend. The
 /// connection orchestration is OS-neutral; the platform completion primitive is a

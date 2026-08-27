@@ -7,9 +7,10 @@
 ;;
 ;; Flags: --suite=<echo|registry|mint|taskboard|all> (default all), --smoke (tiny
 ;; counts), --port=N (base port).
+(require racket/runtime-path)
 (require racket/string racket/list racket/port racket/file racket/format
-         (file "/workspaces/pancake/bench/goblins/metrics.rkt")
-         (file "/workspaces/pancake/bench/goblins/report.rkt"))
+         "metrics.rkt"
+         "report.rkt")
 
 (define-values (suite-sel smoke? base-port)
   (let loop ([args (vector->list (current-command-line-arguments))]
@@ -35,8 +36,9 @@
 (define CONNS (if smoke? 4 50))
 
 (define RACKET (find-executable-path "racket"))
-(define SERVER "/workspaces/pancake/bench/goblins/server.rkt")
-(define CLIENT "/workspaces/pancake/bench/goblins/client.rkt")
+(define-runtime-path SERVER "server.rkt")
+(define-runtime-path CLIENT "client.rkt")
+(define-runtime-path repo-root "../..")
 (define HOST "127.0.0.1")
 
 ;; (suite backend) -> alist of measured fields.
@@ -200,7 +202,7 @@
    "\n"))
 
 (display report)
-(define out-dir "/workspaces/pancake/zig-out/bench-reports")
+(define out-dir (simplify-path (build-path repo-root "zig-out" "bench-reports")))
 (make-directory* out-dir)
 (define stamp (number->string (current-seconds)))
 (define mode-str (if smoke? "smoke" "full"))

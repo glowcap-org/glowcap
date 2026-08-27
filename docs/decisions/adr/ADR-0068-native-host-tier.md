@@ -61,10 +61,11 @@ An introduction is a typed outcome, not a dead argument. `actors.Resolution`
 and `driver.Settled` carry a third arm, `.give`, projected in the vat's
 far-resolve path while the wire event is still in hand: the one place the
 verbatim envelope span and the locator record's hints survive. The projection
-rides the same engine definitions the C ABI's resolve projection uses
-(`engine.handoff_recipient.exporterLocatorUri`,
-`codec.syrup.spanSignedHandoffGive`), so there is one definition of "what a
-give projects to" for the native path and the waist.
+rides the same `engine.handoff_recipient.projectGiveForRedeem` definition the
+C ABI and Host use. That helper reads the parser-recorded `raw_signed` span and
+typed exporter locator together, so there is one definition of "what a give
+projects to" for the native path and the waist; no frame-wide substring search
+participates.
 
 The two halves stay explicit on purpose. A binding hides redeem inside
 `connect` because its runtime hides I/O anyway; in Zig a hidden dial inside

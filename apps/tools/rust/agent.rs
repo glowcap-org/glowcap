@@ -9,7 +9,7 @@ mod demo_run;
 #[path = "../../_demo/rust/tools_check.rs"]
 mod tools_check;
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, Ref, Runtime, RuntimeConfig};
+use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig};
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
@@ -74,12 +74,25 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 		session.send(&revocable, "now", &[]).await.is_err(),
 	);
 
-	session.close();
-	if ok {
-		println!("{nick}: all capability properties held");
-		Ok(())
+	let session_error = session.close(PendingWork::Cancel).await.err();
+	let runtime_error = runtime.close(PendingWork::Cancel).await.err();
+	let close_error = if session_error.is_some() || runtime_error.is_some() {
+		Some(format!(
+			"close failed{}{}",
+			session_error.map_or_else(String::new, |error| format!("; session: {error}")),
+			runtime_error.map_or_else(String::new, |error| format!("; runtime: {error}")),
+		))
 	} else {
-		Err("a capability property did not hold".to_string())
+		None
+	};
+	match (ok, close_error) {
+		(true, None) => {
+			println!("{nick}: all capability properties held");
+			Ok(())
+		}
+		(true, Some(close)) => Err(close),
+		(false, None) => Err("a capability property did not hold".to_string()),
+		(false, Some(close)) => Err(format!("a capability property did not hold; {close}")),
 	}
 }
 

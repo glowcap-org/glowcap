@@ -5,19 +5,22 @@
 //   zoe is introduced to ada and they talk
 //   ada leaves, so the room has the name "ada" back
 //   somebody else joins and is granted the name "ada"
-//   zoe types into the conversation she already had
+//   the old conversation becomes read-only
+//   zoe explicitly opens a new conversation to the replacement registration
 //
 // The last line used to redeem a fresh introduction by name and reach the new
 // holder — same thread, same title, same history, a different human, and no
-// marker anywhere. A conversation is keyed on the introduction that opened it
-// now, so that message reaches nobody and says why.
+// marker anywhere. The old registration now makes the composer unavailable,
+// while an explicit new conversation receives a separate registration ID.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
 // and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web_dm_retarget_test.ts`.
 
 import { chromium } from "playwright";
+import { establishLocalSession } from "./support/session_setup.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -25,27 +28,6 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
 	throw new Error(message);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
 }
 
 const httpPort = freePort();
@@ -81,6 +63,7 @@ try {
 		const page = await ctx.newPage();
 		page.on("pageerror", (e) => console.error(`  [page error, ${nick}]`, e.message));
 		await page.goto(`http://127.0.0.1:${httpPort}/`);
+		await establishLocalSession(page);
 		await page.fill("#nick", nick);
 		await page.fill("#room", "design");
 		await page.click("#joinBtn");
@@ -99,6 +82,16 @@ try {
 	).catch(() => fail("ada never became reachable for a direct message"));
 	await zoe.page.click("#members li:has-text('ada') button.dm-btn");
 	await zoe.page.waitForSelector("#dmList li", { timeout: 10_000 });
+	const originalLine = "message for the original ada";
+	await zoe.page.fill("#line", originalLine);
+	await zoe.page.press("#line", "Enter");
+	await ada.page.waitForSelector("#dmList li", { timeout: 15_000 });
+	await ada.page.click("#dmList li .dm-open");
+	await ada.page.waitForFunction(
+		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
+		originalLine,
+		{ timeout: 15_000 },
+	);
 
 	// ada leaves for good; the room takes the name back.
 	await ada.ctx.close();
@@ -112,46 +105,15 @@ try {
 	const other = await join("ada");
 	await zoe.page.waitForTimeout(2_000);
 
-	// zoe types into the conversation she already had.
+	// The old conversation remains readable but cannot send to a different
+	// registration merely because it has the same display name.
 	await zoe.page.click("#dmList li .dm-open");
-	const line = "are we still on for friday?";
-	await zoe.page.fill("#line", line);
-	await zoe.page.press("#line", "Enter");
-	await zoe.page.waitForTimeout(3_000);
-
-	const reached = await other.page.evaluate(
-		(text) => (document.body.textContent ?? "").includes(text),
-		line,
-	);
-	if (reached) {
-		fail(
-			"a message typed into the old conversation reached the person who took the name — " +
-				"the conversation is being resolved by nickname again",
-		);
-	}
-
-	const told = await zoe.page.evaluate(() =>
-		(document.getElementById("log")?.textContent ?? "").includes("this conversation is closed")
-	);
-	if (!told) fail("the send failed without telling the reader the conversation is closed");
-
-	// And the bubble says so without offering a way to try again. This send can
-	// never go: the room has the name back, and pressing again would either reach
-	// nobody or reach whoever holds it now. A retry here is a control that cannot
-	// succeed, which invites a reader to keep pressing for as long as they are
-	// willing to believe it might.
-	const unsent = await zoe.page.evaluate(() => {
-		const failure = document.querySelector(".delivery-failure");
-		return failure === null ? null : {
-			said: failure.textContent?.trim() ?? "",
-			retries: failure.querySelectorAll("button").length,
-		};
-	});
-	if (unsent === null) fail("a message that could not be sent was not marked unsent at all");
-	else if (!unsent.said.includes("Not sent")) {
-		fail(`the unsent message says ${JSON.stringify(unsent.said)}`);
-	} else if (unsent.retries !== 0) {
-		fail("a message into a closed conversation offers a retry that can never succeed");
+	const closedComposer = await zoe.page.locator("#line").evaluate((field: HTMLTextAreaElement) => ({
+		disabled: field.disabled,
+		placeholder: field.placeholder,
+	}));
+	if (!closedComposer.disabled || !closedComposer.placeholder.toLowerCase().includes("closed")) {
+		fail(`the old conversation composer remained actionable: ${JSON.stringify(closedComposer)}`);
 	}
 
 	// One conversation, not a second minted quietly behind the one on screen.
@@ -176,6 +138,16 @@ try {
 				"conversation — it landed on the closed one, which is the nickname keying again",
 		)
 	);
+	const replacementLine = "message for the replacement ada";
+	await zoe.page.fill("#line", replacementLine);
+	await zoe.page.press("#line", "Enter");
+	await other.page.waitForSelector("#dmList li", { timeout: 15_000 });
+	await other.page.click("#dmList li .dm-open");
+	await other.page.waitForFunction(
+		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
+		replacementLine,
+		{ timeout: 15_000 },
+	);
 	const opened = await zoe.page.evaluate(() => {
 		const closed = [...document.querySelectorAll("#dmList li")]
 			.find((li) => li.className.includes("closed")) as HTMLElement | undefined;
@@ -189,13 +161,13 @@ try {
 	// reading straight after it sees the conversation that was on screen before.
 	await zoe.page.waitForFunction(
 		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
-		line,
+		originalLine,
 		{ timeout: 15_000 },
 	).catch(() => fail("the closed conversation lost its history when a new one took the name"));
 
 	console.log(
-		"PASS: a name changing hands does not move a conversation — the message reached nobody, " +
-			"the reader was told why, no second conversation was minted behind the one on screen, " +
+		"PASS: a name changing hands does not move a conversation — the old composer became read-only, " +
+			"no second conversation was minted behind the one on screen, " +
 			"and a conversation with the name's new holder is a separate one that leaves the " +
 			"old history intact",
 	);

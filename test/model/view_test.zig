@@ -64,7 +64,7 @@ test "gc_export and gc_answer position lists round-trip" {
     try expectRoundTrip(.{ .gc_answer = .{ .positions = &positions } });
 }
 
-test "abort round-trips with typed kind and message" {
+test "abort view round-trips with typed kind and message" {
     try expectRoundTrip(.{ .abort = .{ .kind = .protocol_error, .message = "bye" } });
 }
 

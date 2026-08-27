@@ -17,9 +17,9 @@
 // puts the very first directory session on the timeline after a reload; a
 // take from the toggle arms mid-life and the timeline starts at that moment.
 
-import { enableTrace } from "@pancake/runtime";
+import { enableTrace, retainSecondaryFailure } from "@pancake/runtime";
 import { publishViz, type VizPublisher } from "../../../lib/viz_publish.ts";
-import { pastedSwiss } from "../../../lib/operations.ts";
+import { presentedSwiss } from "../../../lib/operations.ts";
 import * as store from "../store.ts";
 import * as prefs from "../prefs.ts";
 import { opsLost, trouble } from "./common.ts";
@@ -34,6 +34,34 @@ const TAKE_DEADLINE_MS = 8_000;
  * stays inside the socket URL; the store row carries only what to draw. */
 let held: { url: string; publisher: VizPublisher; uninstall: () => void } | null = null;
 
+function retireVizHold(
+	holding: { url: string; publisher: VizPublisher; uninstall: () => void },
+	label: string,
+): void {
+	if (held === holding) held = null;
+	let failure: unknown | null = null;
+	try {
+		holding.publisher.stop();
+	} catch (error) {
+		failure = error;
+	}
+	try {
+		holding.uninstall();
+	} catch (error) {
+		failure = failure == null ? error : retainSecondaryFailure(failure, error);
+	}
+	store.setVizPublish(null);
+	if (failure != null) trouble(label, failure);
+}
+
+function retireDeadViz(url: string, label: string): void {
+	if (!forgetOpsSwiss("viz", url)) {
+		store.noteTrouble("capability storage", "the dead visualizer capability could not be forgotten");
+	}
+	const holding = held;
+	if (holding?.url === url) retireVizHold(holding, label);
+}
+
 // The address bar's `?viz=` override, read once like the DM transport beside
 // it: the tap's endpoint is decided when the peer opens, not mid-session.
 const VIZ_OVERRIDE = prefs.vizOverride();
@@ -44,6 +72,10 @@ const VIZ_OVERRIDE = prefs.vizOverride();
 async function vizEndpoint(): Promise<string | null> {
 	if (VIZ_OVERRIDE !== null) return VIZ_OVERRIDE;
 	return await prefs.advertisedViz();
+}
+
+export function vizCapabilityScope(): Promise<string | null> {
+	return vizEndpoint();
 }
 
 /** Arm the publisher with `swiss` and install the trace tap. `onAdmitted`
@@ -65,7 +97,7 @@ function arm(
 		},
 		onRefused: (why) => {
 			if (held?.publisher !== publisher) return;
-			dropVizCap();
+			retireDeadViz(url, "the refused visualizer publisher would not retire");
 			hooks.onRefused(why);
 		},
 	});
@@ -76,7 +108,18 @@ function arm(
 	// endpoint folds the two sightings together on the frame digest, which is
 	// carried whatever the payload cap. What still travels from here is who
 	// this tab talked to, when, which verb, and how many bytes.
-	held = { url, publisher, uninstall: enableTrace(publisher.sink, { payloadCap: 0 }) };
+	let uninstall: () => void;
+	try {
+		uninstall = enableTrace(publisher.sink, { payloadCap: 0 });
+	} catch (error) {
+		try {
+			publisher.stop();
+		} catch (cleanup) {
+			retainSecondaryFailure(error, cleanup);
+		}
+		throw error;
+	}
+	held = { url, publisher, uninstall };
 	store.setVizPublish({ url, connected: false });
 }
 
@@ -84,14 +127,20 @@ function arm(
  * the tap, and erase the remembered swiss — no path may drop the capability
  * but keep the secret the reader asked to give up. Also the refusal path's
  * cleanup, where the erased memory is a dead secret rather than a choice. */
-export function dropVizCap(): void {
-	if (held === null) return;
-	const { url, publisher, uninstall } = held;
-	held = null;
-	publisher.stop();
-	uninstall();
-	store.setVizPublish(null);
-	forgetOpsSwiss("viz", url);
+export function dropVizCap(updateVault = true): void {
+	const holding = held;
+	if (holding == null) return;
+	if (updateVault && !forgetOpsSwiss("viz", holding.url)) {
+		store.noteTrouble("capability storage", "the saved visualizer capability could not be removed");
+		return;
+	}
+	retireVizHold(holding, "the visualizer publisher would not retire");
+}
+
+function dropVizHoldOnly(url: string): void {
+	const holding = held;
+	if (holding?.url !== url) return;
+	retireVizHold(holding, "the unsaved visualizer publisher would not retire");
 }
 
 /** Take the viz capability: present the pasted swiss (or a pasted
@@ -103,9 +152,12 @@ export async function takeVizCap(pasted: string, remember = false): Promise<stri
 	if (url === null) {
 		return "This page has no live timeline endpoint. Start the server with --viz, or open the page with ?viz=<ws url>.";
 	}
-	const swiss = pastedSwiss(pasted, "v1_0");
+	const swiss = presentedSwiss(pasted);
 	if (swiss === "") return "paste the swiss number the server printed";
-	if (held !== null) dropVizCap();
+	if (held !== null) {
+		dropVizCap();
+		if (held !== null) return "The current visualizer capability could not be removed from browser storage.";
+	}
 	const outcome = await new Promise<string>((resolve) => {
 		let settled = false;
 		// Whether this call is what answered the take, so a refusal arriving
@@ -133,14 +185,17 @@ export async function takeVizCap(pasted: string, remember = false): Promise<stri
 	if (outcome !== "") {
 		// A take that failed holds nothing: the refusal path already dropped,
 		// and an unanswered endpoint must not keep redialing as if granted.
-		dropVizCap();
+		retireDeadViz(url, "the unanswered visualizer publisher would not retire");
 		return outcome;
 	}
 	// The checkbox is the reader's current word on remembering, so an
 	// unchecked take erases an earlier memory rather than leaving it to
 	// auto-redeem against their answer.
-	if (remember) rememberOpsSwiss("viz", url, pasted);
-	else forgetOpsSwiss("viz", url);
+	const stored = remember ? rememberOpsSwiss("viz", url, pasted) : forgetOpsSwiss("viz", url);
+	if (!stored) {
+		dropVizHoldOnly(url);
+		return "This browser refused to update the saved visualizer capability.";
+	}
 	return "";
 }
 
@@ -158,5 +213,5 @@ export async function ensureVizPublisher(): Promise<void> {
 	// Nobody is waiting on this arm, so its refusal has no return path: a
 	// restarted endpoint minting a fresh swiss would otherwise turn the toggle
 	// off with no word for a capability the reader had asked to keep.
-	arm(url, pastedSwiss(swiss, "v1_0"), { onRefused: (why) => opsLost("viz", why) });
+	arm(url, presentedSwiss(swiss), { onRefused: (why) => opsLost("viz", why) });
 }

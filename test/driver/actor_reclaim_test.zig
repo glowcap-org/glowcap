@@ -3,7 +3,7 @@
 //! open — before Host teardown — and the `Hosting` adapter forwards the
 //! behavior's state deinit so the reclaim is observable. The Vat-tier root
 //! mechanics live in `test/actors/actor_roots_test.zig`; the alias, gift, and
-//! session-closure roots in `test/driver/core_host_test.zig`.
+//! session-closure roots in `test/driver/core_host/`.
 
 const std = @import("std");
 const pancake = @import("pancake");

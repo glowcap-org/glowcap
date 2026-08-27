@@ -25,6 +25,7 @@
 // one OCapN wire; the room cannot tell which language a member is written in.
 
 import { Directory, readPresence } from "../../lib/room_client.ts";
+import { releaseUnclaimedCapabilityArguments } from "../../lib/argument_custody.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
 import { dial, isUriLocator, type RoomsDial } from "../../lib/locator.ts";
@@ -65,21 +66,23 @@ export async function runClient(
 	const present = new Set<string>();
 	const seen = new Set<string>();
 	let posted = false;
-	let finish!: () => void;
-	const done = new Promise<void>((resolve) => {
-		finish = resolve;
-	});
+	const { promise: done, resolve: finish, reject: fail } = Promise.withResolvers<void>();
 
 	function maybePost(): void {
 		if (!posted && roster.every((n) => present.has(n))) {
 			posted = true;
-			session.send(room, POST, [line]).catch(() => {});
+			void session.send(room, POST, [line]).catch(fail);
 		}
 	}
 
 	// The inbox the room calls back on. A system line may carry a structured
 	// presence change after its text; an ordinary chat line does not.
 	const inbox = session.spawn((verb, args) => {
+		releaseUnclaimedCapabilityArguments(
+			session,
+			args,
+			"the terminal room inbox could not return an unsupported capability",
+		);
 		if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
 		const from = typeof args[0] === "string" ? args[0] : "?";
 		const text = typeof args[1] === "string" ? args[1] : "";
@@ -108,14 +111,14 @@ export async function runClient(
 	await session.send(room, SUBSCRIBE, [nick, inbox]);
 	maybePost();
 
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let timer: ReturnType<typeof setTimeout> | null = null;
 	const timeout = new Promise<void>((_, reject) => {
 		timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
 	});
 	try {
 		await Promise.race([done, timeout]);
 	} finally {
-		if (timer !== undefined) clearTimeout(timer);
+		if (timer != null) clearTimeout(timer);
 		await session.close();
 	}
 

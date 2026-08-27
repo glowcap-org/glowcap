@@ -25,7 +25,6 @@ const Sink = harness.Sink;
 const LabelHolder = harness.LabelHolder;
 const PersistentCounter = harness.PersistentCounter;
 const Captured = promise_capture.CapturedBytes;
-const StringCapture = promise_capture.CapturedString;
 
 test "near-call dispatches synchronously and become mutates state" {
     const allocator = std.testing.allocator;

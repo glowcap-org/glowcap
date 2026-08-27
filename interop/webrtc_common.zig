@@ -341,35 +341,6 @@ pub fn sendAndExpectString(
     if (!std.mem.eql(u8, try captured.require(), expected)) return error.WrongReply;
 }
 
-pub fn serveUntilClosed(
-    resident: *webrtc.Resident,
-    peer: *webrtc.Peer,
-    pump: *PacketPump,
-    host: *Host,
-    session: *HostSession,
-    timeout_ms: usize,
-) !void {
-    var elapsed: usize = 0;
-    var rounds: usize = 0;
-    while (rounds < 10_000) : (rounds += 1) {
-        const moved = pump.drive(host, session, peer) catch |err| switch (err) {
-            error.ChannelClosed => {
-                try host.transportClosed(session, "webrtc channel closed");
-                return;
-            },
-            else => return err,
-        };
-        if (moved) {
-            elapsed = 0;
-            continue;
-        }
-        try pollPeer(resident, peer, 50);
-        elapsed += 50;
-        if (elapsed >= timeout_ms) return error.PacketServeTimeout;
-    }
-    return error.PacketServeDidNotSettle;
-}
-
 pub fn atomicFlagDone(ctx: *anyopaque) bool {
     const done: *std.atomic.Value(bool) = @ptrCast(@alignCast(ctx));
     return done.load(.acquire);

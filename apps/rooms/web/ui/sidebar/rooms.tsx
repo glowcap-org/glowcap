@@ -29,6 +29,7 @@ import { bridgedOrigin } from "../store.ts";
  * directory. */
 export function YourRooms(
 	{
+		canInteract,
 		convs,
 		dirs,
 		home,
@@ -44,13 +45,14 @@ export function YourRooms(
 		onTake,
 		onDrop,
 	}: {
+		canInteract: boolean;
 		convs: ReadonlyMap<string, Conv>;
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
 		activeKey: string | null;
 		/** Rooms handed to this tab and not answered yet. */
 		invites: readonly Invitation[];
-		onTake: (id: string) => void;
+		onTake: (id: string) => Promise<void>;
 		onDrop: (id: string) => void;
 		/** Directories held with nothing open on them, listed under the rooms so a
 		 * connection nobody can see is not a connection nobody can end. */
@@ -86,6 +88,7 @@ export function YourRooms(
 			{held.map((invite) => (
 				<InviteRow
 					key={invite.id}
+					canInteract={canInteract}
 					invite={invite}
 					where={dirWhere(invite.dir, home, dirs)}
 					onTake={onTake}
@@ -95,6 +98,7 @@ export function YourRooms(
 			{open.map((conv) => (
 				<RoomRow
 					key={conv.key}
+					canInteract={canInteract}
 					conv={conv}
 					unread={conv.unread.kind === "unread" ? conv.unread.count : 0}
 					here={activeKey === conv.key}
@@ -110,6 +114,7 @@ export function YourRooms(
 			{bare.map((dir) => (
 				<EmptyDirRow
 					key={dir.id}
+					canInteract={canInteract}
 					dir={dir}
 					home={home}
 					mark={dirMarkIn(dir.id, home, dirs)}

@@ -6,11 +6,11 @@
 // lines, and directories live in `store/`; this file is who is in a room, where
 // this reader stands, and what they have been offered.
 
-import type { DirId, Invitation, Standing } from "./types.ts";
-import { KEY, set, type State, state } from "./store/core.ts";
-import { LS } from "./storage.ts";
-import { MAX_ROSTER_SEEN } from "../../lib/limits.ts";
-import type { Presence } from "../../lib/limits.ts";
+import type { DirId, Invitation, RoomConv } from "./types.ts";
+import { get, set, type State } from "./store/core.ts";
+import type { Presence } from "../../lib/room_presence.ts";
+import { applyRoomPresence } from "../../lib/room_presence.ts";
+import type { RoomMemberState } from "../../lib/room_presence.ts";
 import { getConv, put } from "./store/convs.ts";
 import { patchDir } from "./store/dirs.ts";
 
@@ -18,6 +18,7 @@ import { patchDir } from "./store/dirs.ts";
 // not a change to what a caller may ask for.
 export * from "./store/core.ts";
 export * from "./store/chrome.ts";
+export * from "./store/archive.ts";
 export * from "./store/convs.ts";
 export * from "./store/items.ts";
 export * from "./store/dirs.ts";
@@ -28,34 +29,7 @@ export * from "./store/trouble.ts";
 export function applyPresence(key: string, event: Presence | null): void {
 	const conv = getConv(key);
 	if (!event || conv?.type !== "room") return;
-	const members = new Map(conv.members);
-	// A standing is replaced whole rather than mutated, because the map holds
-	// frozen rows that a render may still be reading.
-	const standing = (name: string): Standing => members.get(name) ?? { online: false, away: "" };
-	if (event.kind === "roster") {
-		for (const [name, was] of members) members.set(name, { ...was, online: false });
-		for (const name of event.names) members.set(name, { ...standing(name), online: true });
-	} else if (event.kind === "away") {
-		// Only about somebody already here: a room states this for its members,
-		// and a name arriving any other way would be inventing one.
-		if (!members.has(event.name)) return;
-		members.set(event.name, { ...standing(event.name), away: event.reason });
-	} else {
-		// Coming back into a room arrives present. Their standing left with the
-		// membership that set it, and carrying a stale one over would have them
-		// away while they are typing.
-		members.set(event.name, { online: event.kind === "join", away: "" });
-	}
-	// The "seen" tail is bounded, because who joins is not this window's choice.
-	// Insertion order makes the oldest offline rows the first found; the live
-	// rows are the server's to bound and are never evicted.
-	if (members.size > MAX_ROSTER_SEEN) {
-		for (const [name, row] of members) {
-			if (members.size <= MAX_ROSTER_SEEN) break;
-			if (!row.online) members.delete(name);
-		}
-	}
-	put({ ...conv, members });
+	put({ ...conv, members: applyRoomPresence(conv.members, event) });
 }
 
 /** What a room says it is about.
@@ -76,6 +50,30 @@ export function setLineBytes(key: string, lineBytes: number): void {
 	if (conv?.type !== "room" || conv.lineBytes === lineBytes) return;
 	put({ ...conv, lineBytes });
 }
+
+/** Replace one attached room's complete live view from a session snapshot. */
+export function setRoomView(
+	key: string,
+	members: readonly [string, RoomMemberState][],
+	topic: string | null,
+	lineBytes: number | null,
+	canSetTopic = false,
+	canModerate = false,
+): void {
+	const conv = getConv(key);
+	if (conv?.type !== "room") return;
+	const { topic: _topic, lineBytes: _lineBytes, ...base } = conv;
+	put({
+		...base,
+		members: new Map(members),
+		grants: new Set([
+			...(canSetTopic ? ["topic"] : []),
+			...(canModerate ? ["steward"] : []),
+		]),
+		...(topic == null ? {} : { topic }),
+		...(lineBytes == null ? {} : { lineBytes }),
+	});
+}
 /** Whose lines this window does not show.
  *
  * Kept in this window rather than told to the room, which is the honest shape:
@@ -88,19 +86,19 @@ export function setLineBytes(key: string, lineBytes: number): void {
  * whoever it names. */
 export function ignore(name: string): void {
 	const folded = name.toLowerCase();
+	const state = get();
 	if (state.ignored.has(folded)) return;
 	const ignored = new Set(state.ignored);
 	ignored.add(folded);
-	LS.set(KEY.ignored, JSON.stringify([...ignored]));
 	set({ ignored });
 }
 
 export function unignore(name: string): boolean {
 	const folded = name.toLowerCase();
+	const state = get();
 	if (!state.ignored.has(folded)) return false;
 	const ignored = new Set(state.ignored);
 	ignored.delete(folded);
-	LS.set(KEY.ignored, JSON.stringify([...ignored]));
 	set({ ignored });
 	return true;
 }
@@ -109,13 +107,13 @@ export function unignore(name: string): boolean {
  * never became a chat line. Empty text is not a submission worth recalling. */
 export function rememberLastSent(key: string, text: string): void {
 	if (text === "") return;
-	const lastSent = new Map(state.lastSent);
+	const lastSent = new Map(get().lastSent);
 	lastSent.set(key, text);
 	set({ lastSent });
 }
 
 export function lastSentFor(key: string | null): string | undefined {
-	return key === null ? undefined : state.lastSent.get(key);
+	return key === null ? undefined : get().lastSent.get(key);
 }
 // ── Where this reader stands, at three levels ──────────────────────────────
 //
@@ -137,7 +135,9 @@ export function lastSentFor(key: string | null): string | undefined {
 
 /** Where this reader stands in one room: the room's own word, or the
  * directory's, or theirs. */
-export function standingFor(key: string, s: Readonly<State> = state): string {
+type StandingState = Readonly<Pick<State, "standing" | "convs" | "dirs">>;
+
+export function standingFor(key: string, s: StandingState = get()): string {
 	const conv = getConv(key, s);
 	if (conv?.type !== "room") return s.standing;
 	return conv.standing ?? s.dirs.get(conv.dir)?.standing ?? s.standing;
@@ -145,18 +145,18 @@ export function standingFor(key: string, s: Readonly<State> = state): string {
 
 /** Where this reader stands on one directory, for a room it has not spoken for
  * itself: the directory's own word, or theirs. */
-export function standingOn(dir: DirId, s: Readonly<State> = state): string {
+export function standingOn(dir: DirId, s: StandingState = get()): string {
 	return s.dirs.get(dir)?.standing ?? s.standing;
 }
 
 /** Say where this reader stands everywhere. */
 export function setStanding(standing: string): void {
-	if (state.standing !== standing) set({ standing });
+	if (get().standing !== standing) set({ standing });
 }
 
 /** Say where they stand on one directory, or `null` to follow their own. */
 export function setDirStanding(dir: DirId, standing: string | null): void {
-	if (state.dirs.get(dir)?.standing !== standing) patchDir(dir, { standing });
+	if (get().dirs.get(dir)?.standing !== standing) patchDir(dir, { standing });
 }
 
 /** Say where they stand in one room, or `null` to follow its directory. */
@@ -174,19 +174,27 @@ export function setRoomStanding(key: string, standing: string | null): void {
 
 /** Put an invitation in front of the reader. */
 export function addInvite(invite: Invitation): void {
-	set({ invites: [...state.invites, invite] });
+	set({ invites: [...get().invites, invite] });
 }
 
 /** Forget one, however it was answered. */
 export function dropInvite(id: string): void {
-	if (!state.invites.some((invite) => invite.id === id)) return;
-	set({ invites: state.invites.filter((invite) => invite.id !== id) });
+	const invites = get().invites;
+	if (!invites.some((invite) => invite.id === id)) return;
+	set({ invites: invites.filter((invite) => invite.id !== id) });
 }
 
 export function setGrants(key: string, grants: ReadonlySet<string>): void {
 	const conv = getConv(key);
 	if (conv?.type !== "room") return;
 	put({ ...conv, grants });
+}
+
+/** Record what the conversation's current history request learned. */
+export function setEarlierHistory(key: string, earlierHistory: RoomConv["earlierHistory"]): void {
+	const conv = getConv(key);
+	if (conv?.type !== "room" || conv.earlierHistory === earlierHistory) return;
+	put({ ...conv, earlierHistory });
 }
 export function clearMembers(key: string): void {
 	const conv = getConv(key);

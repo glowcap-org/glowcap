@@ -63,6 +63,17 @@ pub fn register(
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tools_agent_exe.step);
 
+    // The showcase's thesis — attenuation refuses the unsafe verb, revocation
+    // severs the handle — is pure coordinator logic, so it is pinned hermetically
+    // here rather than only by the off-gate cross-language demo (needs deno).
+    const tools_app_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "apps/tools/deno/capabilities_test.ts",
+    });
+    tools_app_test.has_side_effects = true;
+    const tools_app_test_step = b.step("tools-app-test", "Pin the tools showcase's attenuation and revocation (needs deno)");
+    tools_app_test_step.dependOn(&tools_app_test.step);
+    check_step.dependOn(tools_app_test_step);
+
     const tools_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/tools/demo.ts",
@@ -119,6 +130,27 @@ pub fn register(
     const accountability_demo_step = b.step("demo-accountability", "Run the cross-language accountability demo: Zig host + Deno/Python callers (needs deno)");
     accountability_demo_step.dependOn(&host_install.step);
     accountability_demo_step.dependOn(&accountability_demo.step);
+
+    // The hand-rolled Blake3 the Deno caller derives its AID from must match the
+    // Zig host's digest byte for byte, and the cross-language demo above is not
+    // on the gate. Pin the primitive against known vectors here, which is (needs
+    // deno).
+    const accountability_blake3_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "apps/accountability-on-pancake/deno/blake3_test.ts",
+    });
+    accountability_blake3_test.has_side_effects = true;
+    const accountability_blake3_step = b.step("accountability-blake3-test", "Pin the accountability app's Blake3 against known vectors (needs deno and python3)");
+    accountability_blake3_step.dependOn(&accountability_blake3_test.step);
+    check_step.dependOn(accountability_blake3_step);
+
+    // The Python caller hand-rolls the same Blake3, with the same byte-agreement
+    // requirement and the same off-gate demo, so its vectors are pinned too. Pure
+    // Python, no dependency, so a bare python3 run serves.
+    const accountability_blake3_py = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "python3", "apps/accountability-on-pancake/python/blake3_test.py",
+    });
+    accountability_blake3_py.has_side_effects = true;
+    accountability_blake3_step.dependOn(&accountability_blake3_py.step);
 
     // Three-party accountability proof: the production owning Host redeems a
     // live loopback-TCP handoff, then the exporter attributes the true caller

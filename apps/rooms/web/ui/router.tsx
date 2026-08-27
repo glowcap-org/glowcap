@@ -45,7 +45,7 @@ import { Said } from "./Said.tsx";
 import * as store from "./store.ts";
 import * as net from "./net.ts";
 import { implied, named } from "./intent.ts";
-import { useStore } from "./hooks.ts";
+import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./types.ts";
 
 /** The page-configuration parameters `prefs.ts` reads at open, carried onto
@@ -103,7 +103,8 @@ function useArrival(location: { key: string }): { done: boolean; mark: () => voi
 function RoomRoute() {
 	const { name = "" } = useParams();
 	const routed = useLocation();
-	const s = useStore();
+	const homeDir = useRoomsState((state) => state.homeDir);
+	const dirs = useRoomsState((state) => state.dirs);
 	const arrival = useArrival(routed);
 	const search = new URLSearchParams(routed.search);
 	const dirParam = search.get("dir") ?? "";
@@ -140,14 +141,16 @@ function RoomRoute() {
 		if (home === null) return; // the effect refires when the directory lands
 		net.showRoom(home, name, "link");
 		arrival.mark();
-	}, [arrival, name, dirParam, isPrivate, s.homeDir, s.dirs]);
+	}, [arrival, name, dirParam, isPrivate, homeDir, dirs]);
 	return null;
 }
 
 function DmRoute() {
 	const { nick = "" } = useParams();
 	const routed = useLocation();
-	const s = useStore();
+	const homeDir = useRoomsState((state) => state.homeDir);
+	const dirs = useRoomsState((state) => state.dirs);
+	const conversations = useRoomsState((state) => state.convs);
 	const arrival = useArrival(routed);
 	useEffect(() => {
 		if (arrival.done || nick === "") return;
@@ -167,7 +170,7 @@ function DmRoute() {
 		if (store.actingDir(state) === null) return; // wait for a directory
 		net.startDm(nick);
 		arrival.mark();
-	}, [arrival, nick, s.homeDir, s.dirs, s.convs.size]);
+	}, [arrival, nick, homeDir, dirs, conversations]);
 	return null;
 }
 
@@ -239,7 +242,7 @@ function RouteCrash() {
 		<div className="crash" role="alert">
 			<h2>The page ran into a problem</h2>
 			<Said kind="failure">{message}</Said>
-			<p>Your session is not lost; the peer keeps running under this screen.</p>
+			<p>Your session is not lost. The peer keeps running under this screen.</p>
 			<Button variant="quiet" onClick={() => location.reload()}>Reload</Button>
 		</div>
 	);

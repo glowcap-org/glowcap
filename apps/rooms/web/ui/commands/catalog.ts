@@ -5,8 +5,10 @@
 
 import { askedJoin } from "../joining.ts";
 import type { Conv } from "../types.ts";
-import { MAX_AWAY, MAX_TOPIC, PLAIN_AWAY, ROOM_MENTIONS } from "../../../lib/limits.ts";
+import { MAX_AWAY, PLAIN_AWAY } from "../../../lib/limits.ts";
 import type { Command, CommandHere, CommandOutcome, CommandPowers, HeldDirectory } from "./types.ts";
+import { ROOM_COMMANDS } from "./room.ts";
+import { addressesEveryone } from "./targets.ts";
 
 /** Say what a directory is advertising, the answer `/list` gives about whichever
  * directory it was asked about. */
@@ -20,22 +22,6 @@ function sayRooms(powers: CommandPowers, whose: string, rooms: ReadonlyMap<strin
 	return { kind: "done" };
 }
 
-/** Why this nick cannot be offered the room, or null when they can.
- *
- * `/invite` names one person. Empty is the caller's, so the command can say
- * `Use /invite` rather than a field's wording. */
-export function inviteWhy(who: string, you: string): string | null {
-	const nick = who.trim().replace(/^@/, "").split(/\s+/)[0] ?? "";
-	if (nick === "") return "Name who to offer this room to.";
-	if (addressesEveryone(nick)) {
-		return `@${nick} is everyone in the room; hand it to one person.`;
-	}
-	if (you !== "" && nick.toLowerCase() === you.toLowerCase()) {
-		return "You already hold this room.";
-	}
-	return null;
-}
-
 /** Whether `who` is this reader, compared the way the directory grants names. */
 function namesYou(who: string, powers: CommandPowers): boolean {
 	const you = powers.you();
@@ -45,10 +31,6 @@ function namesYou(who: string, powers: CommandPowers): boolean {
 /** Whether `who` is a room-wide word rather than a person. Completion already
  * keeps these off a person-target command's list; this is the same answer for
  * a name typed out by hand, so the two paths cannot disagree. */
-function addressesEveryone(who: string): boolean {
-	return ROOM_MENTIONS.includes(who.toLowerCase());
-}
-
 /** The one directory `asked` names, or the sentence saying why it named none.
  *
  * Matched on what a reader can see: the name the rail shows, or the locator they
@@ -68,18 +50,6 @@ function pickDirectory(powers: CommandPowers, asked: string): HeldDirectory | st
 			: `No directory here is called "${asked}". This tab holds ${held.map((dir) => dir.name).join(", ")}.`;
 	}
 	return `"${asked}" names more than one: ${hit.map((dir) => dir.name).join(", ")}.`;
-}
-
-/** A command that needs a reference the room has not handed out yet.
- *
- * It says what it is waiting for rather than failing vaguely or, worse, looking
- * like it worked. Named here so every stub refuses the same way and so there is
- * one place to delete when the room starts granting them. */
-function awaitingGrant(name: string): CommandOutcome {
-	return {
-		kind: "refused",
-		why: `/${name} needs the room to hand you that ability, and this room does not offer it yet.`,
-	};
 }
 
 export const COMMANDS: readonly Command[] = [
@@ -162,28 +132,6 @@ export const COMMANDS: readonly Command[] = [
 		},
 	},
 	{
-		name: "irclogin",
-		kind: "tab",
-		summary: "log into your own IRC account, in a bridged room",
-		usage: "/irclogin account password",
-		needsArgument: true,
-		place: "room",
-		run(rest, powers) {
-			const trimmed = rest.trim();
-			const gap = trimmed.indexOf(" ");
-			if (trimmed === "" || gap === -1) {
-				return { kind: "refused", why: "Use /irclogin followed by the account and its password." };
-			}
-			const account = trimmed.slice(0, gap);
-			const password = trimmed.slice(gap + 1).trim();
-			if (password === "") {
-				return { kind: "refused", why: "Use /irclogin followed by the account and its password." };
-			}
-			powers.ircLogin(account, password);
-			return { kind: "done" };
-		},
-	},
-	{
 		name: "msg",
 		kind: "tab",
 		summary: "open a direct line to someone",
@@ -196,7 +144,7 @@ export const COMMANDS: readonly Command[] = [
 			if (who === "") return { kind: "refused", why: "Use /msg followed by who to message." };
 			const peer = who.replace(/^@/, "");
 			if (addressesEveryone(peer)) {
-				return { kind: "refused", why: `@${peer} is everyone in the room; a direct message needs one person.` };
+				return { kind: "refused", why: `@${peer} is everyone in the room. A direct message needs one person.` };
 			}
 			if (namesYou(peer, powers)) {
 				return { kind: "refused", why: "You can't start a direct message with yourself." };
@@ -385,20 +333,6 @@ export const COMMANDS: readonly Command[] = [
 		},
 	},
 	{
-		name: "nick",
-		kind: "granted",
-		summary: "ask this directory for a different name",
-		usage: "/nick newname",
-		needsArgument: true,
-		grant: "nick",
-		place: "room",
-		run(rest) {
-			return rest.trim() === ""
-				? { kind: "refused", why: "Use /nick followed by the name to ask for." }
-				: awaitingGrant("nick");
-		},
-	},
-	{
 		name: "away",
 		// Yours because you are in the room. A member's own standing is theirs to
 		// state, and the room writes it against the membership that called rather
@@ -474,95 +408,7 @@ export const COMMANDS: readonly Command[] = [
 			};
 		},
 	},
-	{
-		name: "topic",
-		kind: "granted",
-		summary: "set what this room is about",
-		usage: "/topic what we are talking about, /topic to read it, or /topic - to take it down",
-		grant: "topic",
-		place: "room",
-		run(rest, powers, conv) {
-			if (conv?.type !== "room") return { kind: "refused", why: "Only a room has a topic." };
-			const said = rest.trim();
-			// Written bare it reads the topic out, the way every IRC client has for
-			// thirty years. Somebody who wanted to clear it can still say so.
-			if (said === "") {
-				powers.say(conv.topic ? `The topic is: ${conv.topic}` : "This room has no topic.");
-				return { kind: "done" };
-			}
-			const wanted = said === "-" ? "" : said;
-			if (wanted.length > MAX_TOPIC) {
-				return { kind: "refused", why: `A topic may be at most ${MAX_TOPIC} characters.` };
-			}
-			return powers.setTopic(wanted) ? { kind: "done" } : {
-				kind: "refused",
-				why: "This room did not offer a topic to set.",
-			};
-		},
-	},
-	{
-		name: "link",
-		// Yours because you are holding a room: a durable authority is asked
-		// for with the reference, the way a line's `edit` is. What comes back
-		// is data, so it travels over any channel at all — including one this
-		// application knows nothing about. The mint is the price: the server
-		// records the room durably, so the ordinary invitation is /invite,
-		// which hands the room itself and costs nothing.
-		//
-		// Bare is this conversation's room. A name is a listed room on this
-		// directory, completed from the rooms that directory is advertising.
-		kind: "tab",
-		summary: "a link to this room, or to a listed room you name",
-		usage: "/link, or /link lobby for a listed room",
-		place: "room",
-		argument: "room",
-		run(rest, powers, conv) {
-			if (conv?.type !== "room") return { kind: "refused", why: "Only a room has a link." };
-			const name = rest.trim().replace(/^#/, "");
-			return powers.roomLink(name === "" ? undefined : name) ? { kind: "done" } : {
-				kind: "refused",
-				why: name === ""
-					? "There is no room here to link to."
-					: "There is no directory here to link a room on.",
-			};
-		},
-	},
-	{
-		name: "invite",
-		// Yours because you are holding the room. Handing it on asks nobody's
-		// permission, the way handing on a line's `edit` or a room's `setTopic`
-		// does not — so this is not a grant waiting to be answered, it is the
-		// reference this tab already has.
-		kind: "tab",
-		summary: "hand this room to somebody, so they hold it too",
-		usage: "/invite alice",
-		needsArgument: true,
-		place: "room",
-		targets: "reachable",
-		run(rest, powers, conv) {
-			if (conv?.type !== "room") return { kind: "refused", why: "Only a room can be handed over." };
-			const who = rest.trim().replace(/^@/, "").split(/\s+/)[0] ?? "";
-			if (who === "") return { kind: "refused", why: "Use /invite followed by who to hand it to." };
-			const why = inviteWhy(who, powers.you());
-			if (why !== null) return { kind: "refused", why };
-			return powers.invite(who) ? { kind: "done" } : {
-				kind: "refused",
-				why: "There is no room here to hand over.",
-			};
-		},
-	},
-	{
-		name: "kick",
-		kind: "granted",
-		summary: "remove someone from this room",
-		usage: "/kick alice",
-		needsArgument: true,
-		grant: "kick",
-		place: "room",
-		run() {
-			return awaitingGrant("kick");
-		},
-	},
+	...ROOM_COMMANDS,
 ];
 
 /** The place `conv` is, for listing commands. No conversation yet is treated

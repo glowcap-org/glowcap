@@ -7,9 +7,9 @@
 ;;   racket racket_bench.rkt <mode> <host> <port> <n>
 (file-stream-buffer-mode (current-output-port) 'line)
 
-(require (file "/workspaces/pancake/bindings/racket/pancake.rkt")
-         (file "/workspaces/pancake/bindings/racket/pancake-tcp.rkt")
-         (file "/workspaces/pancake/bench/shared/metrics.rkt"))
+(require "../../../bindings/racket/pancake.rkt"
+         "../../../bindings/racket/pancake-tcp.rkt"
+         "../../shared/metrics.rkt")
 
 (define args (current-command-line-arguments))
 (define mode (vector-ref args 0))

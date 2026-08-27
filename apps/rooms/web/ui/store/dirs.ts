@@ -7,14 +7,16 @@
 // what made holding two of them unspellable.
 
 import type { DirId, DirView, SessionPhase } from "../types.ts";
-import type { RoomInfo } from "../../../lib/directory_publications.ts";
-import { set, state } from "./core.ts";
+import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publications.ts";
+import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../../../lib/limits.ts";
+import { get, set } from "./core.ts";
 
 /** Replace one directory's view, leaving every other directory alone. */
 export function patchDir(dir: DirId, fields: Partial<DirView>): void {
-	const held = state.dirs.get(dir);
+	const current = get().dirs;
+	const held = current.get(dir);
 	if (held === undefined) return;
-	const dirs = new Map(state.dirs);
+	const dirs = new Map(current);
 	dirs.set(dir, { ...held, ...fields });
 	set({ dirs });
 }
@@ -24,21 +26,27 @@ export function patchDir(dir: DirId, fields: Partial<DirView>): void {
  * Idempotent because asking for a directory twice must never be a way to lose
  * what is already on it: the rooms are conversations, but the room list and the
  * reachable peers live here. */
-export function openDir(dir: DirId): void {
-	if (state.dirs.has(dir)) return;
+export function openDir(dir: DirId, locator = dir as string): void {
+	const current = get().dirs;
+	if (current.has(dir)) {
+		if (current.get(dir)?.locator !== locator) patchDir(dir, { locator });
+		return;
+	}
 	// The lowest mark nobody is wearing, so two directories can never share one
 	// and one that leaves gives its mark back.
-	const taken = new Set([...state.dirs.values()].map((held) => held.slot));
+	const taken = new Set([...current.values()].map((held) => held.slot));
 	let slot = 1;
 	while (taken.has(slot)) slot += 1;
-	const dirs = new Map(state.dirs);
+	const dirs = new Map(current);
 	dirs.set(dir, {
 		id: dir,
+		locator,
 		slot,
+		requestedNick: "",
 		nick: "",
 		reached: false,
 		liveRooms: new Map(),
-		dmablePeers: new Set(),
+		dmablePeers: new Map(),
 		session: "connecting",
 		// Empty is settled: the foot derives its resting words, and the net
 		// layer writes a sentence here only while an act or failure needs one.
@@ -52,8 +60,9 @@ export function openDir(dir: DirId): void {
 /** Stop holding `dir`. Its conversations are forgotten by their own verb: this
  * is the directory's own state and nothing else. */
 export function forgetDir(dir: DirId): void {
-	if (!state.dirs.has(dir)) return;
-	const dirs = new Map(state.dirs);
+	const current = get().dirs;
+	if (!current.has(dir)) return;
+	const dirs = new Map(current);
 	dirs.delete(dir);
 	set({ dirs });
 }
@@ -69,7 +78,7 @@ export function setDirSession(dir: DirId, session: SessionPhase): void {
  * question the join card resolves as it draws, so this can be learned late
  * without anything reaching into what the reader is looking at. */
 export function setHomeDir(dir: DirId): void {
-	if (state.homeDir === dir) return;
+	if (get().homeDir === dir) return;
 	set({ homeDir: dir });
 }
 
@@ -85,7 +94,7 @@ export function markDirReached(dir: DirId): void {
 /** Whether this directory has ever answered in this tab. An unknown one reads
  * as not reached, which is the safe answer: it is the arm that gives up. */
 export function dirReached(dir: DirId): boolean {
-	return state.dirs.get(dir)?.reached ?? false;
+	return get().dirs.get(dir)?.reached ?? false;
 }
 export function setDirStatus(dir: DirId, statusText: string): void {
 	patchDir(dir, { statusText });
@@ -94,7 +103,7 @@ export function setDirStatus(dir: DirId, statusText: string): void {
 /** Say whether others can reach this tab for direct messages on `dir`: a reason
  * when they cannot, empty when they can. */
 export function setDmUnreachable(dir: DirId, why: string): void {
-	if ((state.dirs.get(dir)?.dmUnreachable ?? "") === why) return;
+	if ((get().dirs.get(dir)?.dmUnreachable ?? "") === why) return;
 	patchDir(dir, { dmUnreachable: why });
 }
 
@@ -105,7 +114,7 @@ export function setDmUnreachable(dir: DirId, why: string): void {
  * mint a conversation with yourself. Empty until a name is granted, because
  * there is then no "you" to compare to. */
 export function isSelf(dir: DirId, name: string): boolean {
-	const nick = state.dirs.get(dir)?.nick ?? "";
+	const nick = get().dirs.get(dir)?.nick ?? "";
 	return nick !== "" && name.toLowerCase() === nick.toLowerCase();
 }
 function liveRoomKey(name: string): string {
@@ -113,7 +122,7 @@ function liveRoomKey(name: string): string {
 }
 
 export function liveRoom(dir: DirId, name: string): RoomInfo | null {
-	return state.dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
+	return get().dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
 }
 
 /** The publication `name` must be entered through, or null to enter by name.
@@ -132,8 +141,8 @@ export function enteredPublication(dir: DirId, name: string): RoomInfo | null {
 }
 
 /** Where a bridged room's channel lives, or null for every other room. Read
- * from the directory view a component already holds, so the rail can say it
- * without reaching past its props; the key fold stays this module's. */
+ * from the directory view a component already holds, so presentation does not
+ * reach past its props; the key fold stays this module's. */
 export function bridgedOrigin(
 	view: { liveRooms: ReadonlyMap<string, RoomInfo> } | undefined,
 	name: string,
@@ -143,14 +152,14 @@ export function bridgedOrigin(
 }
 
 export function setLiveRoom(dir: DirId, room: RoomInfo): void {
-	const held = state.dirs.get(dir);
+	const held = get().dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
 	liveRooms.set(liveRoomKey(room.name), room);
 	patchDir(dir, { liveRooms });
 }
 export function dropLiveRoom(dir: DirId, room: RoomInfo): void {
-	const held = state.dirs.get(dir);
+	const held = get().dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
 	const key = liveRoomKey(room.name);
@@ -161,14 +170,34 @@ export function dropLiveRoom(dir: DirId, room: RoomInfo): void {
 export function resetLiveRooms(dir: DirId, rooms: Iterable<RoomInfo>): void {
 	patchDir(dir, { liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])) });
 }
-export function setDmable(dir: DirId, name: string, reachable: boolean): void {
-	const held = state.dirs.get(dir);
-	if (held === undefined) return;
-	const dmablePeers = new Set(held.dmablePeers);
-	if (reachable) dmablePeers.add(name.toLowerCase());
-	else dmablePeers.delete(name.toLowerCase());
+export function setDmable(dir: DirId, name: string, registrationId: string, reachable: boolean): boolean {
+	const held = get().dirs.get(dir);
+	if (held == null) return true;
+	const key = name.toLowerCase();
+	const current = held.dmablePeers.get(key);
+	if (reachable && current?.name === name && current.registrationId === registrationId) return true;
+	if (!reachable && current?.registrationId !== registrationId) return true;
+	if (reachable && current == null && held.dmablePeers.size >= MAX_DIRECTORY_DISCOVERY_ROWS) return false;
+	const dmablePeers = new Map(held.dmablePeers);
+	if (reachable) dmablePeers.set(key, { name, registrationId });
+	else dmablePeers.delete(key);
 	patchDir(dir, { dmablePeers });
+	return true;
+}
+export function resetDirectoryDiscovery(
+	dir: DirId,
+	rooms: Iterable<RoomInfo>,
+	peers: Iterable<DirectoryMember>,
+): void {
+	patchDir(dir, {
+		liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])),
+		dmablePeers: new Map([...peers].map((peer) => [peer.name.toLowerCase(), peer])),
+	});
 }
 export function clearDmable(dir: DirId): void {
-	patchDir(dir, { dmablePeers: new Set() });
+	patchDir(dir, { dmablePeers: new Map() });
+}
+
+export function peerRegistration(dir: DirId, name: string): DirectoryMember | null {
+	return get().dirs.get(dir)?.dmablePeers.get(name.toLowerCase()) ?? null;
 }

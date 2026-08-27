@@ -4,8 +4,6 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
-const netlayer_test = @import("../../support/netlayer.zig");
-const test_host = @import("../../support/core_host.zig");
 const support_actors = @import("../../support/actors.zig");
 
 const model = pancake.ocapn.model;

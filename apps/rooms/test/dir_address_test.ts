@@ -21,6 +21,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	}),
 });
 
+const { directoryId } = await import("../web/ui/net/bootstrap.ts");
 const { dirAddress, directoryLocators } = await import("../web/ui/net/live.ts");
 const { dirId } = await import("../web/ui/types.ts");
 
@@ -42,4 +43,16 @@ Deno.test("a shared directory address keeps the route's hints", () => {
 Deno.test("a directory with no recorded route shares its bare authority", () => {
 	const id = dirId("ocapn://bareauthority.iroh");
 	assert(dirAddress(id) === "ocapn://bareauthority.iroh", "the fallback changed the authority");
+});
+
+Deno.test("identity-proving room routes file one Host as one directory", () => {
+	const key = "abcdefabcdef";
+	const iroh = directoryId(`ocapn://${key}.iroh`);
+	const noise = directoryId(`ocapn://${key}.noise-tcp`);
+	const identity = directoryId(`ocapn://${key}.id?via=ocapn%3A%2F%2F${key}.iroh`);
+	assert(iroh !== null && iroh === noise && noise === identity, "one Host key split into several directories");
+	assert(
+		directoryId(`${key}:9099`) !== identity,
+		"an unauthenticated TCP address was merged into a Host identity route",
+	);
 });

@@ -32,6 +32,8 @@ const HANDED_OVER = "done";
  * looking at a sheet over a page that is ready. */
 const HANDOVER_FLOOR_MS = 500;
 
+export type RoomsOpeningReadiness = "controller-snapshot" | "directory-attempt";
+
 /** Whether the wait this screen covers is over: the page's first attempt at a
  * room server has come back, connected or not.
  *
@@ -102,17 +104,19 @@ function onceStacked(fn: () => void): void {
 	setTimeout(fn, wait);
 }
 
-/** Hold the screen until the peer has answered and the mark has stacked one
- * full set of pancakes, then hand over.
+/** Hold the screen until the controller has answered and the mark has stacked
+ * one full set of pancakes, then hand over. An attached controller answers with
+ * its complete initial snapshot; unlike local reconstruction, that snapshot
+ * may correctly contain no directory whose attempt could settle the store.
  *
  * Called at the end of the entry module, which is what moves the page out of
  * the opening state page.html stamped, and so out of the reach of its watcher:
  * an error before this point is a page that never started and gets the
  * explanation, and an error after it belongs to the running page. */
-export function handOffWhenReady(): void {
+export function handOffWhenReady(readiness: RoomsOpeningReadiness): void {
 	if (handedOver()) return;
 	document.documentElement.dataset.boot = RUNNING;
-	if (settled()) return onceStacked(handOffNow);
+	if (readiness === "controller-snapshot" || settled()) return onceStacked(handOffNow);
 	const stop = store.subscribe(() => {
 		if (!settled()) return;
 		stop();

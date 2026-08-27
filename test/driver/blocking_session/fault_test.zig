@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
-const support_actors = @import("../../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;

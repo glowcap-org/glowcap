@@ -340,6 +340,32 @@ test "decodeBody exposes borrowed views for start-session and nested handoff" {
     }
 }
 
+test "typed handoff projection ignores an earlier complete envelope inside bytes" {
+    const allocator = std.testing.allocator;
+    const fixture = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;
+    const give = try syrup.decodeSignedHandoffGiveOwned(allocator, fixture.bytes());
+    defer model.freeHandoffGive(allocator, give);
+    var handoff: model.Handoff = .{ .give = give };
+    const args = [_]model.Argument{
+        .{ .bytes = fixture.bytes() },
+        .{ .handoff = &handoff },
+    };
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } });
+    defer frame.deinit();
+
+    const deliver = (try syrup.decodeBody(frame.view())).deliver;
+    const decoy = (try deliver.args.at(0)).bytes;
+    const projected = (try deliver.args.at(1)).handoff.give;
+    const signed = projected.raw_signed orelse return error.MissingSignedGiveSpan;
+
+    try std.testing.expectEqualSlices(u8, fixture.bytes(), decoy);
+    try std.testing.expectEqualSlices(u8, fixture.bytes(), signed);
+    try std.testing.expect(@intFromPtr(signed.ptr) >= @intFromPtr(decoy.ptr) + decoy.len);
+}
+
 test "standalone signed handoff-give decode refuses trailing bytes" {
     const allocator = std.testing.allocator;
     const fixture = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;

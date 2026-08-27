@@ -36,20 +36,13 @@ const dial_opts: driver.SessionOptions = .{
 // ── The theorem: three-party handoff across two connections of one loop ─────
 
 const bridge_shared = @import("bridge_test.zig");
+const support_actors = @import("../support/actors.zig");
 const runLoopCapturing = bridge_shared.runLoopCapturing;
 const runLoopUntilCapturing = bridge_shared.runLoopUntilCapturing;
 const pokeListener = bridge_shared.pokeListener;
 const drainLoopThread = bridge_shared.drainLoopThread;
 
-const Counter = struct {
-    hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
-        self.hits += 1;
-        return .{ .integer = self.hits };
-    }
-};
+const Counter = support_actors.Counter;
 
 const runaway_budget: usize = 4;
 

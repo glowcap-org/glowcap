@@ -146,7 +146,7 @@ capability run end to end between the two peers.
 To reach **another browser**, open a direct
 [WebRTC]($link.page('transports/webrtc')) DataChannel. Once the channel is up, no
 server sits on the byte path. Two browser peers that first met through a relay can also
-cold-dial each other by identity, which `init`'s `rendezvousUrl` enables.
+cold-dial each other by identity, which `init`'s `relayUrl` option enables.
 
 # Next
 

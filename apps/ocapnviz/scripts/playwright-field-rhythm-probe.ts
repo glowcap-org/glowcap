@@ -20,91 +20,89 @@ import { chromium } from "playwright";
 const url = Deno.args[0] ?? "http://127.0.0.1:5173/";
 
 const readGroups = () => {
-  const out: {
-    group: string;
-    rows: number[];
-    pitch: number[];
-    tail: number;
-  }[] = [];
-  const boxes = document.querySelectorAll<HTMLElement>(".ocv-field");
-  const byParent = new Map<HTMLElement, HTMLElement[]>();
-  for (const f of boxes) {
-    const p = f.parentElement;
-    if (!p) continue;
-    byParent.set(p, [...(byParent.get(p) ?? []), f]);
-  }
-  let n = 0;
-  for (const [parent, fields] of byParent) {
-    const rects = fields.map((f) => f.getBoundingClientRect());
-    const pitch: number[] = [];
-    for (let i = 1; i < rects.length; i++) {
-      pitch.push(Math.round((rects[i]!.top - rects[i - 1]!.top) * 10) / 10);
-    }
-    // Space under the LAST row's ink, to the group box's inner edge.
-    const last = rects[rects.length - 1]!;
-    const pr = parent.getBoundingClientRect();
-    const padBottom = parseFloat(getComputedStyle(parent).paddingBottom || "0");
-    const tail = Math.round((pr.bottom - padBottom - last.bottom) * 10) / 10;
-    out.push({
-      group: `group ${++n} (${fields.length} rows)`,
-      rows: rects.map((r) => Math.round(r.height * 10) / 10),
-      pitch,
-      tail,
-    });
-  }
-  return out;
+	const out: {
+		group: string;
+		rows: number[];
+		pitch: number[];
+		tail: number;
+	}[] = [];
+	const boxes = document.querySelectorAll<HTMLElement>(".ocv-field");
+	const byParent = new Map<HTMLElement, HTMLElement[]>();
+	for (const f of boxes) {
+		const p = f.parentElement;
+		if (!p) continue;
+		byParent.set(p, [...(byParent.get(p) ?? []), f]);
+	}
+	let n = 0;
+	for (const [parent, fields] of byParent) {
+		const rects = fields.map((f) => f.getBoundingClientRect());
+		const pitch: number[] = [];
+		for (let i = 1; i < rects.length; i++) {
+			pitch.push(Math.round((rects[i]!.top - rects[i - 1]!.top) * 10) / 10);
+		}
+		// Space under the LAST row's ink, to the group box's inner edge.
+		const last = rects[rects.length - 1]!;
+		const pr = parent.getBoundingClientRect();
+		const padBottom = parseFloat(getComputedStyle(parent).paddingBottom || "0");
+		const tail = Math.round((pr.bottom - padBottom - last.bottom) * 10) / 10;
+		out.push({
+			group: `group ${++n} (${fields.length} rows)`,
+			rows: rects.map((r) => Math.round(r.height * 10) / 10),
+			pitch,
+			tail,
+		});
+	}
+	return out;
 };
 
 const browser = await chromium.launch({
-  headless: true,
-  args: ["--no-sandbox", "--disable-gpu"],
+	headless: true,
+	args: ["--no-sandbox", "--disable-gpu"],
 });
 const ctx = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+	viewport: { width: 1600, height: 1000 },
 });
 const page = await ctx.newPage();
 await page.addInitScript(() => {
-  try {
-    localStorage.removeItem("ocapnviz:app-state");
-  } catch {
-    // first run has nothing to clear
-  }
+	try {
+		localStorage.removeItem("ocapnviz:app-state");
+	} catch {
+		// first run has nothing to clear
+	}
 });
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector("canvas#ocv-pixi");
 await page.waitForTimeout(400);
 
 const point = await page.evaluate(() => {
-  type Peer = { peer: { id: string }; position?: { x: number; y: number } };
-  type VP = { toScreen: (x: number, y: number) => { x: number; y: number } };
-  const g = globalThis as unknown as {
-    __ocv?: { engine?: { queries?: { peers?: Iterable<Peer> } } };
-    __ocvViewport?: VP;
-  };
-  const peers = g.__ocv?.engine?.queries?.peers;
-  const vp = g.__ocvViewport;
-  if (!peers || !vp) return null;
-  for (const p of peers) {
-    if (p.position) return vp.toScreen(p.position.x, p.position.y);
-  }
-  return null;
+	type Peer = { peer: { id: string }; position?: { x: number; y: number } };
+	type VP = { toScreen: (x: number, y: number) => { x: number; y: number } };
+	const g = globalThis as unknown as {
+		__ocv?: { engine?: { queries?: { peers?: Iterable<Peer> } } };
+		__ocvViewport?: VP;
+	};
+	const peers = g.__ocv?.engine?.queries?.peers;
+	const vp = g.__ocvViewport;
+	if (!peers || !vp) return null;
+	for (const p of peers) {
+		if (p.position) return vp.toScreen(p.position.x, p.position.y);
+	}
+	return null;
 });
 
 for (const mode of ["Build", "Play"] as const) {
-  await page.getByRole("radio", { name: mode }).click();
-  await page.waitForTimeout(300);
-  if (point) {
-    await page.mouse.click(point.x, point.y);
-    await page.waitForTimeout(350);
-  }
-  console.log(`\n──────── ${mode} ────────`);
-  for (const g of await page.evaluate(readGroups)) {
-    console.log(
-      `${g.group}\n  heights ${g.rows.join(", ")}\n  pitch   ${
-        g.pitch.join(", ")
-      }\n  tail    ${g.tail}`,
-    );
-  }
+	await page.getByRole("radio", { name: mode }).click();
+	await page.waitForTimeout(300);
+	if (point) {
+		await page.mouse.click(point.x, point.y);
+		await page.waitForTimeout(350);
+	}
+	console.log(`\n──────── ${mode} ────────`);
+	for (const g of await page.evaluate(readGroups)) {
+		console.log(
+			`${g.group}\n  heights ${g.rows.join(", ")}\n  pitch   ${g.pitch.join(", ")}\n  tail    ${g.tail}`,
+		);
+	}
 }
 
 await browser.close();

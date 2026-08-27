@@ -9,14 +9,6 @@ import { z } from "zod";
  * [`topology.ts`](./topology.ts) and [`session-end.ts`](./session-end.ts).
  */
 
-/** IRI prefixes for JSON-LD `@context`. Not used at validation time. */
-export const NAMESPACES = {
-	prov: "http://www.w3.org/ns/prov#",
-	dct: "http://purl.org/dc/terms/",
-	ocapn: "https://pancake.dev/ns/ocapn#",
-	jgf: "https://jsongraphformat.info/v2/",
-} as const;
-
 /** ISO-8601 instant (`prov:generatedAtTime`, `dct:created`, …). */
 export const Iso8601Instant = z.string().regex(
 	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/,

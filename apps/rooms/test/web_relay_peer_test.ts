@@ -24,36 +24,12 @@ import { init } from "@pancake/web";
 // `init` returns, wearing the same pair every other rooms peer wears.
 import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";
 import { reapOwned, spawnOwned } from "./support/children.ts";
+import { freePort, waitForHttp } from "./support/rooms_server.ts";
+import { fail } from "./support/page.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const WASM = new URL("../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
-
-async function waitForHttp(port: number): Promise<void> {
-	for (let i = 0; i < 200; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200 || res.status === 503) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer on its HTTP port");
-}
 
 const deadline = setTimeout(() => fail("relay-peer scenario timed out after 30s"), 30_000);
 

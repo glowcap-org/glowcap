@@ -16,7 +16,7 @@ import { dmRow, type RailRow } from "./filter.ts";
 import { Empty, heldBack, nothingMatches, RowClose } from "./rows.tsx";
 
 function DmRow(
-	{ conv, online, away, where, home, phase, here, onOpen, onClose, onAbout }: {
+	{ conv, online, away, where, home, phase, here, canInteract, onOpen, onClose, onAbout }: {
 		conv: DmConv;
 		online: boolean;
 		/** Why the peer has stepped away, by the shared rooms' word, or null
@@ -39,6 +39,7 @@ function DmRow(
 		 * reader cannot use, and the row says so rather than looking ordinary. */
 		phase: SessionPhase;
 		here: boolean;
+		canInteract: boolean;
 		onOpen: (key: string) => void;
 		onClose: (conv: DmConv) => void;
 		onAbout: (dir: DirId) => void;
@@ -132,11 +133,13 @@ function DmRow(
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
-			<RowClose
-				title="Close this direct message"
-				said={"Close the direct message with " + conv.id}
-				onClose={() => onClose(conv)}
-			/>
+			{canInteract && (
+				<RowClose
+					title="Remove this direct message"
+					said={"Remove the direct message with " + conv.id}
+					onClose={() => onClose(conv)}
+				/>
+			)}
 		</li>
 	);
 }
@@ -155,7 +158,7 @@ function DmRow(
  * else to it: what is left is still by name, in the order it has always been
  * in. */
 export function DmRows(
-	{ convs, activeKey, inARoom, dirs, home, shows, onOpen, onClose, onAbout }: {
+	{ convs, activeKey, inARoom, dirs, home, canInteract, shows, onOpen, onClose, onAbout }: {
 		convs: ReadonlyMap<string, Conv>;
 		activeKey: string | null;
 		/** Whether this tab is in any room at all. A direct line starts from a
@@ -167,6 +170,7 @@ export function DmRows(
 		 * merged set of reachable names would say the wrong one is online. */
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
+		canInteract: boolean;
 		/** Whether the reader is looking at this row. The same question the
 		 * rooms list is asked, so one answer covers the whole rail. */
 		shows: (row: RailRow) => boolean;
@@ -200,12 +204,14 @@ export function DmRows(
 				<DmRow
 					key={conv.key}
 					conv={conv}
-					online={dirs.get(conv.dir)?.dmablePeers.has(conv.id.toLowerCase()) ?? false}
+					online={dirs.get(conv.dir)?.dmablePeers.get(conv.id.toLowerCase())?.registrationId ===
+						conv.peerRegistrationId}
 					away={awayOf(away, conv.dir, conv.id)}
 					where={dirWhere(conv.dir, home, dirs)}
 					home={home}
 					phase={dirs.get(conv.dir)?.session ?? "disconnected"}
 					here={conv.key === activeKey}
+					canInteract={canInteract}
 					onOpen={onOpen}
 					onClose={onClose}
 					onAbout={onAbout}

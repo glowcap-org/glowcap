@@ -16,16 +16,7 @@ pub const Projection = struct {
 
 pub fn encode(phase: ?net.carrier_failure.Phase) u32 {
     const value = phase orelse return abi.PANCAKE_CARRIER_PHASE_NONE;
-    return switch (value) {
-        .resolve => abi.PANCAKE_CARRIER_PHASE_RESOLVE,
-        .connect => abi.PANCAKE_CARRIER_PHASE_CONNECT,
-        .secure_handshake => abi.PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE,
-        .websocket_upgrade => abi.PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE,
-        .registration => abi.PANCAKE_CARRIER_PHASE_REGISTRATION,
-        .receive => abi.PANCAKE_CARRIER_PHASE_RECEIVE,
-        .transmit => abi.PANCAKE_CARRIER_PHASE_TRANSMIT,
-        .shutdown => abi.PANCAKE_CARRIER_PHASE_SHUTDOWN,
-    };
+    return abi.carrierPhaseCode(value);
 }
 
 pub fn decode(value: u32) DecodeError!?net.carrier_failure.Phase {

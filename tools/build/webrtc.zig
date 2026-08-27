@@ -68,7 +68,7 @@ fn linkSidecar(
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
 ) void {
-    common.linkRustSidecar(b, mod, target, "transports/webrtc/target/release/libpancake_webrtc_sidecar.a");
+    common.linkRustSidecar(b, mod, target, b.path("transports/webrtc/target/release/libpancake_webrtc_sidecar.a"));
 }
 
 const DriverImports = struct {

@@ -37,11 +37,6 @@ pancake_devcontainer_client_is_iterm2() {
     [[ "${TERM_PROGRAM:-}" == iTerm.app || "${LC_TERMINAL:-}" == iTerm2 ]]
 }
 
-# --- Host tmux launchers ----------------------------------------------------
-# enter.sh and enter-grid.sh compose the helpers below; each launcher fact
-# has this one home so the two cannot drift apart. These run on the host and
-# assume the caller passed pancake_require_host.
-
 # A launcher's header comment is its usage text: print from the line after
 # the shebang to the first non-comment line, so editing the header cannot
 # strand a line-number range. Shellcheck directive lines are tooling, not

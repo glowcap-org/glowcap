@@ -13,7 +13,13 @@
 // without importing a single view.
 
 import type { Act, Edits, Remembered } from "../intent.ts";
-import { LS } from "../storage.ts";
+import { createStore } from "zustand/vanilla";
+import type { ArchiveShareView, ArchiveTargetView } from "../archive_model.ts";
+import type {
+	RoomsSessionFacet,
+	RoomsSessionGrantView,
+	RoomsSessionPendingEffect,
+} from "../../../lib/rooms_session.ts";
 import {
 	type AttachmentView,
 	type Conv,
@@ -24,51 +30,14 @@ import {
 	type IrcGatewayState,
 	type Item,
 	type ListenerRow,
-	OPS_CAPS,
 	type OpsCap,
 	type PeeringState,
+	type RoomsOperatorState,
 	type SettingsTab,
 	type ToastNotice,
 	type TroubleRow,
 	type VizPublishState,
 } from "../types.ts";
-// What this page remembers between visits, and under what names. One table
-// because a get and a set that disagree by a character fail silently and look
-// like a preference that will not stick. `rooms.theme` is read a second time by
-// the small script in page.html, which stamps the palette before the first paint
-// and so cannot wait for this module; renaming it here means renaming it there.
-// Direct-message transport and the ocapnviz WebSocket live in prefs.ts
-// (`rooms.dm`, `rooms.viz`): they reload the peer, so they are not store fields.
-export const KEY = {
-	nick: "rooms.nick",
-	room: "rooms.room",
-	locator: "rooms.locator",
-	theme: "rooms.theme",
-	notify: "rooms.notify",
-	ignored: "rooms.ignored",
-	settingsTab: "rooms.settings-tab",
-	opsTab: "rooms.ops-tab",
-	keepHistory: "rooms.keep-history",
-} as const;
-
-/** The persisted ignore list. JSON preserves every character a directory may
- * grant in a name; malformed or unrelated storage carries no authority. */
-export function readPersistedIgnored(): Set<string> {
-	return readIgnored(LS.get(KEY.ignored));
-}
-
-export function readIgnored(raw: string | null): Set<string> {
-	if (raw === null || raw === "") return new Set();
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (Array.isArray(parsed)) {
-			return new Set(parsed.filter((name): name is string => typeof name === "string"));
-		}
-	} catch {
-		return new Set();
-	}
-	return new Set();
-}
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
 // the grid into the list/conversation stack, and this decides which layout's
@@ -213,23 +182,28 @@ export interface State {
 	 * tab holds no gateway capability. Same split as its siblings: net.ts
 	 * holds the reference, this is only what to draw. */
 	irc: IrcGatewayState | null;
-	/** Whether this device keeps direct-message history; `ui/history.ts` owns
+	/** Room stewardships reported by the held Rooms operator capability. */
+	operator: RoomsOperatorState | null;
+	/** Durable session operations awaiting explicit recovery. Bearer results stay in the session owner. */
+	sessionEffects: readonly RoomsSessionPendingEffect[];
+	/** Restart-stable attenuated grants visible only through session administration. */
+	sessionGrants: readonly RoomsSessionGrantView[];
+	/** Authority carried by the attached session facet; null for a local controller. */
+	sessionAccess: RoomsSessionFacet | null;
+	/** Whether the selected archive keeps room and direct-message history; `ui/history.ts` owns
 	 * the bytes and the same key. */
 	keepHistory: boolean;
+	/** Where new member-owned history is written. Live archive authority stays
+	 * below the store; this is only the connection state Settings draws. */
+	archiveTarget: ArchiveTargetView;
+	/** Read-only history facets another member handed this tab. Capability
+	 * occurrences stay below the store; these rows only draw read/drop choices. */
+	archiveShares: readonly ArchiveShareView[];
 	/** The page's bounded trouble journal, newest first; `store/trouble.ts`
 	 * owns the ring. */
 	trouble: readonly TroubleRow[];
 	/** Which operations pane is selected while more than one is held. */
-	opsTab: OpsCap;
-	/** Which capability's take modal is up, opened by flipping its Advanced
-	 * toggle on. The toggle itself lands on only when the take succeeds:
-	 * possession is derived from the row fields below, never stored beside
-	 * them. */
-	opsTake: OpsCap | null;
-	/** Where `opsTake` was opened from, which is where its close returns:
-	 * the Settings toggle reopens Settings, an Operations-page gate stays on
-	 * the page. */
-	opsTakeFrom: "settings" | "ops";
+	opsPane: OpsCap;
 	/** What the inspect capability last said, or null while this tab holds none.
 	 * Holding the live reference is net.ts's job; this is only what to draw. */
 	diagnostics: readonly DiagnosticRow[] | null;
@@ -251,6 +225,12 @@ export interface State {
 	errorDetail: { title: string; text: string } | null;
 	/** Whether the card about the conversation on screen is up. */
 	aboutConv: boolean;
+	/** Which room-specific surface asked to open that card. Ordinary title and
+	 * /details routes use About; the reader's roster row opens IRC directly. */
+	aboutConvPane: "about" | "irc";
+	/** Changes for every request to open the conversation card, including a
+	 * repeated request for the same pane while its retained dialog still exists. */
+	aboutConvRequest: number;
 	/** The posted file being viewed full-screen, named by the line that carries
 	 * it rather than copied out of it. The viewer draws from the line, so
 	 * bytes that arrive while it is open reach it without a second copy of the
@@ -271,23 +251,16 @@ export const initial: State = {
 	mobile: mobileQuery.matches,
 	drafts: new Map(),
 	lastSent: new Map(),
-	ignored: readIgnored(LS.get(KEY.ignored)),
+	ignored: new Set(),
 	// The page opening is this browser reopening what it had, and it names
 	// nothing: every field falls through to what was remembered, which is the
 	// cold open a returning reader expects. The first act a reader files
 	// supersedes it.
 	reaching: { source: "restore", seq: 0 },
 	edits: { seq: 0 },
-	remembered: {
-		room: LS.get(KEY.room) ?? "",
-		locator: LS.get(KEY.locator) ?? "",
-		nick: LS.get(KEY.nick) ?? "",
-	},
-	theme: (LS.get(KEY.theme) ??
-		(matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) as
-			| "light"
-			| "dark",
-	notifyOn: LS.get(KEY.notify) === "1",
+	remembered: { room: "", locator: "", nick: "" },
+	theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+	notifyOn: false,
 	railOpen: true,
 	listScreen: false,
 	rosterOpen: true,
@@ -295,20 +268,18 @@ export const initial: State = {
 	settingsOpen: false,
 	// The panel selections survive a reload: a reader working the
 	// Capabilities toggles or one operations pane lands back where they were.
-	settingsTab:
-		(["capabilities", "settings"].includes(LS.get(KEY.settingsTab) ?? "")
-			? LS.get(KEY.settingsTab)
-			: "overview") as State["settingsTab"],
+	settingsTab: "overview",
 	helpOpen: false,
-	opsTab:
-		((OPS_CAPS as readonly string[]).includes(LS.get(KEY.opsTab) ?? "")
-			? LS.get(KEY.opsTab)
-			: "listeners") as State["opsTab"],
-	keepHistory: (LS.get(KEY.keepHistory) ?? "on") !== "off",
+	opsPane: "listeners",
+	keepHistory: true,
+	archiveTarget: { kind: "device" },
+	archiveShares: [],
 	irc: null,
+	operator: null,
+	sessionEffects: [],
+	sessionGrants: [],
+	sessionAccess: null,
 	trouble: [],
-	opsTake: null,
-	opsTakeFrom: "settings",
 	diagnostics: null,
 	listeners: null,
 	peering: null,
@@ -316,13 +287,21 @@ export const initial: State = {
 	aboutDir: null,
 	errorDetail: null,
 	aboutConv: false,
+	aboutConvPane: "about",
+	aboutConvRequest: 0,
 	viewing: null,
 };
 
 /** The live state. Read it; only `set` writes it, which is what keeps the one
  * authority claim above true across the modules that share this. */
-export let state: State = initial;
-const listeners = new Set<() => void>();
+const store = createStore<State>()(() => initial);
+
+/** React may observe the projection, but only the domain modules may write it. */
+export const roomsProjection = {
+	getState: store.getState,
+	getInitialState: store.getInitialState,
+	subscribe: store.subscribe,
+};
 
 // The layout is a query, not a document, and the store's own verbs depend on it:
 // which field "show the rooms list" writes is decided here, so a control can ask
@@ -338,19 +317,17 @@ mobileQuery.addEventListener("change", (e) => set({ mobile: e.matches }));
  * file already copies before it mutates; this is what stops the next one from
  * forgetting, and it is the whole of the one-authority claim above. */
 export function get(): Readonly<State> {
-	return state;
+	return store.getState();
 }
 
 export function subscribe(listener: () => void): () => void {
-	listeners.add(listener);
-	return () => listeners.delete(listener);
+	return store.subscribe(listener);
 }
 
 /** Replace the named fields and tell every reader. The object identity changes
  * on every write, which is how React knows to look again. */
 export function set(patch: Partial<State>): void {
-	state = { ...state, ...patch };
-	for (const listener of listeners) listener();
+	store.setState(patch);
 }
 
 let lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
@@ -367,8 +344,11 @@ let lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
  * leave three ways and only two of them are the log's doing: the scrollback
  * passing its far end, a reader emptying a conversation, and a conversation
  * being forgotten outright. */
-export function onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): void {
+export function onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): () => void {
 	lettingGo = hook;
+	return () => {
+		if (lettingGo === hook) lettingGo = null;
+	};
 }
 
 /** Give `gone` up, from whichever of those three ways it was. */

@@ -6,16 +6,29 @@
 // it answers — the `snapshot` rows below — is what this module owns.
 
 import type { Ref, Session } from "@pancake/runtime";
+import * as z from "zod/mini";
 import { SNAPSHOT } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import { takeOperationsCap } from "./operations.ts";
+import { MAX_OPERATIONS_ROWS } from "./limits.ts";
+import { boundedText, nonemptyText } from "./schema.ts";
 
 /** One named object the inspect capability can currently see. */
-export interface DiagnosticRow {
-	kind: string;
-	name: string;
-	note: string;
-}
+const diagnosticKind = nonemptyText(64 * 1024);
+const diagnosticName = nonemptyText(64 * 1024);
+const diagnosticNote = boundedText(64 * 1024);
+
+export const DiagnosticRowSchema = z.strictObject({
+	kind: diagnosticKind,
+	name: diagnosticName,
+	note: diagnosticNote,
+});
+
+export type DiagnosticRow = z.infer<typeof DiagnosticRowSchema>;
+
+const DiagnosticWireRowsSchema = z.array(
+	z.tuple([diagnosticKind, diagnosticName, diagnosticNote]),
+).check(z.maxLength(MAX_OPERATIONS_ROWS));
 
 /** Fetch the inspect object and ask it what this directory currently holds. */
 export async function takeDiagnostics(session: Session, pasted: string): Promise<{
@@ -35,14 +48,11 @@ export async function snapshotDiagnostics(session: Session, cap: Ref): Promise<D
 		[],
 		"the diagnostic capability did not answer",
 	);
-	if (!Array.isArray(raw)) throw new Error("diagnostics snapshot was not a list");
-	const rows: DiagnosticRow[] = [];
-	for (const row of raw) {
-		if (!Array.isArray(row) || row.length < 2) continue;
-		const kind = typeof row[0] === "string" ? row[0] : "";
-		const name = typeof row[1] === "string" ? row[1] : "";
-		const note = typeof row[2] === "string" ? row[2] : "";
-		if (kind !== "" && name !== "") rows.push({ kind, name, note });
-	}
-	return rows;
+	return parseDiagnosticRows(raw);
+}
+
+export function parseDiagnosticRows(raw: unknown): DiagnosticRow[] {
+	const parsed = z.safeParse(DiagnosticWireRowsSchema, raw);
+	if (!parsed.success) throw new Error("the diagnostics capability answered a snapshot with an invalid row");
+	return parsed.data.map(([kind, name, note]) => ({ kind, name, note }));
 }

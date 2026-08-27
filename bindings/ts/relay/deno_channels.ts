@@ -11,6 +11,15 @@ import { BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@pancake/abi";
 
 const defaultTcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
 
+function closeTcp(tcp: Deno.TcpConn): void {
+	try {
+		tcp.close();
+	} catch (error) {
+		if (error instanceof Deno.errors.BadResource) return;
+		throw error;
+	}
+}
+
 /** Open a raw TCP byte channel to `host:port`. A dial timeout bounds the connect
  * so a black-holed target cannot park the relay, and every partial resource is
  * released on failure — a late-winning connect is closed when it lands, and a
@@ -46,7 +55,7 @@ export async function denoTcpChannel(
 			void connecting.then(
 				(late) => {
 					try {
-						late.close();
+						closeTcp(late);
 					} catch (error) {
 						recordProcessBindingFailure("relay.tcp.dial.late-close", error);
 					}
@@ -83,7 +92,7 @@ export async function denoTcpChannel(
 				let primary: { readonly error: unknown } | null = null;
 				for (
 					const release of [
-						() => tcp.close(),
+						() => closeTcp(tcp),
 						() => reader.releaseLock(),
 						() => writer.releaseLock(),
 					]

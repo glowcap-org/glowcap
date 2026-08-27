@@ -27,6 +27,9 @@ export type IconButtonProps =
 		shape?: IconButtonShape;
 		/** A short count attached to the icon, never arbitrary button content. */
 		badge?: string | number;
+		/** The action is in flight. The glyph gives way to the shared progress
+		 * ring and the control cannot be pressed a second time. */
+		busy?: boolean;
 	};
 
 const iconSizes: Record<IconButtonSize, number> = {
@@ -43,9 +46,11 @@ export function IconButton({
 	tone = "neutral",
 	shape = "rounded",
 	badge,
+	busy = false,
 	className,
 	title,
 	type = "button",
+	disabled,
 	...button
 }: IconButtonProps) {
 	const classes = ["icon-button", className].filter(Boolean).join(" ");
@@ -58,6 +63,8 @@ export function IconButton({
 			data-variant={variant}
 			data-tone={tone}
 			data-shape={shape}
+			data-busy={busy || undefined}
+			disabled={disabled || busy}
 			aria-label={label}
 			title={title ?? label}
 		>

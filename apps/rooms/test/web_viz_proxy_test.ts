@@ -5,7 +5,7 @@
 // judges every socket: its admission mark and its typed refusal must both
 // arrive through the carried leg unchanged.
 
-import { VIZ_REFUSED_CLOSE_CODE, vizCapUrl } from "../lib/viz_publish.ts";
+import { publishViz, VIZ_REFUSED_CLOSE_CODE, vizCapUrl } from "../lib/viz_publish.ts";
 import { assert, freePort, roomsTest, ROOT, waitForHttp, within } from "./support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "./support/children.ts";
 
@@ -94,6 +94,21 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 			admitted.kind === "message" && admitted.text.includes("trace.publish-ready"),
 			`expected the admission mark through the origin: ${JSON.stringify(admitted)}`,
 		);
+		const held: { publisher?: ReturnType<typeof publishViz> } = {};
+		await within(
+			new Promise<void>((resolve, reject) => {
+				held.publisher = publishViz(`ws://127.0.0.1:${httpPort}/viz`, {
+					cap: swiss,
+					onStatus: (connected) => {
+						if (connected) resolve();
+					},
+					onRefused: reject,
+				});
+			}),
+			"the publisher admission through the origin",
+			15_000,
+		);
+		held.publisher?.stop();
 
 		// The viewer path is the same door at `/viz`.
 		const viewer = await within(

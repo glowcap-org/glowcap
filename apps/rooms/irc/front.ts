@@ -296,18 +296,19 @@ class FrontClient {
 						`You may hold at most ${IRC_FRONT_DIRECT_LIMIT} direct lines`,
 					]);
 				}
-				line = await DirectMessage.open(this.#directory!, peer, (reply, attachments, session) => {
-					for (const attachment of attachments) {
-						releaseIrcRef(session, attachment.blob, "unsupported DM file");
-					}
-					void this.#sendChat(peer, this.#projectNick(peer), reply).catch(() => {});
-					if (attachments.length > 0) {
-						void this.#notice(
-							`${peer} sent ${attachments.length} file(s); IRC cannot carry their capabilities`,
-						)
-							.catch(() => {});
-					}
-					return null;
+				line = await DirectMessage.open(this.#directory!, peer, {
+					message: async (reply, attachments, session) => {
+						for (const attachment of attachments) {
+							releaseIrcRef(session, attachment.blob, "unsupported DM file");
+						}
+						await this.#sendChat(peer, this.#projectNick(peer), reply);
+						if (attachments.length > 0) {
+							await this.#notice(
+								`${peer} sent ${attachments.length} file(s); IRC cannot carry their capabilities`,
+							);
+						}
+						return null;
+					},
 				});
 				this.#direct.set(key, line);
 			}
@@ -486,12 +487,10 @@ class FrontClient {
 		}
 	}
 
-	#receiveDirect(peer: string, text: string, attachmentCount: number): void {
-		void this.#sendChat(peer, this.#projectNick(peer), text).catch(() => {});
+	async #receiveDirect(peer: string, text: string, attachmentCount: number): Promise<void> {
+		await this.#sendChat(peer, this.#projectNick(peer), text);
 		if (attachmentCount > 0) {
-			void this.#notice(`${peer} sent ${attachmentCount} file(s); IRC cannot carry their capabilities`).catch(
-				() => {},
-			);
+			await this.#notice(`${peer} sent ${attachmentCount} file(s); IRC cannot carry their capabilities`);
 		}
 	}
 

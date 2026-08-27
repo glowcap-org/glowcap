@@ -1,12 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-	allEntityKeys,
-	documentHolds,
-	hasAnySelection,
-	selectionActionFor,
-	selectionReducer,
-	selectionRefs,
-} from "./selection-store.ts";
+import { allEntityKeys, documentHolds, selectionActionFor, selectionReducer } from "./selection-store.ts";
 import { EMPTY_SELECTION, entityKey, type EntityRef, type EntityRefKey, type SelectionState } from "./types.ts";
 
 const peerA: EntityRef = { kind: "peer", id: "a" };
@@ -148,11 +141,4 @@ Deno.test("Select All names each declared top-level identity once", () => {
 		})],
 		["peer:a", "peer:b", "session:wire", "message:call"],
 	);
-});
-
-Deno.test("selectors decode members and report only real selection", () => {
-	const selected = state([peerA, peerB]);
-	assertEquals(selectionRefs(selected), [peerA, peerB]);
-	assert(hasAnySelection(selected));
-	assert(!hasAnySelection(EMPTY_SELECTION));
 });

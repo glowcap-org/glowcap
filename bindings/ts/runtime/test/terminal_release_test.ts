@@ -2,10 +2,7 @@ import { INTERNAL, INVALID_ARGUMENT, IO, OK } from "@pancake/abi";
 import { PancakeError, secondaryFailures } from "../errors.ts";
 import type { DriverCallOutcome } from "../internal/driver_failure.ts";
 import { TerminalDriverRelease } from "../driver_loop/terminal_release.ts";
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) throw new Error(message);
-}
+import { assert } from "../../dogfood/assert.ts";
 
 function outcome(code: number, error: PancakeError | null): DriverCallOutcome {
 	return { code, failure: null, error };

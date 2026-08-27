@@ -5,24 +5,24 @@
 // a change to a button, a tone, or a notice can be seen next to its siblings
 // without hunting through Settings, the rail, and the log.
 
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Avatar, PresenceAvatar } from "./Avatar.tsx";
 import { JOIN_DEFAULT_NICK, JOIN_DEFAULT_ROOM, JOIN_LOCATOR_SHAPE } from "./joining.ts";
 import { Button } from "./Button.tsx";
+import { Confirm } from "./Confirm.tsx";
+import { Field } from "./Field.tsx";
 import { WorkingAction } from "./WorkingAction.tsx";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { CopyButton, CopyField } from "./Copy.tsx";
-import { PHASE_SAID } from "./text.ts";
-import { CrashCard } from "./ErrorBoundary.tsx";
 import { Icon, iconNames } from "./icons.tsx";
 import { IconButton, type IconButtonTone } from "./IconButton.tsx";
-import { usePeer } from "./peer.ts";
 import { Said } from "./Said.tsx";
 import { Switch } from "./Switch.tsx";
+import { PHASE_SAID } from "./text.ts";
+import { KitchenAnswers } from "./KitchenAnswers.tsx";
+import { Row, Sample } from "./KitchenSample.tsx";
 import { Checkbox } from "./Checkbox.tsx";
 import { Segmented } from "./Segmented.tsx";
-import { ToastCard } from "./Toast.tsx";
-import type { SessionPhase } from "./types.ts";
 
 const swatches = [
 	["ink", "--ink"],
@@ -55,29 +55,7 @@ const iconTones: readonly IconButtonTone[] = [
 	"on-accent",
 ];
 
-const phases: readonly SessionPhase[] = [
-	"connected",
-	"connecting",
-	"reconnecting",
-	"disconnected",
-];
-
-function Sample({ label, note, children }: { label: string; note?: string; children: ReactNode }) {
-	return (
-		<section className="kitchen-sample">
-			<h3>{label}</h3>
-			{note !== undefined ? <p className="kitchen-note">{note}</p> : null}
-			{children}
-		</section>
-	);
-}
-
-function Row({ plate, children }: { plate?: "accent" | "dark"; children: ReactNode }) {
-	return <div className={plate === undefined ? "kitchen-row" : "kitchen-row kitchen-plate-" + plate}>{children}</div>;
-}
-
 export function KitchenSink() {
-	const peer = usePeer();
 	const [on, setOn] = useState(true);
 	const [kept, setKept] = useState(true);
 	// The answers in force, which is the caller's job wherever a set of them is
@@ -132,6 +110,7 @@ export function KitchenSink() {
 					<IconButton icon="bell" label="With a count" badge={3} />
 					<IconButton icon="gear" label="Disabled" disabled />
 					<IconButton icon="gear" label="Pressed" aria-pressed="true" />
+					<IconButton id="kitchenBusyIcon" icon="gear" label="Working" busy />
 				</Row>
 				<Row plate="dark">
 					<IconButton icon="close" label="inverse ghost" variant="ghost" tone="inverse" />
@@ -149,16 +128,22 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="Buttons"
-				note="A wait keeps saying what it is doing and is not a second press. The × beside it stops that wait, the same mark that stops a file send."
+				note="Three boxed variants at two sizes. The commitment is amber, the commitment that takes something away is red, and the quiet way out is teal; normal is the in-row height, large the field height. A wait keeps saying what it is doing and is not a second press. The × beside it stops that wait, the same mark that stops a file send."
 			>
 				<Row>
-					<Button>Join</Button>
+					<Button>Save</Button>
+					<Button variant="danger">Delete</Button>
 					<Button variant="quiet">Close</Button>
-					<Button busy>Saving</Button>
+					<Button id="kitchenBusyButton" busy>Saving</Button>
 					<Button disabled>Disabled</Button>
 				</Row>
+				<Row>
+					<Button size="large">Join room</Button>
+					<Button size="large" variant="danger">Leave</Button>
+					<Button size="large" variant="quiet">Stay</Button>
+				</Row>
 				<div className="kitchen-stack">
-					<WorkingAction busy stopLabel="Stop joining" onStop={() => undefined}>
+					<WorkingAction size="large" block busy stopLabel="Stop joining" onStop={() => undefined}>
 						Joining…
 					</WorkingAction>
 				</div>
@@ -172,6 +157,149 @@ export function KitchenSink() {
 						<span className="rwhere-said">in example</span>
 					</Button>
 				</Row>
+			</Sample>
+			<Sample
+				label="A question"
+				note="Label, control, sentence, refusal, on one rhythm. Beside a field, the act stands level with the control at the field height; on a phone it drops under it. Inline lays a short list of knobs on one name column."
+			>
+				<div className="kitchen-stack">
+					<Field id="kitchenFieldPlain" label="Display name" hint="Shown beside what you say.">
+						{(wiring) => (
+							<input
+								id={wiring.id}
+								className="field"
+								readOnly
+								value="alice"
+								aria-describedby={wiring.describedBy}
+							/>
+						)}
+					</Field>
+					<div className="field-row">
+						<Field
+							id="kitchenFieldRow"
+							label="Session capability"
+							said="Paste the session's ocapn:// capability link."
+						>
+							{(wiring) => (
+								<input
+									id={wiring.id}
+									className="field"
+									readOnly
+									value="not a link"
+									aria-describedby={wiring.describedBy}
+									aria-invalid={wiring.invalid}
+								/>
+							)}
+						</Field>
+						<Button size="large">Attach</Button>
+					</div>
+					<Field id="kitchenFieldSelect" label="Access">
+						{(wiring) => (
+							<span className="select-wrap">
+								<select id={wiring.id} className="field" defaultValue="interact">
+									<option value="observe">Read only</option>
+									<option value="interact">Can interact</option>
+								</select>
+							</span>
+						)}
+					</Field>
+					<Field id="kitchenFieldInline" label="port" layout="inline">
+						{(wiring) => (
+							<input
+								id={wiring.id}
+								className="field"
+								readOnly
+								placeholder="an ephemeral port"
+							/>
+						)}
+					</Field>
+				</div>
+			</Sample>
+			<Sample
+				label="Acts"
+				note="At the end of the line they belong to, the commitment last. A card's own foot fills the width instead."
+			>
+				<div className="kitchen-stack">
+					<div className="actions">
+						<Button variant="quiet">Discard</Button>
+						<Button>Save changes</Button>
+					</div>
+					<Said kind="success">Capability set saved.</Said>
+					<div className="actions" data-fill>
+						<Button size="large" variant="quiet">Stay</Button>
+						<Button size="large">Join room</Button>
+					</div>
+				</div>
+			</Sample>
+			<Sample
+				label="A second step"
+				note="What will be lost, in the reader's words, then the way out and the commitment. The rule at the left is the commitment's tone."
+			>
+				<div className="kitchen-stack">
+					<Confirm
+						label="Leave the room"
+						say="Leave #design? You can come back by its name."
+						keep="Stay"
+						commit="Leave"
+						onKeep={() => undefined}
+						onCommit={() => undefined}
+					/>
+					<Confirm
+						label="Continue locally"
+						tone="primary"
+						say="This browser detaches and keeps working from a local copy. Later changes will not sync."
+						keep="Stay attached"
+						commit="Continue locally"
+						onKeep={() => undefined}
+						onCommit={() => undefined}
+					/>
+				</div>
+			</Sample>
+			<Sample
+				label="Entries"
+				note="One thing the surface knows about per row: the name, a short fact, the acts at the line's end, and the longer facts under it."
+			>
+				<div className="kitchen-stack">
+					<ul className="entries">
+						<li className="entry">
+							<div className="entry-head">
+								<span className="entry-name">keyed-relay</span>
+								<span className="tag">this page</span>
+								<div className="actions">
+									<Button variant="quiet">Revoke…</Button>
+								</div>
+							</div>
+							<p className="entry-meta">
+								from <code>ocapn://example</code>
+							</p>
+						</li>
+						<li className="entry" data-idle="true">
+							<div className="entry-head">
+								<span className="entry-name">onion</span>
+								<span className="entry-meta">unavailable</span>
+							</div>
+							<p className="hint">This server was started without a running Tor.</p>
+						</li>
+					</ul>
+					<p className="empty">Nothing here yet.</p>
+				</div>
+			</Sample>
+			<Sample label="A door" note="A mark, a name and one sentence, and the act that goes through it.">
+				<div className="kitchen-stack">
+					<div className="launch">
+						<span className="launch-mark" aria-hidden="true">
+							<Icon name="session" size={18} />
+						</span>
+						<div className="launch-copy">
+							<p className="launch-title">
+								<span>Local session</span>
+								<span className="tag">This browser</span>
+							</p>
+							<p className="hint">This browser owns this session.</p>
+						</div>
+						<Button variant="quiet">Manage local data…</Button>
+					</div>
+				</div>
 			</Sample>
 			<Sample label="Switch">
 				<Row>
@@ -273,6 +401,11 @@ export function KitchenSink() {
 					<CopyButton text="ocapn://example" label="Copy the sample locator" />
 				</Row>
 				<CopyField id="kitchenLocator" text="ocapn://example" label="Copy the sample locator" />
+				<CopyField
+					compact
+					text="ocapn://127.0.0.1%3A9765.tcp/s/cGFuY2FrZS1kZXNpZ24tc3lzdGVtLWNvbXBhY3QtY29weQ"
+					label="Copy the sample locator, compactly"
+				/>
 			</Sample>
 			<Sample label="Person">
 				<Row>
@@ -339,157 +472,7 @@ export function KitchenSink() {
 					</Button>
 				</div>
 			</Sample>
-			<Sample
-				label="Page notice"
-				note="A refusal with nowhere on the control to live. It leaves on its own. Press to see one live, above this card."
-			>
-				<div className="kitchen-toasts">
-					<ToastCard kind="success" text="A success notice" onDismiss={() => undefined} />
-					<ToastCard kind="failure" text="A failure notice" onDismiss={() => undefined} />
-					<ToastCard
-						kind="failure"
-						text={"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
-							"unreachableswissnum: the peer closed the session before the handshake finished."}
-						onDismiss={() => undefined}
-					/>
-					<ToastCard kind="warning" text="A warning notice" onDismiss={() => undefined} />
-				</div>
-				<Row>
-					<Button variant="quiet" onClick={() => peer.toast("success", "A success notice")}>
-						Success
-					</Button>
-					<Button variant="quiet" onClick={() => peer.toast("failure", "A failure notice")}>
-						Failure
-					</Button>
-					<Button variant="quiet" onClick={() => peer.toast("warning", "A warning notice")}>
-						Warning
-					</Button>
-				</Row>
-			</Sample>
-			<Sample
-				label="Beside the control"
-				note="The field, the bell, or the meter still owns the answer. Danger when it refused; warning when the standing condition is the reader's to fix. A long reason stays two lines here; Show opens the rest."
-			>
-				<div className="kitchen-stack">
-					<p className="kitchen-note">A field that would not take the value</p>
-					<label className="group-label" htmlFor="kitchenInvalid">Display name</label>
-					<input
-						id="kitchenInvalid"
-						className="field"
-						readOnly
-						value="a name that will not fit"
-						aria-invalid="true"
-						aria-describedby="kitchenInvalidWhy"
-					/>
-					<Said id="kitchenInvalidWhy" kind="failure">
-						That name is too long for this room (32 characters).
-					</Said>
-				</div>
-				<div className="kitchen-stack">
-					<p className="kitchen-note">A reason too long to keep beside the field</p>
-					<label className="group-label" htmlFor="kitchenLong">Locator</label>
-					<input
-						id="kitchenLong"
-						className="field"
-						readOnly
-						value="ocapn://…"
-						aria-invalid="true"
-						aria-describedby="kitchenLongWhy"
-					/>
-					<Said id="kitchenLongWhy" kind="failure">
-						{"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
-							"unreachableswissnum: the peer closed the session before the handshake finished."}
-					</Said>
-				</div>
-				<div className="kitchen-stack">
-					<p className="kitchen-note">A standing condition on a control that stays</p>
-					<Row>
-						<IconButton icon="bell" label="Notify me when I'm mentioned" aria-pressed="true" />
-					</Row>
-					<Said kind="warning">
-						Notifications are on here, but this browser is blocking them.
-					</Said>
-				</div>
-				<div className="kitchen-stack">
-					<p className="kitchen-note">The draft is past what this room will carry</p>
-					<div className="hint room-cap over">12 bytes too long for this room</div>
-				</div>
-			</Sample>
-			<Sample
-				label="On the thing"
-				note="The message, the file, or the pane that failed. Retry sits on it. A render that threw replaces only that pane."
-			>
-				<div className="kitchen-log">
-					<div className="row mine">
-						<div className="stack">
-							<div className="bubble failed">
-								hello
-								<div className="delivery-failure" role="status">
-									<span>Not sent</span>
-									<IconButton
-										icon="retry"
-										label="Retry failed message"
-										size="small"
-										variant="ghost"
-										tone="on-accent"
-									/>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-				<div className="attach attach-media pending kitchen-tile" style={{ aspectRatio: "4 / 3" }}>
-					<button type="button" className="act" aria-label="Retry the sample picture">
-						<Icon name="retry" />
-						<span>Retry</span>
-					</button>
-					<span className="why" role="alert">The peer closed before those bytes arrived.</span>
-				</div>
-				<div className="kitchen-viewer">
-					<span className="viewer-failure" role="alert">
-						The peer closed before those bytes arrived.
-						<IconButton
-							icon="retry"
-							label="Try the sample picture again"
-							variant="ghost"
-							tone="inverse"
-						/>
-					</span>
-				</div>
-				<CrashCard
-					part="message log"
-					message="Something in this part of the page went wrong."
-					onRetry={() => undefined}
-				/>
-			</Sample>
-			<Sample
-				label="In the log"
-				note="A conversation-local answer: a send that never left, a command this tab ran. Shared joins stay a centred pill; this tab's own answers sit in the dashed well."
-			>
-				<div className="kitchen-log">
-					<div className="sys here">
-						<div className="sys-aside">
-							<span className="aside-mark" aria-hidden="true">Only you</span>
-							<div className="sys-run">
-								<span className="sys-line">Not connected, your message was not sent</span>
-							</div>
-						</div>
-					</div>
-				</div>
-			</Sample>
-			<Sample
-				label="Connection"
-				note="The rail's dot and the directory card share these four. Colour and shape carry the phase; the words are for a reader who has neither."
-			>
-				<Row>
-					{phases.map((phase) => (
-						<span key={phase} className="kitchen-person">
-							<span className={"dot " + phase} aria-hidden="true" />
-							{PHASE_SAID[phase]}
-						</span>
-					))}
-				</Row>
-			</Sample>
+			<KitchenAnswers />
 		</div>
 	);
 }

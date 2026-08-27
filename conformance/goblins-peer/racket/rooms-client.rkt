@@ -1,13 +1,12 @@
 #lang racket/base
 ;; rooms-client.rkt — the rooms chat, spoken by a real Spritely Goblins vat.
 ;;
-;; The rooms fleet is written in pancake and prefers pancake's own CapTP
+;; The rooms fleet is written in pancake and advertises its private CapTP
 ;; profile, `pancake-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
-;; baseline over Syrup and nothing else. Both ends state a preference in the
-;; locator hints their `op:start-session` carries, and the pair settles on the
-;; baseline because that is all the two have in common (ADR-0103). So a vat joins
-;; a room as an ordinary member, and the pancake members on the same server keep
-;; the native profile among themselves.
+;; baseline over Syrup and sends no pancake-private preference. Under ADR-0103,
+;; an absent preference means baseline-only, so the pair settles on the baseline
+;; while pancake members on the same server keep the native profile among
+;; themselves. The vat still joins the room as an ordinary member.
 ;;
 ;; This module is the wire protocol of `apps/rooms/lib/protocol.ts` in Goblins
 ;; terms, and nothing else: dial the server, reach the directory, enter or open a

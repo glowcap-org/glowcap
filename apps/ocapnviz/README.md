@@ -19,14 +19,15 @@ pancake host. It runs on its own Deno toolchain under `apps/ocapnviz/`.
 cd apps/ocapnviz
 bash dev.sh          # vite dev server (Ctrl-C-friendly)
 deno task test       # unit tests
-deno task typecheck  # deno check src/main.tsx
+deno task typecheck  # app and maintenance scripts
 ```
 
 From the repository root, `zig build ocapnviz-test` runs the suite and is part
 of `zig build check`, skipping itself on a machine without deno. The step
 `zig build ocapnviz-check` adds the type-check, the formatter, and the linter,
-and needs deno outright. None of them reach `scripts/`, so the Playwright probes
-there are proved only by being run.
+including the tools under `scripts/`, and needs deno outright. Static checks
+prove that each Playwright probe remains runnable; its browser claim is proved
+only when that probe runs against the app.
 
 The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
 Host headers, so a laptop run is not a LAN service. The devcontainer binds
@@ -107,7 +108,12 @@ The shared UI idioms, and the one authority for each, live in
 [`docs/design-principles.md`](docs/design-principles.md). The gesture pipeline
 has its own specification in
 [`docs/interaction-model.md`](docs/interaction-model.md); the cursor rule is
-[`docs/cursor.md`](docs/cursor.md).
+[`docs/cursor.md`](docs/cursor.md). The document itself is described in
+[`docs/data-model.md`](docs/data-model.md) and
+[`docs/temporal-model.md`](docs/temporal-model.md), the reasoning behind the
+three top-level modes in [`docs/three-mode-design.md`](docs/three-mode-design.md),
+and the timeline authoring verbs in
+[`docs/timeline-flash-design.md`](docs/timeline-flash-design.md).
 
 ## Troubleshooting
 

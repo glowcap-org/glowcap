@@ -6,10 +6,11 @@
 // room repaints the newest row and leaves the rest of the log alone.
 
 import { memo, useState } from "react";
-import { canRetry, type ChatItem, isUnsent } from "./types.ts";
+import { canRetry, type ChatItem, isUnsent, type SendControlPolicy } from "./types.ts";
 import { type Group } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
-import { fmtTime, ircName, mentionsYou } from "./text.ts";
+import { ircName } from "./member_identity.ts";
+import { fmtTime, mentionsYou } from "./text.ts";
 
 import { RichText } from "./RichText.tsx";
 
@@ -154,7 +155,7 @@ function placeLineMenu(at: DOMRect, mine: boolean): { above: boolean; inward: bo
 }
 
 function Bubble(
-	{ item, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, changing }: {
+	{ item, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, sendControls, changing }: {
 		item: ChatItem;
 		nick: string;
 		convKey: string;
@@ -163,6 +164,7 @@ function Bubble(
 		onEdit: (item: ChatItem) => void;
 		onWithdraw: (id: number) => void;
 		onMention: (who: string) => void;
+		sendControls: SendControlPolicy;
 		/** Whether this is the line the composer is part way through rewriting. */
 		changing: boolean;
 	},
@@ -233,15 +235,16 @@ function Bubble(
 			{item.state === "sending" && item.attachments !== undefined && (
 				<div className="delivery-failure" role="status">
 					<span>Sending</span>
-					<IconButton
-						icon="close"
-						label="Stop sending these files"
-						size="small"
-						variant="ghost"
-						tone="on-accent"
-						onClick={() =>
-							onStop(item.id)}
-					/>
+					{sendControls.stop && (
+						<IconButton
+							icon="close"
+							label="Stop sending these files"
+							size="small"
+							variant="ghost"
+							tone="on-accent"
+							onClick={() => onStop(item.id)}
+						/>
+					)}
 				</div>
 			)}
 			{
@@ -255,7 +258,7 @@ function Bubble(
 			{isUnsent(item.state) && (
 				<div className="delivery-failure" role="status">
 					<span>Not sent</span>
-					{canRetry(item.state) && (
+					{sendControls.retry && canRetry(item.state) && (
 						<IconButton
 							icon="retry"
 							label="Retry failed message"
@@ -284,7 +287,7 @@ function sameGroup(a: Group, b: Group): boolean {
 }
 
 export const MessageGroup = memo(function MessageGroup(
-	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, changing }: {
+	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, sendControls, changing }: {
 		group: Group;
 		nick: string;
 		/** Which conversation these lines are in, so a file's fetch names the
@@ -295,6 +298,7 @@ export const MessageGroup = memo(function MessageGroup(
 		onEdit: (item: ChatItem) => void;
 		onWithdraw: (id: number) => void;
 		onMention: (who: string) => void;
+		sendControls: SendControlPolicy;
 		/** The line being rewritten, so the one on screen can say it is the one. */
 		changing: number | undefined;
 	},
@@ -323,6 +327,7 @@ export const MessageGroup = memo(function MessageGroup(
 					onEdit={onEdit}
 					onWithdraw={onWithdraw}
 					onMention={onMention}
+					sendControls={sendControls}
 					changing={item.id === changing}
 				/>
 			))}
@@ -347,4 +352,6 @@ export const MessageGroup = memo(function MessageGroup(
 	prev.onEdit === next.onEdit &&
 	prev.onWithdraw === next.onWithdraw &&
 	prev.onMention === next.onMention &&
+	prev.sendControls.retry === next.sendControls.retry &&
+	prev.sendControls.stop === next.sendControls.stop &&
 	sameGroup(prev.group, next.group));

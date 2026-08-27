@@ -11,6 +11,7 @@
 //! `finish_listen` consume their input attempt on every return; cancel is only
 //! for an attempt that was never passed to finish.
 
+const std = @import("std");
 const model = @import("model");
 const foundation = @import("foundation");
 const locator = @import("locator.zig");
@@ -44,6 +45,25 @@ pub const PANCAKE_CARRIER_PHASE_REGISTRATION: u32 = 5;
 pub const PANCAKE_CARRIER_PHASE_RECEIVE: u32 = 6;
 pub const PANCAKE_CARRIER_PHASE_TRANSMIT: u32 = 7;
 pub const PANCAKE_CARRIER_PHASE_SHUTDOWN: u32 = 8;
+
+/// The C code for a carrier-failure phase, derived from the enum tag name so
+/// the driver archive and every provider archive encode from this one table
+/// rather than each keeping a hand-written switch. A phase with no constant
+/// here fails to compile at the caller instead of shipping an unknown code.
+pub fn carrierPhaseCode(phase: anytype) u32 {
+    return switch (phase) {
+        inline else => |tag| @field(@This(), "PANCAKE_CARRIER_PHASE_" ++ upperTag(@tagName(tag))),
+    };
+}
+
+fn upperTag(comptime name: []const u8) *const [name.len]u8 {
+    comptime {
+        var buf: [name.len]u8 = undefined;
+        _ = std.ascii.upperString(&buf, name);
+        const frozen = buf;
+        return &frozen;
+    }
+}
 pub const PANCAKE_CARRIER_DETAIL_PEER_ALERT: u32 = 1 << 0;
 pub const PANCAKE_CARRIER_DETAIL_ENGINE_CODE: u32 = 1 << 1;
 
@@ -109,6 +129,15 @@ pub fn emptyProviderFailure() PancakeProviderFailure {
         .secondary_name_len = 0,
         .secondary_count = 0,
     };
+}
+
+/// Move a connection's retained provider failure into the caller's slot and
+/// clear it, so one take reports each failure exactly once. Every provider
+/// archive's `take_failure` callback is this over its own connection type.
+pub fn takeProviderFailure(failure: *PancakeProviderFailure, out_failure: ?*PancakeProviderFailure) void {
+    const slot = out_failure orelse return;
+    slot.* = failure.*;
+    failure.* = std.mem.zeroes(PancakeProviderFailure);
 }
 
 pub fn setProviderFailure(out: ?*PancakeProviderFailure, result: i32, cause: anyerror) void {

@@ -45,7 +45,6 @@ const bounds = @import("../support/session_bounds.zig");
 const Budget = @import("../support/fuzz_budget.zig").Budget;
 const session_span: u16 = 4096;
 
-const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const driver = pancake.driver;
 
@@ -55,6 +54,7 @@ const HostSession = driver.core.HostSession;
 /// Every shape in the checked-in corpus, so the search starts from bytes that
 /// decode instead of rediscovering what a frame looks like.
 const seeds = @import("../support/corpus_seeds.zig");
+const support_actors = @import("../support/actors.zig");
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
@@ -64,17 +64,7 @@ const regression_seeds = [_][]const u8{};
 /// Upper bound on one fuzz input, matching the sibling targets.
 const max_input = 4096;
 
-/// Something for the far side to call, so the session carries real work rather
-/// than an empty handshake.
-const Counter = struct {
-    hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
-        self.hits += 1;
-        return .{ .integer = self.hits };
-    }
-};
+const Counter = support_actors.Counter;
 
 /// Collect everything the embedder owes a release on. A host that is never
 /// drained reports as a leak, which would be this harness's bug and not the

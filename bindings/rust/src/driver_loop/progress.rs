@@ -39,6 +39,7 @@ impl LoopShared {
 					if !events.is_empty() {
 						self.dispatch(events);
 					}
+					self.advance_closing_listeners();
 				}
 				Ok(None) => break,
 				Err(error) => return Err(error),
@@ -82,7 +83,8 @@ impl LoopShared {
 				}
 				LoopEvent::ListenerReady { listener } => {
 					let Some(waiter) = self.pending_listeners.borrow_mut().remove(&listener) else {
-						if let Err(error) = self.driver.close_listener(listener) {
+						self.listeners.borrow_mut().insert(listener);
+						if let Err(error) = self.begin_listener_close(listener) {
 							self.fail_background(error);
 							return;
 						}
@@ -90,8 +92,7 @@ impl LoopShared {
 					};
 					self.listeners.borrow_mut().insert(listener);
 					if waiter.send(Ok(())).is_err() {
-						self.listeners.borrow_mut().remove(&listener);
-						if let Err(error) = self.driver.close_listener(listener) {
+						if let Err(error) = self.begin_listener_close(listener) {
 							self.fail_background(error);
 							return;
 						}
@@ -104,6 +105,7 @@ impl LoopShared {
 						// therefore caller cancellation, with no cleanup left to lose.
 						drop(waiter.send(Err(error)));
 					} else if self.listeners.borrow_mut().remove(&listener) {
+						self.closing_listeners.borrow_mut().remove(&listener);
 						self.listener_failures.borrow_mut().insert(listener, error);
 						self.accept_wake.notify_waiters();
 					}

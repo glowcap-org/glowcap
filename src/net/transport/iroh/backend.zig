@@ -1,3 +1,8 @@
+//! The iroh completion backend: adapts the sidecar's endpoint and connection
+//! verbs to `net.completion`'s backend contract, so the loop drives QUIC
+//! streams the way it drives sockets and reads the authenticated node id as
+//! the realizer proof.
+
 const std = @import("std");
 
 const foundation = @import("foundation");

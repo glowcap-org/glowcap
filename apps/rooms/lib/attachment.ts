@@ -52,6 +52,12 @@ export interface AttachmentSource {
 	height?: number;
 }
 
+export function attachmentCapabilities(attachments: readonly Attachment[]): Set<Ref> {
+	const capabilities = new Set<Ref>();
+	for (const attachment of attachments) capabilities.add(attachment.blob);
+	return capabilities;
+}
+
 function sourceSize(source: AttachmentSource): number {
 	return source.bytes?.length ?? source.size ?? 0;
 }
@@ -61,7 +67,7 @@ function sourceSize(source: AttachmentSource): number {
 const ROOM_RECORD_AT = 2;
 
 /** How many arguments one file record spans. */
-const RECORD_SPAN = 7;
+export const ATTACHMENT_RECORD_SPAN = 7;
 
 /** Read the file records a message carries, one after another from `recordAt`,
  * each `"file", name, mime, size, blob, width, height`. Empty for an ordinary
@@ -69,7 +75,7 @@ const RECORD_SPAN = 7;
  * of the line can no longer be trusted to be what it claims. */
 export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const out: Attachment[] = [];
-	for (let at = recordAt; args[at] === "file"; at += RECORD_SPAN) {
+	for (let at = recordAt; args[at] === "file"; at += ATTACHMENT_RECORD_SPAN) {
 		// Stop at the cap rather than throw: this walks a message a peer or room
 		// controls, and a throw here escapes the receive turn and erases the
 		// whole message — worse than showing the first files, which is exactly
@@ -77,6 +83,29 @@ export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): At
 		if (out.length === MAX_MESSAGE_FILES) break;
 		const record = readAttachmentRecord(args, at);
 		if (record === null) break;
+		out.push(record);
+	}
+	return out;
+}
+
+/** Parse an attachment suffix as one complete, bounded record sequence. This
+ * is for mutation verbs that must not accept a valid prefix while ignoring a
+ * trailing capability or malformed record. Ordinary message display keeps the
+ * tolerant reader above because its input is remote content rather than an
+ * admitted state transition. */
+export function readAttachmentsExact(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
+	const remaining = args.length - recordAt;
+	if (remaining < 0 || remaining % ATTACHMENT_RECORD_SPAN !== 0) {
+		throw new Error("attachment arguments do not form complete file records");
+	}
+	const count = remaining / ATTACHMENT_RECORD_SPAN;
+	if (count > MAX_MESSAGE_FILES) {
+		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
+	}
+	const out: Attachment[] = [];
+	for (let at = recordAt; at < args.length; at += ATTACHMENT_RECORD_SPAN) {
+		const record = readAttachmentRecord(args, at);
+		if (record === null) throw new Error("attachment arguments contain a malformed file record");
 		out.push(record);
 	}
 	return out;
@@ -141,7 +170,7 @@ export function readRefileChange(
 		const record = readAttachmentRecord(args, recordAt);
 		if (record === null) throw new Error("refile has a malformed file record");
 		records.push(record);
-		recordAt += RECORD_SPAN;
+		recordAt += ATTACHMENT_RECORD_SPAN;
 	}
 	if (keep.length + records.length > MAX_MESSAGE_FILES) {
 		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
@@ -479,4 +508,31 @@ export async function fetchBlob(
 		onProgress?.(got);
 	}
 	return out;
+}
+
+/** Read one validated bounded slice without allocating the complete blob. A
+ * durable session uses this to proxy a live attachment capability to each
+ * attached view. */
+export async function fetchBlobChunk(
+	session: Session,
+	attachment: Attachment,
+	offset: number,
+	maxLen: number,
+	stallMs: number = TRANSFER_STALL_MS,
+): Promise<Uint8Array> {
+	if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("blob offset must be a non-negative integer");
+	if (!Number.isSafeInteger(maxLen) || maxLen <= 0) throw new Error("blob length must be a positive integer");
+	if (offset >= attachment.size) return new Uint8Array();
+	const expected = Math.min(maxLen, BLOB_CHUNK, attachment.size - offset);
+	const chunk = await chunkWithin(
+		session.send(attachment.blob, READ, [BigInt(offset), BigInt(expected)]),
+		`"${attachment.name}" stopped arriving at ${offset} of ${attachment.size} bytes`,
+		stallMs,
+	);
+	if (!(chunk instanceof Uint8Array) || chunk.length === 0 || chunk.length > expected) {
+		throw new Error(
+			`blob answered ${chunk instanceof Uint8Array ? chunk.length : 0} bytes for a ${expected}-byte read`,
+		);
+	}
+	return chunk;
 }

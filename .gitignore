@@ -1,9 +1,9 @@
 .zig-cache/
 zig-out/
 .DS_Store
-# Zig extracts fetched packages into a `zig-pkg/` dir under the build root that
-# declares them; the site sub-build (site/build.zig) is the only build here with
-# dependencies, so this materializes at site/zig-pkg/. Generated, never committed.
+# Zig extracts fetched packages into a `zig-pkg/` dir under the build that
+# declares them (`site/zig-pkg/`, `tools/consumer/zig-pkg/`) unless
+# ZIG_LOCAL_PKG_DIR redirects it. Generated, never committed.
 zig-pkg/
 # Zine's default output directory: `zig build site` renders into the install
 # prefix (zig-out/site), but a direct `zine`/`docs-serve` run writes the same
@@ -32,7 +32,6 @@ transports/webrtc/target/
 # The Python binding lock is committed: relay and rendezvous proofs run its
 # optional WebSocket dependency with `uv --locked`.
 bindings/python/pancake_python.egg-info/
-bindings/ts/node_modules/
 # Deno resolves npm/jsr specifiers (e.g. the rooms app's zod) into a deno.lock. The
 # specifiers are version-pinned, so the lock is generated, never committed.
 deno.lock
@@ -47,9 +46,8 @@ deno.lock
 # here at run time; generated state, never committed.
 apps/accountability-on-pancake/.data/
 # The Goblins-side kernel and three-vat demos write the same shape, including
-# per-AID KERI key files. Twenty of those were committed in the initial commit
-# before this rule existed; they are named in that app's README and hold
-# authority over nothing outside the demo.
+# per-AID KERI key files; one early round of them survives only in history,
+# named in that app's README.
 conformance/accountability-on-goblins/.data/
 conformance/accountability-on-goblins/racket/tests/.data/
 

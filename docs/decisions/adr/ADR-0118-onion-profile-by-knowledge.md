@@ -105,7 +105,7 @@ act.
   for Goblins receivers.
 - **Give locations.** A give embeds the exporter's hello location in the
   form its recipient can use (the Node's gifter recipe over
-  `handoff_gifter.dialableExporterLocation`), and the rewrite is
+  `handoff_gifter.exporterLocationForRecipient`), and the rewrite is
   onion-only: on every other transport the exporter's hello is hinted
   toward everyone alike, so the verbatim bytes already match the receiver's
   hints-and-all withdrawal keying (`goblins-gift-hints` observes this

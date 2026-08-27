@@ -22,7 +22,6 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const Row = promise_row.Row;
 
-pub const PreparedProjection = promise_projection.Prepared;
 pub const prepareProjection = promise_projection.prepare;
 pub const rollbackProjection = promise_projection.rollback;
 

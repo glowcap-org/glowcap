@@ -30,6 +30,15 @@
 // with backoff.
 
 import type { TraceEvent } from "@pancake/runtime";
+import * as z from "zod/mini";
+import { nonnegativeSafeInteger } from "./schema.ts";
+
+const PublishReadySchema = z.strictObject({
+	v: z.literal(1),
+	sim_t_ns: nonnegativeSafeInteger,
+	kind: z.literal("trace.publish-ready"),
+	epoch: nonnegativeSafeInteger,
+});
 
 /** The endpoint path a producer connects to. Viewers use `/`; this is the
  * other half of that split, named once so the endpoint and its producers
@@ -48,6 +57,31 @@ export const VIZ_CAP_PARAM = "cap";
  * frame, so a WebSocket client can read why it was turned away. In the
  * application range because the WebSocket protocol reserves the low codes. */
 export const VIZ_REFUSED_CLOSE_CODE = 4403;
+
+/** The page-origin timeline socket. Browser pages reach the supervised
+ * endpoint through their own origin, so HTTPS selects WSS and no internal
+ * endpoint port enters browser state. */
+export function originVizUrl(location: { protocol: string; host: string }): string {
+	return `${location.protocol === "https:" ? "wss://" : "ws://"}${location.host}/viz`;
+}
+
+/** Why a durable visualizer override cannot be used, or null for blank and a
+ * complete WebSocket URL. Validation never rewrites the operator's value. */
+export function vizOverrideRefusal(value: string): string | null {
+	if (value === "") return null;
+	if (value !== value.trim()) return "The visualizer endpoint cannot begin or end with whitespace.";
+	let parsed: URL;
+	try {
+		parsed = new URL(value);
+	} catch {
+		return "The visualizer endpoint must be a complete WebSocket URL.";
+	}
+	if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+		return "The visualizer endpoint must use ws:// or wss://.";
+	}
+	if (parsed.hash !== "") return "The visualizer endpoint cannot include a fragment.";
+	return null;
+}
 
 /** Put the capability on an endpoint URL, viewer or producer alike. */
 export function vizCapUrl(url: string, swiss: string): string {
@@ -184,10 +218,10 @@ export function publishViz(
 		// The endpoint's admission mark is the only thing a producer ever
 		// hears; nothing forwarded reaches this socket.
 		ws.onmessage = (msg) => {
-			if (typeof msg.data !== "string") return;
+			if (typeof msg.data !== "string" || msg.data.length > 1024) return;
 			try {
-				const mark = JSON.parse(msg.data) as { kind?: unknown };
-				if (mark.kind === "trace.publish-ready") opts.onStatus?.(true);
+				const mark = z.safeParse(PublishReadySchema, JSON.parse(msg.data));
+				if (mark.success) opts.onStatus?.(true);
 			} catch {
 				// Not a mark; a producer ignores what it cannot read.
 			}

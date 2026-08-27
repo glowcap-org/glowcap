@@ -20,7 +20,6 @@ import {
 	type FsmForeground,
 	type PointerEvent_,
 	type PointerMachineState,
-	type PointerSnapshot,
 	type ResolvedGesture,
 } from "./types.ts";
 
@@ -419,21 +418,7 @@ export function hasSomethingToCommit(state: PointerMachineState): boolean {
 	return state.fsm.kind === "dragging";
 }
 
-/** Whether `gesture` pans the surface it is running on. */
-export function isPanGesture(gesture: ResolvedGesture | null): boolean {
-	return gesture !== null &&
-		(gesture.tier === "space-pan" || gesture.tier === "hand-tool");
-}
-
 // ─────────────────────── helpers ─────────────────────────────────────
-
-/** Helper for unit tests: bump the snapshot timestamp by `dt`. */
-export function withTime(
-	snap: PointerSnapshot,
-	dt: number,
-): PointerSnapshot {
-	return { ...snap, timestampMs: snap.timestampMs + dt };
-}
 
 function assertNever(x: never): never {
 	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);

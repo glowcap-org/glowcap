@@ -28,7 +28,6 @@
 //! error naming the member rather than a silent fallback.
 
 const std = @import("std");
-const builtin_zig = @import("builtin");
 
 const foundation = @import("foundation");
 const model = @import("model");

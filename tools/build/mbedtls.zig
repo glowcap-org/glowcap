@@ -427,18 +427,10 @@ pub fn addSiteRelayExamples(
         .{ .name = "site-example-listen-noise-relay", .path = "site/examples/listen/noise-relay.zig" },
     };
     for (examples) |example| {
-        const example_mod = b.createModule(.{
-            .root_source_file = b.path(example.path),
-            .target = target,
-            .optimize = optimize,
-        });
-        example_mod.addImport("pancake", lib_mod);
-        example_mod.addImport("native_relay", native_relay);
-        const example_test = b.addTest(.{
-            .name = b.fmt("{s}-compile", .{example.name}),
-            .root_module = example_mod,
-        });
-        site_zig_examples_check.dependOn(&example_test.step);
+        common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
+            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "native_relay", .module = native_relay },
+        }, site_zig_examples_check);
     }
 }
 

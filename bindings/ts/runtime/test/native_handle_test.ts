@@ -5,12 +5,7 @@ import {
 	type NativeRetirement,
 	SingleFlight,
 } from "../transport/native_handle.ts";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-		throw new Error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-	}
-}
+import { assertDeepEquals } from "../../dogfood/assert.ts";
 
 async function assertRejects(promise: Promise<unknown>, expected: unknown): Promise<void> {
 	let rejected = false;
@@ -18,7 +13,7 @@ async function assertRejects(promise: Promise<unknown>, expected: unknown): Prom
 		await promise;
 	} catch (error) {
 		rejected = true;
-		assertEquals(error, expected);
+		assertDeepEquals(error, expected);
 	}
 	if (!rejected) throw new Error("expected promise to reject");
 }
@@ -79,11 +74,11 @@ Deno.test("NativeHandle waits for leases before releasing", async () => {
 
 	const using = handle.use(async () => await useFinished);
 	handle.close();
-	assertEquals(events, ["shutdown"]);
+	assertDeepEquals(events, ["shutdown"]);
 	finishUse();
 	await using;
 	await handle.waitClosed();
-	assertEquals(events, ["shutdown", "release", "released"]);
+	assertDeepEquals(events, ["shutdown", "release", "released"]);
 });
 
 Deno.test("NativeHandle exposes asynchronous release completion", async () => {
@@ -104,10 +99,10 @@ Deno.test("NativeHandle exposes asynchronous release completion", async () => {
 	);
 
 	handle.close();
-	assertEquals(events, ["shutdown", "release"]);
+	assertDeepEquals(events, ["shutdown", "release"]);
 	finishRelease();
 	await handle.waitClosed();
-	assertEquals(events, ["shutdown", "release", "released"]);
+	assertDeepEquals(events, ["shutdown", "release", "released"]);
 });
 
 Deno.test("NativeHandle continues release after shutdown throws", async () => {
@@ -128,8 +123,8 @@ Deno.test("NativeHandle continues release after shutdown throws", async () => {
 	);
 
 	await assertRejects(handle.waitClosed(), failure);
-	assertEquals(events, ["shutdown", "release"]);
-	assertEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
+	assertDeepEquals(events, ["shutdown", "release"]);
+	assertDeepEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
 });
 
 Deno.test("NativeHandle reports failed release to its owner", async () => {
@@ -144,7 +139,7 @@ Deno.test("NativeHandle reports failed release to its owner", async () => {
 	);
 
 	await assertRejects(handle.waitClosed(), failure);
-	assertEquals(retirements, [{ released: false, outcome: { ok: false, error: failure } }]);
+	assertDeepEquals(retirements, [{ released: false, outcome: { ok: false, error: failure } }]);
 });
 
 Deno.test("NativeHandle distinguishes consumed release failures", async () => {
@@ -159,7 +154,7 @@ Deno.test("NativeHandle distinguishes consumed release failures", async () => {
 	);
 
 	await assertRejects(handle.waitClosed(), failure);
-	assertEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
+	assertDeepEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
 });
 
 Deno.test("NativeParent retains a rejected late child through release", async () => {
@@ -196,12 +191,12 @@ Deno.test("NativeParent retains a rejected late child through release", async ()
 	parent.close();
 	constructChild();
 	await operation;
-	assertEquals(child.admitted, false);
-	assertEquals(events, ["parent shutdown", "child shutdown", "child release"]);
+	assertDeepEquals(child.admitted, false);
+	assertDeepEquals(events, ["parent shutdown", "child shutdown", "child release"]);
 
 	finishChildRelease();
 	await parent.waitClosed();
-	assertEquals(events, [
+	assertDeepEquals(events, [
 		"parent shutdown",
 		"child shutdown",
 		"child release",
@@ -225,10 +220,10 @@ Deno.test("NativeParent pins its backend when child release fails", async () => 
 		() => events.push("child shutdown"),
 		() => Promise.reject(failure),
 	);
-	assertEquals(child.admitted, true);
+	assertDeepEquals(child.admitted, true);
 
 	await assertRejects(parent.waitClosed(), failure);
-	assertEquals(events, ["child shutdown", "parent shutdown"]);
+	assertDeepEquals(events, ["child shutdown", "parent shutdown"]);
 });
 
 Deno.test("NativeParent retires a child whose failed release consumed it", async () => {
@@ -247,8 +242,8 @@ Deno.test("NativeParent retires a child whose failed release consumed it", async
 		() => events.push("child shutdown"),
 		() => Promise.resolve().then(() => consumedReleaseFailure(failure)),
 	);
-	assertEquals(child.admitted, true);
+	assertDeepEquals(child.admitted, true);
 
 	await assertRejects(parent.waitClosed(), failure);
-	assertEquals(events, ["child shutdown", "parent shutdown", "parent release"]);
+	assertDeepEquals(events, ["child shutdown", "parent shutdown", "parent release"]);
 });

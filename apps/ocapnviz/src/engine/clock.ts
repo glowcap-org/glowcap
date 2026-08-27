@@ -17,9 +17,6 @@ export type ClockSnapshot = {
 	duration: number;
 };
 
-/** UI-exposed speeds. `setSpeed` accepts any positive number. */
-export const SPEED_PRESETS = [0.25, 0.5, 1, 2, 4] as const;
-
 export class Clock {
 	#t = 0;
 	#state: PlaybackState = "paused";

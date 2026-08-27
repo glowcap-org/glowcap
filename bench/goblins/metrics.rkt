@@ -4,5 +4,5 @@
 ;; with the identical instrument. This module re-exports them so the suite's
 ;; existing requires and tests keep resolving here.
 
-(require (file "/workspaces/pancake/bench/shared/metrics.rkt"))
+(require "../shared/metrics.rkt")
 (provide percentile throughput-rps rss-kb-of-status rss-kb-of-pid mean)

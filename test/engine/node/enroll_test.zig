@@ -267,6 +267,54 @@ test "setExporterLocation records, replaces, and clears the give-location overri
     node.removePeer(conn);
 }
 
+test "verified enliven route replaces stale discovered give advice exactly" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x43)));
+    defer node.deinit();
+
+    const exporter = try node.registerPeer(.{});
+    const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7101.tcp");
+    defer model.freePeerLocator(allocator, first);
+    try node.replaceDiscoveredExporterLocation(exporter, first);
+
+    const later = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7102.tcp");
+    defer model.freePeerLocator(allocator, later);
+    const canonical_later = try engine.encodePeerLocatorRecord(allocator, later);
+    defer allocator.free(canonical_later);
+    try node.replaceDiscoveredExporterLocation(exporter, later);
+
+    try std.testing.expectEqualSlices(
+        u8,
+        canonical_later,
+        node.gifts.recipe.by_exporter.get(exporter).?.discovered.?,
+    );
+}
+
+test "verified enliven route keeps prior advice when replacement allocation fails" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    defer node.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+
+    const exporter = try node.registerPeer(.{});
+    const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7101.tcp");
+    defer model.freePeerLocator(allocator, first);
+    try node.replaceDiscoveredExporterLocation(exporter, first);
+    const preserved = try allocator.dupe(u8, node.gifts.recipe.by_exporter.get(exporter).?.discovered.?);
+    defer allocator.free(preserved);
+
+    const later = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7102.tcp");
+    defer model.freePeerLocator(allocator, later);
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, node.replaceDiscoveredExporterLocation(exporter, later));
+    try std.testing.expectEqualSlices(
+        u8,
+        preserved,
+        node.gifts.recipe.by_exporter.get(exporter).?.discovered.?,
+    );
+}
+
 test "setExporterLocation preserves the previous route when replacement allocation fails" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();

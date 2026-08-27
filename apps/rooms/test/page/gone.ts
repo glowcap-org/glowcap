@@ -28,6 +28,7 @@ import type { Locator, Page } from "playwright";
 import { fail, ROOT } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { spawnOwned } from "../support/children.ts";
+import { namedRoomRow } from "../support/conversation_row.ts";
 
 /** Longer than the page's own reconnect ceiling, which is five seconds. A
  * standing read once, straight after a session dies, cannot tell one filed
@@ -76,7 +77,7 @@ export async function run(
 	// the session dies. This is how an ordinary reader meets a failed send: not
 	// by typing into a dead page, which the composer already refuses, but by
 	// having said something a moment before the ground moved.
-	await tab.click('#roomList li:has(.rname:text-is("elsewhere")) .room-open');
+	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 		.catch(() => fail("the room on the second server would not take a line before that server went"));
 	// And a file posted into it while it was up. A file reference is only good on
@@ -297,14 +298,14 @@ export async function run(
 	// that refuses without saying why is a dead box under an invitation to type
 	// in it. The room's own row in the rail carries the news too, but the rail
 	// goes away on a phone and the foot beneath it is about the reader rather
-	// than about what they hold. What is true belongs where the person is
-	// looking, and a reader about to type is looking at this field.
+	// than about what they hold. The status beside the field owns that answer;
+	// the placeholder keeps naming the room instead of repeating the refusal.
 	// A room on the directory that went away is still a room this tab is in, and
 	// opening it has to show it. Gating that on a live session put a reader in
 	// front of a form asking them to join a room they were already in, with the
 	// history they came for behind it — so this asserts the conversation opens
 	// before it asks what the field says.
-	await tab.click('#roomList li:has(.rname:text-is("elsewhere")) .room-open');
+	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
 	await tab.waitForFunction(
 		() => (document.getElementById("roomName")?.textContent ?? "") !== "No room yet",
 		undefined,
@@ -329,8 +330,8 @@ export async function run(
 		fail("the composer stayed usable on a directory that had gone away");
 	} else if (refusing.said === "" || /^Message\b/.test(refusing.said)) {
 		fail(
-			`a composer that cannot be used still invites typing: it says ${JSON.stringify(refusing.said)} ` +
-				`rather than what the directory is doing, with ${JSON.stringify(refusing.open)} open and the ` +
+			`a disabled composer says ${JSON.stringify(refusing.said)} instead of what the directory is doing, with ` +
+				`${JSON.stringify(refusing.open)} open and the ` +
 				`rail holding ${JSON.stringify(refusing.rows)}`,
 		);
 	}

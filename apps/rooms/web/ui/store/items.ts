@@ -5,8 +5,8 @@
 
 import { MAX_SCROLLBACK } from "../../../lib/limits.ts";
 import { silencedByIgnore } from "../types.ts";
-import type { AttachmentView, DirId, Item, SendState, SysAudience, Unread } from "../types.ts";
-import { letLinesGo, set, state } from "./core.ts";
+import type { AttachmentView, DirId, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
+import { get, letLinesGo, set } from "./core.ts";
 import { getConv, patch, put } from "./convs.ts";
 
 let nextItemId = 0;
@@ -18,6 +18,7 @@ export function chatItem(
 	mine: boolean,
 	sendState?: SendState,
 	attachments?: readonly AttachmentView[],
+	at = Date.now(),
 ): Extract<Item, { kind: "chat" }> {
 	return {
 		kind: "chat",
@@ -25,7 +26,7 @@ export function chatItem(
 		from,
 		text,
 		mine,
-		at: Date.now(),
+		at,
 		state: sendState,
 		attachments,
 	};
@@ -113,6 +114,7 @@ export function setLineRecorder(
 export function deliver(key: string, item: Item): void {
 	const conv = getConv(key);
 	if (!conv) return;
+	const state = get();
 	const read = key === state.activeKey && state.visible;
 	// A line the reader will never see must not be counted at them: an unread
 	// badge that clears to nothing teaches a reader to stop trusting the badge.
@@ -143,22 +145,41 @@ export function deliver(key: string, item: Item): void {
  * the same scrollback window as everything else. */
 export function prependHistory(
 	key: string,
-	lines: readonly { from: string; text: string; mine: boolean; at: number }[],
+	lines: readonly {
+		from: string;
+		text: string;
+		mine: boolean;
+		at: number;
+		lineId?: number;
+		history?: HistoryCoordinate;
+		attachments?: readonly (Omit<AttachmentView, "id"> | AttachmentView)[];
+	}[],
 	divider: string,
 ): void {
 	const conv = getConv(key);
 	if (!conv || lines.length === 0) return;
-	const stood: Item[] = lines.map((line) => ({
-		kind: "chat",
-		id: nextItemId++,
-		from: line.from,
-		text: line.text,
-		mine: line.mine,
-		at: line.at,
-	}));
+	const stood: Item[] = lines.map((line) => {
+		const attachments = line.attachments?.map((attachment) =>
+			"id" in attachment ? attachment : attachmentView(attachment)
+		);
+		return {
+			kind: "chat",
+			id: nextItemId++,
+			from: line.from,
+			text: line.text,
+			mine: line.mine,
+			at: line.at,
+			...(line.lineId == null ? {} : { lineId: line.lineId }),
+			...(line.history == null ? {} : { history: line.history }),
+			...(attachments == null || attachments.length === 0 ? {} : { attachments }),
+		};
+	});
 	stood.push({ kind: "sys", id: nextItemId++, text: divider, at: Date.now(), audience: "shared" });
-	const history = [...stood, ...conv.history].slice(-MAX_SCROLLBACK);
-	put(patch(conv, { history }));
+	const combined = [...stood, ...conv.history];
+	const over = combined.length - MAX_SCROLLBACK;
+	const gone = over > 0 ? combined.splice(0, over) : [];
+	put(patch(conv, { history: combined }));
+	letLinesGo(key, gone);
 }
 
 /** One more unread line. A run that is already going keeps the line it started
@@ -176,8 +197,9 @@ function count(unread: Unread, at: number): Unread {
  * while the join card is up reaches nobody, and latching it anyway guarantees
  * it is never said at all. */
 export function deliverActive(item: Item): boolean {
-	if (!state.activeKey) return false;
-	deliver(state.activeKey, item);
+	const key = get().activeKey;
+	if (key == null) return false;
+	deliver(key, item);
 	return true;
 }
 
@@ -275,7 +297,7 @@ export function holdLine(key: string, id: number): void {
  * changes. */
 export function dropHeldLines(dir: DirId): string[] {
 	const stoppedChanging: string[] = [];
-	for (const conv of [...state.convs.values()]) {
+	for (const conv of [...get().convs.values()]) {
 		if (conv.dir !== dir) continue;
 		let history: Item[] | null = null;
 		const dropped = new Set<number>();
@@ -291,9 +313,10 @@ export function dropHeldLines(dir: DirId): string[] {
 		// lines, and it can no longer land. The words stay, because they are still
 		// theirs to say; what goes is the aim, so pressing Enter says them as a new
 		// message instead of refusing over and over.
-		const draft = state.drafts.get(conv.key);
+		const draftsState = get().drafts;
+		const draft = draftsState.get(conv.key);
 		if (draft?.changing !== undefined && dropped.has(draft.changing)) {
-			const drafts = new Map(state.drafts);
+			const drafts = new Map(draftsState);
 			if (draft.text === "" && draft.files.length === 0) drafts.delete(conv.key);
 			else drafts.set(conv.key, { ...draft, changing: undefined, keeping: undefined });
 			set({ drafts });

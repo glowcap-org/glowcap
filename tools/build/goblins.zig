@@ -90,14 +90,6 @@ pub fn register(ctx: Context) Registered {
     // spawns and tears down the Goblins vat itself.
     const goblins_interop = liveDriver(ctx, .{ .exe_name = "pancake-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
-    // Deno binding Host/listen: publish an actor and let a real Goblins vat dial.
-    const deno_goblins_listen = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno",                                          "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "interop/goblins_interop/deno_listen_client.ts",
-    });
-    const deno_goblins_listen_step = b.step("deno-goblins-listen", "Live keyed OCapN listen: Deno binding Host/listen publishes and a real Goblins vat dials it (needs deno + racket + goblins)");
-    deno_goblins_listen_step.dependOn(&deno_goblins_listen.step);
-
     // Live TCP scale over the loop-fed host bridge (ADR-0076): one completion
     // loop thread serves a full byte-fed node through `driver.Bridge`,
     // many concurrent BlockingSession clients across two waves. Binds real

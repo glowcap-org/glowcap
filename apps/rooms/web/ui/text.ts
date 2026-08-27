@@ -157,13 +157,6 @@ export function footState(
 	return { said: named ? "here" : phaseWord("connected"), away: false };
 }
 
-// A stable per-name avatar tint, so every speaker keeps one colour. The ten values
-// live in the rooms stylesheets as `--avatar-1` … `--avatar-10`, beside the rest of the rooms
-// palette, because a colour written here cannot be themed and cannot be checked
-// against the chip's white initials. This picks the slot; the stylesheet owns the
-// colour.
-const AVATAR_SLOTS = 10;
-
 /** A locator is escaped for a wire, and what comes back out of one is not a name:
  * a port reads as `127.0.0.1%3A6000` until the escaping is undone. Undone only
  * for the name — the locator itself is copied and dialled exactly as it arrived,
@@ -218,7 +211,7 @@ export function conversationReach(
 	conv: { type: "room"; held: boolean; id: string; link?: string } | { type: "dm" },
 ): string {
 	if (conv.type === "dm") {
-		return "This line was introduced on the directory named above. A direct conversation has no room address; the path is how the messages travel.";
+		return "This line was introduced on the directory named above. A direct conversation has no room address. The path is how the messages travel.";
 	}
 	if (conv.link !== undefined) {
 		return "This is the room's own locator, a sturdyref. /join it to be here. It is not the directory named above.";
@@ -247,36 +240,6 @@ export function peeringSourcesOf(
 		sources.push({ key: conv.key, room: conv.id, directory: directoryName(conv.dir, home) });
 	}
 	return sources;
-}
-
-export function hueOf(name: string): string {
-	if (ircName(name) !== null) return "var(--irc)";
-	let h = 0;
-	for (let i = 0; i < name.length; i++) {
-		h = (h * 31 + name.charCodeAt(i)) >>> 0;
-	}
-	return `var(--avatar-${(h % AVATAR_SLOTS) + 1})`;
-}
-
-/** The bare nick behind a bridged IRC identity, or null for everyone else.
- *
- * `irc/` is the bridge's reserved attribution prefix (the bridge refuses it
- * as a rooms name), so the test is exact. One authority for the question:
- * the roster, the message author line, and the avatar tint all ask here, so
- * a bridged person is marked the same way everywhere they appear. */
-export function ircName(name: string): string | null {
-	return name.startsWith("irc/") && name.length > 4 ? name.slice(4) : null;
-}
-
-export function initials(name: string): string {
-	const parts = name.replace(/[^\p{L}\p{N} _-]/gu, "").split(/[ _-]+/).filter(Boolean);
-	if (parts.length === 0) return "?";
-	// By code point, not code unit: the nick rule admits letters of every
-	// script, and `parts[0][0]` on an astral-plane letter is half a surrogate
-	// pair, which draws as replacement-character garbage in the chip.
-	const first = [...parts[0]][0];
-	const second = parts[1] ? [...parts[1]][0] : "";
-	return (first + second).toUpperCase();
 }
 
 export function fmtTime(d: Date): string {
@@ -396,6 +359,12 @@ export function substituteEmoji(text: string): string {
  * A trailing hyphen or dot is left out of a match so a name at the end of a
  * sentence does not swallow the punctuation, the same rule links follow. */
 const NAME_CHARS = String.raw`\w\[\]\\\`^{|}-`;
+/** Whether the text after `@` can still become one mention.
+ *
+ * Completion and rendering must accept the same IRC nickname alphabet. A
+ * second, narrower expression in the composer used to make names such as
+ * `some[nick]` readable after arrival but impossible to complete while typing. */
+export const MENTION_QUERY = new RegExp(String.raw`^[${NAME_CHARS}]*$`);
 const MENTION = new RegExp(String.raw`@([${NAME_CHARS}]*[\w\[\]\\\`^{|}])`, "g");
 
 /** The names that reach a whole room rather than one person.

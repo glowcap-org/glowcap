@@ -18,10 +18,11 @@ the vision itself when a tradeoff between them is unclear.
   fixtures, and Zig protocol scenarios justify semantic claims. A C ABI dogfood
   consumer proves consumability, not the source of truth.
 - **Explicit over implicit.** Ownership, allocation, copying, I/O, scheduling,
-  and authority must be visible at the API boundary that performs them.
-  In JavaScript and TypeScript, `== null` / `!= null` are the ordinary nullish
-  absence checks; reserve strict equality for type guards, discriminants, and
-  cases where `null` and `undefined` mean different things.
+  and authority must be visible at their API boundary. Accept a user-authored
+  value exactly or refuse without effect; never silently suffix, truncate,
+  substitute, or reroute it. In JavaScript and TypeScript, use `== null` /
+  `!= null` for ordinary absence; reserve strict equality for discriminants or
+  when `null` and `undefined` differ.
 - **Effects have a commit point; failures have an owner.** Prepare fallible
   work before mutation or external effect. A refusal is retryable only when it
   committed nothing. After commit, consume success and retain or convert any

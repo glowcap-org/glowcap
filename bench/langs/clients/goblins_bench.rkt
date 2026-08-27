@@ -15,8 +15,8 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
-         (file "/workspaces/pancake/conformance/goblins-peer/racket/tcp-netlayer.rkt")
-         (file "/workspaces/pancake/bench/shared/metrics.rkt")
+         "../../../conformance/goblins-peer/racket/tcp-netlayer.rkt"
+         "../../shared/metrics.rkt"
          racket/async-channel)
 
 (define args (current-command-line-arguments))

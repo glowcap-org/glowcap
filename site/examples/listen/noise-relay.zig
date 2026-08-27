@@ -18,7 +18,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
         .failed => return error.RelayUnavailable,
     }
     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
-    var server = try pancake.driver.listen(
+    const server = try pancake.driver.listen(
         allocator,
         relay.resident(.noise).netlayer(),
         .{ .designator = "" },
@@ -31,7 +31,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 
-    try serve(&server);
+    try serve(server);
 }
 
 // From here, the CapTP workflow is transport-independent.

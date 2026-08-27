@@ -138,6 +138,7 @@ impl LoopShared {
 			self.released.set(true);
 		}
 		self.listeners.borrow_mut().clear();
+		self.closing_listeners.borrow_mut().clear();
 		self.accepts.borrow_mut().clear();
 		self.unclaimed_sessions.borrow_mut().clear();
 		self.accept_wake.notify_waiters();

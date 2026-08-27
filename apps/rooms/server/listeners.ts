@@ -14,13 +14,18 @@
 // sentence naming what is missing, because an operator holding the swiss
 // deserves the real boundary rather than a generic failure.
 
-import type { Argument, Behavior, Host, Session } from "@pancake/runtime";
+import { type Argument, type Host, retainCleanupFailures, type Session } from "@pancake/runtime";
 import {
 	FEATURE_MULTI_LOCATION,
 	formatLocatorUri,
 	formatPeerUri,
 	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
 } from "@pancake/runtime";
 import type { ProfileInfo } from "@pancake/runtime/transport";
 import * as irohTransport from "@pancake/iroh";
@@ -30,7 +35,12 @@ import * as onionTransport from "@pancake/onion";
 import { roomsListen } from "../lib/locator.ts";
 import { roomsIdentityRoute } from "../lib/routes.ts";
 import { optionalEnv } from "../lib/env.ts";
-import { DOWN, LIST, UP } from "../lib/protocol.ts";
+import {
+	LISTENER_OPTION_NAMES,
+	LISTENER_TRANSPORTS,
+	type ListenerOptions,
+	type ListenerTransport,
+} from "../lib/listeners.ts";
 import {
 	LISTENER_SERVING,
 	LISTENER_TRANSPORT_HELD,
@@ -40,28 +50,25 @@ import {
 } from "../lib/errors.ts";
 import { serveAccepted } from "./sessions.ts";
 import { noteTrouble } from "./journal.ts";
+import type { RoomServerOperationsState } from "./operations_state.ts";
 
 /** The transports an `up` may name. The set is closed here rather than passed
  * through to a listen call, so an arbitrary wire string never reaches one. */
-const TRANSPORTS = [
-	"tcp",
-	TRANSPORT_KEYED_TCP,
-	"noise-tcp",
-	"iroh",
-	"keyed-relay",
-	"noise-relay",
-	"onion",
-] as const;
-export type AdminTransport = (typeof TRANSPORTS)[number];
+const TRANSPORTS = LISTENER_TRANSPORTS;
+export type AdminTransport = ListenerTransport;
 
 /** The tcp-socket family, which shares the bind host, the named-port probe,
  * and the advertised-host knob. */
-const TCP_FAMILY = ["tcp", TRANSPORT_KEYED_TCP, "noise-tcp"] as const satisfies readonly AdminTransport[];
+const TCP_FAMILY = [
+	TRANSPORT_TCP,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
+] as const satisfies readonly AdminTransport[];
 type TcpFamily = (typeof TCP_FAMILY)[number];
 
 /** The relay rendezvous family, which registers held sockets at a relay
  * instead of binding a socket of its own. */
-const RELAY_FAMILY = ["keyed-relay", "noise-relay"] as const satisfies readonly AdminTransport[];
+const RELAY_FAMILY = [TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY] as const satisfies readonly AdminTransport[];
 type RelayFamily = (typeof RELAY_FAMILY)[number];
 
 function inFamily<T extends AdminTransport>(
@@ -75,11 +82,29 @@ function inFamily<T extends AdminTransport>(
  * the behavior: the tcp family's bind host, port, and advertised host, and
  * the relay family's relay WebSocket URL. Anything left unset falls to the
  * server's own defaults, which are the hints `list` serves. */
-interface UpOption {
+export interface ListenerUpOptions {
 	bind?: string | null;
 	port?: number | null;
 	advertise?: string | null;
 	relayUrl?: string | null;
+}
+
+function listenerOptions(option: ListenerUpOptions): ListenerOptions {
+	return {
+		...(option.bind == null ? {} : { bind: option.bind }),
+		...(option.port == null ? {} : { port: option.port }),
+		...(option.advertise == null ? {} : { advertise: option.advertise }),
+		...(option.relayUrl == null ? {} : { relay: option.relayUrl }),
+	};
+}
+
+function upOption(options: ListenerOptions): ListenerUpOptions {
+	return {
+		...(typeof options.bind === "string" ? { bind: options.bind } : {}),
+		...(typeof options.port === "number" ? { port: options.port } : {}),
+		...(typeof options.advertise === "string" ? { advertise: options.advertise } : {}),
+		...(typeof options.relay === "string" ? { relayUrl: options.relay } : {}),
+	};
 }
 
 /** The env default behind a named listen option, so the hints `list` serves
@@ -105,7 +130,10 @@ const CATALOG: ReadonlyMap<AdminTransport, ProfileInfo> = (() => {
 	const catalog = new Map<AdminTransport, ProfileInfo>();
 	for (const transport of TRANSPORTS) {
 		const info = described.find((profile) => profile.transport === transport);
-		if (info === undefined) throw new Error(`no composed package describes ${transport}`);
+		if (info == null) throw new Error(`no composed package describes ${transport}`);
+		const declared = info.takes.map((option) => option.name).sort().join("\u0000");
+		const persisted = [...LISTENER_OPTION_NAMES[transport]].sort().join("\u0000");
+		if (declared !== persisted) throw new Error(`listener option vocabulary differs for ${transport}`);
 		catalog.set(transport, info);
 	}
 	return catalog;
@@ -190,6 +218,7 @@ interface Row {
 	transport: AdminTransport;
 	locator: string;
 	server: AdminServer;
+	managed: boolean;
 }
 
 /** Refuse a named local port another listener already holds.
@@ -243,6 +272,7 @@ function unavailable(error: unknown): boolean {
 /** The live listeners and the verbs the optional admin capability drives. */
 export class ListenerRegistry {
 	readonly #host: Host;
+	readonly #state: RoomServerOperationsState | null;
 	readonly #rows: Row[] = [];
 	/** The dialable locator this server announced (`ROOMS-SERVER-LISTENING`).
 	 * The web relay dials exactly this, so the row wearing it is the one
@@ -251,14 +281,27 @@ export class ListenerRegistry {
 	#announced = "";
 	#nextId = 1;
 
-	constructor(host: Host) {
+	constructor(host: Host, state: RoomServerOperationsState | null = null) {
 		this.#host = host;
+		this.#state = state;
 	}
 
 	/** Adopt the listener the boot path already opened and announced. */
 	adoptBoot(transport: AdminTransport, server: AdminServer, announced: string): void {
 		this.#announced = announced;
-		this.#rows.push({ id: this.#nextId++, transport, locator: announced, server });
+		this.#rows.push({ id: this.#nextId++, transport, locator: announced, server, managed: false });
+	}
+
+	async restore(): Promise<void> {
+		if (this.#state == null) return;
+		for (const intent of this.#state.listeners()) {
+			if (this.#rows.some((row) => row.transport === intent.transport)) continue;
+			try {
+				await this.up(intent.transport, upOption(intent.options), false);
+			} catch (error) {
+				noteTrouble(`could not restore the ${intent.transport} listener`, error);
+			}
+		}
 	}
 
 	#serving(row: Row): boolean {
@@ -269,10 +312,10 @@ export class ListenerRegistry {
 	 * asked. Only cheaply knowable obstacles belong here — an archive that may
 	 * or may not load answers at the ask instead. */
 	#unavailable(transport: AdminTransport): string {
-		if (transport !== "onion") return "";
+		if (transport !== TRANSPORT_ONION) return "";
 		const socks = optionalEnv("PANCAKE_ONION_SOCKS");
 		const control = optionalEnv("PANCAKE_ONION_CONTROL");
-		return socks === undefined || control === undefined ? ONION_NEEDS_TOR : "";
+		return socks == null || control == null ? ONION_NEEDS_TOR : "";
 	}
 
 	/** The knobs a seat's `up` accepts, as `[name, kind, hint]` rows. The
@@ -281,7 +324,7 @@ export class ListenerRegistry {
 	#servedTakes(transport: AdminTransport): Argument {
 		return CATALOG.get(transport)!.takes.map((option): Argument => {
 			const env = OPTION_ENV_DEFAULTS[option.name];
-			const configured = env === undefined ? undefined : optionalEnv(env);
+			const configured = env == null ? undefined : optionalEnv(env);
 			return [option.name, option.kind, configured ?? option.hint];
 		});
 	}
@@ -300,7 +343,7 @@ export class ListenerRegistry {
 			this.#unavailable(transport),
 			live?.id ?? 0,
 			live?.locator ?? "",
-			live !== undefined && this.#serving(live),
+			live != null && this.#serving(live),
 		];
 	}
 
@@ -317,7 +360,7 @@ export class ListenerRegistry {
 		return identity === null ? concrete : formatLocatorUri(identity);
 	}
 
-	async up(transport: AdminTransport, option: UpOption): Promise<Argument> {
+	async up(transport: AdminTransport, option: ListenerUpOptions, remember = true): Promise<Argument> {
 		if (this.#rows.length >= MAX_ADMIN_LISTENERS) {
 			throw new Error(`this server holds at most ${MAX_ADMIN_LISTENERS} listeners at once`);
 		}
@@ -344,7 +387,14 @@ export class ListenerRegistry {
 			}
 			throw error;
 		});
-		const row: Row = { id: this.#nextId++, transport, ...brought };
+		if (remember && this.#state != null) {
+			try {
+				await this.#state.rememberListener({ transport, options: listenerOptions(option) });
+			} catch (error) {
+				throw await retainCleanupFailures(error, [() => brought.server.close()]);
+			}
+		}
+		const row: Row = { id: this.#nextId++, transport, ...brought, managed: this.#state != null };
 		this.#rows.push(row);
 		// Serve the new listener's sessions the same way the boot listener's are
 		// served; the directory is a Host-wide publication, so nothing more is
@@ -363,7 +413,7 @@ export class ListenerRegistry {
 
 	async #bringUp(
 		transport: AdminTransport,
-		option: UpOption,
+		option: ListenerUpOptions,
 	): Promise<{ locator: string; server: AdminServer }> {
 		if (inFamily(TCP_FAMILY, transport)) {
 			return await this.#bringUpTcpFamily(transport, option);
@@ -371,7 +421,7 @@ export class ListenerRegistry {
 		if (inFamily(RELAY_FAMILY, transport)) {
 			return await this.#bringUpRendezvous(transport, option.relayUrl ?? null);
 		}
-		if (transport === "iroh") {
+		if (transport === TRANSPORT_IROH) {
 			try {
 				const reach = irohReachability();
 				const server = await irohTransport.listen(
@@ -399,7 +449,7 @@ export class ListenerRegistry {
 		// PANCAKE_ROOMS_STATE belongs to the boot service alone.
 		const socks = optionalEnv("PANCAKE_ONION_SOCKS");
 		const control = optionalEnv("PANCAKE_ONION_CONTROL");
-		if (socks === undefined || control === undefined) {
+		if (socks == null || control == null) {
 			throw new RoomError(LISTENER_UNSUPPORTED, ONION_NEEDS_TOR);
 		}
 		try {
@@ -424,13 +474,13 @@ export class ListenerRegistry {
 	 * address, is the name a peer dials. */
 	async #bringUpTcpFamily(
 		transport: TcpFamily,
-		option: UpOption,
+		option: ListenerUpOptions,
 	): Promise<{ locator: string; server: AdminServer }> {
 		const bindHost = option.bind ?? optionalEnv("PANCAKE_ROOMS_BIND") ?? "127.0.0.1";
 		const port = option.port ?? 0;
 		if (port !== 0) refuseHeldPort(bindHost, port);
 		const advertisedHost = option.advertise ?? optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HOST");
-		if (transport === "tcp") {
+		if (transport === TRANSPORT_TCP) {
 			const server = await roomsListen(bindHost, port, this.#host, advertisedHost);
 			return { locator: server.designator, server };
 		}
@@ -458,7 +508,7 @@ export class ListenerRegistry {
 		}
 		const registerUrl = rendezvousRegisterUrl(route);
 		await probeRegisterEndpoint(registerUrl, this.#host.designator());
-		const profile = transport === "keyed-relay" ? relayTransport.keyed : relayTransport.noise;
+		const profile = transport === TRANSPORT_KEYED_RELAY ? relayTransport.keyed : relayTransport.noise;
 		const server = await profile.listen({
 			relayUrl: route,
 			registerUrl,
@@ -478,95 +528,23 @@ export class ListenerRegistry {
 				`listener ${id} answers the locator this server announced, which the web relay and this admin session ride, so taking it down would cut them off`,
 			);
 		}
-		// Stop admission first, remove the row only when that committed. Sessions
-		// the listener already accepted stay live: down ends admission, not
-		// members' conversations.
+		if (row.managed) await this.#state?.forgetListener(row.transport);
+		// Desired state commits first, so a close failure cannot resurrect this
+		// listener after restart. Existing sessions stay live: down ends admission.
 		await row.server.close();
 		this.#rows.splice(at, 1);
 	}
-}
 
-/** Run `work` from the event loop rather than inside the turn that asked.
- *
- * A behavior turn runs inside the native driver's own step, and the driver
- * refuses listener lifecycle operations re-entered there (`reentrancyCode`,
- * `src/c_abi/driver/loop.zig`): a synchronous `listener_close` mid-step is an
- * invalid argument, not a queued request. Deferring onto a timer moves the
- * open, select, or close after the step returns; the turn's answer was already
- * deferred onto a resolver vow the moment the behavior returned a promise, so
- * the caller notices nothing but the answer. */
-function offTurn<T>(work: () => Promise<T>): Promise<T> {
-	return new Promise((resolve, reject) => {
-		setTimeout(() => work().then(resolve, reject), 0);
-	});
-}
-
-/** The behavior published under the admin swiss. Every argument arrives off a
- * session this server does not own, so each is bounded and typed before it
- * reaches the registry — in the turn, so a malformed ask refuses at once. */
-export function listenersBehavior(registry: ListenerRegistry): Behavior {
-	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
-		if (verb === LIST) {
-			return registry.rows();
+	/** Stop every listener this process owns. Used by controlled shutdown; the
+	 * inventory is detached first so repeated signals and close failures cannot
+	 * close one listener twice or strand another. */
+	async close(): Promise<void> {
+		const rows = this.#rows.splice(0);
+		this.#announced = "";
+		const results = await Promise.allSettled(rows.map((row) => row.server.close()));
+		const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+		if (failures.length > 0) {
+			throw new AggregateError(failures.map((failure) => failure.reason), "could not close every room listener");
 		}
-		if (verb === UP) {
-			if (args.length < 1 || args.length > 2) {
-				throw new Error("up takes a transport and, optionally, its named options");
-			}
-			const named = args[0];
-			if (typeof named !== "string" || named.length > 16) {
-				throw new Error("up takes the transport as a short string");
-			}
-			const transport = TRANSPORTS.find((known) => known === named);
-			if (transport === undefined) {
-				throw new RoomError(
-					LISTENER_UNSUPPORTED,
-					`"${named}" names no transport this server knows (${TRANSPORTS.join(", ")})`,
-				);
-			}
-			const option: UpOption = {};
-			if (args.length === 2) {
-				const pairs = args[1];
-				if (!Array.isArray(pairs) || pairs.length > 8) {
-					throw new Error("up's options are a short list of [name, value] pairs");
-				}
-				const declared = CATALOG.get(transport)!.takes;
-				for (const pair of pairs) {
-					if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") {
-						throw new Error("an up option is a [name, value] pair");
-					}
-					const [name, value] = pair;
-					const knob = declared.find((takes) => takes.name === name);
-					if (knob === undefined) {
-						const known = declared.map((takes) => takes.name).join(", ");
-						throw new Error(
-							`a ${transport} listener has no "${name}" option` +
-								(known === "" ? "" : ` (it takes ${known})`),
-						);
-					}
-					if (knob.kind === "port") {
-						if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535) {
-							throw new Error(`${name} is an integer between 0 and 65535`);
-						}
-					} else if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
-						throw new Error(`${name} is a non-empty string under 4 KiB`);
-					}
-					if (name === "bind") option.bind = value as string;
-					else if (name === "port") option.port = value as number;
-					else if (name === "advertise") option.advertise = value as string;
-					else if (name === "relay") option.relayUrl = value as string;
-				}
-			}
-			return offTurn(() => registry.up(transport, option));
-		}
-		if (verb === DOWN) {
-			if (args.length !== 1) throw new Error("down takes the listener's number");
-			const id = args[0];
-			if (typeof id !== "number" || !Number.isInteger(id) || id < 1 || id > 1_000_000) {
-				throw new Error("down takes the number list answered");
-			}
-			return offTurn(() => registry.down(id)).then(() => undefined);
-		}
-		throw new Error(`listeners has no method ${verb}`);
-	};
+	}
 }

@@ -33,20 +33,29 @@ import {
 import { bootRuntime } from "./runtime_boot.ts";
 import { dropInspect, takeDiagnosticCap } from "./diagnostics.ts";
 import { dropListeners, takeListenersCap } from "./listeners.ts";
+import { dropOperatorHold, takeOperatorCap } from "./operator.ts";
 import { dropPeering, takePeeringCap } from "./peering.ts";
 import { forgetOpsSwiss, rememberedOpsSwiss } from "./ops_memory.ts";
 import { commitAttachmentUpdates, releaseFiles, releaseLines } from "./files.ts";
-import { dropLine, releaseBackChannel, releaseHandedRoomsForDirectory } from "./direct.ts";
+import { dropDirectRoute, releaseBackChannel } from "./direct.ts";
+import { releaseHandedRoomsForDirectory } from "./direct_offers.ts";
 import { ADVERTISE_RETRY_LIMIT, ensureInbox, ensureOfferer, forgetOfferer, offerInboxFor } from "./reachable.ts";
 import { closeDm, enterRoom, leaveRoom, openPrivateRoom, settleStaged, takeStaged } from "./rooms.ts";
 import { dropIrcHold, takeIrcGatewayCap } from "./irc.ts";
+import { dropArchiveLineCoordinates } from "./history.ts";
+import { tabArchiveRef } from "../archive.ts";
+import { releaseArchiveSharesForDirectory } from "./archive_shares.ts";
+import { reenterRooms, roomReconnectLocator } from "./room_reentry.ts";
+import { type DirectoryConnectionAttempt, DirectoryConnectionLifecycle } from "./directory_connection_lifecycle.ts";
+import { MAX_WORKSPACE_DIRECTORIES } from "../../../lib/rooms_state.ts";
 
 // ── Connection ────────────────────────────────────────────────────────────
 /** What a reader is told when an attempt to reach the room directory did not get
  * there. Two surfaces say it — the join card, which was waiting on a join, and
  * the status line, which is waiting on nothing — and they say the same thing
  * because it is one fact. */
-const UNREACHABLE = "could not reach the room directory; retrying…";
+const UNREACHABLE = "could not reach the room directory. Retrying…";
+const connections = new DirectoryConnectionLifecycle(MAX_WORKSPACE_DIRECTORIES);
 
 /** Open the directory this page came from. The one directory a tab starts with;
  * every other one is added deliberately. */
@@ -58,6 +67,7 @@ export function connect(): void {
 	// store knows when a line stops being drawn and nothing about what it
 	// carried; this side knows the opposite, so all three arrive here.
 	store.onLinesDropped((key, gone) => {
+		dropArchiveLineCoordinates(key, gone);
 		const session = convSession(key);
 		if (session !== null) releaseLines(session, key, gone);
 	});
@@ -72,56 +82,32 @@ export function connect(): void {
  * rooms on it.
  *
  * `locator` of null means the directory that served this page. One open runs at
- * a time per directory: stopping a join cannot withdraw the CapTP dial, and a
- * second open that joined that abandoned attempt failed at once instead of
- * waiting for it to finish and then dialling again. */
+ * a time per directory. A later request waits for the earlier one to settle,
+ * but a Leave in between invalidates both rather than seating a directory the
+ * reader already gave back. */
 export async function openDirectory(locator: string | null, backoff: number, signal?: AbortSignal): Promise<string> {
 	if (signal?.aborted) return "";
-	if (locator === null) return await openDirectoryAttempt(locator, backoff, signal);
-	const id = directoryId(locator);
-	if (id === null) return notALocator(locator);
-	const prior = opening.get(id);
-	const run = (async () => {
-		if (prior !== undefined) {
-			await prior.catch(() => {});
-			if (signal?.aborted) return "";
-			if (dirs.has(id)) return "";
-		}
-		// A new open is the reader asking for this directory again, so a prior
-		// leave no longer forbids it. Cleared here rather than at leave's
-		// opposite in the store: the store forgetting a row is not the same as
-		// wanting it back.
-		abandoned.delete(id);
-		return await openDirectoryAttempt(locator, backoff, signal);
-	})();
-	opening.set(id, run);
-	void run.finally(() => {
-		if (opening.get(id) === run) opening.delete(id);
-	});
-	return run;
+	const target = locator ?? await homeLocator();
+	const id = directoryId(target);
+	if (id == null) return notALocator(target);
+	if (dirs.has(id)) return "";
+	return await connections.open(
+		id,
+		dirs.size,
+		signal,
+		() => dirs.has(id),
+		(attempt) => openDirectoryAttempt(locator, backoff, attempt, signal),
+	);
 }
 
-/** In-flight opens, keyed by the directory they are for. The promise is the
- * attempt a later open to the same address must wait out rather than join. */
-const opening = new Map<DirId, Promise<string>>();
-
-/** Directories the reader has given back. An in-flight dial or a reconnect
- * timer must not seat one of these: leaving has to be the end of holding it,
- * including the page's own, until a later open asks again. */
-const abandoned = new Set<DirId>();
-
-/** How many times this tab has given `dir` back. An attempt captures the
- * count when it starts, and a later leave invalidates it, so a dial that was
- * already in flight cannot seat the directory behind a join that has moved on. */
-const leaveGen = new Map<DirId, number>();
-
-/** Reconnect timers, keyed by the directory they would reopen. Leaving has to
- * cancel the one already scheduled, or a session that died just before the
- * reader left would dial itself back a second later. */
-const reconnects = new Map<DirId, ReturnType<typeof setTimeout>>();
-
-async function openDirectoryAttempt(locator: string | null, backoff: number, signal?: AbortSignal): Promise<string> {
-	if (signal?.aborted) return "";
+async function openDirectoryAttempt(
+	locator: string | null,
+	backoff: number,
+	attempt: DirectoryConnectionAttempt,
+	signal?: AbortSignal,
+	retainedId?: DirId,
+): Promise<string> {
+	if (attempt.stale()) return "";
 	try {
 		// Instantiate the wasm peer once; its adapter injection lets the runtime's
 		// `connect` (which `Directory.connect` rides) dial over the relay. Cache
@@ -136,35 +122,40 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		// session's gift table.
 		ensureInbox(runtime, iceServers);
 		const target = locator ?? await homeLocator();
-		if (signal?.aborted) return "";
-		const id = directoryId(target);
-		if (id === null) return notALocator(target);
-		if (abandoned.has(id)) return "";
-		const gen = leaveGen.get(id) ?? 0;
+		if (attempt.stale()) return "";
+		const addressed = directoryId(target);
+		if (addressed === null) return notALocator(target);
+		// A durable room link may give a reconnect a stronger, multi-location
+		// route than the concrete address that first opened this directory. The
+		// page's directory identity stays where its conversations are filed; the
+		// link is authority for changing only the route used to reach it.
+		const id = retainedId ?? addressed;
+		const stale = attempt.stale;
 		const held = dirs.get(id);
 		if (held !== undefined) return "";
-		if (signal?.aborted) return "";
+		if (stale()) return "";
 		directoryLocators.set(id, target);
 		// The one open with no locator of its own is the page's own server, and it
 		// is the only one that can say so. Written once: leaving this directory
 		// gives the session back, not the knowledge of which server served the page.
 		if (locator === null) store.setHomeDir(id);
-		if (abandoned.has(id) || (leaveGen.get(id) ?? 0) !== gen) return "";
+		if (stale()) return "";
 		const wasReconnect = store.dirReached(id);
-		store.openDir(id);
+		store.openDir(id, target);
 		store.setDirSession(id, "connecting");
-		if (signal?.aborted) {
-			dropAbortedDirectory(id, locator);
+		if (stale()) {
+			dropAbortedDirectory(id, locator, undefined, attempt.left());
 			return "";
 		}
 		// Dial transport-neutrally, the same as every terminal client: the rooms
 		// `dial` normalises a bare `host:port` into a `tcp` locator and passes an
-		// `ocapn://…iroh` URI through, both routed over the relay by the injected
-		// browser adapter. The runtime's default `connect` would reject the bare
+		// `id`, iroh, or onion URI through. The injected browser adapter routes
+		// each admitted concrete transport over the relay. The runtime's default
+		// `connect` would reject the bare
 		// designator `/locator` serves.
 		const next = await Directory.connect(target, (address) => dial(address, runtime));
-		if (signal?.aborted || abandoned.has(id) || (leaveGen.get(id) ?? 0) !== gen) {
-			dropAbortedDirectory(id, locator, next);
+		if (stale()) {
+			dropAbortedDirectory(id, locator, next, attempt.left());
 			return "";
 		}
 		// Everything this session will hold, minted with it. Nothing below adds a
@@ -173,6 +164,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		const session: Live = {
 			id,
 			dir: next,
+			archive: tabArchiveRef(next.session),
 			home: store.get().homeDir === id,
 			locator: target,
 			// The attempt's own backoff, so the stability window below has its
@@ -181,15 +173,16 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 			// the window reset a value that never climbed.
 			backoff,
 			rooms: new Map(),
+			stewardClaimable: new Set(),
 			standingTold: new Map(),
 			posted: new Map(),
 			echoes: [],
 			refiling: new Map(),
-			lines: new Map(),
+			directRoutes: new Map(),
 			advertised: null,
 			advertiseRetries: ADVERTISE_RETRY_LIMIT,
 			registered: false,
-			deferredOffers: new Set(),
+			deferredOffers: new Map(),
 			stable: null,
 			signaling: null,
 			files: new Map(),
@@ -200,45 +193,53 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		dirs.set(id, session);
 		const seen = await next.watch((event) => {
 			switch (event.kind) {
+				case "truncated":
+					store.noteTrouble(
+						`directory ${id}`,
+						`${event.count} additional live rooms are outside this directory snapshot.`,
+					);
+					break;
 				case "closed":
 					store.dropLiveRoom(id, event.entry);
 					break;
 				case "registered":
-					store.setDmable(id, event.name, true);
+					if (!store.setDmable(id, event.name, event.registrationId, true)) {
+						store.noteTrouble(
+							`directory ${id}`,
+							"Additional direct-message registrations are outside this directory view.",
+						);
+						break;
+					}
 					// Offer a member who arrives after us an inbox straight away, so their
 					// first message costs no extra round trip. One already on the roster
 					// before we had a name is covered by the directory asking on demand.
-					offerInboxFor(session, event.name);
+					offerInboxFor(session, event.name, event.registrationId);
 					break;
 				case "unregistered":
-					store.setDmable(id, event.name, false);
+					store.setDmable(id, event.name, event.registrationId, false);
 					// The member left, so the room has their name back and may grant
 					// it to someone else. Close what we have with them and hand the
 					// lines back; a later introduction under the same name opens a
 					// new conversation, because it may well be a new person.
 					// Their reply route goes with them: it reached that connection,
 					// and the next holder of the name is not on it.
-					for (const key of store.closeDmsWith(id, event.name)) {
-						dropLine(session, key);
+					for (const key of store.closeDmsWith(id, event.name, event.registrationId)) {
+						dropDirectRoute(session, event.registrationId);
 						releaseBackChannel(key);
 					}
 					// The next holder of this name is a different person and gets an
 					// inbox of their own. An offer still queued for them is dropped
 					// rather than spending a permanent name on someone who has left.
-					for (const p of session.deferredOffers) {
-						if (p.toLowerCase() === event.name.toLowerCase()) {
-							session.deferredOffers.delete(p);
-						}
-					}
-					ensureOfferer(session.id).forget(event.name);
+					session.deferredOffers.delete(event.registrationId);
+					ensureOfferer(session.id).forget(event.registrationId);
 					break;
 				default:
 					store.setLiveRoom(id, event.entry);
 					break;
 			}
 		});
-		if (signal?.aborted || abandoned.has(id) || (leaveGen.get(id) ?? 0) !== gen) {
-			dropAbortedDirectory(id, locator, next);
+		if (stale()) {
+			dropAbortedDirectory(id, locator, next, attempt.left());
 			return "";
 		}
 		store.resetLiveRooms(id, seen);
@@ -274,43 +275,14 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 			session.stable = null;
 		}, BACKOFF_STABLE_MS);
 
-		// Re-enter every room we were in, not just one: the conversations are all
-		// still on screen, and a reconnect that restored only one would leave the
-		// rest looking healthy while silently delivering nothing. They go back in
-		// the order they were first entered, so a partial recovery keeps the
-		// oldest rooms rather than an arbitrary subset. Otherwise honour a join
-		// the user asked for while this session was still opening, and only then
-		// wait.
-		// A room reached by name is re-entered by that name. A room this tab was
-		// handed cannot be: the reference was on the connection that has just
-		// gone, and there is no name to ask for it back with. Said once, in the
-		// conversation itself, rather than left as a room that looks live and
-		// quietly delivers nothing.
-		const rejoining = store.joinedRooms(id).filter((conv) => !conv.held);
-		for (const conv of store.joinedRooms(id).filter((conv) => conv.held)) {
-			store.deliver(
-				conv.key,
-				store.sysItem(
-					"This room was reached by an invitation, and that reference went with the connection. " +
-						"Somebody in it can hand it over again.",
-				),
-			);
-		}
-		const nick = store.dirNick(id) || store.reachingNick();
-		if (rejoining.length > 0 && nick) {
-			store.setDirStatus(
-				id,
-				rejoining.length === 1
-					? "rejoining #" + rejoining[0].id + "…"
-					: "rejoining " + rejoining.length + " rooms…",
-			);
-			for (const conv of rejoining) {
-				void enterRoom(conv.dir, conv.id, nick, { publicationId: conv.publicationId });
-			}
-		} else if (signal?.aborted || abandoned.has(id) || (leaveGen.get(id) ?? 0) !== gen) {
-			dropAbortedDirectory(id, locator, next);
+		// Re-enter every room we were in before honoring a staged first join. The
+		// re-entry owner distinguishes listed names, durable links, and handed
+		// references that died with the old session.
+		const reentering = reenterRooms(id);
+		if (!reentering && stale()) {
+			dropAbortedDirectory(id, locator, next, attempt.left());
 			return "";
-		} else {
+		} else if (!reentering) {
 			const wanted = takeStaged();
 			if (wanted !== null) {
 				store.setDirStatus(id, "entering #" + wanted.room + "…");
@@ -319,7 +291,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 						id,
 						wanted.room,
 						wanted.nick,
-						{ requested: wanted.nick, signal },
+						{ requested: wanted.nick, select: true, signal },
 					),
 				);
 			} else store.setDirStatus(id, "");
@@ -334,9 +306,16 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		const unreachable = `${UNREACHABLE} (${reason(err)})`;
 		if (signal?.aborted) {
 			if (locator !== null) {
-				const id = directoryId(locator);
-				if (id !== null) dropAbortedDirectory(id, locator);
+				const id = retainedId ?? directoryId(locator);
+				if (id !== null) dropAbortedDirectory(id, locator, undefined, attempt.left());
 			}
+			return "";
+		}
+		const failedLocator = locator ?? heldHomeLocator() ?? "";
+		const failed = retainedId ??
+			(failedLocator === "" ? dirId("") : directoryId(failedLocator) ?? dirId(""));
+		if (attempt.left()) {
+			dropAbortedDirectory(failed, locator, undefined, true);
 			return "";
 		}
 		// A staged join is not lost on a failed attempt: the retry below opens
@@ -357,17 +336,17 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		// screen waits for *some* server to have answered either way, so a first
 		// attempt that failed this early left the page on "Opening a peer in your
 		// browser…" for good, retrying behind a screen that never lifted.
-		const failedLocator = locator ?? heldHomeLocator() ?? "";
 		// An unparseable locator has no identity to file the failure under, so it
 		// stands in as the empty one: the report still reaches the status line and
 		// the join card, and no row is opened for an address that cannot exist.
-		const failed = failedLocator === "" ? dirId("") : directoryId(failedLocator) ?? dirId("");
 		// The server this page came from is retried for as long as this tab
 		// still holds it: there is no address to correct, so giving up while
 		// holding it would leave a reader with a dead page and nothing to do
 		// about it. Leaving it is how they give up; a retry after that would
 		// seat a directory they already gave back.
-		const home = locator === null || failedLocator === (heldHomeLocator() ?? "");
+		const home = retainedId !== undefined
+			? retainedId === store.get().homeDir
+			: locator === null || failedLocator === (heldHomeLocator() ?? "");
 		// A server somebody typed and that has never once answered is most likely a
 		// typo, and retrying a typo forever is how one mistyped locator became a
 		// permanent row dialling every few seconds for the life of the tab with no
@@ -376,6 +355,7 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 		if (!home && !store.dirReached(failed)) {
 			store.forgetDir(failed);
 			directoryLocators.delete(failed);
+			connections.forget(failed);
 			// The line that announced this attempt has to stop announcing it. It was
 			// written before the dial and belongs to whichever server the reader is
 			// on, so leaving it saying "reaching …" reports an attempt that ended,
@@ -383,16 +363,14 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
 			store.setStatus("");
 			return unreachable;
 		}
-		if (abandoned.has(failed)) {
-			store.forgetDir(failed);
-			store.setStatus("");
-			return unreachable;
-		}
-		store.openDir(failed);
+		store.openDir(failed, failedLocator || (failed as string));
 		store.setDirSession(failed, "disconnected");
 		store.setDirStatus(failed, unreachable);
 		if (home) noteHomeDirectoryLocator(null);
-		scheduleReconnect(home ? null : failedLocator, Math.min(backoff * 2, BACKOFF_CEILING_MS), failed);
+		const retryBackoff = Math.min(backoff * 2, BACKOFF_CEILING_MS);
+		connections.schedule(failed, retryBackoff, () => {
+			void reopenDirectory(home ? null : failedLocator, retryBackoff, failed);
+		});
 		return unreachable;
 	}
 }
@@ -409,6 +387,8 @@ async function openDirectoryAttempt(locator: string | null, backoff: number, sig
  * is incomplete. */
 function endSession(which: Live): void {
 	if (!releaseSession(which)) return;
+	store.setDirNick(which.id, "");
+	for (const room of store.joinedRooms(which.id)) store.setRoomMembership(room.key, "joining");
 	// The whole of telling the reader. Every row on this directory reads its
 	// phase, so writing it here says the news on the rooms it is about and says
 	// it about them only. The rooms on every other directory this tab holds are
@@ -418,8 +398,8 @@ function endSession(which: Live): void {
 	// act the dead session was narrating.
 	store.setDirStatus(which.id, "");
 	if (which.home) noteHomeDirectoryLocator(null);
-	if (abandoned.has(which.id)) return;
-	scheduleReconnect(which.home ? null : which.locator, Math.min(which.backoff * 2, BACKOFF_CEILING_MS), which.id);
+	const backoff = Math.min(which.backoff * 2, BACKOFF_CEILING_MS);
+	connections.schedule(which.id, backoff, () => void reopenDirectory(roomReconnectLocator(which), backoff, which.id));
 }
 
 /** Give back everything this session holds, and say whether there was anything
@@ -433,22 +413,18 @@ function endSession(which: Live): void {
 /** Take again whatever the reader asked this browser to remember for `home`.
  * `remember: true` keeps the memory it just used; a refusal forgets it. */
 async function redeemRememberedOps(home: DirId): Promise<void> {
-	const listeners = rememberedOpsSwiss("listeners", home);
-	if (listeners !== null && (await takeListenersCap(listeners, true)) !== "") {
-		forgetOpsSwiss("listeners", home);
-	}
-	const inspect = rememberedOpsSwiss("diagnostics", home);
-	if (inspect !== null && (await takeDiagnosticCap(inspect, true)) !== "") {
-		forgetOpsSwiss("diagnostics", home);
-	}
-	const peering = rememberedOpsSwiss("peering", home);
-	if (peering !== null && (await takePeeringCap(peering, true)) !== "") {
-		forgetOpsSwiss("peering", home);
-	}
-	const gateway = rememberedOpsSwiss("irc", home);
-	if (gateway !== null && (await takeIrcGatewayCap(gateway, true)) !== "") {
-		forgetOpsSwiss("irc", home);
-	}
+	const attempts = [
+		["listeners", takeListenersCap],
+		["diagnostics", takeDiagnosticCap],
+		["peering", takePeeringCap],
+		["irc", takeIrcGatewayCap],
+		["operator", takeOperatorCap],
+	] as const;
+	await Promise.all(attempts.map(async ([capability, take]) => {
+		const swiss = rememberedOpsSwiss(capability, home);
+		if (swiss == null) return;
+		if (await take(swiss, true) !== "") forgetOpsSwiss(capability, home);
+	}));
 }
 
 function releaseSession(which: Live): boolean {
@@ -458,13 +434,14 @@ function releaseSession(which: Live): boolean {
 		dropInspect();
 		dropIrcHold();
 		dropListeners();
+		dropOperatorHold();
 		dropPeering();
 	}
 	if (which.stable !== null) clearTimeout(which.stable);
 	void which.signaling?.close().catch((err) => trouble("WebRTC signaling would not stop", err));
 	// A redeemed introduction holds a connection open and an inbox exported on
 	// it, so these are handed back rather than merely forgotten.
-	for (const key of [...which.lines.keys()]) dropLine(which, key);
+	for (const peer of [...which.directRoutes.keys()]) dropDirectRoute(which, peer);
 	// A file send can still be measuring media or staging room uploads before it
 	// has an echo to await. It belongs to this session all the same, and the
 	// browser Files it was reading from go with it, so the bubble says unsent
@@ -541,13 +518,16 @@ function releaseSession(which: Live): boolean {
  * A session already in the table is left the same way a reader would leave it;
  * one that has only answered the dial is closed and forgotten, so it cannot
  * reconnect behind a card that has moved on. */
-function dropAbortedDirectory(id: DirId, locator: string | null, next?: Directory): void {
-	if (locator === null && !abandoned.has(id)) return;
-	if (dirs.has(id)) {
-		leaveDirectory(id);
-		return;
-	}
-	void next?.close().catch((err) => trouble("abandoned directory would not close", err));
+function dropAbortedDirectory(
+	id: DirId,
+	locator: string | null,
+	next?: Directory,
+	left = false,
+): void {
+	if (locator === null && !left) return;
+	const live = dirs.get(id);
+	if (live != null && (next == null || live.dir === next)) releaseSession(live);
+	else void next?.close().catch((err) => trouble("abandoned directory would not close", err));
 	store.forgetDir(id);
 	directoryLocators.delete(id);
 	store.setStatus("");
@@ -573,9 +553,7 @@ function dropAbortedDirectory(id: DirId, locator: string | null, next?: Director
  * released *after* those, because a room can only say goodbye over the session
  * that carried it. */
 export function leaveDirectory(dir: DirId): void {
-	abandoned.add(dir);
-	leaveGen.set(dir, (leaveGen.get(dir) ?? 0) + 1);
-	cancelReconnect(dir);
+	connections.leave(dir);
 	const live = dirs.get(dir);
 	for (const conv of store.convsOn(dir)) {
 		if (conv.type === "dm") closeDm(conv);
@@ -587,31 +565,20 @@ export function leaveDirectory(dir: DirId): void {
 	// already issued keep their old actors, so reopening cannot retarget them.
 	forgetOfferer(dir);
 	releaseHandedRoomsForDirectory(dir);
+	releaseArchiveSharesForDirectory(dir);
 	store.forgetDir(dir);
+	directoryLocators.delete(dir);
 	store.showAboutDir(null);
 	store.setStatus("");
 }
 
-/** Try this directory again, later each time it fails. The delay belongs to the
- * directory, so a server that is down backs off on its own schedule while every
- * other directory this tab holds carries on. */
-function scheduleReconnect(locator: string | null, backoff: number, id: DirId): void {
-	if (abandoned.has(id)) return;
-	const prior = reconnects.get(id);
-	if (prior !== undefined) clearTimeout(prior);
-	reconnects.set(
+/** Reopen a known directory without deriving a new page identity from a route
+ * that may now be a multi-location sturdyref locator. Reader-initiated opens
+ * still use `openDirectory` and derive identity from what they typed. */
+async function reopenDirectory(locator: string | null, backoff: number, id: DirId): Promise<string> {
+	return await connections.reopen(
 		id,
-		setTimeout(() => {
-			reconnects.delete(id);
-			if (abandoned.has(id)) return;
-			void openDirectory(locator, backoff);
-		}, backoff),
+		() => dirs.has(id),
+		(attempt) => openDirectoryAttempt(locator, backoff, attempt, undefined, id),
 	);
-}
-
-function cancelReconnect(id: DirId): void {
-	const prior = reconnects.get(id);
-	if (prior === undefined) return;
-	clearTimeout(prior);
-	reconnects.delete(id);
 }

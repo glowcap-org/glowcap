@@ -49,6 +49,11 @@ const sturdyref_path_prefix = "/s/";
 
 pub const freePeer = model.freePeerLocator;
 
+/// The RFC 3986 escape-shape check, offered where URI callers already look:
+/// every `%` must carry two hex digits. Transports validating their own URL
+/// forms call through here rather than growing a second copy of the shape.
+pub const validatePercentEncoding = uri_shape.validatePercentEncoding;
+
 pub fn freeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) void {
     model.freePeerLocator(allocator, sturdyref.peer);
     allocator.free(sturdyref.swissnum);

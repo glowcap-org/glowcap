@@ -199,15 +199,6 @@ export async function readPort(proc: Deno.ChildProcess): Promise<number> {
 	throw new Error("rooms server never announced its port");
 }
 
-/** A port nothing holds right now. Asked with a socket that does not share an
- * address, which is the same question the server itself asks before binding. */
-export function freeServerPort(): number {
-	const probe = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const { port } = probe.addr as Deno.NetAddr;
-	probe.close();
-	return port;
-}
-
 export async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
@@ -310,11 +301,15 @@ export function stablePort(): number {
  * in practice is our own predecessor's teardown finishing; exactly the
  * "already in use" refusal retries on a short clock. Any other failure, and
  * exhaustion, stay loud. */
-export async function restartStatefulServer(port: number, stateDirectory: string): Promise<Deno.ChildProcess> {
+export async function restartStatefulServer(
+	port: number,
+	stateDirectory: string,
+	serverArgs: readonly string[] = [],
+): Promise<Deno.ChildProcess> {
 	let last = "";
 	for (let attempt = 0; attempt < 6; attempt++) {
 		if (attempt > 0) await new Promise((settle) => setTimeout(settle, 150));
-		const proc = startStatefulServer(port, stateDirectory);
+		const proc = startStatefulServer(port, stateDirectory, serverArgs);
 		try {
 			await readPort(proc);
 			return proc;
@@ -329,9 +324,13 @@ export async function restartStatefulServer(port: number, stateDirectory: string
 	throw new Error(`rooms server could not rebind ${port} after retries: ${last}`);
 }
 
-export function startStatefulServer(port: number, stateDirectory: string): Deno.ChildProcess {
+export function startStatefulServer(
+	port: number,
+	stateDirectory: string,
+	serverArgs: readonly string[] = [],
+): Deno.ChildProcess {
 	return spawnOwned("deno", {
-		args: [...DENO_FLAGS, `--allow-write=${stateDirectory}`, SERVER, String(port)],
+		args: [...DENO_FLAGS, `--allow-write=${stateDirectory}`, SERVER, String(port), ...serverArgs],
 		cwd: ROOT,
 		env: { PANCAKE_ROOMS_STATE: stateDirectory },
 		stdout: "piped",

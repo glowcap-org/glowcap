@@ -128,7 +128,7 @@ pub fn pushEncodedPairFromPending(
     try self.outbound.ensureUnusedCapacity(self.allocator, 2);
 
     if (second_accounting == .record_at_commit)
-        self.session_state.recordSend(second) catch unreachable;
+        self.session_state.recordPreparedSend(second);
 
     self.outbound.pushAssumeCapacity(first_frame);
     self.outbound.pushAssumeCapacity(second_frame);

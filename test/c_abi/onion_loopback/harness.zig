@@ -8,9 +8,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const c = @import("c_abi");
-const cd = @import("c_abi_host");
 const co = @import("c_abi_net_transport_onion");
-const cdrv = @import("c_abi_driver");
 const model = pancake.ocapn.model;
 const onion = pancake.net.onion;
 const c_abi_loopback = @import("../../support/c_abi_loopback.zig");

@@ -66,7 +66,9 @@ const WithdrawEnvelopeClaim = struct {
     receiving_side: []const u8,
 };
 
-fn ownedGiftClaim(receive: model.HandoffReceive) WithdrawGiftClaim {
+/// The withdraw claim a receive names, from either the owned message or the
+/// borrowed view: both carry the same fields at the same paths.
+pub fn giftClaim(receive: anytype) WithdrawGiftClaim {
     return .{
         .handoff_count = receive.handoff_count,
         .gift_id = receive.signed_give.gift_id,
@@ -76,23 +78,15 @@ fn ownedGiftClaim(receive: model.HandoffReceive) WithdrawGiftClaim {
 
 fn ownedEnvelopeClaim(receive: model.HandoffReceive) WithdrawEnvelopeClaim {
     return .{
-        .gift = ownedGiftClaim(receive),
+        .gift = giftClaim(receive),
         .receiving_session = receive.receiving_session,
         .receiving_side = receive.receiving_side,
     };
 }
 
-fn borrowedGiftClaim(receive: model.view.HandoffReceive) WithdrawGiftClaim {
-    return .{
-        .handoff_count = receive.handoff_count,
-        .gift_id = receive.signed_give.gift_id,
-        .recipient_key = receive.signed_give.recipient_key,
-    };
-}
-
 fn borrowedEnvelopeClaim(receive: model.view.HandoffReceive) WithdrawEnvelopeClaim {
     return .{
-        .gift = borrowedGiftClaim(receive),
+        .gift = giftClaim(receive),
         .receiving_session = receive.receiving_session,
         .receiving_side = receive.receiving_side,
     };
@@ -362,6 +356,10 @@ pub const GiftRegistry = struct {
         return (store.gifts.get(gift_id) orelse return null).payload;
     }
 
+    /// The owned-message form of the withdraw check. Production validates the
+    /// borrowed view arm by arm (`validateWithdrawEnvelopeView`, then
+    /// `validateWithdrawGiftClaim`); this whole-message form is reached only
+    /// by tests that hold an owned `HandoffReceive`.
     pub fn validateWithdraw(
         self: *const GiftRegistry,
         receive: model.HandoffReceive,
@@ -375,7 +373,7 @@ pub const GiftRegistry = struct {
         self: *const GiftRegistry,
         receive: model.HandoffReceive,
     ) session_mod.Error!void {
-        return self.validateWithdrawGiftClaim(ownedGiftClaim(receive));
+        return self.validateWithdrawGiftClaim(giftClaim(receive));
     }
 
     /// Public only for the sibling bootstrap orchestrator, which has already
@@ -448,6 +446,9 @@ pub const GiftRegistry = struct {
         self.acceptHandoffCount(handoff_count);
     }
 
+    /// The owned-message form of a withdraw: validate, prepare, and commit in
+    /// one call. Production runs those steps separately across the dispatch
+    /// transaction; this form is reached only by tests.
     pub fn applyWithdraw(
         self: *GiftRegistry,
         deposited: *GiftRegistry,
@@ -455,7 +456,7 @@ pub const GiftRegistry = struct {
         projection: ?LocalObjectProjection,
         receive: model.HandoffReceive,
     ) session_mod.Error!?model.Reference {
-        const prepared = try prepareWithdrawCommit(deposited, ownedGiftClaim(receive));
+        const prepared = try prepareWithdrawCommit(deposited, giftClaim(receive));
         return self.commitWithdraw(deposited, allocator, projection, prepared);
     }
 

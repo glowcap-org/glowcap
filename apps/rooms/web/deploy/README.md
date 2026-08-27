@@ -1,8 +1,8 @@
 # Deploy the Rooms browser app
 
-This Compose stack runs the Rooms browser UI and an iroh room server in a small
-Deno container. It expects an existing reverse proxy, such as Cloudflare
-Tunnel, on a shared Docker network.
+This Compose stack runs the Rooms browser UI, an iroh room server, and one
+durable shared workspace session in small Deno containers. It expects an
+existing reverse proxy, such as Cloudflare Tunnel, on a shared Docker network.
 
 Build artifacts stay outside the image. The container mounts this repository
 and `zig-out/lib` read-only, then serves the prebuilt browser bundle and loads
@@ -74,6 +74,48 @@ defines is reported as exactly this — and the repair is to run
 `zig build rooms-deploy-prep` again in the devcontainer and restart the
 service.
 
+## Your shared workspace
+
+The `pancake-rooms-session` container owns one durable user workspace. Its
+identity, intended rooms and direct conversations, drafts, shared connection
+and retention choices, retained capabilities, and member-owned history live in
+the separate `rooms-session-state` volume. Restarting the stack republishes the
+same session capability and reconciles that saved intent; unreachable peers
+remain visible as disconnected until they return.
+
+Run `./up.sh`. After both peers are ready, its single capability handoff block
+includes a **shared-session administrator capability**. Open the page and paste
+that sturdyref into **Choose a session → Shared session**, then press **Attach**.
+A new empty session adopts the workspace saved in that browser; otherwise its
+durable workspace becomes current.
+
+If this browser already has a local workspace open, the same Attach form lives
+under **Settings → Session**. Subsequent browsers attach and become views of
+the same durable workspace.
+
+The printed sturdyref is bearer authority over the whole session. Anyone who
+has it can act as that user, including changing retained operator capabilities.
+The page therefore does not fetch it from a public endpoint and Compose does
+not inject it into HTML. Read it again from the operator side with:
+
+```sh
+docker compose exec -T rooms-session deno run \
+  --allow-read=/run/rooms-session --no-lock \
+  /repo/apps/rooms/web/deploy/session_healthcheck.ts --print
+```
+
+That readiness mirror lives on a mode-0700 tmpfs, not in the durable session
+volume. Every container start therefore begins without a stale ready marker;
+the session writes the mirror only after restoring grants and reconciling its
+workspace. The authority itself remains durable because its identity and
+publication entropy live in `rooms-session-state`.
+
+This is one deliberate owner session, not an account system and not an ambient
+session for every site visitor. A future per-user service would need to own
+bounded provisioning, recovery, quotas, and durable revocable grants; adding a
+username form or an unauthenticated `POST /sessions` would not supply those
+authority boundaries.
+
 ## Room history
 
 `PANCAKE_ROOMS_HISTORY: "1"` is on in `docker-compose.yml` (the same as
@@ -86,7 +128,8 @@ without retention.
 
 Every operator capability is on in `docker-compose.yml`: inspect
 (`PANCAKE_ROOMS_DIAGNOSTICS`), listener administration
-(`PANCAKE_ROOMS_ADMIN_LISTENERS`), directory peering
+(`PANCAKE_ROOMS_ADMIN_LISTENERS`), room-steward operation
+(`PANCAKE_ROOMS_OPERATOR`), directory peering
 (`PANCAKE_ROOMS_PEERING`), the live timeline (`PANCAKE_ROOMS_VIZ`, serving
 port 9300 unless `PANCAKE_ROOMS_VIZ_PORT` says otherwise), and the IRC
 gateway (`PANCAKE_ROOMS_IRC`). Each is the same as the matching `--flag` on a
@@ -95,8 +138,10 @@ deployment. The viz endpoint requires its capability of every socket, so
 reaching the port neither reads the timeline nor writes traces into it.
 
 `./up.sh` is the one-step restart: it runs
-`docker compose up -d --build --force-recreate`, waits for the server to
-mint, and prints the capability lines and the room's locator.
+`docker compose up -d --build --force-recreate`, waits for the room server and
+shared session to become ready, and prints one handoff block containing the
+room's operator capabilities, room locator, and session administrator
+capability.
 
 Each capability's swiss number is minted once and persists in the
 `rooms-state` volume, so a restart republishes the same one. Three ways to
@@ -114,9 +159,11 @@ docker compose logs rooms | grep 'ROOMS-'
 docker compose exec rooms cat /state/diagnostics
 ```
 
-Whoever can read the volume or the logs holds the capabilities, which is the
-whole of the access control: paste a swiss number when flipping its toggle on
-in the page's Settings → Capabilities.
+Whoever can read the room volume or logs holds those directory-operation
+capabilities, which is the whole of their access control: paste a swiss number
+when flipping its toggle on in the page's Settings → Capabilities. The shared
+session administrator is separate authority in `rooms-session-state` and goes
+through the Session form described above.
 
 ## Put it behind a tunnel
 
@@ -244,6 +291,10 @@ The service joins two external Docker networks:
 - `rooms-net` connects the deployment to the pancake devcontainer.
 - `EGRESS_NET` connects it to the reverse proxy.
 
+The shared-session container joins only `rooms-net`. It publishes no host or
+proxy port: browser bytes reach its authenticated iroh identity through the
+Rooms page's existing opaque `/relay` path.
+
 The deployment defaults to `PANCAKE_ROOMS_REACHABILITY=discovery`. The room announces
 only its iroh node id; peers resolve it through n0 relay and DNS/pkarr
 infrastructure.
@@ -272,3 +323,19 @@ volumes:
 Keep the command, environment, image build, and networks unchanged. To deploy
 without mounting a working checkout, copy the required source and shared
 libraries into stable read-only directories and mount those instead.
+
+## Storage
+
+Kept room lines live in the state volume by default. To keep them in a managed
+database instead, bring up the optional service and point the server at it:
+
+```sh
+echo 'STORAGE_DB_PASSWORD=<a long secret>' >> .env
+echo 'PANCAKE_ROOMS_STORAGE=postgres://rooms:<that secret>@rooms-storage-db:5432/rooms' >> .env
+docker compose --profile storage-db up -d
+./up.sh
+```
+
+The database is reachable only on the private compose network. A destination
+that cannot be opened stops the server at startup with the reason, so a typo
+here is a loud boot failure rather than quiet forgetting.

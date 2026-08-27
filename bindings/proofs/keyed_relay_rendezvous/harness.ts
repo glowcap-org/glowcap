@@ -7,6 +7,8 @@
 //
 // Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--native-wss] -- <client argv...>
 
+import { awaitMarker, fail } from "../_support/harness.ts";
+
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const TLS_CERT = new URL("../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;
 const TLS_KEY = new URL("../../../test/net/fixtures/tls_server.key", import.meta.url).pathname;
@@ -16,11 +18,6 @@ const installedArchiveEnv = {
 	PANCAKE_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 const sep = Deno.args.indexOf("--");
 const harnessArgs = sep === -1 ? [...Deno.args] : Deno.args.slice(0, sep);
@@ -35,38 +32,6 @@ const deadline = setTimeout(
 	() => fail("keyed-relay rendezvous proof timed out after 120s"),
 	120_000,
 );
-
-// Read `child`'s stdout line by line until `prefix` appears, echoing everything
-// so a red run carries the child's own diagnostics; resolve the line's tail.
-async function awaitMarker(
-	child: Deno.ChildProcess,
-	prefix: string,
-	who: string,
-): Promise<string> {
-	const reader = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
-	let buffered = "";
-	while (true) {
-		const { value, done } = await reader.read();
-		if (done) fail(`${who} exited before printing ${prefix}`);
-		buffered += value;
-		let newline: number;
-		while ((newline = buffered.indexOf("\n")) !== -1) {
-			const line = buffered.slice(0, newline).trim();
-			buffered = buffered.slice(newline + 1);
-			if (line.length !== 0) console.log(`  [${who}] ${line}`);
-			if (line.startsWith(prefix)) {
-				// Keep draining in the background so the child never blocks on a
-				// full stdout pipe.
-				void (async () => {
-					try {
-						while (!(await reader.read()).done) { /* drain */ }
-					} catch { /* child ended */ }
-				})();
-				return line.slice(prefix.length).trim();
-			}
-		}
-	}
-}
 
 const relay = new Deno.Command("deno", {
 	args: [

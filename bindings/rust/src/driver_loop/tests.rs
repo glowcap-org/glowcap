@@ -424,7 +424,7 @@ fn iroh_provider_dials_live() {
 			.unwrap()
 			.unwrap();
 		outcome.unwrap();
-		server.close().unwrap();
+		server.close().await.unwrap();
 		let _ = accept_task.await;
 	}));
 }

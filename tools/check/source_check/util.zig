@@ -342,9 +342,11 @@ pub fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std
 }
 
 /// The sources that register build steps: the root `build.zig` plus every
-/// composed step-registration module under `tools/build/`, concatenated into
+/// composed step-registration module beneath `tools/build/`, concatenated into
 /// one owned buffer so a textual step scan sees the whole graph the root
-/// composes. Callers free the result.
+/// composes. The recursive walk matters because a subject that outgrows one
+/// file becomes a package; nesting must not make its steps invisible to the
+/// documentation and check-membership ratchets. Callers free the result.
 pub fn readBuildStepSources(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -357,11 +359,11 @@ pub fn readBuildStepSources(
     try buf.appendSlice(gpa, root_src);
     var dir = try root.openDir(io, "tools/build", .{ .iterate = true });
     defer dir.close(io);
-    var it = dir.iterate();
-    while (try it.next(io)) |entry| {
-        if (entry.kind == .directory) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-        const src = try dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 21));
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const src = try dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 21));
         defer gpa.free(src);
         try buf.append(gpa, '\n');
         try buf.appendSlice(gpa, src);

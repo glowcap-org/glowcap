@@ -73,21 +73,27 @@ CRYPTO_LIB_FFI_PATCHED_SHA256="cd80e435a91fa187a4f1772226604be318b6d791219bd7dc7
 # --- Paths (image build vs container open) ---
 RUSTUP_HOME="/usr/local/rustup"
 CARGO_HOME_IMAGE="/usr/local/cargo"
-CARGO_HOME_RUNTIME="/home/vscode/.cargo"
+# Shared with the host at ~/.cache/pancake (same layout in the container).
+PANCAKE_CACHE_DIR="/home/vscode/.cache/pancake"
+CARGO_HOME_RUNTIME="${PANCAKE_CACHE_DIR}/cargo"
 DENO_INSTALL="/usr/local"
-CACHE_ROOT="/home/vscode/.cache"
+# Shared tool downloads: Zig global, Deno, npm, pip, bun, uv, zls.
+CACHE_ROOT="${PANCAKE_CACHE_DIR}/tool"
 DENO_DIR="${CACHE_ROOT}/deno"
 NPM_CACHE_DIR="${CACHE_ROOT}/npm"
 PIP_CACHE_DIR="${CACHE_ROOT}/pip"
+UV_CACHE_DIR="${CACHE_ROOT}/uv"
 ZIG_CACHE_DIR="${CACHE_ROOT}/zig"
 BUN_CACHE_DIR="${CACHE_ROOT}/bun"
 BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
+# Per-worktree Zig local cache and extracted packages:
+# work/<PANCAKE_WORKTREE>/zig-local and zig-pkg at runtime.
+WORK_CACHE_DIR="${PANCAKE_CACHE_DIR}/work"
 PLTUSERHOME="/opt/pancake-racket-userhome"
-# Playwright downloads browsers to ~/.cache/ms-playwright by default, which is
-# neither a volume nor a bind here, so it would live in the container's writable
-# layer and vanish with the container. The browsers belong to the image, so they
-# go to a shared system path instead: root installs them once and every user
-# reads them.
+# Playwright's default download directory is ~/.cache/ms-playwright, which is
+# outside the pancake cache bind, so a browser landing there would vanish with
+# the container. Browsers belong to the image: root installs them once and
+# every user reads them.
 PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"
 # Claude Code splits its state in two by default: `~/.claude` for skills,
 # plugins, and credentials, and `~/.claude.json` beside it for the account,

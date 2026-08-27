@@ -1,3 +1,7 @@
+//! The close vocabulary the byte-fed Host and the driver share: how long a
+//! finish may wait before it escalates to cancellation, what an owning close
+//! does with work admitted before its barrier, and the outcome it reports.
+
 const std = @import("std");
 
 /// How long finish may wait before it escalates to cancellation. Unlike a
