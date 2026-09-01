@@ -94,8 +94,8 @@ test "listenOnFar nominates a fresh export and binds it to the answer it returns
         var listening = try listenOnImportFive(&pair.p1);
         defer listening.deinit();
 
-        // The listener export is bound to the answer, which is what makes the
-        // partner's notification readable as a settlement of that answer.
+        // The listener export is bound to the answer, so the partner's
+        // notification reads as a settlement of that answer.
         try std.testing.expectEqual(
             listening.answer,
             pair.p1.session_state.answerForResolverExport(.from(listening.listener)).?,

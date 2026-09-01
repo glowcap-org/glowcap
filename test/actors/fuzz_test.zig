@@ -53,7 +53,7 @@ const op_restore: u8 = 3;
 /// Every shape and the seed builder, shared with the other targets.
 const corpus = @import("../support/corpus_seeds.zig");
 
-/// An actor that can be cloned, which is what makes it snapshottable.
+/// An actor that can be cloned, so it can be snapshotted.
 const Counter = struct {
     n: i64,
 

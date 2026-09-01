@@ -514,11 +514,7 @@ pub const Session = struct {
     pub fn enlivenUri(self: *Session, uri_str: []const u8) !Capability {
         self.enterCall();
         defer self.leaveCall();
-        const sturdy = try model.uri.parseSturdyrefForProfile(
-            self.allocator,
-            self.hs.served.port.peer.session_state.captp_version,
-            uri_str,
-        );
+        const sturdy = try model.uri.parseSturdyref(self.allocator, uri_str);
         defer model.uri.freeSturdyref(self.allocator, sturdy);
         return self.enliven(sturdy);
     }

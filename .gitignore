@@ -32,9 +32,8 @@ transports/webrtc/target/
 # The Python binding lock is committed: relay and rendezvous proofs run its
 # optional WebSocket dependency with `uv --locked`.
 bindings/python/pancake_python.egg-info/
-# Deno resolves npm/jsr specifiers (e.g. the rooms app's zod) into a deno.lock. The
-# specifiers are version-pinned, so the lock is generated, never committed.
-deno.lock
+# Deno lockfiles are committed beside each config. Direct versions are exact,
+# and the frozen transitive graph is part of reproducible checks and bundles.
 # Racket bytecode: compiling a Racket source (bench-langs precompiles its
 # clients so cold-start measures startup, not recompilation) writes a
 # `compiled/` dir of `.zo`/`.dep` next to that source and every dependency it
@@ -51,9 +50,10 @@ apps/accountability-on-pancake/.data/
 conformance/accountability-on-goblins/.data/
 conformance/accountability-on-goblins/racket/tests/.data/
 
-# The rooms browser UI is authored as ui/page.ts and bundled to ui/page.js (on the
-# fly by serve.ts in dev, or pre-built with `deno bundle` for the network-free deploy).
-# Generated, never committed.
+# The Rooms browser UI is code-split under ui/bundle, built on the fly in
+# development or prepared ahead of the network-free deployment.
+apps/rooms/web/ui/bundle/
+# Older local builds may still have the former single-file artifact.
 apps/rooms/web/ui/page.js
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
@@ -73,6 +73,10 @@ pancake-c-abi-cache/
 # local env files carry per-host infrastructure names; only .env.example is tracked
 .env
 .worktrees/
+
+# Rooms host exposure is a machine-local Compose choice. The tracked example
+# documents the shape; compose.sh explicitly adds the ignored file when present.
+apps/rooms/web/deploy/docker-compose.override.yml
 
 # per-worktree grid pane configuration for enter-grid.sh; only
 # panes.example.sh is tracked

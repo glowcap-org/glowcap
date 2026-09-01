@@ -1,11 +1,13 @@
 import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { sendWithAttachments } from "../lib/attachment.ts";
 import type { Directory } from "../lib/directory.ts";
 import { DirectMessage } from "../lib/direct_message.ts";
-import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ROOM, TYPING } from "../lib/protocol.ts";
+import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM, READ, TYPING } from "../lib/protocol.ts";
 import { type DirectRealizationCallbacks, establishRequestedDirectRoute } from "../session/directory_directs.ts";
 import { DirectConversationRouteAttempt } from "../session/direct_route_attempt.ts";
 import type { LiveDirectory } from "../session/live.ts";
 import { registrationId } from "./support/registration.ts";
+import { MAX_LINE } from "../lib/limits.ts";
 
 const PEER_REGISTRATION = registrationId(1);
 
@@ -79,8 +81,11 @@ Deno.test("a direct reply capability implements the complete inbox protocol", as
 		offerRoom: (label, link) => {
 			received.push(`offer-room:${label}:${link}`);
 		},
-		handArchive: (directoryId, conversation, handed) => {
-			received.push(`archive:${directoryId}:${conversation}:${handed === archive}`);
+		handArchive: (directoryId, kind, conversation, handed) => {
+			received.push(`archive:${directoryId}:${kind}:${conversation}:${handed === archive}`);
+		},
+		offerArchive: (directoryId, kind, conversation, link) => {
+			received.push(`offer-archive:${directoryId}:${kind}:${conversation}:${link}`);
 		},
 	}, PEER_REGISTRATION);
 	await reply(DM, ["hello"]);
@@ -88,7 +93,8 @@ Deno.test("a direct reply capability implements the complete inbox protocol", as
 	await reply(TYPING, [true]);
 	await reply(HAND_ROOM, ["plans", room]);
 	await reply(OFFER_ROOM, ["lobby", "ocapn://room.test/s/link"]);
-	await reply(HAND_ARCHIVE, ["directory", "conversation", archive]);
+	await reply(HAND_ARCHIVE, ["directory", "direct", "conversation", archive]);
+	await reply(OFFER_ARCHIVE, ["directory", "room", "lobby", "ocapn://archive.test/s/share"]);
 	assert(
 		JSON.stringify(received) === JSON.stringify([
 			"message:hello",
@@ -96,7 +102,8 @@ Deno.test("a direct reply capability implements the complete inbox protocol", as
 			"typing:true",
 			"hand-room:plans:true",
 			"offer-room:lobby:ocapn://room.test/s/link",
-			"archive:directory:conversation:true",
+			"archive:directory:direct:conversation:true",
+			"offer-archive:directory:room:lobby:ocapn://archive.test/s/share",
 		]),
 		"the direct reply capability did not dispatch one inbox protocol",
 	);
@@ -142,8 +149,15 @@ Deno.test("an unsupported direct capability is returned before refusal", async (
 	} catch (error) {
 		refused = error instanceof Error ? error.message : String(error);
 	}
-	assert(refused.includes("text value"), "a capability in the message text position was not refused");
+	assert(refused.includes(`${MAX_LINE} bytes`), "a capability in the message text position was not refused");
 	assert(released.at(-1) === malformedText, "the malformed message text capability was not returned");
+	refused = "";
+	try {
+		await reply(DM, ["🫓".repeat(MAX_LINE)]);
+	} catch (error) {
+		refused = error instanceof Error ? error.message : String(error);
+	}
+	assert(refused.includes(`${MAX_LINE} bytes`), "an oversized Unicode direct message was accepted");
 	await line.close();
 });
 
@@ -185,6 +199,36 @@ Deno.test("a direct refusal releases each capability occurrence at most once", a
 		"the otherwise-adoptable attachment was not returned exactly once",
 	);
 	await line.close();
+});
+
+Deno.test("a sender-hosted direct blob returns malformed capability arguments", async () => {
+	const blob = Object.create(Ref.prototype) as Ref;
+	const target = Object.create(Ref.prototype) as Ref;
+	const unexpected = Object.create(Ref.prototype) as Ref;
+	const released: Ref[] = [];
+	let hosted: Behavior | null = null;
+	const session = {
+		spawn(behavior: Behavior): Ref {
+			hosted = behavior;
+			return blob;
+		},
+		send: () => Promise.resolve(null),
+		release: (capability: Ref) => released.push(capability),
+	} as unknown as Session;
+	await sendWithAttachments(session, target, DM, ["file"], [{
+		name: "note.txt",
+		mime: "text/plain",
+		bytes: new Uint8Array([1]),
+	}]);
+	if (hosted == null) throw new Error("the direct file fixture hosted no blob");
+	let refused = false;
+	try {
+		await (hosted as Behavior)(READ, [0n, 1n, unexpected]);
+	} catch {
+		refused = true;
+	}
+	assert(refused, "the malformed direct blob read was accepted");
+	assert(released.includes(unexpected), "the malformed direct blob read retained its capability argument");
 });
 
 Deno.test("an adopted direct route releases its capability without closing the shared session", async () => {

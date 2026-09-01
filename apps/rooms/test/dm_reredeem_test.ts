@@ -13,17 +13,17 @@
 // resolution returns the same live exporter session both times, so the reply
 // path keeps working on the reused connection.
 //
-// Run by `zig build demo-rooms-dm-reredeem`.
+// Run by `zig build check`, and alone as `zig build rooms-dm-reredeem`.
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
 import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { serveDirectory } from "../server/main.ts";
+import { RoomServer } from "../server/room_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
-import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
+import { DirectMessage, Directory, Room } from "../lib/room/client.ts";
 import { waitUntil } from "../demos/dm_handoff.ts";
 import { DM } from "../lib/protocol.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
@@ -44,7 +44,8 @@ async function main(): Promise<void> {
 
 	const room = await roomsListen("127.0.0.1", 0);
 	const roomLocator = loopbackTcpDesignator(room.port);
-	const roomServe = serveDirectory(room.host, room);
+	const server = new RoomServer();
+	const roomServe = server.serve(room.host, room);
 
 	const bobHost = roomsHost();
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
@@ -147,6 +148,7 @@ async function main(): Promise<void> {
 	await bobRuntime.close();
 	await room.close();
 	await roomServe.catch(() => {});
+	await server.close();
 	process.exit(0);
 }
 

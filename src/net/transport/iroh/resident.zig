@@ -115,8 +115,8 @@ pub const Resident = struct {
     /// endpoint knob rides it without growing the constructor's arity.
     ///
     /// `idle_timeout_ms` bounds how long a connection survives without a packet
-    /// from the far end, which is what ends one whose peer was killed rather
-    /// than closed. 0 keeps the sidecar's default. The C ABI's
+    /// from the far end. A connection whose peer was killed rather than
+    /// closed ends here. 0 keeps the sidecar's default. The C ABI's
     /// `PancakeIrohConfig` is the authority on what to set it to and why.
     pub const Config = struct {
         reachability: Reachability,

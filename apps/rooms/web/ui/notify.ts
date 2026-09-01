@@ -6,10 +6,10 @@
 // that toggles the first and the subscriber that writes the second are the only
 // authorities for either.
 
-import { get } from "./store.ts";
+import type { PageProjection } from "./store/core.ts";
 
-export function maybeNotify(title: string, text: string): void {
-	const { notifyOn, visible } = get();
+export function maybeNotify(projection: PageProjection, title: string, text: string): void {
+	const { notifyOn, visible } = projection.get();
 	if (!notifyOn || visible) return;
 	if (!("Notification" in globalThis) || Notification.permission !== "granted") return;
 	try {

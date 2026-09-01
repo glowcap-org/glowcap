@@ -126,22 +126,53 @@ fn signExtend30(value: u30) i32 {
 
 /// Single-segment Cap'n Proto message builder.
 ///
-/// Words are appended in segment order; pointers are back-patched with an
-/// offset computed from their own index. `finish` emits the framed bytes
-/// (segment table + segment) as a word-shaped `foundation.Frame`.
+/// The backing list begins with the one-word segment table, followed by words
+/// appended in segment order. Pointers are back-patched with an offset computed
+/// from their physical index; the leading table shifts every segment index by
+/// the same amount, so those relative offsets remain the Cap'n Proto offsets.
 ///
 /// Capacity precondition: the builder encodes a message that fits the wire
 /// format's structural limits — a segment under 2^32 words, list word-counts
 /// under 2^29, and composite element-counts under 2^30. Those bounds are what the
 /// pointer fields can express, and the length casts in `offsetTo`,
-/// `compositeTag`, `setListPtr`, and `finish` assume them. A `model.Message`
-/// reaching those limits is on the order of tens of gigabytes — not constructible
+/// `compositeTag`, `setListPtr`, and the two finish methods assume them. A
+/// `model.Message` reaching those limits is on the order of tens of gigabytes — not constructible
 /// in practice (it would exhaust memory first) and never produced by decode,
 /// which bounds an inbound frame to `max_frame_bytes`. The casts therefore name a
 /// precondition the local caller is responsible for, not an attacker-reachable
 /// path; the inbound side is bounds-checked separately in the decoder.
 pub const Builder = struct {
-    words: std.ArrayList(u64) = .empty,
+    /// The segment table sits in the backing list rather than in a second
+    /// buffer, so `finishOwned` hands the whole allocation to the frame.
+    pub const frame_header_words: usize = 1;
+
+    /// Words reserved when a builder is created, the header plus room for an
+    /// ordinary control message's segment. Encoding every arm the cross-codec
+    /// equivalence corpus carries measured at most 37 words for a message with
+    /// no bulk payload, so this clears them with headroom and `encodeMessage`
+    /// costs one allocation, the count `test/codec/encode_budget_test.zig`
+    /// holds. The two larger arms carry payloads and grow whatever the
+    /// reservation is.
+    ///
+    /// Reserving here is also what keeps that first allocation a decision.
+    /// `std.ArrayList` sizes its own first growth from a false-sharing
+    /// cache-line constant, which varies by target and landed one word under
+    /// this framing's small-message size. Falling one word short is expensive
+    /// rather than neutral: the growth realloc and its copy cost the encoder
+    /// about 40% on `zig build bench-codec`, so raising this constant is a
+    /// cheaper mistake than lowering it.
+    pub const initial_words: usize = 48;
+
+    /// No default, so a builder cannot be created without its header word.
+    words: std.ArrayList(u64),
+
+    pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Builder {
+        var words: std.ArrayList(u64) = .empty;
+        errdefer words.deinit(allocator);
+        try words.ensureTotalCapacityPrecise(allocator, initial_words);
+        words.appendNTimesAssumeCapacity(0, frame_header_words);
+        return .{ .words = words };
+    }
 
     pub fn deinit(self: *Builder, allocator: std.mem.Allocator) void {
         self.words.deinit(allocator);
@@ -149,6 +180,7 @@ pub const Builder = struct {
 
     /// Append `n` zeroed words; return the segment index of the first.
     pub fn allocWords(self: *Builder, allocator: std.mem.Allocator, n: usize) !usize {
+        std.debug.assert(self.words.items.len >= frame_header_words);
         const start = self.words.items.len;
         try self.words.appendNTimes(allocator, 0, n);
         return start;
@@ -178,20 +210,44 @@ pub const Builder = struct {
         return encodeStructPointer(@bitCast(@as(u32, element_count)), data_words, ptr_words);
     }
 
-    /// Emit `segment-count − 1` (u32), then `segment-0 size in words` (u32),
-    /// then the segment words, as a word-shaped owned frame. The frame storage is
-    /// 8-byte aligned (allocated as words), satisfying `FrameShape.word`.
-    pub fn finish(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
-        const seg = self.words.items;
-        const total = 1 + seg.len;
-        const frame_words = try allocator.alloc(u64, total);
+    /// Hand the builder's own allocation to the frame. The segment table is
+    /// already word zero, so there is no second buffer and no copy of the
+    /// encoded bytes. Ownership transfers before the framing is written, so a
+    /// refusal leaves the builder exactly as it was.
+    ///
+    /// `toOwnedSlice` trims the growable buffer's spare capacity, which the
+    /// allocators pancake ships against do in place. One that cannot falls back
+    /// to `std`'s allocate-and-copy, the same cost this method replaced.
+    pub fn finishOwned(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
+        std.debug.assert(self.words.items.len >= frame_header_words);
+        const frame_words = try self.words.toOwnedSlice(allocator);
         errdefer allocator.free(frame_words);
-        const storage = std.mem.sliceAsBytes(frame_words);
-        // Single segment: count − 1 = 0 in the low u32, segment size in the high.
-        std.mem.writeInt(u64, storage[0..WORD_BYTES], @as(u64, @intCast(seg.len)) << 32, .little);
-        for (seg, 0..) |word, i| {
-            std.mem.writeInt(u64, storage[(i + 1) * WORD_BYTES ..][0..WORD_BYTES], word, .little);
+        return frameFromOwnedWords(allocator, frame_words);
+    }
+
+    /// Copy a framed snapshot while leaving the builder live. Canonical set
+    /// ordering needs both halves: the snapshot bytes are the sort key, and the
+    /// live builder still holds the encoded subgraph that is grafted afterward.
+    pub fn finishCopying(self: *const Builder, allocator: std.mem.Allocator) !foundation.Frame {
+        std.debug.assert(self.words.items.len >= frame_header_words);
+        const frame_words = try allocator.alloc(u64, self.words.items.len);
+        errdefer allocator.free(frame_words);
+        @memcpy(frame_words[frame_header_words..], self.words.items[frame_header_words..]);
+        return frameFromOwnedWords(allocator, frame_words);
+    }
+
+    /// Write the single-segment table into word zero and render the segment
+    /// little-endian in place, then adopt the words as a word-shaped frame. The
+    /// storage is 8-byte aligned because it was allocated as words, which is
+    /// what `FrameShape.word` requires.
+    fn frameFromOwnedWords(allocator: std.mem.Allocator, frame_words: []u64) !foundation.Frame {
+        const segment_words = frame_words.len - frame_header_words;
+        // Single segment: count - 1 = 0 in the low u32, segment size in the high.
+        frame_words[0] = std.mem.nativeToLittle(u64, @as(u64, @intCast(segment_words)) << 32);
+        for (frame_words[frame_header_words..]) |*word| {
+            word.* = std.mem.nativeToLittle(u64, word.*);
         }
+        const storage = std.mem.sliceAsBytes(frame_words);
         return foundation.Frame.initOwned(allocator, storage, .word, .fromByteUnits(WORD_BYTES));
     }
 };

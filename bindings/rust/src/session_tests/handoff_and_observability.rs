@@ -3,7 +3,7 @@
 use super::support::*;
 
 // Proving the `Some(via)` arm needs a real three-party handoff (a gifter
-// introducing a third-party exporter, then a redeem dial), which is what the
+// introducing a third-party exporter, then a redeem dial), exactly what the
 // live `rust-goblins-handoff` / `rust-iroh-handoff` steps drive; it cannot be
 // staged on one loopback pair.
 #[tokio::test]

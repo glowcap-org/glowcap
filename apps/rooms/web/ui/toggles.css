@@ -51,6 +51,27 @@
 .tabs[data-count="5"] {
 	grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
 }
+/* Four full words fit comfortably on a conversation card at ordinary widths.
+   On a phone they become two deliberate rows rather than four squeezed hit
+   targets. With no sliding axis across rows, the selected cell itself wears
+   the thumb's paint. */
+@media (max-width: 520px) {
+	.tabs[data-count="4"] {
+		grid-template-columns: 1fr 1fr;
+		height: auto;
+	}
+	.tabs[data-count="4"] .tabs-thumb {
+		display: none;
+	}
+	.tabs[data-count="4"] .tab {
+		min-height: 42px;
+		padding-inline: 12px;
+	}
+	.tabs[data-count="4"] .tab[aria-selected="true"] {
+		background: color-mix(in srgb, var(--accent) 22%, var(--paper-raised));
+		box-shadow: var(--shadow-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 36%, transparent);
+	}
+}
 .tabs-thumb {
 	position: absolute;
 	z-index: 0;
@@ -314,7 +335,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
+	gap: var(--gap-column);
 }
 .switch-row .group-label {
 	margin: 0;
@@ -350,10 +371,6 @@
 .switch[aria-checked="true"]::after {
 	transform: translateX(18px);
 	background: var(--accent);
-}
-.switch:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
 }
 /* Disabled is a separate fact from on or off: a switch may sit on and still
    be untouchable (the listener serving this page) or off with nothing to
@@ -466,7 +483,7 @@
 .check-row {
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 	font-size: var(--type-ui);
 	color: var(--ink);
 	cursor: pointer;

@@ -232,6 +232,9 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "releases_published") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `releases_published`", .{});
     }
+    if (std.mem.indexOf(u8, readme, "PROVENANCE.md") == null) {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: release contents must document the packaged `PROVENANCE.md` disclosure", .{});
+    }
     if (std.mem.indexOf(u8, readme, "PANCAKE_DOWNLOAD") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `PANCAKE_DOWNLOAD`", .{});
     }
@@ -290,6 +293,12 @@ pub fn checkCAbiResolve(
     {
         try appendViolation(gpa, violations, "{s}: published archives and SHA256SUMS must receive GitHub artifact attestations", .{release_workflow});
     }
+    if (std.mem.indexOf(u8, workflow, "PROVENANCE.md") == null or
+        std.mem.indexOf(u8, workflow, "artifact attestation") == null or
+        std.mem.indexOf(u8, workflow, "verify build provenance") != null)
+    {
+        try appendViolation(gpa, violations, "{s}: release notes must link the authorship disclosure separately from the artifact attestation", .{release_workflow});
+    }
 
     const release_build_path = "tools/build/release.zig";
     const release_build = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {
@@ -309,6 +318,7 @@ pub fn checkCAbiResolve(
         "missing static archive",
         "missing shared-library member",
         "stage must contain only regular files and directories",
+        "cp PROVENANCE.md",
         "release-pack refuses Debug artifacts",
         "tools/check/release-pack-smoke.sh",
     }) |marker| {
@@ -337,6 +347,7 @@ pub fn checkCAbiResolve(
         "archive_hygiene_check",
         "TAR_OPTIONS=",
         "--no-same-owner",
+        "cmp -s \"$repo_root/PROVENANCE.md\" \"$workdir/PROVENANCE.md\"",
         "zig cc",
         "write_consumer \"$workdir/static-$name-consumer.c\" \"$name\"",
         "shared-consumer",

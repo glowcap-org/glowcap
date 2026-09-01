@@ -128,7 +128,7 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="Buttons"
-				note="Three boxed variants at two sizes. The commitment is amber, the commitment that takes something away is red, and the quiet way out is teal; normal is the in-row height, large the field height. A wait keeps saying what it is doing and is not a second press. The × beside it stops that wait, the same mark that stops a file send."
+				note="Three boxed variants at two sizes. The commitment is amber, the commitment that takes something away is red, and the quiet way out is teal. Normal is the in-row height, large the field height. A wait keeps saying what it is doing and is not a second press. The × beside it stops that wait, the same mark that stops a file send."
 			>
 				<Row>
 					<Button>Save</Button>
@@ -160,7 +160,7 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="A question"
-				note="Label, control, sentence, refusal, on one rhythm. Beside a field, the act stands level with the control at the field height; on a phone it drops under it. Inline lays a short list of knobs on one name column."
+				note="Label, control, sentence, refusal, on one rhythm. Beside a field, the act stands level with the control at the field height. On a phone it drops under it. Inline lays a short list of knobs on one name column."
 			>
 				<div className="kitchen-stack">
 					<Field id="kitchenFieldPlain" label="Display name" hint="Shown beside what you say.">
@@ -270,7 +270,7 @@ export function KitchenSink() {
 								</div>
 							</div>
 							<p className="entry-meta">
-								from <code>ocapn://example</code>
+								from ocapn://example
 							</p>
 						</li>
 						<li className="entry" data-idle="true">
@@ -283,6 +283,17 @@ export function KitchenSink() {
 					</ul>
 					<p className="empty">Nothing here yet.</p>
 				</div>
+			</Sample>
+			<Sample
+				label="Chips"
+				note="A short fact beside a name. Teal is the default. A list whose chips are a scale rather than a set of equals ranks them with a tone."
+			>
+				<Row>
+					<span className="tag">this page</span>
+					<span className="tag" data-tone="quiet">Read only</span>
+					<span className="tag">Can interact</span>
+					<span className="tag" data-tone="warn">Can administer</span>
+				</Row>
 			</Sample>
 			<Sample label="A door" note="A mark, a name and one sentence, and the act that goes through it.">
 				<div className="kitchen-stack">
@@ -402,9 +413,13 @@ export function KitchenSink() {
 				</Row>
 				<CopyField id="kitchenLocator" text="ocapn://example" label="Copy the sample locator" />
 				<CopyField
-					compact
 					text="ocapn://127.0.0.1%3A9765.tcp/s/cGFuY2FrZS1kZXNpZ24tc3lzdGVtLWNvbXBhY3QtY29weQ"
 					label="Copy the sample locator, compactly"
+				/>
+				<CopyField
+					compact={false}
+					text="ocapn://127.0.0.1%3A9765.tcp/s/cGFuY2FrZS1kZXNpZ24tc3lzdGVtLWNvbXBhY3QtZXhwYW5kZWQtY29weQ"
+					label="Copy the expanded sample locator"
 				/>
 			</Sample>
 			<Sample label="Person">

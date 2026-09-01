@@ -401,11 +401,12 @@ pub fn checkStabilityEvidenceParity(
         return;
     };
     defer gpa.free(rust);
-    if (std.mem.indexOf(u8, rust, "The Rust binding dogfood uses a fake daemon and makes no") == null or
+    if (std.mem.indexOf(u8, rust, "fake daemon") == null or
+        std.mem.indexOf(u8, rust, "rust-dogfood") == null or
         std.mem.indexOf(u8, rust, "Repository-level on-demand checks cross Tor") == null or
         std.mem.indexOf(u8, rust, "nothing has yet crossed the Tor network") != null)
     {
-        try appendViolation(gpa, violations, "{s}: distinguish its fake-daemon dogfood from the repository's live Tor evidence in {s}", .{ rust_path, doc_path });
+        try appendViolation(gpa, violations, "{s}: distinguish its fake-daemon binding check from the repository's live Tor evidence in {s}", .{ rust_path, doc_path });
     }
 }
 

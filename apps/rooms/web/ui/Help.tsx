@@ -5,23 +5,19 @@
 // screen reader handles well. The title row is the same one Settings uses, so the
 // Help control stays on screen and can sit pressed while this layer is the
 // one answering.
-//
-// The word "secret" in the glossary is the door to the parts catalog: Help is
-// already the window that names what this page is made of, and the catalog is
-// the same idea aimed at the controls rather than the words. Only the cursor
-// gives the door away — a development surface earns an easter egg's
-// affordance. A long refusal in that catalog opens its own card the way this
-// dialog sits over Settings: Help leaves without an exit, and closing the
-// card puts the catalog back.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
+import { loadKitchen, prefetch } from "./chunks.ts";
+import { LoadingSurface } from "./Loading.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
-import { KitchenSink } from "./KitchenSink.tsx";
 import { Button } from "./Button.tsx";
+import { ErrorBoundary } from "./ErrorBoundary.tsx";
 
-export function Help(
+const KitchenSink = lazy(() => loadKitchen().then((m) => ({ default: m.default })));
+
+export const Help = memo(function Help(
 	{ open, retain = false, theme, notifyOn, onLayer }: {
 		open: boolean;
 		retain?: boolean;
@@ -56,83 +52,90 @@ export function Help(
 				className={sink ? "modal-card card-plane kitchen-card" : "modal-card card-plane"}
 				onSubmit={(event) => event.preventDefault()}
 			>
-				<SettingsHead
-					titleId={titleId}
-					title="Help"
-					theme={theme}
-					notifyOn={notifyOn}
-					helpOpen
-					named={open}
-					closeId={open ? "helpClose" : undefined}
-					closeRef={close}
-					onClose={() => browser.closeHelp()}
-				/>
-				{sink
-					? (
-						<>
-							<div className="actions" data-align="start">
-								<Button id="kitchenBack" variant="quiet" onClick={() => setSink(false)}>
-									Back to the glossary
-								</Button>
-							</div>
-							<KitchenSink />
-						</>
-					)
-					: (
-						<>
-							<p className="lead">
-								Words this window uses, in the sense it uses them.
-							</p>
-							<dl className="glossary">
-								<div>
-									<dt>Directory</dt>
-									<dd>
-										The starting object this page talks to. Rooms live on it. Fetching{" "}
-										<code>directory</code> is how a peer arrives.
-									</dd>
+				<div className="modal-body">
+					<SettingsHead
+						titleId={titleId}
+						title="Help"
+						theme={theme}
+						notifyOn={notifyOn}
+						helpOpen
+						named={open}
+						closeId={open ? "helpClose" : undefined}
+						closeRef={close}
+						onClose={() => browser.closeHelp()}
+					/>
+					{sink
+						? (
+							<>
+								<div className="actions" data-align="start">
+									<Button id="kitchenBack" variant="quiet" onClick={() => setSink(false)}>
+										Back to the glossary
+									</Button>
 								</div>
-								<div>
-									<dt>Locator</dt>
-									<dd>
-										An <code>ocapn://</code> address of a peer, and sometimes of one object on it.
-									</dd>
-								</div>
-								<div>
-									<dt>Capability</dt>
-									<dd>
-										A reference you hold. Holding it is the permission to use it. There is no
-										separate account check.
-									</dd>
-								</div>
-								<div>
-									<dt>Swiss number</dt>
-									<dd>
-										A{" "}
-										<button
-											id="glossarySecret"
-											type="button"
-											className="secret-door"
-											onClick={() => setSink(true)}
-										>
-											secret
-										</button>, unguessable name a peer will look up for you. Each operations
-										capability is published under one when the app is started with its flag —{" "}
-										<code>--diagnostics</code>, <code>--admin-listeners</code>,{" "}
-										<code>--operator</code>, or <code>--peering</code>{" "}
-										— and that is what the server prints. A durable room link is named by one too.
-									</dd>
-								</div>
-								<div>
-									<dt>Sturdyref</dt>
-									<dd>
-										Durable data: a locator plus a swiss number. Redeeming it asks that peer to
-										honor the name. A room link is a sturdyref.
-									</dd>
-								</div>
-							</dl>
-						</>
-					)}
+								<ErrorBoundary part="parts catalog">
+									<Suspense fallback={<LoadingSurface what="the parts catalog" layout="catalog" />}>
+										<KitchenSink />
+									</Suspense>
+								</ErrorBoundary>
+							</>
+						)
+						: (
+							<>
+								<p className="lead">
+									What these words mean here.
+								</p>
+								<dl className="glossary">
+									<div>
+										<dt>Directory</dt>
+										<dd>
+											The starting object this page talks to. Rooms live on it. Fetching a
+											directory is how a peer arrives.
+										</dd>
+									</div>
+									<div>
+										<dt>Locator</dt>
+										<dd>
+											An ocapn:// address of a peer, and sometimes of one object on it.
+										</dd>
+									</div>
+									<div>
+										<dt>Capability</dt>
+										<dd>
+											A reference you hold. Holding it is the permission. There is no separate
+											account check.
+										</dd>
+									</div>
+									<div>
+										<dt>Swiss number</dt>
+										<dd>
+											A{" "}
+											<button
+												id="glossarySecret"
+												type="button"
+												className="secret-door"
+												onPointerEnter={() => prefetch(loadKitchen)}
+												onFocus={() => prefetch(loadKitchen)}
+												onClick={() => setSink(true)}
+											>
+												secret
+											</button>, unguessable name a peer will look up for you. Each operations
+											capability is published under one when the server starts with one of those
+											flags (--diagnostics, --admin-listeners, --operator, or --peering). That is
+											what the server prints. A durable room entry link is named by one too.
+										</dd>
+									</div>
+									<div>
+										<dt>Sturdyref</dt>
+										<dd>
+											Durable data: a locator plus a swiss number. Redeeming it asks that peer to
+											honor the name. A room entry link is a sturdyref.
+										</dd>
+									</div>
+								</dl>
+							</>
+						)}
+				</div>
 			</form>
 		</dialog>
 	);
-}
+});

@@ -3,11 +3,14 @@
 import { enableTrace, retainSecondaryFailure, type TraceEvent } from "@pancake/runtime";
 import { publishViz, type VizPublisher } from "../lib/viz_publish.ts";
 import type { RoomsSessionState } from "../lib/rooms_state.ts";
+import { ReconciliationBlocked } from "./reconnect.ts";
 
 export interface DurableVizSnapshot {
 	capability: "viz";
 	url: string;
 	connected: boolean;
+	/** Why the endpoint refused this swiss, or null while the socket still redials. */
+	refusal: string | null;
 }
 
 type StartPublisher = (
@@ -29,6 +32,7 @@ interface HeldViz {
 	readonly uninstall: () => void;
 	connected: boolean;
 	retired: boolean;
+	refusal: string | null;
 }
 
 function retirePublisher(publisher: VizPublisher, uninstall?: () => void): unknown | null {
@@ -84,10 +88,13 @@ export class DurableRoomsViz {
 				if (held == null || this.#held !== held || held.retired) return;
 				held.connected = false;
 				held.retired = true;
+				held.refusal = reason;
 				const failure = retirePublisher(held.publisher, held.uninstall);
 				this.#note(
 					held.scope,
-					failure == null ? reason : retainSecondaryFailure(new Error(reason), failure),
+					failure == null
+						? new ReconciliationBlocked(reason)
+						: retainSecondaryFailure(new ReconciliationBlocked(reason), failure),
 				);
 				this.#invalidated(held.scope);
 			},
@@ -107,7 +114,15 @@ export class DurableRoomsViz {
 			this.#invalidated(wanted.scope);
 			return;
 		}
-		held = { scope: wanted.scope, swiss: wanted.swiss, publisher, uninstall, connected: false, retired: false };
+		held = {
+			scope: wanted.scope,
+			swiss: wanted.swiss,
+			publisher,
+			uninstall,
+			connected: false,
+			retired: false,
+			refusal: null,
+		};
 		this.#held = held;
 		this.#invalidated(held.scope);
 	}
@@ -117,7 +132,7 @@ export class DurableRoomsViz {
 		if (held == null || held.scope !== scope) {
 			throw new Error("that visualizer capability is not active in this session");
 		}
-		return { capability: "viz", url: held.scope, connected: held.connected };
+		return { capability: "viz", url: held.scope, connected: held.connected, refusal: held.refusal };
 	}
 
 	close(): void {

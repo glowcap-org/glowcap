@@ -37,14 +37,26 @@ pub fn checkRoomsProofChildren(
     // The owner has to exist before the ban means anything. Without this, a
     // deleted `children.ts` reads as a tree that simply stopped spawning, and
     // the check reports success over an unowned harness.
-    if (!(util.fileContains(io, gpa, root, proof_dir ++ "/" ++ owner_rel, spawn_needle) catch false)) {
+    const owner_path = proof_dir ++ "/" ++ owner_rel;
+    if (!(util.fileContains(io, gpa, root, owner_path, spawn_needle) catch false)) {
         try appendViolation(
             gpa,
             violations,
-            "{s}/{s}: the one owner of proof child lifetime does not spawn. Either it is gone or the ban below is checking nothing",
-            .{ proof_dir, owner_rel },
+            "{s}: the one owner of proof child lifetime does not spawn. Either it is gone or the ban below is checking nothing",
+            .{owner_path},
         );
         return;
+    }
+    // Deno overlays `env` onto the parent unless `clearEnv` is set, so a copied
+    // map with `PANCAKE_ROOMS_STATE` deleted still hands the pane's live directory
+    // to a hermetic child. The owner is the one place that can hide it.
+    if (!(util.fileContains(io, gpa, root, owner_path, "clearEnv: true") catch false)) {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: hermetic children must replace the parent environment (`clearEnv: true`). Overlaying a map that omitted `PANCAKE_ROOMS_STATE` still inherits the pane's live state directory",
+            .{owner_path},
+        );
     }
     try walk(io, gpa, root, proof_dir, "", violations);
 }

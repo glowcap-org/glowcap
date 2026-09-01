@@ -177,7 +177,7 @@ pub const Node = struct {
     next_v1_emitted_handoff_count: u64 = 0,
     /// Where this node's next session starts handing out export positions; see
     /// `initialExportBase`. A plain counter, not an atomic: one thread drives a
-    /// node, which is what lets every other table here be a plain map too.
+    /// node, so every other table here can be a plain map too.
     next_export_base: u64,
     /// One past the last range this node may draw — the top of its own slot.
     /// The counter stops here instead of carrying into the next node's slot,

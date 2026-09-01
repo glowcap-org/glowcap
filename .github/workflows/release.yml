@@ -134,5 +134,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "pancake C archives $GITHUB_REF_NAME" \
             --verify-tag \
-            --notes "Per-platform pancake C archive sets (static + shared libraries, headers, licenses). Verify SHA256SUMS, then verify build provenance with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`pancake_abi_version\`." \
+            --notes "Per-platform pancake C archive sets (static and shared libraries, headers, product binaries, authorship disclosure, and licenses). Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`pancake_abi_version\`." \
             release-assets/*

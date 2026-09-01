@@ -46,8 +46,8 @@ pub const service_key_cap: usize = 256;
 /// Run the SOCKS5 handshake for `service_id` over an already-connected stream to
 /// Tor's SOCKS endpoint.
 ///
-/// **The reply is read through a reader with no buffer at all**, which is what
-/// makes this safe to run before the session's own reader exists. A buffered
+/// **The reply is read through a reader with no buffer at all**, so it is
+/// safe to run before the session's own reader exists. A buffered
 /// handshake reader can pull more off the socket than the reply, and the partner
 /// may have spoken already: Tor is free to coalesce its SOCKS reply with the first
 /// bytes the far peer sent, so those bytes would land in a buffer that dies here

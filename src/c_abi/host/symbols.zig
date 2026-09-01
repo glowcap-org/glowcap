@@ -162,6 +162,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_host_session_enliven", .out_params = &.{3} },
     .{ .name = "pancake_host_enliven", .out_params = &.{3} },
     .{ .name = "pancake_host_enliven_for_version", .out_params = &.{4} },
+    .{ .name = "pancake_host_fetch_at", .out_params = &.{4}, .pointer_params = &.{1} },
     .{
         .name = "pancake_host_set_trace",
         .out_params = &.{},

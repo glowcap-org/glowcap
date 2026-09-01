@@ -1,6 +1,6 @@
-//! Release packaging: the installed archive set, headers, product binaries,
-//! and licenses staged into one versioned, checksummed per-target tarball
-//! that the bindings' find leg resolves against.
+//! Release packaging: the installed archive set, headers, product binaries, the
+//! project provenance disclosure, and licenses staged into one versioned,
+//! checksummed per-target tarball that the bindings' find leg resolves against.
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -24,11 +24,11 @@ pub fn register(
 ) void {
     // ── release packaging ────────────────────────────────────────────────────
     // Stage the complete installed archive set — the pure-Zig archives plus the
-    // iroh companion — with the headers and licenses into one versioned,
-    // checksummed tarball under `zig-out/release/`, named by `abi_version` and
-    // the host target triple. `.github/workflows/release.yml` runs this per
-    // platform on a version tag and attaches the tarballs to the release, the
-    // hosted upstream the bindings' find leg resolves against.
+    // iroh companion — with the headers, authorship disclosure, and licenses
+    // into one versioned, checksummed tarball under `zig-out/release/`, named by
+    // `abi_version` and the host target triple. `.github/workflows/release.yml`
+    // runs this per platform on a version tag and attaches the tarballs to the
+    // release, the hosted upstream the bindings' find leg resolves against.
     const release_tarball = b.fmt(
         "pancake-c-v{d}.{d}.{d}-{s}-{s}.tar.gz",
         .{
@@ -79,8 +79,8 @@ pub fn register(
             \\  echo 'release-pack: stage must contain only regular files and directories' >&2
             \\  exit 1
             \\fi
-            \\cp LICENSE-APACHE LICENSE-THIRD-PARTY zig-out/release/stage/
-            \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include bin LICENSE-APACHE LICENSE-THIRD-PARTY
+            \\cp PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY zig-out/release/stage/
+            \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include bin PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY
             \\rm -rf zig-out/release/stage
             \\cd zig-out/release
             \\(sha256sum '{s}' || shasum -a 256 '{s}') > SHA256SUMS
@@ -113,7 +113,7 @@ pub fn register(
         headers,
     });
     release_smoke.step.dependOn(&release_pack_run.step);
-    const release_pack_step = b.step("release-pack", "Stage and verify optimized installed archives + headers + product binaries in a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
+    const release_pack_step = b.step("release-pack", "Stage and verify optimized installed archives, headers, product binaries, provenance, and licenses in a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
     if (optimize == .debug) {
         release_pack_step.dependOn(&b.addFail("release-pack refuses Debug artifacts; pass -Doptimize=ReleaseSafe (or another explicit Release mode)").step);
     } else {

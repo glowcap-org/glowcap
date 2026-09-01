@@ -19,12 +19,17 @@
 // it is not an explanation.
 
 import * as store from "./store.ts";
+import { stopBootAsides } from "./boot_note.ts";
+import type { PageProjection } from "./store/core.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word
- * on the screen, and the rooms stylesheets draw the fade from it. */
+ * on the screen, and the rooms stylesheets draw the fade from it. `leaving` is
+ * a reload that has already committed: the same sheet covers the outgoing page
+ * so a session that is over cannot flash a crash card on the way out. */
 const RUNNING = "running";
 const HANDED_OVER = "done";
+const LEAVING = "leaving";
 
 /** How long to wait for the fade's own end before taking the screen down
  * anyway. Comfortably past the stylesheet's `.3s`, so it never cuts a fade
@@ -39,22 +44,103 @@ export type RoomsOpeningReadiness = "controller-snapshot" | "directory-attempt";
  *
  * Any directory answering ends the wait. The screen covers reaching a server at
  * all, not the health of every one this tab may go on to hold. */
-function settled(): boolean {
-	return store.anyDirSettled();
+function settled(projection: PageProjection): boolean {
+	return store.anyDirSettled(projection);
+}
+
+/** The document element this module stamps, when a document exists. */
+function bootRoot(): HTMLElement | null {
+	return typeof document === "undefined" ? null : document.documentElement;
 }
 
 /** Whether the page has already been handed over. The states run one way, so
  * whichever end of the wait got here first has the last word: a crash that hands
  * over early must not be followed back into a screen by the entry module
- * reporting, a moment later, that it finished running. */
+ * reporting, a moment later, that it finished running. A committed reload is
+ * already past that decision; stamping `done` over `leaving` would take the
+ * cover down and let a crash card flash on the way out. */
 function handedOver(): boolean {
-	return document.documentElement.dataset.boot === HANDED_OVER;
+	const boot = bootRoot()?.dataset.boot;
+	return boot === HANDED_OVER || boot === LEAVING;
 }
 
-/** Hand the page to the interface now. Safe to call more than once, and from
- * either of the two paths that end the wait. */
+/** Cover the running page for a reload that has already committed. The opening
+ * screen was taken out at handover, so this stamps the document and the
+ * stylesheet paints the same sheet over whatever React still has in the tree. */
+export function coverForReload(): void {
+	const root = bootRoot();
+	if (root == null) return;
+	root.dataset.boot = LEAVING;
+}
+
+/** Whether a committed reload's cover is up. A crash surface must not paint a
+ * card or stamp `done` over this sheet. */
+export function coveringReload(): boolean {
+	return bootRoot()?.dataset.boot === LEAVING;
+}
+
+/** Drop an address that cannot mean anything until a session is chosen.
+ *
+ * Operations is session authority drawn as a page, so arriving there without
+ * one has nothing to show, and reopening it after a leave is what
+ * `standAtFront` was written for. A room or directory address is the opposite:
+ * it is a reader following a link somebody sent them, and it has to survive
+ * choosing a session so that choosing one puts them where the link pointed.
+ *
+ * The leave itself already stands at the front through
+ * `finishCoveredReload`, so this is only about what a *cold* arrival keeps. */
+export function standAtFrontOfPrivilegedAddress(): void {
+	if (typeof location === "undefined") return;
+	if (!location.pathname.startsWith("/ops")) return;
+	standAtFront();
+}
+
+/** A session that is over must not reopen on a room or `/ops`. Search and hash
+ * still name this tab's dm/viz configuration. */
+function standAtFront(): void {
+	if (typeof location === "undefined" || typeof history === "undefined") return;
+	const url = new URL(location.href);
+	if (url.pathname === "/") return;
+	url.pathname = "/";
+	history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+/** Unload a page that is already covered. `toFront` drops the last place so the
+ * next parse opens session choice rather than Operations. */
+export function finishCoveredReload(toFront = false): void {
+	if (toFront) standAtFront();
+	location.reload();
+}
+
+/** Reload the running page, covering it first so the outgoing tree cannot flash. */
+export function reloadNow(): void {
+	coverForReload();
+	finishCoveredReload();
+}
+
+/** Persist refused after the sheet went up: the page is staying, so put the
+ * document back in the handed-over state the running interface already had. */
+export function uncoverReload(): void {
+	const root = bootRoot();
+	if (root == null || root.dataset.boot !== LEAVING) return;
+	root.dataset.boot = HANDED_OVER;
+}
+
+/** A required chunk or boot step failed while the opening screen was still
+ * up. `import()` rejects rather than firing `window.onerror`, so page.html's
+ * watcher would never hear it and the splash would sit forever. */
+export function pageDidNotOpen(reason: string): void {
+	console.error("rooms: the page did not finish opening:", reason);
+	const root = bootRoot();
+	if (root == null) return;
+	const boot = root.dataset.boot;
+	if (boot !== "opening" && boot !== RUNNING) return;
+	root.dataset.boot = "lost";
+}
+
 export function handOffNow(): void {
 	if (handedOver()) return;
+	stopBootAsides();
 	document.documentElement.dataset.boot = HANDED_OVER;
 	const boot = document.getElementById("boot");
 	if (boot === null) return;
@@ -113,12 +199,12 @@ function onceStacked(fn: () => void): void {
  * the opening state page.html stamped, and so out of the reach of its watcher:
  * an error before this point is a page that never started and gets the
  * explanation, and an error after it belongs to the running page. */
-export function handOffWhenReady(readiness: RoomsOpeningReadiness): void {
+export function handOffWhenReady(projection: PageProjection, readiness: RoomsOpeningReadiness): void {
 	if (handedOver()) return;
 	document.documentElement.dataset.boot = RUNNING;
-	if (readiness === "controller-snapshot" || settled()) return onceStacked(handOffNow);
-	const stop = store.subscribe(() => {
-		if (!settled()) return;
+	if (readiness === "controller-snapshot" || settled(projection)) return onceStacked(handOffNow);
+	const stop = projection.subscribe(() => {
+		if (!settled(projection)) return;
 		stop();
 		onceStacked(handOffNow);
 	});

@@ -217,7 +217,7 @@ pub fn Machine(
             // state can still have changed: the recycle resumes a starved
             // connection, that can park one, and `on_park` is a public hook
             // free to close anything. `closeConn` and `failConn` both guard on
-            // state, which is what covers that.
+            // state, and that guard covers it.
             switch (verdict) {
                 .done => return,
                 .close => {

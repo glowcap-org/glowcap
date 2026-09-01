@@ -226,7 +226,7 @@ pub const HandshakeState = struct {
         var state = base(.initiator, local_static, ephemeral, prologue);
         state.rs = remote_static;
         // XK pre-message: the responder's static is mixed into the transcript
-        // before any message, which is what pins the handshake to the key the
+        // before any message, and that mix pins the handshake to the key the
         // dialer thinks it is talking to.
         state.mixHash(&remote_static);
         return state;

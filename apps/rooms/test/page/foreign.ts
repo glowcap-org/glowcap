@@ -6,7 +6,7 @@
 // the other.
 
 import type { Page } from "playwright";
-import { fail, fillSettled, freePort } from "./harness.ts";
+import { fail, fillSettled, freePort, reachDirectoryOnCard } from "./harness.ts";
 export async function run(
 	tab: Page,
 	httpPort: number,
@@ -100,9 +100,10 @@ export async function run(
 	}
 	await tab.keyboard.press("Escape");
 
-	// Stopping a join that is still waiting. The busy button keeps saying it is
-	// joining and is not a second press of Join; the × beside it is the stop, the
-	// same mark that takes a file chip back. The locator has to hang, not refuse:
+	// Stopping an act that is still waiting. An address this tab has not reached
+	// is a connect rather than a join, and the busy button keeps saying so rather
+	// than becoming a second press of it; the × beside it is the stop, the same
+	// mark that takes a file chip back. The locator has to hang, not refuse:
 	// a port nobody is holding is reset in a millisecond, and the card would
 	// settle before the × had a frame to be the thing this proof pressed.
 	const cancelled = `127.0.0.1:${hangPort}`;
@@ -114,10 +115,10 @@ export async function run(
 	await tab.waitForFunction(
 		() =>
 			document.getElementById("joinStop") === null &&
-			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Join room",
+			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Connect",
 		undefined,
 		{ timeout: 10_000 },
-	).catch(() => fail("stopping a join left the card waiting"));
+	).catch(() => fail("stopping a connect left the card waiting"));
 	const afterStop = await tab.evaluate(() => ({
 		error: (document.getElementById("joinError")?.textContent ?? "").trim(),
 		locator: (document.getElementById("locator") as HTMLInputElement | null)?.value ?? "",
@@ -138,19 +139,21 @@ export async function run(
 	// and fail the moment it is torn down.
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#joinStop", { timeout: 10_000 })
-		.catch(() => fail("joining the same address after stopping did not wait; it settled at once"));
-	const retried = (await tab.textContent("#joinError"))?.trim() ?? "";
+		.catch(() => fail("the same address after stopping did not wait; it settled at once"));
+	// Read it off the document rather than waiting for it: a refusal that was
+	// never made has no element, and waiting for one is waiting out the timeout.
+	const retried = await tab.evaluate(() => document.getElementById("joinError")?.textContent?.trim() ?? "");
 	if (retried !== "") {
-		fail(`joining the same address after stopping was refused at once: ${JSON.stringify(retried)}`);
+		fail(`the same address after stopping was refused at once: ${JSON.stringify(retried)}`);
 	}
 	await tab.click("#joinStop");
 	await tab.waitForFunction(
 		() =>
 			document.getElementById("joinStop") === null &&
-			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Join room",
+			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Connect",
 		undefined,
 		{ timeout: 10_000 },
-	).catch(() => fail("stopping the retried join left the card waiting"));
+	).catch(() => fail("stopping the retried connect left the card waiting"));
 
 	// A typo first. An address nobody has ever reached is most likely wrong, so
 	// the page must let it go rather than keep a row for it and dial it forever —
@@ -173,6 +176,16 @@ export async function run(
 	const kept = await tab.inputValue("#locator");
 	if (kept !== typo) {
 		fail(`a refused locator was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
+	}
+	const locatorSaid = await tab.evaluate(() => {
+		const field = document.getElementById("locator");
+		return {
+			invalid: field?.getAttribute("aria-invalid"),
+			described: field?.getAttribute("aria-describedby"),
+		};
+	});
+	if (locatorSaid.invalid !== "true" || locatorSaid.described !== "joinError") {
+		fail(`a refused locator was not marked on the field Connect is about; ${JSON.stringify(locatorSaid)}`);
 	}
 	// Nothing was kept for it. A second server would have made every row in the
 	// rail say which of the two it was on.
@@ -210,6 +223,9 @@ export async function run(
 	// name for every room a reader is in has to be wrong about some of them.
 	await fillSettled(tab, "#locator", foreignLocator);
 	await fillSettled(tab, "#nick", "bo");
+	// The directory first, then the room: this address has not been reached, so
+	// the card's act is a connect until it has been.
+	await reachDirectoryOnCard(tab);
 	await tab.click("#joinBtn");
 	// This wait failed twice in runs nobody could reproduce afterwards, so it
 	// reports the card rather than only the disappointment. A bare "did not
@@ -290,7 +306,7 @@ export async function run(
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one this check reads.
-	await tab.click("#overviewTab");
+	await tab.click("#reachabilityTab");
 	const shownLocator = (await tab.textContent("#directoryLocator"))?.trim() ?? "";
 	if (shownLocator === foreignLocator) {
 		fail("Settings described the directory of the room being read, not the one the page came from");

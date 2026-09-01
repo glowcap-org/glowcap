@@ -13,7 +13,7 @@
 
 import { type ReactNode, useState } from "react";
 import { MAX_AWAY, PLAIN_AWAY } from "../../lib/limits.ts";
-import { MenuList, MenuRow, useMenu } from "./Menu.tsx";
+import { MenuLayer, MenuList, MenuRow, useMenu } from "./Menu.tsx";
 
 /** What to call a standing on the control itself: the word somebody wrote, or a
  * plain name for each of the two ordinary answers. */
@@ -56,7 +56,7 @@ export function StandingMenu(
 		label?: string;
 	},
 ) {
-	const { open, setOpen, holder, trigger } = useMenu();
+	const { open, setOpen, holder, trigger, layer } = useMenu();
 	const [reason, setReason] = useState("");
 	const away = effective !== "";
 	const said = standingSaid(effective);
@@ -87,75 +87,79 @@ export function StandingMenu(
 				)}
 			</button>
 			{open && !disabled && (
-				<MenuList className={up ? "line-menu standing-menu above" : "line-menu standing-menu"}>
-					{follows !== undefined && (
+				<MenuLayer holder={holder} layer={layer} className={face !== undefined ? "at-foot" : undefined}>
+					<MenuList className={up ? "line-menu standing-menu above" : "line-menu standing-menu"}>
+						{follows !== undefined && (
+							<MenuRow
+								className="line-menu-row"
+								marked={own === null}
+								first
+								onPick={() => pick(null)}
+							>
+								Follow {follows}
+							</MenuRow>
+						)}
 						<MenuRow
 							className="line-menu-row"
-							marked={own === null}
-							first
-							onPick={() => pick(null)}
+							marked={own !== null && effective === ""}
+							first={follows === undefined}
+							onPick={() =>
+								pick("")}
 						>
-							Follow {follows}
+							Here
 						</MenuRow>
-					)}
-					<MenuRow
-						className="line-menu-row"
-						marked={own !== null && effective === ""}
-						first={follows === undefined}
-						onPick={() =>
-							pick("")}
-					>
-						Here
-					</MenuRow>
-					<MenuRow
-						className="line-menu-row"
-						marked={own !== null && away}
-						onPick={() => pick(PLAIN_AWAY)}
-					>
-						Away
-					</MenuRow>
-					{
-						/* A reason is still away, so it is written where away is chosen
-					    rather than behind a second step. Empty and submitted means
-					    here, which is the same answer the row above gives. */
-					}
-					<form
-						className="standing-why"
-						action={() => {
-							const why = reason;
-							setReason("");
-							pick(why);
-						}}
-					>
-						<input
-							type="text"
-							value={reason}
-							maxLength={MAX_AWAY}
-							placeholder="back in ten"
-							enterKeyHint="done"
-							autoCapitalize="sentences"
-							aria-label={`Why you stepped away${about === "you" ? "" : ", in " + about}`}
-							onChange={(event) => setReason(event.target.value)}
-						/>
-						<button type="submit" className="standing-say">Say it</button>
-					</form>
-					{actions.length > 0 && (
-						<div className="standing-actions" role="none">
-							{actions.map((action) => (
-								<MenuRow
-									key={action.label}
-									className="line-menu-row"
-									onPick={() => {
-										setOpen(false);
-										action.onPick();
-									}}
-								>
-									{action.label}
-								</MenuRow>
-							))}
-						</div>
-					)}
-				</MenuList>
+						<MenuRow
+							className="line-menu-row"
+							marked={own !== null && away}
+							onPick={() =>
+								pick(PLAIN_AWAY)}
+						>
+							Away
+						</MenuRow>
+						{
+							/* A reason is still away, so it is written where away is chosen
+						    rather than behind a second step. Empty and submitted means
+						    here, which is the same answer the row above gives. */
+						}
+						<form
+							className="standing-why"
+							action={() => {
+								const why = reason;
+								setReason("");
+								pick(why);
+							}}
+						>
+							<input
+								type="text"
+								value={reason}
+								maxLength={MAX_AWAY}
+								placeholder="back in ten"
+								enterKeyHint="done"
+								autoCapitalize="sentences"
+								aria-label={`Why you stepped away${about === "you" ? "" : ", in " + about}`}
+								onChange={(event) =>
+									setReason(event.target.value)}
+							/>
+							<button type="submit" className="standing-say">Say it</button>
+						</form>
+						{actions.length > 0 && (
+							<div className="standing-actions" role="none">
+								{actions.map((action) => (
+									<MenuRow
+										key={action.label}
+										className="line-menu-row"
+										onPick={() => {
+											setOpen(false);
+											action.onPick();
+										}}
+									>
+										{action.label}
+									</MenuRow>
+								))}
+							</div>
+						)}
+					</MenuList>
+				</MenuLayer>
 			)}
 		</div>
 	);

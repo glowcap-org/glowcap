@@ -35,12 +35,12 @@
 import process from "node:process";
 import { Ref } from "@pancake/runtime";
 import type { Behavior, Host, Session } from "@pancake/runtime";
-import { serveDirectory } from "../server/main.ts";
+import { RoomServer } from "../server/room_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";
 import { INTRODUCTION_PENDING, roomErrorOf } from "../lib/errors.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { Directory } from "../lib/room_client.ts";
+import { Directory } from "../lib/room/client.ts";
 import type { RoomsRuntime } from "../lib/locator.ts";
 
 /** A stream of inbound sessions: each value yielded is one accepted connection. Both
@@ -156,7 +156,8 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		})();
 
 		const room = await t.startRoom();
-		const roomServe = serveDirectory(room.host, room.listener);
+		const server = new RoomServer();
+		const roomServe = server.serve(room.host, room.listener);
 
 		// Bob dials the room on his own Host and registers his dialable locator, so
 		// `introduce` can hand an inbox of his on as a gift. The shared inbox publisher
@@ -242,6 +243,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		await bob.close();
 		await carol.close();
 		await Promise.allSettled([bobAccept, carolAccept, roomServe]);
+		await server.close();
 		process.exit(0);
 	} catch (err) {
 		fail(err instanceof Error ? (err.stack ?? err.message) : String(err));

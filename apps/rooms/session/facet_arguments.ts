@@ -2,7 +2,7 @@
 
 import { type Argument, Ref, type Session } from "@pancake/runtime";
 import { hasCapabilityArguments, refuseCapabilityArguments } from "../lib/argument_custody.ts";
-import { ROOMS_SESSION_FILES, ROOMS_SESSION_REFILE, ROOMS_SESSION_WATCH } from "../lib/rooms_session.ts";
+import { ROOMS_SESSION_FILES, ROOMS_SESSION_REFILE, ROOMS_SESSION_WATCH } from "../lib/session/client.ts";
 
 /** Only these three verbs transfer capabilities into a durable session. Every
  * other verb is scalar/JSON protocol and returns any injected occurrences. */

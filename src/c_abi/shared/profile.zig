@@ -44,6 +44,10 @@ pub const PANCAKE_FEATURE_BASELINE: u32 = featureSetToC(model.FeatureSet.baselin
 pub const PANCAKE_DEFAULT_CODEC: u32 = codecToC(model.Preference.default_offer.codec);
 pub const PANCAKE_DEFAULT_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.default_offer.captp_version);
 pub const PANCAKE_DEFAULT_FEATURES: u32 = featureSetToC(model.Preference.default_offer.features);
+pub const PANCAKE_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec);
+pub const PANCAKE_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version);
+pub const PANCAKE_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec);
+pub const PANCAKE_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version);
 
 comptime {
     const fields = @typeInfo(model.FeatureSet).@"struct".field_names;

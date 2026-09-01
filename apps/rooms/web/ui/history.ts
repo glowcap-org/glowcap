@@ -15,32 +15,40 @@
 // carries the recorder coordinates the archive actually stored; older
 // prerelease schemas are reset rather than shown under invented provenance.
 
-import type { ArchivedAttachment, ArchiveLine, ArchiveRecord } from "../../lib/archive.ts";
+import type { ArchivedAttachment, ArchiveLine, ArchiveRecord } from "../../lib/archive/protocol.ts";
 import type { AttachmentSource } from "../../lib/attachment.ts";
 import {
 	type ArchivedAttachmentRead,
 	type ArchivedAttachmentSource,
 	isBlobArchiveBackend,
 	lineAttachmentAddress,
-} from "../../lib/archive_blobs.ts";
+} from "../../lib/archive/blobs.ts";
 import { BLOB_CHUNK } from "../../lib/limits.ts";
 import {
 	historyRetentionEpoch,
 	readTabArchiveContext,
 	setHistoryRetentionEpoch,
-	tabArchiveBackend,
+	type TabArchiveBackend,
 } from "./archive_store.ts";
+import type { RoomsPageContext } from "./page.ts";
 
-let reportHistoryTrouble: (source: string, reason: string) => void = () => {};
+/** Recorder selection, write queue, and retention for one page's archive. */
+export class PageHistoryRecorder {
+	reportTrouble: (source: string, reason: string) => void = () => {};
+	keepHistory = true;
+	retentionEpoch: Promise<string>;
+	targetSlot: TargetSlot;
+	writes: Promise<void> = Promise.resolve();
+	readonly deviceTarget: HistoryArchiveTarget;
+	readonly archive: TabArchiveBackend;
 
-/** Bind write failures to the presentation owner. Attached views do not record,
- * so local boot installs this once before any line can arrive. */
-export function setHistoryTroubleReporter(report: (source: string, reason: string) => void): void {
-	reportHistoryTrouble = report;
+	constructor(archive: TabArchiveBackend) {
+		this.archive = archive;
+		this.retentionEpoch = historyRetentionEpoch(archive.db);
+		this.deviceTarget = deviceTargetFor(archive);
+		this.targetSlot = { target: this.deviceTarget, uses: 0, idle: [] };
+	}
 }
-
-let keepHistory = true;
-let retentionEpoch = historyRetentionEpoch();
 
 function archiveSource(
 	metadata: ArchiveLine["attachments"][number],
@@ -81,11 +89,11 @@ export interface StoredGeneration {
 }
 
 /** One selected archive implementation. The tab backend and a remote peer
- * differ only here; record semantics remain in `lib/archive.ts`. */
+ * differ only here; record semantics remain in `lib/archive/protocol.ts`. */
 export interface HistoryArchiveTarget {
 	readonly kind: "device" | "peer" | "unavailable";
 	readonly keeper: string;
-	put(record: ArchiveLine, attachments?: readonly AttachmentSource[]): Promise<unknown>;
+	put(record: ArchiveRecord, attachments?: readonly AttachmentSource[]): Promise<unknown>;
 	read(kind: "room" | "direct", directory: string, conversation: string): Promise<ArchiveRecord[]>;
 	attachment(record: ArchiveLine, index: number, onProgress?: (got: number) => void): Promise<Uint8Array>;
 	retire(): Promise<void>;
@@ -109,32 +117,32 @@ async function materializeArchivedAttachment(
 	return bytes;
 }
 
-const deviceTarget: HistoryArchiveTarget = {
-	kind: "device",
-	keeper: "this device",
-	put: (record, attachments = []) =>
-		attachments.length > 0 && isBlobArchiveBackend(tabArchiveBackend)
-			? tabArchiveBackend.putWithAttachments(
-				record,
-				attachments.map((attachment, index) => archiveSource(record.attachments[index], attachment)),
-			)
-			: tabArchiveBackend.put(record),
-	read: readTabArchiveContext,
-	attachment: async (record, index, onProgress) =>
-		await materializeArchivedAttachment(
-			await tabArchiveBackend.readAttachment(lineAttachmentAddress(record, index)),
-			onProgress,
-		),
-	retire: () => Promise.resolve(),
-};
+function deviceTargetFor(archive: TabArchiveBackend): HistoryArchiveTarget {
+	return {
+		kind: "device",
+		keeper: "this device",
+		put: (record, attachments = []) =>
+			record.kind === "line" && attachments.length > 0 && isBlobArchiveBackend(archive)
+				? archive.putWithAttachments(
+					record,
+					attachments.map((attachment, index) => archiveSource(record.attachments[index], attachment)),
+				)
+				: archive.put(record),
+		read: (kind, directory, conversation) => readTabArchiveContext(archive, kind, directory, conversation),
+		attachment: async (record, index, onProgress) =>
+			await materializeArchivedAttachment(
+				await archive.readAttachment(lineAttachmentAddress(record, index)),
+				onProgress,
+			),
+		retire: () => Promise.resolve(),
+	};
+}
 
 interface TargetSlot {
 	readonly target: HistoryArchiveTarget;
 	uses: number;
 	idle: (() => void)[];
 }
-
-let targetSlot: TargetSlot = { target: deviceTarget, uses: 0, idle: [] };
 
 function holdTargetSlot(slot: TargetSlot): () => void {
 	slot.uses += 1;
@@ -163,36 +171,52 @@ function whenIdle(slot: TargetSlot): Promise<void> {
 	return new Promise((resolve) => slot.idle.push(resolve));
 }
 
+/** Bind write failures to the presentation owner. Attached views do not record,
+ * so local boot installs this once before any line can arrive. */
+export function setHistoryTroubleReporter(
+	page: RoomsPageContext,
+	report: (source: string, reason: string) => void,
+): void {
+	page.recorder.reportTrouble = report;
+}
+
 /** Hold the recorder currently selected at this instant. A caller preparing
  * passable authority keeps this lease until the authority has crossed or been
  * abandoned, so an overlapping target swap cannot close its session between
  * mint and handoff. */
-export function holdHistoryArchiveTarget(): { target: HistoryArchiveTarget; release(): void } {
-	const slot = targetSlot;
+export function holdHistoryArchiveTarget(
+	page: RoomsPageContext,
+): { target: HistoryArchiveTarget; release(): void } {
+	const slot = page.recorder.targetSlot;
 	return { target: slot.target, release: holdTargetSlot(slot) };
 }
 
 /** Change where subsequent records go. Earlier queued writes finish against
  * their old target. Active reads and displayed archived-file occurrences may
  * keep that target draining after the new selection has returned. */
-export async function activateHistoryArchiveTarget(next: HistoryArchiveTarget): Promise<void> {
-	const prior = targetSlot;
+export async function activateHistoryArchiveTarget(
+	page: RoomsPageContext,
+	next: HistoryArchiveTarget,
+): Promise<void> {
+	const recorder = page.recorder;
+	const prior = recorder.targetSlot;
 	if (prior.target === next) return;
 	const deferRetirement = prior.uses > 0;
-	const admitted = writes;
-	targetSlot = { target: next, uses: 0, idle: [] };
+	const admitted = recorder.writes;
+	recorder.targetSlot = { target: next, uses: 0, idle: [] };
 	await admitted;
 	const retire = whenIdle(prior).then(() => prior.target.retire());
-	if (!deferRetirement) await retire;
+	const reportRetirement = (error: unknown) => {
+		recorder.reportTrouble("archive target retirement", error instanceof Error ? error.message : String(error));
+	};
+	if (!deferRetirement) await retire.catch(reportRetirement);
 	else {
-		void retire.catch((error) => {
-			reportHistoryTrouble("archive target retirement", error instanceof Error ? error.message : String(error));
-		});
+		void retire.catch(reportRetirement);
 	}
 }
 
-export function useDeviceHistoryArchive(): Promise<void> {
-	return activateHistoryArchiveTarget(deviceTarget);
+export function useDeviceHistoryArchive(page: RoomsPageContext): Promise<void> {
+	return activateHistoryArchiveTarget(page, page.recorder.deviceTarget);
 }
 
 export function unavailableHistoryArchiveTarget(label: string): HistoryArchiveTarget {
@@ -215,44 +239,44 @@ export interface HistoryCoordinates {
 }
 
 /** Whether the selected archive admits new message records. */
-export function historyKept(): boolean {
-	return keepHistory;
+export function historyKept(page: RoomsPageContext): boolean {
+	return page.recorder.keepHistory;
 }
 
 /** Install the validated bundle preference before a directory can deliver. */
-export function restoreHistoryPreference(keep: boolean): void {
-	keepHistory = keep;
+export function restoreHistoryPreference(page: RoomsPageContext, keep: boolean): void {
+	page.recorder.keepHistory = keep;
 }
 
 /** Change retention only after the browser has committed its storage boundary.
  * Turning device retention off advances that boundary and clears in one
  * transaction; queued writes admitted by any tab under the old epoch can no
  * longer put an erased line back. */
-export async function setHistoryKept(keep: boolean): Promise<void> {
+export async function setHistoryKept(page: RoomsPageContext, keep: boolean): Promise<void> {
+	const recorder = page.recorder;
 	const nextEpoch = crypto.randomUUID();
-	const erase = !keep && targetSlot.target.kind === "device";
-	await writes;
-	await setHistoryRetentionEpoch(nextEpoch, erase);
-	if (erase) tabArchiveBackend.clearVolatile();
-	retentionEpoch = Promise.resolve(nextEpoch);
-	keepHistory = keep;
+	const erase = !keep && recorder.targetSlot.target.kind === "device";
+	await recorder.writes;
+	await setHistoryRetentionEpoch(recorder.archive.db, nextEpoch, erase);
+	if (erase) recorder.archive.clearVolatile();
+	recorder.retentionEpoch = Promise.resolve(nextEpoch);
+	recorder.keepHistory = keep;
 }
-
-let writes: Promise<void> = Promise.resolve();
 
 /** Settle every record operation queued before this call. A share boundary
  * uses this before minting a facet so the offered account includes everything
  * the sender has already seen drawn. Later lines remain later writes. */
-export function settleHistoryWrites(): Promise<void> {
-	return writes;
+export function settleHistoryWrites(page: RoomsPageContext): Promise<void> {
+	return page.recorder.writes;
 }
 
-function enqueueWrite(write: () => Promise<void>): void {
+function enqueueWrite(page: RoomsPageContext, write: () => Promise<void>): void {
 	// One line may be put, edited, and withdrawn in adjacent UI turns. Preserve
 	// that order even when the first operation had to open IndexedDB or mint the
 	// recorder source. A failure remains visible but never poisons the queue.
-	writes = writes.then(write, write).catch((error) => {
-		reportHistoryTrouble("message history write", error instanceof Error ? error.message : String(error));
+	const recorder = page.recorder;
+	recorder.writes = recorder.writes.then(write, write).catch((error) => {
+		recorder.reportTrouble("message history write", error instanceof Error ? error.message : String(error));
 	});
 }
 
@@ -280,16 +304,18 @@ function archiveLine(
 }
 
 function putDmLine(
+	page: RoomsPageContext,
 	coordinates: HistoryCoordinates,
 	line: StoredLine,
 	state: ArchiveLine["state"],
 	attachments: readonly AttachmentSource[] = [],
 ): void {
-	if (!historyKept()) return;
-	const selected = targetSlot;
-	const epoch = selected.target.kind === "device" ? retentionEpoch : null;
-	enqueueWrite(async () => {
-		const source = await tabArchiveBackend.source();
+	if (!historyKept(page)) return;
+	const recorder = page.recorder;
+	const selected = recorder.targetSlot;
+	const epoch = selected.target.kind === "device" ? recorder.retentionEpoch : null;
+	enqueueWrite(page, async () => {
+		const source = await recorder.archive.source();
 		const record = archiveLine(coordinates, line, state, source);
 		await withTarget(
 			selected,
@@ -297,14 +323,14 @@ function putDmLine(
 				target.kind === "device" && epoch != null
 					? epoch.then((expected) =>
 						attachments.length > 0
-							? tabArchiveBackend.putRetainedWithAttachments(
+							? recorder.archive.putRetainedWithAttachments(
 								record,
 								attachments.map((attachment, index) =>
 									archiveSource(record.attachments[index], attachment)
 								),
 								expected,
 							)
-							: tabArchiveBackend.putRetained(record, expected)
+							: recorder.archive.putRetained(record, expected)
 					)
 					: target.put(record, attachments),
 		);
@@ -314,49 +340,99 @@ function putDmLine(
 /** Insert one line under this recorder's explicit source and conversation
  * generation. Fire-and-forget: the caller has already drawn the line. */
 export function recordHistoryLine(
+	page: RoomsPageContext,
 	coordinates: HistoryCoordinates,
 	line: StoredLine,
 	attachments: readonly AttachmentSource[] = [],
 ): void {
-	putDmLine(coordinates, line, "present", attachments);
+	putDmLine(page, coordinates, line, "present", attachments);
 }
 
 /** A line was edited: the same archive key receives the new words and a new
  * revision, so readers that already saw it see the replacement. */
 export function updateHistoryLine(
+	page: RoomsPageContext,
 	coordinates: HistoryCoordinates,
 	line: StoredLine,
 	attachments: readonly AttachmentSource[] = [],
 ): void {
-	putDmLine(coordinates, line, "edited", attachments);
+	putDmLine(page, coordinates, line, "edited", attachments);
 }
 
 /** A line was withdrawn: replace the record with an empty withdrawn state.
  * The state remains observable; the plaintext does not. */
-export function forgetHistoryLine(coordinates: HistoryCoordinates, line: StoredLine): void {
-	putDmLine(coordinates, line, "withdrawn");
+export function forgetHistoryLine(
+	page: RoomsPageContext,
+	coordinates: HistoryCoordinates,
+	line: StoredLine,
+): void {
+	putDmLine(page, coordinates, line, "withdrawn");
+}
+
+/** Record that this nick stood in this room under the current generation. */
+export function recordHistoryStanding(
+	page: RoomsPageContext,
+	coordinates: Pick<HistoryCoordinates, "generation" | "directory" | "conversation">,
+	nick: string,
+): void {
+	// The nick is the whole content of this row, so there is nothing to record
+	// without one. A directory that has not yet said what it calls this reader
+	// answers with the empty string, and that is the ordinary state part-way
+	// through a reload. This row shares its key with the one already standing,
+	// so recording an empty name would not add a row, it would replace a real
+	// name with none and leave the archive holding a row nothing can read.
+	// Skipping keeps the name that is already there; a later hydration, once
+	// the directory has answered, records this one over it. `#rememberStanding`
+	// on the session side keeps the same line.
+	if (nick === "") return;
+	if (!historyKept(page)) return;
+	const recorder = page.recorder;
+	const selected = recorder.targetSlot;
+	const epoch = selected.target.kind === "device" ? recorder.retentionEpoch : null;
+	enqueueWrite(page, async () => {
+		const source = await recorder.archive.source();
+		const record = {
+			kind: "standing" as const,
+			source,
+			generation: coordinates.generation,
+			id: "standing",
+			directory: coordinates.directory,
+			room: coordinates.conversation,
+			nick,
+			at: Date.now(),
+		};
+		await withTarget(
+			selected,
+			(target) =>
+				target.kind === "device" && epoch != null
+					? epoch.then((expected) => recorder.archive.putRetained(record, expected))
+					: target.put(record),
+		);
+	});
 }
 
 /** Everything remembered for this directory name, separated by the recorder
  * source and live conversation generation it actually belongs to. */
 export async function readHistoryLines(
+	page: RoomsPageContext,
 	directory: string,
 	conversation: string,
 ): Promise<StoredGeneration[]> {
-	return await readLines("direct", directory, conversation);
+	return await readLines(page, "direct", directory, conversation);
 }
 
 /** Everything remembered for one room or direct context, separated by the
  * recorder source and live conversation generation that actually produced it. */
 export async function readLines(
+	page: RoomsPageContext,
 	kind: "room" | "direct",
 	directory: string,
 	conversation: string,
 ): Promise<StoredGeneration[]> {
-	const selected = targetSlot;
+	const selected = page.recorder.targetSlot;
 	const releaseRead = holdTargetSlot(selected);
 	try {
-		await writes;
+		await page.recorder.writes;
 		const archived = await selected.target.read(kind, directory, conversation);
 		const byGeneration = new Map<string, StoredGeneration>();
 		for (const record of archived) {

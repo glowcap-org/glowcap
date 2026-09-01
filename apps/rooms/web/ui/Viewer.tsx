@@ -14,19 +14,22 @@
 // picture has two sizes, fitted and actual, and the stage scrolls the second
 // natively; `ViewerImage` says why there is no third.
 
-import { useEffect, useRef, useState } from "react";
-import type { AttachmentView } from "./types.ts";
+import { type CSSProperties, memo, useEffect, useRef, useState } from "react";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { IconButton } from "./IconButton.tsx";
+import { useRoomsState } from "./hooks.ts";
+import { viewedAttachment } from "./store.ts";
 import { kindOf } from "./media.ts";
 import { saveAs } from "./download.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 import { ViewerImage } from "./ViewerImage.tsx";
 
-export function Viewer(
-	{ open, file, convKey }: { open: boolean; file: AttachmentView | null; convKey: string },
-) {
+export const Viewer = memo(function Viewer() {
+	const viewing = useRoomsState((state) => state.viewing);
+	const file = useRoomsState((state) => viewedAttachment(state));
+	const open = viewing !== null && file !== null;
+	const convKey = viewing?.key ?? "";
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -42,10 +45,15 @@ export function Viewer(
 	// same state with a different handle.
 	const [actual, setActual] = useState(false);
 	const [oversized, setOversized] = useState(false);
+	// What the stage's own scrollbar takes out of the window's width, so the
+	// bar can stop short of it. See `.viewer-bar` for why it cannot simply
+	// stop taking the pointer there.
+	const [gutter, setGutter] = useState(0);
 	const shownId = shown?.id;
 	useEffect(() => {
 		setActual(false);
 		setOversized(false);
+		setGutter(0);
 	}, [shownId]);
 	if (!held || shown == null) return null;
 
@@ -53,6 +61,7 @@ export function Viewer(
 		<dialog
 			ref={dialog}
 			className="viewer"
+			style={{ "--viewer-gutter": `${gutter}px` } as CSSProperties}
 			aria-label={shown.name}
 			aria-keyshortcuts={kind === "image" ? "ArrowLeft ArrowRight" : undefined}
 			onKeyDown={(event) => {
@@ -104,6 +113,7 @@ export function Viewer(
 						actual={actual}
 						oversized={oversized}
 						onMeasure={setOversized}
+						onGutter={setGutter}
 						onToggle={() => setActual(!actual)}
 						onBackdrop={() => browser.closeViewer()}
 					/>
@@ -137,4 +147,4 @@ export function Viewer(
 				)}
 		</dialog>
 	);
-}
+});

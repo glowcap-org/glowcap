@@ -7,7 +7,7 @@ more ways to reach a peer.
 | Milestone | Standing |
 | --- | --- |
 | 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
-| 2. Performance at scale | Met. Memory and latency budgets run on main-branch pushes and pull requests; a release-mode run held 500,000 authenticated socket sessions live. |
+| 2. Performance at scale | Met. Memory and latency budgets run on main and dev pushes and pull requests; a release-mode run held 500,000 authenticated socket sessions live. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. All four bindings dial Goblins and are dialed by it through the C ABI. |
 | 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship; Windows support and a deployed public-certificate relay proof remain. |
@@ -141,7 +141,7 @@ give is proved by `zig build webrtc-bridge-redeem`.
 
 The remaining work is about deployment evidence and operating systems rather
 than another protocol core. A native peer cold-dials a Chromium-hosted actor
-over local WSS and end-to-end Noise in the recurring gate, and every native
+over local WSS and end-to-end Noise in recurring CI, and every native
 binding follows a locator-carried rendezvous route. The recurring macOS job
 executes the native test suite, while the full external-runtime matrix remains
 on Linux.
@@ -151,4 +151,4 @@ on Linux.
   public certificate;
 
 [Known limitations](boundaries.md) explains the consequences today. The
-[roadmap](roadmap.md) owns the work needed to close them.
+[roadmap](roadmap.md) lists the work needed to close them.

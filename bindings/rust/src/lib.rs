@@ -204,7 +204,7 @@ pub(crate) use value::owned_from_view;
 pub(crate) use value::{arg_from_sys, args_from_sys, SendArena};
 pub use value::{Argument, Ref};
 mod profile;
-pub use profile::{CaptpVersion, Codec, FeatureSet, SessionProfile};
+pub use profile::{CaptpVersion, Codec, FeatureSet, HostProfile, SessionProfile};
 #[cfg(test)]
 mod tests {
 	use super::*;

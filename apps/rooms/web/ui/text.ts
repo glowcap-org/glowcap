@@ -13,6 +13,20 @@ import {
 } from "./types.ts";
 import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "../../lib/limits.ts";
 
+/** What a surface says while this browser's access to the session is paused and
+ * there is consequently nothing in it to show.
+ *
+ * Not that there is nothing here: the session has stopped telling this browser
+ * what it holds, and the rows may well still exist. Nor any of the invitations
+ * the ordinary empty texts make — joining a room and messaging a member are both
+ * closed to a reader in this state, and a surface that suggests one is offering
+ * an act that will be refused.
+ *
+ * Said the same way by every surface that goes empty at once, and by none of
+ * them said why: the reason and whatever note came with it stand on the bar
+ * above the conversation, so a page in this state explains itself once. */
+export const nothingWhilePaused = "Not shown while your access is paused.";
+
 /** How a directory's connection reads in words. The dot beside it carries the
  * same fact in shape and color; this is what a reader who has neither gets.
  *
@@ -35,6 +49,16 @@ export const PHASE_SAID: Record<SessionPhase, string> = {
  * "…, directory not connected". */
 export function phaseWord(session: SessionPhase): string {
 	return PHASE_SAID[session].toLowerCase();
+}
+
+/** Why direct messages cannot run on a directory that is not live.
+ *
+ * The four connection words are a directory's. This sentence names that
+ * directory in the same words the rail and the connection row already use, so
+ * a card cannot say the directory is "away" — which is how a person steps
+ * out — while the row beside it says reconnecting. */
+export function directoryDmBlocked(session: SessionPhase): string {
+	return session === "connected" ? "" : "Not while this directory is " + phaseWord(session);
 }
 
 /** What one directory's connection is saying: the phase in words, and the
@@ -84,12 +108,12 @@ export function dirStanding(session: SessionPhase): string {
 	return session === "connected" ? "" : PHASE_SAID[session];
 }
 
-/** What the caption that opens a directory's card announces itself as: the
- * directory it is about, and how that directory is doing when there is
- * something to say. Written once for the three kinds of row that carry one, so
- * a listening reader is told the same thing on each. */
+/** What the caption that opens a directory announces itself as: the directory
+ * it names, and how that directory is doing when there is something to say.
+ * Written once for the three kinds of row that carry one, so a listening
+ * reader is told the same thing on each. */
 export function dirCaptionSaid(name: string, session: SessionPhase): string {
-	return "About " + name + (session === "connected" ? "" : ", " + phaseWord(session));
+	return name + (session === "connected" ? "" : ", " + phaseWord(session));
 }
 
 /** A directory named, and the color that goes with the name.
@@ -118,7 +142,7 @@ export type DirWhere = DirNamed | { name: null; mark: undefined };
  * a name is worth saying: the card describing one is opened from a row that
  * only names its directory when there is more than one. Everything that could
  * be looking at a single directory asks `dirWhere` instead. */
-export function dirNamed(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId, DirView>): DirNamed {
+function dirNamed(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId, DirView>): DirNamed {
 	return { name: directoryName(dir, home), mark: dirMarkIn(dir, home, dirs) };
 }
 
@@ -211,13 +235,13 @@ export function conversationReach(
 	conv: { type: "room"; held: boolean; id: string; link?: string } | { type: "dm" },
 ): string {
 	if (conv.type === "dm") {
-		return "This line was introduced on the directory named above. A direct conversation has no room address. The path is how the messages travel.";
+		return "This line was introduced on the directory named above. It has no room address of its own.";
 	}
-	if (conv.link !== undefined) {
+	if (conv.held && conv.link !== undefined) {
 		return "This is the room's own locator, a sturdyref. /join it to be here. It is not the directory named above.";
 	}
 	if (conv.held) {
-		return "You are in this room by a live reference, which lasts as long as this session. The locator is that session's directory, not an address for the room. /link mints a sturdyref if you need one that outlives a reconnect.";
+		return "You are in this room by a live reference, for this session only. The locator is the directory's, not the room's. A manager can create a durable entry link from Capabilities.";
 	}
 	return "A public room is a name on a directory, so this is that directory's locator, not a separate address for " +
 		roomCalled(conv.id, false) +
@@ -274,9 +298,17 @@ export function dayLabel(at: number): string {
  *
  * One phrasing, because it is one thing to say: a room name in the rail, a name
  * on the join card, and a message in the composer were each wording it
- * separately, which is three places for one decision about how the page speaks. */
-export function tooLong(noun: string, max: number): string {
-	return `${noun} too long (max ${max} characters)`;
+ * separately, which is three places for one decision about how the page speaks.
+ *
+ * It is not one measure, though, and saying so is the caller's job. A name is
+ * held to its length and a message to what it costs on the wire, which is its
+ * UTF-8 bytes — so a reader writing anything but Latin met a message refused
+ * thousands of characters below the number this sentence had just given them,
+ * and the further their script is from ASCII the further off it was. The unit
+ * has no default: a new limit is measured one way or the other, and which one
+ * is not a thing to inherit by accident. */
+export function tooLong(noun: string, max: number, unit: "characters" | "bytes"): string {
+	return `${noun} too long (max ${max} ${unit})`;
 }
 
 /** Why a line from somebody else cannot be shown, or null when it can.
@@ -390,10 +422,6 @@ export { ROOM_MENTIONS } from "../../lib/limits.ts";
  * accepts, brief in what it proposes. */
 export const ROOM_MENTIONS_OFFERED: readonly string[] = ["here", "room"];
 
-/** Whether a line reaches this reader: by their name, or by naming the room.
- *
- * The one answer both the highlight in the log and the desktop notification
- * read, so a line cannot light up without notifying or the other way round. */
 /** The longest line this conversation will carry, in bytes.
  *
  * The tighter of what this app allows and what the room says of itself, so a
@@ -401,9 +429,45 @@ export const ROOM_MENTIONS_OFFERED: readonly string[] = ["here", "room"];
  * read both by the counter that warns and by the send that refuses — two
  * numbers here would eventually disagree, and the disagreement would be a
  * message a reader was told they could send and then could not. */
-export function lineRoom(conv: { type: "room"; lineBytes?: number } | { type: "dm" } | null, appMax: number): number {
+export function lineRoom(
+	conv: { type: "room"; lineBytes?: number } | { type: "dm" } | { type: "directory" } | null,
+	appMax: number,
+): number {
 	if (conv === null || conv.type !== "room" || conv.lineBytes === undefined) return appMax;
 	return Math.min(appMax, conv.lineBytes);
+}
+
+/** What the composer says about the room left on a line, or null while saying
+ * anything would be furniture.
+ *
+ * Quiet until the last fifth, because a counter that is always there is one
+ * more thing to read and never the thing a reader came for. Urgent past the
+ * cap, because then the message will not go at all.
+ *
+ * It counts what the line costs on the wire rather than how long it looks,
+ * which is the same measure the send is refused by and the only one that is
+ * right in every script: three thousand Japanese characters cost nine thousand
+ * bytes, so a draft a third of the length is the one that will not fit.
+ *
+ * Both caps are watched. A room bridged somewhere else may carry less than
+ * this app does, and finding that out by having a message cut in half on the
+ * far side is finding out too late; where it asks for no less, the app's own
+ * cap is still a wall a pasted log walks into, and it used to be met only by
+ * pressing Send. Only a room's own cap is named, though, because that is the
+ * one a reader has no way to know about.
+ *
+ * The cap itself comes from `lineRoom`, the same call the send is refused by,
+ * so the number warned about and the number enforced cannot drift apart. */
+export function lineCapSaid(
+	conv: Parameters<typeof lineRoom>[0],
+	draft: string,
+): { over: boolean; said: string } | null {
+	const cap = lineRoom(conv, MAX_LINE);
+	const cost = lineCost(draft);
+	if (cost <= cap * 0.8) return null;
+	const over = cost - cap;
+	if (over > 0) return { over: true, said: `${over} bytes too long${cap < MAX_LINE ? " for this room" : ""}` };
+	return { over: false, said: `${cap - cost} bytes left` };
 }
 
 // ── IRC formatting, as it arrives over a bridge ───────────────────────────
@@ -527,6 +591,10 @@ export function ircRuns(text: string): IrcRun[] {
 	return runs;
 }
 
+/** Whether a line reaches this reader: by their name, or by naming the room.
+ *
+ * The one answer both the highlight in the log and the desktop notification
+ * read, so a line cannot light up without notifying or the other way round. */
 export function mentionsYou(text: string, nick: string): boolean {
 	const re = new RegExp(MENTION.source, "g");
 	let m: RegExpExecArray | null;

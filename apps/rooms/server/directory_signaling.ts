@@ -16,15 +16,8 @@ import {
 } from "../lib/protocol.ts";
 import { throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import { dropSignalExchange, originatedExchange, registeredNickOf } from "./introductions.ts";
-import { noteTrouble } from "./journal.ts";
-import {
-	handBack,
-	introductions,
-	mintSignalExchangeId,
-	nickKey,
-	signalExchanges,
-	webrtcDesignators,
-} from "./registry.ts";
+import type { RoomLiveIndex } from "./live_index.ts";
+import { nickKey } from "./registry.ts";
 
 export const DIRECTORY_SIGNALING_UNHANDLED = Symbol("directory signaling unhandled");
 export const DIRECTORY_SIGNALING_CAPABILITY_VERBS = [OFFER_SIGNALING, SIGNAL_OFFER] as const;
@@ -33,12 +26,13 @@ function refuse(session: Session, args: readonly Argument[], error: unknown): ne
 	throwAfterReleasingCapabilities(session, args, error);
 }
 
-function failDelivery(id: string, what: string, error: unknown): void {
-	noteTrouble(`${what} delivery failed`, error);
-	if (signalExchanges.has(id)) dropSignalExchange(id, `${what} could not be delivered`);
+function failDelivery(live: RoomLiveIndex, id: string, what: string, error: unknown): void {
+	live.journal.note(`${what} delivery failed`, error);
+	if (live.signalExchanges.has(id)) dropSignalExchange(live, id, `${what} could not be delivered`);
 }
 
 export function dispatchDirectorySignaling(
+	live: RoomLiveIndex,
 	verb: string,
 	args: Argument[],
 	session: Session,
@@ -48,17 +42,17 @@ export function dispatchDirectorySignaling(
 		if (args.length !== 1 || !(offered instanceof Ref)) {
 			refuse(session, args, new Error("offerSignaling needs one inbox capability"));
 		}
-		const ownNick = registeredNickOf(session);
+		const ownNick = registeredNickOf(live, session);
 		if (ownNick == null) {
-			handBack(session, offered, "unregistered signaling inbox");
+			live.journal.release(session, offered, "unregistered signaling inbox");
 			throw new RoomError(NOT_REGISTERED, "offerSignaling needs a registered name");
 		}
-		const intro = introductions.get(nickKey(ownNick));
+		const intro = live.introductions.get(nickKey(ownNick));
 		if (intro == null) {
-			handBack(session, offered, "unfiled signaling inbox");
+			live.journal.release(session, offered, "unfiled signaling inbox");
 			throw new Error("offerSignaling found no registration");
 		}
-		if (intro.signaling != null) handBack(session, intro.signaling);
+		if (intro.signaling != null) live.journal.release(session, intro.signaling);
 		intro.signaling = offered;
 		return null;
 	}
@@ -75,34 +69,39 @@ export function dispatchDirectorySignaling(
 				),
 			);
 		}
-		if (registeredNickOf(session) == null) {
-			handBack(session, reply, "unregistered signaling reply");
+		if (registeredNickOf(live, session) == null) {
+			live.journal.release(session, reply, "unregistered signaling reply");
 			throw new RoomError(NOT_REGISTERED, "signalOffer needs a registered name");
 		}
-		const targetKey = webrtcDesignators.get(toDesignator);
-		const target = targetKey == null ? undefined : introductions.get(targetKey);
+		const targetKey = live.webrtcDesignators.get(toDesignator);
+		const target = targetKey == null ? undefined : live.introductions.get(targetKey);
 		if (targetKey == null || target == null || target.signaling == null) {
-			handBack(session, reply, "unroutable signaling reply");
+			live.journal.release(session, reply, "unroutable signaling reply");
 			throw new RoomError(PEER_OFFLINE, "no signaling inbox for that designator");
 		}
 		const targetSignaling = target.signaling;
-		const prior = originatedExchange(session, toDesignator);
-		if (prior != null) dropSignalExchange(prior, "signaling exchange was replaced");
-		const id = mintSignalExchangeId();
+		const prior = originatedExchange(live, session, toDesignator);
+		if (prior != null) dropSignalExchange(live, prior, "signaling exchange was replaced");
+		const id = live.mintSignalExchangeId();
 		const expires = setTimeout(
-			() => dropSignalExchange(id, "signaling exchange timed out"),
+			() => dropSignalExchange(live, id, "signaling exchange timed out"),
 			SIGNAL_EXCHANGE_TIMEOUT_MS,
 		);
-		signalExchanges.set(id, { originator: session, reply, targetKey, expires });
-		while (signalExchanges.size > MAX_SIGNAL_EXCHANGES) {
-			const oldest = signalExchanges.keys().next();
+		live.signalExchanges.set(id, { originator: session, reply, targetKey, expires });
+		while (live.signalExchanges.size > MAX_SIGNAL_EXCHANGES) {
+			const oldest = live.signalExchanges.keys().next();
 			if (oldest.done) throw new Error("signal exchange cap accounting drift");
-			dropSignalExchange(oldest.value, "signaling exchange was evicted");
+			dropSignalExchange(live, oldest.value, "signaling exchange was evicted");
 		}
-		void session.tell(reply, SIG_ACCEPTED, [id]).then(() => {
-			if (!signalExchanges.has(id)) return;
-			return target.registrar.tell(targetSignaling, SIG_OFFER, [id, sdp]);
-		}).catch((error) => failDelivery(id, "signaling offer", error));
+		// Admission is not observable to the originator until the target has
+		// taken the offer. Otherwise the originator can replace an accepted
+		// exchange while its offer is still queued, and retirement suppresses a
+		// delivery that `accepted` already promised. This order also means early
+		// ICE cannot overtake the offer: candidates wait for `accepted`.
+		void target.registrar.tell(targetSignaling, SIG_OFFER, [id, sdp]).then(() => {
+			if (!live.signalExchanges.has(id)) return;
+			return session.tell(reply, SIG_ACCEPTED, [id]);
+		}).catch((error) => failDelivery(live, id, "signaling offer", error));
 		return null;
 	}
 	if (verb === SIGNAL_ANSWER) {
@@ -111,14 +110,14 @@ export function dispatchDirectorySignaling(
 		if (args.length !== 2 || !relayedSignalFits("description", id, sdp)) {
 			throw new Error(`a signaling answer may be at most ${MAX_SIGNAL_SDP} bytes`);
 		}
-		const exchange = signalExchanges.get(id);
+		const exchange = live.signalExchanges.get(id);
 		if (exchange == null) return null;
-		const target = introductions.get(exchange.targetKey);
+		const target = live.introductions.get(exchange.targetKey);
 		if (target == null || target.registrar !== session) {
 			throw new Error("signalAnswer from a session that does not answer this exchange");
 		}
 		void exchange.originator.tell(exchange.reply, SIG_ANSWER, [sdp]).catch((error) =>
-			failDelivery(id, "signaling answer", error)
+			failDelivery(live, id, "signaling answer", error)
 		);
 		return null;
 	}
@@ -128,20 +127,20 @@ export function dispatchDirectorySignaling(
 		if (args.length !== 2 || !relayedSignalFits("candidate", key, ice)) {
 			throw new Error("signalCandidate needs one exchange id and bounded ICE candidate");
 		}
-		const exchange = signalExchanges.get(key);
+		const exchange = live.signalExchanges.get(key);
 		if (exchange == null) return null;
 		if (exchange.originator === session) {
-			const target = introductions.get(exchange.targetKey);
+			const target = live.introductions.get(exchange.targetKey);
 			if (target?.signaling == null) return null;
 			void target.registrar.tell(target.signaling, SIG_CANDIDATE, [key, ice]).catch((error) =>
-				failDelivery(key, "signaling candidate", error)
+				failDelivery(live, key, "signaling candidate", error)
 			);
 			return null;
 		}
-		const target = introductions.get(exchange.targetKey);
+		const target = live.introductions.get(exchange.targetKey);
 		if (target == null || target.registrar !== session) return null;
 		void exchange.originator.tell(exchange.reply, SIG_CANDIDATE, [ice]).catch((error) =>
-			failDelivery(key, "signaling candidate", error)
+			failDelivery(live, key, "signaling candidate", error)
 		);
 		return null;
 	}
@@ -150,8 +149,8 @@ export function dispatchDirectorySignaling(
 			throw new Error("signalDone needs one exchange id");
 		}
 		const id = args[0];
-		const exchange = signalExchanges.get(id);
-		if (exchange != null && exchange.originator === session) dropSignalExchange(id);
+		const exchange = live.signalExchanges.get(id);
+		if (exchange != null && exchange.originator === session) dropSignalExchange(live, id);
 		return null;
 	}
 	return DIRECTORY_SIGNALING_UNHANDLED;

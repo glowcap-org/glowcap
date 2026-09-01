@@ -351,9 +351,8 @@ test "session identity: crossed-hello ordering is per session over one advertise
     const b_dial_id = crypto.derivePublicIdentifier(b_dialed.sessionSecret().publicKey());
     try std.testing.expect(!std.mem.eql(u8, &a_dial_id.bytes, &a_durable.bytes));
     try std.testing.expect(!std.mem.eql(u8, &b_dial_id.bytes, &b_durable.bytes));
-    // And a host's own two connections differ from each other, which is what
-    // makes "which session" a real question rather than a restatement of
-    // "which host".
+    // And a host's own two connections differ from each other, so "which
+    // session" is a real question rather than a restatement of "which host".
     const a_accept_id = crypto.derivePublicIdentifier(a_accept.sessionSecret().publicKey());
     try std.testing.expect(!std.mem.eql(u8, &a_dial_id.bytes, &a_accept_id.bytes));
 

@@ -5,7 +5,7 @@
 .attachment-set {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--gap-tight);
 	margin-top: 6px;
 }
 /* Multiple pictures become one compact gallery without becoming one transfer.
@@ -17,7 +17,7 @@
 	grid-template-columns: repeat(6, minmax(0, 1fr));
 	width: 340px;
 	max-width: 100%;
-	gap: 4px;
+	gap: var(--gap-line);
 }
 .attachment-set.image-grid > .image-tile {
 	width: 100%;
@@ -65,11 +65,6 @@
 	overflow: hidden;
 	cursor: zoom-in;
 }
-.attach-image:focus-visible,
-.attach-media .expand:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-}
 .attach-media img,
 .attach-media video {
 	display: block;
@@ -95,7 +90,7 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 7px;
+	gap: var(--gap-tight);
 	padding: 9px;
 	background: var(--paper);
 	border: 1px solid var(--rule);
@@ -135,7 +130,7 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: 7px;
+	gap: var(--gap-tight);
 }
 .attach-media.pending .act:hover {
 	border-color: var(--accent-ink);
@@ -188,7 +183,7 @@
 .attach-audio {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--gap-tight);
 	max-width: 340px;
 }
 .attach-audio.pending {
@@ -212,7 +207,7 @@
 .attach-file {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: var(--gap-row);
 	padding: 8px 10px;
 	border: 1px solid var(--rule);
 	border-radius: 10px;
@@ -275,7 +270,7 @@
 	border-radius: 16px;
 	background: color-mix(in srgb, var(--paper) 86%, transparent);
 	color: var(--accent-ink);
-	font-size: 15px;
+	font-size: var(--type-body);
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 120ms ease;
@@ -362,7 +357,7 @@
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	max-width: 15ch;
 	padding: 3px 8px;
 	border-radius: var(--radius-pill);
@@ -407,13 +402,41 @@
 	border-color: var(--accent-ink);
 	background: transparent;
 }
+/* Where a menu is drawn: the browser's top layer, standing exactly over the
+   control that opened it.
+
+   Everything a popover is by default is undone here, because this is not a
+   panel — it is the box a panel is measured from. It has no paint of its own
+   and no size of its own; `Menu.tsx` gives it the holder's rectangle and keeps
+   it there. What it provides is a containing block in the one place the top
+   layer does not have one, so a menu inside it can go on saying `top: calc(100%
+   + 6px)` and mean the control rather than the screen.
+
+   Presses pass through it and are taken by the menu inside, so the control it
+   covers stays pressable and a second press on the same button still closes
+   what the first opened. */
+.menu-layer {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	overflow: visible;
+	background: none;
+	color: inherit;
+	pointer-events: none;
+}
+.menu-layer > * {
+	pointer-events: auto;
+}
+
 /* The menu is the log's menu, at a width that fits a written reason. */
 .standing-menu {
 	min-width: 210px;
 }
 .standing-actions {
 	display: grid;
-	gap: 1px;
+	gap: var(--gap-hair);
 	padding-top: 4px;
 	margin-top: 4px;
 	border-top: 1px solid var(--rule);
@@ -425,7 +448,7 @@
 }
 .standing-why {
 	display: flex;
-	gap: 6px;
+	gap: var(--gap-tight);
 	padding: 5px 4px 2px;
 	border-top: 1px solid var(--rule);
 	margin-top: 3px;
@@ -439,7 +462,7 @@
 	background: var(--paper);
 	color: var(--ink);
 	font: inherit;
-	font-size: 12.5px;
+	font-size: var(--type-caption);
 }
 .standing-why input:focus-visible {
 	outline: 2px solid var(--accent-ink);
@@ -452,7 +475,7 @@
 	border-radius: var(--radius-chip);
 	background: var(--accent);
 	color: var(--on-accent);
-	font-size: 12.5px;
+	font-size: var(--type-caption);
 	cursor: pointer;
 }
 .standing-say:focus-visible {
@@ -466,7 +489,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 10px;
+	gap: var(--gap-row);
 	margin: 0;
 	font-size: var(--type-ui);
 	color: var(--ink-soft);
@@ -481,7 +504,7 @@
    reads. Who it is from stands in that slot, so it fades under a pointer and
    the decline mark takes its place, exactly as a room's count does. */
 #roomList .inviterow .rcount.invited {
-	font-size: 11px;
+	font-size: var(--type-fine);
 	font-style: italic;
 }
 /* The lock on a rail row wears the directory mark exactly as the hash beside

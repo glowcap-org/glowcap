@@ -36,15 +36,6 @@
 ;; bare `host:port` over TCP. The room's wire is identical either way; only how a
 ;; member reaches it differs. A URI carrying direct-addresses dials those directly
 ;; (relay-less Direct); a node-id-only URI resolves the peer through discovery.
-;; Every rooms peer is a pancake peer, so the room speaks pancake's own
-;; profile rather than the interop floor: the `pancake-next` CapTP version
-;; over the word-aligned Cap'n Proto codec. The two are named together
-;; because they are one decision, agreed out of band by every peer reading
-;; the same configuration. This is the Racket spelling of the pair
-;; `apps/rooms/lib/protocol.ts` carries for the TypeScript peers.
-(define ROOMS-CODEC 'capnp)
-(define ROOMS-CAPTP-VERSION 'next)
-
 (define (dial locator)
   (cond
     [(string-contains? locator "://")
@@ -57,13 +48,13 @@
      (define runtime
        (open-runtime
         #:providers (list (iroh-provider (make-iroh-config reach)))
-        #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION))
+        #:profile 'native))
      (values runtime (runtime-connect runtime loc))]
     [else
      (define-values (host port) (designator-host-port locator))
      (define runtime
        (open-runtime #:providers (list (tcp-provider))
-                     #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION))
+                     #:profile 'native))
      (values runtime (runtime-connect runtime (tcp-locator host port)))]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
@@ -94,17 +85,41 @@
 ;; queue is this atomic-safe mailbox instead — a lock-free box push
 ;; (`box-cas!`) plus a `semaphore-post`, both legal in atomic mode. The reader
 ;; side (`room-next`, an ordinary thread) waits on the semaphore and drains
-;; the cell in arrival order through its own `pending` buffer.
+;; the cell in arrival order through its own `pending` buffer. The count shares
+;; the same CAS as the list, so two callback threads cannot both admit the slot
+;; at the ceiling.
+(define MAX-UNREAD-LINES 256)
+(struct mailbox-buffer (count newest closed?) #:transparent)
 (struct mailbox (cell sema pending))
 
-(define (make-mailbox) (mailbox (box '()) (make-semaphore 0) (box '())))
+(define (make-mailbox)
+  (mailbox (box (mailbox-buffer 0 '() #f)) (make-semaphore 0) (box '())))
 
 ;; Safe from inside a behavior callback: push and post, nothing waits.
 (define (mailbox-put! mb v)
   (define cell (mailbox-cell mb))
   (let loop ()
     (define old (unbox cell))
-    (unless (box-cas! cell old (cons v old)) (loop)))
+    (when (mailbox-buffer-closed? old) (error 'inbox "the room inbox is closed"))
+    (when (>= (mailbox-buffer-count old) MAX-UNREAD-LINES)
+      (error 'inbox "the room retained its maximum ~a unread lines" MAX-UNREAD-LINES))
+    (define next
+      (mailbox-buffer (add1 (mailbox-buffer-count old))
+                      (cons v (mailbox-buffer-newest old))
+                      #f))
+    (unless (box-cas! cell old next) (loop)))
+  (semaphore-post (mailbox-sema mb)))
+
+(define (mailbox-close! mb)
+  (define cell (mailbox-cell mb))
+  (let loop ()
+    (define old (unbox cell))
+    (unless (or (mailbox-buffer-closed? old)
+                (box-cas! cell old
+                          (mailbox-buffer (mailbox-buffer-count old)
+                                          (mailbox-buffer-newest old)
+                                          #t)))
+      (loop)))
   (semaphore-post (mailbox-sema mb)))
 
 ;; Reader-side only: the next value in arrival order. `timeout-seconds` of #f
@@ -121,6 +136,10 @@
        (define items (unbox pending))
        (set-box! pending (cdr items))
        (car items)]
+      [(let ([state (unbox (mailbox-cell mb))])
+         (and (mailbox-buffer-closed? state)
+              (zero? (mailbox-buffer-count state))))
+       eof]
       [(sync/timeout timeout-seconds (mailbox-sema mb))
        ;; Take everything pushed so far; a batch taken on one post leaves the
        ;; later posts to land on an already-empty cell, hence the loop.
@@ -128,7 +147,10 @@
        (define taken
          (let take ()
            (define old (unbox cell))
-           (if (box-cas! cell old '()) old (take))))
+           (if (box-cas! cell old
+                         (mailbox-buffer 0 '() (mailbox-buffer-closed? old)))
+               (mailbox-buffer-newest old)
+               (take))))
        (set-box! pending (reverse taken))
        (loop)]
       [else #f])))
@@ -148,21 +170,23 @@
 
 ;; One exact directory publication. A foreign room's count is #f: unknown is
 ;; distinct from an empty room.
-(struct room-info (name count id kind origin proof) #:transparent)
+(struct room-info (name count id kind origin proof offers) #:transparent)
 
 (define (wire-room fields)
   (and (list? fields)
-       (= (length fields) 6)
+       (= (length fields) 7)
        (let ([name (list-ref fields 0)]
              [count (list-ref fields 1)]
              [id (list-ref fields 2)]
              [kind (list-ref fields 3)]
              [origin (list-ref fields 4)]
-             [proof (list-ref fields 5)])
+             [proof (list-ref fields 5)]
+             [offers (list-ref fields 6)])
          (and (string? name) (string? id) (string? kind)
               (string? origin) (string? proof)
               (or (not count) (exact-nonnegative-integer? count))
-              (room-info name count id kind origin proof)))))
+              (or (not offers) (member offers '("observer" "participant") string=?))
+              (room-info name count id kind origin proof offers)))))
 
 (define (wire-rooms who raw)
   (unless (list? raw) (error who "directory answered a room list that is not a list"))
@@ -180,6 +204,28 @@
        (error 'dir-watch "directory answered malformed registration rows"))
      (wire-rooms 'dir-watch rooms)]
     [_ (error 'dir-watch "directory answered a malformed watch snapshot")]))
+
+(define registration-id-rx
+  #px"(?i:^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$)")
+
+(define (registration-id? value)
+  (and (string? value) (regexp-match-exact? registration-id-rx value)))
+
+;; Validate every watcher shape. Member and truncation changes are valid but
+;; carry no room row for this small terminal client to display.
+(define (wire-watch-event args)
+  (match args
+    [(list (and kind (or "opened" "closed" "count")) fields ...)
+     (define entry (wire-room fields))
+     (unless entry (error 'dir-watch "directory sent a malformed room watch notification"))
+     (cons kind entry)]
+    [(list (or "registered" "unregistered")
+           (? non-empty-string?)
+           (? exact-nonnegative-integer?)
+           (? registration-id?))
+     #f]
+    [(list "truncated" (? exact-nonnegative-integer?)) #f]
+    [_ (error 'dir-watch "directory sent a malformed watch notification")]))
 
 (define (room-connect locator)
   (define-values (runtime c) (dial locator))
@@ -209,8 +255,8 @@
         (lambda (verb . args)
           (unless (eq? verb 'notify)
             (error 'dir-watch "watch inbox has no method ~a" verb))
-          (define entry (and (pair? args) (wire-room (cdr args))))
-          (when entry (on-event (car args) entry))
+          (define event (wire-watch-event args))
+          (when event (on-event (car event) (cdr event)))
           (void)))))
   (wire-watch-rooms (session-send c (directory-far d) 'watchPublications observer)))
 
@@ -244,7 +290,7 @@
                    (thread (lambda ()
                              (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
                                (session-serve c))
-                             (mailbox-put! queue eof))))
+                             (mailbox-close! queue))))
   a-room)
 
 ;; Say a line to everyone in the room. The serve thread owns the reads; the
@@ -274,3 +320,19 @@
 ;; The lines the room sends, as a sequence: `(for ([msg (in-room room)]) …)`.
 (define (in-room a-room)
   (in-producer (lambda () (room-next a-room)) eof))
+
+(module+ test
+  (require rackunit)
+
+  (test-case "unread lines stop at the named ceiling"
+    (define mb (make-mailbox))
+    (for ([at (in-range MAX-UNREAD-LINES)]) (mailbox-put! mb at))
+    (check-exn #rx"256 unread lines" (lambda () (mailbox-put! mb 'one-more)))
+    (check-equal? (mailbox-buffer-count (unbox (mailbox-cell mb))) MAX-UNREAD-LINES))
+
+  (test-case "malformed watch callbacks are refused"
+    (check-exn #rx"malformed room watch"
+               (lambda () (wire-watch-event '("opened" "only-a-name"))))
+    (check-false
+     (wire-watch-event
+      '("registered" "ada" 1 "00000000-0000-4000-8000-000000000001")))))

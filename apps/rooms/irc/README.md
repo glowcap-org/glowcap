@@ -85,7 +85,7 @@ retargets an old capability.
 
 ## Evidence
 
-The hermetic tests (`../test/irc_*_test.ts`) run inside
+The in-tree tests (`../test/irc_*_test.ts`) run inside
 `zig build rooms-server-test`, which `zig build check` depends on; the front
 scenario drives a real socket at the Goblins-compatible 1.0/Syrup floor and
 proves channel traffic, metadata, and introduced direct messages in both
@@ -96,11 +96,21 @@ the vat answers.
 
 ## Files
 
-- `main.ts` / `config.ts`: the bridge entry and its flags.
-- `bridge.ts` / `client.ts` / `registration.ts`: the IRC connection, SASL,
-  and channel membership the bridge drives.
-- `front_main.ts` / `front_config.ts` / `front.ts`: the front entry, its
-  flags, and the per-connection projection onto a Directory session.
-- `front/`: the front's inbox router, limits, and message rendering.
-- `protocol.ts` / `outbound.ts` / `socket_writer.ts`: IRC line parsing,
-  encoding, pacing, and the bounded write queue.
+The two edges point opposite ways, so each has its own directory and the
+vocabulary they share stays between them.
+
+- `bridge/`: an IRC network presented as Rooms. `main.ts` and `config.ts` are
+  the entry and its flags; `room.ts`, `client.ts`, and `outbound.ts` are the
+  channel, its connection, and its pacing; `seat.ts`, `roster.ts`, and
+  `watchers.ts` are who is present and who is told; `identity.ts` and
+  `identity_form.ts` are the identity a Rooms member links.
+- `front/`: Rooms presented to ordinary IRC clients. `main.ts` and `config.ts`
+  are the entry and its flags, `serve.ts` is the per-connection projection onto
+  a Directory session, and `inbox.ts`, `limits.ts`, and `render.ts` are its
+  direct-message routing, bounds, and message forms.
+- `protocol.ts`, `registration.ts`, `socket_writer.ts`: the vocabulary both
+  edges speak. Line parsing and encoding, what IRC accepts as a nick or SASL
+  credential, and the bounded write queue.
+
+Project provenance and upstream-contact policy live in
+[`PROVENANCE.md`](../../../PROVENANCE.md).

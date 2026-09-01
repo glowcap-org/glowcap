@@ -1,6 +1,6 @@
 # @pancake/web
 
-The browser entry for the pancake runtime. A browser tab becomes a real OCapN peer: the same sans-io
+The browser entry for the pancake runtime. A browser tab becomes a real OCapN peer: the same I/O-free
 protocol core the native archives link, compiled to `wasm32`, with the byte channel on a WebSocket.
 This is [ADR-0070] Milestone 1: the same `@pancake/runtime` surface every dlopen runtime uses, on top
 of a swapped runtime adapter, with no protocol reimplemented in JavaScript. The build check covers
@@ -89,8 +89,10 @@ exports with no binding at all.
 ## What a real page needs
 
 Serve `pancake_host.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
-`@pancake/runtime` and `@pancake/abi`, using [`browser-bundle.json`](browser-bundle.json) as the
-bundler config. The config maps `@pancake/runtime/ffi` to the wasm adapter's stem-only resolver, so
+`@pancake/runtime` and `@pancake/abi`. Extend the adapter-only
+[`browser-bundle.json`](browser-bundle.json) from the application config, then add that application's
+framework and data dependencies there. The Rooms bundle is one concrete example. The inherited
+browser mapping sends `@pancake/runtime/ffi` to the wasm adapter's stem-only resolver, so
 the native archive-resolution cascade is absent from the browser module graph. The only host stubs
 left cover non-browser runtime adapters a bundler may discover through their dynamic import; the
 injected web adapter never selects them.

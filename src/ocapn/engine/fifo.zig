@@ -11,8 +11,8 @@
 //! are separate types because their surfaces genuinely differ — one needs
 //! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
 //! a teardown sweep and infallible reserved appends — but there is one
-//! implementation of the part that is the same, which is what stops their
-//! compaction and reclaim rules drifting apart again.
+//! implementation of the part that is the same, so their compaction and
+//! reclaim rules cannot drift apart again.
 //!
 //! The steady bound is the caller's, because it is a footprint decision and the
 //! callers sit at different scales: four of these ride on every `engine.Peer` at

@@ -5,6 +5,15 @@ import type { RoomsSessionState } from "../lib/rooms_state.ts";
 const RECONNECT_FLOOR_MS = 1_000;
 const RECONNECT_CEILING_MS = 30_000;
 
+/** A reconciled permanent fact that needs reader action rather than another
+ * timer. It stays visible in runtime issues but does not consume retry work. */
+export class ReconciliationBlocked extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ReconciliationBlocked";
+	}
+}
+
 interface ConnectedDirectories {
 	has(directory: string): boolean;
 }
@@ -21,7 +30,9 @@ export function roomsReconciliationNeedsRetry(
 		if (
 			subject === "runtime" || subject === "archive" || subject.startsWith("direct:") ||
 			subject.startsWith("direct-inbox:") || subject.startsWith("room:") ||
-			subject.startsWith("room-irc:") || subject.startsWith("standing:") || subject.startsWith("peering:") ||
+			subject.startsWith("room-bridge:") || subject.startsWith("standing:") || subject.startsWith("peering:") ||
+			// The visualizer redials on its own socket. A refused swiss is latched
+			// on the hold and is not directory reconciliation work.
 			(subject.startsWith("capability:") && !subject.startsWith("capability:viz\u0000"))
 		) return true;
 	}

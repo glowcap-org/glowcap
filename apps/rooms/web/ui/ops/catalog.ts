@@ -70,6 +70,6 @@ export const OPS_CATALOG: Record<OpsCap, OpsCapFace> = {
 		short: "Visualizer",
 		flag: "--viz",
 		how: "Paste it here to present it to the live timeline endpoint.",
-		lead: "Holding it publishes this tab's own sessions, direct messages included, to the timeline.",
+		lead: "Holding it publishes this session's connections, direct messages included, to the timeline.",
 	},
 };

@@ -94,19 +94,19 @@ is a security-sensitive dependency change:
    `src/net/tls/` for newly required or newly reachable code;
 3. run `zig build native-tls-build` and `zig build check`, then run the static
    and shared packaging checks on every supported native platform. The native
-   TLS gate must retain exact success, hostname, CA, expiry, alert, malformed
+   TLS check must retain exact success, hostname, CA, expiry, alert, malformed
    record, truncation, close-notify, and symbol-isolation evidence;
 4. update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
    description in the same change. Never silently float the release or accept
    an unverified archive.
 
-The committed localhost certificate chain is test-only. The native TLS gate
+The committed localhost certificate chain is test-only. The native TLS check
 verifies its authority and fails when the leaf has fewer than 180 days left.
 Renew the entire root and leaf together into a new directory with
 `tools/check/generate-native-tls-fixture.sh`, inspect the subjects, SAN,
 validity, and private-key diff, then replace the three files under
 `test/net/fixtures/` in one reviewed commit. Do not preserve the old root key,
-reuse these keys outside tests, or weaken the expiry gate to buy time.
+reuse these keys outside tests, or weaken the expiry check to buy time.
 
 ## Acknowledgements
 

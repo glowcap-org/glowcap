@@ -97,8 +97,8 @@
          onion-last-error
          AUTH-NONE AUTH-COOKIE AUTH-PASSWORD SERVICE-ID-LENGTH)
 
-;; An unauthenticated control endpoint, which is what a Unix control socket with
-;; no authentication gives and what upstream Goblins assumes.
+;; An unauthenticated control endpoint, the form a Unix control socket with no
+;; authentication gives and the one upstream Goblins assumes.
 (define AUTH-NONE ONION-AUTH-NONE)
 ;; Authenticate with the bytes of the file CookieAuthFile names, which the
 ;; transport sends as hexadecimal. The common default on a distribution's Tor.

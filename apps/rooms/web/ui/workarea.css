@@ -1,9 +1,20 @@
 /* ── Main column ──────────────────────────────────────────────────────── */
+/* The topbar, however many standing bars the application has to show, and then
+   the conversation taking whatever is left.
+
+   A column, not rows, because rows have to be counted and the count is not a
+   fact this file can know. Each bar decides for itself whether it is showing,
+   so as a grid every combination of them needed its own `grid-template-rows`,
+   and a bar arriving with no rule for its combination landed in an implicit
+   row. An implicit row is `auto`, and the conversation's log is positioned
+   inside its column and contributes no height, so a workspace that lands in one
+   is as tall as its composer and leaves the rest of the window bare. Here a bar
+   is another item in the column and there is nothing to keep in step. */
 .workarea {
 	min-width: 0;
 	min-height: 0;
-	display: grid;
-	grid-template-rows: auto minmax(0, 1fr);
+	display: flex;
+	flex-direction: column;
 }
 /* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
    is what makes this visible; on desktop nothing scrolls past it). It stays above
@@ -14,13 +25,13 @@
 	/* Pin to the shared header height so the bottom border matches the sidebar
 	   workspace header. min-height (not height) so the mobile query can still grow it
 	   past this for the safe-area inset. */
-	min-height: var(--header-h);
+	min-height: var(--header-total);
 	position: sticky;
 	top: 0;
 	z-index: 5;
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: var(--gap-group);
 	padding: calc(12px + var(--accent-line)) 20px 12px;
 	border-bottom: 1px solid var(--rule);
 	background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
@@ -43,6 +54,10 @@
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: var(--accent-line);
+	/* Paint, not a surface. It lies across the top edge of a bar that holds
+	   controls, and a press landing in its three pixels belongs to whatever is
+	   under them. */
+	pointer-events: none;
 	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--dir-mark, var(--teal)) 100%);
 }
 .topbar h1 {
@@ -78,7 +93,9 @@
 .topbar .title-chip:has(.avatar-chip) {
 	gap: var(--avatar-gap);
 }
-.topbar .title-about {
+/* By class alone: a reset more specific than the focus ring in controls.css
+   takes the ring away, and this class is only ever in the topbar. */
+.title-about {
 	all: unset;
 	display: inline-flex;
 	align-items: center;
@@ -95,10 +112,6 @@
 }
 .topbar .title-about:hover {
 	background: var(--hover);
-}
-.topbar .title-about:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
 }
 .topbar .leave-x {
 	flex: none;
@@ -131,6 +144,9 @@
    else was told only by the roster itself, which is the one thing the button
    takes away. */
 .content {
+	/* The rest of the column, and no more: bars above it are sized by their own
+	   content and this takes the remainder. */
+	flex: 1;
 	min-height: 0;
 	display: grid;
 	grid-template-columns: minmax(0,1fr) var(--rail-w);
@@ -189,7 +205,7 @@
 	padding: 16px 0 var(--composer-h, var(--composer-h-rest));
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: var(--gap-hair);
 }
 /* Pin messages to the bottom (just above the composer) when a conversation is
    short, on both desktop and mobile; when it overflows there is no free space so
@@ -215,7 +231,9 @@
 	height: calc(
 		var(--composer-h, var(--composer-h-rest)) - var(--composer-clear) + var(--log-fade-h)
 	);
-	background: linear-gradient(to bottom, transparent 0, var(--paper) var(--log-fade-h));
+	/* Ends on the ground's cooled foot, the color behind this band at the
+	   composer's height. */
+	background: linear-gradient(to bottom, transparent 0, var(--page-foot) var(--log-fade-h));
 	pointer-events: none;
 }
 /* The welcome card, which is what everyone here calls it. It sits at the top of
@@ -268,6 +286,7 @@
 	margin: 0 0 6px;
 	font-size: var(--type-title);
 	color: var(--intro-ink);
+	text-wrap: balance;
 }
 .conv-intro h2:has(.avatar-chip) {
 	gap: var(--avatar-gap);
@@ -314,17 +333,25 @@
 
 /* Each scroll panel keeps its touch scrolling to itself (the body is locked), so
    flinging the rail or the roster does not rubber-band or chain to anything else.
-   The left rail's scroller is the region under the title, not each list. */
+   Both rails scroll as one region: the left under its title, the roster in
+   `.members-body`. */
 .sidebar-body,
-#members {
+.members-body {
 	overscroll-behavior: contain;
 	-webkit-overflow-scrolling: touch;
 }
 .row {
 	display: flex;
-	gap: 10px;
+	gap: var(--gap-row);
 	padding: 2px 20px;
 	align-items: flex-start;
+}
+/* One speaker's turn from the next. The stamp under a group used to be what
+   stood between them, so a group that had nothing new to say about the time
+   left its neighbour sitting two pixels away. Rows hold themselves apart
+   instead, and the stamp is free to appear only where it answers something. */
+.row + .row {
+	margin-top: var(--gap-tight);
 }
 .row.them {
 	justify-content: flex-start;
@@ -342,7 +369,7 @@
 	border-radius: var(--radius-chip);
 	color: #fff;
 	font-weight: 700;
-	font-size: 10.5px;
+	font-size: var(--type-fine);
 }
 /* The person chip wearing their presence. The ring around the pip borrows
    the surface it sits on through --presence-ring, so each context names its
@@ -397,6 +424,7 @@
 .stack {
 	display: flex;
 	flex-direction: column;
+	align-items: flex-start;
 	max-width: var(--bubble-max);
 	min-width: 0;
 }
@@ -412,8 +440,12 @@
 	font-weight: 700;
 	color: var(--ink-soft);
 	margin: 0 0 4px 12px;
+	max-width: 100%;
+	overflow-wrap: anywhere;
 }
 .bubble {
+	box-sizing: border-box;
+	max-width: 100%;
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	color: var(--ink);
@@ -435,14 +467,23 @@
 	border-top-right-radius: 6px;
 	border-top-left-radius: 16px;
 }
-/* Our own optimistic sends. A line dims while "sending", waiting on the wire
-   to confirm it, and tints "failed" when the send rejects. Failure adds its
-   own retry action without turning message content or attachment controls into
-   one outer control. */
+/* Our own optimistic sends. A line dims while "sending", waiting on the wire to
+   confirm it, and both ways of not sending tint the bubble.
+
+   "Failed" and "refused" are one fact to a reader — this reached nobody — and
+   differ only in whether anything can be done about it, which the retry beside
+   the caption already says. Only "failed" was tinted, so a line that can never
+   send now drew as an ordinary message with a small note under it, while the
+   recoverable one turned the whole bubble. That is the louder mark on the
+   lesser problem.
+
+   The caption carries its own action, or none, without turning message content
+   or attachment controls into one outer control. */
 .bubble.sending {
 	opacity: .55;
 }
-.row.mine .bubble.failed {
+.row.mine .bubble.failed,
+.row.mine .bubble.refused {
 	background: linear-gradient(135deg, var(--danger) 0%,
 		color-mix(in srgb, var(--danger) 78%, #000) 100%);
 }
@@ -450,13 +491,13 @@
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
-	gap: 6px;
+	gap: var(--gap-tight);
 	margin-top: 6px;
 	font-size: var(--type-caption);
 	font-weight: 700;
 }
 .time {
-	font-size: 10.5px;
+	font-size: var(--type-fine);
 	color: var(--ink-soft);
 	margin: 4px 0 2px 12px;
 }
@@ -489,7 +530,7 @@
 	overflow-wrap: anywhere;
 	line-height: 1.5;
 	text-wrap: pretty; /* keep a multi-line system pill's last line from dangling */
-	font-size: 12.5px;
+	font-size: var(--type-caption);
 	color: var(--ink-soft);
 	background: color-mix(in srgb, var(--ink) 6%, transparent);
 	padding: 4px 13px;
@@ -502,7 +543,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 3px;
+	gap: var(--gap-line);
 	min-width: 0;
 }
 /* Local answers are one aside, not N speaker names. The well is the group:
@@ -518,7 +559,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
-	gap: 5px;
+	gap: var(--gap-tight);
 	box-sizing: border-box;
 	max-width: var(--bubble-max);
 	min-width: 0;
@@ -539,7 +580,7 @@
 .sys.here .sys-run {
 	align-items: stretch;
 	width: 100%;
-	gap: 6px;
+	gap: var(--gap-tight);
 }
 .sys.here .sys-line {
 	max-width: none;
@@ -571,5 +612,5 @@
 	/* Flex, not block: the label sits beside its arrow. */
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 }

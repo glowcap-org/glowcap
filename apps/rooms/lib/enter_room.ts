@@ -9,11 +9,11 @@
 // more. This leniency lives here, in the app layer, on top of the strict
 // `Directory` — never inside it.
 
-import { Directory, Room } from "./room_client.ts";
+import { Directory, Room } from "./room/client.ts";
 import type { Ref } from "@pancake/runtime";
-import { NO_SUCH_ROOM, ROOM_EXISTS } from "./errors.ts";
+import { NO_ROOM_MANAGERS, NO_SUCH_ROOM, ROOM_EXISTS } from "./errors.ts";
 import { roomErrorOf } from "./errors.ts";
-import { dial, type RoomsRuntime } from "./locator.ts";
+import { dialDirectory, type RoomsRuntime } from "./locator.ts";
 
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
  * yet. Composes the directory's strict `enter`/`open`; the leniency is here. */
@@ -21,22 +21,38 @@ export async function enterOrOpen(dir: Directory, name: string): Promise<Ref> {
 	return (await enterOrOpenResult(dir, name)).ref;
 }
 
-/** The same friendly lookup, with the one fact an interface needs in order to
- * offer creator-only operations: whether this exact directory connection
- * opened the room. Losing an `open` race is an entry, not an opening. */
+/** The same friendly lookup, returning newly created room and manager links
+ * only to the caller whose managed open succeeded. Losing an `open` race is
+ * an ordinary entry and conveys no management authority. */
 export async function enterOrOpenResult(
 	dir: Directory,
 	name: string,
-): Promise<{ ref: Ref; opened: boolean }> {
+): Promise<{ ref: Ref; opened: boolean; roomLink?: string; managerLink?: string }> {
 	try {
 		return { ref: await dir.enter(name), opened: false };
 	} catch (err) {
 		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
-		return { ref: await dir.open(name), opened: true };
+		const managed = await dir.openManaged(name);
+		return { ref: managed.room, opened: true, roomLink: managed.roomLink, managerLink: managed.managerLink };
 	} catch (err) {
-		if (roomErrorOf(err)?.code !== ROOM_EXISTS) throw err;
+		const code = roomErrorOf(err)?.code;
+		// A directory that publishes no room managers still opens rooms; it just
+		// has no authority to hand back, which is why the links above are
+		// optional. Asking for the managed open first and falling back keeps the
+		// authority wherever it exists without making it a condition of entry.
+		// The plain open races the same way the managed one does, so it loses
+		// the same way: somebody else's room is one to enter, not an error.
+		if (code === NO_ROOM_MANAGERS) {
+			try {
+				return { ref: await dir.open(name), opened: true };
+			} catch (raced) {
+				if (roomErrorOf(raced)?.code !== ROOM_EXISTS) throw raced;
+				return { ref: await dir.enter(name), opened: false };
+			}
+		}
+		if (code !== ROOM_EXISTS) throw err;
 		return { ref: await dir.enter(name), opened: false }; // lost the race; the room is there now
 	}
 }
@@ -51,7 +67,9 @@ export async function joinRoom(
 	nick: string,
 	runtime: RoomsRuntime,
 ): Promise<{ dir: Directory; room: Room }> {
-	const dir = await Directory.connect(locator, (address) => dial(address, runtime));
-	const roomRef = await enterOrOpen(dir, room);
-	return { dir, room: await Room.subscribe(dir.session, roomRef, nick) };
+	const dir = await Directory.connect(locator, (address) => dialDirectory(address, runtime));
+	const reached = await enterOrOpenResult(dir, room);
+	const joined = await Room.subscribe(dir.session, reached.ref, nick);
+	if (reached.managerLink != null) await joined.takeManager(reached.managerLink);
+	return { dir, room: joined };
 }

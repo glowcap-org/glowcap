@@ -6,8 +6,9 @@
 // run says instead of nothing.
 
 import type { Browser, Page } from "playwright";
-import { fail } from "./harness.ts";
-import { inkContrast } from "../ink_contrast.ts";
+import { fail, openDirectoryCardFromSettings } from "./harness.ts";
+import { namedRoomRow } from "../support/conversation_row.ts";
+import { provePhoneSettingsTabs, proveSelectedTabContrast } from "./settings_tabs.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import * as linked from "./linked.ts";
 import { establishTestSession } from "./session_establishment.ts";
@@ -218,7 +219,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await delayed.close();
 	}
 
-	// The dialog opens on Locators and keeps the knobs on Advanced.
+	// The dialog opens on Session; Reachability owns locators and connection paths.
 	// It has to be there before join, and a URL that names a transport still
 	// wins over whatever this browser last saved. The opening screen has to
 	// have left first: it covers the topbar until then.
@@ -226,7 +227,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await tab.waitForSelector("#settingsTitle");
 	await tab.waitForFunction(() => {
 		const layer = document.querySelector("dialog.modal");
-		return layer?.matches(":modal") === true && document.activeElement?.id === "overviewTab";
+		return layer?.matches(":modal") === true && document.activeElement?.id === "sessionTab";
 	}).catch(() => fail("Settings looked modal without becoming the focused native modal"));
 	const coverPaint = await tab.evaluate(() => {
 		const filt = (style: CSSStyleDeclaration) => {
@@ -255,6 +256,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (red == null || red > 0.03) {
 		fail(`page cover is not darkness (got ${coverPaint.dim[0]})`);
 	}
+	await tab.click("#reachabilityTab");
 	await tab.waitForFunction(() => {
 		const loc = document.getElementById("directoryLocator")?.textContent ?? "";
 		return loc.length > 1 && loc !== "…";
@@ -271,16 +273,22 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 				.find((term) => term.textContent?.trim() === "Direct messages");
 			return row?.nextElementSibling?.textContent?.trim() ?? "(no row)";
 		});
-	await tab.click("#settingsAboutDir");
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("Settings did not open this directory's card"));
+	await openDirectoryCardFromSettings(tab);
 	const beforeAName = await dmFact();
 	if (!beforeAName.includes("no name granted")) {
 		fail(`before a name was granted, the card answered ${JSON.stringify(beforeAName)}`);
 	}
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
+	// The directory conversation is a detour: the rest of opening still uses the
+	// join card, and later `linked` is that card and the rail as one form.
+	await tab.click('a[aria-label="The front page"]');
+	await tab.waitForFunction(() => location.pathname === "/", undefined, { timeout: 10_000 }).catch(() =>
+		fail("leaving the directory conversation did not put the front page back")
+	);
+	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
+	await tab.click("#reachabilityTab");
 
 	// A copy has no visible result, because the clipboard is somewhere the page
 	// cannot show. So the control answers for it: a tick and a short "Copied"
@@ -292,6 +300,10 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// The press lands on the text rather than on the mark in the corner, because
 	// the whole field being the control is the point: a locator is shown so it
 	// can be taken, so anywhere in it means the one thing it could mean.
+	const compact = await tab.evaluate(() =>
+		document.getElementById("directoryLocator")?.closest<HTMLElement>(".copy-field")?.dataset.compact !== undefined
+	);
+	if (!compact) fail("a copyable capability URI expanded instead of using the default truncated field");
 	const locatorShown = (await tab.textContent("#directoryLocator"))?.trim() ?? "";
 	await tab.click("#directoryLocator");
 	await tab.waitForFunction(() => {
@@ -484,23 +496,24 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (helpAfter !== "false") {
 		fail("closing Help left its control pressed");
 	}
-	// Three tabs: Locators, Data, Advanced. The arrows walk them and carry
+	// Three tabs: Session, Holdings, Reachability. The arrows walk them and carry
 	// focus with the selection; the ends clamp rather than wrap.
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#reachabilityTab");
+	await tab.waitForSelector("#reachabilityPanel", { state: "attached" });
+	await tab.keyboard.press("ArrowLeft");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
 	await tab.waitForSelector("#sessionPanel", { state: "attached" });
 	await tab.keyboard.press("ArrowLeft");
 	await tab.waitForFunction(() =>
-		document.activeElement?.id === "overviewTab" &&
-		document.getElementById("overviewTab")?.getAttribute("tabindex") === "0" &&
-		document.getElementById("settingsTab")?.getAttribute("tabindex") === "-1"
+		document.activeElement?.id === "sessionTab" &&
+		document.getElementById("sessionTab")?.getAttribute("tabindex") === "0" &&
+		document.getElementById("reachabilityTab")?.getAttribute("tabindex") === "-1"
 	).catch(() => fail("the Settings tabs did not move selection and focus together"));
 	await tab.keyboard.press("ArrowRight");
 	await tab.keyboard.press("ArrowRight");
-	await tab.keyboard.press("ArrowRight");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
-	const advancedForm = await tab.evaluate(() => {
+	await tab.waitForSelector("#reachabilityPanel", { state: "attached" });
+	const reachabilityForm = await tab.evaluate(() => {
 		const form = document.getElementById("dmSettingsForm");
 		const hint = document.getElementById("dmReloadHint");
 		const save = document.getElementById("dmSave");
@@ -508,44 +521,20 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			ownsHint: hint?.closest("form") === form,
 			ownsSave: save?.closest("form") === form,
 			historyAbsent:
-				document.getElementById("settingsPanel")?.contains(document.getElementById("historyLegend")) === false,
+				document.getElementById("reachabilityPanel")?.contains(document.getElementById("historyLegend")) ===
+					false,
 		};
 	});
-	if (!advancedForm.ownsHint || !advancedForm.ownsSave || !advancedForm.historyAbsent) {
-		fail(`the direct-message connection is not a self-contained form: ${JSON.stringify(advancedForm)}`);
+	if (!reachabilityForm.ownsHint || !reachabilityForm.ownsSave || !reachabilityForm.historyAbsent) {
+		fail(`the direct-message connection is not a self-contained form: ${JSON.stringify(reachabilityForm)}`);
 	}
-
 	// The chosen tab's own word, against the pill under it, in both appearances.
 	// That pill is paper with better than a quarter of the accent poured into it,
 	// and the ink named for paper sat at 3.71 to 1 on it, under the 4.5 small
 	// text needs at this size and weight. Nothing in the stylesheet says so, and
 	// the tab bar is only ever on screen with this dialog open, so it is measured
 	// here or nowhere.
-	{
-		await tab.mouse.move(0, 0);
-		await tab.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-		const wasTheme = await tab.getAttribute("html", "data-theme");
-		const tooFaint: string[] = [];
-		for (const appearance of ["light", "dark"] as const) {
-			await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
-			await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
-			const measured = await inkContrast(tab, '.tabs .tab[aria-selected="true"]');
-			// A refusal is a failure of its own: the bar is on screen here, so
-			// "could not measure" means the measuring broke, and a measurement
-			// that quietly stops answering looks exactly like a pass.
-			if (measured === null) tooFaint.push(`the chosen tab could not be measured in ${appearance}`);
-			else if (measured.ratio < 4.5) {
-				tooFaint.push(`the chosen tab is ${measured.ratio.toFixed(2)}:1 in ${appearance} (${measured.saw})`);
-			}
-		}
-		await tab.evaluate((t) => {
-			if (t === null) document.documentElement.removeAttribute("data-theme");
-			else document.documentElement.setAttribute("data-theme", t);
-		}, wasTheme);
-		if (tooFaint.length > 0) {
-			fail(`the chosen tab does not clear 4.5 to 1 for small text: ${tooFaint.join("; ")}`);
-		}
-	}
+	await proveSelectedTabContrast(tab);
 	const defaultDm = await tab.evaluate(() =>
 		(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 	);
@@ -558,12 +547,14 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		.catch(() => fail("closing Settings did not return focus to its opener"));
 	{
 		const relayTab = await browser.newPage();
+		await relayTab.setViewportSize({ width: 390, height: 720 });
 		await relayTab.goto(`http://127.0.0.1:${httpPort}/?dm=relay`);
 		await establishLocalSession(relayTab)
 			.catch(() => fail("the ?dm=relay tab did not establish its local session"));
 		await relayTab.click("#settingsBtn");
 		await relayTab.waitForSelector("#settingsTitle");
-		await relayTab.click("#settingsTab");
+		await provePhoneSettingsTabs(relayTab);
+		await relayTab.click("#reachabilityTab");
 		const relayDm = await relayTab.evaluate(() =>
 			(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 		);
@@ -616,10 +607,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one holding the directory button.
-	await tab.click("#overviewTab");
-	await tab.click("#settingsAboutDir");
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("Settings did not open this directory's card after a name was granted"));
+	await tab.click("#reachabilityTab");
+	await openDirectoryCardFromSettings(tab);
 	await tab.waitForFunction(
 		() => {
 			const row = [...document.querySelectorAll(".dirfacts dt")]
@@ -633,7 +622,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	});
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
-	await tab.waitForSelector("#settingsTitle");
-	await tab.keyboard.press("Escape");
-	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
+	await namedRoomRow(tab, "lobby").locator(".room-open").click();
+	await tab.waitForSelector("#line:not([disabled])").catch(() =>
+		fail("returning from the directory did not put the room back")
+	);
 }

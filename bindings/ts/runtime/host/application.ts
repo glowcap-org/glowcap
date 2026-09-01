@@ -84,7 +84,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		return this._connectors.get(transport) ?? null;
 	}
 
-	/** Enliven a complete sturdyref without naming a session (ADR-0098): the
+	/** Enliven a canonical persistent sturdyref without naming a session (ADR-0098): the
 	 * host enlivens it over a live session it already dialed to that peer, or
 	 * dials one itself through this host's own DIAL action and finishes when
 	 * the dial reports. The session-scoped `Session.enliven` is the narrower
@@ -104,12 +104,34 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 					ab(out),
 				),
 		);
-		const vow = new DataView(out.buffer).getBigUint64(0, true);
+		return await this.#awaitHostCapability(new DataView(out.buffer).getBigUint64(0, true), sturdyref);
+	}
+
+	/** Fetch a named publication at `locator`, selecting an existing session or
+	 * asking the Host's Node to realize its concrete route. The Host's configured
+	 * profile owns CapTP version, codec, and private route admission. */
+	async fetchAt(locator: Locator, name: string): Promise<Ref> {
+		const raw = this.raw;
+		const encodedName = utf8Encoder.encode(name);
+		const out = new Uint8Array(8);
+		withOwnedLocator(locator, (owned) =>
+			checkHost(
+				hostS.pancake_host_fetch_at(
+					raw,
+					owned.borrowView(),
+					ab(encodedName),
+					BigInt(encodedName.length),
+					ab(out),
+				),
+			));
+		return await this.#awaitHostCapability(new DataView(out.buffer).getBigUint64(0, true), name);
+	}
+
+	async #awaitHostCapability(vow: bigint, subject: string): Promise<Ref> {
 		this.vowMinted(vow);
 		try {
 			await this.kickActions();
-			const result = await this.awaitVow(vow);
-			return asLiveRef(result, sturdyref);
+			return asLiveRef(await this.awaitVow(vow), subject);
 		} finally {
 			this._gc.parkVow(vow);
 		}

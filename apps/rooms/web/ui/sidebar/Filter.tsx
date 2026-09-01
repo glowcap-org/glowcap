@@ -16,7 +16,7 @@
 import { useEffect, useRef } from "react";
 import { Checkbox } from "../Checkbox.tsx";
 import { Icon } from "../icons.tsx";
-import { useMenu } from "../Menu.tsx";
+import { MenuLayer, useMenu } from "../Menu.tsx";
 import { identifierField } from "../field.ts";
 import {
 	anyAsked,
@@ -125,7 +125,7 @@ export function RailFilter(
 		onAnswers: (answers: FilterAnswers) => void;
 	},
 ) {
-	const { open, setOpen, holder, trigger } = useMenu();
+	const { open, setOpen, holder, trigger, layer } = useMenu();
 	const panel = useRef<HTMLDivElement>(null);
 	const asked = anyAsked(criteria, answers);
 	// The panel exists to be answered, so the first thing in it takes the caret
@@ -154,64 +154,66 @@ export function RailFilter(
 					: title + ". Choose what the rail shows. Nothing is hidden"}
 				onClick={() => setOpen((was) => !was)}
 			>
-				<Icon name="filter" size={12} />
 				<span className="rail-filter-title">{title}</span>
+				<Icon name="filter" size={12} />
 				{asked && <span className="rail-filter-count">{countSaid(shown, total)}</span>}
 			</button>
 			{open && (
-				<div
-					id="railFilterPanel"
-					className="filter-panel"
-					ref={panel}
-					role="group"
-					aria-label="What the rail shows"
-				>
-					{criteria.map((criterion) => (
-						criterion.kind === "text"
-							? (
-								<TypedAsk
-									key={criterion.id}
-									criterion={criterion}
-									answers={answers}
-									onAnswers={onAnswers}
-								/>
-							)
-							: (
-								<ChoiceAsk
-									key={criterion.id}
-									criterion={criterion}
-									answers={answers}
-									onAnswers={onAnswers}
-								/>
-							)
-					))}
-					{
-						/* The way back out, drawn as one more answer in a well of
-						   its own, because that is what it is: every question
-						   above narrows the rail, and this is the row that says
-						   none of them do. It carries no count. The heading that
-						   opened this panel already says how much of the rail is
-						   on screen, and a second copy under the questions is the
-						   same fact twice.
+				<MenuLayer holder={holder} layer={layer}>
+					<div
+						id="railFilterPanel"
+						className="filter-panel"
+						ref={panel}
+						role="group"
+						aria-label="What the rail shows"
+					>
+						{criteria.map((criterion) => (
+							criterion.kind === "text"
+								? (
+									<TypedAsk
+										key={criterion.id}
+										criterion={criterion}
+										answers={answers}
+										onAnswers={onAnswers}
+									/>
+								)
+								: (
+									<ChoiceAsk
+										key={criterion.id}
+										criterion={criterion}
+										answers={answers}
+										onAnswers={onAnswers}
+									/>
+								)
+						))}
+						{
+							/* The way back out, drawn as one more answer in a well of
+							   its own, because that is what it is: every question
+							   above narrows the rail, and this is the row that says
+							   none of them do. It carries no count. The heading that
+							   opened this panel already says how much of the rail is
+							   on screen, and a second copy under the questions is the
+							   same fact twice.
 
-						   It is ticked when nothing is hidden and inert while it
-						   is ticked. Turning it off would have to mean showing
-						   less than everything, and there is no such thing to
-						   mean. A reader hides rows by answering the questions
-						   above, and this is only how they come back. */
-					}
-					<div className="filter-choices">
-						<label className="check-row filter-choice">
-							<Checkbox
-								id="railFilterClear"
-								checked={!asked}
-								disabled={!asked}
-								onChange={() => onAnswers(askedNothing)}
-							/>
-							<span className="filter-choice-said">Show everything</span>
-						</label>
+							   It is ticked when nothing is hidden and inert while it
+							   is ticked. Turning it off would have to mean showing
+							   less than everything, and there is no such thing to
+							   mean. A reader hides rows by answering the questions
+							   above, and this is only how they come back. */
+						}
+						<div className="filter-choices">
+							<label className="check-row filter-choice">
+								<Checkbox
+									id="railFilterClear"
+									checked={!asked}
+									disabled={!asked}
+									onChange={() => onAnswers(askedNothing)}
+								/>
+								<span className="filter-choice-said">Show everything</span>
+							</label>
+						</div>
 					</div>
-				</div>
+				</MenuLayer>
 			)}
 		</div>
 	);

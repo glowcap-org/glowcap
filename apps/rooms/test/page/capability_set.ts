@@ -7,7 +7,7 @@ export async function addCapability(tab: Page, toggle: string, swiss: string): P
 	await tab.fill("#capabilityValueSwiss", swiss);
 	await tab.press("#capabilityValueSwiss", "Enter");
 	await tab.waitForSelector("#capabilityValueTitle", { state: "detached" });
-	await tab.waitForSelector("#settingsPanel", { state: "visible" });
+	await tab.waitForSelector("#holdingsPanel", { state: "visible" });
 }
 
 export async function saveCapabilitySet(tab: Page): Promise<void> {

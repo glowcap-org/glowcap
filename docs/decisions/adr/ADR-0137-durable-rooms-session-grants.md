@@ -28,22 +28,28 @@ and make a portable workspace export carry authority that belongs to its host.
 
 ## Decision
 
-The session state directory contains a separate `grants.json` document. Each
+The session document store holds a separate grants document, spelled
+`grants.json` by the file host. Each
 row records a client-minted UUID, an exact human label, observe/interact/admin
-rights, and whether the grant is revoked. The ledger admits at most 32 active
-grants and 256 lifetime rows. Revoked rows remain as tombstones, so an old
-identifier and sturdyref can never be reissued.
+rights, whether the holder may read history recorded before it arrived,
+whether the grant is suspended and why, and whether the grant is revoked. The
+ledger admits at most 32 active grants and 256 lifetime rows. Revoked rows
+remain as tombstones, so an old identifier and sturdyref can never be reissued.
 
-Issuance is idempotent by UUID. Repeating the same ID, label, and rights returns
-the same grant. Reusing an ID for different intent is refused, as is reusing a
+Issuance is idempotent by UUID. Repeating the same ID with the same label,
+rights, and history answer returns the same grant. Reusing an ID for different intent is refused, as is reusing a
 revoked ID. The client retains its operation ID after an ambiguous failure, so
-a retry cannot mint a second authority.
+a retry cannot mint a second authority. An administrator may later change what
+a live grant carries (`setGrantPolicy`) without minting a new link: tier,
+history, and suspension are ledger facts. A suspended grant answers its own
+snapshot and keeps its watch so it can say why it has gone quiet.
 
 The session derives each durable publication entropy with HMAC-SHA-256 over a
-domain-separated grant ID and rights, keyed by the durable session root's
-publication entropy. The result is truncated to the Host's exported durable
-entropy length. The derivation is stable across restart, unpredictable without
-the root secret, and disjoint across grant IDs and attenuation levels.
+domain-separated grant ID, keyed by the durable session root's publication
+entropy. The result is truncated to the Host's exported durable entropy length.
+The derivation is a function of the id alone, so it is stable across restart
+and across policy changes, unpredictable without the root secret, and disjoint
+across grant IDs.
 
 Issuance persists the row before publishing it. If publication fails, retry or
 restart republishes the recorded intent under the same swiss number. Revocation
@@ -61,7 +67,7 @@ composer, receive no edit or moderation affordances from session events, and
 cannot open session administration. Interact facets can mutate ordinary
 workspace intent but cannot issue grants, replace checkpoints, inspect or
 replace retained capability custody, or resolve pending effects. Admin facets
-can issue and revoke durable grants and manage retained operations and archive
+can issue, revoke, and change durable grants and manage retained operations and archive
 capabilities through Settings.
 
 Revoking a grant notifies its attached watchers with a terminal session-access

@@ -8,7 +8,7 @@
 // a capability the session would not take stays under its own field, and
 // anything else stands under the card.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "./Button.tsx";
 import { Confirm } from "./Confirm.tsx";
 import { Field } from "./Field.tsx";
@@ -16,18 +16,9 @@ import { identifierField } from "./field.ts";
 import { Icon, Wordmark } from "./icons.tsx";
 import { Said } from "./Said.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
-import { locatorRefusal } from "./error_text.ts";
+import { locatorRefusal, sessionCapabilityRefusal } from "./error_text.ts";
 import { useRoomsState } from "./hooks.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
-
-/** What a pasted session capability has to look like before it is worth a
- * dial: the refusal a parser would give reads as an internal error, and the
- * reader's mistake is nearly always a paste that missed the link. */
-function capabilityRefusal(capability: string): string {
-	if (capability === "") return "";
-	if (!capability.startsWith("ocapn://")) return "Paste the session's ocapn:// capability link.";
-	return "";
-}
 
 export function SessionSetup(
 	{ initialCapability = "", initialError = "" }: {
@@ -43,26 +34,37 @@ export function SessionSetup(
 	const [attachError, setAttachError] = useState(initialError);
 	const [error, setError] = useState("");
 	const [confirmAction, setConfirmAction] = useState<"reset" | "delete" | null>(null);
+	const running = useRef<"local" | "attach" | "delete" | null>(null);
 	const useLocal = () => {
+		if (running.current !== null) return;
+		running.current = "local";
 		setError("");
 		setBusy("local");
-		const why = browser.useLocalRoomsSession();
-		if (why !== "") {
-			setError(why);
+		try {
+			const why = browser.useLocalRoomsSession();
+			if (why !== "") setError(why);
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
+		} finally {
 			setBusy(null);
+			running.current = null;
 		}
 	};
 	const attach = async () => {
-		const shape = capabilityRefusal(capability);
+		if (running.current !== null) return;
+		const candidate = capability.trim();
+		const shape = sessionCapabilityRefusal(candidate);
 		if (shape !== "") {
 			setAttachError(shape);
 			return;
 		}
 		setAttachError("");
+		running.current = "attach";
 		setBusy("attach");
 		try {
-			setAttachError(locatorRefusal(await browser.attachRoomsSession(capability), "session capability link"));
+			setAttachError(locatorRefusal(await browser.attachRoomsSession(candidate), "session capability link"));
 		} finally {
+			running.current = null;
 			setBusy(null);
 		}
 	};
@@ -75,6 +77,8 @@ export function SessionSetup(
 		}
 	};
 	const deleteBrowserData = async () => {
+		if (running.current !== null) return;
+		running.current = "delete";
 		setError("");
 		setBusy("delete");
 		try {
@@ -82,13 +86,14 @@ export function SessionSetup(
 			setError(why);
 			if (why !== "") setConfirmAction(null);
 		} finally {
+			running.current = null;
 			setBusy(null);
 		}
 	};
 	return (
 		<main className="session-setup card-plane" id="sessionSetup">
 			<div className="session-setup-inner">
-				<header className="session-setup-brand">
+				<header className="session-setup-brand brand-lockup">
 					<Icon name="mark" size={44} />
 					<Wordmark />
 				</header>
@@ -159,7 +164,7 @@ export function SessionSetup(
 								type="submit"
 								size="large"
 								busy={busy === "attach"}
-								disabled={busy != null || capability === ""}
+								disabled={busy != null || capability.trim() === ""}
 							>
 								Attach
 							</Button>

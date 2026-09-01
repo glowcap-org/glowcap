@@ -1,16 +1,15 @@
 //! Host lifecycle and the host-wide surfaces for `libpancake_host`: create /
-//! release, the identity designator helpers, the pure dial / accept planners,
-//! the embedder action queue (`pancake_host_next_action` and the DIAL / gift-id
-//! completions), the host-wide giftable publish, GC release, and the archive's
-//! own last-error slot. The per-session verbs live in `session.zig`, the
-//! turn-time verbs in `turn.zig`, and the convenience drain in `pump.zig`; the
-//! module root (`mod.zig`) owns the public C types these exports fill.
+//! release, the pure dial / accept planners, the embedder action queue
+//! (`pancake_host_next_action` and the DIAL / gift-id completions), the
+//! host-wide giftable publish, GC release, and the archive's own last-error
+//! slot. The advertised-locator verbs live in `locators.zig`, the per-session
+//! verbs in `session.zig`, the turn-time verbs in `turn.zig`, and the
+//! convenience drain in `pump.zig`; the module root (`mod.zig`) owns the
+//! public C types these exports fill.
 
 const std = @import("std");
 
 const foundation = @import("foundation");
-const model = @import("model");
-
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
@@ -232,76 +231,6 @@ pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
     return release(host);
 }
 
-/// Derive the canonical key designator (exactly 64 lowercase hex digits) from
-/// a 32-byte Ed25519 durable-identity seed — the public half represented by
-/// the first half of `pancake_host_new`'s 64-byte input. Session signing keys
-/// derive from that input's fresh second half instead. Writes 64 bytes into
-/// `out` (`out_len` must be at least 64). A keyed-tcp listener uses this so its
-/// locator designator names the Host's durable identity (ADR-0075, ADR-0097).
-pub export fn pancake_host_designator_from_seed(
-    seed: ?[*]const u8,
-    seed_len: usize,
-    out: ?[*]u8,
-    out_len: usize,
-) i32 {
-    shared.lastErrorClear();
-    if (seed_len != foundation.crypto.SEED_BYTES) {
-        shared.setLastError("host: designator_from_seed: seed_len must be 32", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
-    const seed_bytes = shared.sliceFromC(seed, seed_len) catch |err| return shared.marshalErrorToCode(err);
-    const out_buf = out orelse return PANCAKE_ERR_NULL_POINTER;
-    if (out_len < foundation.crypto.PeerKey.designator_len) {
-        shared.setLastError("host: designator_from_seed: out_len must be at least 64", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
-    var seed_arr: [foundation.crypto.SEED_BYTES]u8 = undefined;
-    @memcpy(&seed_arr, seed_bytes);
-    const designator = foundation.crypto.SecretKey.fromSeed(seed_arr).publicKey().toDesignator();
-    @memcpy(out_buf[0..designator.len], &designator);
-    return PANCAKE_OK;
-}
-
-/// Retain and select this host's complete acceptable location. The Host
-/// validates and deep-copies the borrowed locator view before returning.
-pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: ?*const shared.PancakeLocatorView) i32 {
-    shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
-    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
-    var borrowed = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
-        if (err == error.OutOfMemory) return errToCode(err);
-        shared.setLastError("host: set_advertised_locator received an invalid locator view", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    };
-    defer borrowed.deinit(inst.allocator);
-    inst.core.setAdvertisedLocator(borrowed.value) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
-/// Retain the deterministic dial fallback for `transport` without displacing
-/// an acceptable location already selected for another transport.
-pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
-    shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "ensure_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.ensureAdvertisedLocator(bytes) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
-/// Remove the retained locator for `transport`. Removing the selected route
-/// leaves no acceptable location. Existing sessions retain their signed hello.
-pub export fn pancake_host_remove_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
-    shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "remove_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.removeAdvertisedLocator(bytes) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
 // ── Dial / accept planning (driver_core.planDial / planAccept) ────────────────
 //
 // The transport dispatch, designator validation, host:port resolution, and
@@ -448,6 +377,18 @@ pub export fn pancake_host_enliven_for_version(
         sturdyref_uri_len,
         out_vow,
     );
+}
+
+/// Fetch a named publication at a typed locator through this Host's profile.
+pub export fn pancake_host_fetch_at(
+    host: ?*PancakeHost,
+    locator: ?*const shared.PancakeLocatorView,
+    name: ?[*]const u8,
+    name_len: usize,
+    out_vow: ?*u64,
+) i32 {
+    shared.lastErrorClear();
+    return host_actions.fetchAt(host, locator, name, name_len, out_vow);
 }
 
 // ── The action queue ─────────────────────────────────────────────────────────

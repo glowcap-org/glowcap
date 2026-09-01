@@ -44,6 +44,10 @@ import {
 	DEFAULT_FEATURES,
 	featureMask,
 	type FeatureSet,
+	INTEROP_CAPTP_VERSION,
+	INTEROP_CODEC,
+	NATIVE_CAPTP_VERSION,
+	NATIVE_CODEC,
 } from "../value.ts";
 import {
 	type HostFinalizerState,
@@ -194,8 +198,25 @@ export abstract class HostState {
 		// Keep the binding's own copy: callers can reuse or mutate their input
 		// without changing the identity native Host already retained.
 		this._seed = new Uint8Array(durableSeed);
-		this.codec = opts.codec ?? DEFAULT_CODEC;
-		this.captpVersion = opts.captpVersion ?? DEFAULT_CAPTP_VERSION;
+		if (opts.profile !== undefined && opts.profile !== "native" && opts.profile !== "interop") {
+			throw new PancakeError(INVALID_ARGUMENT, `Host: unknown profile ${JSON.stringify(opts.profile)}`);
+		}
+		if (opts.profile !== undefined && (opts.codec !== undefined || opts.captpVersion !== undefined)) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"Host: profile cannot be combined with codec or captpVersion",
+			);
+		}
+		this.codec = opts.profile === "native"
+			? NATIVE_CODEC
+			: opts.profile === "interop"
+			? INTEROP_CODEC
+			: opts.codec ?? DEFAULT_CODEC;
+		this.captpVersion = opts.profile === "native"
+			? NATIVE_CAPTP_VERSION
+			: opts.profile === "interop"
+			? INTEROP_CAPTP_VERSION
+			: opts.captpVersion ?? DEFAULT_CAPTP_VERSION;
 		this.features = opts.features ?? DEFAULT_FEATURES;
 		const frameCap = opts.frameCap ?? DEFAULT_FRAME_CAP;
 		if (!Number.isSafeInteger(frameCap) || frameCap <= 0) {
@@ -267,7 +288,7 @@ export abstract class HostState {
 		this.hosted = new HostedBehaviorMap(this._finalizerState.behaviorIds);
 		registerHostFinalizer(this, this._finalizerState);
 		try {
-			// The host's own key designator, which is what a partner names it by:
+			// The host's own key designator, the name a partner knows it by:
 			// the live trace reports it as this host's endpoint so one peer stays
 			// one node in a feed several producers share.
 			traceAttachHost(this._raw, this.designator(), this._context, this._diagnosticId);

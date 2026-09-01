@@ -5,7 +5,7 @@ These names are pancake's CapTP product:
 | Name | Meaning |
 | --- | --- |
 | Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. An OS hostname is a different word. |
-| Node | Host-owned sans-I/O identity, routing state, and handoff router (`engine.Node`). |
+| Node | Host-owned I/O-free identity, routing state, and handoff router (`engine.Node`). |
 | Vat | Actor container and turn loop. |
 | Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word; `PancakeHostSession` is the Host-registered shell. |
 | Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
@@ -46,8 +46,9 @@ application
 network I/O enters through net and the driver
 ```
 
-Read this page from the top down if you are choosing an API. Read it from the
-bottom up if you are adding a codec, transport, or binding.
+If you are choosing an API, start with the product names and the Host diagram
+above. If you are adding a codec, transport, or binding, start from the layer
+table and work upward.
 
 ## The protocol core
 
@@ -63,59 +64,16 @@ does not open sockets, start tasks, or choose a scheduler.
 | `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
 | `engine` | The caller-driven state machine around one session. |
 
-`model.route_bundle` owns ordered route-list syntax, limits, and owned path
-materialization. `session.id_route` owns the identity rule layered on that
-syntax: every `id/via` carrier must prove the durable key named by the outer
-locator. `engine.Node` schedules only bundles those lower owners admitted; it
-does not parse a second route grammar or treat `id` as a physical transport.
+Route lists have one owner (`model.route_bundle`). The identity rule sits on
+top (`session.id_route`): every `id` route must prove the durable key the
+locator names. `engine.Node` only schedules bundles those layers already
+admitted; it does not treat `id` as a physical transport.
 
-`engine.Peer` remains the state aggregate and deliberate method index. Its
-supporting hierarchy begins with dependency leaves under `engine/peer/`:
-`queue.zig` is the single cursor, burst-reclaim, and optional byte-accounting
-policy for every peer queue, while `errors.zig` names only refusals minted by
-the engine step/dispatch spine. `identity.zig` alone records the durable key a
-dial demanded, the byte-channel endpoint a realizer verified, and derives
-whether those facts authenticate the partner's exact claim. `lifecycle.zig`
-owns the complete construction/posture/retirement pairing, including the
-ordering that retires Node-dependent gifts before severing the borrowed Node
-services link.
+Session tables decide whether a reference is valid; a codec only encodes and
+decodes that decision, so changing codecs cannot mint authority or change CapTP
+behavior.
 
-The behavioral subjects follow the same ownership split. `session.zig` closes
-the Session and projects its negotiated profile and partner handshake facts,
-while `references.zig` exposes the Session-owned capability and answer
-namespaces. `settlement.zig` owns the lower, validate, store, and fire
-transaction for relayed promise resolution. `handoffs.zig` owns bounded parked
-withdrawals and their exact scheduler wakes. `send.zig` owns message
-decomposition and profile encoding, `drive.zig` owns explicit turn and stream
-progression, and `failures.zig` retains the primary failure and its bounded
-consequences. These modules do not duplicate queue mechanics, re-derive
-identity provenance, or move authority out of Session.
-
-The Peer's retained outbound transaction lives under `peer/outbound/`:
-`peer/outbound.zig` owns reservation, publication, rollback, and transfer
-between the Node staging seat, pending queue, Session answer store, and encoded
-queue; `peer/outbound/budget.zig` is its constant-time byte-accounting leaf.
-`engine/outbound.zig` remains the separate semantic recording and encoding
-owner, with `engine/outbound/listener_fire.zig` owning store-borrow listener-fire
-carriers and their checked lookup. The flow charge ends when ownership enters
-the Session answer store; that durable owner has its own cumulative byte cap
-and exact release ledger (ADR-0121). This keeps pressure policy out of codecs,
-prevents durable rows from deadlocking transient flow, and avoids re-walking a
-Passable tree on transfer.
-
-`engine.Node` likewise keeps its aggregate state and supported method index
-while internal packages own coherent cross-session subjects. In
-`node/proxies/`, `topology.zig` owns the one-home-listener/recipient indexes and
-shortening, `admission.zig` owns atomic home and recipient publication, and
-`settlement.zig` owns fire projection, terminal breaks, and close/teardown
-retirement. They reuse the Node's single Passable staging transaction; they do
-not export a second walker or widen the consumer namespace.
-
-Session state decides whether a reference is valid and what it names. A codec
-only parses and renders that decision. This is why changing codecs cannot mint
-authority or change CapTP behavior.
-
-The module graph enforces the split. Protocol modules cannot import adapters,
+The module graph holds that split. Protocol modules cannot import adapters,
 and Syrup and Cap'n Proto cannot import one another. The architecture check also
 rejects `std.Io`, threads, and platform calls in the portable core
 ([ADR-0040](decisions/adr/ADR-0040-layer-modules-as-import-law.md),
@@ -134,33 +92,8 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
-`driver_core.Host` remains the aggregate and supported verb index. Its internal
-session package keeps the `HostSession` shell, framing, outbound drain,
-retained-tail resume, terminal transport report, and channel-realizer identity
-evidence in `host/session.zig`; `host/session/ingress.zig` owns the whole-frame,
-stream, and sealed-channel dispatch into that shell. Consumers still reach only
-`HostSession` and the existing Host verbs through `driver.core`; neither
-internal module is re-exported, and their cross-file `pub` declarations do not
-widen the consumer namespace.
-
-Whole-Host lifetime is similarly singular: `host/ownership.zig` constructs and
-retires the aggregate in one ordered transaction. It introduces no second
-owner object; `Host` still carries every field and directly aliases the
-construction, teardown, and exclusive-transfer verbs.
-
-Application delivery has one transaction too: `host/delivery.zig` composes
-capability routing, Value lowering, Vow reservation, Served delivery, and pump
-progress for send/tell. Those lower owners remain independent; delivery adds no
-state or second traversal, and consumers still call the existing Host verbs.
-
-The same boundary keeps runtime policy explicit: `host/admission.zig` owns
-thread affinity, callback exclusion, and operation admission, while
-`host/transports.zig` owns immutable transport definitions and the advertised
-locator set. `host/interception.zig` owns the policy between decoded events and
-the application Vat: handshake admission, signed-give redemption, withdraw
-claims, and proxy-listener projection. They mutate the one Host aggregate and
-appear to consumers only as direct Host method aliases—there is no second state
-object or public module.
+Consumers reach Host through `driver.core`. The files under `host/` are
+implementation; they are not a second public API.
 
 The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
@@ -170,9 +103,6 @@ session. Persistent actor state uses a structurally shared map, so changing one
 entry does not copy the whole map
 ([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
 [ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
-The internal Vat package keeps session projection in `vat/port.zig`, ingress
-admission and fair driving in `vat/ingress.zig`, and local settlement in
-`vat/vows.zig`; `Vat` remains the supported state aggregate and method index.
 
 Local eventual-sends enter queues keyed by *ingress*: which session the work
 came from. The Vat measures the owned-clone charge before mutation, applies
@@ -272,30 +202,6 @@ A near reference, far reference, promise, and answer share one internal slot
 representation. The codec derives the corresponding wire descriptor only when
 it renders a frame. This keeps pipelining, settlement, and handoff on the same
 state.
-
-`session.Session` remains the aggregate and the deliberate method index; its
-operation owners are arranged by protocol subject rather than by caller.
-`session/protocol.zig` owns the validate-then-apply transaction spine, while
-`session/references/positions.zig` owns import/export namespace admission,
-allocation, rollback, and the Node/Host identities attached to an import
-incarnation. Mutable and durable swiss-name separation, bootstrap publication,
-lookup, and failed-publication rollback live beside it in
-`session/references/bootstrap.zig`. The answer package separates its concrete
-rows and lazy payload
-(`answers/store.zig`), independently accepted notification obligations
-(`answers/notifications.zig`), and the bounded queued-call/listener/projection
-operations (`answers/pipeline.zig`). Answer-row birth, monotonic incarnation
-stamps, and rollback of rows that never became observable live in
-`answers/lifecycle.zig`; ordinary partner-visible retirement remains with
-notifications and GC. Import-keyed relay and shortening state is separate
-under `session/promises/`, rather than being made to look like an answer-table
-concern; `promises/types.zig` is its data-only representation vocabulary.
-Session refusals likewise have one semantic vocabulary in `session/errors.zig`.
-Whole-aggregate construction, host-assigned export-range configuration, and
-teardown live together in `session/lifecycle.zig`, keeping every retained table
-on one matched initialization/retirement path. `Session` exposes operation
-functions as compile-time method aliases, not forwarding calls, so there is one
-implementation and no added runtime layer.
 
 Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
 state also decides which messages are legal while negotiating, open, or closed.

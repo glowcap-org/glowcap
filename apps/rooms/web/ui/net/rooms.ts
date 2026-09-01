@@ -10,25 +10,24 @@
 // the privacy is simply that a reference is the only way in.
 
 import * as store from "../store.ts";
-import { implied, named, type Source } from "../intent.ts";
+import { type Given, implied, named, type Source } from "../intent.ts";
 import { type DirId, type DmConv } from "../types.ts";
 
 import { reason } from "./common.ts";
 import { convSession, dirAddress, dirSession, isCurrent } from "./live.ts";
 import { actLocator } from "./bootstrap.ts";
+import type { RoomsPageContext } from "../page.ts";
 import { dropDirectRoute, releaseBackChannel } from "./direct.ts";
 import { enterRoom } from "./enter.ts";
 import { forgetPeeringForSource } from "./peering.ts";
 import { closeArchiveGeneration } from "./history.ts";
 import { releaseArchiveSharesForConversation } from "./archive_shares.ts";
+import type { RoomPolicy } from "../../../lib/room/policy.ts";
 export { enterRoom } from "./enter.ts";
 
 // ── Rooms: picking, creating, joining ─────────────────────────────────────
-/** Tapping a room in the rail: show it if we are in it, otherwise enter it.
- *
- * Entering is additive, so picking a second room does not give up the first.
- * That is the whole difference multi-room makes here, and it is why this asks
- * whether we hold *that* room rather than whether we hold any.
+/** Tapping a room in the rail selects its conversation. Joining is a separate
+ * act offered inside a selected room whose membership is unavailable.
  *
  * This is the *press*, so it carries the one thing only a press means:
  * pressing the room already on screen is how a reader puts the rail away.
@@ -36,24 +35,14 @@ export { enterRoom } from "./enter.ts";
  * through `showRoom` below, which is the same work without that toggle,
  * because where a reader is standing must not decide whether their rail is
  * open. */
-export function pickRoom(dir: DirId, name: string, at?: string): void {
-	const s = store.get();
-	const publication = at === undefined ? store.enteredPublication(dir, name) : null;
-	const key = at ?? (publication === null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publication.id));
-	const conv = store.getConv(key);
-	const heldRoom = conv?.type === "room" && conv.held;
-	const held = dirSession(dir);
-	const knownAs = (store.requestedDirNick(dir) || store.reachingNick()) !== "";
-	const open = conv?.type === "room";
-	const backIn = !heldRoom && held !== null && knownAs && open && !held.rooms.has(key);
-	// Pressing the room being read is how a reader puts the rail away, unless it
-	// is the room that has stopped working, in which case they are asking for the
-	// one thing that would fix it.
-	if (key === s.activeKey && !backIn) {
-		store.showRail(false);
+export function pickRoom(page: RoomsPageContext, dir: DirId, name: string, at?: string): void {
+	const projection = page.projection;
+	const existing = store.existingRoom(projection, dir, name, at);
+	if (existing != null && existing.key === projection.get().activeKey) {
+		store.showRail(projection, false);
 		return;
 	}
-	showRoom(dir, name, "press", at);
+	showRoom(page, dir, name, "press", at);
 }
 
 /** Show a room, getting there if this tab is not in it yet: the same work the
@@ -66,30 +55,9 @@ export function pickRoom(dir: DirId, name: string, at?: string): void {
  * `at` names the conversation for a caller that has one — a row in the rail —
  * because a room reached by a reference has no name to derive a key from, and
  * two of them may be called the same thing. */
-export function showRoom(dir: DirId, name: string, from: Source, at?: string): void {
-	const publication = at === undefined ? store.enteredPublication(dir, name) : null;
-	const key = at ?? (publication === null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publication.id));
-	const conv = store.getConv(key);
-	const open = conv?.type === "room";
-	const heldRoom = conv?.type === "room" && conv.held;
-	// Whether reaching this room means asking to be back in it. Being in a room is
-	// holding a membership on the live session, and a conversation on screen is not
-	// that: a re-entry refused after a reconnect, or a message stream that broke
-	// under a live one, leaves the history here and the membership gone. This is
-	// the way back, and short of leaving a room they can still read it is the only
-	// one. A session that is away keeps the ordinary behaviour, because its own
-	// reconnect re-enters every room it holds.
-	//
-	// Never for a room this tab was handed: the reference it was reached by went
-	// with the session that carried it, and there is no name to ask for it back
-	// with. Reaching that row shows what was said and nothing else.
-	const held = dirSession(dir);
-	const knownAs = (store.requestedDirNick(dir) || store.reachingNick()) !== "";
-	const backIn = !heldRoom && held !== null && knownAs && open && !held.rooms.has(key);
-	if (backIn) {
-		enterPickedRoom(dir, name, conv?.type === "room" ? conv.publicationId : publication?.id);
-		return;
-	}
+export function showRoom(page: RoomsPageContext, dir: DirId, name: string, from: Source, at?: string): void {
+	const projection = page.projection;
+	const conv = store.existingRoom(projection, dir, name, at);
 	// Being in a room is something this tab knows, not something the connection
 	// has to confirm: the conversation and its history are already here. So a room
 	// already open is shown whatever its directory is doing — including while that
@@ -99,109 +67,129 @@ export function showRoom(dir: DirId, name: string, from: Source, at?: string): v
 	// form asking them to enter a room they were already in, with the history they
 	// wanted sitting behind it. The composer says what the directory is doing, so
 	// nothing here has to pretend the room can be written to.
-	if (open) {
-		store.switchTo(key);
+	//
+	// Listed rooms are found by name or by publication identity, not only by the
+	// caller's key: a bridge retained from a shared session is still that room
+	// when the address or live listing spells it the other way.
+	if (conv != null) {
+		store.switchTo(projection, conv.key);
 		return;
 	}
+	const publication = at === undefined ? store.enteredPublication(projection, dir, name) : null;
 	// Entering one is different: that does need a session and a name on it.
+	const held = dirSession(page, dir);
+	const knownAs = (store.requestedDirNick(projection, dir) || store.reachingNick(projection)) !== "";
 	if (knownAs && held !== null) {
-		enterPickedRoom(dir, name, publication?.id);
+		enterPickedRoom(page, dir, name, publication?.id);
 		return;
 	}
-	// No name granted yet, so the card comes up as the gate on this room, and it
-	// is filed as exactly that: the room by name, and the directory it is on,
-	// which nobody said out loud but which reaching for a room on it can only
-	// mean. Naming the room alone was the whole of an old defect — a link to a
-	// room here would put up a gate offering to join it somewhere else entirely,
-	// because the locator field was still holding the last address anybody had
-	// typed and nothing in the act contradicted it.
-	store.showJoinFor({
+	// No name granted yet, so the card comes up as the gate on this room: the
+	// room by name, and the directory it is on, which nobody said out loud but
+	// which reaching for a room on it can only mean.
+	gateJoin(page, dir, name, from);
+}
+
+/** Put the join card up as the gate on this room: the room by name, and either
+ * the directory it is on or a room entry link. This tab has no nickname to
+ * enter with, and inventing one is not an entry. */
+export function gateJoin(
+	page: RoomsPageContext,
+	dir: DirId,
+	name: string,
+	from: Source,
+	locator?: Given<string>,
+): void {
+	store.showJoinFor(page.projection, {
 		source: from,
 		room: named(name),
-		locator: actLocator(implied(dirAddress(dir))),
+		locator: actLocator(page, locator ?? implied(dirAddress(page, dir))),
 	});
 }
 
-function enterPickedRoom(dir: DirId, name: string, publicationId?: string): void {
-	const key = publicationId == null ? store.roomKey(dir, name) : store.publishedRoomKey(dir, publicationId);
-	store.setRoomMembership(key, "joining");
+function enterPickedRoom(page: RoomsPageContext, dir: DirId, name: string, publicationId?: string): void {
+	const projection = page.projection;
+	const key = store.resolveRoomKey(projection, dir, name, publicationId);
+	store.setRoomMembership(projection, key, "joining");
 	// To the directory the work is about, not whichever one is on screen: read
 	// from another directory's room, this line landed on that one's foot and
 	// stayed, since only the targeted completion write would ever replace it.
-	store.setDirStatus(dir, "entering #" + name + "…");
-	void enterRoom(dir, name, store.requestedDirNick(dir) || store.reachingNick(), { publicationId, select: true });
+	store.setDirStatus(projection, dir, "entering #" + name + "…");
+	void enterRoom(
+		page,
+		dir,
+		name,
+		store.requestedDirNick(projection, dir) || store.reachingNick(projection),
+		{
+			publicationId,
+			select: true,
+		},
+	);
 }
-
-/// A join asked for before the peer session was open. The session is fetched,
-/// instantiated, and handshaked after the page loads, and a returning visitor's
-/// name is prefilled with the Join button focused — so pressing Enter inside
-/// that window is the *common* first interaction, not an unusual one. The
-/// request is held, and `openSession` replays it the moment it can.
-let staged: { room: string; nick: string; hidden: boolean } | null = null;
-let stagedSettle: ((message: string) => void) | null = null;
 
 /** Hold the room a reader asked for until a directory is up to enter it on,
  * and answer when that attempt has settled.
  *
  * One join waits at a time: a second supersedes the first, which is let go with
  * an empty answer rather than left pending on a card that has moved on. */
-export function stageJoin(room: string, nick: string, hidden = false, signal?: AbortSignal): Promise<string> {
-	settleStaged("");
-	if (signal?.aborted) return Promise.resolve("");
-	staged = { room, nick, hidden };
-	return new Promise<string>((resolve) => {
-		stagedSettle = resolve;
-		signal?.addEventListener("abort", () => abandonJoin(), { once: true });
-	});
+export function stageJoin(
+	page: RoomsPageContext,
+	room: string,
+	nick: string,
+	policy: RoomPolicy,
+	signal?: AbortSignal,
+): Promise<string> {
+	return page.connections.stageJoin(room, nick, policy, signal);
 }
 
 /** Take the room a reader asked for before this directory was up, if one is
  * waiting. Read once: whoever takes it owns settling it. */
-export function takeStaged(): { room: string; nick: string; hidden: boolean } | null {
-	const wanted = staged;
-	staged = null;
-	return wanted;
+export function takeStaged(page: RoomsPageContext): {
+	room: string;
+	nick: string;
+	policy: RoomPolicy;
+} | null {
+	return page.connections.takeStaged();
 }
 
-export function settleStaged(message: string): void {
-	const settle = stagedSettle;
-	stagedSettle = null;
-	settle?.(message);
+export function settleStaged(page: RoomsPageContext, message: string): void {
+	page.connections.settleStaged(message);
 }
 
 /** Drop a join that is still waiting on a directory. The card has moved on, so
  * a session that comes up afterwards must not walk into the room it no longer
  * wants. */
-export function abandonJoin(): void {
-	staged = null;
-	settleStaged("");
+export function abandonJoin(page: RoomsPageContext): void {
+	page.connections.abandonJoin();
 }
 
-// ── Rooms nobody can look up ───────────────────────────────────────────────
+// ── Managed room creation ──────────────────────────────────────────────────
 
-/** Make a room nobody can look up, and enter it.
- *
- * The label is what to call it and nothing more: it is not taken from anybody,
- * two of them may share one, and no name gets anyone in. */
-export async function openPrivateRoom(
+/** Create one managed room under its final policy, then enter through the
+ * participant entrance returned to its creator. */
+export async function openManagedRoom(
+	page: RoomsPageContext,
 	dir: DirId,
 	label: string,
+	policy: RoomPolicy,
 	asNick?: string,
 	signal?: AbortSignal,
 ): Promise<string> {
+	const projection = page.projection;
 	if (signal?.aborted) return "";
-	const session = dirSession(dir);
+	const session = dirSession(page, dir);
 	if (session === null) return "not connected to the room directory yet";
-	const nick = asNick || store.requestedDirNick(dir) || store.reachingNick();
+	const nick = asNick || store.requestedDirNick(projection, dir) || store.reachingNick(projection);
 	if (!nick) return "join a room here first, so this directory knows what to call you";
 	try {
-		const room = await session.dir.openPrivate(label);
+		const managed = await session.dir.openManaged(label, { policy });
 		if (!isCurrent(session) || signal?.aborted) return "";
-		const key = store.heldRoomKey();
-		session.stewardClaimable.add(key);
-		// Making a room is asking to be in it, the same as naming a public one.
-		return await enterRoom(dir, label, nick, {
-			held: { key, room },
+		const held = policy.visibility === "secret"
+			? { key: store.heldRoomKey(projection), room: managed.room }
+			: undefined;
+		return await enterRoom(page, dir, label, nick, {
+			...(held == null ? { room: managed.room } : { held }),
+			link: managed.roomLink,
+			manager: managed.managerLink,
 			requested: nick,
 			select: true,
 			signal,
@@ -226,29 +214,30 @@ export async function openPrivateRoom(
  * is left to show, which is the one way back to it in a window with no reload:
  * a kiosk, an installed app, a browser someone handed you.
  */
-export function leaveRoom(key: string): void {
-	const owner = convSession(key);
+export function leaveRoom(page: RoomsPageContext, key: string): void {
+	const projection = page.projection;
+	const owner = convSession(page, key);
 	const room = owner?.rooms.get(key) ?? null;
-	const conversation = store.getConv(key);
+	const conversation = store.getConv(projection, key);
 	const name = conversation?.id ?? "";
-	if (conversation != null) forgetPeeringForSource(conversation.persistId);
+	if (conversation != null && conversation.type === "room") forgetPeeringForSource(page, conversation.persistId);
 	owner?.rooms.delete(key);
 	// What that membership was told goes with the membership.
 	owner?.standingTold.delete(key);
 	// Read what is on screen before anything is cleared: every other conversation
 	// stands on its own, so leaving this room should leave a reader where they
 	// are unless this room *is* where they are.
-	const wasReading = store.get().activeKey === key;
-	store.forgetConv(key);
+	const wasReading = projection.get().activeKey === key;
+	store.forgetConv(projection, key);
 	if (wasReading) {
-		store.closeAboutConv();
-		const next = [...store.get().convs.keys()][0];
-		if (next === undefined) store.showJoinCard();
-		else store.switchTo(next);
+		store.closeAboutConv(projection);
+		const next = store.nextStandingKey(projection.get().convs);
+		if (next === undefined) store.showJoinCard(projection);
+		else store.switchTo(projection, next);
 	}
 	// The leave is over, so the act the foot was narrating is too; an empty
 	// status lets the state row fall back to its settled words.
-	store.setStatus("");
+	store.setStatus(projection, "");
 	// A leave that fails leaves the room still holding the nick, which the next
 	// join will discover as a name already taken, and everyone else still sees
 	// this reader present. The conversation is already gone from this tab, so
@@ -256,6 +245,7 @@ export function leaveRoom(key: string): void {
 	if (room) {
 		void room.leave().catch((err) =>
 			store.toast(
+				projection,
 				"failure",
 				`Leaving ${name === "" ? "the room" : "#" + name} did not complete: ${reason(err)}. ` +
 					`The room may still list you, and may hold your name for a while.`,
@@ -264,13 +254,15 @@ export function leaveRoom(key: string): void {
 	}
 }
 
-/** The title's mark ends whatever it names: a room is left, a direct line is
- * closed. One control, because from the reader's side it is one gesture. */
-export function endConversation(): void {
-	const conv = store.activeConv();
+/** `/leave` ends whatever is on screen: a room is left, a direct line is
+ * closed, a directory view is put away. The title's close asks in that
+ * conversation's card instead. */
+export function endConversation(page: RoomsPageContext): void {
+	const conv = store.activeConv(page.projection);
 	if (conv === null) return;
-	if (conv.type === "dm") closeDm(conv);
-	else leaveRoom(conv.key);
+	if (conv.type === "directory") store.dismissDirectoryView(page.projection, conv.key);
+	else if (conv.type === "dm") closeDm(page, conv);
+	else leaveRoom(page, conv.key);
 }
 
 /** Close a direct conversation and go back to whatever is behind it.
@@ -283,13 +275,14 @@ export function endConversation(): void {
  * What is behind it is the room you are still in, if you are still in one, and
  * the join card if you are not.
  */
-export function closeDm(conv: DmConv): void {
+export function closeDm(page: RoomsPageContext, conv: DmConv): void {
+	const projection = page.projection;
 	const key = conv.key;
-	const s = store.get();
-	const owner = dirSession(conv.dir);
-	releaseArchiveSharesForConversation(key);
-	store.forgetConv(key);
-	closeArchiveGeneration(key);
+	const s = projection.get();
+	const owner = dirSession(page, conv.dir);
+	releaseArchiveSharesForConversation(page, key);
+	store.forgetConv(projection, key);
+	closeArchiveGeneration(page, key);
 	// Hand the line's own connection back. A redeemed introduction holds one open
 	// to the member for as long as the line lives, so forgetting the line here
 	// without closing it would leave the connection and the reply inbox on it
@@ -298,13 +291,13 @@ export function closeDm(conv: DmConv): void {
 	// The back-channel is the other direction: a connection the member opened to
 	// us, captured as it arrived. It carries this conversation and nothing else
 	// (a cold dial is per-peer), so letting the conversation go lets it go.
-	releaseBackChannel(key);
+	releaseBackChannel(page, key);
 	// Only the conversation you are looking at needs somewhere to go. Closing one
 	// from the rail while reading something else should leave you reading it, the
 	// same as leaving a room you are not currently in.
 	if (s.activeKey !== key) return;
-	store.closeAboutConv();
-	const next = [...store.get().convs.keys()][0];
-	if (next === undefined) store.showJoinCard();
-	else store.switchTo(next);
+	store.closeAboutConv(projection);
+	const next = store.nextStandingKey(projection.get().convs);
+	if (next === undefined) store.showJoinCard(projection);
+	else store.switchTo(projection, next);
 }

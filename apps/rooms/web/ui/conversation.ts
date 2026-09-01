@@ -1,7 +1,10 @@
 // Conversation, message, and invitation state for the Rooms presentation model.
 
-import type { RoomMemberState } from "../../lib/room_presence.ts";
-import type { WorkspaceRoomIrcIdentity } from "../../lib/rooms_state.ts";
+import type { RoomMemberState } from "../../lib/room/presence.ts";
+import type { RoomFacts } from "../../lib/room/message.ts";
+import type { WorkspaceRoomBridgeIntent } from "../../lib/rooms_state.ts";
+import type { RoomMembershipKind } from "../../lib/room/membership.ts";
+import type { RoomPolicy } from "../../lib/room/policy.ts";
 import type { DirId } from "./types.ts";
 
 export type SendState = "sending" | "failed" | "refused";
@@ -46,6 +49,8 @@ export type Item =
 		mine: boolean;
 		at: number;
 		state?: SendState;
+		/** The id assigned by the current live room generation. Retired when that
+		 * membership ends; retained text is not authority for a later generation. */
 		lineId?: number;
 		history?: HistoryCoordinate;
 		edited?: boolean;
@@ -72,13 +77,20 @@ export type Unread =
 	| { kind: "rule-only"; from: number }
 	| { kind: "unread"; count: number; from: number };
 
+/** Shared empty log, so a conversation with nothing said and a missing row
+ * compare equal by identity rather than allocating an array per read. */
+export const NO_HISTORY: readonly Item[] = [];
+
+/** Shared caught-up mark, for the same reason. */
+export const CAUGHT_UP: Unread = { kind: "caught-up" };
+
 export interface ConvBase {
-	persistId: string;
+	/** What the reader sees: a room's name, or a DM peer's nick. */
 	id: string;
+	/** This tab's map key. Distinct from `id` (display). A room or DM also has a
+	 * durable `persistId`; a directory conversation does not. */
 	key: string;
 	dir: DirId;
-	history: readonly Item[];
-	unread: Unread;
 }
 
 export type Standing = RoomMemberState;
@@ -89,7 +101,10 @@ export function membersHere(members: ReadonlyMap<string, Standing>): number {
 	return here;
 }
 
-export function awayByPeer(convs: ReadonlyMap<string, Conv>): ReadonlyMap<DirId, ReadonlyMap<string, string | null>> {
+export function awayByPeer(
+	convs: ReadonlyMap<string, Conv>,
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
+): ReadonlyMap<DirId, ReadonlyMap<string, string | null>> {
 	const dirs = new Map<DirId, Map<string, string | null>>();
 	for (const conv of convs.values()) {
 		if (conv.type !== "room") continue;
@@ -98,7 +113,7 @@ export function awayByPeer(convs: ReadonlyMap<string, Conv>): ReadonlyMap<DirId,
 			words = new Map();
 			dirs.set(conv.dir, words);
 		}
-		for (const [member, standing] of conv.members) {
+		for (const [member, standing] of members.get(conv.key) ?? []) {
 			if (!standing.online) continue;
 			const name = member.toLowerCase();
 			if (standing.away === "") words.set(name, null);
@@ -116,35 +131,57 @@ export function awayOf(
 	return words.get(dir)?.get(name.toLowerCase()) ?? null;
 }
 
+/** One conversation this tab can show. Session checkpoints say `kind: "direct"`
+ * for the same row this union calls `type: "dm"`. A directory conversation is
+ * this tab's view of a held directory, not a checkpoint row, and has no
+ * `persistId`: session commands cannot name it. */
 export type Conv =
 	| (ConvBase & {
 		type: "room";
+		/** Durable session / checkpoint id. Session commands name this. */
+		persistId: string;
 		membership: "joining" | "joined" | "unavailable";
+		membershipIssue: string;
 		publicationId?: string;
-		members: ReadonlyMap<string, Standing>;
-		typers: ReadonlySet<string>;
 		lineBytes?: number;
 		topic?: string;
+		/** What the bridge behind this room calls its own, when one said so: the
+		 * prefix its foreign members' names carry, and the badge and sentence for
+		 * one of them. Absent in an ordinary room, which is most of them. */
+		bridge?: BridgeFacts;
 		earlierHistory: "unasked" | "loading" | "empty" | "shown" | "unavailable";
 		grants: ReadonlySet<string>;
+		membershipKind: RoomMembershipKind;
+		policy: RoomPolicy;
+		/** Private or source-owned, not "this tab is presently in the room". */
 		held: boolean;
-		stewardClaimable: boolean;
+		reconnect?: "manual" | "requested";
 		link?: string;
+		manager?: string;
 		steward?: string;
 		standing: string | null;
-		irc?: WorkspaceRoomIrcIdentity | null;
-		ircIssue: string;
+		bridgeIntent?: WorkspaceRoomBridgeIntent | null;
+		bridgeIssue: string;
 	})
 	| (ConvBase & {
 		type: "dm";
+		/** Durable session / checkpoint id. Session commands name this. */
+		persistId: string;
 		peerRegistrationId: string;
 		line: DmLine;
-		typers: ReadonlySet<string>;
-	});
+	})
+	| (ConvBase & { type: "directory" });
 
 export type DmLine = "introducing" | "live" | "closed";
 export type RoomConv = Extract<Conv, { type: "room" }>;
 export type DmConv = Extract<Conv, { type: "dm" }>;
+export type DirectoryConv = Extract<Conv, { type: "directory" }>;
+/** A room or a direct line: the conversations a session checkpoint can name. */
+export type SessionConv = RoomConv | DmConv;
+
+export function isSessionConv(conv: Conv): conv is SessionConv {
+	return conv.type !== "directory";
+}
 
 export type RoomReentry =
 	| { kind: "name"; name: string; publicationId?: string }
@@ -168,3 +205,6 @@ export interface Invitation {
 	from: string;
 	link: string;
 }
+
+/** The bridge half of a room's standing facts. */
+export type BridgeFacts = NonNullable<RoomFacts["bridge"]>;

@@ -693,24 +693,28 @@ int32_t pancake_host_remove_durable(PancakeHost *host, const uint8_t *swiss, siz
    immediately re-gifts it routes to the right exporter. Refused inside a
    callback. */
 int32_t pancake_host_session_fetch(PancakeHostSession *session, const uint8_t *name, size_t name_len, uint64_t *out_vow);
-/* Enliven the complete sturdyref URI (ADR-0098), minting a host vow whose id
-   lands in *out_vow; the live reference arrives as that vow's SETTLE action.
-   The URI's transport and designator must match the selected session before
-   the swiss namespace is consulted or wire traffic is emitted. A dedup-cache
-   hit settles before this returns; a fresh enliven rides bootstrap-fetch.
-   Refused inside a callback. */
+/* Enliven the complete canonical persistent sturdyref URI (ADR-0098), minting
+   a host vow whose id lands in *out_vow; the live reference arrives as that
+   vow's SETTLE action. The URI form is independent of the selected session's
+   negotiated profile. Its transport and designator must match that session
+   before the swiss namespace is consulted or wire traffic is emitted. A
+   dedup-cache hit settles before this returns; a fresh enliven rides
+   bootstrap-fetch. Refused inside a callback. */
 int32_t pancake_host_session_enliven(PancakeHostSession *session, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
-/* Select-or-dial enliven of a complete sturdyref URI (ADR-0098): enliven it
-   over a live session this host already dialed to that peer, or stage a dial
-   and finish when you report it. The host vow id lands in *out_vow and its
-   outcome arrives as that vow's SETTLE or FAIL action either way. A staged
-   dial surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL — borrow it with
-   pancake_host_pending_dial and answer it with pancake_host_dialed /
+/* Select-or-dial enliven of a canonical persistent sturdyref URI (ADR-0098):
+   enliven it over a live session this host already dialed to that peer, or
+   stage a dial and finish when you report it. The host vow id lands in
+   *out_vow and its outcome arrives as that vow's SETTLE or FAIL action either
+   way. A staged dial surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL — borrow
+   it with pancake_host_pending_dial and answer it with pancake_host_dialed /
    pancake_host_dial_failed exactly as a handoff redeem's — so a parked vow's
-   id has no session and no row until it settles. Refused inside a callback. */
+   id has no session and no row until it settles. Alternate profile spellings use
+   pancake_host_enliven_for_version. Refused inside a callback. */
 int32_t pancake_host_enliven(PancakeHost *host, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
 /* The same Host-level select-or-dial enliven, parsing the sturdyref's swiss authority under the explicit PANCAKE_CAPTP_* version that defined its spelling. Use this when the sturdyref arrived over a session whose settled version differs from the Host preference. Invalid versions are refused before any authority or dial state changes. */
 int32_t pancake_host_enliven_for_version(PancakeHost *host, uint32_t captp_version, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
+/* Fetch a named publication at a typed peer locator through this Host's configured profile. Concrete locators select or open one physical session; an id/via locator is expanded by the Host's Node into its bounded authenticated route schedule. The caller names no CapTP version or codec. The host vow id lands in *out_vow and settles through the ordinary action queue. The locator and name are borrowed for this call; staged work retains its own copy. Refused inside a callback. */
+int32_t pancake_host_fetch_at(PancakeHost *host, const PancakeLocatorView *locator, const uint8_t *name, size_t name_len, uint64_t *out_vow);
 /* Listen on a far capability this session holds (CapTP op:listen), minting a
    host vow whose id lands in *out_vow; the listen notification arrives as that
    vow's SETTLE or FAIL action. In 1.0, the target may be a far promise or live

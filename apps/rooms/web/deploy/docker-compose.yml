@@ -1,26 +1,26 @@
-# Serve the rooms browser UI over a WebSocket relay to an iroh room server from
-# a light, toolchain-free container, reachable through an existing cloudflared
-# tunnel on a shared Docker network. The browser peer dials through the relay;
-# terminal CapTP peers dial over iroh Discovery.
+# Serve the Rooms browser UI over a WebSocket relay to an iroh room server from
+# a light, toolchain-free container. This tracked base publishes no host port
+# and joins one shared Docker network. How this machine reaches the page is the
+# ignored docker-compose.override.yml's business, so a host's ports and network
+# names never enter the repository. Terminal CapTP peers need neither: they
+# dial over iroh Discovery.
 #
 # Prerequisites, in the dev container — this produces the shared libraries,
 # WebAssembly Host, and browser bundle this image loads:
 #
 #     zig build rooms-deploy-prep
 #
-# Then, from this directory:
+# Then, from this directory, say how the page is reached and bring it up:
 #
-#     docker compose up -d --build
+#     cp docker-compose.override.yml.example docker-compose.override.yml
+#     ./up.sh
 #
-# The browser reaches the page and its /relay WebSocket over cloudflared. The
-# browser peer dials the room through the relay; terminal peers dial over iroh
-# Discovery. Cloudflared only needs HTTP 8000. Point one ingress rule at it:
-# next to your other services:
-#
-#     - hostname: rooms.<your-domain>
-#       service: http://pancake-rooms:8000
-#
-# then `cloudflared tunnel route dns <tunnel> rooms.<your-domain>`.
+# up.sh waits for both peers to serve and prints the room locator, the operator
+# capabilities, and the session administrator capability in one block.
+# `./compose.sh up -d --build` is the same start without that handoff. With the
+# example override in place the page is at http://127.0.0.1:8000 on the Docker
+# host, and the browser peer dials the room through the same-origin /relay
+# WebSocket.
 
 services:
   rooms:
@@ -56,8 +56,8 @@ services:
       PANCAKE_ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
       PANCAKE_ROOMS_REACHABILITY: discovery
-      # Browser-to-browser WebRTC uses public Cloudflare STUN by default. Empty
-      # means host candidates only; a comma-separated STUN list replaces it.
+      # Browser-to-browser WebRTC uses the application's public STUN default.
+      # Empty means host candidates only; a comma-separated STUN list replaces it.
       # PANCAKE_ROOMS_ICE_SERVERS: ""
       # A credential issuer gives restrictive-NAT peers short-lived TURN reach.
       # The bearer token stays in this server; browsers receive only temporary
@@ -68,13 +68,14 @@ services:
       # Every operator capability, on by default: each swiss number persists in
       # the state volume and prints in the logs; comment one out to withhold
       # that authority from this deployment. Read them any time with
-      #   docker compose exec rooms deno run --allow-read --allow-env --no-lock \
+      #   ./compose.sh exec rooms deno run --allow-read --allow-env --no-lock \
       #     /repo/apps/rooms/server/capabilities.ts
       # Same as starting with --diagnostics: mint inspect.
       PANCAKE_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
       PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
-      # Mint the server-wide authority that gives and revokes room stewardships.
+      # Same as --operator: mint the server-wide authority that gives and
+      # revokes room stewardships.
       PANCAKE_ROOMS_OPERATOR: "1"
       # Same as --peering: mint the directory-peering capability.
       PANCAKE_ROOMS_PEERING: "1"
@@ -90,7 +91,7 @@ services:
       # Same as --storage=: one destination whose shape picks where kept
       # lines persist. Empty keeps the state volume's files. To use the
       # managed database below instead, bring it up with
-      #   docker compose --profile storage-db up -d
+      #   ./compose.sh --profile storage-db up -d
       # and set this to its URL, e.g.
       #   postgres://rooms:${STORAGE_DB_PASSWORD}@rooms-storage-db:5432/rooms
       PANCAKE_ROOMS_STORAGE: ${PANCAKE_ROOMS_STORAGE:-}
@@ -119,7 +120,6 @@ services:
     restart: unless-stopped
     networks:
       - rooms-net
-      - egress-net
 
   # One durable user workspace, separate from the room directory's authority.
   # Its administrator sturdyref never crosses HTTP: ./up.sh reads the
@@ -132,7 +132,13 @@ services:
     working_dir: /repo
     command:
       - run
-      - --allow-ffi=/libs
+      # Deno's granular FFI allowlist names files, not directory trees. This
+      # session loads the core, Host, driver, and selected provider archives
+      # from the read-only /libs mount; `=/libs` grants none of them and makes
+      # startup report that --allow-ffi is missing. FFI is the one broad
+      # permission here, while reads, writes, environment, and custody remain
+      # explicitly scoped below.
+      - --allow-ffi
       - --unstable-ffi
       - --allow-read=/repo,/libs,/session-state,/run/rooms-session
       - --allow-write=/session-state,/run/rooms-session
@@ -168,9 +174,10 @@ services:
 
   # The managed storage database, opted into with --profile storage-db. The
   # room server reaches it only over the private compose network; nothing
-  # publishes it to the host. The password comes from the gitignored .env.
+  # publishes it to the host. Its password is supplied explicitly in the
+  # process environment when this profile is requested.
   rooms-storage-db:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     container_name: rooms-storage-db
     profiles: ["storage-db"]
     environment:
@@ -190,12 +197,6 @@ networks:
   # `docker network create rooms-net`).
   rooms-net:
     name: rooms-net
-    external: true
-  # The tunnel network cloudflared reaches this container on for the public web
-  # UI (:8000). Host-named via the gitignored .env (EGRESS_NET). The key below
-  # is a compose alias, not the host network name.
-  egress-net:
-    name: ${EGRESS_NET:?Set EGRESS_NET in .env (see .env.example)}
     external: true
 
 volumes:

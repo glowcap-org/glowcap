@@ -132,7 +132,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &original });
 
     // Gifter dials the exporter and fetches the widget: the node records the
-    // capability's foreign home, which is what the give will name. Fetch lazily
+    // capability's foreign home, the home the give will name. Fetch lazily
     // projects the Host-Vat actor onto this first exporter Port.
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7001", &dials);
     var widget = CapturedRef{};

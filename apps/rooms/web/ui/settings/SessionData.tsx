@@ -6,7 +6,7 @@
 // separately, under Message history on the tab this card opens from, and the
 // lead says so once so nobody exports a file expecting their history in it.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
 import { Confirm } from "../Confirm.tsx";
@@ -14,7 +14,8 @@ import { Field } from "../Field.tsx";
 import { FilePick } from "../FilePick.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { Said } from "../Said.tsx";
-import { SettingsSubmodal } from "./Submodal.tsx";
+import { Submodal } from "../Submodal.tsx";
+import { useChangeGroup, useCommitments } from "../commitment.tsx";
 
 const STATE_FILE = "pancake-rooms-state.json";
 
@@ -27,6 +28,7 @@ export function SessionDataModal(
 	},
 ) {
 	const session = useRoomsSession();
+	const commitments = useCommitments();
 	const [includeCapabilities, setIncludeCapabilities] = useState(false);
 	const [file, setFile] = useState<{ name: string; text: string } | null>(null);
 	const [busy, setBusy] = useState<"import" | "clear" | null>(null);
@@ -35,7 +37,23 @@ export function SessionDataModal(
 	const [importError, setImportError] = useState("");
 	const [clearError, setClearError] = useState("");
 	const [confirming, setConfirming] = useState(false);
+	const selection = useRef(0);
+	const operation = useRef<"import" | "clear" | null>(null);
 	const dataLabel = sharedSession ? "Shared session data" : "Local session data";
+	useChangeGroup("settings-session-data", {
+		dirty: file !== null,
+		discard: () => {
+			if (operation.current !== null) throw new Error("Wait for the session data operation to finish.");
+			selection.current += 1;
+			setFile(null);
+			setImportError("");
+			setConfirming(false);
+		},
+	});
+	const close = () => {
+		selection.current += 1;
+		onClose();
+	};
 
 	const download = () => {
 		setExportError("");
@@ -56,43 +74,55 @@ export function SessionDataModal(
 		}
 	};
 	const choose = (chosen: File | null) => {
+		const generation = ++selection.current;
 		setImportError("");
+		setFile(null);
 		if (chosen === null) {
-			setFile(null);
 			return;
 		}
 		void chosen.text().then(
-			(text) => setFile({ name: chosen.name, text }),
-			(cause) => setImportError(cause instanceof Error ? cause.message : String(cause)),
+			(text) => {
+				if (selection.current === generation) setFile({ name: chosen.name, text });
+			},
+			(cause) => {
+				if (selection.current === generation) {
+					setImportError(cause instanceof Error ? cause.message : String(cause));
+				}
+			},
 		);
 	};
 	const load = async () => {
-		if (file === null) return;
+		if (file === null || operation.current !== null) return;
+		operation.current = "import";
 		setBusy("import");
 		setImportError("");
 		try {
 			setImportError(await session.importRoomsState(file.text));
 		} finally {
+			operation.current = null;
 			setBusy(null);
 		}
 	};
 	const clear = async () => {
+		if (operation.current !== null) return;
+		operation.current = "clear";
 		setBusy("clear");
 		setClearError("");
 		try {
 			setClearError(await session.clearRoomsState());
 		} finally {
+			operation.current = null;
 			setBusy(null);
 		}
 	};
 
 	return (
-		<SettingsSubmodal
+		<Submodal
 			title={dataLabel}
 			titleId="sessionDataTitle"
 			className="session-data-modal"
 			open={open}
-			onClose={onClose}
+			onClose={() => commitments.request(close, { only: ["settings-session-data"] })}
 		>
 			<p className="lead">
 				{sharedSession
@@ -123,7 +153,8 @@ export function SessionDataModal(
 						<span>
 							<strong>Include remembered capabilities</strong>
 							The file will also hold the links that grant access to rooms, operations, moderation, and
-							any archive. Anyone with the file could use them.
+							any archive{sharedSession ? ", and this session's own capability" : ""}. Anyone with the
+							file could use them.
 						</span>
 					</label>
 				)}
@@ -146,7 +177,7 @@ export function SessionDataModal(
 						aria-labelledby="stateImportLegend"
 						onSubmit={(event) => {
 							event.preventDefault();
-							void load();
+							commitments.request(load, { except: ["settings-session-data"] });
 						}}
 					>
 						<Field
@@ -206,7 +237,7 @@ export function SessionDataModal(
 									keepId="stateClearKeep"
 									commitId="stateClear"
 									onKeep={() => setConfirming(false)}
-									onCommit={() => void clear()}
+									onCommit={() => commitments.request(clear)}
 								/>
 							)
 							: (
@@ -226,6 +257,6 @@ export function SessionDataModal(
 					</div>
 				</>
 			)}
-		</SettingsSubmodal>
+		</Submodal>
 	);
 }

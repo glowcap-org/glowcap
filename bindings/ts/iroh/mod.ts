@@ -23,7 +23,7 @@ export {
 export const profiles = [
 	{
 		transport: "iroh",
-		summary: "Encrypted QUIC; peers dial the node id.",
+		summary: "Encrypted QUIC. Peers dial the node id.",
 		reference: "https://www.iroh.computer/",
 		referenceName: "iroh",
 		takes: [],

@@ -28,14 +28,19 @@ without the reader choosing that custody.
 
 The archive-peer form Settings opens accepts an archive sturdyref in a secret input. The page
 parses it, connects, enlivens the object, and makes one bounded `read` before
-changing the recorder. A failed candidate leaves the current recorder
-untouched. The presentation store receives only a label and connection state;
-the sturdyref, session, and archive reference remain in the network module.
+changing the recorder. One page-owned selection controller serializes candidate
+validation, target activation, selection metadata, and retirement, so concurrent
+submissions cannot leave those facts naming different peers. A failed candidate
+leaves the current recorder untouched. The presentation store receives only a
+label and connection state; the sturdyref, session, and archive reference remain
+with that controller.
 
 Changing targets first drains writes assigned to the old target. Reads already
 using it finish before its session closes. Later direct-message writes and
 history reads use the new target. Recovered groups name the archive peer, recorder source, and conversation
 generation that supplied them. No records migrate during a target change.
+Once the new target is active, refusal while retiring the old one is a cleanup
+diagnostic rather than grounds to roll back the committed selection.
 
 The reader may explicitly remember the sturdyref in browser local storage. A
 page-lifetime selection removes any earlier remembered value. Retry preserves
@@ -45,10 +50,12 @@ remembered peer.
 
 When a remembered peer cannot be reached at startup, the page selects an
 unavailable target and says so. It does not write those lines to IndexedDB.
-The same state change follows the first failed operation after a live peer goes
-away; later operations refuse quickly until retry or an explicit return to the
-device recorder. Turning history off stops future peer writes, but cannot claim
-to erase a remote archive whose contract has no erase verb.
+The same state change follows an operation that fails after the peer's session
+has ended; later operations refuse quickly until retry or an explicit return to
+the device recorder. A record refusal or unavailable blob remains local to that
+operation and does not falsely mark a live peer unavailable. Turning history off
+stops future peer writes, but cannot claim to erase a remote archive whose
+contract has no erase verb.
 
 ## Scope
 
@@ -83,7 +90,8 @@ only when the reader shares one direct conversation.
 
 ## Evidence
 
-`apps/rooms/test/archive_target_test.ts` proves ordered target retirement,
+`apps/rooms/test/archive/target_test.ts` proves serialized concurrent selection,
+ordered target retirement, post-commit cleanup refusal, operation-local failure,
 keeper attribution, and refusal without device fallback.
 `zig build rooms-web-archive` drives Chromium against a live iroh archive peer,
 writes direct-message history, closes the browser profile, and recovers the

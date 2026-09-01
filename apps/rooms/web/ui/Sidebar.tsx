@@ -23,9 +23,16 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { implied, named } from "./intent.ts";
-import { destination, type DirectoryDestinationContext, type JoinAnswers } from "./joining.ts";
 import {
-	type Conv,
+	destination,
+	type DirectoryDestinationContext,
+	type JoinAnswers,
+	privateRoomNameRefusal,
+	resolveJoin,
+} from "./joining.ts";
+import { policyForRoomPreset } from "../../lib/room/policy.ts";
+import {
+	CAUGHT_UP,
 	type DirId,
 	dirId,
 	type DirView,
@@ -33,7 +40,7 @@ import {
 	liveRoomNames,
 	type SessionPhase,
 } from "./types.ts";
-import { DmRows } from "./sidebar/dms.tsx";
+import { DirectMessages } from "./sidebar/dms.tsx";
 import { YourRooms } from "./sidebar/rooms.tsx";
 import { RailFilter } from "./sidebar/Filter.tsx";
 import {
@@ -51,15 +58,17 @@ import { DirectoryPicks, typeAnotherAddress } from "./DirectoryPicks.tsx";
 import { Wordmark } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
-import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
+import { MAX_ROOM } from "../../lib/limits.ts";
 import { Foot } from "./sidebar/Foot.tsx";
 import { RailSection } from "./sidebar/Section.tsx";
 import type { AddField } from "./sidebar/NamePanel.tsx";
+import { useRoomsState } from "./hooks.ts";
+import { emptyDirs } from "./store.ts";
+
 function SidebarPane(
 	{
 		canInteract,
 		cardUp,
-		convs,
 		dirs,
 		homeDir,
 		directoryContext,
@@ -69,7 +78,6 @@ function SidebarPane(
 		railShown,
 		mobile,
 		session,
-		emptyDirs,
 		standing,
 		invites,
 		settingsOpen,
@@ -79,13 +87,8 @@ function SidebarPane(
 		 * else standing in the content cell. App owns what that cell shows,
 		 * so App says. */
 		cardUp: boolean;
-		convs: ReadonlyMap<string, Conv>;
 		/** Every directory this tab holds, in the order it opened them. */
 		dirs: ReadonlyMap<DirId, DirView>;
-		/** Those of them with nothing open, which get a row of their own: holding
-		 * one is a session and a registered name whatever is open on it, and that
-		 * state used to have nowhere to appear. */
-		emptyDirs: DirView[];
 		homeDir: DirId | null;
 		directoryContext: DirectoryDestinationContext;
 		activeKey: string | null;
@@ -109,6 +112,11 @@ function SidebarPane(
 		settingsOpen: boolean;
 	},
 ) {
+	const convs = useRoomsState((state) => state.convs);
+	const unreads = useRoomsState((state) => state.unreads);
+	/** Directories this tab holds with nothing open, which get a row of their
+	 * own: holding one is a session and a registered name whatever is open on it. */
+	const empty = emptyDirs({ convs, dirs, homeDir });
 	// Whether this tab is in any room, which is what the direct-message section
 	// needs: a direct line starts from a roster, and any room's roster will do.
 	const inARoom = [...convs.values()].some((conv) => conv.type === "room");
@@ -132,8 +140,12 @@ function SidebarPane(
 	// decides its own rows, so nothing here says which list a row landed in.
 	const railRows = [
 		...invites.map(inviteRow),
-		...[...convs.values()].map((conv) => conv.type === "room" ? roomRow(conv) : dmRow(conv)),
-		...emptyDirs.map((dir) => dirRow(dir, homeDir)),
+		...[...convs.values()].flatMap((conv) => {
+			if (conv.type === "directory") return [];
+			const unread = unreads.get(conv.key) ?? CAUGHT_UP;
+			return [conv.type === "room" ? roomRow(conv, unread) : dmRow(conv, unread)];
+		}),
+		...empty.map((dir) => dirRow(dir, homeDir)),
 	];
 	const shown = railRows.filter(shows).length;
 	// With the join card up, this panel is a second view of it: one room name,
@@ -175,28 +187,16 @@ function SidebarPane(
 		if (activeKey !== null) setOpen(null);
 	}, [activeKey]);
 
-	// What the two fields can finish. Rooms come from the directory the field is
+	// What the room field can finish. Rooms come from the directory the field is
 	// aimed at, since that is where the room will land and a name advertised
-	// somewhere else would open a different room. People come from the rosters
-	// this tab can see, so the name is spelled the way its directory granted it,
-	// filtered to those a directory says are reachable and never including the
-	// reader, who cannot be written to.
+	// somewhere else would open a different room. Direct-line names are the
+	// other field's, and they subscribe there so a join does not rebuild this
+	// list.
 	const roomOffers = liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
-	const dmOffers = (() => {
-		const names = new Map<string, string>();
-		for (const conv of convs.values()) {
-			if (conv.type !== "room") continue;
-			const dir = dirs.get(conv.dir);
-			if (dir === undefined) continue;
-			for (const name of conv.members.keys()) {
-				const key = name.toLowerCase();
-				if (key === dir.nick.toLowerCase()) continue;
-				if (!dir.dmablePeers.has(key)) continue;
-				names.set(key, name);
-			}
-		}
-		return [...names.values()];
-	})();
+	// The same answer the card resolves, from the same intent and the same
+	// directories. Read rather than remembered, so neither surface can be
+	// holding a standing the other has moved on from.
+	const resolvedJoin = resolveJoin(join, dirs, homeDir, (at) => rooms.directoryId(at));
 
 	// The one field that names a room, whatever this tab holds. Where the room
 	// lands is stated on the field rather than decided by where the field sits,
@@ -212,12 +212,22 @@ function SidebarPane(
 		max: MAX_ROOM,
 		noun: "room name",
 		canAdd: canInteract,
-		canBePrivate: true,
+		canChooseAccess: true,
 		offers: roomOffers,
 		sigil: "#",
 		onOpen: opener("newRoom"),
-		onSubmit: (name: string, isPrivate: boolean) =>
-			isPrivate ? rooms.openPrivateRoom(here, name) : rooms.pickRoom(here, name),
+		onSubmit: (name, preset) => {
+			if (preset === "private") {
+				const refusal = privateRoomNameRefusal(name, roomOffers);
+				if (refusal != null) {
+					browser.toast("failure", refusal);
+					return;
+				}
+			}
+			if (preset === "open") rooms.pickRoom(here, name);
+			else rooms.openManagedRoom(here, name, policyForRoomPreset(preset));
+			browser.showActiveConversation();
+		},
 		onError: (text: string) => browser.toast("failure", text),
 		// With the join card on screen, this field and that form name one room:
 		// one draft, one lock, and Enter submits the form itself, so the locator
@@ -228,9 +238,12 @@ function SidebarPane(
 			? {
 				form: "#joinForm",
 				value: join.room.value,
-				secret: join.secret.value,
+				// The standing the card resolved, not the raw draft: one question
+				// cannot have two answers because it is asked in two places.
+				roomPreset: resolvedJoin.standing,
+				accessFixed: resolvedJoin.fixed,
 				onValue: (value: string) => browser.editJoin({ room: value }),
-				onSecret: (secret: boolean) => browser.editJoin({ secret }),
+				onRoomPreset: (roomPreset) => browser.editJoin({ roomPreset }),
 			}
 			: undefined,
 		// With the card up the destination is one of this tab's own directories
@@ -329,55 +342,50 @@ function SidebarPane(
 					<YourRooms
 						canInteract={canInteract}
 						convs={convs}
+						unreads={unreads}
 						dirs={dirs}
 						home={homeDir}
 						activeKey={activeKey}
-						empty={emptyDirs}
+						empty={empty}
 						invites={invites}
 						shows={shows}
 						onTake={rooms.acceptInvite}
 						onDrop={rooms.declineInvite}
-						onPick={(conv) => rooms.pickRoom(conv.dir, conv.id, conv.key)}
+						onPick={(conv) => {
+							rooms.pickRoom(conv.dir, conv.id, conv.key);
+							browser.showActiveConversation();
+						}}
 						onLeave={rooms.leaveRoom}
-						onAbout={browser.aboutDirectory}
+						onAbout={browser.showDirectory}
 						// The address, not the identity: what a row hands over has to be
 						// dialable, and the hints are part of what makes it so.
 						onJoinOn={(dir) => browser.reachFor({ source: "press", locator: named(rooms.dirAddress(dir)) })}
 						onLeaveDir={rooms.leaveDirectory}
 					/>
 				</RailSection>
-				<RailSection
-					className="dms"
-					title="Direct messages"
-					listId="dmList"
-					field={{
-						id: "newDm",
-						open: open === "newDm",
-						label: "Start a direct message",
-						placeholder: "member name",
-						max: MAX_NICK,
-						noun: "name",
-						canAdd: canInteract && inARoom,
-						offers: dmOffers,
-						sigil: "@",
-						onOpen: opener("newDm"),
-						onSubmit: rooms.startDm,
-						onError: (text) => browser.toast("failure", text),
+				<DirectMessages
+					canInteract={canInteract}
+					convs={convs}
+					unreads={unreads}
+					activeKey={activeKey}
+					inARoom={inARoom}
+					dirs={dirs}
+					home={homeDir}
+					shows={shows}
+					open={open === "newDm"}
+					onOpen={opener("newDm")}
+					onSubmit={(name) => {
+						rooms.startDm(name);
+						browser.showActiveConversation();
 					}}
-				>
-					<DmRows
-						canInteract={canInteract}
-						convs={convs}
-						activeKey={activeKey}
-						inARoom={inARoom}
-						dirs={dirs}
-						home={homeDir}
-						shows={shows}
-						onOpen={rooms.openConv}
-						onClose={rooms.closeDm}
-						onAbout={browser.aboutDirectory}
-					/>
-				</RailSection>
+					onError={(text) => browser.toast("failure", text)}
+					onSelect={(key) => {
+						void rooms.openConv(key);
+						browser.showActiveConversation();
+					}}
+					onClose={rooms.closeDm}
+					onAbout={browser.showDirectory}
+				/>
 			</div>
 			<Foot
 				canInteract={canInteract}

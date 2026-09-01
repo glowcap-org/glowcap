@@ -14,6 +14,26 @@ command -v zsh >/dev/null || {
     exit 1
 }
 
+repo="$(cd "${dir}/.." && pwd)"
+
+# Git refuses to read a repository whose directory belongs to another user, and
+# a macOS bind mount carries the host user's numeric id into a container whose
+# user is someone else, so every Git call in the workspace is refused until the
+# checkout is named an exception. This runs before the first one, because
+# env-sync.sh below reads the index to check committed file modes. A linked
+# worktree keeps its administrative directory inside the primary checkout's
+# common Git directory, mounted at its host path, so that path has the same
+# owner and is named too; the primary checkout names it harmlessly twice.
+# ~/.gitconfig sits in the container's writable layer rather than a host bind,
+# so a rebuild starts clean, and the guard keeps a rerun of this hook from
+# appending a duplicate.
+for trusted in "${repo}" "$(pancake_devcontainer_env_value "${dir}" PANCAKE_GIT_COMMON_DIR)"; do
+    [[ -n "${trusted}" ]] || continue
+    if ! git config --global --get-all safe.directory 2>/dev/null | grep -qxF "${trusted}"; then
+        git config --global --add safe.directory "${trusted}"
+    fi
+done
+
 mkdir -p \
     "${BUN_CACHE_DIR}" \
     "${BUN_INSTALL_CACHE_DIR}" \
@@ -50,7 +70,6 @@ fi
 # is gitignored generated state stamped with the compiler that wrote it, and
 # a rebuild leaves it on the workspace bind, where the next Racket then
 # refuses it with a version mismatch that does not name the pin.
-repo="$(cd "${dir}/.." && pwd)"
 if [[ -n "${ZIG_LOCAL_CACHE_DIR:-}" && -n "${ZIG_LOCAL_PKG_DIR:-}" ]]; then
     for leftover in \
         "${repo}/.zig-cache" \

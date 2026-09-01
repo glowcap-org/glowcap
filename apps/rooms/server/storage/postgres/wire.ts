@@ -17,7 +17,7 @@ export interface PgMessage {
 /** The longest message this side will frame or accept. A history row is
  * bounded far below this; a length past it is a broken or hostile stream and
  * fails closed rather than allocating from the prefix. */
-export const MAX_PG_MESSAGE = 16 * 1024 * 1024;
+const MAX_PG_MESSAGE = 16 * 1024 * 1024;
 
 const utf8 = new TextEncoder();
 const text = new TextDecoder();

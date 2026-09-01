@@ -1,17 +1,26 @@
-import { invalidateOperations, onOperationsInvalidated } from "../web/ui/ops/invalidation.ts";
-import { assertEquals } from "./assert.ts";
+/// <reference lib="dom" />
+
+Object.defineProperty(globalThis, "matchMedia", {
+	configurable: true,
+	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+
+const { invalidateOperations, onOperationsInvalidated } = await import("../web/ui/ops/invalidation.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
+const { assertEquals } = await import("./assert.ts");
 
 Deno.test("operations invalidation refreshes this controller and another tab", async () => {
+	const page = new RoomsPage();
 	let calls = 0;
 	const external = new BroadcastChannel("pancake-rooms-operations");
 	const remote = Promise.withResolvers<void>();
-	const stop = onOperationsInvalidated((scope) => {
+	const stop = onOperationsInvalidated(page, (scope) => {
 		assertEquals(scope, "ocapn://directory.iroh");
 		calls += 1;
 		if (calls === 2) remote.resolve();
 	});
 	try {
-		await invalidateOperations("ocapn://directory.iroh");
+		await invalidateOperations(page, "ocapn://directory.iroh");
 		assertEquals(calls, 1);
 		external.postMessage({ source: "another-tab", scope: "ocapn://directory.iroh" });
 		await Promise.race([

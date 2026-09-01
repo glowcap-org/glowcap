@@ -333,7 +333,12 @@ pub fn compositeList(reader: Reader, loc: StructLoc, i: u16) Error!?CompositeLis
     if (list.count == 0) return null;
     if (list.elem != .composite) return Error.InvalidPointer;
     if (list.data_idx >= reader.seg_words) return Error.Truncated;
-    const tag = wire.decodeCompositeTag(try reader.word(list.data_idx));
+    const tag_word = try reader.word(list.data_idx);
+    // The tag is a struct-pointer-shaped word and its kind bits must say so:
+    // `decodeCompositeTag` reads only the field bits, so accepting a stray
+    // kind here would let two different words spell the same list.
+    if (wire.pointerKind(tag_word) != .@"struct") return Error.InvalidPointer;
+    const tag = wire.decodeCompositeTag(tag_word);
     const stride = @as(usize, tag.data_words) + tag.ptr_words;
     if (stride == 0) return Error.MalformedFrame;
     const body = std.math.mul(usize, tag.element_count, stride) catch return Error.MalformedFrame;

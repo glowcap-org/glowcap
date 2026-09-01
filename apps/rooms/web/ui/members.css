@@ -5,11 +5,19 @@
    conversation, only one of which looked like it was there. */
 .members {
 	min-height: 0;
+	overflow: hidden;
 	border-left: 1px solid var(--rule);
-	padding: 12px var(--rail-pad);
 	display: flex;
 	flex-direction: column;
 	background: var(--rail-fill);
+}
+/* Padding lives on the scroller, the way a section's padding lives inside
+   `.sidebar-body`, so the thumb sits on the pane's edge rather than inset
+   by the rail's own air. */
+.members-body {
+	padding: 12px var(--rail-pad);
+	display: flex;
+	flex-direction: column;
 }
 @media (min-width: 821px) {
 	.members {
@@ -39,9 +47,10 @@
 	list-style: none;
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	overflow-y: auto;
-	min-height: 0;
+	gap: var(--gap-hair);
+	/* Content of the pane, not a scroller of its own — `.members-body` is
+	   the region that scrolls, the way `.sidebar-body` is on the other side. */
+	flex: none;
 }
 /* The rail's row, with a presence dot where a room has its sigil and a person's
    name where a room has its own. The mark column is the rail's; the gap after
@@ -49,16 +58,16 @@
    name in the other rail. */
 #members li {
 	display: grid;
-	/* The person lockup: a chip sized to span the row's two lines of text,
-	   then the name over its status, then the action. Its own geometry rather
-	   than the rail's mark column, which was set for a nine-pixel dot; the two
-	   rails still share their heading line and type. */
-	grid-template-columns: 26px minmax(0, 1fr) auto;
+	/* One cell, and everything in the row stands in it. The direct-line mark is
+	   a sibling of the row's own button, never inside it — a control within a
+	   control is a shape no assistive software can announce — but it stands
+	   over the same cell rather than in a column beside it. So the button is
+	   the row's full width, and pointing anywhere along the row is pointing at
+	   one thing. The rooms rail is built this way; the two lists a reader sees
+	   side by side now answer a pointer alike. */
+	grid-template-columns: minmax(0, 1fr);
+	position: relative;
 	align-items: center;
-	column-gap: 8px;
-	/* The row's own inset is the rail's too: a word on the left, and on the right
-	   a mark that carries its own padding. */
-	padding: 6px var(--mark-inset) 6px var(--row-pad);
 	/* Every row is as tall as one carrying a button, because only some of them do:
 	   a direct line is offered to a member the room says is reachable and to
 	   nobody else, so a row sized to its own contents would leave the list ragged
@@ -66,16 +75,51 @@
 	   and bottom, so it follows the target size up on a phone. */
 	min-height: calc(var(--icon-button-small) + 12px);
 	border-radius: var(--radius-control);
+	transition: background-color .12s ease;
 }
-/* No response to a pointer, because there is nothing here to press. A roster row
-   is a name and a state; the direct-line button beside it is the action, and it
-   answers for itself. The wash this row used to take under the pointer is the
-   one the other rail's rows take, where it means the row opens — so wearing it
-   here promised a press that never landed, on the two lists a reader sees side
-   by side. */
-/* The chip wears the presence pip on its corner, ringed by this panel's own
-   ground: the rail gradient's base tone, because the ring is a box-shadow and
-   a shadow takes a colour, not a gradient. */
+/* The whole row lights, rather than the part of it that happens to be the
+   press. A wash that stopped short of the mark said the mark was somewhere
+   else, and it is not: it is on this person's row. Focus lights it too, so a
+   reader arriving by keyboard sees the same row a pointer would. */
+#members li:hover,
+#members li:focus-within {
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+} /* The person lockup inside the row: the chip and the two lines of text, aimed
+at as one piece. It carries the row's own two-column geometry, so a name here
+still starts on the same vertical as a name in the other rail, and the
+direct-line mark stays outside it as its own target.
+
+It takes the wash the other rail's rows take under a pointer, because it now
+means what it means there: this opens. The row wore no wash while there was
+nothing to press, and the two lists a reader sees side by side have to agree
+about what pointing at a row promises. */
+.member-face {
+	grid-area: 1 / 1;
+	width: 100%;
+	display: grid;
+	grid-template-columns: 26px minmax(0, 1fr);
+	align-items: center;
+	column-gap: var(--gap-row);
+	min-width: 0;
+	/* The row's insets are the button's, because the button is the row. */
+	padding: 6px var(--mark-inset) 6px var(--row-pad);
+	border-radius: var(--radius-control);
+	background: none;
+	border: 0;
+	font: inherit;
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+/* A row offering a direct line holds that mark's width open, so a name stops
+   short of it rather than running underneath it. A row without one gives the
+   whole width to the name, which is why this is asked of the row rather than
+   held open on every one of them. */
+#members li:has(.dm-btn) .member-face {
+	grid-template-columns: 26px minmax(0, 1fr) minmax(var(--icon-button-small), auto);
+} /* The chip wears the presence pip on its corner, ringed by this panel's own
+ground: the rail gradient's base tone, because the ring is a box-shadow and
+a shadow takes a colour, not a gradient. */
 #members .avatar-presence {
 	--presence-ring: var(--paper-raised);
 }
@@ -91,8 +135,4 @@
 }
 #members .offline .name {
 	color: var(--ink-soft);
-}
-.empty {
-	color: var(--ink-soft);
-	font-size: var(--type-ui);
 }

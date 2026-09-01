@@ -1,6 +1,6 @@
 # Interaction architecture
 
-This page describes the interaction system that is wired today. The section numbers are load-bearing: modules under
+The interaction system below is what is wired today. The section numbers are load-bearing: modules under
 `src/interactions/` cite them. Cursor precedence has its own authority in [`cursor.md`](cursor.md).
 
 The visualizer has one semantic vocabulary and one resolver, not one physical event loop. The Stage's empty canvas uses
@@ -296,7 +296,7 @@ them.
 ## 9. Tools
 
 Tools are peers in the toolbar. Display facts live in `TOOL_FACTS`; shortcut keys live in `SHORTCUTS`; Stage claims live
-in `toolOverride`; cursor spelling lives in `cursor.ts`; per-tool draft configuration lives in `ToolOptionsBar.tsx`.
+in `toolOverride`; cursor drawing lives in `cursor.ts`; per-tool draft configuration lives in `ToolOptionsBar.tsx`.
 `toolsForMode` is the authority on availability.
 
 ## 11. Space pressed mid-drag

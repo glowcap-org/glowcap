@@ -248,7 +248,7 @@ pub fn firstDirectAddress(hint: []const u8) []const u8 {
 /// Split a `host:port` designator — the address grammar a socket transport's
 /// locator designator carries. The split is on the **last** colon, so a
 /// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact; the
-/// brackets are stripped from the returned host, which is what a host resolver
+/// brackets are stripped from the returned host, the form a host resolver
 /// expects. The port must be a decimal `u16` and the host must be non-empty.
 /// This is the one definition of that grammar: the native TCP netlayer and the
 /// C ABI (`pancake_designator_host_port` / `pancake_locator_host_port`) both split

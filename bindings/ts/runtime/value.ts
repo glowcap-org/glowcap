@@ -25,10 +25,14 @@ import {
 	FEATURE_UNTAG,
 	FEATURE_WIRE_DELTA,
 	INTERNAL,
+	INTEROP_CAPTP_VERSION as ABI_INTEROP_CAPTP_VERSION,
+	INTEROP_CODEC as ABI_INTEROP_CODEC,
 	IROH_REACH_DIRECT,
 	IROH_REACH_DISCOVERY,
 	IROH_REACH_DISCOVERY_NO_RELAY,
 	IROH_REACH_LOCAL_DISCOVERY,
+	NATIVE_CAPTP_VERSION as ABI_NATIVE_CAPTP_VERSION,
+	NATIVE_CODEC as ABI_NATIVE_CODEC,
 } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 
@@ -142,6 +146,10 @@ function featureSetFromMask(features: number): FeatureSet {
 export const DEFAULT_CODEC: Codec = codecFromId(ABI_DEFAULT_CODEC);
 export const DEFAULT_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_DEFAULT_CAPTP_VERSION);
 export const DEFAULT_FEATURES: FeatureSet = featureSetFromMask(ABI_DEFAULT_FEATURES);
+export const NATIVE_CODEC: Codec = codecFromId(ABI_NATIVE_CODEC);
+export const NATIVE_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_NATIVE_CAPTP_VERSION);
+export const INTEROP_CODEC: Codec = codecFromId(ABI_INTEROP_CODEC);
+export const INTEROP_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_INTEROP_CAPTP_VERSION);
 
 export {
 	FEATURE_BASELINE,

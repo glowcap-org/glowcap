@@ -1,14 +1,17 @@
 // What is known about one directory this tab holds, on its own surface.
 //
-// Every row in the rail says which directory it is on, and pressing those words
-// is what opens this. It answers the three questions a locator raises and a
-// name cannot. Settings
-// keeps this page's locators and opens this same card for the directory that
-// served the page, so asking about a directory gives one answer wherever it is
-// asked.
+// Every conversation names the directory it is on, and pressing those words
+// opens that directory. This card still answers the three questions a locator
+// raises and a name cannot, from the directory conversation's title — the same
+// pattern a room's title uses. That title's close mark asks to leave, in this
+// same card, rather than putting the view away. Settings
+// keeps this page's locators and opens that same conversation for the directory
+// that served the page.
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { DirId, DirView } from "./types.ts";
+import { useRoomsState } from "./hooks.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { directoryName } from "./text.ts";
@@ -24,18 +27,30 @@ import { DirectoryFacts, GrantedNameNote } from "./DirectoryFacts.tsx";
 /** Stays mounted through the close transition so the card can leave the way
  * it arrived. The open/closed decision still belongs out here: the dialog
  * hook keys on that boolean, not on its own mount. */
-export function DirectoryCard(
-	{ dir, rooms, lines, mark, standing, homeDir, canInteract, onLayer }: {
+export const DirectoryCard = memo(function DirectoryCard(
+	{ dir, mark, standing, homeDir, canInteract, askingLeave, onLayer }: {
 		dir: DirView | null;
-		rooms: number;
-		lines: number;
 		mark: string | undefined;
 		standing: string;
 		homeDir: DirId | null;
 		canInteract: boolean;
+		askingLeave: boolean;
 		onLayer: (held: boolean) => void;
 	},
 ) {
+	const occupancy = useRoomsState(
+		useShallow((state) => {
+			if (dir == null) return { rooms: 0, lines: 0 };
+			let rooms = 0;
+			let lines = 0;
+			for (const conv of state.convs.values()) {
+				if (conv.dir !== dir.id) continue;
+				if (conv.type === "room") rooms++;
+				else if (conv.type === "dm") lines++;
+			}
+			return { rooms, lines };
+		}),
+	);
 	type View = {
 		dir: DirView;
 		rooms: number;
@@ -46,12 +61,30 @@ export function DirectoryCard(
 		canInteract: boolean;
 	};
 	// The whole painted answer shares the card's held lifetime. Retaining only
-	// the directory while App has already zeroed its counts rewrites the card as
+	// the directory while occupancy has already zeroed rewrites the card as
 	// it leaves, so the reverse transition would show facts that were never true.
 	const last = useRef<View | null>(
-		dir === null ? null : { dir, rooms, lines, mark, standing, homeDir, canInteract },
+		dir === null ? null : {
+			dir,
+			rooms: occupancy.rooms,
+			lines: occupancy.lines,
+			mark,
+			standing,
+			homeDir,
+			canInteract,
+		},
 	);
-	if (dir !== null) last.current = { dir, rooms, lines, mark, standing, homeDir, canInteract };
+	if (dir !== null) {
+		last.current = {
+			dir,
+			rooms: occupancy.rooms,
+			lines: occupancy.lines,
+			mark,
+			standing,
+			homeDir,
+			canInteract,
+		};
+	}
 	const shown = last.current;
 	const { held, onExited } = useHeldModal(dir !== null);
 	useLayoutEffect(() => {
@@ -64,9 +97,10 @@ export function DirectoryCard(
 			open={dir !== null}
 			onExited={onExited}
 			{...shown}
+			askingLeave={askingLeave}
 		/>
 	);
-}
+});
 
 /** What leaving costs, in the things a reader would miss. Counted rather than
  * described, because "your conversations" is exactly the wording that makes
@@ -80,7 +114,7 @@ function whatGoes(rooms: number, lines: number): string {
 }
 
 function DirectoryDialog(
-	{ open, onExited, dir, rooms, lines, mark, standing, homeDir, canInteract }: {
+	{ open, onExited, dir, rooms, lines, mark, standing, homeDir, canInteract, askingLeave }: {
 		open: boolean;
 		onExited: () => void;
 		dir: DirView;
@@ -90,6 +124,7 @@ function DirectoryDialog(
 		standing: string;
 		homeDir: DirId | null;
 		canInteract: boolean;
+		askingLeave: boolean;
 	},
 ) {
 	const browser = useRoomsBrowser();
@@ -103,9 +138,14 @@ function DirectoryDialog(
 	// Asked before it is done, and asked in this card rather than in one over it:
 	// a dialog on top of a dialog is a shape neither the browser nor a screen
 	// reader handles well, and the question belongs to the thing being described
-	// anyway. Local state, because nothing outside this card is waiting on a
-	// question this card has not been answered yet.
-	const [asking, setAsking] = useState(false);
+	// anyway. The title's mark can open this card already asking; Stay and the
+	// card's own Leave control still own the local answer. Closing must not
+	// rewrite that answer, or the exit transition would drop the question.
+	const [asking, setAsking] = useState(askingLeave);
+	useEffect(() => {
+		if (askingLeave) setAsking(true);
+		else if (open) setAsking(false);
+	}, [askingLeave, open]);
 	const name = directoryName(dir.id, homeDir);
 	return (
 		// `modal` is the layer; its ::backdrop uses the same `--cover` paint as
@@ -122,89 +162,96 @@ function DirectoryDialog(
 				    else on screen is drawing. */
 			}
 			<div className="modal-card card-plane dircard" data-dir={mark}>
-				<ModalHead
-					titleId="dircardTitle"
-					title={
-						<>
-							<span className="dircard-mark" aria-hidden="true">
-								<Icon name="directory" size={14} />
-							</span>
-							{name}
-						</>
-					}
-					closeId="dircardClose"
-					closeRef={close}
-					onClose={() => browser.aboutDirectory(null)}
-				/>
-
-				{
-					/* No label over the field: the heading above is the directory's name.
-				    What the directory is sits in one well — the locator, its facts,
-				    and the granted-name note are all one answer. */
-				}
-				<div className="group well">
-					<CopyField
-						id="dircardLocator"
-						text={session.dirAddress(dir.id)}
-						label={"Copy the locator for " + name}
+				<div className="modal-body">
+					<ModalHead
+						titleId="dircardTitle"
+						title={
+							<>
+								<span className="dircard-mark" aria-hidden="true">
+									<Icon name="directory" size={14} />
+								</span>
+								{name}
+							</>
+						}
+						closeId="dircardClose"
+						closeRef={close}
+						onClose={() => browser.aboutDirectory(null)}
 					/>
-					<DirectoryFacts dir={dir} rooms={rooms} />
-					<GrantedNameNote />
-				</div>
-				{
-					/* Where the reader stands on this one directory, in a well of its
-				    own: it is the card's one thing the reader can change, so it does
-				    not sit among the facts. Away is a thing you are on a server in
-				    IRC, in every channel on it at once, and this is that answer —
-				    one level in from the foot of the rail, which is about the reader
-				    everywhere. */
-				}
-				<div className="group well">
-					<div className="dircard-standing">
-						<span>Where you are here</span>
-						<StandingMenu
-							id="dircardStanding"
-							own={dir.standing}
-							effective={dir.standing ?? standing}
-							follows="you"
-							about={name}
-							up
-							onSay={(said) => session.setDirStanding(dir.id, said)}
-							disabled={!canInteract}
-						/>
-					</div>
-				</div>
 
-				{
-					/* Leaving asks first, in the card, with what goes counted rather
-					    than described: "your conversations" is exactly the wording
-					    that makes somebody press it and then find out what it meant. */
-				}
-				{canInteract && (asking
-					? (
-						<Confirm
-							id="dircardLeaveSaid"
-							label={"Leave " + name}
-							say={
-								<>
-									Leave {name}? {whatGoes(rooms, lines)}{" "}
-									The name it granted you goes back to it, and somebody else may take it.
-								</>
-							}
-							keep="Stay"
-							commit="Leave"
-							commitId="dircardLeave"
-							onKeep={() => setAsking(false)}
-							onCommit={() => session.leaveDirectory(dir.id)}
+					{
+						/* No label over the field: the heading above is the directory's name.
+								    What the directory is sits in one well — the locator, its facts,
+								    and the granted-name note are all one answer. */
+					}
+					<div className="group well">
+						<CopyField
+							id="dircardLocator"
+							text={dir.locator}
+							label={"Copy the locator for " + name}
 						/>
-					)
-					: (
-						<div className="actions">
-							<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
-								Leave this directory…
-							</Button>
+						<DirectoryFacts dir={dir} rooms={rooms} />
+						<GrantedNameNote />
+					</div>
+					{
+						/* Where the reader stands on this one directory, in a well of its
+								    own: it is the card's one thing the reader can change, so it does
+								    not sit among the facts. Away is a thing you are on a server in
+								    IRC, in every channel on it at once, and this is that answer —
+								    one level in from the foot of the rail, which is about the reader
+								    everywhere. */
+					}
+					<div className="group well">
+						<div className="dircard-standing">
+							<span>You are</span>
+							<StandingMenu
+								id="dircardStanding"
+								own={dir.standing}
+								effective={dir.standing ?? standing}
+								follows="you"
+								about={name}
+								up
+								onSay={(said) => session.setDirStanding(dir.id, said)}
+								disabled={!canInteract}
+							/>
 						</div>
-					))}
+					</div>
+
+					{
+						/* Leaving asks first, in the card, with what goes counted rather
+									    than described: "your conversations" is exactly the wording
+									    that makes somebody press it and then find out what it meant.
+									    The title's close mark lands on this same question. */
+					}
+					{canInteract && (asking
+						? (
+							<Confirm
+								id="dircardLeaveSaid"
+								label={"Leave " + name}
+								say={
+									<>
+										Leave {name}? {whatGoes(rooms, lines)}{" "}
+										The name it granted you goes back to it, and somebody else may take it.
+									</>
+								}
+								keep="Stay"
+								commit="Leave"
+								keepId="dircardLeaveStay"
+								commitId="dircardLeave"
+								onKeep={() => {
+									setAsking(false);
+									if (askingLeave) browser.aboutDirectory(dir.id);
+								}}
+								onCommit={() => session.leaveDirectory(dir.id)}
+							/>
+						)
+						: (
+							<div className="actions">
+								<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
+									Leave this directory…
+								</Button>
+							</div>
+						))}
+				</div>
 			</div>
 		</dialog>
 	);

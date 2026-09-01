@@ -438,7 +438,7 @@ finding fails container open and the CI push checks.
 | `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | anywhere |
 
 Both files under `test/` run in `zig build source-check`, so this directory
-answers to the same gate as the rest of the repository.
+is checked with the rest of the repository.
 
 Cursor users can enable Serena from [`.cursor/mcp.json`](../.cursor/mcp.json).
 The [Serena rule](../.agents/rules/serena-mcp.md) covers project use.

@@ -2,7 +2,12 @@
 
 import { type Argument, type Behavior, type Session } from "@pancake/runtime";
 import { type Attachment, readAttachmentsExact } from "../lib/attachment.ts";
-import { ROOMS_SESSION_FILES, ROOMS_SESSION_REFILE, type RoomsSessionFacet } from "../lib/rooms_session.ts";
+import {
+	mayInteract,
+	ROOMS_SESSION_FILES,
+	ROOMS_SESSION_REFILE,
+	type RoomsSessionAccess,
+} from "../lib/session/client.ts";
 import type { DurableRoomsRuntime } from "./runtime.ts";
 import type { DurableRoomsSessionState } from "./state.ts";
 import { validateOperationId } from "./effects.ts";
@@ -37,14 +42,14 @@ function unresolved(action: string, error: unknown): Error {
 }
 
 export function dispatchAttachmentCommand(
-	rights: RoomsSessionFacet,
+	rights: RoomsSessionAccess,
 	verb: string,
 	args: Argument[],
 	session: Session,
 	owner: AttachmentCommandOwner,
 ): ReturnType<Behavior> | typeof ATTACHMENT_COMMAND_UNHANDLED {
 	if (verb !== ROOMS_SESSION_FILES && verb !== ROOMS_SESSION_REFILE) return ATTACHMENT_COMMAND_UNHANDLED;
-	if (rights === "observe") {
+	if (!mayInteract(rights)) {
 		refuseCapabilityArguments(session, args, "this Rooms session facet cannot change files");
 	}
 	if (verb === ROOMS_SESSION_FILES) return sendFiles(args, session, owner);

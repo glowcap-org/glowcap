@@ -219,14 +219,14 @@ pub fn enliven(self: *Host, session: *HostSession, sturdyref: model.SturdyRef) !
     return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
 }
 
-/// Parse and enliven a session-scoped sturdyref URI under the negotiated
-/// profile owned by that session. Adapters pass bytes and never select the
-/// parser profile themselves.
+/// Parse and enliven a session-scoped canonical persistent sturdyref URI.
+/// Durable authority is application data rather than a rendering of the live
+/// session's negotiated profile; adapters pass bytes and choose no parser.
 pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u64 {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
-    const sturdyref = try model.uri.parseSturdyrefForProfile(self.allocator, session.captpVersion(), uri);
+    const sturdyref = try model.uri.parseSturdyref(self.allocator, uri);
     defer model.uri.freeSturdyref(self.allocator, sturdyref);
     return self.enliven(session, sturdyref);
 }
@@ -316,11 +316,15 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     }
 }
 
-/// Parse and select-or-dial a sturdyref URI under this Host's preferred
-/// profile. The Host owns both the parser choice and enliven admission;
-/// adapters provide only the borrowed URI bytes.
+/// Parse and select-or-dial a canonical persistent sturdyref URI. Durable
+/// authority is application data rather than a rendering of a session or Host
+/// preference; alternate wire spellings use `enlivenUriForVersion` explicitly.
 pub fn enlivenUri(self: *Host, uri: []const u8) !u64 {
-    return enlivenUriForVersion(self, self.opts.captp_version, uri);
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    const sturdyref = try model.uri.parseSturdyref(self.allocator, uri);
+    defer model.uri.freeSturdyref(self.allocator, sturdyref);
+    return self.enlivenSelectOrDial(sturdyref);
 }
 
 /// Parse and select-or-dial a sturdyref URI under an explicit CapTP profile.

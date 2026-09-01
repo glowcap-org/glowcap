@@ -7,7 +7,7 @@ decision: "A Rooms personal archive is one ordinary OCapN object with `put` and 
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0130, ADR-0132, ADR-0133, ADR-0135, ADR-0136]
+amended_by: [ADR-0130, ADR-0132, ADR-0133, ADR-0135, ADR-0136, ADR-0140]
 ---
 
 # ADR-0129 Member-owned archive capability
@@ -97,7 +97,7 @@ archive contract requires; none receives invented provenance.
 
 ## Consequences
 
-`apps/rooms/lib/archive.ts` owns the application record vocabulary, bounds,
+`apps/rooms/lib/archive/protocol.ts` owns the application record vocabulary, bounds,
 parsing, behavior, and client. The tab's IndexedDB adapter owns durable source
 and revision allocation. The direct-message recorder owns conversation
 generation and record IDs; the presentation layer may read older contextual
@@ -109,10 +109,10 @@ over. Neither changes this wire contract.
 
 ## Evidence and gate
 
-`apps/rooms/test/archive_test.ts` proves validation, idempotent replacement,
+`apps/rooms/test/archive/protocol_test.ts` proves validation, idempotent replacement,
 withdrawal erasure, revision resumption, source/generation separation, and
 both read and storage ceilings against an in-memory implementation of the same
-backend contract. `apps/rooms/test/archive_wire_test.ts` fetches and uses the
+backend contract. `apps/rooms/test/archive/wire_test.ts` fetches and uses the
 same object over the Goblins-compatible v1/Syrup floor. `zig build
 rooms-web-dm-tabs` proves the IndexedDB-backed tab
 continues to record, edit, withdraw, and hydrate direct lines. `zig build

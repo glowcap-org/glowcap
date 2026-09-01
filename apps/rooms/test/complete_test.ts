@@ -3,17 +3,16 @@
 // accepting one leaves in the draft. The browser proof drives the widget;
 // this file pins the grammar the widget trusts.
 
-import { acceptCompletion, commandArgTrigger, completeCandidates, triggerAt } from "../web/ui/complete.ts";
+import { acceptCompletion, commandArgTrigger, completeCandidates, nickSource, triggerAt } from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import { mentionsYou, PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
-import { nickSource } from "../web/ui/composer/bits.tsx";
 import type { Conv } from "../web/ui/types.ts";
+import { assertEquals } from "./assert.ts";
 
 function fail(message: string): never {
 	throw new Error(message);
 }
-import { assertEquals } from "./assert.ts";
 
 function assert(ok: boolean, what: string): void {
 	if (!ok) throw new Error(what);
@@ -68,6 +67,19 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 	if (inADm.some((candidate) => candidate.label === "/members")) {
 		fail("a direct line offered /members, which only a room has");
 	}
+	const inADirectory = completeCandidates(trigger!, { ...SOURCES, here: "directory" });
+	if (inADirectory.some((candidate) => candidate.label === "/me")) {
+		fail("a directory offered /me, which travels in a message");
+	}
+	if (inADirectory.some((candidate) => candidate.label === "/invite")) {
+		fail("a directory offered /invite, which only a room can run");
+	}
+	if (inADirectory.some((candidate) => candidate.label === "/edit")) {
+		fail("a directory offered /edit, which changes a message");
+	}
+	if (inADirectory.every((candidate) => candidate.label !== "/help")) {
+		fail("a directory omitted /help");
+	}
 	const askedKick = triggerAt("/kick", 5);
 	const forKick = completeCandidates(askedKick!, SOURCES);
 	if (forKick.some((candidate) => candidate.label === "/kick")) {
@@ -78,7 +90,7 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 		fail("/invite was missing in a room, where handing the room over works");
 	}
 	const none: ReadonlySet<string> = new Set();
-	for (const here of ["room", "direct"] as const) {
+	for (const here of ["room", "direct", "directory"] as const) {
 		const mine = new Set(held(none, here).map((command) => command.name));
 		for (const command of known()) {
 			const rows = completeCandidates(
@@ -202,28 +214,52 @@ Deno.test("a command that names a person does not offer the room itself", () => 
 });
 
 Deno.test("a person-target command does not offer your own name", () => {
-	const conv = { type: "room", dir: "d", members: new Map() } as unknown as Conv;
+	const conv = { type: "room", dir: "d" } as unknown as Conv;
 	const trigger = { kind: "nick" as const, start: 8, query: "" };
-	const names = nickSource(trigger, conv, "/invite @", new Set(["alice", "bo"]), "alice");
+	const names = nickSource(trigger, conv, "/invite @", new Set(["alice", "bo"]), "alice", new Map());
 	if (names.some((name) => name.toLowerCase() === "alice")) {
 		fail("/invite offered the reader's own name");
 	}
 	if (!names.includes("bo")) fail("/invite hid somebody else with the reader's name");
 });
 
-Deno.test("IRC roster attribution never leaks into a mention", () => {
+Deno.test("a bridge's roster attribution never leaks into a mention", () => {
+	// The prefix comes from the room, so a room that declared one has foreign
+	// members and a room that did not has none. Both are asserted below.
 	const conv = {
 		type: "room",
 		dir: "d",
-		members: new Map([["irc/alice", {}], ["bob", {}], ["alice", {}]]),
+		bridge: { prefix: "irc/", badge: "IRC", said: "IRC only" },
 	} as unknown as Conv;
-	const names = nickSource({ kind: "nick", start: 0, query: "" }, conv, "@", new Set(), "bob");
+	const names = nickSource(
+		{ kind: "nick", start: 0, query: "" },
+		conv,
+		"@",
+		new Set(),
+		"bob",
+		new Map([["irc/alice", {}], ["bob", {}], ["alice", {}]]),
+	);
 	assertEquals(names, ["alice", "bob"]);
 	const rows = completeCandidates({ kind: "nick", start: 0, query: "ali" }, {
 		...SOURCES,
 		nicks: names,
 	});
 	assertEquals(rows.map((row) => row.insert), ["@alice "]);
+
+	// And with no bridge behind the room, nothing is attribution: a member really
+	// called `irc/alice` completes under the name they actually have.
+	const plain = { type: "room", dir: "d" } as unknown as Conv;
+	assertEquals(
+		nickSource(
+			{ kind: "nick", start: 0, query: "" },
+			plain,
+			"@",
+			new Set(),
+			"bob",
+			new Map([["irc/alice", {}], ["bob", {}]]),
+		),
+		["irc/alice", "bob"],
+	);
 });
 
 Deno.test("every spelling of a room-wide call is understood, two are proposed", () => {

@@ -15,6 +15,22 @@ export function validateIrcNick(nick: string): void {
 	}
 }
 
+/** An IRC-legal nick for a Rooms name that is not one, derived from the name so
+ * the same person is the same nick every time.
+ *
+ * Beside `validateIrcNick` because it is the other half of that question: one
+ * says what IRC will accept, this makes something it accepts. Both halves of
+ * the IRC edge ask it — the front projecting a Rooms member onto a client's
+ * screen, and the bridge when a member's chosen nick is not one IRC allows. */
+export function projectedNick(name: string): string {
+	let hash = 0x811c9dc5;
+	for (const byte of new TextEncoder().encode(name)) {
+		hash ^= byte;
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return `rooms-${hash.toString(16).padStart(8, "0")}`;
+}
+
 export function validateSaslPlain(credentials: SaslPlainCredentials): void {
 	const encoder = new TextEncoder();
 	const accountBytes = encoder.encode(credentials.account).length;

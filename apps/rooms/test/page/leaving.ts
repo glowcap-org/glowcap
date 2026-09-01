@@ -14,7 +14,7 @@
 
 import type { Locator, Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail } from "./harness.ts";
+import { fail, openDirectoryCardFromCaption, reachDirectoryOnCard, showDirectoryFromCaption } from "./harness.ts";
 import { run as goneRun } from "./gone.ts";
 
 export async function run(
@@ -98,15 +98,27 @@ export async function run(
 	// removed from a list while the session went on running is the failure worth
 	// checking for, and it does not look like a failure at the moment it happens:
 	// it looks like it worked, and then the directory comes back on its own.
-	await (aboutOf("elsewhere")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 });
-	await tab.click("#dircardLeaveAsk");
+	// The title's mark asks first, in the same card the Leave control uses.
+	await showDirectoryFromCaption(tab, aboutOf("elsewhere"));
+	await tab.click("#leaveBtn");
+	await tab.waitForSelector("#dircardLeaveSaid", { timeout: 10_000 })
+		.catch(() => fail("the title's mark did not ask before leaving the directory"));
 	// Asked before it is done, and asked with the cost in it: a reader who is
 	// about to lose a room should be told how many.
 	const asked = (await tab.textContent("#dircardLeaveSaid"))?.trim() ?? "";
 	if (!asked.includes("1 room")) {
 		fail(`leaving did not say what it would close; it said ${JSON.stringify(asked)}`);
 	}
+	await tab.click("#dircardLeaveStay");
+	await tab.waitForFunction(() => document.getElementById("dircardLeaveSaid") === null, { timeout: 10_000 })
+		.catch(() => fail("staying did not put the leave question away"));
+	const stillHeld = await tab.evaluate(() =>
+		[...document.querySelectorAll("#roomList .rname")].some((el) => el.textContent?.trim() === "elsewhere")
+	);
+	if (!stillHeld) fail("staying left the directory anyway");
+	await tab.click("#dircardLeaveAsk");
+	await tab.waitForSelector("#dircardLeaveSaid", { timeout: 10_000 })
+		.catch(() => fail("Leave on the directory card did not ask again after staying"));
 	await tab.click("#dircardLeave");
 	await tab.waitForFunction(() => {
 		const said = document.getElementById("dircardLeaveSaid");
@@ -160,14 +172,14 @@ export async function run(
 	}
 	await tab.fill("#locator", foreignLocator);
 	await tab.fill("#nick", "bo");
+	await reachDirectoryOnCard(tab);
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 		.catch(() => fail("a directory that had been left could not be reached again"));
-	await (aboutOf("elsewhere")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 });
+	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));
 	const grantedAgain = await tab.evaluate(() => {
 		const rows = [...document.querySelectorAll(".modal .dirfacts dt")];
-		const which = rows.find((dt) => dt.textContent?.trim() === "Your name here");
+		const which = rows.find((dt) => dt.textContent?.trim() === "Your name");
 		return which?.nextElementSibling?.textContent?.trim() ?? "";
 	});
 	if (grantedAgain !== "bo") {
@@ -181,9 +193,7 @@ export async function run(
 	// This page's own directory is the same as any other: leaving it gives the
 	// session and the granted name back, and the join card still knows the
 	// locator, so walking back in under a new name does not need a reload.
-	await (aboutOf("lobby")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the caption on this page's own directory did not open its card"));
+	await openDirectoryCardFromCaption(tab, aboutOf("lobby"));
 	await tab.click("#dircardLeaveAsk");
 	await tab.click("#dircardLeave");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 })
@@ -218,11 +228,10 @@ export async function run(
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 		.catch(() => fail("this page's own directory could not be reached again after it was left"));
-	await (aboutOf("lobby")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 });
+	await openDirectoryCardFromCaption(tab, aboutOf("lobby"));
 	const homeAgain = await tab.evaluate(() => {
 		const rows = [...document.querySelectorAll(".modal .dirfacts dt")];
-		const which = rows.find((dt) => dt.textContent?.trim() === "Your name here");
+		const which = rows.find((dt) => dt.textContent?.trim() === "Your name");
 		return which?.nextElementSibling?.textContent?.trim() ?? "";
 	});
 	if (homeAgain !== "cam") {
@@ -283,7 +292,7 @@ export async function run(
 	// tab dialed, hints and all — not the bare authority the store keys by. The
 	// directory card's copy field is the sharing answer, so the two are compared
 	// directly rather than against any expectation about the route's shape.
-	await (aboutOf("elsewhere")).click();
+	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));
 	await tab.waitForSelector("#dircardLocator", { timeout: 10_000 })
 		.catch(() => fail("the held directory's card did not open to compare its shared address"));
 	const shared = ((await tab.textContent("#dircardLocator")) ?? "").trim();
@@ -291,6 +300,10 @@ export async function run(
 		fail(`the picker filled ${JSON.stringify(filled)} while sharing hands out ${JSON.stringify(shared)}`);
 	}
 	await tab.keyboard.press("Escape");
+	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
+	await tab.click('a[aria-label="The front page"]');
+	await tab.waitForSelector("#joinLocator", { state: "visible", timeout: 10_000 })
+		.catch(() => fail("closing the directory did not put the join card back"));
 	await tab.click("#joinLocator");
 	await tab.waitForSelector(".locator-picks [role=menuitemradio]", { timeout: 5_000 })
 		.catch(() => fail("the join card's directory mark did not open again to clear the field"));

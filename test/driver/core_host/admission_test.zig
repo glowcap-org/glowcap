@@ -227,8 +227,8 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     }
 
     // A peer advertising a *different* identity than the one dialed is refused
-    // before the session opens — the claim pin, which is what survives fresh
-    // session keys (ADR-0097).
+    // before the session opens — the claim pin, the check that survives
+    // fresh session keys (ADR-0097).
     {
         const other_seed = @as([32]u8, @splat(0x43));
         const other_designator = crypto.SecretKey.fromSeed(other_seed).publicKey().toDesignator();

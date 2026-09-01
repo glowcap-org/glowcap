@@ -153,8 +153,8 @@ pub export fn pancake_webrtc_clear_last_error() void {
 /// endpoints, long-lived issuer tokens, expiry, and refresh policy stay outside
 /// this transport ABI.
 ///
-/// `include_loopback_candidates` offers loopback addresses too, which is what
-/// lets two peers in one process or on one host connect with no STUN. It is off
+/// `include_loopback_candidates` offers loopback addresses too, so two peers
+/// in one process or on one host can connect with no STUN. It is off
 /// unless asked for: a test wants it and says so, while a deployment neither
 /// needs it nor wants to advertise addresses a partner can never reach.
 ///

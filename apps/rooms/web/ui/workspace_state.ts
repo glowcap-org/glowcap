@@ -6,10 +6,9 @@
 // or transient presence row. Boot projects these records back into the store;
 // the network layer then realizes them as fresh sessions and references.
 
-import * as z from "zod/mini";
 import * as store from "./store.ts";
 import { LS } from "./storage.ts";
-import { type DirId, dirId, type OpsCap } from "./types.ts";
+import { isSessionConv, type OpsCap } from "./types.ts";
 import {
 	MAX_WORKSPACE_CONVERSATIONS,
 	MAX_WORKSPACE_DIRECTORIES,
@@ -21,7 +20,6 @@ import {
 	parseWorkspaceOperationCredentials,
 	parseWorkspaceState,
 	peeringIntentsForOperations,
-	redactWorkspaceCapabilities,
 	ROOMS_SESSION_STATE_VERSION,
 	type RoomsControllerSelection,
 	type RoomsWorkspaceState,
@@ -29,13 +27,12 @@ import {
 	WORKSPACE_STATE_KEY,
 	WORKSPACE_STATE_VERSION,
 	type WorkspaceConversation,
-	type WorkspaceDirectory,
 	type WorkspaceOperationCredential,
 	type WorkspacePeeringIntent,
 	WorkspacePeeringIntentSchema,
 } from "../../lib/rooms_state.ts";
-import { announceWorkspaceReplacement } from "./workspace/sync.ts";
-
+import * as z from "zod/mini";
+import type { RoomsPageContext } from "./page.ts";
 export {
 	parseWorkspaceState,
 	type RoomsWorkspaceState,
@@ -63,12 +60,17 @@ const EMPTY_RETAINED: RetainedWorkspaceState = {
 	peering: [],
 };
 
-let retained: RetainedWorkspaceState = { ...EMPTY_RETAINED, operations: [] };
-let persistenceBlocked = false;
-let persistenceControl: { flush(): boolean; stop(): void } | null = null;
+/** In-memory working copy of the durable workspace document for one page. */
+export class PageWorkspace {
+	retained: RetainedWorkspaceState = { ...EMPTY_RETAINED, operations: [] };
+	persistenceBlocked = false;
+	persistenceControl: { flush(): boolean; stop(): void } | null = null;
+}
 
-function retain(document: RoomsWorkspaceState | null): void {
-	retained = document == null ? { ...EMPTY_RETAINED, operations: [] } : {
+/** Adopt `document` as the retained working copy, or empty it. Exported for
+ * `workspace/bundle.ts`, which installs and clears whole documents. */
+export function retainWorkspace(page: RoomsPageContext, document: RoomsWorkspaceState | null): void {
+	page.workspace.retained = document == null ? { ...EMPTY_RETAINED, operations: [] } : {
 		controller: document.controller,
 		dmMode: document.session.dmMode,
 		vizOverride: document.session.vizOverride,
@@ -78,23 +80,27 @@ function retain(document: RoomsWorkspaceState | null): void {
 	};
 }
 
-export function workspaceStateOf(state: Readonly<store.State>): RoomsWorkspaceState {
+export function workspaceStateOf(page: RoomsPageContext, state: Readonly<store.State>): RoomsWorkspaceState {
+	const selected = state.activeKey == null ? null : state.convs.get(state.activeKey) ?? null;
+	const active = selected == null || !isSessionConv(selected) ? null : selected.persistId;
 	return {
 		version: WORKSPACE_STATE_VERSION,
-		controller: retained.controller,
+		controller: page.workspace.retained.controller,
 		session: {
 			version: ROOMS_SESSION_STATE_VERSION,
 			directories: [...state.dirs.values()].map((directory) => ({
 				id: directory.id,
 				locator: directory.locator,
 				home: directory.id === state.homeDir,
+				reached: directory.reached,
 				nick: directory.requestedNick,
 				standing: directory.standing,
 			})),
-			conversations: [...state.convs.values()].map((conversation): WorkspaceConversation => {
+			conversations: [...state.convs.values()].flatMap((conversation): WorkspaceConversation[] => {
+				if (!isSessionConv(conversation)) return [];
 				const draft = state.drafts.get(conversation.key)?.text ?? "";
 				if (conversation.type === "dm") {
-					return {
+					return [{
 						kind: "direct",
 						id: conversation.persistId,
 						directory: conversation.dir,
@@ -102,21 +108,23 @@ export function workspaceStateOf(state: Readonly<store.State>): RoomsWorkspaceSt
 						peerRegistrationId: conversation.peerRegistrationId,
 						closed: conversation.line === "closed",
 						draft,
-					};
+					}];
 				}
-				return {
+				return [{
 					kind: "room",
 					id: conversation.persistId,
 					directory: conversation.dir,
 					name: conversation.id,
 					held: conversation.held,
 					...(conversation.link == null ? {} : { link: conversation.link }),
+					...(conversation.manager == null ? {} : { manager: conversation.manager }),
 					...(conversation.steward == null ? {} : { steward: conversation.steward }),
 					...(conversation.publicationId == null ? {} : { publicationId: conversation.publicationId }),
-					...(Object.hasOwn(conversation, "irc") ? { irc: conversation.irc } : {}),
+					...(conversation.reconnect === "manual" ? { reconnect: "manual" as const } : {}),
+					...(Object.hasOwn(conversation, "bridgeIntent") ? { bridgeIntent: conversation.bridgeIntent } : {}),
 					standing: conversation.standing,
 					draft,
-				};
+				}];
 			}),
 			invitations: state.invites.filter((invitation) => invitation.way === "link").map((invitation) => ({
 				kind: "room-link" as const,
@@ -128,18 +136,18 @@ export function workspaceStateOf(state: Readonly<store.State>): RoomsWorkspaceSt
 				from: invitation.from,
 				link: invitation.link,
 			})),
-			active: state.activeKey == null ? null : state.convs.get(state.activeKey)?.persistId ?? null,
+			active,
 			standing: state.standing,
 			ignored: [...state.ignored],
 			keepHistory: state.keepHistory,
 			join: { ...state.remembered },
-			dmMode: retained.dmMode,
-			vizOverride: retained.vizOverride,
+			dmMode: page.workspace.retained.dmMode,
+			vizOverride: page.workspace.retained.vizOverride,
 			capabilities: {
-				operations: retained.operations,
-				archivePeer: retained.archivePeer,
+				operations: page.workspace.retained.operations,
+				archivePeer: page.workspace.retained.archivePeer,
 			},
-			peering: retained.peering,
+			peering: page.workspace.retained.peering,
 		},
 		view: {
 			theme: state.theme,
@@ -152,15 +160,15 @@ export function workspaceStateOf(state: Readonly<store.State>): RoomsWorkspaceSt
 	};
 }
 
-export function workspaceControllerSelection(): RoomsControllerSelection {
-	return retained.controller;
+export function workspaceControllerSelection(page: RoomsPageContext): RoomsControllerSelection {
+	return page.workspace.retained.controller;
 }
 
 /** An attached checkpoint is the authority for shared settings and bearers;
  * the browser envelope keeps only its own controller selection. */
-export function adoptAttachedSessionState(session: RoomsWorkspaceState["session"]): void {
-	retained = {
-		...retained,
+export function adoptAttachedSessionState(page: RoomsPageContext, session: RoomsWorkspaceState["session"]): void {
+	page.workspace.retained = {
+		...page.workspace.retained,
 		dmMode: session.dmMode,
 		vizOverride: session.vizOverride,
 		operations: [...session.capabilities.operations],
@@ -169,46 +177,116 @@ export function adoptAttachedSessionState(session: RoomsWorkspaceState["session"
 	};
 }
 
-export function setWorkspaceControllerSelection(controller: RoomsControllerSelection): boolean {
-	const prior = retained;
-	const wasBlocked = persistenceBlocked;
-	retained = { ...retained, controller };
+export function setWorkspaceControllerSelection(page: RoomsPageContext, controller: RoomsControllerSelection): boolean {
+	const prior = page.workspace.retained;
+	const wasBlocked = page.workspace.persistenceBlocked;
+	page.workspace.retained = { ...page.workspace.retained, controller };
 	// Choosing a controller is an explicit replacement act. It may recover from
 	// an obsolete or invalid saved document that boot correctly refused to
 	// overwrite on behalf of unrelated store traffic.
-	persistenceBlocked = false;
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
-	persistenceBlocked = wasBlocked;
+	page.workspace.persistenceBlocked = false;
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
+	page.workspace.persistenceBlocked = wasBlocked;
 	return false;
 }
 
-function validatedWorkspaceState(): RoomsWorkspaceState | null {
-	const document = workspaceStateOf(store.get());
-	if (
-		document.session.directories.length > MAX_WORKSPACE_DIRECTORIES ||
-		document.session.conversations.length > MAX_WORKSPACE_CONVERSATIONS ||
-		document.session.invitations.length > MAX_WORKSPACE_INVITATIONS ||
-		document.session.ignored.length > MAX_WORKSPACE_IGNORED_NAMES ||
-		document.session.capabilities.operations.length > MAX_WORKSPACE_OPERATION_CREDENTIALS ||
-		document.session.peering.length > MAX_WORKSPACE_PEERING
-	) return null;
+/** A local fork of an attached session is a new peer. Directory names stay with
+ * the session that still holds them, so reconstruction cannot retry those grants
+ * and walk into every copied room as if this browser were still that member.
+ * Returns a restore that undoes the drop when the controller commit fails. */
+export function forgetForkedDirectoryNames(page: RoomsPageContext): () => void {
+	const projection = page.projection;
+	const prior = [...projection.get().dirs.values()].map((directory) => ({
+		id: directory.id,
+		requestedNick: directory.requestedNick,
+		nick: directory.nick,
+	}));
+	const rememberedNick = projection.get().remembered.nick;
+	for (const id of projection.get().dirs.keys()) {
+		store.setRequestedDirNick(projection, id, "");
+		store.setDirNick(projection, id, "");
+	}
+	store.remember(projection, { nick: "" });
+	return () => {
+		for (const directory of prior) {
+			store.setRequestedDirNick(projection, directory.id, directory.requestedNick);
+			store.setDirNick(projection, directory.id, directory.nick);
+		}
+		store.remember(projection, { nick: rememberedNick });
+	};
+}
+
+/** The workspace document, or the sentence saying exactly why it cannot be
+ * saved. A refused save leaves this browser reconstructing from the last good
+ * document, so the reason has to name the bound and what would bring the
+ * workspace back under it — "exceeds a persistence bound" alone left a reader
+ * with a broken save and nothing to act on. */
+export function validatedWorkspaceState(
+	page: RoomsPageContext,
+): { document: RoomsWorkspaceState } | { refused: string } {
+	const document = workspaceStateOf(page, page.projection.get());
+	const over = (held: number, most: number, what: string, shed: string) =>
+		held > most ? { refused: `it holds ${held} ${what} and at most ${most} persist; ${shed}` } : null;
+	const bound = over(
+		document.session.directories.length,
+		MAX_WORKSPACE_DIRECTORIES,
+		"directories",
+		"give one back from its card",
+	) ?? over(
+		document.session.conversations.length,
+		MAX_WORKSPACE_CONVERSATIONS,
+		"conversations",
+		"leave or close some",
+	) ?? over(
+		document.session.invitations.length,
+		MAX_WORKSPACE_INVITATIONS,
+		"invitations",
+		"answer or dismiss some",
+	) ?? over(
+		document.session.ignored.length,
+		MAX_WORKSPACE_IGNORED_NAMES,
+		"ignored names",
+		"unignore some",
+	) ?? over(
+		document.session.capabilities.operations.length,
+		MAX_WORKSPACE_OPERATION_CREDENTIALS,
+		"remembered operations capabilities",
+		"forget some in Settings",
+	) ?? over(
+		document.session.peering.length,
+		MAX_WORKSPACE_PEERING,
+		"peering intents",
+		"revoke some on the Peering pane",
+	);
+	if (bound != null) return bound;
 	const parsed = z.safeParse(RoomsWorkspaceStateSchema, document);
-	return parsed.success ? parsed.data : null;
+	if (!parsed.success) {
+		const issue = parsed.error.issues[0];
+		const at = issue == null ? "" : ` at ${issue.path.join(".")}`;
+		return { refused: `a field refused its schema${at}: ${issue?.message ?? "unknown"}` };
+	}
+	return { document: parsed.data };
 }
 
-function encodedWorkspaceState(): string | null {
-	const document = validatedWorkspaceState();
-	if (document == null) return null;
-	const encoded = JSON.stringify(document);
-	return encoded.length <= MAX_WORKSPACE_DOCUMENT_CHARS ? encoded : null;
+function encodedWorkspaceState(page: RoomsPageContext): { encoded: string } | { refused: string } {
+	const validated = validatedWorkspaceState(page);
+	if ("refused" in validated) return validated;
+	const encoded = JSON.stringify(validated.document);
+	if (encoded.length > MAX_WORKSPACE_DOCUMENT_CHARS) {
+		return {
+			refused: `the saved document would be ${encoded.length} characters and at most ` +
+				`${MAX_WORKSPACE_DOCUMENT_CHARS} persist; long drafts are the usual weight`,
+		};
+	}
+	return { encoded };
 }
 
-function persistCurrentWorkspace(): boolean {
-	if (persistenceBlocked) return false;
-	if (persistenceControl != null) return persistenceControl.flush();
-	const encoded = encodedWorkspaceState();
-	return encoded != null && LS.set(WORKSPACE_STATE_KEY, encoded);
+export function persistCurrentWorkspace(page: RoomsPageContext): boolean {
+	if (page.workspace.persistenceBlocked) return false;
+	if (page.workspace.persistenceControl != null) return page.workspace.persistenceControl.flush();
+	const encoded = encodedWorkspaceState(page);
+	return "encoded" in encoded && LS.set(WORKSPACE_STATE_KEY, encoded.encoded);
 }
 
 export function workspaceConnectionSettings(): { dmMode: "webrtc" | "relay"; vizOverride: string } {
@@ -218,86 +296,90 @@ export function workspaceConnectionSettings(): { dmMode: "webrtc" | "relay"; viz
 		: { dmMode: document.session.dmMode, vizOverride: document.session.vizOverride };
 }
 
-export function setWorkspaceConnectionSettings(next: { dmMode?: "webrtc" | "relay"; vizOverride?: string }): boolean {
-	const prior = retained;
-	retained = { ...retained, ...next };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+export function setWorkspaceConnectionSettings(
+	page: RoomsPageContext,
+	next: { dmMode?: "webrtc" | "relay"; vizOverride?: string },
+): boolean {
+	const prior = page.workspace.retained;
+	page.workspace.retained = { ...page.workspace.retained, ...next };
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
 }
 
-export function rememberedWorkspaceOperation(capability: OpsCap, scope: string): string | null {
-	return retained.operations.find((row) => row.capability === capability && row.scope === scope)?.swiss ?? null;
+export function rememberedWorkspaceOperation(page: RoomsPageContext, capability: OpsCap, scope: string): string | null {
+	return page.workspace.retained.operations.find((row) => row.capability === capability && row.scope === scope)
+		?.swiss ?? null;
 }
 
-export function rememberedWorkspaceOperations(): readonly WorkspaceOperationCredential[] {
-	return retained.operations;
+export function rememberedWorkspaceOperations(page: RoomsPageContext): readonly WorkspaceOperationCredential[] {
+	return page.workspace.retained.operations;
 }
 
-export function workspacePeeringIntents(): readonly WorkspacePeeringIntent[] {
-	return retained.peering;
+export function workspacePeeringIntents(page: RoomsPageContext): readonly WorkspacePeeringIntent[] {
+	return page.workspace.retained.peering;
 }
 
 /** Add one restartable publication intent before its runtime lease is made. */
-export function addWorkspacePeeringIntent(intent: WorkspacePeeringIntent): boolean {
+export function addWorkspacePeeringIntent(page: RoomsPageContext, intent: WorkspacePeeringIntent): boolean {
 	const parsed = z.safeParse(WorkspacePeeringIntentSchema, intent);
-	if (!parsed.success || retained.peering.some((entry) => entry.id === intent.id)) return false;
-	const prior = retained;
-	retained = { ...retained, peering: [...retained.peering, parsed.data] };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+	if (!parsed.success || page.workspace.retained.peering.some((entry) => entry.id === intent.id)) return false;
+	const prior = page.workspace.retained;
+	page.workspace.retained = {
+		...page.workspace.retained,
+		peering: [...page.workspace.retained.peering, parsed.data],
+	};
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
 }
 
 /** Remove a publication intent. Runtime lease cleanup remains the peering module's job. */
-export function removeWorkspacePeeringIntent(id: string): boolean {
-	if (!retained.peering.some((entry) => entry.id === id)) return true;
-	const prior = retained;
-	retained = { ...retained, peering: retained.peering.filter((entry) => entry.id !== id) };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+export function removeWorkspacePeeringIntent(page: RoomsPageContext, id: string): boolean {
+	if (!page.workspace.retained.peering.some((entry) => entry.id === id)) return true;
+	const prior = page.workspace.retained;
+	page.workspace.retained = {
+		...page.workspace.retained,
+		peering: page.workspace.retained.peering.filter((entry) => entry.id !== id),
+	};
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
 }
 
 /** Remove publications whose source conversation is being forgotten. */
-export function removeWorkspacePeeringForSource(source: string): boolean {
-	const next = retained.peering.filter((intent) => intent.source !== source);
-	if (next.length === retained.peering.length) return true;
-	const prior = retained;
-	retained = { ...retained, peering: next };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+export function removeWorkspacePeeringForSource(page: RoomsPageContext, source: string): boolean {
+	const next = page.workspace.retained.peering.filter((intent) => intent.source !== source);
+	if (next.length === page.workspace.retained.peering.length) return true;
+	const prior = page.workspace.retained;
+	page.workspace.retained = { ...page.workspace.retained, peering: next };
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
 }
 
-/** Drop all local publication intents when their operator capability is explicitly forgotten. */
-export function clearWorkspacePeering(): boolean {
-	if (retained.peering.length === 0) return true;
-	const prior = retained;
-	retained = { ...retained, peering: [] };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
-	return false;
-}
-
-export function setRememberedWorkspaceOperations(operations: readonly WorkspaceOperationCredential[]): boolean {
+export function setRememberedWorkspaceOperations(
+	page: RoomsPageContext,
+	operations: readonly WorkspaceOperationCredential[],
+): boolean {
 	const normalized = parseWorkspaceOperationCredentials(operations);
 	if (normalized == null) return false;
-	const prior = retained;
-	const wasBlocked = persistenceBlocked;
-	const peering = peeringIntentsForOperations(normalized, retained.peering);
-	retained = { ...retained, operations: normalized, peering };
+	const prior = page.workspace.retained;
+	const wasBlocked = page.workspace.persistenceBlocked;
+	const peering = peeringIntentsForOperations(normalized, page.workspace.retained.peering);
+	page.workspace.retained = { ...page.workspace.retained, operations: normalized, peering };
 	// Saving the complete capability set is an explicit replacement act. It may
 	// recover from an invalid saved document that boot preserved rather than
 	// silently overwriting from an unrelated store update.
-	persistenceBlocked = false;
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
-	persistenceBlocked = wasBlocked;
+	page.workspace.persistenceBlocked = false;
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
+	page.workspace.persistenceBlocked = wasBlocked;
 	return false;
 }
 
 export function setRememberedWorkspaceOperation(
+	page: RoomsPageContext,
 	capability: OpsCap,
 	scope: string,
 	swiss: string | null,
@@ -306,198 +388,43 @@ export function setRememberedWorkspaceOperation(
 		? null
 		: parseWorkspaceOperationCredentials([{ capability, scope, swiss }])?.[0]?.swiss ?? null;
 	if (swiss != null && normalized == null) return false;
-	const existing = retained.operations.find((row) => row.capability === capability && row.scope === scope)?.swiss ??
-		null;
+	const existing =
+		page.workspace.retained.operations.find((row) => row.capability === capability && row.scope === scope)?.swiss ??
+			null;
 	if (existing === normalized) return true;
-	const operations = retained.operations.filter((row) => row.capability !== capability || row.scope !== scope);
+	const operations = page.workspace.retained.operations.filter((row) =>
+		row.capability !== capability || row.scope !== scope
+	);
 	if (normalized != null) operations.push({ capability, scope, swiss: normalized });
-	const prior = retained;
-	retained = { ...retained, operations };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+	const prior = page.workspace.retained;
+	page.workspace.retained = { ...page.workspace.retained, operations };
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
 }
 
-export function rememberedWorkspaceArchivePeer(): string | null {
-	return retained.archivePeer;
+export function rememberedWorkspaceArchivePeer(page: RoomsPageContext): string | null {
+	return page.workspace.retained.archivePeer;
 }
 
-export function setRememberedWorkspaceArchivePeer(sturdyref: string | null): boolean {
-	if (retained.archivePeer === sturdyref) return true;
-	const prior = retained;
-	retained = { ...retained, archivePeer: sturdyref };
-	if (persistCurrentWorkspace()) return true;
-	retained = prior;
+export function setRememberedWorkspaceArchivePeer(page: RoomsPageContext, sturdyref: string | null): boolean {
+	if (page.workspace.retained.archivePeer === sturdyref) return true;
+	const prior = page.workspace.retained;
+	page.workspace.retained = { ...page.workspace.retained, archivePeer: sturdyref };
+	if (persistCurrentWorkspace(page)) return true;
+	page.workspace.retained = prior;
 	return false;
-}
-
-export function encodeWorkspaceState(document: RoomsWorkspaceState, includeCapabilities = false): string {
-	const parsed = z.safeParse(RoomsWorkspaceStateSchema, document);
-	if (!parsed.success) throw new Error("the current Rooms workspace is not a valid state bundle");
-	const exported = includeCapabilities ? parsed.data : redactWorkspaceCapabilities(parsed.data);
-	const encoded = JSON.stringify(exported);
-	if (encoded.length > MAX_WORKSPACE_DOCUMENT_CHARS) throw new Error("the Rooms state is too large to export");
-	return encoded;
-}
-
-export function exportWorkspaceState(includeCapabilities = false): string {
-	persistenceControl?.flush();
-	const current = validatedWorkspaceState();
-	if (current == null) throw new Error("the current Rooms workspace is not a valid state bundle");
-	return encodeWorkspaceState(current, includeCapabilities);
-}
-
-export function importWorkspaceState(raw: string, controllerOverride?: RoomsControllerSelection): string {
-	const document = parseWorkspaceState(raw);
-	if (document == null) return "That file is not a complete Rooms state bundle.";
-	const candidate = controllerOverride == null ? document : { ...document, controller: controllerOverride };
-	const accepted = z.safeParse(RoomsWorkspaceStateSchema, candidate);
-	if (!accepted.success) return "That file and session choice do not form a complete Rooms state bundle.";
-	const installed = accepted.data;
-	const encoded = JSON.stringify(installed);
-	persistenceControl?.stop();
-	if (!LS.set(WORKSPACE_STATE_KEY, encoded)) {
-		installWorkspaceStatePersistence();
-		return "This browser refused to save the imported Rooms state.";
-	}
-	persistenceBlocked = false;
-	retain(installed);
-	announceWorkspaceReplacement();
-	return "";
-}
-
-export function clearWorkspaceState(): boolean {
-	persistenceControl?.stop();
-	persistenceBlocked = true;
-	retain(null);
-	let cleared = LS.remove(WORKSPACE_STATE_KEY);
-	try {
-		for (const key of Object.keys(localStorage)) {
-			if (key.startsWith("rooms.") && key !== WORKSPACE_STATE_KEY) localStorage.removeItem(key);
-		}
-	} catch {
-		cleared = false;
-	}
-	if (cleared) announceWorkspaceReplacement();
-	return cleared;
-}
-
-/** Rebuild the durable workspace projection before any directory starts dialing. */
-export function restoreWorkspaceState(
-	resolve: (locator: string) => DirId | null,
-	restoreSelection = true,
-): { foreignLocators: string[]; savedHomeLocator: string | null } {
-	const refuseRestore = (reason: string) => {
-		persistenceBlocked = true;
-		store.noteTrouble("workspace persistence", reason);
-		return { foreignLocators: [], savedHomeLocator: null };
-	};
-	const raw = LS.get(WORKSPACE_STATE_KEY);
-	const document = parseWorkspaceState(raw);
-	if (raw != null && document == null) {
-		refuseRestore("the saved workspace was invalid and was not restored");
-	}
-	retain(document);
-	if (document == null) return { foreignLocators: [], savedHomeLocator: null };
-	const directories = [...document.session.directories].sort((left, right) => Number(right.home) - Number(left.home));
-	const resolvedDirectories: { saved: WorkspaceDirectory; id: DirId }[] = [];
-	const resolvedIds = new Set<DirId>();
-	for (const directory of directories) {
-		let resolved: DirId | null;
-		try {
-			resolved = resolve(directory.locator);
-		} catch (error) {
-			return refuseRestore(error instanceof Error ? error.message : String(error));
-		}
-		if (resolved == null || resolved !== dirId(directory.id) || resolvedIds.has(resolved)) {
-			return refuseRestore("a saved directory route did not name its recorded authority");
-		}
-		resolvedIds.add(resolved);
-		resolvedDirectories.push({ saved: directory, id: resolved });
-	}
-	for (const { saved, id } of resolvedDirectories) {
-		store.openDir(id, saved.locator);
-		store.patchDir(id, {
-			requestedNick: saved.nick,
-			nick: "",
-			standing: saved.standing,
-			reached: true,
-			session: "reconnecting",
-		});
-		if (saved.home) store.setHomeDir(id);
-	}
-	const drafts = new Map<string, store.Draft>();
-	const byPersistentId = new Map<string, string>();
-	for (const conversation of document.session.conversations) {
-		const directory = dirId(conversation.directory);
-		const restored = conversation.kind === "direct"
-			? store.restoreDm(
-				directory,
-				conversation.peer,
-				conversation.peerRegistrationId,
-				conversation.id,
-				conversation.closed,
-			)
-			: store.ensureRoom(directory, conversation.name, {
-				persistId: conversation.id,
-				key: conversation.held ? `held:${conversation.id}` : undefined,
-				held: conversation.held,
-				link: conversation.link,
-				steward: conversation.steward,
-				publicationId: conversation.publicationId,
-				irc: conversation.irc,
-			});
-		if (restored == null) throw new Error("validated workspace conversation could not be restored");
-		if (conversation.kind === "room" && restored.type === "room" && restored.standing !== conversation.standing) {
-			store.setRoomStanding(restored.key, conversation.standing);
-		}
-		if (conversation.draft !== "") drafts.set(restored.key, { text: conversation.draft, files: [] });
-		byPersistentId.set(conversation.id, restored.key);
-	}
-	store.set({
-		drafts,
-		activeKey: restoreSelection && document.session.active != null
-			? byPersistentId.get(document.session.active) ?? null
-			: null,
-		standing: document.session.standing,
-		theme: document.view.theme,
-		notifyOn: document.view.notifyOn,
-		ignored: new Set(document.session.ignored),
-		invites: document.session.invitations.map((invitation) => ({
-			id: invitation.id,
-			dir: dirId(invitation.directory),
-			locator: invitation.locator,
-			nick: invitation.nick,
-			way: "link" as const,
-			label: invitation.label,
-			from: invitation.from,
-			link: invitation.link,
-		})),
-		railOpen: document.view.railOpen,
-		rosterOpen: document.view.rosterOpen,
-		settingsTab: document.view.settingsTab,
-		opsPane: document.view.opsPane,
-		keepHistory: document.session.keepHistory,
-		remembered: { ...document.session.join },
-	});
-	const home = store.get().homeDir;
-	return {
-		foreignLocators: [...store.get().dirs.values()]
-			.filter((directory) => directory.id !== home)
-			.map((directory) => directory.locator),
-		savedHomeLocator: document.session.directories.find((directory) => directory.home)?.locator ?? null,
-	};
 }
 
 /** Persist only when the durable projection changes. Store traffic includes
  * every message, presence tick, and transfer update; comparing the bounded
  * projection keeps those transient writes off browser storage. */
-export function installWorkspaceStatePersistence(): () => void {
-	if (persistenceControl != null) return () => {};
+export function installWorkspaceStatePersistence(page: RoomsPageContext): () => void {
+	if (page.workspace.persistenceControl != null) return () => {};
 	let last = LS.get(WORKSPACE_STATE_KEY) ?? "";
 	let dirty = false;
 	let stopped = false;
-	let oversized = false;
+	let refusedFor = "";
 	let storageFailureReported = false;
 	let retryDelay = 1000;
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -509,29 +436,40 @@ export function installWorkspaceStatePersistence(): () => void {
 		retryDelay = 1000;
 	};
 	const commit = (): boolean => {
-		if (stopped || persistenceBlocked) return false;
+		if (stopped || page.workspace.persistenceBlocked) return false;
 		if (saveTimer != null) {
 			clearTimeout(saveTimer);
 			saveTimer = null;
 		}
 		dirty = false;
-		const encoded = encodedWorkspaceState();
-		if (encoded == null) {
-			if (!oversized) {
-				oversized = true;
-				store.noteTrouble("workspace persistence", "the Rooms workspace exceeds a persistence bound");
+		const answer = encodedWorkspaceState(page);
+		if ("refused" in answer) {
+			// Latched on the exact sentence, so a workspace that trips a second,
+			// different bound is reported again rather than folded under the first.
+			if (refusedFor !== answer.refused) {
+				refusedFor = answer.refused;
+				store.noteTrouble(
+					page.projection,
+					"workspace persistence",
+					`this browser cannot save the Rooms workspace: ${answer.refused}`,
+				);
 			}
 			return false;
 		}
+		const encoded = answer.encoded;
 		if (encoded === last) {
 			settleRetry();
 			return true;
 		}
-		oversized = false;
+		refusedFor = "";
 		if (!LS.set(WORKSPACE_STATE_KEY, encoded)) {
 			if (!storageFailureReported) {
 				storageFailureReported = true;
-				store.noteTrouble("workspace persistence", "this browser refused to save the Rooms workspace");
+				store.noteTrouble(
+					page.projection,
+					"workspace persistence",
+					"this browser refused to save the Rooms workspace",
+				);
 			}
 			if (retryTimer == null) {
 				retryTimer = setTimeout(() => {
@@ -547,11 +485,11 @@ export function installWorkspaceStatePersistence(): () => void {
 		return true;
 	};
 	const schedule = () => {
-		if (stopped || persistenceBlocked) return;
+		if (stopped || page.workspace.persistenceBlocked) return;
 		dirty = true;
 		if (saveTimer == null) saveTimer = setTimeout(commit, SAVE_COALESCE_MS);
 	};
-	const unsubscribe = store.subscribe(() => {
+	const unsubscribe = page.projection.subscribe(() => {
 		schedule();
 	});
 	const flushOnHide = () => {
@@ -567,9 +505,9 @@ export function installWorkspaceStatePersistence(): () => void {
 		if (typeof document !== "undefined") document.removeEventListener("visibilitychange", flushOnHide);
 		if (saveTimer != null) clearTimeout(saveTimer);
 		if (retryTimer != null) clearTimeout(retryTimer);
-		if (persistenceControl?.stop === stop) persistenceControl = null;
+		if (page.workspace.persistenceControl?.stop === stop) page.workspace.persistenceControl = null;
 	};
-	persistenceControl = { flush: commit, stop };
+	page.workspace.persistenceControl = { flush: commit, stop };
 	schedule();
 	return stop;
 }

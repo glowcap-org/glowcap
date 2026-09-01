@@ -7,6 +7,11 @@
 		<!-- Locators and host:port strings are not phone numbers. Without this,
 		     iOS turns them into tel: links. -->
 		<meta name="format-detection" content="telephone=no" />
+		<!-- The colour a phone paints its own chrome with, so the browser's bar
+		     and the page are one surface rather than two. This is the light
+		     palette's paper; App.tsx keeps it agreeing with the theme in force,
+		     reading the value from the token the page itself paints with. -->
+		<meta name="theme-color" content="#f8e7c9" />
 		<title>pancake rooms</title>
 		<link rel="preload" as="font" type="font/woff2"
 			href="/fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
@@ -27,11 +32,24 @@
 		// the default palette and repaints when the module runs, which on a cold
 		// load is a visible flash.
 		//
+		// It is a guess, and it is allowed to be wrong. The session decides the
+		// theme, and an attached one may say something else once it is up; the
+		// bet is only that a reader's last theme is their next one, which it
+		// nearly always is. Being wrong costs the repaint we would have had
+		// anyway, so the guess is free and the odds are good.
+		//
+		// What it does not do is check a schema version. It reads one string and
+		// accepts it only as "light" or "dark", which is the whole guard a
+		// single word needs: a workspace of any shape either carries a theme
+		// this understands or does not. A version test here would be a second
+		// condition on the same string, able to refuse a theme that is right,
+		// and it would say nothing when it did.
+		//
 		// ES5 only, so a parse error cannot take either of them out.
 		document.documentElement.dataset.boot = window.isSecureContext === true ? "opening" : "insecure";
 		try {
 			var saved = JSON.parse(localStorage.getItem("rooms.workspace-state") || "null");
-			var t = saved && saved.version >= 3 && saved.version <= 7 && saved.view ? saved.view.theme : null;
+			var t = saved && saved.view ? saved.view.theme : null;
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 		} catch (_) { /* private mode: the stylesheet's media query answers */ }
 		</script>
@@ -50,11 +68,18 @@
 		     bundle itself. -->
 		<div id="boot" class="boot">
 			<div class="boot-wait">
-				<div class="boot-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i
-					class="mark-piece mark-cake-2"
-				></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></div>
-				<p class="boot-name wordmark"><span>pancake</span><small>rooms</small></p>
-				<p class="boot-note">Opening a peer in your browser…</p>
+				<div class="boot-lockup brand-lockup">
+					<div class="boot-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i
+						class="mark-piece mark-cake-2"
+					></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></div>
+					<p class="boot-name wordmark"><span>pancake</span><small>rooms</small></p>
+				</div>
+				<!-- Two lines: what is happening, and something to read while it
+				     does. ui/boot_note.ts owns both once the bundle runs; until
+				     then the honest thing is that this page's code is on its
+				     way. The aside is decorative and starts empty. -->
+				<p class="boot-note">Fetching this page's code…</p>
+				<p class="boot-aside" aria-hidden="true"></p>
 			</div>
 			<div class="boot-explain">
 				<h1>pancake rooms needs JavaScript</h1>
@@ -73,7 +98,7 @@
 					replace it before it becomes yours, and the browser withholds APIs
 					Rooms needs.</p>
 				<p>Forward this port to your computer and open it at
-					<code>http://localhost</code>, or serve Rooms through HTTPS.</p>
+					http://localhost, or serve Rooms through HTTPS.</p>
 			</div>
 		</div>
 		<script>
@@ -81,9 +106,11 @@
 		// the bundle never arrives or throws on its way up. Both announce
 		// themselves — an error on the script element, an error on the window — so
 		// neither is guessed at from elapsed time, which would eventually accuse a
-		// slow network of a failure it had not committed. Only a page still opening
-		// can be declared lost: once ui/boot.ts marks it running, a later error is
-		// the running page's business and leaves the screen alone. An insecure page
+		// slow network of a failure it had not committed. A chunk that `import()`
+		// then refuses is a Promise rejection, not a window error; ui/boot.ts
+		// stamps the same lost state for that. Only a page still opening can be
+		// declared lost: once ui/boot.ts marks it running, a later error is the
+		// running page's business and leaves the screen alone. An insecure page
 		// already has its answer and loads no application code. ES5 only, so a parse
 		// error cannot take this watcher out.
 		(function () {

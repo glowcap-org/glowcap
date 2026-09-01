@@ -5,7 +5,7 @@
 // the linear-memory FFI adapter, a WebSocket channel through the relay, and a
 // real capability call, none of it dlopen.
 //
-// This is the browser half of the mechanism that `web_relay_peer_test.ts`
+// This is the browser half of the mechanism that `web/relay_peer_test.ts`
 // proves in Deno. Both are their own process; here the browser is a separate
 // runtime entirely.
 //

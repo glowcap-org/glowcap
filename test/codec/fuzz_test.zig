@@ -178,8 +178,8 @@ fn expectCodecsAgree(gpa: std.mem.Allocator, message: model.Message) anyerror!vo
     try std.testing.expect(messagesEqual(neutralizeNearKind(via_syrup), neutralizeNearKind(via_capnp)));
 }
 
-/// Read a resolution's near reference back as an object, which is what the
-/// narrower of the two wire forms can say. Everything else is compared as it
+/// Read a resolution's near reference back as an object, all the narrower
+/// of the two wire forms can say. Everything else is compared as it
 /// stands.
 fn neutralizeNearKind(message: model.Message) model.Message {
     var out = message;

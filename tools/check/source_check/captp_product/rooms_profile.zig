@@ -1,5 +1,5 @@
-//! The rooms wire profile: one authority for the profile spellings, and
-//! rooms-peer minting kept to the directories that own it.
+//! The Rooms wire profile: one core preference, binding projections, and peer
+//! minting kept to the directories that own it.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -7,117 +7,46 @@ const util = @import("../util.zig");
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
-/// One rooms peer's spelling of the fleet's wire profile.
-///
-/// A room is a closed fleet of pancake peers, so it runs on pancake's own
-/// profile rather than the interop floor. That profile is one fact, and five
-/// languages each have to spell it: a peer that names only half of it, or
-/// names last week's half, opens a session every other member refuses. The
-/// failure is a live `CaptpVersionMismatch` in a step that has to bring five
-/// runtimes up before it can report anything, so the spelling is checked here
-/// instead.
-const RoomsProfileSpelling = struct {
-    path: []const u8,
-    /// How this language writes the Cap'n Proto codec and the Syrup floor.
-    capnp: []const u8,
-    syrup: []const u8,
-    /// How it writes the `pancake-next` version and the 1.0 floor.
-    next: []const u8,
-    v1_0: []const u8,
-};
-
-const rooms_profile_authority = "apps/rooms/lib/protocol.ts";
-
-const rooms_profile_spellings = [_]RoomsProfileSpelling{
-    .{
-        .path = "apps/rooms/lib/profile.zig",
-        .capnp = ".capnp",
-        .syrup = ".syrup",
-        .next = ".next",
-        .v1_0 = ".v1_0",
-    },
-    .{
-        .path = "apps/rooms/clients/python/room_client.py",
-        .capnp = "\"capnp\"",
-        .syrup = "\"syrup\"",
-        .next = "\"next\"",
-        .v1_0 = "\"v1_0\"",
-    },
-    .{
-        .path = "apps/rooms/clients/racket/room-client.rkt",
-        .capnp = "'capnp",
-        .syrup = "'syrup",
-        .next = "'next",
-        .v1_0 = "'v1_0",
-    },
-    .{
-        .path = "apps/rooms/clients/rust/room.rs",
-        .capnp = "Codec::Capnp",
-        .syrup = "Codec::Syrup",
-        .next = "CaptpVersion::Next",
-        .v1_0 = "CaptpVersion::V1_0",
-    },
-};
-
 /// Every rooms peer offers the same CapTP version and codec.
 ///
-/// `apps/rooms/lib/protocol.ts` decides; the four sibling spellings follow.
-/// The check is parity rather than a pinned constant, so moving the fleet to a
-/// different profile stays a one-line edit in the authority — it just cannot
-/// be a one-line edit, because this fails until the others move with it.
+/// `model.Preference.native` decides the pair. The C ABI reflects it into
+/// generated constants, every binding exposes a named profile, and Rooms code
+/// selects that profile without naming either wire axis.
 pub fn checkRoomsWireProfile(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const authority = root.readFileAlloc(io, rooms_profile_authority, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read the rooms wire-profile authority with {s}", .{ rooms_profile_authority, @errorName(err) });
-        return;
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/model/negotiated.zig", &.{
+        "pub const native: Preference",
+        ".captp_version = .next",
+        ".codec = .capnp",
+    });
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/shared/profile.zig", &.{
+        "PANCAKE_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
+        "PANCAKE_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
+        "PANCAKE_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
+        "PANCAKE_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
+    });
+    try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/profile.ts", &.{
+        "? { profile: \"native\", features: \"full\" }",
+        ": { profile: \"interop\", features: \"baseline\" }",
+    });
+    try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/locator.ts", &.{
+        "return new Host(seed, roomsHostOptions(posture));",
+    });
+    try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/protocol.ts", &.{
+        "export const SUBSCRIBE = \"subscribe\"",
+    });
+    const profile_uses = [_]struct { path: []const u8, needle: []const u8 }{
+        .{ .path = "apps/rooms/clients/python/room_client.py", .needle = "Host(profile=\"native\")" },
+        .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'native" },
+        .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(pancake::HostProfile::Native)" },
+        .{ .path = "apps/rooms/clients/zig/client.zig", .needle = "model.Preference.native" },
+        .{ .path = "cli/app/rooms_peer/peer.zig", .needle = "model.Preference.native" },
     };
-    defer gpa.free(authority);
-
-    const wants_capnp = std.mem.indexOf(u8, authority, "CODEC = \"capnp\"") != null;
-    const wants_next = std.mem.indexOf(u8, authority, "CAPTP_VERSION = \"next\"") != null;
-    if (!wants_capnp and std.mem.indexOf(u8, authority, "CODEC = \"syrup\"") == null) {
-        try appendViolation(gpa, violations, "{s}: names no `CODEC` the sibling peers can follow; the fleet's codec is decided here", .{rooms_profile_authority});
-        return;
-    }
-    if (!wants_next and std.mem.indexOf(u8, authority, "CAPTP_VERSION = \"v1_0\"") == null) {
-        try appendViolation(gpa, violations, "{s}: names no `CAPTP_VERSION` the sibling peers can follow; the fleet's CapTP version is decided here", .{rooms_profile_authority});
-        return;
-    }
-
-    for (rooms_profile_spellings) |peer| {
-        const source = root.readFileAlloc(io, peer.path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for the rooms wire-profile check with {s}", .{ peer.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(source);
-        // Raw source, not comment-stripped: these are language literals
-        // (`Codec::Syrup`, `'syrup`, `.v1_0`), and prose that describes the
-        // profile has no reason to spell one. Four languages' comment syntaxes
-        // would need four strippers to buy nothing.
-        const code = source;
-
-        const want_codec = if (wants_capnp) peer.capnp else peer.syrup;
-        const wrong_codec = if (wants_capnp) peer.syrup else peer.capnp;
-        if (std.mem.indexOf(u8, code, want_codec) == null) {
-            try appendViolation(gpa, violations, "{s}: does not name `{s}`, the codec {s} decides for every rooms peer; a peer on the other codec cannot open a session with the fleet", .{ peer.path, want_codec, rooms_profile_authority });
-        }
-        if (std.mem.indexOf(u8, code, wrong_codec) != null) {
-            try appendViolation(gpa, violations, "{s}: still names `{s}` after {s} moved the fleet's codec; the two spellings have drifted apart", .{ peer.path, wrong_codec, rooms_profile_authority });
-        }
-
-        const want_version = if (wants_next) peer.next else peer.v1_0;
-        const wrong_version = if (wants_next) peer.v1_0 else peer.next;
-        if (std.mem.indexOf(u8, code, want_version) == null) {
-            try appendViolation(gpa, violations, "{s}: does not name `{s}`, the CapTP version {s} decides for every rooms peer; the codec alone is half a profile and the handshake refuses on the other half", .{ peer.path, want_version, rooms_profile_authority });
-        }
-        if (std.mem.indexOf(u8, code, wrong_version) != null) {
-            try appendViolation(gpa, violations, "{s}: still names `{s}` after {s} moved the fleet's CapTP version; the two spellings have drifted apart", .{ peer.path, wrong_version, rooms_profile_authority });
-        }
-    }
+    for (profile_uses) |use| try expectFileContains(io, gpa, root, violations, use.path, &.{use.needle});
 }
 
 /// The directories under `apps/rooms` whose TypeScript mints peers.
@@ -137,8 +66,8 @@ const rooms_peer_dirs = [_][]const u8{
 /// back the v1.0 Syrup floor instead, and the session that peer opens is then
 /// refused as a malformed frame — a message that points at the codec rather
 /// than at the line that minted the host. That mistake was made four times in
-/// one afternoon across demos, tests, and the server, which is what a
-/// convention rather than a check buys. `roomsHost` and `roomsListen` are the
+/// one afternoon across demos, tests, and the server. That is the price of
+/// a convention rather than a check. `roomsHost` and `roomsListen` are the
 /// two front doors; a peer that genuinely wants the floor (proving pancake
 /// meets an interop partner there) says so on the line with
 /// `rooms-profile-exempt:` and a reason.
@@ -149,6 +78,7 @@ pub fn checkRoomsPeerMinting(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const authority = "apps/rooms/lib/locator.ts";
+    const profile_authority = "apps/rooms/lib/profile.ts";
     for (rooms_peer_dirs) |dir_path| {
         var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be opened for the rooms locator-profile check ({s})", .{ dir_path, @errorName(err) });
@@ -190,6 +120,16 @@ pub fn checkRoomsPeerMinting(
                 if (bare_listen and std.mem.indexOf(u8, line, "function listen(") == null) {
                     try appendViolation(gpa, violations, "{s}:{d}: accepts peers with the bare `listen(` — its default host speaks the v1.0 Syrup floor; accept through `roomsListen` in {s}", .{ path, line_no, authority });
                 }
+                if (std.mem.indexOf(u8, line, "CAPTP_VERSION") != null or
+                    std.mem.indexOf(u8, line, "export const CODEC") != null or
+                    std.mem.indexOf(u8, line, "codec: CODEC") != null or
+                    std.mem.indexOf(u8, line, "captpVersion: CAPTP_VERSION") != null or
+                    (!std.mem.eql(u8, path, profile_authority) and
+                        (std.mem.indexOf(u8, line, "codec: \"capnp\"") != null or
+                            std.mem.indexOf(u8, line, "captpVersion: \"next\"") != null)))
+                {
+                    try appendViolation(gpa, violations, "{s}:{d}: restates a loose codec or CapTP version in Rooms application code; select the runtime's coherent profile through `roomsHostOptions`", .{ path, line_no });
+                }
             }
         }
     }
@@ -201,25 +141,36 @@ pub fn checkRoomsPeerMinting(
 /// text, then asks the reader to retry an address that was valid. Both parser
 /// fronts share one translation so widening either catch cannot create a
 /// second error policy.
-pub fn checkRoomsBootstrapParseFailures(
+pub fn checkRoomsInputParseFailures(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const path = "apps/rooms/web/ui/net/bootstrap.ts";
-    const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot be read for the bootstrap parse-failure check ({s})", .{ path, @errorName(err) });
+    const owner_path = "apps/rooms/web/ui/parse_failure.ts";
+    const owner = root.readFileAlloc(io, owner_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot be read for the input parse-failure check ({s})", .{ owner_path, @errorName(err) });
         return;
     };
-    defer gpa.free(source);
+    defer gpa.free(owner);
 
     const translation = "if (error instanceof PancakeError && error.code === INVALID_ARGUMENT) return null;\n\tthrow error;";
-    if (std.mem.count(u8, source, translation) != 1) {
-        try appendViolation(gpa, violations, "{s}: parser failures must have one typed INVALID_ARGUMENT-to-null translation that rethrows every other failure", .{path});
+    if (std.mem.count(u8, owner, translation) != 1) {
+        try appendViolation(gpa, violations, "{s}: parser failures must have one typed INVALID_ARGUMENT-to-null translation that rethrows every other failure", .{owner_path});
     }
-    const use = "return invalidArgumentOrThrow(err);";
-    if (std.mem.count(u8, source, use) != 2) {
-        try appendViolation(gpa, violations, "{s}: directoryId and linkDirectory must both use the shared typed parse-failure translation", .{path});
+    const consumers = [_][]const u8{
+        "apps/rooms/web/ui/net/bootstrap.ts",
+        "apps/rooms/web/ui/joining.ts",
+    };
+    const use = "return invalidArgumentOrThrow(error);";
+    for (consumers) |path| {
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the input parse-failure check ({s})", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(source);
+        if (std.mem.count(u8, source, use) != 1) {
+            try appendViolation(gpa, violations, "{s}: join parsers must use the shared typed INVALID_ARGUMENT translation exactly once", .{path});
+        }
     }
 }

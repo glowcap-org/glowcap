@@ -13,7 +13,12 @@ import ctypes
 from typing import Optional, TYPE_CHECKING
 
 from . import _constants as _abi
-from ._abi_value import _DEFAULT_CODEC
+from ._abi_value import (
+    _INTEROP_CAPTP_VERSION,
+    _INTEROP_CODEC,
+    _NATIVE_CAPTP_VERSION,
+    _NATIVE_CODEC,
+)
 from ._errors import PancakeError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
@@ -88,13 +93,15 @@ class Runtime:
         *,
         adopt_host: Optional[Host],
         seed: Optional[bytes],
-        codec: str,
+        profile: Optional[str],
+        codec: Optional[str],
         handshake_timeout_ms: Optional[int],
     ) -> None:
         self._providers = providers
         self._connectors = connectors
         self._adopt_host = adopt_host
         self._seed = seed
+        self._profile = profile
         self._codec = codec
         self._handshake_timeout_ms = handshake_timeout_ms
         self._host: Optional[Host] = None
@@ -134,6 +141,7 @@ class Runtime:
         connectors=None,
         adopt_host: Optional[Host] = None,
         seed: Optional[bytes] = None,
+        profile: Optional[str] = None,
         codec: Optional[str] = None,
         handshake_timeout_ms: Optional[int] = _abi.HANDSHAKE_TIMEOUT_MS,
     ) -> "Runtime":
@@ -162,6 +170,21 @@ class Runtime:
             _validate_composition(selected_providers, Provider, "provider")
         else:
             _validate_composition(selected_connectors, Connector, "connector")
+        if profile not in (None, "interop", "native"):
+            raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}")
+        if profile is not None and codec is not None:
+            raise PancakeError(_ERR_INVALID_ARGUMENT, "profile cannot be combined with codec")
+        if adopt_host is not None and profile is not None:
+            wanted = (
+                (_NATIVE_CODEC, _NATIVE_CAPTP_VERSION)
+                if profile == "native"
+                else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
+            )
+            if wanted != (adopt_host.codec, adopt_host.captp_version):
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    f'profile "{profile}" conflicts with the adopted host',
+                )
         if adopt_host is not None and codec is not None and codec != adopt_host.codec:
             raise PancakeError(
                 _ERR_INVALID_ARGUMENT,
@@ -172,7 +195,8 @@ class Runtime:
             selected_connectors,
             adopt_host=adopt_host,
             seed=seed,
-            codec=codec if codec is not None else _DEFAULT_CODEC,
+            profile=profile,
+            codec=codec,
             handshake_timeout_ms=handshake_timeout_ms,
         )
 
@@ -203,7 +227,7 @@ class Runtime:
         loop = None
         try:
             if host is None:
-                host = Host(seed=self._seed, codec=self._codec)
+                host = Host(seed=self._seed, profile=self._profile, codec=self._codec)
             if self._providers:
                 existing_loop = host.driver_loop is not None
                 if existing_loop:

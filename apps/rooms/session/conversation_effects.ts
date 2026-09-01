@@ -1,6 +1,6 @@
 // Message mutations against the live conversation graph of one durable session.
 
-import type { PostedLine } from "../lib/room_client.ts";
+import type { PostedLine } from "../lib/room/client.ts";
 import { MAX_SCROLLBACK } from "../lib/limits.ts";
 import type { DirectRealizationCallbacks } from "./directory_directs.ts";
 import type { LiveDirectory } from "./live.ts";

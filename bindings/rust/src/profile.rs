@@ -55,6 +55,40 @@ pub enum CaptpVersion {
 	Next,
 }
 
+/// A core-authored coherent codec and CapTP-version preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostProfile {
+	Interop,
+	Native,
+}
+
+#[cfg(feature = "async")]
+impl HostProfile {
+	pub(crate) fn codec(self) -> Codec {
+		let raw = match self {
+			HostProfile::Interop => sys::INTEROP_CODEC,
+			HostProfile::Native => sys::NATIVE_CODEC,
+		};
+		match raw {
+			sys::CODEC_SYRUP => Codec::Syrup,
+			sys::CODEC_CAPNP => Codec::Capnp,
+			_ => unreachable!("generated Host profile codec must be known"),
+		}
+	}
+
+	pub(crate) fn captp_version(self) -> CaptpVersion {
+		let raw = match self {
+			HostProfile::Interop => sys::INTEROP_CAPTP_VERSION,
+			HostProfile::Native => sys::NATIVE_CAPTP_VERSION,
+		};
+		match raw {
+			sys::CAPTP_V1_0 => CaptpVersion::V1_0,
+			sys::CAPTP_NEXT => CaptpVersion::Next,
+			_ => unreachable!("generated Host profile CapTP version must be known"),
+		}
+	}
+}
+
 impl CaptpVersion {
 	#[cfg(feature = "async")]
 	pub(crate) fn from_c(raw: u32) -> Result<Self> {

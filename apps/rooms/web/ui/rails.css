@@ -105,16 +105,12 @@
 		background: var(--hover);
 	}
 }
-.wordmark-link:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-}
 .workspace {
 	position: relative;
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
-	column-gap: 8px;
+	column-gap: var(--gap-row);
 	min-height: var(--header-h);
 	padding: calc(12px + var(--accent-line)) calc(var(--rail-pad) + var(--row-pad)) 12px;
 	color: var(--ink);
@@ -141,6 +137,10 @@
 	position: absolute;
 	inset: 0 0 auto 0;
 	height: var(--accent-line);
+	/* Paint, not a surface. It lies across the top edge of a bar that holds
+	   controls, and a press landing in its three pixels belongs to whatever is
+	   under them. */
+	pointer-events: none;
 	background: linear-gradient(90deg in oklch, var(--teal) 0%, var(--accent) 100%);
 	opacity: .38;
 }
@@ -167,19 +167,28 @@
    fill used to park direct messages on the foot, which reads as a rail that
    failed to finish loading. When the stack is taller than the rail, this
    region scrolls as one, headings included; the lists do not grow scrollers
-   of their own. */
-.sidebar-body {
+   of their own. The roster is the same kind of region with no title or foot
+   of its own, so `.members-body` is that region, and the pane around it is
+   chrome — on a phone, the sheet handle. */
+.sidebar-body,
+.members-body {
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow-x: hidden;
 	overflow-y: auto;
 }
+/* What hangs off a row in here — the filter's answers, the picks under a name
+   being typed — is clipped to `.sidebar-body` above, because that is a scroll
+   container and it is in the containing-block chain of every one of them. No
+   z-index reaches past it, and this box cannot let one through either: it once
+   said `overflow: visible`, which is the initial value and bought nothing. A
+   panel that has to escape the rail has to leave the scroller, not out-rank
+   it. */
 .section {
 	padding: 12px var(--rail-pad);
 	flex: none;
 	display: flex;
 	flex-direction: column;
-	overflow: visible;
 }
 .section.dms {
 	border-top: 1px solid var(--rule);
@@ -240,7 +249,7 @@
 	min-width: 0;
 	display: flex;
 	align-items: center;
-	gap: 9px;
+	gap: var(--gap-row);
 	padding: 4px 6px;
 	margin: -4px -6px;
 	border-radius: var(--radius-control);
@@ -248,10 +257,6 @@
 }
 .foot-lockup:hover {
 	background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-.foot-lockup:focus-visible {
-	outline: 2px solid var(--accent-ink);
-	outline-offset: 2px;
 }
 /* The person lockup the two rails share: a chip sized to span two small rows,
    the name over what is said about them being here. Stated here for both,
@@ -262,7 +267,7 @@
 	width: 26px;
 	height: 26px;
 	border-radius: 8px;
-	font-size: 11px;
+	font-size: var(--type-fine);
 	font-weight: 650;
 }
 /* The name over its status, two small rows the chip beside them spans. Both
@@ -271,13 +276,32 @@
 #members .name-line,
 .sidebar-foot .name-line {
 	display: grid;
-	row-gap: 1px;
+	row-gap: var(--gap-hair);
 	min-width: 0;
 }
+/* The name and the mark on one line, where only the name may give way. */
+#members .name-row {
+	display: flex;
+	align-items: baseline;
+	min-width: 0;
+}
+#members .name-row > .irc-chip {
+	flex: none;
+}
+/* A person's name is typed as a room's name is. It named no step and took the
+   page's own fifteen, half a weight heavier, so the two lists a reader sees
+   side by side said the same kind of thing two ways — and the roster paid for
+   it in width, on the side where the direct-line mark stands. Full ink against
+   the soft line under it is what makes it the row's subject; size was saying it
+   twice.
+
+   The rail's foot draws this same lockup, so it moves with it: one person
+   lockup, one way of typing it, which is why the rule was shared to begin
+   with. */
 #members .name-line .name,
 .sidebar-foot .name-line .name {
 	line-height: 1.4;
-	font-weight: 500;
+	font-size: var(--type-body);
 }
 #members .name,
 .sidebar-foot .name {
@@ -288,11 +312,18 @@
 	white-space: nowrap;
 	color: var(--ink);
 }
+/* One line of its own text, whether or not it has any: `lh` is exactly that
+   measure, so the reservation follows the type instead of a number kept equal
+   to it by hand. */
+#members .member-said,
+#members .away-said {
+	min-height: 1lh;
+}
 #members .member-said,
 #members .away-said,
 .sidebar-foot .foot-said,
 .sidebar-foot .away-said {
-	font-size: 10.5px;
+	font-size: var(--type-fine);
 	line-height: 1.35;
 }
 #members .member-said,
@@ -322,7 +353,7 @@
 .foot-names {
 	display: flex;
 	align-items: baseline;
-	gap: 4px;
+	gap: var(--gap-line);
 	min-width: 0;
 }
 .foot-names[data-dir]::before {
@@ -336,13 +367,13 @@
 }
 .foot-more {
 	flex: none;
-	font-size: 10.5px;
+	font-size: var(--type-fine);
 	color: var(--ink-soft);
 	white-space: nowrap;
 }
 /* The menu rises from the lockup's left edge, where the chip and the words
    are; the shared menu anchors right for a mark at a row's end. */
-.sidebar-foot .standing-menu {
+.menu-layer.at-foot .standing-menu {
 	right: auto;
 	left: 0;
 }

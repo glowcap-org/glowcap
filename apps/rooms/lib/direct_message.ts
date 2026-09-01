@@ -29,11 +29,13 @@ import {
 	sendWithAttachments,
 } from "./attachment.ts";
 import type { AttachmentSource } from "./attachment.ts";
-import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ROOM, TYPING } from "./protocol.ts";
+import { DIRECT_READY, DM, HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM, TYPING } from "./protocol.ts";
+import { type ArchiveShareKind, parseArchiveShareKind } from "./archive/handover.ts";
 import { ask } from "./ask.ts";
 import type { Directory } from "./directory.ts";
 import { PostedLine } from "./posted_line.ts";
 import { refuseCapabilityArguments, releaseUnexpectedCapabilityArguments } from "./argument_custody.ts";
+import { lineCost, MAX_LINE } from "./limits.ts";
 
 /** The direct protocol a caller is prepared to receive on the reply route it
  * hands to the peer. Messages are the base contract; optional sibling verbs
@@ -46,9 +48,16 @@ export interface DirectMessageReceiver {
 	offerRoom?(label: string, link: string): void | Promise<void>;
 	handArchive?(
 		directory: string,
-		conversation: string,
+		kind: ArchiveShareKind,
+		conversation: string | null,
 		archive: Ref,
 		session: Session,
+	): void | Promise<void>;
+	offerArchive?(
+		directory: string,
+		kind: ArchiveShareKind,
+		conversation: string | null,
+		sturdyref: string,
 	): void | Promise<void>;
 }
 
@@ -98,23 +107,52 @@ export function directMessageReceiverBehavior(
 		}
 		if (verb === HAND_ARCHIVE) {
 			if (
-				args.length !== 3 || typeof args[0] !== "string" || typeof args[1] !== "string" ||
-				!(args[2] instanceof Ref)
+				args.length !== 4 || typeof args[0] !== "string" ||
+				!(args[3] instanceof Ref)
 			) {
 				refuseCapabilityArguments(
 					session(),
 					args,
-					"handArchive takes a directory, conversation, and archive capability",
+					"handArchive takes a directory, kind, conversation, and archive capability",
+				);
+			}
+			let kind: ArchiveShareKind;
+			try {
+				kind = parseArchiveShareKind(args[1]);
+			} catch (error) {
+				refuseCapabilityArguments(session(), args, error instanceof Error ? error.message : String(error));
+			}
+			if (args[2] !== null && typeof args[2] !== "string") {
+				refuseCapabilityArguments(
+					session(),
+					args,
+					"handArchive conversation must be a string or null",
 				);
 			}
 			if (receiver.handArchive == null) {
 				refuseCapabilityArguments(session(), args, "direct inbox cannot receive archive history");
 			}
-			return Promise.resolve(receiver.handArchive(args[0], args[1], args[2], session())).then(() => null);
+			return Promise.resolve(receiver.handArchive(args[0], kind, args[2], args[3], session())).then(() => null);
+		}
+		if (verb === OFFER_ARCHIVE) {
+			if (
+				args.length !== 4 || typeof args[0] !== "string" || typeof args[3] !== "string" ||
+				(args[2] !== null && typeof args[2] !== "string")
+			) {
+				refuseCapabilityArguments(
+					session(),
+					args,
+					"offerArchive takes a directory, kind, conversation, and sturdyref",
+				);
+			}
+			if (receiver.offerArchive == null) throw new Error("direct inbox cannot receive a durable archive offer");
+			return Promise.resolve(
+				receiver.offerArchive(args[0], parseArchiveShareKind(args[1]), args[2], args[3]),
+			).then(() => null);
 		}
 		if (verb !== DM) refuseCapabilityArguments(session(), args, `direct inbox has no method ${verb}`);
-		if (typeof args[0] !== "string") {
-			refuseCapabilityArguments(session(), args, "a direct message needs one text value");
+		if (typeof args[0] !== "string" || lineCost(args[0]) > MAX_LINE) {
+			refuseCapabilityArguments(session(), args, `a direct message needs text of at most ${MAX_LINE} bytes`);
 		}
 		const reply = args[1] instanceof Ref ? args[1] : null;
 		const attachments = readAttachments(args, reply == null ? 1 : 2);
@@ -135,6 +173,19 @@ export function directMessageReceiverBehavior(
 	};
 }
 
+/** How many live lines ride each redeemed exporter connection.
+ *
+ * A redeem to an exporter this host has already dialed resolves the *same*
+ * live session rather than opening a second one — `sendRedeeming` says so, and
+ * `zig build rooms-dm-reredeem` proves it. So two lines to one member
+ * share one connection, and "did a route come back" is not the same question
+ * as "did this line open it". Closing on the first answer hangs up a
+ * connection the other line is still talking on.
+ *
+ * Held weakly and keyed by the session itself, so a connection dropped without
+ * a close takes its row with it rather than pinning one forever. */
+const linesOnSession = new WeakMap<Session, number>();
+
 /** A live, direct line to one member, obtained by introduction. `DirectMessage.open`
  * asks the directory to introduce you and wraps the redeemed capability. `say`
  * then delivers a message straight to that member over your own connection. The
@@ -145,18 +196,6 @@ export function directMessageReceiverBehavior(
  * redeem opened and hands it to the member with each message, so the member
  * answers you back over that same connection — even though you never listen.
  * The receiver passed to `open` handles that reply route's direct protocol. */
-/** How many live lines ride each redeemed exporter connection.
- *
- * A redeem to an exporter this host has already dialed resolves the *same*
- * live session rather than opening a second one — `sendRedeeming` says so, and
- * `zig build demo-rooms-dm-reredeem` proves it. So two lines to one member
- * share one connection, and "did a route come back" is not the same question
- * as "did this line open it". Closing on the first answer hangs up a
- * connection the other line is still talking on.
- *
- * Held weakly and keyed by the session itself, so a connection dropped without
- * a close takes its row with it rather than pinning one forever. */
-const linesOnSession = new WeakMap<Session, number>();
 
 export class DirectMessage {
 	#session: Session;
@@ -359,15 +398,20 @@ export class DirectMessage {
 		await ask(this.#session, this.#target(), HAND_ROOM, [label, room], "they did not answer being handed a room");
 	}
 
-	/** Hand this peer a read-only archive facet for one direct conversation.
-	 * The directory and conversation are the sender's archive coordinates, not
-	 * identity claims; the receiver uses them only to constrain its read. */
-	async handArchive(directory: string, conversation: string, archive: Ref): Promise<void> {
+	/** Hand this peer a read-only archive facet. The pipe is this direct line;
+	 * `kind` and `conversation` name the facet's archive scope, which need not
+	 * be this conversation. */
+	async handArchive(
+		directory: string,
+		kind: ArchiveShareKind,
+		conversation: string | null,
+		archive: Ref,
+	): Promise<void> {
 		await ask(
 			this.#session,
 			this.#target(),
 			HAND_ARCHIVE,
-			[directory, conversation, archive],
+			[directory, kind, conversation, archive],
 			"they did not answer being handed archive history",
 		);
 	}
@@ -389,6 +433,22 @@ export class DirectMessage {
 	 * say; the price was the durable mint the link cost. */
 	async offerRoom(label: string, link: string): Promise<void> {
 		await ask(this.#session, this.#target(), OFFER_ROOM, [label, link], "they did not answer being offered a room");
+	}
+
+	/** Offer this peer a durable archive share as data, over this line. */
+	async offerArchive(
+		directory: string,
+		kind: ArchiveShareKind,
+		conversation: string | null,
+		sturdyref: string,
+	): Promise<void> {
+		await ask(
+			this.#session,
+			this.#target(),
+			OFFER_ARCHIVE,
+			[directory, kind, conversation, sturdyref],
+			"they did not answer being offered archive history",
+		);
 	}
 
 	/** Deliver one direct message with files. Each file is a capability hosted

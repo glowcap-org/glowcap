@@ -379,6 +379,16 @@ fn host_options_carry_local_turn_budget() {
 }
 
 #[test]
+fn host_profiles_use_the_generated_coherent_pairs() {
+	let native = HostOptions::with_profile(crate::HostProfile::Native);
+	assert_eq!(native.codec, Codec::Capnp);
+	assert_eq!(native.captp_version, crate::CaptpVersion::Next);
+	let interop = HostOptions::with_profile(crate::HostProfile::Interop);
+	assert_eq!(interop.codec, Codec::Syrup);
+	assert_eq!(interop.captp_version, crate::CaptpVersion::V1_0);
+}
+
+#[test]
 fn connector_installation_publishes_no_partial_batch() {
 	let host = Host::new_host();
 	let mixed = crate::Connector::new(

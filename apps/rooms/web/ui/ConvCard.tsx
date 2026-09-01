@@ -8,30 +8,43 @@
 // name to check. The directory's name is the door to that card, the way the
 // rail caption is. Standing and leave live here too, because a name you can
 // ask about is also a name you can stand in and a name you can give back.
-// `/invite` and `/join` stay commands: they are destinations and offers, not
+// The title's close mark asks to leave here, the same question this card
+// already asked. `/invite` and `/join` stay commands: they are destinations and offers, not
 // facts about this conversation.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Conv, DirId, DirView, IrcBridgeRow, RoomConv } from "./types.ts";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	awayByPeer,
+	awayOf,
+	type DirId,
+	type DirView,
+	type IrcBridgeRow,
+	type RoomConv,
+	type SessionConv,
+} from "./types.ts";
+import { useConversationMembers, useRoomsState } from "./hooks.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 import { ModalHead } from "./ModalHead.tsx";
 import { Confirm } from "./Confirm.tsx";
-import { Said } from "./Said.tsx";
 import { Button } from "./Button.tsx";
-import { Icon } from "./icons.tsx";
+import { roomMarkGlyph, roomMarkTitle } from "./room_mark.tsx";
+import { roomPreset } from "../../lib/room/policy.ts";
 import { Avatar, PresenceAvatar } from "./Avatar.tsx";
 import { StandingMenu } from "./Standing.tsx";
 import { ConvFacts } from "./ConvFacts.tsx";
-import { RoomCapabilities, RoomModeration } from "./RoomModeration.tsx";
-import { RoomIrcIdentity } from "./RoomIrcIdentity.tsx";
+import { RoomCapabilities } from "./RoomCapabilities.tsx";
+import { RoomModeration } from "./RoomModeration.tsx";
+import { BridgeIdentityForm } from "./BridgeIdentityForm.tsx";
 import { directoryName, roomCalled } from "./text.ts";
 import { type TabFace, Tabs } from "./Tabs.tsx";
 import type { ArchiveShareView } from "./archive_model.ts";
-import { bridgedOrigin } from "./store/dirs.ts";
+import { DmArchiveHistory, RoomArchiveHistory } from "./ArchiveHistory.tsx";
+import { bridgedOrigin, roomPublication } from "./store/dirs.ts";
+import { useCommitments } from "./commitment.tsx";
 
-export function ConvCard(
+export const ConvCard = memo(function ConvCard(
 	{
 		canInteract,
 		conv,
@@ -42,16 +55,16 @@ export function ConvCard(
 		standing,
 		follows,
 		online,
-		away,
 		open,
 		initialPane,
 		request,
 		administeredBridge,
 		retain = false,
+		askingLeave,
 		onLayer,
 	}: {
 		canInteract: boolean;
-		conv: Conv | null;
+		conv: SessionConv | null;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
 		homeDir: DirId | null;
@@ -59,17 +72,19 @@ export function ConvCard(
 		standing: string;
 		follows: string;
 		online: boolean;
-		away: string | null;
 		open: boolean;
-		initialPane: "about" | "irc";
+		initialPane: "about" | "irc" | "capabilities";
 		request: number;
 		administeredBridge: IrcBridgeRow | null;
 		retain?: boolean;
+		askingLeave: boolean;
 		onLayer: (held: boolean) => void;
 	},
 ) {
+	const members = useRoomsState((state) => state.members);
+	const convs = useRoomsState((state) => state.convs);
 	type View = {
-		conv: Conv;
+		conv: SessionConv;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
 		homeDir: DirId | null;
@@ -77,8 +92,7 @@ export function ConvCard(
 		standing: string;
 		follows: string;
 		online: boolean;
-		away: string | null;
-		initialPane: "about" | "irc";
+		initialPane: "about" | "irc" | "capabilities";
 		request: number;
 		administeredBridge: IrcBridgeRow | null;
 		canInteract: boolean;
@@ -93,7 +107,6 @@ export function ConvCard(
 			standing,
 			follows,
 			online,
-			away,
 			initialPane,
 			request,
 			administeredBridge,
@@ -110,7 +123,6 @@ export function ConvCard(
 			standing,
 			follows,
 			online,
-			away,
 			initialPane,
 			request,
 			administeredBridge,
@@ -124,20 +136,23 @@ export function ConvCard(
 		return () => onLayer(false);
 	}, [held, onLayer]);
 	if (!held || shown === null) return null;
+	const away = shown.conv.type === "dm" ? awayOf(awayByPeer(convs, members), shown.conv.dir, shown.conv.id) : null;
 	return (
 		<ConvDialog
 			open={open}
 			retain={retain}
 			onExited={onExited}
 			{...shown}
+			away={away}
+			askingLeave={askingLeave}
 		/>
 	);
-}
+});
 
 /** The same mark the title, the rail, and the log wear: a public room is its
  * hash, a private one a lock, a person their chip. */
 function ConvMark(
-	{ conv, online, away }: { conv: Conv; online: boolean; away: string | null },
+	{ conv, online, away }: { conv: SessionConv; online: boolean; away: string | null },
 ) {
 	if (conv.type === "dm") {
 		if (conv.line === "closed") return <Avatar name={conv.id} />;
@@ -153,24 +168,22 @@ function ConvMark(
 		<span
 			className={conv.held ? "hash held-lock" : "hash"}
 			aria-hidden="true"
-			title={conv.held
-				? "A private room: it is not listed, and only people it was handed to are here"
-				: undefined}
+			title={roomMarkTitle(roomPreset(conv.policy))}
 		>
-			{conv.held ? <Icon name="lock" size={14} /> : "#"}
+			{roomMarkGlyph(roomPreset(conv.policy), 14)}
 		</span>
 	);
 }
 
-function leaveAsk(conv: Conv): string {
+function leaveAsk(conv: SessionConv): string {
 	return conv.type === "dm" ? "Close this conversation" : "Leave this room";
 }
 
-function leaveCommit(conv: Conv): string {
+function leaveCommit(conv: SessionConv): string {
 	return conv.type === "dm" ? "Close" : "Leave";
 }
 
-function leaveSaid(conv: Conv): string {
+function leaveSaid(conv: SessionConv): string {
 	if (conv.type === "dm") {
 		return "Close the conversation with " + conv.id +
 			"? The messages on this line go with it. You can start a new one from the room.";
@@ -206,32 +219,54 @@ const ROOM_TABS: readonly TabFace<RoomPane>[] = [
 ];
 
 function RoomCardBody(
-	{ conv, dir, directory, named, standing, follows, asking, setAsking, initialPane, administeredBridge, canInteract }:
-		{
-			conv: RoomConv;
-			dir: DirView | null;
-			directory: string;
-			named: string;
-			standing: string;
-			follows: string;
-			asking: boolean;
-			setAsking: (asking: boolean) => void;
-			initialPane: "about" | "irc";
-			administeredBridge: IrcBridgeRow | null;
-			canInteract: boolean;
-		},
+	{
+		conv,
+		dir,
+		directory,
+		named,
+		standing,
+		follows,
+		asking,
+		setAsking,
+		askingLeave,
+		initialPane,
+		administeredBridge,
+		canInteract,
+	}: {
+		conv: RoomConv;
+		dir: DirView | null;
+		directory: string;
+		named: string;
+		standing: string;
+		follows: string;
+		asking: boolean;
+		setAsking: (asking: boolean) => void;
+		askingLeave: boolean;
+		initialPane: "about" | "irc" | "capabilities";
+		administeredBridge: IrcBridgeRow | null;
+		canInteract: boolean;
+	},
 ) {
 	const session = useRoomsSession();
+	const roster = useConversationMembers(conv.key);
 	const held = conv.grants.has("steward");
 	const roomAvailable = conv.membership === "joined";
 	const canModerate = (held && roomAvailable) || administeredBridge !== null;
-	const ownIrc = dir === null ? undefined : conv.members.get(dir.nick)?.irc;
-	const bridgeOrigin = bridgedOrigin(dir ?? undefined, conv.id);
+	const ownIrc = dir === null ? undefined : roster.get(dir.nick)?.seat;
+	const bridgeOrigin = bridgedOrigin(dir ?? undefined, conv.publicationId);
+	const publication = roomPublication(dir ?? undefined, conv.publicationId);
+	const authoritySource = conv.publicationId === undefined ? "local" : publication?.kind ?? "unknown";
 	const tabs = ROOM_TABS.filter((tab) =>
 		(tab.id === "about" || canInteract) &&
 		(tab.id !== "irc" || ownIrc !== undefined) && (tab.id !== "moderation" || canModerate)
 	);
-	const [chosen, setChosen] = useState<RoomPane>(initialPane === "irc" && ownIrc !== undefined ? "irc" : "about");
+	const [chosen, setChosen] = useState<RoomPane>(
+		initialPane === "irc" && ownIrc !== undefined
+			? "irc"
+			: initialPane === "capabilities" && canInteract
+			? "capabilities"
+			: "about",
+	);
 	const pane = !canInteract
 		? "about"
 		: chosen === "moderation" && !canModerate
@@ -239,53 +274,71 @@ function RoomCardBody(
 		: chosen === "irc" && ownIrc === undefined
 		? "about"
 		: chosen;
+	const tabbed = tabs.length > 1;
 	return (
 		<>
-			<Tabs
-				id="convcardTabs"
-				tabs={tabs}
-				selected={pane}
-				labelledBy="convcardTitle"
-				onSelect={setChosen}
-			/>
-			{pane === "about" && (
-				<div id="convcardAboutPanel" role="tabpanel" aria-labelledby="convcardAboutTab">
-					<ConvFacts conv={conv} dir={dir} directory={directory} bridgeOrigin={bridgeOrigin} />
-					<div className="group well">
-						<div className="dircard-standing">
-							<span>Where you are here</span>
-							<StandingMenu
-								id="convcardStanding"
-								own={conv.standing}
-								effective={standing}
-								follows={follows}
-								about={named}
-								up
-								onSay={(said) => session.setRoomStanding(conv.key, said)}
-								disabled={!canInteract}
-							/>
-						</div>
+			{tabbed && (
+				<Tabs
+					id="convcardTabs"
+					tabs={tabs}
+					selected={pane}
+					labelledBy="convcardTitle"
+					onSelect={setChosen}
+				/>
+			)}
+			<div
+				id="convcardAboutPanel"
+				hidden={pane !== "about"}
+				role={tabbed ? "tabpanel" : undefined}
+				aria-labelledby={tabbed ? "convcardAboutTab" : undefined}
+			>
+				<ConvFacts conv={conv} dir={dir} directory={directory} bridgeOrigin={bridgeOrigin} />
+				<div className="group well">
+					<div className="dircard-standing">
+						<span>You are</span>
+						<StandingMenu
+							id="convcardStanding"
+							own={conv.standing}
+							effective={standing}
+							follows={follows}
+							about={named}
+							up
+							onSay={(said) => session.setRoomStanding(conv.key, said)}
+							disabled={!canInteract}
+						/>
 					</div>
-					{canInteract && <LeaveControls conv={conv} asking={asking} setAsking={setAsking} />}
+				</div>
+				{canInteract && <RoomArchiveHistory conv={conv} you={dir?.nick ?? ""} />}
+				{canInteract && (
+					<LeaveControls conv={conv} asking={asking} setAsking={setAsking} askingLeave={askingLeave} />
+				)}
+			</div>
+			{canInteract && (
+				<div
+					id="convcardCapabilitiesPanel"
+					hidden={pane !== "capabilities"}
+					role="tabpanel"
+					aria-labelledby="convcardCapabilitiesTab"
+				>
+					<RoomCapabilities conv={conv} available={roomAvailable} authoritySource={authoritySource} />
 				</div>
 			)}
-			{pane === "capabilities" && (
-				<div id="convcardCapabilitiesPanel" role="tabpanel" aria-labelledby="convcardCapabilitiesTab">
-					<RoomCapabilities conv={conv} available={roomAvailable} />
-				</div>
-			)}
-			{pane === "irc" && ownIrc !== undefined && (
-				<div id="convcardIrcPanel" role="tabpanel" aria-labelledby="convcardIrcTab">
-					<RoomIrcIdentity
+			{ownIrc !== undefined && (
+				<div id="convcardIrcPanel" hidden={pane !== "irc"} role="tabpanel" aria-labelledby="convcardIrcTab">
+					<BridgeIdentityForm
 						conv={conv}
-						seat={ownIrc}
 						connected={roomAvailable}
-						bridgeOrigin={bridgeOrigin}
+						stateKey={`${ownIrc.state}\u0000${ownIrc.nick}`}
 					/>
 				</div>
 			)}
-			{pane === "moderation" && canModerate && (
-				<div id="convcardModerationPanel" role="tabpanel" aria-labelledby="convcardModerationTab">
+			{canModerate && (
+				<div
+					id="convcardModerationPanel"
+					hidden={pane !== "moderation"}
+					role="tabpanel"
+					aria-labelledby="convcardModerationTab"
+				>
 					<RoomModeration
 						conv={conv}
 						you={dir?.nick ?? ""}
@@ -299,9 +352,16 @@ function RoomCardBody(
 }
 
 function LeaveControls(
-	{ conv, asking, setAsking }: { conv: Conv; asking: boolean; setAsking: (asking: boolean) => void },
+	{ conv, asking, setAsking, askingLeave }: {
+		conv: SessionConv;
+		asking: boolean;
+		setAsking: (asking: boolean) => void;
+		askingLeave: boolean;
+	},
 ) {
+	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
+	const commitments = useCommitments();
 	return asking
 		? (
 			<Confirm
@@ -312,8 +372,11 @@ function LeaveControls(
 				commit={leaveCommit(conv)}
 				keepId="convcardLeaveStay"
 				commitId="convcardLeave"
-				onKeep={() => setAsking(false)}
-				onCommit={() => session.endConv()}
+				onKeep={() => {
+					setAsking(false);
+					if (askingLeave) browser.aboutConversation();
+				}}
+				onCommit={() => commitments.request(() => session.endConv())}
 			/>
 		)
 		: (
@@ -323,72 +386,6 @@ function LeaveControls(
 				</Button>
 			</div>
 		);
-}
-
-function DmArchiveHistory(
-	{ conv, shares }: { conv: Conv & { type: "dm" }; shares: readonly ArchiveShareView[] },
-) {
-	const session = useRoomsSession();
-	const [sharing, setSharing] = useState(false);
-	const [shared, setShared] = useState(false);
-	const [why, setWhy] = useState("");
-	const share = async () => {
-		setSharing(true);
-		setShared(false);
-		setWhy("");
-		const refused = await session.shareArchiveHistory(conv.key);
-		setWhy(refused);
-		setShared(refused === "");
-		setSharing(false);
-	};
-	return (
-		<>
-			<h3 className="well-title overline" id="convcardArchiveTitle">Archive history</h3>
-			<div className="group well" role="group" aria-labelledby="convcardArchiveTitle">
-				<p className="hint">
-					Share a read-only account scoped to this direct conversation from the archive selected in Settings.
-					It does not grant access to any other conversation.
-				</p>
-				<div className="actions">
-					<Button id="convcardShareArchive" busy={sharing} onClick={() => void share()}>
-						{sharing ? "Sharing…" : "Share history"}
-					</Button>
-				</div>
-				{shared && <Said id="convcardArchiveSaid" kind="success">{`Shared with ${conv.id}.`}</Said>}
-				{why !== "" && <Said id="convcardArchiveSaid" kind="failure">{why}</Said>}
-				{shares.length > 0 && (
-					<ul className="entries">
-						{shares.map((offered) => (
-							<li className="entry archive-share-offer" key={offered.id}>
-								<div className="entry-head">
-									<span className="entry-name">{offered.from}</span>
-									<span className="entry-meta">offered a read-only account</span>
-								</div>
-								{offered.error !== "" && <Said kind="failure">{offered.error}</Said>}
-								<div className="actions">
-									<Button
-										className="archive-share-drop"
-										variant="quiet"
-										disabled={offered.status === "reading"}
-										onClick={() => session.dropArchiveShare(offered.id)}
-									>
-										Give back
-									</Button>
-									<Button
-										className="archive-share-read"
-										busy={offered.status === "reading"}
-										onClick={() => void session.readArchiveShare(offered.id)}
-									>
-										{offered.status === "reading" ? "Reading…" : "Read shared history"}
-									</Button>
-								</div>
-							</li>
-						))}
-					</ul>
-				)}
-			</div>
-		</>
-	);
 }
 
 function ConvDialog(
@@ -409,11 +406,12 @@ function ConvDialog(
 		request,
 		administeredBridge,
 		canInteract,
+		askingLeave,
 	}: {
 		open: boolean;
 		retain: boolean;
 		onExited: () => void;
-		conv: Conv;
+		conv: SessionConv;
 		archiveShares: readonly ArchiveShareView[];
 		dir: DirView | null;
 		homeDir: DirId | null;
@@ -422,20 +420,24 @@ function ConvDialog(
 		follows: string;
 		online: boolean;
 		away: string | null;
-		initialPane: "about" | "irc";
+		initialPane: "about" | "irc" | "capabilities";
 		request: number;
 		administeredBridge: IrcBridgeRow | null;
 		canInteract: boolean;
+		askingLeave: boolean;
 	},
 ) {
 	const browser = useRoomsBrowser();
+	const commitments = useCommitments();
 	const close = useRef<HTMLButtonElement>(null);
 	const dialog = useRef<HTMLDialogElement>(null);
-	const [asking, setAsking] = useState(false);
+	const [asking, setAsking] = useState(askingLeave);
 	useEffect(() => {
-		if (!open) setAsking(false);
-	}, [open]);
-	useModalDialog(dialog, () => browser.closeAboutConversation(), close, open, onExited, retain);
+		if (askingLeave) setAsking(true);
+		else if (open) setAsking(false);
+	}, [askingLeave, open]);
+	const requestClose = () => commitments.request(() => browser.closeAboutConversation());
+	useModalDialog(dialog, requestClose, close, open, onExited, retain);
 	const directory = dir === null ? "this directory" : directoryName(dir.id, homeDir);
 	const named = conv.type === "room" ? roomCalled(conv.id, conv.held) : conv.id;
 	return (
@@ -445,43 +447,55 @@ function ConvDialog(
 				    does: arriving from a coloured conversation to find nothing
 				    coloured makes a reader check they opened the right one. */
 			}
-			<div className="modal-card card-plane" data-dir={mark}>
-				<ModalHead
-					titleId="convcardTitle"
-					title={
-						<>
-							<ConvMark conv={conv} online={online} away={away} />
-							{conv.id}
-						</>
-					}
-					closeId="convcardClose"
-					closeRef={close}
-					onClose={() => browser.closeAboutConversation()}
-				/>
-				{conv.type === "room"
-					? (
-						<RoomCardBody
-							key={`${conv.key}:${request}`}
-							conv={conv}
-							dir={dir}
-							directory={directory}
-							named={named}
-							standing={standing}
-							follows={follows}
-							asking={asking}
-							setAsking={setAsking}
-							initialPane={initialPane}
-							administeredBridge={administeredBridge}
-							canInteract={canInteract}
-						/>
-					)
-					: (
-						<>
-							<ConvFacts conv={conv} dir={dir} directory={directory} />
-							{canInteract && <DmArchiveHistory conv={conv} shares={archiveShares} />}
-							{canInteract && <LeaveControls conv={conv} asking={asking} setAsking={setAsking} />}
-						</>
-					)}
+			<div className="modal-card card-plane conversation-card" data-dir={mark}>
+				<div className="modal-body">
+					<ModalHead
+						titleId="convcardTitle"
+						title={
+							<>
+								<ConvMark conv={conv} online={online} away={away} />
+								{conv.id}
+							</>
+						}
+						closeId="convcardClose"
+						closeRef={close}
+						onClose={requestClose}
+					/>
+					{conv.type === "room"
+						? (
+							<RoomCardBody
+								key={`${conv.key}:${request}`}
+								conv={conv}
+								dir={dir}
+								directory={directory}
+								named={named}
+								standing={standing}
+								follows={follows}
+								asking={asking}
+								setAsking={setAsking}
+								askingLeave={askingLeave}
+								initialPane={initialPane}
+								administeredBridge={administeredBridge}
+								canInteract={canInteract}
+							/>
+						)
+						: (
+							<>
+								<ConvFacts conv={conv} dir={dir} directory={directory} />
+								{canInteract && conv.type === "dm" && (
+									<DmArchiveHistory conv={conv} shares={archiveShares} />
+								)}
+								{canInteract && (
+									<LeaveControls
+										conv={conv}
+										asking={asking}
+										setAsking={setAsking}
+										askingLeave={askingLeave}
+									/>
+								)}
+							</>
+						)}
+				</div>
 			</div>
 		</dialog>
 	);

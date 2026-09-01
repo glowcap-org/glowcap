@@ -4,15 +4,7 @@
 // rollback. This suite drives the seam with a scripted backend whose verbs
 // only finish on cue, and holds the chain to strict one-at-a-time order.
 
-import {
-	closeHistory,
-	historyEnabled,
-	initHistory,
-	type KeptLine,
-	liveKeptLine,
-	recordRoomLine,
-	updateRoomLine,
-} from "../server/history.ts";
+import { type KeptLine, liveKeptLine, RoomHistory } from "../server/history.ts";
 import { assertEquals } from "./assert.ts";
 import { HISTORY_LINES_KEPT, HISTORY_ROOMS_KEPT, HistoryIndex, LINES_KEPT } from "../server/history_index.ts";
 
@@ -25,6 +17,7 @@ function gate(): { open: () => void; held: Promise<void> } {
 }
 
 Deno.test("backend verbs run one at a time, in the order the room spoke", async () => {
+	const history = new RoomHistory(() => {});
 	const calls: string[] = [];
 	let inFlight = 0;
 	let overlapped = false;
@@ -37,19 +30,19 @@ Deno.test("backend verbs run one at a time, in the order the room spoke", async 
 		inFlight--;
 	};
 	let appends = 0;
-	await initHistory({
+	await history.open({
 		restore: () => Promise.resolve(),
 		append: (_room, line) => step(`append:${line.text}`, ++appends === 1 ? firstAppend.held : undefined),
 		replace: (_room, tail) => step(`replace:${tail.map((l) => l.text).join("+")}`),
 		close: () => {},
 	}, true);
-	assertEquals(historyEnabled(), true);
+	assertEquals(history.enabled, true);
 
 	const line = (at: number, text: string) => liveKeptLine("alice", text, at);
 	const one = line(1, "one");
-	recordRoomLine("general", one);
-	recordRoomLine("general", line(2, "two"));
-	updateRoomLine("general", one, "one, edited");
+	history.record("general", one);
+	history.record("general", line(2, "two"));
+	history.update("general", one, "one, edited");
 	// Everything above is queued behind the first append, which is still
 	// held open: nothing may have started beside it.
 	await new Promise((resolve) => setTimeout(resolve, 20));
@@ -59,15 +52,16 @@ Deno.test("backend verbs run one at a time, in the order the room spoke", async 
 	assertEquals(calls, ["append:one", "append:two", "replace:one, edited+two"]);
 	assertEquals(overlapped, false);
 
-	await closeHistory();
+	await history.close();
 });
 
 Deno.test("an operation persists what the room said at that moment, not later", async () => {
+	const history = new RoomHistory(() => {});
 	const replaced: string[][] = [];
 	const appended: string[] = [];
 	const firstAppend = gate();
 	let appends = 0;
-	await initHistory({
+	await history.open({
 		restore: () => Promise.resolve(),
 		append: async (_room, line) => {
 			appended.push(line.text);
@@ -82,11 +76,11 @@ Deno.test("an operation persists what the room said at that moment, not later", 
 
 	const line = (at: number, text: string) => liveKeptLine("alice", text, at);
 	const one = line(1, "one");
-	recordRoomLine("general", one);
+	history.record("general", one);
 	await new Promise((resolve) => setTimeout(resolve, 10));
-	updateRoomLine("general", one, "one, edited");
+	history.update("general", one, "one, edited");
 	await new Promise((resolve) => setTimeout(resolve, 10));
-	recordRoomLine("general", line(2, "two"));
+	history.record("general", line(2, "two"));
 	firstAppend.open();
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	// The rewrite queued before "two" existed must not carry it: a rewrite
@@ -94,7 +88,7 @@ Deno.test("an operation persists what the room said at that moment, not later", 
 	assertEquals(replaced, [["one, edited"]]);
 	assertEquals(appended, ["one", "two"]);
 
-	await closeHistory();
+	await history.close();
 });
 
 Deno.test("a live line governs its exact retained row, never a restored generation", () => {
@@ -146,9 +140,10 @@ Deno.test("the shared index bounds retained room identities as well as lines", (
 });
 
 Deno.test("controlled history shutdown stops admission, drains the last append, then closes storage", async () => {
+	const history = new RoomHistory(() => {});
 	const append = gate();
 	const calls: string[] = [];
-	await initHistory({
+	await history.open({
 		restore: () => Promise.resolve(),
 		append: async () => {
 			calls.push("append");
@@ -157,13 +152,48 @@ Deno.test("controlled history shutdown stops admission, drains the last append, 
 		replace: () => Promise.resolve(),
 		close: () => calls.push("close"),
 	}, true);
-	recordRoomLine("general", { from: "alice", text: "last", at: 1 });
-	const closing = closeHistory();
-	recordRoomLine("general", { from: "alice", text: "too late", at: 2 });
+	history.record("general", { from: "alice", text: "last", at: 1 });
+	const closing = history.close();
+	history.record("general", { from: "alice", text: "too late", at: 2 });
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	assertEquals(calls, ["append"]);
 	append.open();
 	await closing;
 	assertEquals(calls, ["append", "close"]);
-	assertEquals(historyEnabled(), false);
+	assertEquals(history.enabled, false);
+});
+
+Deno.test("room servers retain, report, and close history independently", async () => {
+	const leftReports: string[] = [];
+	const rightReports: string[] = [];
+	const closed: string[] = [];
+	const left = new RoomHistory((source) => leftReports.push(source));
+	const right = new RoomHistory((source) => rightReports.push(source));
+	await left.open({
+		restore: () => Promise.resolve(),
+		append: () => Promise.reject(new Error("left storage failed")),
+		replace: () => Promise.resolve(),
+		close: () => closed.push("left"),
+	}, true);
+	await right.open({
+		restore: () => Promise.resolve(),
+		append: () => Promise.resolve(),
+		replace: () => Promise.resolve(),
+		close: () => closed.push("right"),
+	}, true);
+
+	left.record("general", { from: "alice", text: "left", at: 1 });
+	right.record("general", { from: "bob", text: "right", at: 2 });
+	await left.close();
+
+	assertEquals(leftReports, ["could not keep a line for general"]);
+	assertEquals(rightReports, []);
+	assertEquals(closed, ["left"]);
+	assertEquals(left.enabled, false);
+	assertEquals(right.enabled, true);
+	assertEquals(await left.read("general", 10), []);
+	assertEquals(await right.read("general", 10), [{ from: "bob", text: "right", at: 2 }]);
+
+	await right.close();
+	assertEquals(closed, ["left", "right"]);
 });

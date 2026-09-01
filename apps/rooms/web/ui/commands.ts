@@ -19,7 +19,10 @@
 //   `tab`      Yours because this window and what it already holds are yours.
 //              `/help` and `/theme` never leave the page; `/join`, `/leave` and
 //              `/msg` reach the wire through references the tab is already
-//              holding, which is why they need nothing handed to them.
+//              holding, which is why they need nothing handed to them. A handle
+//              the tab does not hold is a refusal from the catalog, the same
+//              shape as a granted command: the power reports the missing
+//              handle and does not explain itself.
 //   `line`     Travels inside the message text, so any rooms client can send
 //              and read one without a protocol extension. `/me`, `/shrug`.
 //   `granted`  Needs a reference the room hands you. `/edit`, `/topic`,

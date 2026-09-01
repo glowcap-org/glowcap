@@ -3,8 +3,11 @@
 
 import { useState } from "react";
 import { type DirId, type DirView, type Invitation, membersHere, type RoomConv, type SessionPhase } from "../types.ts";
+import { useConversationMembers } from "../hooks.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
+import { roomMarkGlyph } from "../room_mark.tsx";
+import { roomPreset } from "../../../lib/room/policy.ts";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 
@@ -93,6 +96,7 @@ export function RoomRow(
 	},
 ) {
 	const directory = where.name;
+	const people = membersHere(useConversationMembers(conv.key));
 	// How the directory serving this room is doing, and empty while it is
 	// connected. A room you cannot reach is a fact about this row, so it is said
 	// here rather than once for a page that may be holding rooms on a directory
@@ -123,12 +127,7 @@ export function RoomRow(
 	// the list, so a stranger joining anywhere walked the rows out from under the
 	// pointer — but that was the ordering, not the number, and the ordering is
 	// gone.
-	const people = membersHere(conv.members);
-	const membership = conv.membership === "joined"
-		? ""
-		: conv.membership === "joining"
-		? ", joining"
-		: ", not joined; select to retry";
+	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? ", joining" : ", not joined";
 	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
 		(bridgedFrom !== null ? ", an IRC channel bridged via " + bridgedFrom : "") +
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : membership) + unwell;
@@ -146,7 +145,7 @@ export function RoomRow(
 				onClick={() => onPick(conv)}
 			>
 				<span className="hash" aria-hidden="true">
-					{conv.held ? <Icon name="lock" size={13} /> : "#"}
+					{roomMarkGlyph(roomPreset(conv.policy), 13)}
 				</span>
 				<span className="rname" title={conv.id}>
 					<span className="rname-text">{conv.id}</span>
@@ -164,9 +163,9 @@ export function RoomRow(
 				// A sibling of the row's own button, never inside it: a control within
 				// a control is a shape no assistive software can announce, and this one
 				// goes somewhere different from the row it sits under. It is where a
-				// reader asks what this directory is, which belongs on the row because
-				// the directory is a fact about the room rather than about a box the
-				// room was put in.
+				// reader opens this directory, which belongs on the row because the
+				// directory is a fact about the room rather than about a box the room
+				// was put in.
 				//
 				// How that directory is doing goes on the same line for the same
 				// reason, and is what brings the line out while this tab holds one

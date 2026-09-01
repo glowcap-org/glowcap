@@ -2,21 +2,47 @@
 // trying again.
 //
 // A tab is served by one room server and may hold several directories, so
-// "which directory" has three different answers depending on who is asking: the
-// page's own, the one a reader typed, and the one already in hand. Keeping them
-// side by side is the point — each is a different question, and answering one
-// with another is how a room ends up opened against the wrong server.
+// "which directory" has four different answers depending on who is asking: the
+// page's own, the one a reader typed, the one already in hand, and the store's
+// workspace home. Keeping them side by side is the point — each is a different
+// question, and answering one with another is how a room ends up opened against
+// the wrong server.
 
-import { INVALID_ARGUMENT } from "@pancake/abi";
 import type { WebRuntime } from "@pancake/web";
-import { type Locator, PancakeError } from "@pancake/runtime";
-import { parseRoomsSturdyref, roomsAddress, roomsLocator } from "../../../lib/locator.ts";
+import type { Locator } from "@pancake/runtime";
+import { roomsLocator } from "../../../lib/locator.ts";
 import { roomsPeerAuthority } from "../../../lib/routes.ts";
-import * as store from "../store.ts";
+import type { RoomsPageContext } from "../page.ts";
 import * as prefs from "../prefs.ts";
 import { type DirId, dirId } from "../types.ts";
-import { anyLive, dirAddress, directoryLocators, dirs, type Live } from "./live.ts";
+import type { Live } from "./live.ts";
 import type { Given } from "../intent.ts";
+import { invalidArgumentOrThrow } from "../parse_failure.ts";
+
+/** Locator, runtime, and first-directory wait owned by one browser page. */
+export class PageBootstrap {
+	homeDirectoryLocator: string | null = null;
+	selectionReservedByAddress = false;
+	runtimeReady: Promise<WebRuntime> | null = null;
+	/** Settles when the directory has answered with its first list of rooms.
+	 *
+	 * The rail waits on this before it says anything about which rooms exist,
+	 * because "no rooms" and "we have not asked yet" are different facts and only
+	 * one of them is ever true at load. It settles once and is never replaced, so a
+	 * later reconnect leaves the last known list on screen instead of blanking it. */
+	readonly directoryReady: Promise<void>;
+	#announceDirectory: () => void = () => {};
+
+	constructor() {
+		this.directoryReady = new Promise((resolve) => {
+			this.#announceDirectory = resolve;
+		});
+	}
+
+	announceDirectoryReady(): void {
+		this.#announceDirectory();
+	}
+}
 
 /** The one live directory, or null when there are several.
  *
@@ -26,17 +52,29 @@ import type { Given } from "../intent.ts";
  * never heard of the person they were writing to, while messages started from
  * the other side arrived perfectly well. Only a dial with no redeem behind it
  * reads this; the rest are routed by `signalingRoute`. */
-export function soleLive(): Live | null {
-	return dirs.size === 1 ? anyLive() : null;
+export function soleLive(page: RoomsPageContext): Live | null {
+	return page.live.soleLive();
 }
 
-/** The page's own directory, discovered from `/locator` and refreshed after its
- * live session ends. There is no companion holding whichever directory was
- * reached most recently: which directory the join card is about follows from
- * the act that put it up, and nothing outside it has a use for a "current"
- * directory that is neither this page's nor the one a surface was opened
- * about. */
-let homeDirectoryLocator: string | null = null;
+/** The directory that served this page, when this tab still holds a session to it.
+ *
+ * Attach signals through the directory the session capability names, which is
+ * this page when both browsers opened it and the host's page otherwise. The
+ * store's `homeDir` is a different question: a restored workspace home or a
+ * leftover membership is not this page. Once the page locator is known, only
+ * that authority counts — `Live.home` is the mint-time guess and can be wrong
+ * after restore. */
+export function pageHomeLive(page: RoomsPageContext): Live | null {
+	const locator = page.bootstrap.homeDirectoryLocator;
+	if (locator != null) {
+		const id = directoryId(locator);
+		return id == null ? null : page.live.dirSession(id);
+	}
+	for (const session of page.live.dirs.values()) {
+		if (session.home) return session;
+	}
+	return null;
+}
 
 /** Name a directory by authority, excluding mutable routing hints, or null when
  * the shared grammar specifically refuses the text as an invalid argument.
@@ -54,40 +92,14 @@ export function directoryId(locator: string): DirId | null {
 	if (locator.trim() === "") return null;
 	try {
 		return directoryAuthority(roomsLocator(locator));
-	} catch (err) {
-		return invalidArgumentOrThrow(err);
+	} catch (error) {
+		return invalidArgumentOrThrow(error);
 	}
-}
-
-/** Turn the parser's one ordinary input refusal into the UI's null result.
- * Everything else still means the parser failed, not that its input was bad. */
-function invalidArgumentOrThrow(error: unknown): null {
-	if (error instanceof PancakeError && error.code === INVALID_ARGUMENT) return null;
-	throw error;
 }
 
 /** The authority half of a parsed locator, which is what one directory is. */
 function directoryAuthority(locator: Locator): DirId {
 	return dirId(roomsPeerAuthority(locator));
-}
-
-/** The directory a room link belongs to: which one it is, and the address to
- * reach it at. Null only when the shared grammar rejects the text as an
- * invalid argument. Runtime, archive, and Wasm failures remain failures; a
- * valid link must never be reported as malformed because its parser is broken.
- *
- * A link is a sturdyref, so it carries its own peer. That is what makes it
- * reachable from a tab that has never heard of the server hosting the room.
- * Both halves come back because they answer different questions: the authority
- * says whether this tab already holds that directory, and the address is what a
- * dial needs if it does not. */
-export function linkDirectory(link: string): { id: DirId; address: string } | null {
-	try {
-		const { locator } = parseRoomsSturdyref(link.trim());
-		return { id: directoryAuthority(locator), address: roomsAddress(locator) };
-	} catch (err) {
-		return invalidArgumentOrThrow(err);
-	}
 }
 
 /** What a person is told when what they typed is not an address. One wording, so
@@ -97,16 +109,16 @@ export function notALocator(locator: string): string {
 	return "That does not look like an address: " + locator.trim();
 }
 
-export async function homeLocator(): Promise<string> {
-	if (homeDirectoryLocator !== null) return homeDirectoryLocator;
+export async function homeLocator(page: RoomsPageContext): Promise<string> {
+	if (page.bootstrap.homeDirectoryLocator !== null) return page.bootstrap.homeDirectoryLocator;
 	const locator = await prefs.directoryLocator();
 	if (locator === null) throw new Error("rooms: locator not ready");
-	homeDirectoryLocator = locator;
+	page.bootstrap.homeDirectoryLocator = locator;
 	return locator;
 }
 
-export async function requestedLocator(locator: string): Promise<string> {
-	return locator.trim() || await homeLocator();
+export async function requestedLocator(page: RoomsPageContext, locator: string): Promise<string> {
+	return locator.trim() || await homeLocator(page);
 }
 
 /** A directory an act carries, said the way the join card says directories.
@@ -126,12 +138,12 @@ export async function requestedLocator(locator: string): Promise<string> {
  * do, and it covers what the reader typed. A locator every act carried through
  * here would still be one an act filed elsewhere could get wrong, which is why
  * every filer goes through this. */
-export function actLocator(given: Given<string>): Given<string> {
+export function actLocator(page: RoomsPageContext, given: Given<string>): Given<string> {
 	if (given.value.trim() === "") return given;
 	const known = directoryId(given.value);
 	if (known === null) return given;
-	if (known === store.get().homeDir) return { ...given, value: "" };
-	return { ...given, value: dirAddress(known) };
+	if (known === page.projection.get().homeDir) return { ...given, value: "" };
+	return { ...given, value: page.live.dirAddress(known) };
 }
 
 /** The address of the directory this page came from, and only that one.
@@ -144,33 +156,22 @@ export function actLocator(given: Given<string>): Given<string> {
  * directory" — two different directories, one label, and no way to tell which
  * you were looking at. Every other directory is described by its own card,
  * which is handed the one it is about. */
-export function directoryLocator(): string | null {
-	const home = store.get().homeDir;
-	return (home === null ? null : directoryLocators.get(home)) ?? homeDirectoryLocator;
+export function directoryLocator(page: RoomsPageContext): string | null {
+	const home = page.projection.get().homeDir;
+	return (home === null ? null : page.live.directoryLocators.get(home)) ?? page.bootstrap.homeDirectoryLocator;
 }
-
-/** The directory a control acts on when nothing else names one.
- *
- * The conversation on screen answers it, because that is what a reader means by
- * "here"; with the join card up and nothing open, the first directory this tab
- * holds does. A caller that already holds the session it is acting for takes the
- * directory from that session instead and never asks this. */
-
-let selectionReservedByAddress = false;
 
 /** Keep reconnect/re-entry from choosing a conversation before an explicit
  * page address has acted. A later reader pick still wins through
  * An explicit join carries its own selection intent; this only distinguishes
  * an address-owned empty selection from an unclaimed front page. */
-export function reserveSelectionForAddress(): void {
-	selectionReservedByAddress = true;
+export function reserveSelectionForAddress(page: RoomsPageContext): void {
+	page.bootstrap.selectionReservedByAddress = true;
 }
 
-export function automaticSelectionAvailable(): boolean {
-	return !selectionReservedByAddress;
+export function automaticSelectionAvailable(page: RoomsPageContext): boolean {
+	return !page.bootstrap.selectionReservedByAddress;
 }
-
-let runtimeReady: Promise<WebRuntime> | null = null;
 
 /** The runtime this page drives, opened once and re-awaited afterwards.
  *
@@ -179,15 +180,15 @@ let runtimeReady: Promise<WebRuntime> | null = null;
  * them. A rejected attempt is not kept: the wasm asset can lose a race against
  * the module that wants it, and a cached failure would make every reconnect
  * re-await that same failure forever instead of trying once the asset is live. */
-export function readyRuntime(open: () => Promise<WebRuntime>): Promise<WebRuntime> {
-	if (runtimeReady === null) {
+export function readyRuntime(page: RoomsPageContext, open: () => Promise<WebRuntime>): Promise<WebRuntime> {
+	if (page.bootstrap.runtimeReady === null) {
 		const attempt = open();
 		attempt.catch(() => {
-			if (runtimeReady === attempt) runtimeReady = null;
+			if (page.bootstrap.runtimeReady === attempt) page.bootstrap.runtimeReady = null;
 		});
-		runtimeReady = attempt;
+		page.bootstrap.runtimeReady = attempt;
 	}
-	return runtimeReady;
+	return page.bootstrap.runtimeReady;
 }
 export const FIRST_BACKOFF_MS = 500;
 // A session must survive this long before its handshake counts as a stable
@@ -199,29 +200,18 @@ export const BACKOFF_STABLE_MS = 10_000;
 // not.
 export const BACKOFF_CEILING_MS = 5_000;
 
-/** Settles when the directory has answered with its first list of rooms.
- *
- * The rail waits on this before it says anything about which rooms exist,
- * because "no rooms" and "we have not asked yet" are different facts and only
- * one of them is ever true at load. It settles once and is never replaced, so a
- * later reconnect leaves the last known list on screen instead of blanking it. */
-let announceDirectory: () => void = () => {};
-export const directoryReady: Promise<void> = new Promise((resolve) => {
-	announceDirectory = resolve;
-});
-
 /** Remember the address the page's own directory answered at, so Settings and a
  * later reconnect can still name it once that session has been retired. */
-export function noteHomeDirectoryLocator(locator: string | null): void {
-	homeDirectoryLocator = locator;
+export function noteHomeDirectoryLocator(page: RoomsPageContext, locator: string | null): void {
+	page.bootstrap.homeDirectoryLocator = locator;
 }
 
 /** What that address was, if the page has learned it. */
-export function heldHomeLocator(): string | null {
-	return homeDirectoryLocator;
+export function heldHomeLocator(page: RoomsPageContext): string | null {
+	return page.bootstrap.homeDirectoryLocator;
 }
 
 /** Say the page's directory is up, for whoever is waiting on `directoryReady`. */
-export function announceDirectoryReady(): void {
-	announceDirectory();
+export function announceDirectoryReady(page: RoomsPageContext): void {
+	page.bootstrap.announceDirectoryReady();
 }

@@ -126,7 +126,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 9px;
+	gap: var(--gap-row);
 	max-width: 420px;
 	color: rgba(255, 255, 255, 0.92);
 	font-size: var(--type-body);
@@ -148,13 +148,21 @@
 	position: fixed;
 	top: 0;
 	left: 0;
-	right: 0;
+	/* A picture at actual size scrolls the stage, and the stage's border box
+	   is the window, so a scrollbar that takes layout width is drawn in the
+	   column this bar crosses. The bar cannot answer that by refusing the
+	   pointer: what lies under it reads a click as one on the backdrop and
+	   closes the viewer, so the strip would dismiss instead of scroll. It
+	   stops short of the scrollbar instead, by however much that scrollbar
+	   actually takes, which the stage measures and reports. Where scrollbars
+	   float over the content they take none, and nothing here moves. */
+	right: var(--viewer-gutter, 0px);
 	/* Over the stage, which is positioned so actual size can scroll: without a
 	   layer of its own the stage would take the bar's clicks. */
 	z-index: 1;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	padding: 10px 14px 22px;
 	background: linear-gradient(180deg, color-mix(in srgb, #000 62%, transparent), transparent);
 	cursor: default;

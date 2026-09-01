@@ -156,8 +156,8 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             var peer = self.resident.newPeer(true) catch return error.ConnectFailed;
             errdefer peer.deinit();
             // The dialed designator is the identity this channel's signaling is
-            // scoped to (ADR-0105), which is what the bridge reads back through
-            // `verifiedChannelKey` and asserts to the engine.
+            // scoped to (ADR-0105). The bridge reads it back through
+            // `verifiedChannelKey` and asserts it to the engine.
             peer.authorizeRemote(crypto.PeerKey.fromDesignator(target.designator) orelse
                 return error.ConnectFailed);
             var sdp_buf: [signaling_frame_bytes]u8 = undefined;

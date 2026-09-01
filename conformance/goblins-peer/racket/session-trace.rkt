@@ -31,7 +31,7 @@
 ;; designator names a route rather than a key, and a key nobody checked is a
 ;; claim. `authenticated-transport` is the answer when the layer that realized
 ;; the byte channel verified the far end holds the very key the partner's hello
-;; claims — which is what a QUIC connection to a dialed endpoint id proves.
+;; claims, exactly what a QUIC connection to a dialed endpoint id proves.
 (define provenance-unauthenticated "unauthenticated")
 (define provenance-authenticated-transport "authenticated-transport")
 

@@ -24,9 +24,8 @@
          "host/state.rkt"
          "transport.rkt"
          (only-in "abi-value.rkt"
-                  DEFAULT-CAPTP-VERSION-SYMBOL
-                  DEFAULT-CODEC-SYMBOL
                   DEFAULT-FEATURES-SYMBOL
+                  host-profile-values
                   feature-mask)
          "action.rkt"
          "session/state.rkt"
@@ -74,10 +73,17 @@
                    transport))
   ((byte-connector-realize connector) m loc handshake-timeout-ms))
 
-(define (check-runtime-host-options adopted-host seed codec captp-version features)
+(define (check-runtime-host-options adopted-host seed profile codec captp-version features)
   (when (and adopted-host seed)
     (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
                    "#:adopt-host and #:seed are mutually exclusive"))
+  (define-values (selected-codec selected-captp-version)
+    (host-profile-values 'open-runtime profile codec captp-version))
+  (when (and adopted-host profile
+             (or (not (eq? selected-codec (host-codec adopted-host)))
+                 (not (eq? selected-captp-version (host-captp-version adopted-host)))))
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "#:profile ~a conflicts with the adopted Host" profile))
   (when (and adopted-host codec (not (eq? codec (host-codec adopted-host))))
     (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
                    "#:codec ~a conflicts with the Host's ~a"
@@ -94,16 +100,18 @@
                    "#:features ~a conflicts with the Host's ~a"
                    features (host-features adopted-host))))
 
-(define (runtime-host-for adopted-host seed codec captp-version features)
+(define (runtime-host-for adopted-host seed profile codec captp-version features)
   (or adopted-host
       (if seed
           (make-host seed
-                     #:codec (or codec DEFAULT-CODEC-SYMBOL)
-                     #:captp-version (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL)
+                     #:profile profile
+                     #:codec codec
+                     #:captp-version captp-version
                      #:features (or features DEFAULT-FEATURES-SYMBOL))
           (make-fresh-host
-           #:codec (or codec DEFAULT-CODEC-SYMBOL)
-           #:captp-version (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL)
+           #:profile profile
+           #:codec codec
+           #:captp-version captp-version
            #:features (or features DEFAULT-FEATURES-SYMBOL)))))
 
 (define (check-composition who values predicate transports-of label)
@@ -126,6 +134,7 @@
                       #:connectors [connectors #f]
                       #:adopt-host [adopted-host #f]
                       #:seed [seed #f]
+                      #:profile [profile #f]
                       #:codec [codec #f]
                       #:captp-version [captp-version #f]
                       #:features [features #f]
@@ -134,8 +143,8 @@
   (when (eq? (and providers #t) (and connectors #t))
     (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
                    "supply exactly one of #:providers or #:connectors"))
-  (check-runtime-host-options adopted-host seed codec captp-version features)
-  (define m (runtime-host-for adopted-host seed codec captp-version features))
+  (check-runtime-host-options adopted-host seed profile codec captp-version features)
+  (define m (runtime-host-for adopted-host seed profile codec captp-version features))
   (cond
     [providers
      (unless (and (list? providers) (pair? providers)

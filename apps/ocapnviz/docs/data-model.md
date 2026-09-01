@@ -1,7 +1,6 @@
 # The pancake document
 
-This page says what a pancake document holds and why that state lives in three
-layers. The schema in `src/engine/timeline.ts` is the authority wherever this
+A pancake document holds three layers of state. The schema in `src/engine/timeline.ts` is the authority wherever this
 text disagrees with it.
 
 `temporal-model.md` covers one part of layer 2, the time span, in more detail.

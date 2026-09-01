@@ -1,21 +1,28 @@
 // Operations authority projected through one attached Rooms session.
 
-import type { RoomsSessionIssue } from "../../../lib/rooms_session.ts";
-import type { RoomsSessionState } from "../../../lib/rooms_state.ts";
+import * as store from "../store.ts";
 import { appendOperatorPage, operatorStateOf } from "../net/operator.ts";
 import { opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
 import * as prefs from "../prefs.ts";
-import * as store from "../store.ts";
 import type { OpsCap } from "../types.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import { attachedOperationsBundle, attachedOperationsCredentials } from "./operations_bundle.ts";
+import { OperatorRefreshQueue } from "../ops/operator_refresh.ts";
+import type { PageProjection } from "../store/core.ts";
+import type { RoomsSessionIssue } from "../../../lib/session/client.ts";
+import type { RoomsSessionState } from "../../../lib/rooms_state.ts";
+import type { OperatorReferenceKind } from "../../../lib/operator.ts";
+type OperatorFilter = { search: string; referenceKind: OperatorReferenceKind | null };
 
 export type AttachedOperationsActions = Pick<
 	RoomsSessionController,
-	| "joinIrc"
+	| "openIrcNetwork"
+	| "closeIrcNetwork"
+	| "joinIrcChannel"
 	| "partIrc"
 	| "revokeRoomLink"
+	| "revokeRoomAuthority"
 	| "revokeNick"
 	| "disconnectSession"
 	| "removeOperatorRoom"
@@ -108,7 +115,10 @@ function capabilityFromIssue(issue: RoomsSessionIssue): OpsCap | null {
 		: null;
 }
 
-export function attachedOperations(controller: AttachedRoomsController): AttachedOperations {
+export function attachedOperations(
+	projection: PageProjection,
+	controller: AttachedRoomsController,
+): AttachedOperations {
 	const homeScope = () => controller.current?.checkpoint.directories.find((directory) => directory.home)?.id ?? null;
 	const savedCapability = (capability: OpsCap, scope: string): boolean =>
 		controller.current?.checkpoint.capabilities.operations.some((entry) =>
@@ -122,52 +132,36 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 			await refreshOperator();
 		});
 	};
-	// One read at a time, for the reason the local holder gives: a directory
-	// answering many changes in a row must not have the browser asking for
-	// seven inventories while the last seven are still on the wire.
-	let reading: Promise<void> | null = null;
-	let readAgain = false;
-	let wantedSearch: string | undefined;
-	const refreshOperator = (search?: string): Promise<void> => {
-		if (search != null) wantedSearch = search;
-		if (reading !== null) {
-			readAgain = true;
-			return reading;
-		}
-		const asked = wantedSearch;
-		wantedSearch = undefined;
-		const run = readOperator(asked).finally(() => {
-			reading = null;
-			if (readAgain) {
-				readAgain = false;
-				void refreshOperator();
-			}
-		});
-		reading = run;
-		return run;
-	};
-	const readOperator = async (search?: string): Promise<void> => {
+	async function readOperator(filter: OperatorFilter | undefined, currentRequest: () => boolean): Promise<void> {
 		const scope = homeScope();
 		if (scope == null || !savedCapability("operator", scope)) {
-			store.setRoomsOperator(null);
+			store.setRoomsOperator(projection, null);
 			return;
 		}
-		const asked = search ?? store.get().operator?.search ?? "";
+		const current = projection.get().operator;
+		const asked = filter?.search ?? current?.search ?? "";
+		const referenceKind = filter != null ? filter.referenceKind : current?.referenceKind ?? null;
 		try {
-			store.setRoomsOperator(operatorStateOf(await controller.operatorSnapshot(scope, asked), asked));
+			const snapshot = await controller.operatorSnapshot(scope, asked, referenceKind);
+			if (currentRequest()) store.setRoomsOperator(projection, operatorStateOf(snapshot, asked, referenceKind));
 		} catch (error) {
-			store.setRoomsOperator(null);
-			store.noteTrouble("shared session operator", errorText(error));
+			if (!currentRequest()) return;
+			store.setRoomsOperator(projection, null);
+			store.noteTrouble(projection, "shared session operator", errorText(error));
 		}
+	}
+	const refreshQueue = new OperatorRefreshQueue(readOperator);
+	const refreshOperator = (search?: string, referenceKind: OperatorReferenceKind | null = null): Promise<void> => {
+		return refreshQueue.request(search == null ? undefined : { search, referenceKind });
 	};
 	const refreshCapability = async (
 		capability: "listeners" | "diagnostics" | "irc",
 	): Promise<void> => {
 		const scope = homeScope();
 		const clear = () => {
-			if (capability === "listeners") store.setListeners(null);
-			else if (capability === "diagnostics") store.setDiagnostics(null);
-			else store.setIrcGateway(null);
+			if (capability === "listeners") store.setListeners(projection, null);
+			else if (capability === "diagnostics") store.setDiagnostics(projection, null);
+			else store.setIrcGateway(projection, null);
 		};
 		if (scope == null || !savedCapability(capability, scope)) {
 			clear();
@@ -175,12 +169,14 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 		}
 		try {
 			const snapshot = await controller.operationsSnapshot(scope, capability);
-			if (snapshot.capability === "listeners") store.setListeners(snapshot.rows);
-			else if (snapshot.capability === "diagnostics") store.setDiagnostics(snapshot.rows);
-			else if (snapshot.capability === "irc") store.setIrcGateway({ bridged: snapshot.rows });
+			if (snapshot.capability === "listeners") store.setListeners(projection, snapshot.rows);
+			else if (snapshot.capability === "diagnostics") store.setDiagnostics(projection, snapshot.rows);
+			else if (snapshot.capability === "irc") {
+				store.setIrcGateway(projection, { networks: snapshot.networks, bridged: snapshot.bridged });
+			}
 		} catch (error) {
 			clear();
-			store.noteTrouble(`shared session ${capability}`, errorText(error));
+			store.noteTrouble(projection, `shared session ${capability}`, errorText(error));
 		}
 	};
 	const refreshViz = async (): Promise<void> => {
@@ -188,17 +184,21 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 			entry.capability === "viz"
 		);
 		if (credential == null) {
-			store.setVizPublish(null);
+			store.setVizPublish(projection, null);
 			return;
 		}
 		try {
 			const snapshot = await controller.operationsSnapshot(credential.scope, "viz");
 			if (snapshot.capability === "viz") {
-				store.setVizPublish({ url: snapshot.url, connected: snapshot.connected });
+				store.setVizPublish(projection, {
+					url: snapshot.url,
+					connected: snapshot.connected,
+					refusal: snapshot.refusal,
+				});
 			}
 		} catch (error) {
-			store.setVizPublish(null);
-			store.noteTrouble("shared session visualizer", errorText(error));
+			store.setVizPublish(projection, null);
+			store.noteTrouble(projection, "shared session visualizer", errorText(error));
 		}
 	};
 	const refreshPeering = async (): Promise<void> => {
@@ -206,14 +206,14 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 			entry.capability === "peering"
 		);
 		if (credential == null) {
-			store.setPeering(null);
+			store.setPeering(projection, null);
 			return;
 		}
 		try {
 			const snapshot = await controller.operationsSnapshot(credential.scope, "peering");
-			if (snapshot.capability === "peering") store.setPeering({ publications: snapshot.rows });
+			if (snapshot.capability === "peering") store.setPeering(projection, { publications: snapshot.rows });
 		} catch (error) {
-			store.setPeering({
+			store.setPeering(projection, {
 				publications: (controller.current?.checkpoint.peering ?? [])
 					.filter((intent) => intent.destination === credential.scope)
 					.map((intent) => ({
@@ -223,7 +223,7 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 						phase: "failed" as const,
 					})),
 			});
-			store.noteTrouble("shared session peering", errorText(error));
+			store.noteTrouble(projection, "shared session peering", errorText(error));
 		}
 	};
 	const refreshAll = async (): Promise<void> => {
@@ -269,11 +269,27 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 	return {
 		refreshOperator,
 		actions: {
-			joinIrc: async (choice) => {
+			openIrcNetwork: async (choice) => {
 				const scope = homeScope();
 				if (scope == null) return "This shared session has no home directory for IRC administration.";
 				return await actionResult(async () => {
-					await controller.operations(scope, "irc", "join", [JSON.stringify(choice)]);
+					await controller.operations(scope, "irc", "openNetwork", [JSON.stringify(choice)]);
+					await refreshCapability("irc");
+				});
+			},
+			closeIrcNetwork: async (network) => {
+				const scope = homeScope();
+				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				return await actionResult(async () => {
+					await controller.operations(scope, "irc", "closeNetwork", [network]);
+					await refreshCapability("irc");
+				});
+			},
+			joinIrcChannel: async (network, channel) => {
+				const scope = homeScope();
+				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				return await actionResult(async () => {
+					await controller.operations(scope, "irc", "joinChannel", [network, channel]);
 					await refreshCapability("irc");
 				});
 			},
@@ -286,6 +302,7 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 				});
 			},
 			revokeRoomLink: (name) => operator("revokeRoomLink", [name]),
+			revokeRoomAuthority: (kind, token) => operator("revokeRoomAuthority", [kind, token]),
 			revokeNick: (nick, sessionId) => operator("revokeNick", [nick, sessionId]),
 			disconnectSession: (id) => operator("disconnectSession", [id]),
 			removeOperatorRoom: (id) => operator("removeRoom", [id]),
@@ -294,43 +311,49 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 			resetOperatorScope: (scope) => operator("reset", [scope]),
 			giveRoomStewardship: (name) => operator("giveModerator", [name]),
 			revokeRoomStewardship: (name) => operator("revokeModerator", [name]),
-			searchOperator: async (query) => {
+			searchOperator: async (query, referenceKind) => {
 				const scope = homeScope();
 				if (scope == null) return "This shared session does not hold the Rooms operator capability.";
 				try {
-					await refreshOperator(query);
+					await refreshOperator(query, referenceKind);
 					return "";
 				} catch (error) {
 					return errorText(error);
 				}
 			},
-			retireMatchingOperator: async (category, query, limit) => {
+			retireMatchingOperator: async (category, query, limit, referenceKind) => {
 				const scope = homeScope();
 				if (scope == null) return "This shared session does not hold the Rooms operator capability.";
 				try {
 					// One read when the sweep settles, not one between batches.
-					return await controller.operatorRetireMatching(scope, category, query, limit);
+					return await controller.operatorRetireMatching(scope, category, query, limit, referenceKind);
 				} catch (error) {
 					return errorText(error);
 				}
 			},
 			loadMoreOperator: async (category) => {
 				const scope = homeScope();
-				const current = store.get().operator;
+				const current = projection.get().operator;
 				if (scope == null || current == null) {
 					return "This shared session does not hold the Rooms operator capability.";
 				}
 				const cursor = current.next[category];
 				if (cursor == null) return "";
 				try {
-					const page = await controller.operatorPage(scope, category, cursor, current.search);
-					const latest = store.get().operator;
+					const page = await controller.operatorPage(
+						scope,
+						category,
+						cursor,
+						current.search,
+						current.referenceKind,
+					);
+					const latest = projection.get().operator;
 					if (latest == null || latest.next[category] !== cursor) return "";
 					if (page.revision !== latest.revision) {
 						await refreshOperator();
 						return "";
 					}
-					store.setRoomsOperator(appendOperatorPage(latest, page));
+					store.setRoomsOperator(projection, appendOperatorPage(latest, page));
 					return "";
 				} catch (error) {
 					return errorText(error);
@@ -354,7 +377,7 @@ export function attachedOperations(controller: AttachedRoomsController): Attache
 			},
 			publishPeeredRoom: async (key, name) => {
 				const checkpoint = controller.current?.checkpoint;
-				const room = store.getConv(key);
+				const room = store.getConv(projection, key);
 				const destination = checkpoint?.capabilities.operations.find((entry) => entry.capability === "peering")
 					?.scope;
 				if (checkpoint == null) return "The shared session state is not available.";

@@ -81,8 +81,6 @@ class _PublicationMixin(HostMixinBase):
         finishes when the dial reports. :meth:`Session.enliven` is the
         narrower verb -- it never dials, and refuses a sturdyref for another
         peer."""
-        from .._promise import _classify_live_ref
-
         swiss = sturdyref.encode()
         buf, ptr = _byte_buf(swiss)
         out = ctypes.c_uint64()
@@ -101,12 +99,34 @@ class _PublicationMixin(HostMixinBase):
                 ctypes.byref(out),
             )
         _check_host(code)
-        vow = out.value
+        return await self._await_host_capability(out.value, sturdyref)
+
+    async def fetch_at(self, locator, name: str) -> "Ref":
+        """Fetch ``name`` at a typed locator through this Host's profile."""
+        from .._locator import _OwnedLocator
+        encoded = name.encode()
+        _buf, ptr = _byte_buf(encoded)
+        out = ctypes.c_uint64()
+        with _OwnedLocator.create(locator) as owned:
+            _check_host(
+                _host.pancake_host_fetch_at(
+                    self.raw,
+                    owned.borrow_view(),
+                    ptr,
+                    len(encoded),
+                    ctypes.byref(out),
+                )
+            )
+        return await self._await_host_capability(out.value, name)
+
+    async def _await_host_capability(self, vow: int, subject: str) -> Ref:
+        from .._promise import _classify_live_ref
+
         self.vow_minted(vow)
         settled = self.await_vow(vow)
         try:
             await self.kick_actions()
-            return _classify_live_ref(await settled, sturdyref)
+            return _classify_live_ref(await settled, subject)
         finally:
             self._gc.park_vow(vow)
 

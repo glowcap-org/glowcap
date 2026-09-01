@@ -12,10 +12,10 @@ fonts/       IBM Plex Sans and IBM Plex Mono
 ```
 
 Each surface keeps its own layout and component styles. The site is static
-HTML; rooms is React. Widgets that look cousinly — a theme button, a tab
-strip — do different jobs (a code listing's folder tabs versus a settings
-mode switch), and a shared class would make one of them wrong. If a third
-pancake surface needs the same control, extract then. The mark lockup is the
+HTML; rooms is React. Similar-looking controls are not shared CSS. A theme
+button or a tab strip does a different job on each surface (a code listing's
+folder tabs versus a settings mode switch), and a shared class would make one
+of them wrong. If a third pancake surface needs the same control, extract then. The mark lockup is the
 extraction that already earned it: rooms' rail and the site header are the
 same drawing. Shared *names* still name separate widgets: `--accent-ink` is
 one word for readable accent text on both surfaces.

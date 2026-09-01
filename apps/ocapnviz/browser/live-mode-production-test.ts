@@ -12,7 +12,7 @@ const MAX_ANNOUNCEMENT_BYTES = 8 * 1024;
 const distRoot = new URL("../dist/", import.meta.url);
 const repositoryRoot = new URL("../../../", import.meta.url);
 const vizHostScript = new URL(
-	"../../rooms/test/viz_browser_host.ts",
+	"../../rooms/test/viz/browser_host.ts",
 	import.meta.url,
 );
 const requiredAssets = [
@@ -31,6 +31,10 @@ type WorldSnapshot = {
 type VizAnnouncement = {
 	port: number;
 	sturdyref: string;
+	/** Ready to open: the endpoint admits no producer that presents no
+	 * capability, and the host that minted one hands this back rather than
+	 * leaving each caller to assemble it. */
+	publish: string;
 };
 
 function fail(message: string): never {
@@ -67,13 +71,16 @@ async function readVizAnnouncement(
 		!("port" in parsed) || !Number.isInteger(parsed.port) ||
 		(parsed.port as number) < 1 || (parsed.port as number) > 65_535 ||
 		!("sturdyref" in parsed) || typeof parsed.sturdyref !== "string" ||
-		parsed.sturdyref.length === 0
+		parsed.sturdyref.length === 0 ||
+		!("publish" in parsed) || typeof parsed.publish !== "string" ||
+		parsed.publish.length === 0
 	) {
 		fail(`invalid viz host announcement: ${JSON.stringify(parsed)}`);
 	}
 	return {
 		port: parsed.port as number,
 		sturdyref: parsed.sturdyref,
+		publish: parsed.publish,
 	};
 }
 
@@ -185,8 +192,8 @@ function assertWorld(
 	}
 }
 
-async function openPublisher(port: number): Promise<WebSocket> {
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/publish`);
+async function openPublisher(publish: string): Promise<WebSocket> {
+	const socket = new WebSocket(publish);
 	await new Promise<void>((resolve, reject) => {
 		socket.onopen = () => resolve();
 		socket.onerror = () => reject(new Error("trace producer WebSocket did not open"));
@@ -202,6 +209,9 @@ function openRecord(session: string, partner: string): string {
 		session,
 		a: "rooms",
 		b: partner,
+		// Required, and a record the endpoint cannot read is dropped in
+		// silence, so omitting it looks like a feed that never delivers.
+		transport: "tcp",
 		codec: "syrup",
 	});
 }
@@ -298,8 +308,8 @@ try {
 		httpReady,
 		readVizAnnouncement(vizHost.stdout),
 	]);
-	const { port: vizPort, sturdyref } = viz;
-	publisher = await openPublisher(vizPort);
+	const { sturdyref } = viz;
+	publisher = await openPublisher(viz.publish);
 
 	browser = await chromium.launch({
 		headless: true,

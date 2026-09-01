@@ -32,7 +32,7 @@
 	border-radius: 0;
 	background: transparent;
 	color: inherit;
-	font-size: 12.5px;
+	font-size: var(--type-caption);
 }
 .row.mine .bubble .code-block {
 	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
@@ -103,7 +103,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 11.5px;
+	font-size: var(--type-fine);
 	font-style: italic;
 	color: var(--ink-soft);
 }
@@ -113,11 +113,38 @@
 	color: var(--teal-ink);
 }
 
+/* The line being rewritten, while it is being rewritten.
+
+   The composer says "Editing a message" and carries the words, but it does not
+   say which of them: two lines said a minute apart can read almost alike, and
+   picking the wrong one is a mistake a reader only finds after sending it. The
+   ring is the app's own mark for the thing being worked on, so this borrows it
+   rather than inventing a second one — and it is a ring rather than a fill,
+   because the mention treatment already owns the fill and the two must not be
+   read for each other. `Message.tsx` has applied this class all along, saying
+   in its own comment that the line "can say it is the one"; nothing here drew
+   it, so it could not. */
+.bubble.changing {
+	/* The ordinary band, in the accent. It is tempting to reach for the ink
+	   this bubble's own fill is read against, since a line can only be
+	   rewritten by whoever wrote it and their bubble is filled with the accent
+	   — but a band is a shadow, and a shadow falls outside the box it belongs
+	   to. What it lands on is the log's own paper, not the fill, and a light
+	   ink there is a band nobody can see. Measured both ways. */
+	box-shadow: var(--ring);
+}
+
 /* A line taken back. It keeps its place — a line that vanished would leave every
    reply to it reading as a non-sequitur — and shows none of what it said, since
    striking the words through would leave them readable while claiming they had
    been withdrawn. */
-.bubble.withdrawn {
+.bubble.withdrawn,
+/* Said twice, because a line can only be withdrawn by the person who wrote it
+   and their own bubble carries a more specific rule than this one. Left to the
+   first selector alone the fill, the ink and the border colour all stayed the
+   accent's — the dashed edge drawn in `transparent` — and the only part of
+   this that ever reached the screen was the italics. A treatment that cannot
+   apply to the one case it exists for is not a treatment. */ .row.mine .bubble.withdrawn {
 	background: none;
 	border: 1px dashed var(--rule);
 	color: var(--ink-soft);
@@ -125,7 +152,7 @@
 }
 .withdrawn-said,
 .edited-said {
-	font-size: 11px;
+	font-size: var(--type-fine);
 	color: var(--ink-soft);
 }
 /* On a bubble with the accent fill behind it, the ink is the bubble's own,
@@ -133,7 +160,9 @@
    amber, and this is small text that still has to be read. Quieting by mixing
    toward the fill rather than by opacity, so what it lands on is stated here
    instead of being whatever happens to be underneath. */
-.row.mine .withdrawn-said,
+/* Only the edited note. A withdrawn line no longer stands on the accent, so
+   ink chosen to be read against the accent would be the wrong ink there; it
+   takes the soft ink above, which is what its bubble is now drawn for. */
 .row.mine .edited-said {
 	color: var(--on-accent-soft);
 }
@@ -165,10 +194,6 @@
 	color: transparent;
 	cursor: pointer;
 }
-.spoiler:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-}
 .spoiler.shown {
 	background: color-mix(in srgb, currentColor 12%, transparent);
 	color: inherit;
@@ -198,7 +223,7 @@
 	align-self: stretch;
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: var(--gap-group);
 	padding: 8px 20px;
 	color: var(--ink-soft);
 	font-size: var(--type-caption);
@@ -288,7 +313,7 @@
 	right: 100%;
 	padding-right: 6px;
 	display: none;
-	gap: 2px;
+	gap: var(--gap-hair);
 	z-index: 2;
 }
 @media (hover: hover) {
@@ -329,7 +354,7 @@
 	min-width: 152px;
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--gap-hair);
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	border-radius: 10px;
@@ -344,7 +369,7 @@
 	top: auto;
 	bottom: calc(100% + 6px);
 }
-.row.them .line-menu {
+.menu-layer.from-them .line-menu {
 	right: auto;
 	left: 0;
 }
@@ -354,7 +379,7 @@
 	right: auto;
 	left: 0;
 }
-.row.them .line-menu.inward {
+.menu-layer.from-them .line-menu.inward {
 	left: auto;
 	right: 0;
 }
@@ -363,7 +388,7 @@
 	box-sizing: border-box;
 	display: flex;
 	align-items: center;
-	gap: 9px;
+	gap: var(--gap-row);
 	padding: 7px 10px;
 	border-radius: var(--radius-chip);
 	font-size: var(--type-ui);
@@ -487,7 +512,7 @@
 	box-sizing: border-box;
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 	padding: 5px 9px;
 	border-radius: var(--radius-chip);
 	font-size: var(--type-ui);
@@ -535,7 +560,7 @@
 	right: 20px;
 	display: none;
 	grid-template-columns: repeat(8, 1fr);
-	gap: 2px;
+	gap: var(--gap-hair);
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	border-radius: 12px;
@@ -549,6 +574,10 @@
 .emoji-pop button {
 	all: unset;
 	cursor: pointer;
+	/* Not a step on the type ramp: the ramp sizes words, and every one of these
+	   is a picture. How big to draw an emoji is a question about the drawing,
+	   and it moves when the picker's cells do rather than when the chrome's
+	   type does. */
 	font-size: 19px;
 	padding: 5px;
 	border-radius: 8px;

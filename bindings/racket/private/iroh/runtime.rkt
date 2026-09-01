@@ -524,7 +524,7 @@
 ;; other endpoint would reach the partner under a key that is not the one it
 ;; publishes.
 ;;
-;; Nothing runs over the bytes here, which is what a consumer with its own
+;; Nothing runs over the bytes here, exactly what a consumer with its own
 ;; protocol needs: a foreign CapTP — a Spritely Goblins vat, over a netlayer
 ;; written for it — frames them its own way. The keyed pancake server below is
 ;; the other consumer, and it is this endpoint plus a CapTP host.

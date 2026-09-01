@@ -59,7 +59,7 @@ On this one the draft is not silent. The Locators specification states that
 "the designator and transport are the only pieces of information which need to
 match" and that two locators differing only in hints "be considered to be the
 same peer" — the rule `same-node-location?` implements. The `equal?`-keyed
-withdrawal table therefore treats two spellings of the same peer as different
+withdrawal table therefore treats two forms of the same peer as different
 peers on the one path where that breaks a protocol operation. Nothing in the
 all-Goblins ecosystem emits hint-varying locators, so the contradiction is
 latent there; a second implementation exercising the stated freedom trips it,

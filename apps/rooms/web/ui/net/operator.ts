@@ -1,12 +1,14 @@
 // The Rooms application operator capability as this browser tab holds it.
 
-import type { Ref, Session } from "@pancake/runtime";
+import * as store from "../store.ts";
 import {
 	clearOperatorTrouble,
 	disconnectSession,
+	giveRoomManager,
 	giveStewardship,
 	type OperatorCategory,
 	operatorPage,
+	type OperatorReferenceKind,
 	type OperatorResetScope,
 	type OperatorRetireBatch,
 	operatorRetireMatching,
@@ -14,35 +16,54 @@ import {
 	removeOperatorRoom,
 	resetOperatorScope,
 	revokeNick,
+	revokeRoomAuthority,
 	revokeRoomLink,
 	revokeStewardship,
 	snapshotOperator,
 	type StewardshipRow,
 	subscribeOperator,
 	takeRoomsOperator,
-} from "../../../lib/room_client.ts";
-import * as store from "../store.ts";
-import type { RoomsOperatorState } from "../types.ts";
-import { opsLost, reason } from "./common.ts";
-import { dirs } from "./live.ts";
+} from "../../../lib/room/client.ts";
+import type { DirId, RoomsOperatorState } from "../types.ts";
+import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
+import { DIRECTORY_NOT_CONNECTED, liveHomeDir, opsLost, reason } from "./common.ts";
+import type { RoomsPageContext } from "../page.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 import { invalidateOperations } from "../ops/invalidation.ts";
 import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
+import { OperatorRefreshQueue } from "../ops/operator_refresh.ts";
+import type { Ref, Session } from "@pancake/runtime";
+type OperatorFilter = { search: string; referenceKind: OperatorReferenceKind | null };
 
 interface HeldOperator extends HeldDirectoryCapability {
 	stopWatch: (() => void) | null;
+	refresh: OperatorRefreshQueue<OperatorFilter>;
 }
 
-let operatorHeld: HeldOperator | null = null;
+/** The Rooms operator capability one page fetched. */
+export class PageOperator {
+	held: HeldOperator | null = null;
+}
 
-function retireOperator(held: HeldOperator | null): void {
+function heldOperator(page: RoomsPageContext, session: Session, cap: Ref, dir: DirId): HeldOperator {
+	const held: HeldOperator = {
+		session,
+		cap,
+		dir,
+		stopWatch: null,
+		refresh: new OperatorRefreshQueue((filter, current) => readOperator(page, held, filter, current)),
+	};
+	return held;
+}
+
+function retireOperator(page: RoomsPageContext, held: HeldOperator | null): void {
 	if (held == null) return;
 	settleCapabilityCleanup("operator watcher cleanup failed", () => held.stopWatch?.());
 	releaseHeldCapability(held, "operator capability release failed");
-	if (operatorHeld !== held) return;
-	operatorHeld = null;
-	store.setRoomsOperator(null);
+	if (page.operator.held !== held) return;
+	page.operator.held = null;
+	store.setRoomsOperator(page.projection, null);
 }
 
 function viewOf(row: StewardshipRow) {
@@ -59,11 +80,13 @@ function viewOf(row: StewardshipRow) {
 export function operatorStateOf(
 	snapshot: Awaited<ReturnType<typeof snapshotOperator>>,
 	search = "",
+	referenceKind: OperatorReferenceKind | null = null,
 ): RoomsOperatorState {
 	return {
 		revision: snapshot.revision,
 		totals: snapshot.totals,
 		search,
+		referenceKind,
 		stewardships: snapshot.stewardships.map(viewOf),
 		links: snapshot.links,
 		registrations: snapshot.registrations,
@@ -97,33 +120,36 @@ export function appendOperatorPage(current: RoomsOperatorState, page: Awaited<Re
 	return next;
 }
 
-export function dropOperatorHold(): void {
-	retireOperator(operatorHeld);
+export function dropOperatorHold(page: RoomsPageContext): void {
+	retireOperator(page, page.operator.held);
 }
 
-export function dropOperatorCap(updateVault = true): void {
-	const held = operatorHeld;
+export function dropOperatorCap(page: RoomsPageContext, updateVault = true): void {
+	const held = page.operator.held;
 	if (held == null) return;
-	if (updateVault && !forgetOpsSwiss("operator", held.dir)) {
-		store.noteTrouble("capability storage", "the saved Rooms operator capability could not be removed");
+	if (updateVault && !forgetOpsSwiss(page, "operator", held.dir)) {
+		store.noteTrouble(
+			page.projection,
+			"capability storage",
+			"the saved Rooms operator capability could not be removed",
+		);
 		return;
 	}
-	retireOperator(held);
+	retireOperator(page, held);
 }
 
-export async function takeOperatorCap(pasted: string, remember = false): Promise<string> {
-	const home = store.get().homeDir;
-	const live = home === null ? null : dirs.get(home) ?? null;
-	if (home === null || live === null) return "This directory is not connected yet.";
+export async function takeOperatorCap(page: RoomsPageContext, pasted: string, remember = false): Promise<string> {
+	const live = liveHomeDir(page);
+	if (live === null) return DIRECTORY_NOT_CONNECTED;
 	try {
 		const taken = await takeRoomsOperator(live.dir.session, pasted);
-		const held: HeldOperator = { session: live.dir.session, cap: taken.cap, dir: home, stopWatch: null };
+		const held = heldOperator(page, live.dir.session, taken.cap, live.id);
 		try {
 			held.stopWatch = await subscribeOperator(
 				held.session,
 				held.cap,
 				() => {
-					if (operatorHeld === held) void invalidateOperations(home);
+					if (page.operator.held === held) void invalidateOperations(page, live.id);
 				},
 			);
 		} catch (error) {
@@ -133,145 +159,163 @@ export async function takeOperatorCap(pasted: string, remember = false): Promise
 			);
 			return reason(error);
 		}
-		const stored = remember ? rememberOpsSwiss("operator", home, pasted) : forgetOpsSwiss("operator", home);
+		const stored = remember
+			? rememberOpsSwiss(page, "operator", live.id, pasted)
+			: forgetOpsSwiss(page, "operator", live.id);
 		if (!stored) {
-			retireOperator(held);
+			retireOperator(page, held);
 			return "This browser refused to update the saved Rooms operator capability.";
 		}
-		const previous = operatorHeld;
-		operatorHeld = held;
-		retireOperator(previous);
-		store.setRoomsOperator(operatorStateOf(taken.snapshot));
+		const previous = page.operator.held;
+		page.operator.held = held;
+		retireOperator(page, previous);
+		store.setRoomsOperator(page.projection, operatorStateOf(taken.snapshot));
 		return "";
 	} catch (error) {
 		return reason(error);
 	}
 }
 
-/** One inventory read at a time. Every change a directory makes tells this
- * holder to read again, and a bulk act makes a great many in a row; without
- * this a sweep would have the browser asking for seven inventories while the
- * last seven were still on the wire. A notice that arrives during a read is
- * remembered and answered once, so the last word is always read. */
-let reading: Promise<void> | null = null;
-let readAgain = false;
-/** A search asked for while a read was in flight. Without it the read that
- * follows would fall back to the search the store already answers, which is
- * the one the reader has just typed past. */
-let wantedSearch: string | undefined;
-
-export function refreshOperator(search?: string): Promise<void> {
-	if (search != null) wantedSearch = search;
-	if (reading !== null) {
-		readAgain = true;
-		return reading;
-	}
-	const asked = wantedSearch;
-	wantedSearch = undefined;
-	const run = readOperator(asked).finally(() => {
-		reading = null;
-		if (readAgain) {
-			readAgain = false;
-			void refreshOperator();
-		}
-	});
-	reading = run;
-	return run;
+export function refreshOperator(
+	page: RoomsPageContext,
+	search?: string,
+	referenceKind: OperatorReferenceKind | null = null,
+): Promise<void> {
+	const held = page.operator.held;
+	if (held == null) return Promise.resolve();
+	return held.refresh.request(search == null ? undefined : { search, referenceKind });
 }
 
-async function readOperator(search?: string): Promise<void> {
-	const held = operatorHeld;
-	if (held === null) return;
-	const asked = search ?? store.get().operator?.search ?? "";
+async function readOperator(
+	page: RoomsPageContext,
+	held: HeldOperator,
+	filter: OperatorFilter | undefined,
+	currentRequest: () => boolean,
+): Promise<void> {
+	if (page.operator.held !== held) return;
+	const currentFilter = page.projection.get().operator;
+	const asked = filter?.search ?? currentFilter?.search ?? "";
+	const referenceKind = filter != null ? filter.referenceKind : currentFilter?.referenceKind ?? null;
 	try {
-		const rows = await snapshotOperator(held.session, held.cap, asked);
-		if (operatorHeld !== held) return;
-		const current = store.get().operator;
+		const rows = await snapshotOperator(held.session, held.cap, asked, referenceKind);
+		if (page.operator.held !== held || !currentRequest()) return;
+		const current = page.projection.get().operator;
 		// A search answer is the newest word about what matches, even when the
 		// inventory has not moved, so only an *older* inventory is dropped.
-		if (current != null && rows.revision < current.revision && asked === current.search) return;
-		store.setRoomsOperator(operatorStateOf(rows, asked));
+		if (
+			current != null && rows.revision < current.revision && asked === current.search &&
+			referenceKind === current.referenceKind
+		) return;
+		store.setRoomsOperator(page.projection, operatorStateOf(rows, asked, referenceKind));
 	} catch (error) {
-		if (operatorHeld !== held) return;
-		dropOperatorHold();
-		opsLost("operator", reason(error));
+		if (page.operator.held !== held || !currentRequest()) return;
+		dropOperatorHold(page);
+		opsLost(page.projection, "operator", reason(error));
 	}
 }
 
-async function mutate(run: (session: Session, cap: Ref) => Promise<void>): Promise<string> {
-	const held = operatorHeld;
+async function mutate(page: RoomsPageContext, run: (session: Session, cap: Ref) => Promise<void>): Promise<string> {
+	const held = page.operator.held;
 	if (held == null) return "This tab no longer holds the Rooms operator capability.";
 	try {
 		await run(held.session, held.cap);
-		if (operatorHeld === held) await invalidateOperations(held.dir);
+		if (page.operator.held === held) await invalidateOperations(page, held.dir);
 		return "";
 	} catch (error) {
 		return reason(error);
 	}
 }
 
-export function requestRoomLinkRevoke(name: string): Promise<string> {
-	return mutate((session, cap) => revokeRoomLink(session, cap, name));
+export function requestRoomLinkRevoke(page: RoomsPageContext, name: string): Promise<string> {
+	return mutate(page, (session, cap) => revokeRoomLink(session, cap, name));
 }
 
-export function requestNickRevoke(nick: string, sessionId: string): Promise<string> {
-	return mutate((session, cap) => revokeNick(session, cap, nick, sessionId));
+export function requestRoomAuthorityRevoke(
+	page: RoomsPageContext,
+	kind: RoomAuthorityKind,
+	token: string,
+): Promise<string> {
+	return mutate(page, (session, cap) => revokeRoomAuthority(session, cap, kind, token));
 }
 
-export function requestSessionDisconnect(id: string): Promise<string> {
-	return mutate((session, cap) => disconnectSession(session, cap, id));
+export async function requestRoomManager(
+	page: RoomsPageContext,
+	roomIdentity: string,
+): Promise<{ manager: string } | { refused: string }> {
+	let manager = "";
+	const refused = await mutate(page, async (session, cap) => {
+		manager = await giveRoomManager(session, cap, roomIdentity);
+	});
+	return refused === "" ? { manager } : { refused };
 }
 
-export function requestOperatorRoomRemove(id: string): Promise<string> {
-	return mutate((session, cap) => removeOperatorRoom(session, cap, id));
+export function requestNickRevoke(page: RoomsPageContext, nick: string, sessionId: string): Promise<string> {
+	return mutate(page, (session, cap) => revokeNick(session, cap, nick, sessionId));
 }
 
-export function requestOperatorReferenceRelease(id: string): Promise<string> {
-	return mutate((session, cap) => releaseOperatorReference(session, cap, id));
+export function requestSessionDisconnect(page: RoomsPageContext, id: string): Promise<string> {
+	return mutate(page, (session, cap) => disconnectSession(session, cap, id));
 }
 
-export function requestOperatorTroubleClear(): Promise<string> {
-	return mutate((session, cap) => clearOperatorTrouble(session, cap));
+export function requestOperatorRoomRemove(page: RoomsPageContext, id: string): Promise<string> {
+	return mutate(page, (session, cap) => removeOperatorRoom(session, cap, id));
+}
+
+export function requestOperatorReferenceRelease(page: RoomsPageContext, id: string): Promise<string> {
+	return mutate(page, (session, cap) => releaseOperatorReference(session, cap, id));
+}
+
+export function requestOperatorTroubleClear(page: RoomsPageContext): Promise<string> {
+	return mutate(page, (session, cap) => clearOperatorTrouble(session, cap));
 }
 
 /** Retire one bounded batch of the rows matching a search. The caller runs
  * again while rows remain, so a sweep over a very large inventory stays
  * interruptible and its progress is a number the reader watches fall. */
 export async function retireMatchingOperator(
+	page: RoomsPageContext,
 	category: OperatorCategory,
 	query: string,
 	limit: number,
+	referenceKind: OperatorReferenceKind | null = null,
 ): Promise<OperatorRetireBatch | string> {
-	const held = operatorHeld;
+	const held = page.operator.held;
 	if (held == null) return "This tab no longer holds the Rooms operator capability.";
 	try {
 		// No invalidation per batch: a sweep is many calls, and asking every
 		// pane to read seven inventories between them is the cost this act
 		// exists to avoid. The sweep refreshes once when it settles, and the
 		// number it shows meanwhile is the directory's own answer.
-		return await operatorRetireMatching(held.session, held.cap, category, query, limit);
+		return await operatorRetireMatching(held.session, held.cap, category, query, limit, referenceKind);
 	} catch (error) {
 		return reason(error);
 	}
 }
 
-export async function loadMoreOperator(category: OperatorCategory): Promise<string> {
-	const held = operatorHeld;
-	const current = store.get().operator;
+export async function loadMoreOperator(page: RoomsPageContext, category: OperatorCategory): Promise<string> {
+	const held = page.operator.held;
+	const current = page.projection.get().operator;
 	if (held == null || current == null) return "This tab no longer holds the Rooms operator capability.";
 	const cursor = current.next[category];
 	if (cursor == null) return "";
 	try {
-		const page = await operatorPage(held.session, held.cap, category, cursor, current.search);
-		if (operatorHeld !== held) return "";
-		const latest = store.get().operator;
+		const nextPage = await operatorPage(
+			held.session,
+			held.cap,
+			category,
+			cursor,
+			current.search,
+			current.referenceKind,
+		);
+		if (page.operator.held !== held) return "";
+		const latest = page.projection.get().operator;
 		if (latest == null) return "";
-		if (page.revision !== latest.revision) {
-			if (page.revision > latest.revision) await refreshOperator();
+		if (nextPage.revision !== latest.revision) {
+			if (nextPage.revision > latest.revision) await refreshOperator(page);
 			return "";
 		}
 		if (latest.next[category] !== cursor) return "";
-		store.setRoomsOperator(appendOperatorPage(latest, page));
+		store.setRoomsOperator(page.projection, appendOperatorPage(latest, nextPage));
 		return "";
 	} catch (error) {
 		return reason(error);
@@ -279,19 +323,20 @@ export async function loadMoreOperator(category: OperatorCategory): Promise<stri
 }
 
 export function requestOperatorReset(
+	page: RoomsPageContext,
 	scope: OperatorResetScope,
 ): Promise<string> {
-	return mutate((session, cap) => resetOperatorScope(session, cap, scope));
+	return mutate(page, (session, cap) => resetOperatorScope(session, cap, scope));
 }
 
-export function requestStewardGive(name: string): Promise<string> {
-	return mutate(async (session, cap) => {
+export function requestStewardGive(page: RoomsPageContext, name: string): Promise<string> {
+	return mutate(page, async (session, cap) => {
 		await giveStewardship(session, cap, name);
 	});
 }
 
-export function requestStewardRevoke(name: string): Promise<string> {
-	return mutate(async (session, cap) => {
+export function requestStewardRevoke(page: RoomsPageContext, name: string): Promise<string> {
+	return mutate(page, async (session, cap) => {
 		await revokeStewardship(session, cap, name);
 	});
 }

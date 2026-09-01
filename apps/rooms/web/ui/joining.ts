@@ -6,8 +6,18 @@
 // reader has typed under it, and what this browser remembers, which is what
 // lets the whole question be answered in a test without a page.
 
-import { type DirId, dirMarkIn, type DirView } from "./types.ts";
+import { type DirId, dirId, dirMarkIn, type DirView, type RoomDestination } from "./types.ts";
 import { directoryName } from "./text.ts";
+import { parseRoomsSturdyref, roomsAddress } from "../../lib/locator.ts";
+import { roomsPeerAuthority } from "../../lib/routes.ts";
+import {
+	OPEN_ROOM_POLICY,
+	PRIVATE_ROOM_POLICY,
+	type RoomPolicy,
+	type RoomPreset,
+	standingOffered,
+} from "../../lib/room/policy.ts";
+import { invalidArgumentOrThrow } from "./parse_failure.ts";
 import {
 	type Act,
 	type Answer,
@@ -45,6 +55,16 @@ export function directoryDestinationContext(
  * card cannot disagree about what a paste is. */
 export function looksLikeRoomLink(value: string): boolean {
 	return value.trim().includes("/s/");
+}
+
+export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>): string | null {
+	const key = name.toLowerCase();
+	for (const live of liveNames) {
+		if (live.toLowerCase() === key) {
+			return `#${name} is already live here. Turn off Private to open it, or choose another name for a new private room.`;
+		}
+	}
+	return null;
 }
 
 /** The sturdyref in a `/join` argument, and any words the reader wrote after
@@ -128,6 +148,51 @@ export function typedRoomLink(locator: string, room: string): { link: string; la
 	if (looksLikeRoomLink(loc)) return { link: loc, label: room };
 	if (looksLikeRoomLink(roomLink)) return { link: roomLink, label: "" };
 	return null;
+}
+
+/** One submitted join, classified before either the local or attached owner
+ * performs it. A room sturdyref remains authority; it never falls through to
+ * the directory-locator path merely because that owner is remote. */
+export type JoinDestinationPlan =
+	| { kind: "room-link"; link: string; label: string; directory: DirId; address: string }
+	| { kind: "directory"; room: string; locator: string; policy: RoomPolicy };
+export type RoomLinkDestination = Extract<JoinDestinationPlan, { kind: "room-link" }>;
+
+export function planJoinDestination(destination: RoomDestination): JoinDestinationPlan {
+	const linked = typedRoomLink(destination.locator, destination.room);
+	if (linked === null) {
+		return {
+			kind: "directory",
+			room: destination.room,
+			locator: destination.locator,
+			policy: destination.policy ?? (destination.hidden === true ? PRIVATE_ROOM_POLICY : OPEN_ROOM_POLICY),
+		};
+	}
+	const planned = roomLinkDestination(linked.link, linked.label);
+	if (planned === null) throw new Error("that is not a room entry link");
+	return planned;
+}
+
+/** Resolve the directory a room sturdyref names without consulting any page
+ * state. The authority excludes route hints; the address retains them for the
+ * owner that may have to dial it. */
+export function roomLinkDestination(
+	link: string,
+	label: string,
+): RoomLinkDestination | null {
+	try {
+		const exact = link.trim();
+		const { locator } = parseRoomsSturdyref(exact);
+		return {
+			kind: "room-link",
+			link: exact,
+			label,
+			directory: dirId(roomsPeerAuthority(locator)),
+			address: roomsAddress(locator),
+		};
+	} catch (error) {
+		return invalidArgumentOrThrow(error);
+	}
 }
 
 /** Empty and this page's own locator are one destination: the field that means
@@ -229,7 +294,7 @@ export interface JoinAnswers {
 	room: Answer<string>;
 	locator: Answer<string>;
 	nick: Answer<string>;
-	secret: Answer<boolean>;
+	roomPreset: Answer<RoomPreset>;
 }
 
 /** What the card shows, given how the reader got in front of it.
@@ -251,7 +316,7 @@ export function joinAnswers(
 		room: settle(mine.room, act.room, keepable(memory.room, JOIN_DEFAULT_ROOM), ""),
 		locator: locatorAnswer(mine.locator, act.locator, memory.locator, context),
 		nick: settle(mine.nick, act.nick, keepable(memory.nick, JOIN_DEFAULT_NICK), ""),
-		secret: settle(mine.secret, act.secret, undefined, false),
+		roomPreset: settle(mine.roomPreset, act.roomPreset, undefined, "open"),
 	};
 }
 
@@ -277,6 +342,78 @@ function locatorAnswer(
 		keepable(here(memory), ""),
 		"",
 	);
+}
+
+/** What pressing the card's one button does. Reaching a directory that is
+ * already on its way is the same offer as reaching one that is not: the open
+ * runs once per directory and a second ask waits on the first, so the card
+ * does not need a state for a wait nobody has to sit out. */
+export type JoinAct = "connect" | "create" | "join";
+
+/** What the world says about what the reader asked for.
+ *
+ * The answers above are intent and outlive everything: nothing here is ever
+ * written back into them. A reader who chose moderated and then pointed at a
+ * directory that already holds the name sees that room's own standing, and
+ * still has their own the moment they point somewhere else. Resolving on every
+ * render rather than remembering is what makes that true, and is why the card
+ * and the rail cannot show two different answers to one question. */
+export interface JoinResolution {
+	/** The standing to show: the room's own where one answers, the reader's own
+	 * where none does. */
+	readonly standing: RoomPreset;
+	/** Whether that standing is the room's own rather than a choice. Both the
+	 * card and the rail draw one control for one question, so the answer is
+	 * here rather than spelled at each of them, where the two would drift. An
+	 * unreached directory does not fix it: the act still sends the choice and
+	 * the room is still made with it, so taking the control away there would
+	 * claim an authority nothing exercised. */
+	readonly fixed: boolean;
+	readonly act: JoinAct;
+}
+
+/** Only a reached directory has a listing that a name can be absent from. */
+function reached(view: DirView | undefined): boolean {
+	return view !== undefined && view.session === "connected";
+}
+
+export function resolveJoin(
+	answers: JoinAnswers,
+	dirs: ReadonlyMap<DirId, DirView>,
+	homeDir: DirId | null,
+	directoryOf: (locator: string) => DirId | null,
+): JoinResolution {
+	const wanted = answers.room.value.trim();
+	const intended = answers.roomPreset.value;
+	// An empty locator names this page's own directory, which the application
+	// opens by itself. Asking a reader who has just arrived to connect that
+	// before they may name a room would be asking them to do the one thing
+	// nobody has to: the first act here has always been to name a room.
+	const typed = answers.locator.value.trim();
+	const named = typed !== "";
+	const dir = named ? directoryOf(typed) : homeDir;
+	const view = dir == null ? undefined : dirs.get(dir);
+	// A pasted room link carries its own way in. No directory listing decides
+	// anything about it, so neither phase nor standing is in question.
+	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
+		return { standing: intended, fixed: false, act: "join" };
+	}
+	// Offering to connect is for a directory the reader named and this tab has
+	// not reached. Everywhere else an unreached directory only means there is no
+	// listing to say anything with, which is a reason to claim nothing about the
+	// room, not a reason to stop them naming one.
+	if (!reached(view)) {
+		return { standing: intended, fixed: false, act: named ? "connect" : "join" };
+	}
+	const existing = wanted === ""
+		? undefined
+		: [...(view?.liveRooms.values() ?? [])].find((live) => live.name === wanted);
+	return {
+		standing: existing === undefined ? intended : standingOffered(existing.offers),
+		fixed: existing !== undefined,
+		// An empty field is not an offer to make anything.
+		act: existing !== undefined || wanted === "" ? "join" : "create",
+	};
 }
 
 /** The card, saying what it is for.
@@ -305,18 +442,23 @@ export function joinLead(answers: JoinAnswers, where: string): string {
 }
 
 function aimedAt(answers: JoinAnswers, where: string): string {
-	// Only an address speaks up. A press put the reader here a moment ago and
-	// they can see what they pressed; what this browser merely remembers is an
-	// offer, and describing an offer as though it were a destination is how the
-	// card would start sounding certain about a guess.
+	// A link names a destination the reader has not necessarily seen yet, so it
+	// speaks up. A press that already named the room does too: the card is then
+	// a gate on that room, and the missing answer is the name. What this
+	// browser merely remembers is an offer, and describing an offer as though
+	// it were a destination is how the card would start sounding certain about
+	// a guess.
 	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
-		return "This is a room link. It opens the room it names. The name below is only what you will call it here.";
+		return "This is a room entry link. It opens the room it names. The name below is only what you will call it here.";
 	}
 	if (answers.source === "link") {
 		if (answers.room.from === "named") return `This address is for #${answers.room.value} in ${where}.`;
 		if (answers.locator.from === "named") return `This address is for ${where}. Name a room to enter there.`;
 	}
-	return "Name a room in this page's directory, paste another directory's OCapN locator, or paste a room link.";
+	if (answers.source === "press" && answers.room.from === "named") {
+		return `This is #${answers.room.value} in ${where}. Choose your name.`;
+	}
+	return "Name a room in this page's directory, paste another directory's OCapN locator, or paste a room entry link.";
 }
 
 /** Hint in an empty locator field: this page's address, shortened so it reads

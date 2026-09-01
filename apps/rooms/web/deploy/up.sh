@@ -6,59 +6,85 @@
 #
 #   ./up.sh
 #
-# Run from anywhere; it works in this directory. Needs docker compose on the
+# Run from anywhere; it works in this directory. Needs Docker Compose on the
 # host and the prebuilt libraries from `zig build rooms-deploy-prep`.
 set -eu
 cd "$(dirname "$0")"
+compose="./compose.sh"
 
-docker compose up -d --build --force-recreate
+# Bound every post-health Docker read too. A container can wedge after its last
+# probe, and a retry count around an unbounded Compose exec is not a
+# deadline. TERM gives the CLI a moment to unwind; KILL makes the bound hard.
+bounded_exec() {
+	"$@" &
+	command_pid=$!
+	(
+		sleep 15
+		kill -TERM "$command_pid" 2>/dev/null || exit 0
+		sleep 2
+		kill -KILL "$command_pid" 2>/dev/null || true
+	) &
+	timer_pid=$!
+	if wait "$command_pid"; then
+		result=0
+	else
+		result=$?
+	fi
+	kill -TERM "$timer_pid" 2>/dev/null || true
+	wait "$timer_pid" 2>/dev/null || true
+	return "$result"
+}
+
+# Both services allow a 90-second cold-start period, then three 30-second
+# health intervals with bounded 10-second probes. Keep Compose's outer deadline
+# beyond that declared budget so a service cannot be failed just before its
+# final useful probe, while remaining decisively finite.
+if ! "$compose" up -d --build --force-recreate --wait --wait-timeout 210; then
+	echo "rooms: the deployment did not become healthy within its 210-second health budget"
+	echo "rooms: read: $compose logs rooms rooms-session"
+	exit 1
+fi
 
 printer="deno run --allow-read --allow-env --no-lock /repo/apps/rooms/server/capabilities.ts"
 session_printer="deno run --allow-read=/run/rooms-session --no-lock /repo/apps/rooms/web/deploy/session_healthcheck.ts --print"
 
-# The capability files persist in the state volume, so they answer instantly
-# even while a recreated server is still booting. The locator is the real
-# "serving" signal — the same fact the healthcheck probes — so it is what
-# this waits for, and everything prints once it answers.
-echo ""
-echo "rooms: waiting for the server to serve..."
-locator=$(docker compose exec -T rooms deno eval --no-lock '
-	for (let tries = 0; tries < 60; tries++) {
-		try {
-			const answer = await fetch("http://127.0.0.1:8000/locator");
-			if (answer.ok) {
-				console.log((await answer.text()).trim());
-				Deno.exit(0);
-			}
-		} catch {
-			// Booting: the port is not answering yet.
-		}
-		await new Promise((resolve) => setTimeout(resolve, 2000));
-	}
-	Deno.exit(1);
+# Compose has already joined both declared healthchecks. Read each ready value
+# once rather than maintaining a second polling state machine whose individual
+# Compose exec can outlive its nominal retry budget.
+locator=$(bounded_exec "$compose" exec -T rooms deno eval --no-lock '
+	const answer = await fetch("http://127.0.0.1:8000/locator");
+	if (!answer.ok) Deno.exit(1);
+	console.log((await answer.text()).trim());
 ') || {
-	echo "rooms: the server did not start serving in two minutes; read: docker compose logs rooms"
+	echo "rooms: the healthy server did not answer its locator; read: $compose logs rooms"
 	exit 1
 }
 
-echo ""
-echo "rooms: waiting for the shared session to serve..."
-session_capability=""
-tries=0
-while [ "$tries" -lt 60 ]; do
-	if session_capability=$(docker compose exec -T rooms-session $session_printer 2>/dev/null); then
-		break
-	fi
-	tries=$((tries + 1))
-	sleep 2
-done
-if [ -z "$session_capability" ]; then
-	echo "rooms: the shared session did not start serving in two minutes; read: docker compose logs rooms-session"
-	exit 1
-fi
+# Compose can still be reporting the last successful health probe while the
+# session runtime is between internal incarnations. Its tmpfs marker is removed
+# before each retry, so retry this one read through a fixed, bounded window
+# instead of turning that honest gap into a failed deployment handoff.
+read_session_capability() {
+	attempt=1
+	while [ "$attempt" -le 6 ]; do
+		if capability=$(bounded_exec "$compose" exec -T rooms-session $session_printer 2>/dev/null) &&
+			[ -n "$capability" ]; then
+			printf '%s\n' "$capability"
+			return 0
+		fi
+		[ "$attempt" -eq 6 ] && return 1
+		attempt=$((attempt + 1))
+		sleep 2
+	done
+}
 
-directory_capabilities=$(docker compose exec -T rooms $printer) || {
-	echo "rooms: the printer could not read the state volume; try: docker compose logs rooms"
+session_capability=$(read_session_capability) || {
+	echo "rooms: the healthy shared session did not expose its administrator capability; read: $compose logs rooms-session"
+	exit 1
+}
+
+directory_capabilities=$(bounded_exec "$compose" exec -T rooms $printer) || {
+	echo "rooms: the printer could not read the state volume; try: $compose logs rooms"
 	exit 1
 }
 

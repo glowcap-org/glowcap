@@ -375,6 +375,33 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
     );
 }
 
+test "libpancake_host: canonical sturdyrefs enliven across a pancake-next session" {
+    const client = try newHostWithProfile(0x71, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
+    defer _ = cd.pancake_host_release(client);
+    const server = try newHostWithProfile(0x72, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
+    defer _ = cd.pancake_host_release(server);
+
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+    const pair = try openPair(&hosts, client, server, "127.0.0.1:7091", &dials, &watches);
+    defer _ = cd.pancake_host_session_release(pair.a);
+    defer _ = cd.pancake_host_session_release(pair.b);
+    var counter = Counter{};
+    var published: c.PancakeReference = undefined;
+    try expectOk(cd.pancake_host_session_publish(pair.b, "widget", 6, widgetBehavior, &counter, null, &published));
+
+    // The durable URI stays in the canonical base64url form. Its encoding is
+    // application data and does not follow the live session's next profile.
+    const sturdyref = "ocapn://127.0.0.1%3A7091.tcp/s/d2lkZ2V0";
+    var vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_enliven(pair.a, sturdyref, sturdyref.len, &vow));
+    var enlivened = CapturedSettle{};
+    watches.add(client, vow, &enlivened);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    _ = try enlivened.requireRef();
+}
+
 test "libpancake_host: a projected reference releases after its home session closes" {
     const client = try newHost(0x23);
     defer _ = cd.pancake_host_release(client);

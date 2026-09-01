@@ -197,8 +197,9 @@ test "completion loop: park past park_kill_ms reclaims with CloseReason.park_kil
     const allocator = std.testing.allocator;
 
     // No client script: this test never feeds one (`chunks` is empty below).
-    // What has to exceed the mark is the *server's* hello, which is what parks
-    // the connection, and that is asserted on `server_ss` a few lines down.
+    // What has to exceed the mark is the *server's* hello, the write that
+    // parks the connection, and that is asserted on `server_ss` a few lines
+    // down.
     const high_water: usize = 16;
 
     var server_twin = try makeServerPeer(null, allocator);

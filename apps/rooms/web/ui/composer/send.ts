@@ -1,11 +1,13 @@
 // One interpretation of a new composer submission for every Rooms controller.
+// Controllers commit the result through `commit.ts`: one refusal, one empty
+// composer, then they diverge on the wire.
 
 import { validateAttachmentSource } from "../../../lib/attachment.ts";
 import { lineCost, MAX_DIRECT_ATTACHMENT_BYTES, MAX_LINE, MAX_MESSAGE_FILES } from "../../../lib/limits.ts";
 import { commandIn, type CommandPowers } from "../commands.ts";
 import { pickedSource } from "../file_source.ts";
 import { lineRoom, tooLong } from "../text.ts";
-import type { Conv } from "../types.ts";
+import { type Conv, isSessionConv } from "../types.ts";
 
 export interface ComposerDraft {
 	readonly text: string;
@@ -15,13 +17,17 @@ export interface ComposerDraft {
 
 export type PreparedComposerSend =
 	| { kind: "nothing" }
-	| { kind: "handled"; original: string }
+	| { kind: "handled"; original: string; retires?: "conversation" | "directory" }
 	| { kind: "refused"; why: string }
 	| { kind: "send"; original: string; text: string; files: readonly File[] };
 
+/** A directory is a command line, not a chat. Plain text and line commands
+ * that would become a message have nowhere to go. */
+export const DIRECTORY_NO_CHAT = "This view does not carry messages. Use a command.";
+
 export function composerLineRefusal(conv: Conv, text: string): string | null {
 	const cap = lineRoom(conv, MAX_LINE);
-	return lineCost(text) > cap ? tooLong("Message", cap) : null;
+	return lineCost(text) > cap ? tooLong("Message", cap, "bytes") : null;
 }
 
 export function prepareComposerSend(
@@ -34,19 +40,27 @@ export function prepareComposerSend(
 	if ((original.trim() === "" && files.length === 0 && draft.keeping == null) || conv == null) {
 		return { kind: "nothing" };
 	}
-	const lineRefusal = composerLineRefusal(conv, original);
-	if (lineRefusal != null) return { kind: "refused", why: lineRefusal };
+	if (conv.type === "directory" && files.length > 0) {
+		return { kind: "refused", why: "This view does not carry files." };
+	}
+	if (isSessionConv(conv)) {
+		const lineRefusal = composerLineRefusal(conv, original);
+		if (lineRefusal != null) return { kind: "refused", why: lineRefusal };
+	}
 
 	let text = original;
 	const named = commandIn(original);
 	if (named != null) {
 		const outcome = named.command.run(named.rest, powers, conv);
-		if (outcome.kind === "done") return { kind: "handled", original };
+		if (outcome.kind === "done") return { kind: "handled", original, retires: outcome.retires };
 		if (outcome.kind === "refused") return { kind: "refused", why: outcome.why };
+		if (conv.type === "directory") return { kind: "refused", why: DIRECTORY_NO_CHAT };
 		if (outcome.kind === "action" && files.length > 0) {
 			return { kind: "refused", why: "An /me action cannot carry files. Send them as a separate message." };
 		}
 		text = outcome.kind === "action" ? `/me ${outcome.text}` : outcome.text;
+	} else if (conv.type === "directory") {
+		return { kind: "refused", why: DIRECTORY_NO_CHAT };
 	}
 	if (files.length > MAX_MESSAGE_FILES) {
 		return { kind: "refused", why: `A message may carry at most ${MAX_MESSAGE_FILES} files.` };

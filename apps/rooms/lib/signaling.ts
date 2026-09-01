@@ -10,12 +10,12 @@
 // `webrtc.connector` over the `directorySignalingAuthority` below and dialing
 // the bare locator — the connector owns the bring-up (`@pancake/webrtc`).
 
-import { Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { retainCleanupFailures, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
 import { RtcPeer, type SignalingAuthority } from "@pancake/webrtc";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 import { SIG_CANDIDATE, SIG_OFFER } from "./protocol.ts";
 import { relayedSignalFits } from "./limits.ts";
-import { type Directory, signalingRoute } from "./room_client.ts";
+import { type Directory, signalingRoute } from "./room/client.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 
 const MAX_PENDING_OFFERS = 32;
@@ -210,7 +210,14 @@ export async function serveWebrtcSignaling(opts: {
 		}
 		return null;
 	});
-	await d.offerSignaling(inbox);
+	const latest = opts.dir();
+	if (latest === null) {
+		accepting = false;
+		throw await retainCleanupFailures(new Error("rooms: no directory session to offer signaling on"), [
+			() => d.session.release(inbox),
+		]);
+	}
+	await latest.offerSignaling(inbox);
 	return {
 		close(): Promise<void> {
 			if (closePromise != null) return closePromise;

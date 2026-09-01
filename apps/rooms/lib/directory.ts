@@ -11,8 +11,9 @@
 
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
 import type { Session } from "@pancake/runtime";
-import type { RoomsDial } from "./locator.ts";
-import { isPrivateRoomKey, MAX_DM_INBOXES, newPrivateRoomKey } from "./limits.ts";
+import type { RoomsDirectoryDial } from "./locator.ts";
+import { isManagedRoomId, MAX_DM_INBOXES, newManagedRoomId, REQUEST_TIMEOUT_MS } from "./limits.ts";
+import type { RoomPolicy } from "./room/policy.ts";
 import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
 	ADVERTISED_LOCATION,
@@ -40,6 +41,8 @@ import {
 } from "./directory_publications.ts";
 import { parseRoomsSturdyref } from "./locator.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
+import { openManagedRoom } from "./managed_room.ts";
+import { claimRedeemWithin, RedeemRouteCoordinator } from "./redeem_routes.ts";
 
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
 // directory has asked them for one. Bounded, because the peer may never answer.
@@ -59,45 +62,16 @@ const INTRODUCIBLE_TIMEOUT_MS = 10_000;
 //
 // So the redeem says which directory it rides, here, and the authority in
 // `signaling.ts` reads it. Two redeems in flight through *different* directories
-// would leave that unanswerable, so the second one waits; redeems through the
-// same directory never wait on one another, which leaves the ordinary cases —
-// one directory open, or several conversations in one room — unqueued.
-const redeemsInFlight = new Map<Directory, number>();
-
-const waitingToRedeem: (() => void)[] = [];
+// would leave that unanswerable, so the second one waits. Redeems through the
+// same directory share one active batch; once another directory is queued, new
+// work waits behind it so a busy room cannot starve every other one.
+const redeemRoutes = new RedeemRouteCoordinator<Directory>(MAX_DM_INBOXES, REQUEST_TIMEOUT_MS);
 
 /** The directory whose redeem is in flight, or null when none is or the answer
  * would be a guess. Read by the WebRTC signaling authority to route one
  * exchange; every other caller has a directory in hand already. */
 export function signalingRoute(): Directory | null {
-	if (redeemsInFlight.size !== 1) return null;
-	for (const dir of redeemsInFlight.keys()) return dir;
-	return null;
-}
-
-/** Run `redeem` as this directory's, so signaling raised by the dial inside it
- * reaches this directory and no other. */
-async function redeemingThrough<T>(dir: Directory, redeem: () => Promise<T>): Promise<T> {
-	// A redeem through another directory is already the route; wait for it
-	// rather than make the route ambiguous while this one is in flight.
-	while (redeemsInFlight.size > 0 && !redeemsInFlight.has(dir)) {
-		await new Promise<void>((wake) => waitingToRedeem.push(wake));
-	}
-	redeemsInFlight.set(dir, (redeemsInFlight.get(dir) ?? 0) + 1);
-	try {
-		return await redeem();
-	} finally {
-		const rest = (redeemsInFlight.get(dir) ?? 1) - 1;
-		if (rest > 0) redeemsInFlight.set(dir, rest);
-		else {
-			redeemsInFlight.delete(dir);
-			// Everyone waiting, because each re-reads the condition on its own
-			// turn and the first one through sets the route the rest then see.
-			if (redeemsInFlight.size === 0) {
-				for (const wake of waitingToRedeem.splice(0)) wake();
-			}
-		}
-	}
+	return redeemRoutes.current();
 }
 
 /** The directory of rooms: the server's one published object. Connect to it,
@@ -115,9 +89,11 @@ export class Directory {
 	readonly #signaling: DirectorySignaling;
 	readonly #registration: DirectoryRegistration;
 	#closePromise: Promise<void> | null = null;
+	readonly #lifetime = new AbortController();
 	// Callers parked in `introduceVia` waiting for a peer to offer them an inbox,
 	// by the peer's lowercased nick. Fed by the register inbox's `introducible`.
 	readonly #introducible = new Map<string, (() => void)[]>();
+	#introducibleWaiterCount = 0;
 	// Peers whose `introducible` arrived with nobody parked on it. The notify
 	// dispatches synchronously inside the inbound feed while our own refusal
 	// surfaces as a promise rejection on a later microtask, so the wakeup can
@@ -146,16 +122,18 @@ export class Directory {
 	 * composition. */
 	static async connect(
 		locator: string,
-		dial: RoomsDial,
+		dial: RoomsDirectoryDial,
 	): Promise<Directory> {
-		const session = await dial(locator);
+		const reached = await dial(locator);
+		const session = "session" in reached ? reached.session : reached;
+		const routedDirectory = "session" in reached ? reached.directory : null;
 		// Start the inbound loop before fetching, so the fetch's resolution arrives.
 		const serving = session.serve();
 		// A Directory owns this promise and observes it at close. Attach a handler
 		// now so a transport fault before then is not an unhandled rejection.
 		void serving.catch(() => {});
 		try {
-			const directory = await session.fetch(DIRECTORY);
+			const directory = routedDirectory ?? await session.fetch(DIRECTORY);
 			return new Directory(session, directory, serving);
 		} catch (error) {
 			throw await retainCleanupFailures(error, [
@@ -196,11 +174,21 @@ export class Directory {
 		) as Promise<Ref>;
 	}
 
+	/** Create a room with its separate, passable management capability. The
+	 * two-stage bootstrap settles persistence before exposing either sturdyref;
+	 * baseline `open` remains room-only. */
+	openManaged(
+		name: string,
+		options: { policy?: RoomPolicy; roomId?: string } = {},
+	): Promise<{ room: Ref; roomLink: string; managerLink: string }> {
+		return openManagedRoom(this.session, this.#directory, name, options);
+	}
+
 	/** Create or recover one private room under an opaque caller-held key.
 	 * A repeated call with the same key returns the same room, so a lost answer
 	 * can be retried without creating another room. */
-	openPrivate(label: string, recoveryKey = newPrivateRoomKey()): Promise<Ref> {
-		if (!isPrivateRoomKey(recoveryKey)) throw new Error("a private room recovery key is invalid");
+	openPrivate(label: string, recoveryKey = newManagedRoomId()): Promise<Ref> {
+		if (!isManagedRoomId(recoveryKey)) throw new Error("a private room recovery key is invalid");
 		return ask(
 			this.session,
 			this.#directory,
@@ -212,8 +200,8 @@ export class Directory {
 
 	/** Persist and return a private room's durable authority as one directory
 	 * act. Repeating the opaque key returns the same sturdyref across restarts. */
-	async openPrivateLink(recoveryKey = newPrivateRoomKey()): Promise<string> {
-		if (!isPrivateRoomKey(recoveryKey)) throw new Error("a private room recovery key is invalid");
+	async openPrivateLink(recoveryKey = newManagedRoomId()): Promise<string> {
+		if (!isManagedRoomId(recoveryKey)) throw new Error("a private room recovery key is invalid");
 		const answer = await ask(
 			this.session,
 			this.#directory,
@@ -432,14 +420,37 @@ export class Directory {
 	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
 		// Named as this directory's redeem: the dial it raises may need signaling,
 		// and only this side knows which directory is vouching for the peer.
-		const { reply, via } = await redeemingThrough(
+		const redemption = redeemRoutes.run(
 			this,
+			this.#lifetime.signal,
 			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick, expectedRegistrationId]),
 		);
+		const result = await claimRedeemWithin(
+			redemption,
+			`introduce("${nick}") did not finish redeeming its handoff`,
+			REQUEST_TIMEOUT_MS,
+			(late) => this.#releaseAbandonedRedeem(late.reply, late.via),
+		);
+		const { reply, via } = result;
 		if (!(reply instanceof Ref)) {
 			throw new Error(`introduce("${nick}") did not return a capability`);
 		}
 		return { dm: reply, via, registrationId: expectedRegistrationId };
+	}
+
+	#releaseAbandonedRedeem(reply: unknown, via: Session | null): void {
+		if (!(reply instanceof Ref)) return;
+		try {
+			(via ?? this.session).release(reply);
+		} catch (error) {
+			// Before close, preserve the cleanup refusal for its owning barrier. Once
+			// close has begun, native session retirement is the remaining authority.
+			if (this.#closePromise === null) {
+				this.#retainedFailure = this.#retainedFailure === null
+					? error
+					: retainSecondaryFailure(this.#retainedFailure, error);
+			}
+		}
 	}
 
 	#wakeIntroducible(_peer: string, registrationId: string): void {
@@ -467,33 +478,48 @@ export class Directory {
 		const key = registrationId;
 		if (useBanked && this.#introducibleSeen.delete(key)) return Promise.resolve();
 		return new Promise((resolve, reject) => {
-			if (!this.#introducible.has(key) && this.#introducible.size >= MAX_DM_INBOXES) {
+			if (this.#lifetime.signal.aborted) {
+				reject(this.#lifetime.signal.reason);
+				return;
+			}
+			if (this.#introducibleWaiterCount >= MAX_DM_INBOXES) {
 				reject(new Error(`a directory connection may await at most ${MAX_DM_INBOXES} direct introductions`));
 				return;
 			}
-			const timer = setTimeout(() => {
+			let settled = false;
+			const cleanup = () => {
 				const waiting = this.#introducible.get(key);
 				if (waiting !== undefined) {
 					const i = waiting.indexOf(wake);
 					if (i >= 0) waiting.splice(i, 1);
-					// Drop the row with its last waiter, or the map keeps one per peer
-					// ever waited on for the session's life.
 					if (waiting.length === 0) this.#introducible.delete(key);
 				}
-				reject(
+				clearTimeout(timer);
+				this.#lifetime.signal.removeEventListener("abort", abort);
+				this.#introducibleWaiterCount -= 1;
+			};
+			const finish = (error?: unknown) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				if (error === undefined) resolve();
+				else reject(error);
+			};
+			const wake = () => finish();
+			const abort = () => finish(this.#lifetime.signal.reason);
+			const timer = setTimeout(() => {
+				finish(
 					new RoomError(
 						INTRODUCTION_PENDING,
 						`"${nick}" did not offer an inbox for us in time`,
 					),
 				);
 			}, INTRODUCIBLE_TIMEOUT_MS);
-			const wake = () => {
-				clearTimeout(timer);
-				resolve();
-			};
+			this.#introducibleWaiterCount += 1;
 			const waiting = this.#introducible.get(key);
 			if (waiting === undefined) this.#introducible.set(key, [wake]);
 			else waiting.push(wake);
+			this.#lifetime.signal.addEventListener("abort", abort, { once: true });
 		});
 	}
 
@@ -537,6 +563,7 @@ export class Directory {
 	}
 
 	async #close(): Promise<void> {
+		this.#lifetime.abort(new Error("the directory connection ended"));
 		let failure: unknown | null = this.#retainedFailure;
 		const signalingFailure = this.#signaling.takeFailure();
 		if (signalingFailure !== null) {

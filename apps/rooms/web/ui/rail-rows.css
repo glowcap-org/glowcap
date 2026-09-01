@@ -55,8 +55,15 @@
 	width: 3px;
 	border-radius: 0 3px 3px 0;
 }
-#roomList .room-open,
-#dmList .dm-open {
+/* Scoped by class alone, and it has to stay that way. `all: unset` drops the
+   outline with everything else, so the app's focus ring in controls.css only
+   reaches this row by outranking the reset. Put the list's id back in front of
+   these and the reset wins instead: a keyboard reader tabs into the rooms and
+   nothing on screen says where they are. Every `room-open` is in `#roomList`
+   and every `dm-open` in `#dmList`, so the id was buying nothing for the price
+   of the ring. */
+.room-open,
+.dm-open {
 	all: unset;
 	grid-area: 1 / 1;
 	box-sizing: border-box;
@@ -305,11 +312,15 @@
 	color: var(--accent-ink);
 	font-weight: 700;
 }
+/* A sentence in a column this narrow wraps, and the card plane already holds
+   every sentence it draws away from a last line of one word. The rail is the
+   other plane that says things, so it holds the same line. */
 #roomList .empty {
 	padding: 6px var(--row-pad);
 	color: var(--ink-soft);
 	font-size: var(--type-ui);
 	cursor: default;
+	text-wrap: pretty;
 }
 /* The room you are about to be in, drawn as one of the rooms you are in.
    It is the same item: a mark, a name, and a line under the name saying which
@@ -339,7 +350,7 @@
 	   choice, and an empty `auto` column takes no width. */
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	column-gap: var(--mark-gap);
-	row-gap: 1px;
+	row-gap: var(--gap-hair);
 	align-items: center;
 }
 .newroom.show {
@@ -355,7 +366,7 @@
    under the reader's pointer on each keystroke. It spans the panel's whole
    width: the panel is three columns of one row being named, and this is about
    the row and not about any column of it. */
-.newroom .suggest-pop {
+.menu-layer.rail-offers .suggest-pop {
 	top: calc(100% + 4px);
 	bottom: auto;
 	left: 0;
@@ -368,7 +379,7 @@
    thing to type in here, so a ring around the field would draw a second box
    inside a box that is already the object. */
 .newroom:focus-within {
-	box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
+	box-shadow: var(--shadow), var(--ring);
 }
 .newroom .hash {
 	color: var(--dir-mark, var(--ink-soft));
@@ -433,7 +444,7 @@
 	z-index: 7;
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--gap-hair);
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	border-radius: 10px;

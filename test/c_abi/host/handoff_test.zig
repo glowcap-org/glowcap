@@ -90,7 +90,7 @@ test "libpancake_host: the full three-party handoff through the C surface — on
     try expectOk(cd.pancake_host_publish(exporter, "widget", 6, widgetBehavior, &counter, FreeFlag.cb));
 
     // Gifter dials the exporter and fetches the widget: the node records the
-    // capability's foreign home, which is what the give will name.
+    // capability's foreign home, the home the give will name.
     const g_to_e = try openPair(&hosts, gifter, exporter, "127.0.0.1:7001", &dials, &watches);
     var widget = CapturedSettle{};
     var widget_vow: u64 = 0;
@@ -389,6 +389,18 @@ test "libpancake_host: select-or-dial enliven rides a live session, then parks o
     _ = try selected.requireRef();
     try std.testing.expectEqual(@as(usize, 0), dials.len);
 
+    // The application-shaped form takes a typed locator plus publication name;
+    // no sturdyref spelling or CapTP version crosses this call site.
+    var no_hints: [0]cd.PancakeLocatorHintView = .{};
+    var at = locatorView(tcpLocator("127.0.0.1:7021"), &no_hints);
+    var fetched_vow: u64 = 0;
+    try expectOk(cd.pancake_host_fetch_at(client, &at, "widget", 6, &fetched_vow));
+    var fetched = CapturedSettle{};
+    watches.add(client, fetched_vow, &fetched);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    _ = try fetched.requireRef();
+    try std.testing.expectEqual(@as(usize, 0), dials.len);
+
     // DIAL: an unreached peer parks the enliven and asks the embedder to dial.
     const elsewhere = "ocapn://127.0.0.1%3A7022.tcp/s/d2lkZ2V0";
     var parked_vow: u64 = 0;
@@ -526,13 +538,19 @@ test "libpancake_host: id route bundles expose a bounded strong-route race" {
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, parked.kind);
 }
 
-test "libpancake_host: next select-or-dial enliven parses raw swiss URI bytes" {
+test "libpancake_host: explicit next select-or-dial enliven parses raw swiss URI bytes" {
     const client = try newHostWithProfile(0x34, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
     defer _ = cd.pancake_host_release(client);
 
     const sturdyref = "ocapn://127.0.0.1%3A7024.tcp/s/widget%2Fpart";
     var vow: u64 = 0;
-    try expectOk(cd.pancake_host_enliven(client, sturdyref, sturdyref.len, &vow));
+    try expectOk(cd.pancake_host_enliven_for_version(
+        client,
+        c.PANCAKE_CAPTP_NEXT,
+        sturdyref,
+        sturdyref.len,
+        &vow,
+    ));
 
     var action: cd.PancakeHostAction = undefined;
     try expectOk(cd.pancake_host_next_action(client, &action));

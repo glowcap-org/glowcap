@@ -27,15 +27,6 @@ export function memberPrefix(nick: string, server: string): string {
 	return `${nick}!rooms@${server}`;
 }
 
-export function projectedNick(name: string): string {
-	let hash = 0x811c9dc5;
-	for (const byte of new TextEncoder().encode(name)) {
-		hash ^= byte;
-		hash = Math.imul(hash, 0x01000193) >>> 0;
-	}
-	return `rooms-${hash.toString(16).padStart(8, "0")}`;
-}
-
 /** Fit explanatory text to one IRC trailing parameter and mark the omission.
  * Chat content never comes here: the caller refuses it whole. */
 export function boundedTrailing(command: string, leading: readonly string[], prefix: string, text: string): string {

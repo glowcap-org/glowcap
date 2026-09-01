@@ -170,6 +170,13 @@ accepted-TCP opt-in remains visibly unverified. The Wasm check proves the same
 wrong-peer refusal through linear-memory exports. Each binding dogfood refuses
 a wrong-peer sturdyref before its successful enlivenment.
 
+Session-scoped and Host-level enlivenment read the canonical persistent
+sturdyref form, independent of live or preferred profiles. The Host's explicitly
+named profile variant parses authority conveyed in another spelling.
+Applications that already hold a typed locator and publication name use Host
+`fetchAt`, so neither a CapTP version nor a sturdyref codec leaks into
+application code.
+
 The native authority checks are held by
 [`test/driver/core_host/`](../../../test/driver/core_host/), and
 the C ABI and hint-insensitive cache checks are held by

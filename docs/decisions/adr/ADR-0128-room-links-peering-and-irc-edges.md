@@ -7,7 +7,7 @@ decision: "A room is the addressable unit of Rooms: every room can be named by o
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0139]
 ---
 
 # ADR-0128 Room links, directory peering, and the IRC edges
@@ -105,8 +105,18 @@ control and leaves discovery in place until disconnect. Either retirement
 leaves room references already handed to members live.
 
 **The IRC edges.** The bridge is a Rooms server whose published rooms mirror
-IRC channels, holding one IRC client connection per network as private
-implementation. Inbound, it puppets one Rooms member per IRC nick under an
+IRC channels. Its operator-held gateway creates a network connection
+capability; that capability creates channel bridge leases, so joining and
+parting a channel cannot accidentally create or close another network
+identity. The network capability remains valid with no channels and no socket.
+Its first channel enacts one shared feed connection, and its last channel's
+departure retires that transport without retiring the network authority. A
+recreated channel is a new publication generation. Saved conversations move
+to it only after the directory reports that the prior generation is gone and
+the same source name has a current replacement. Each Rooms member likewise has
+one IRC identity connection per network, with channel memberships beneath it.
+Inbound, the feed projects one
+Rooms member per IRC nick under an
 `irc/` prefix and drops the claim when the nick parts. Outbound, it posts under
 its own registered, SASL-authenticated nick with a visible `<nick>` prefix,
 throttled below the network's flood limit. Everything it injects is visibly
@@ -120,11 +130,16 @@ module so the mapping has one authority, and they never talk to each other.
 
 ## Scope (what this does not decide)
 
-- Per-user IRC puppeting on public networks is a special arrangement with the
-  network and is not built.
+- Per-user IRC citizenship on a public network remains subject to that
+  network's connection, account, and flood policies; Rooms does not imply the
+  network permits it.
 - The IRC front accepts no IRC capabilities and projects no steward or operator
   authority; if modes are ever added they act through a room capability the
   front holds, never a separate privilege system.
+- The builtin gateway proves a connection-provider, channel, and room-publication
+  seam. A transferable contract for external bouncers or other edge providers
+  is not shipped yet; the directory must not grow IRC policy when that contract
+  is introduced.
 - Whether the rail's filter outlives a reload waits on wherever a reader's
   other view state is kept, so one answer covers all of it.
 - The remaining IRC representation limits are recorded in

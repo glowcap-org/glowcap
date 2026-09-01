@@ -2,18 +2,26 @@
 
 import type {
 	RoomsOperationsSnapshot,
-	RoomsSessionClient,
 	RoomsSessionFacet,
 	RoomsSessionGrantView,
 	RoomsSessionLineEvent,
 	RoomsSessionSnapshot,
-} from "../../../lib/rooms_session.ts";
+} from "../../../lib/session/client.ts";
 import type { RoomsRoomJoinIntent, RoomsSessionState } from "../../../lib/rooms_state.ts";
+import type { RoomPolicy } from "../../../lib/room/policy.ts";
 import type { Attachment, AttachmentSource } from "../../../lib/attachment.ts";
-import type { ArchiveRecord } from "../../../lib/archive.ts";
-import type { OperatorCategory, OperatorPage, OperatorRetireBatch, OperatorSnapshot } from "../../../lib/operator.ts";
-import type { AttachedRoomsRemote } from "./remote.ts";
+import type { ArchiveRecord } from "../../../lib/archive/protocol.ts";
+import type { BridgeForm } from "../../../lib/bridge/form.ts";
+import type {
+	OperatorCategory,
+	OperatorPage,
+	OperatorReferenceKind,
+	OperatorRetireBatch,
+	OperatorSnapshot,
+} from "../../../lib/operator.ts";
+import type { AttachedRoomsRemote, RoomsSessionGrantPatch } from "./remote.ts";
 import { AttachedSessionFeed } from "./attached_feed.ts";
+import { type OperationSeat, runEffectCommand, runResultCommand } from "./attached_effects.ts";
 
 export class AttachedRoomsController {
 	readonly #remote: AttachedRoomsRemote;
@@ -21,6 +29,17 @@ export class AttachedRoomsController {
 	readonly #feed: AttachedSessionFeed;
 	#tail: Promise<void> = Promise.resolve();
 	readonly #resultOperationIds = new Map<string, { args: string; id: string }>();
+	/** The durable operations this tab is driving right now.
+	 *
+	 * An operation sitting in the session's pending ledger is not by itself
+	 * something a reader has to decide about. While this tab is awaiting one it
+	 * will settle, or it will fail at the control that started it, and either
+	 * way somebody is already looking after it. What is left when those are
+	 * taken out is the ledger's leftovers: an operation from a session that went
+	 * away mid-flight, which nothing is driving and which will sit there until a
+	 * person says what becomes of it. That is what the page calls a session
+	 * effect, and what it asks about. */
+	readonly #driving = new Set<string>();
 	readonly #pendingDrafts = new Map<string, { token: symbol; text: string }>();
 	#closed = false;
 
@@ -37,6 +56,13 @@ export class AttachedRoomsController {
 	start(): Promise<RoomsSessionSnapshot> {
 		if (this.#closed) throw new Error("this attached Rooms controller is closed");
 		return this.#feed.start();
+	}
+
+	/** Whether a second capability for this session's peer answers, asked over
+	 * the connection this controller already holds. */
+	verifySibling(sturdyref: string): Promise<void> {
+		if (this.#closed) throw new Error("this attached Rooms controller is closed");
+		return this.#remote.verifySibling(sturdyref);
 	}
 
 	onSnapshot(listener: (snapshot: RoomsSessionSnapshot) => void): () => void {
@@ -156,6 +182,10 @@ export class AttachedRoomsController {
 		this.#pendingDrafts.set(conversationId, { token: Symbol(conversationId), text });
 	}
 
+	retireDraft(conversationId: string): void {
+		this.#pendingDrafts.delete(conversationId);
+	}
+
 	pendingDraft(conversationId: string): string | undefined {
 		return this.#pendingDrafts.get(conversationId)?.text;
 	}
@@ -243,19 +273,23 @@ export class AttachedRoomsController {
 		})]);
 	}
 
-	openPrivateRoom(
+	openManagedRoom(
 		room: Extract<RoomsSessionState["conversations"][number], { kind: "room" }>,
 		recoveryKey: string,
+		policy: RoomPolicy,
 	): Promise<RoomsSessionSnapshot> {
 		const operationId = crypto.randomUUID();
 		return this.#serialize(async () => {
 			const revision = await this.#remote.command(
 				operationId,
 				this.#feed.requireSnapshot().revision,
-				"openPrivateRoom",
+				"openManagedRoom",
 				[
 					JSON.stringify(room),
 					recoveryKey,
+					policy.visibility,
+					policy.entry,
+					policy.speaking,
 				],
 			);
 			return await this.#feed.settleRevision(revision);
@@ -278,17 +312,23 @@ export class AttachedRoomsController {
 		return this.#effectCommand("kickRoomMember", [conversationId, nick]);
 	}
 
-	connectRoomIrc(
+	/** Submit one bridge form act for the durable session to replay to its
+	 * live room. The scope is the bridge's own word for how far the answers
+	 * reach, and the secrets ride the command without entering the checkpoint. */
+	submitRoomBridgeForm(
 		conversationId: string,
-		nick: string,
-		account: string,
-		password: string,
+		scope: string,
+		action: string,
+		answers: Record<string, string>,
+		secrets: Record<string, string>,
 	): Promise<RoomsSessionSnapshot> {
-		return this.#command("connectRoomIrc", [conversationId, nick, account, password]);
-	}
-
-	disconnectRoomIrc(conversationId: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("disconnectRoomIrc", [conversationId]);
+		return this.#command("submitRoomBridgeForm", [
+			conversationId,
+			scope,
+			action,
+			JSON.stringify(answers),
+			JSON.stringify(secrets),
+		]);
 	}
 
 	ensureRoomLink(conversationId: string): Promise<RoomsSessionSnapshot> {
@@ -300,6 +340,43 @@ export class AttachedRoomsController {
 			"takeRoomModerator",
 			sturdyref == null ? [conversationId] : [conversationId, sturdyref],
 		);
+	}
+
+	takeRoomManager(conversationId: string, sturdyref: string): Promise<RoomsSessionSnapshot> {
+		return this.#resultCommand("takeRoomManager", [conversationId, sturdyref]);
+	}
+
+	recoverRoomManager(conversationId: string): Promise<RoomsSessionSnapshot> {
+		return this.#resultCommand("recoverRoomManager", [conversationId]);
+	}
+
+	dropRoomManager(conversationId: string, token: string): Promise<RoomsSessionSnapshot> {
+		return this.#command("dropRoomManager", [conversationId, token]);
+	}
+
+	revokeManagedRoomAuthority(
+		conversationId: string,
+		kind: "room" | "steward",
+		token: string,
+	): Promise<RoomsSessionSnapshot> {
+		return this.#effectCommand("revokeManagedRoomAuthority", [conversationId, kind, token]);
+	}
+
+	unregisterManagedRoom(conversationId: string): Promise<RoomsSessionSnapshot> {
+		return this.#effectCommand("unregisterManagedRoom", [conversationId]);
+	}
+
+	setManagedRoomPolicy(conversationId: string, policy: RoomPolicy): Promise<RoomsSessionSnapshot> {
+		return this.#effectCommand("setManagedRoomPolicy", [
+			conversationId,
+			policy.visibility,
+			policy.entry,
+			policy.speaking,
+		]);
+	}
+
+	dropRoomModerator(conversationId: string, token: string): Promise<RoomsSessionSnapshot> {
+		return this.#command("dropRoomModerator", [conversationId, token]);
 	}
 
 	offerRoom(roomConversationId: string, directConversationId: string): Promise<RoomsSessionSnapshot> {
@@ -333,16 +410,30 @@ export class AttachedRoomsController {
 		return this.#command("replaceOperationsCapabilities", [JSON.stringify(credentials)]);
 	}
 
+	roomBridgeForm(conversationId: string): Promise<BridgeForm | null> {
+		return this.#remote.roomBridgeForm(conversationId);
+	}
+
 	readHistory(kind: "room" | "direct", directory: string, conversation: string): Promise<ArchiveRecord[]> {
 		return this.#remote.readHistory(kind, directory, conversation);
 	}
 
-	operatorSnapshot(scope: string, query = ""): Promise<OperatorSnapshot> {
-		return this.#remote.operatorSnapshot(scope, query);
+	operatorSnapshot(
+		scope: string,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorSnapshot> {
+		return this.#remote.operatorSnapshot(scope, query, referenceKind);
 	}
 
-	operatorPage(scope: string, category: OperatorCategory, cursor: number, query = ""): Promise<OperatorPage> {
-		return this.#remote.operatorPage(scope, category, cursor, query);
+	operatorPage(
+		scope: string,
+		category: OperatorCategory,
+		cursor: number,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorPage> {
+		return this.#remote.operatorPage(scope, category, cursor, query, referenceKind);
 	}
 
 	operatorRetireMatching(
@@ -350,8 +441,9 @@ export class AttachedRoomsController {
 		category: OperatorCategory,
 		query: string,
 		limit: number,
+		referenceKind: OperatorReferenceKind | null = null,
 	): Promise<OperatorRetireBatch> {
-		return this.#remote.operatorRetireMatching(scope, category, query, limit);
+		return this.#remote.operatorRetireMatching(scope, category, query, limit, referenceKind);
 	}
 
 	operationsSnapshot(
@@ -361,8 +453,13 @@ export class AttachedRoomsController {
 		return this.#remote.operationsSnapshot(scope, capability);
 	}
 
-	async shareArchiveHistory(conversationId: string): Promise<RoomsSessionSnapshot> {
-		await this.#remote.shareArchiveHistory(conversationId);
+	async shareArchiveHistory(kind: string, conversationId: string, peer = ""): Promise<RoomsSessionSnapshot> {
+		await this.#remote.shareArchiveHistory(kind, conversationId, peer);
+		return await this.#feed.refresh();
+	}
+
+	async offerDurableArchive(kind: string, conversationId: string, peer = ""): Promise<RoomsSessionSnapshot> {
+		await this.#remote.offerDurableArchive(kind, conversationId, peer);
 		return await this.#feed.refresh();
 	}
 
@@ -374,6 +471,15 @@ export class AttachedRoomsController {
 
 	async dropArchiveShare(id: string): Promise<RoomsSessionSnapshot> {
 		await this.#remote.dropArchiveShare(id);
+		return await this.#feed.refresh();
+	}
+
+	listIssuedArchiveShares(): ReturnType<AttachedRoomsRemote["listIssuedArchiveShares"]> {
+		return this.#remote.listIssuedArchiveShares();
+	}
+
+	async revokeIssuedArchiveShare(id: string): Promise<RoomsSessionSnapshot> {
+		await this.#remote.revokeIssuedArchiveShare(id);
 		return await this.#feed.refresh();
 	}
 
@@ -415,9 +521,14 @@ export class AttachedRoomsController {
 		});
 	}
 
-	issueGrant(id: string, rights: RoomsSessionFacet, label: string): Promise<RoomsSessionGrantView> {
+	issueGrant(
+		id: string,
+		rights: RoomsSessionFacet,
+		label: string,
+		history: boolean,
+	): Promise<RoomsSessionGrantView> {
 		return this.#serialize(async () => {
-			const grant = await this.#remote.issueGrant(id, rights, label);
+			const grant = await this.#remote.issueGrant(id, rights, label, history);
 			await this.#feed.refresh();
 			return grant;
 		});
@@ -427,6 +538,16 @@ export class AttachedRoomsController {
 		return this.#serialize(async () => {
 			await this.#remote.revokeGrant(id);
 			await this.#feed.refresh();
+		});
+	}
+
+	/** Change what an issued link carries. The feed is read again after, because
+	 * the inventory this is administered from is part of what changed. */
+	changeGrant(id: string, patch: RoomsSessionGrantPatch): Promise<RoomsSessionGrantView> {
+		return this.#serialize(async () => {
+			const grant = await this.#remote.changeGrant(id, patch);
+			await this.#feed.refresh();
+			return grant;
 		});
 	}
 
@@ -465,36 +586,21 @@ export class AttachedRoomsController {
 		throw new Error("the Rooms session command did not settle");
 	}
 
+	/** Which operations this tab is currently answering for. */
+	driving(): ReadonlySet<string> {
+		return this.#driving;
+	}
+
+	/** What issuing an operation needs from this session. */
+	get #seat(): OperationSeat {
+		return { remote: this.#remote, feed: this.#feed, driving: this.#driving };
+	}
+
 	#effectCommand(name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const revision = await this.#remote.command(operationId, this.#feed.requireSnapshot().revision, name, args);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#serialize(() => runEffectCommand(this.#seat, name, args));
 	}
 
-	/** Result-bearing room authority acts retain their operation identity after
-	 * an answer is lost. The key is one action per conversation, so a corrected
-	 * moderator link replaces the prior intent while retries of the same intent
-	 * reach the session's durable result row. */
 	#resultCommand(name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		const key = `${name}\u0000${args[0] ?? ""}`;
-		const material = JSON.stringify(args);
-		const prior = this.#resultOperationIds.get(key);
-		const operationId = prior?.args === material ? prior.id : crypto.randomUUID();
-		this.#resultOperationIds.set(key, { args: material, id: operationId });
-		return this.#serialize(async () => {
-			const revision = await this.#remote.command(operationId, this.#feed.requireSnapshot().revision, name, args);
-			const snapshot = await this.#feed.settleRevision(revision);
-			if (this.#resultOperationIds.get(key)?.id === operationId) this.#resultOperationIds.delete(key);
-			return snapshot;
-		});
+		return this.#serialize(() => runResultCommand(this.#seat, this.#resultOperationIds, name, args));
 	}
-}
-
-export function attachedRoomsController(
-	client: RoomsSessionClient,
-	close: () => Promise<void>,
-): AttachedRoomsController {
-	return new AttachedRoomsController(client, close);
 }

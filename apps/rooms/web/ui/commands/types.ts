@@ -33,20 +33,31 @@ export interface HeldDirectory {
  * the whole interface: the set of things a command can do should be readable in
  * one screen, and a command that wants something not here is a decision rather
  * than a reach. This is the same argument the rest of the app makes about
- * authority, applied to its own vocabulary. */
+ * authority, applied to its own vocabulary.
+ *
+ * A tab act that needs a handle this window may not hold returns `null` when
+ * it used it, or the sentence naming what was missing. The catalog is the
+ * only result the composer reads; these powers do not explain a missing
+ * handle into the log. Granted acts that share one missing-handle meaning
+ * across adapters return a boolean, and the catalog names it. */
 export interface CommandPowers {
 	/** Say something back where the command was typed. Not sent to anyone. */
 	say(text: string): void;
-	/** Enter a room on the directory this conversation is on. */
-	joinRoom(name: string): void;
+	/** Enter a room on the directory this conversation is on. `null` when the
+	 * room was asked for. A sentence when this tab holds no directory to enter
+	 * on. */
+	joinRoom(name: string): string | null;
 	/** Take up a room link: redeem it and enter what it opens. The link is the
 	 * whole of the authority. `label` is what to call it here when the reader
-	 * said one; empty means ask the room what it is called. */
-	joinLink(link: string, label: string): void;
+	 * said one; empty means ask the room what it is called. `null` when the
+	 * link was taken up. A sentence when the link is not a room entry, or this
+	 * tab does not hold what it needs. */
+	joinLink(link: string, label: string): string | null;
 	/** Leave the conversation the command was typed in. */
 	leaveHere(): void;
-	/** Open a direct line to a member. */
-	directMessage(who: string): void;
+	/** Open a direct line to a member. `null` when the line was opened. A
+	 * sentence when this tab does not hold an introduction to them. */
+	directMessage(who: string): string | null;
 	setTheme(theme: "light" | "dark"): void;
 	/** Empty this conversation's history in this window only. */
 	clearHere(): void;
@@ -109,8 +120,9 @@ export interface CommandPowers {
 	/** Who is in this room, how each stands, and whether each is reachable
 	 * directly. */
 	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
-	/** Give this directory back: the name it granted, and everything open on it. */
-	quitDirectory(): void;
+	/** Give this directory back: the name it granted, and everything open on it.
+	 * `null` when it was given back. A sentence when this tab holds none. */
+	quitDirectory(): string | null;
 	/** Open the card about the conversation this was typed in. */
 	aboutConversation(): void;
 }
@@ -122,7 +134,7 @@ export interface CommandPowers {
  * post something the ordinary path would have refused. */
 export type CommandOutcome =
 	/** Handled here. Nothing goes to the room. */
-	| { kind: "done" }
+	| { kind: "done"; retires?: "conversation" | "directory" }
 	/** Send this instead of what was typed. */
 	| { kind: "say"; text: string }
 	/** Send this as an action, the `/me` shape. */
@@ -170,9 +182,10 @@ export interface Command {
 	 * actually hand over. */
 	grant?: string;
 	/** Where this command can succeed. Absent means any conversation this tab
-	 * can type in. `"room"` means it would refuse in a direct line, and offering
-	 * it there would only teach the refusal. A reader who wants it goes to a
-	 * room; the list in the DM does not advertise the detour. */
+	 * can type in. `"room"` means it would refuse in a direct line or a
+	 * directory, and offering it there would only teach the refusal. A reader
+	 * who wants it goes to a room; those other lists do not advertise the
+	 * detour. */
 	place?: "room";
 	/** What an `@name` after this command completes against. Absent means the
 	 * people in the conversation being typed in — a mention reaches somebody
@@ -195,6 +208,6 @@ export interface Command {
 /** Which kind of conversation the reader is typing in.
  *
  * Completing and `/help` share this so a command that would refuse here is not
- * offered here. A direct line is not a room with a missing roster; it is a
- * different place. */
-export type CommandHere = "room" | "direct";
+ * offered here. A direct line is not a room with a missing roster; a
+ * directory is not a chat. They are different places. */
+export type CommandHere = "room" | "direct" | "directory";

@@ -14,11 +14,11 @@ import {
 	TRANSPORT_WEBRTC,
 } from "@pancake/runtime";
 import { isUriLocator } from "../lib/locator.ts";
-import { noteTrouble, troubleRows } from "./journal.ts";
 import {
 	INTRODUCTION_PENDING,
 	NICK_TAKEN,
 	NICK_TOO_LONG,
+	NO_ROOM_MANAGERS,
 	NO_SUCH_ROOM,
 	NOT_REGISTERED,
 	NOT_YOUR_LOCATOR,
@@ -27,13 +27,25 @@ import {
 	ROOM_TOO_LONG,
 	RoomError,
 } from "../lib/errors.ts";
-import { isPrivateRoomKey, MAX_DM_INBOXES, MAX_ROOM, nickRefusal } from "../lib/limits.ts";
+import { isManagedRoomId, MAX_DM_INBOXES, MAX_ROOM, nickRefusal } from "../lib/limits.ts";
+import {
+	isRoomEntry,
+	isRoomPolicy,
+	isRoomSpeaking,
+	isRoomVisibility,
+	OPEN_ROOM_POLICY,
+	PRIVATE_ROOM_POLICY,
+	publicMembershipKind,
+	roomIsListed,
+	roomPoliciesEqual,
+	type RoomPolicy,
+	roomPublicMayEnter,
+} from "../lib/room/policy.ts";
 import { isRegistrationId } from "../lib/directory_publications.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import {
 	ADVERTISED_LOCATION,
 	DIRECT_REQUESTED,
-	DIRECTORY,
 	ENTER,
 	ENTER_PUBLICATION,
 	INTRODUCE,
@@ -44,15 +56,18 @@ import {
 	NOTIFY,
 	OFFER_INBOX,
 	OPEN,
+	OPEN_MANAGED,
 	OPEN_PRIVATE_LINK,
 	REGISTER,
 	REQUEST_DIRECT,
-	SNAPSHOT,
 	WATCH,
 	WATCH_PUBLICATIONS,
 } from "../lib/protocol.ts";
 import { RoomLinks } from "./room_links.ts";
 import { roomBehavior } from "./room.ts";
+import { linkedRoomBehavior } from "./room_link.ts";
+import { roomManagerBootstrapBehavior } from "./room_manager.ts";
+import type { RoomServerContext } from "./context.ts";
 import {
 	claimsOwnLocator,
 	directRequestNoticeDue,
@@ -61,28 +76,71 @@ import {
 	registrationOf,
 } from "./introductions.ts";
 import { directoryWatchSnapshot, roomSnapshot } from "./discovery.ts";
-import { dropWatchers, watchers } from "./watchers.ts";
-import {
-	handBack,
-	heldRoomLinks,
-	introductions,
-	makeRoomState,
-	nickKey,
-	publicRoomById,
-	publicRoomNameTaken,
-	publicRooms,
-	registerRoom,
-	roomKey,
-	rooms,
-	webrtcDesignators,
-} from "./registry.ts";
+import { dropWatchers } from "./watchers.ts";
+import { nickKey, roomKey, type RoomState } from "./registry.ts";
 import {
 	DIRECTORY_SIGNALING_CAPABILITY_VERBS,
 	DIRECTORY_SIGNALING_UNHANDLED,
 	dispatchDirectorySignaling,
 } from "./directory_signaling.ts";
 
-function refuseDirectoryCall(session: Session, args: readonly Argument[], error: unknown): never {
+function publicRoomEntrance(ctx: RoomServerContext, state: RoomState, links: RoomLinks | null): Behavior {
+	const managed = links?.managedRoom(state.key) ?? null;
+	const active = managed === null || links === null
+		? () => roomIsListed(state.policy) && roomPublicMayEnter(state.policy)
+		: () => links.managedRoomGenerationIsCurrent(managed.id, managed.generation);
+	return roomBehavior(ctx, state, ctx.history, links, {
+		membershipKind: publicMembershipKind(state.policy),
+		active,
+	});
+}
+
+function spawnRoomOpening(
+	ctx: RoomServerContext,
+	session: Session,
+	state: RoomState,
+	roomLinks: RoomLinks | null,
+	managerLinks: RoomLinks | null,
+): Ref | [Ref, Ref] {
+	const room = session.spawn(roomBehavior(ctx, state, ctx.history, roomLinks));
+	if (managerLinks === null) return room;
+	try {
+		return [
+			room,
+			session.spawn(roomManagerBootstrapBehavior(state.key, managerLinks, {
+				name: state.name,
+				policy: state.policy,
+			})),
+		];
+	} catch (error) {
+		ctx.journal.release(session, room, "unreturned room capability");
+		throw error;
+	}
+}
+
+/** Prepare every capability an open returns before filing the room, then make
+ * the registry mutation the commit point. A refused spawn or registration
+ * therefore leaves neither an orphaned export nor a room/name/quota row. */
+export function openNewRoom(
+	ctx: RoomServerContext,
+	session: Session,
+	state: RoomState,
+	roomLinks: RoomLinks | null,
+	managerLinks: RoomLinks | null,
+): Ref | [Ref, Ref] {
+	const opening = spawnRoomOpening(ctx, session, state, roomLinks, managerLinks);
+	try {
+		ctx.live.registerRoom(state);
+		return opening;
+	} catch (error) {
+		for (const ref of Array.isArray(opening) ? opening : [opening]) {
+			ctx.journal.release(session, ref, "uncommitted room capability");
+		}
+		throw error;
+	}
+}
+
+export function refuseDirectoryCall(session: Session, args: readonly Argument[], error: unknown): never {
 	throwAfterReleasingCapabilities(session, args, error);
 }
 
@@ -97,7 +155,12 @@ const DIRECTORY_CAPABILITY_VERBS = new Set([
 /** The directory behavior for one connection. `open`/`enter` return a live
  * reference to a room — the per-connection room view spawned here — so the room
  * a client holds is bound to that client's connection. */
-export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (session: Session) => string): Behavior {
+export function directoryBehavior(
+	ctx: RoomServerContext,
+	links?: RoomLinks,
+	advertisedLocation?: (session: Session) => string,
+): Behavior {
+	const { history, live, watchers } = ctx;
 	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
 		// The directory belongs to the Host rather than to any one connection, so
 		// the caller is the session whose turn is running. Everything below keys
@@ -135,7 +198,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 						`the locator "${locator}" does not name the connection registering it`,
 					);
 				}
-				if (registeredByAnother(session, nick)) {
+				if (registeredByAnother(live, session, nick)) {
 					throw new RoomError(
 						NICK_TAKEN,
 						`"${nick}" is registered by another member; it frees when they disconnect`,
@@ -149,8 +212,8 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 				// bring-up aimed at them landed in the claimant's signaling inbox.
 				// First writer holds the designator while their connection stands.
 				if (claimed?.transport === TRANSPORT_WEBRTC) {
-					const holderKey = webrtcDesignators.get(claimed.designator);
-					const holder = holderKey === undefined ? undefined : introductions.get(holderKey);
+					const holderKey = live.webrtcDesignators.get(claimed.designator);
+					const holder = holderKey === undefined ? undefined : live.introductions.get(holderKey);
 					if (holder !== undefined && holder.registrar !== session && holder.registrar.sessionOpen) {
 						throw new RoomError(
 							NOT_YOUR_LOCATOR,
@@ -159,12 +222,12 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 					}
 				}
 			} catch (error) {
-				handBack(session, inbox);
+				ctx.journal.release(session, inbox);
 				throw error;
 			}
 			// The reply is the name capability: the holding of the name, which is
 			// what lets its holder be this member from another connection.
-			return registerMember(nick, locator, inbox, session);
+			return registerMember(ctx, nick, locator, inbox, session);
 		}
 		if (verb === OFFER_INBOX) {
 			const forNick = typeof args[0] === "string" ? args[0] : "";
@@ -179,20 +242,20 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			}
 			const unofferable = nickRefusal(forNick);
 			if (unofferable != null || !isRegistrationId(forRegistrationId)) {
-				handBack(session, offered);
+				ctx.journal.release(session, offered);
 				throw new RoomError(NICK_TOO_LONG, unofferable ?? "offerInbox has an invalid registration ID");
 			}
 			// A member may only decide who reaches *it*, so the offer is filed under
 			// the offering connection's own registration. An unregistered caller has
 			// no record to file it under, which is the refusal.
-			const own = registrationOf(session);
+			const own = registrationOf(live, session);
 			if (own == null) {
-				handBack(session, offered);
+				ctx.journal.release(session, offered);
 				throw new RoomError(NOT_REGISTERED, "offerInbox needs a registered name");
 			}
-			const waiting = introductions.get(nickKey(forNick));
+			const waiting = live.introductions.get(nickKey(forNick));
 			if (waiting?.registrationId !== forRegistrationId) {
-				handBack(session, offered);
+				ctx.journal.release(session, offered);
 				throw new RoomError(PEER_OFFLINE, `the registration for "${forNick}" changed before its inbox arrived`);
 			}
 			const key = forRegistrationId;
@@ -200,7 +263,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			// chooses the peers, so the directory holds the same ceiling its members
 			// do rather than growing a map on their word.
 			if (!own.inboxes.has(key) && own.inboxes.size >= MAX_DM_INBOXES) {
-				handBack(session, offered);
+				ctx.journal.release(session, offered);
 				throw new Error(`a member may offer at most ${MAX_DM_INBOXES} inboxes`);
 			}
 			// The Host identity is already valid across this host's sessions; storing
@@ -208,29 +271,29 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			const token = offered;
 			const prior = own.inboxes.get(key);
 			own.inboxes.set(key, token);
-			if (prior !== undefined) handBack(session, prior);
+			if (prior !== undefined) ctx.journal.release(session, prior);
 			// Whoever was told to wait can ask again now.
 			waiting.registrar.tell(waiting.inbox, NOTIFY, ["introducible", own.nick, own.registrationId]).catch(
 				() => {},
 			);
 			return null;
 		}
-		const signaling = dispatchDirectorySignaling(verb, args, session);
+		const signaling = dispatchDirectorySignaling(live, verb, args, session);
 		if (signaling !== DIRECTORY_SIGNALING_UNHANDLED) return signaling;
 		if (verb === REQUEST_DIRECT) {
 			if (
 				args.length !== 2 || typeof args[0] !== "string" || nickRefusal(args[0]) != null ||
 				!isRegistrationId(args[1])
 			) {
-				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				for (const argument of args) if (argument instanceof Ref) ctx.journal.release(session, argument);
 				throw new Error("requestDirect takes a valid registered name and its registration ID");
 			}
 			const nick = args[0];
-			const intro = introductions.get(nickKey(nick));
+			const intro = live.introductions.get(nickKey(nick));
 			if (intro == null || intro.registrationId !== args[1] || !intro.registrar.sessionOpen) {
 				throw new RoomError(PEER_OFFLINE, `no member named "${nick}" is registered`);
 			}
-			const caller = registrationOf(session);
+			const caller = registrationOf(live, session);
 			if (caller == null) {
 				throw new RoomError(NOT_REGISTERED, "requestDirect needs a registered name");
 			}
@@ -238,7 +301,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			if (directRequestNoticeDue(intro.directRequests, requestKey, performance.now())) {
 				intro.registrar.tell(intro.inbox, NOTIFY, [DIRECT_REQUESTED, caller.nick, caller.registrationId]).catch(
 					(error) => {
-						noteTrouble("a reciprocal direct request notification failed", error);
+						ctx.journal.note("a reciprocal direct request notification failed", error);
 					},
 				);
 			}
@@ -246,10 +309,10 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 		}
 		if (verb === MEMBER_REGISTRATION) {
 			if (args.length !== 1 || typeof args[0] !== "string" || nickRefusal(args[0]) != null) {
-				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				for (const argument of args) if (argument instanceof Ref) ctx.journal.release(session, argument);
 				throw new Error("memberRegistration takes one valid registered name");
 			}
-			const intro = introductions.get(nickKey(args[0]));
+			const intro = live.introductions.get(nickKey(args[0]));
 			if (intro == null || !intro.registrar.sessionOpen) {
 				throw new RoomError(PEER_OFFLINE, `no member named "${args[0]}" is registered`);
 			}
@@ -261,10 +324,10 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			if (
 				args.length !== 2 || nickRefusal(nick) != null || !isRegistrationId(expectedRegistrationId)
 			) {
-				for (const argument of args) if (argument instanceof Ref) handBack(session, argument);
+				for (const argument of args) if (argument instanceof Ref) ctx.journal.release(session, argument);
 				throw new Error("introduce takes a valid registered name and its registration ID");
 			}
-			const intro = introductions.get(nickKey(nick));
+			const intro = live.introductions.get(nickKey(nick));
 			// The same liveness `register` reads: a holder whose connection has gone
 			// but whose close callback has not run yet is nobody to be introduced to.
 			if (intro == null || intro.registrationId !== expectedRegistrationId || !intro.registrar.sessionOpen) {
@@ -272,7 +335,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			}
 			// The caller's registered nick is the key the member filed their inbox
 			// under, so an unregistered caller has no name one could have been minted.
-			const caller = registrationOf(session);
+			const caller = registrationOf(live, session);
 			if (caller == null) {
 				throw new RoomError(NOT_REGISTERED, "introduce needs a registered name");
 			}
@@ -294,7 +357,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 						);
 					},
 					(error) => {
-						noteTrouble(`could not ask ${nick} for a direct-message inbox`, error);
+						ctx.journal.note(`could not ask ${nick} for a direct-message inbox`, error);
 						throw new RoomError(PEER_OFFLINE, `"${nick}" could not be reached for direct messages`);
 					},
 				);
@@ -309,42 +372,55 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 				throw new Error(`link needs one room name of at most ${MAX_ROOM} characters`);
 			}
 			if (links == null) throw new Error("this directory does not publish room links");
-			const entry = publicRooms.get(roomKey(name));
+			const entry = live.publicRooms.get(roomKey(name));
 			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
 			if (entry.kind !== "local") throw new Error("a foreign room is linked by its source directory");
-			return links.link(entry.state.name, session);
+			const link = links.currentRoomLink(entry.state.key, session);
+			if (link === null) throw new Error("that room has no link; a room manager must create one");
+			return link;
 		}
 		if (verb === OPEN_PRIVATE_LINK) {
 			if (links === undefined) throw new Error("this directory does not publish room links");
-			if (args.length !== 1 || !isPrivateRoomKey(name)) {
+			if (args.length !== 1 || !isManagedRoomId(name)) {
 				throw new Error("openPrivateLink needs one opaque private room key");
 			}
 			return links.link(name, session);
 		}
-		if (verb === OPEN) {
-			if (
+		if (verb === OPEN || verb === OPEN_MANAGED) {
+			const managerLinks = verb === OPEN_MANAGED ? links ?? null : null;
+			const managed = verb === OPEN_MANAGED;
+			if (managed) {
+				if (
+					args.length !== 5 || typeof args[0] !== "string" || !isRoomVisibility(args[1]) ||
+					!isRoomEntry(args[2]) || !isRoomSpeaking(args[3]) ||
+					typeof args[4] !== "string" || !isManagedRoomId(args[4])
+				) throw new Error("openManaged needs a room name, three policy modes, and opaque room id");
+			} else if (
 				args.length < 1 || args.length > 3 || typeof args[0] !== "string" ||
 				(args.length >= 2 && typeof args[1] !== "boolean") ||
 				(args.length === 3 && (args[1] !== true || typeof args[2] !== "string"))
-			) {
-				throw new Error("open needs a room name, optional private flag, and optional recovery key");
-			}
+			) throw new Error("open needs a room name, optional private flag, and optional recovery key");
 			if (name.length === 0) throw new Error("open needs a room name");
+			if (verb === OPEN_MANAGED && managerLinks === null) {
+				throw new RoomError(NO_ROOM_MANAGERS, "this directory does not publish room managers");
+			}
 			if (name.length > MAX_ROOM) {
 				throw new RoomError(
 					ROOM_TOO_LONG,
 					`a room name may be at most ${MAX_ROOM} characters`,
 				);
 			}
-			// Private is asked for at the moment a room is made and never after:
-			// a room that could be made private later would already have been
-			// listed, and one that could be opened up would surprise the people
-			// who were invited into it.
-			const wantsPrivate = args[1] === true;
-			const recoveryKey = args[2];
+			const candidate = managed
+				? { visibility: args[1], entry: args[2], speaking: args[3] }
+				: args[1] === true
+				? PRIVATE_ROOM_POLICY
+				: OPEN_ROOM_POLICY;
+			if (!isRoomPolicy(candidate)) throw new Error("openManaged names no supported room access state");
+			const policy: RoomPolicy = candidate;
+			const recoveryKey = managed ? args[4] : args[2];
 			if (
-				wantsPrivate && recoveryKey != null &&
-				(typeof recoveryKey !== "string" || !isPrivateRoomKey(recoveryKey))
+				policy.visibility === "secret" && recoveryKey != null &&
+				(typeof recoveryKey !== "string" || !isManagedRoomId(recoveryKey))
 			) {
 				throw new Error("a private room recovery key is invalid");
 			}
@@ -352,29 +428,66 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			// Two readers may each keep a private room called "notes", and neither
 			// learns that the other has one — which is also why this cannot answer
 			// "already exists" for a private name: that answer is itself the leak.
-			if (!wantsPrivate && publicRoomNameTaken(name)) {
+			if (
+				roomIsListed(policy) &&
+				(live.publicRoomNameTaken(name) || links?.hasRegisteredPublicRoom(name) === true)
+			) {
 				throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
 			}
-			if (wantsPrivate && typeof recoveryKey === "string") {
-				const recovered = rooms.get(recoveryKey);
-				if (recovered != null) return session.spawn(roomBehavior(recovered));
+			if (typeof recoveryKey === "string") {
+				const recovered = live.rooms.get(recoveryKey);
+				if (recovered != null) {
+					if (recovered.name !== name || !roomPoliciesEqual(recovered.policy, policy)) {
+						throw new Error("that room id already belongs to a different managed room state");
+					}
+					return spawnRoomOpening(ctx, session, recovered, links ?? null, managerLinks);
+				}
 			}
-			const state = makeRoomState(name, session, {
-				private: wantsPrivate,
+			const state = live.makeRoomState(name, session, {
+				policy,
 				...(typeof recoveryKey === "string" ? { key: recoveryKey } : {}),
 				topic: links?.topic(typeof recoveryKey === "string" ? recoveryKey : name) ?? "",
 			});
-			registerRoom(state);
-			return session.spawn(roomBehavior(state));
+			return openNewRoom(ctx, session, state, links ?? null, managerLinks);
 		}
 		if (verb === ENTER) {
 			if (args.length !== 1 || typeof args[0] !== "string" || name.length === 0) {
 				throw new Error("enter needs one room name");
 			}
-			const entry = publicRooms.get(roomKey(name));
-			if (entry === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
+			const entry = live.publicRooms.get(roomKey(name));
+			if (entry === undefined) {
+				const managed = links?.managedRoomForPublicName(name) ?? null;
+				if (managed !== null && links != null) {
+					if (!roomPublicMayEnter(managed.policy)) {
+						throw new RoomError(
+							NO_SUCH_ROOM,
+							`room "${name}" is invite-only; use an invitation or room link`,
+						);
+					}
+					const roomLinks = links;
+					return session.spawn(
+						linkedRoomBehavior(
+							ctx,
+							managed.id,
+							() => roomLinks,
+							history,
+							{
+								membershipKind: publicMembershipKind(managed.policy),
+								active: () => roomLinks.managedRoomGenerationIsCurrent(managed.id, managed.generation),
+							},
+						),
+					);
+				}
+				if (links?.hasRegisteredPublicRoom(name) === true) {
+					return session.spawn(linkedRoomBehavior(ctx, name, () => links, history));
+				}
+				throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
+			}
+			if (entry.kind === "local" && !roomPublicMayEnter(entry.state.policy)) {
+				throw new RoomError(NO_SUCH_ROOM, `room "${name}" is invite-only; use an invitation or room link`);
+			}
 			return entry.kind === "local"
-				? session.spawn(roomBehavior(entry.state))
+				? session.spawn(publicRoomEntrance(ctx, entry.state, links ?? null))
 				: entry.kind === "bridge"
 				? session.spawn(entry.bridge.roomBehavior())
 				: entry.room;
@@ -382,21 +495,27 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 		if (verb === ENTER_PUBLICATION) {
 			const id = typeof args[0] === "string" ? args[0] : "";
 			if (args.length !== 1 || id === "") throw new Error("enterPublication needs one publication id");
-			const entry = publicRoomById(id);
+			const entry = live.publicRoomById(id);
 			if (entry === null) throw new RoomError(NO_SUCH_ROOM, "that room publication is no longer current");
+			if (entry.kind === "local" && !roomPublicMayEnter(entry.state.policy)) {
+				throw new RoomError(
+					NO_SUCH_ROOM,
+					`room "${entry.name}" is invite-only; use an invitation or room link`,
+				);
+			}
 			return entry.kind === "local"
-				? session.spawn(roomBehavior(entry.state))
+				? session.spawn(publicRoomEntrance(ctx, entry.state, links ?? null))
 				: entry.kind === "bridge"
 				? session.spawn(entry.bridge.roomBehavior())
 				: entry.room;
 		}
 		if (verb === LIST) {
 			if (args.length !== 0) throw new Error("list takes no arguments");
-			return roomSnapshot("baseline").rows;
+			return roomSnapshot(ctx, "baseline").rows;
 		}
 		if (verb === LIST_PUBLICATIONS) {
 			if (args.length !== 0) throw new Error("listPublications takes no arguments");
-			return roomSnapshot("publication").rows;
+			return roomSnapshot(ctx, "publication").rows;
 		}
 		if (verb === ADVERTISED_LOCATION) {
 			if (args.length !== 0) throw new Error("advertisedLocation takes no arguments");
@@ -414,7 +533,7 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 			// for every row that connection had asked for. Watching again replaces,
 			// the same way a connection re-claiming its place in a room replaces its
 			// membership rather than being seated twice.
-			dropWatchers(session);
+			dropWatchers(watchers, session);
 			let admitted = false;
 			try {
 				watchers.push({
@@ -424,88 +543,14 @@ export function directoryBehavior(links?: RoomLinks, advertisedLocation?: (sessi
 				});
 				admitted = true;
 				return verb === WATCH_PUBLICATIONS
-					? directoryWatchSnapshot("publication")
-					: roomSnapshot("baseline").rows;
+					? directoryWatchSnapshot(ctx, "publication")
+					: roomSnapshot(ctx, "baseline").rows;
 			} catch (error) {
-				if (admitted) dropWatchers(session);
-				else handBack(session, observer, "refused directory watcher");
+				if (admitted) dropWatchers(watchers, session);
+				else ctx.journal.release(session, observer, "refused directory watcher");
 				throw error;
 			}
 		}
 		throw new Error(`directory has no method ${verb}`);
-	};
-}
-
-/** What the inspect capability can currently see of this directory.
- *
- * Rows are `[kind, name, note]`. Live room references are not handed out here:
- * holding inspect is the right to *see* what the directory holds, and entering
- * a room is still `enter` / `open` on the directory the caller already fetched.
- * Durable room links are listed by the swiss they answer to, which is the OCapN
- * name.
- *
- * This is the Rooms operator's own view, so it shows every room including
- * private ones, by label and with their occupants. That is not the leak a
- * private room is protected from: privacy here is being absent from the
- * user-facing `list` and `watch`, unreachable except through a reference
- * somebody handed you. The operator, who holds the `--diagnostics` swiss and
- * runs the process, is the one principal that view was never hiding from. */
-function diagnosticSnapshot(): Argument[] {
-	const rows: Argument[] = [[
-		"directory",
-		DIRECTORY,
-		"published bootstrap",
-	]];
-	for (const state of rooms.values()) {
-		const place = state.private ? "private" : "public";
-		rows.push([
-			"room",
-			state.name,
-			`${place}, ${state.members.length} here`,
-		]);
-		for (const member of state.members) {
-			rows.push(["occupant", member.nick, `in ${state.name}`]);
-		}
-	}
-	for (const intro of introductions.values()) {
-		rows.push([
-			"registration",
-			intro.nick,
-			`${intro.inboxes.size} inboxes offered`,
-		]);
-	}
-	const links = heldRoomLinks();
-	if (links !== null) {
-		for (const { name } of links.named()) {
-			// Inspect observes that the durable publication exists. Its swiss is
-			// bearer authority to enter the room and belongs only on a separately
-			// granted recovery/control surface.
-			rows.push(["link", name, "durable publication active"]);
-		}
-	}
-	// The server's own trouble journal rides the same snapshot, so an operator
-	// holding inspect reads what went wrong beside what the directory holds.
-	for (const entry of troubleRows()) {
-		rows.push([
-			"trouble",
-			entry.source,
-			entry.count > 1 ? `${entry.reason} ×${entry.count}` : entry.reason,
-		]);
-	}
-	return rows;
-}
-
-export function inspectBehavior(): Behavior {
-	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
-		const session = currentSession();
-		if (session == null) throw new Error("diagnostics is reachable only over a session");
-		if (hasCapabilityArguments(args)) {
-			refuseDirectoryCall(session, args, new Error(`diagnostics ${verb} does not take capability arguments`));
-		}
-		if (verb === SNAPSHOT) {
-			if (args.length !== 0) throw new Error("snapshot takes no arguments");
-			return diagnosticSnapshot();
-		}
-		throw new Error(`diagnostics has no method ${verb}`);
 	};
 }

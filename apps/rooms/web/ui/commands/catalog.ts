@@ -8,7 +8,14 @@ import type { Conv } from "../types.ts";
 import { MAX_AWAY, PLAIN_AWAY } from "../../../lib/limits.ts";
 import type { Command, CommandHere, CommandOutcome, CommandPowers, HeldDirectory } from "./types.ts";
 import { ROOM_COMMANDS } from "./room.ts";
-import { addressesEveryone } from "./targets.ts";
+import { addressesEveryone, DIRECT_NOT_SELF } from "./targets.ts";
+
+/** Commit a fallible tab act: the power either possessed the handle or named
+ * why it did not. The catalog is the only result the composer reads. */
+function committed(why: string | null, retires?: "conversation" | "directory"): CommandOutcome {
+	if (why != null) return { kind: "refused", why };
+	return retires == null ? { kind: "done" } : { kind: "done", retires };
+}
 
 /** Say what a directory is advertising, the answer `/list` gives about whichever
  * directory it was asked about. */
@@ -28,9 +35,6 @@ function namesYou(who: string, powers: CommandPowers): boolean {
 	return you !== "" && who.toLowerCase() === you.toLowerCase();
 }
 
-/** Whether `who` is a room-wide word rather than a person. Completion already
- * keeps these off a person-target command's list; this is the same answer for
- * a name typed out by hand, so the two paths cannot disagree. */
 /** The one directory `asked` names, or the sentence saying why it named none.
  *
  * Matched on what a reader can see: the name the rail shows, or the locator they
@@ -112,11 +116,9 @@ export const COMMANDS: readonly Command[] = [
 				// the room. Nothing after it means the room should say what it is
 				// called: a `/link` locator is to that place, and `/join` of it
 				// sits there rather than under an invented name.
-				powers.joinLink(want.link, want.label);
-			} else {
-				powers.joinRoom(want.name);
+				return committed(powers.joinLink(want.link, want.label));
 			}
-			return { kind: "done" };
+			return committed(powers.joinRoom(want.name));
 		},
 	},
 	{
@@ -128,7 +130,7 @@ export const COMMANDS: readonly Command[] = [
 		run(_rest, powers, conv) {
 			if (conv === null) return { kind: "refused", why: "There is nothing open to leave." };
 			powers.leaveHere();
-			return { kind: "done" };
+			return { kind: "done", retires: "conversation" };
 		},
 	},
 	{
@@ -147,10 +149,9 @@ export const COMMANDS: readonly Command[] = [
 				return { kind: "refused", why: `@${peer} is everyone in the room. A direct message needs one person.` };
 			}
 			if (namesYou(peer, powers)) {
-				return { kind: "refused", why: "You can't start a direct message with yourself." };
+				return { kind: "refused", why: DIRECT_NOT_SELF };
 			}
-			powers.directMessage(peer);
-			return { kind: "done" };
+			return committed(powers.directMessage(peer));
 		},
 	},
 	{
@@ -317,7 +318,7 @@ export const COMMANDS: readonly Command[] = [
 		usage: "/details",
 		aliases: ["info"],
 		run(_rest, powers, conv) {
-			if (conv === null) return { kind: "refused", why: "Open a room or a direct message first." };
+			if (conv === null) return { kind: "refused", why: "Open a conversation first." };
 			powers.aboutConversation();
 			return { kind: "done" };
 		},
@@ -328,8 +329,7 @@ export const COMMANDS: readonly Command[] = [
 		summary: "give this directory back, and everything open on it",
 		usage: "/quit",
 		run(_rest, powers) {
-			powers.quitDirectory();
-			return { kind: "done" };
+			return committed(powers.quitDirectory(), "directory");
 		},
 	},
 	{
@@ -414,7 +414,9 @@ export const COMMANDS: readonly Command[] = [
 /** The place `conv` is, for listing commands. No conversation yet is treated
  * as a direct line: room-only commands have nowhere to run. */
 export function hereOf(conv: Conv | null): CommandHere {
-	return conv?.type === "room" ? "room" : "direct";
+	if (conv?.type === "room") return "room";
+	if (conv?.type === "directory") return "directory";
+	return "direct";
 }
 
 /** The commands this reader holds here, given what their conversation has
@@ -423,8 +425,10 @@ export function hereOf(conv: Conv | null): CommandHere {
  * Everything that needs no reference, everything that travels in the line,
  * everything granted per line (`/edit` and `/delete`, held by having spoken),
  * every conversation-wide grant the room actually answered with, and nothing
- * that only a room can do when this is not a room. What is absent is what
- * nothing has granted, or what this place cannot run.
+ * that only a room can do when this is not a room. A directory is a command
+ * line, not a chat: it holds the tab commands that can run there, and nothing
+ * that would have to travel in a message. What is absent is what nothing has
+ * granted, or what this place cannot run.
  *
  * The arguments are the whole point of the shape: two members of one room can
  * be holding different sets, and a command arrives here by the room having
@@ -434,6 +438,7 @@ export function held(grants: ReadonlySet<string>, here: CommandHere): readonly C
 	return COMMANDS.filter((command) => {
 		if (command.grant !== undefined && !grants.has(command.grant)) return false;
 		if (command.place === "room" && here !== "room") return false;
+		if (here === "directory" && command.kind !== "tab") return false;
 		return true;
 	});
 }

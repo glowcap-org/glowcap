@@ -38,9 +38,9 @@ export function Field(
 		/** The refusal the answer met, or empty while it has not. */
 		said?: string;
 		layout?: "stack" | "inline";
-		/** A short answer — a port, a count — takes a short box rather than the
-		 * whole line, so the box says how long an answer it expects. */
-		width?: "full" | "short";
+		/** How long an answer this expects, said by the box: a port or a count is
+		 * short, an address is medium, and prose takes the whole line. */
+		width?: "full" | "medium" | "short";
 		/** The control, given what to wire onto itself. */
 		children: (wiring: FieldWiring) => ReactNode;
 	},
@@ -53,7 +53,7 @@ export function Field(
 		<div
 			className="field-stack"
 			data-layout={layout === "inline" ? "inline" : undefined}
-			data-width={width === "short" ? "short" : undefined}
+			data-width={width === undefined || width === "full" ? undefined : width}
 		>
 			<label className="field-label" htmlFor={id}>
 				{label}

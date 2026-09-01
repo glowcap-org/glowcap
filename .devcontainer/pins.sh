@@ -30,6 +30,10 @@ RUSTUP_INIT_VERSION="1.29.0"
 
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.5"
+# Multi-architecture index for `denoland/deno:bin-${DENO_VERSION}`, used by the
+# toolchain-free Rooms image. The Deno bump stages version, digest, Dockerfile,
+# and release-asset checksums as one transaction.
+DENO_IMAGE_DIGEST="sha256:0d1262facd139e815217c001945eb822c7a78584cf660142c34a6b53effec1aa"
 NODE_VERSION="26.7.0"
 BUN_VERSION="1.4.0"
 

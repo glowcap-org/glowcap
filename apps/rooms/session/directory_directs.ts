@@ -1,29 +1,46 @@
 // Direct conversations realized inside one durable session directory.
 
 import { Ref, retainSecondaryFailure, type Session } from "@pancake/runtime";
+import type { Message } from "../lib/room/client.ts";
 import { DirectMessage, directMessageReceiverBehavior } from "../lib/direct_message.ts";
-import type { Attachment } from "../lib/attachment.ts";
+import { type Attachment, attachmentCapabilities } from "../lib/attachment.ts";
 import type { WorkspaceConversation } from "../lib/rooms_state.ts";
 import type { LiveDirectory } from "./live.ts";
+import { directoryDirects } from "./topology.ts";
 import { directReceivedLineBehavior, DurableDirectLine } from "./direct_line.ts";
 import { parseRoomsSturdyref, roomsAddress } from "../lib/locator.ts";
 import { roomsPeerAuthority } from "../lib/routes.ts";
-import type { ArchiveCoordinates } from "../lib/archive.ts";
+import type { ArchiveCoordinates } from "../lib/archive/protocol.ts";
 import type { DurableRoomsArchive } from "./archive.ts";
 import type { RuntimeAttachment } from "./room_files.ts";
 import { DirectConversationRouteAttempt } from "./direct_route_attempt.ts";
+import { type ConversationEventObserver, emitTypingEvent } from "./conversation_events.ts";
+import { DIRECT_NOT_ACCEPTED, RoomError } from "../lib/errors.ts";
 
-export type DirectEventObserver = (
-	conversationId: string,
-	message: import("../lib/room_client.ts").Message,
-	editable: boolean,
-	files: RuntimeAttachment[],
-	history: ArchiveCoordinates | null,
-) => void;
+function directNotAccepted(): RoomError {
+	return new RoomError(DIRECT_NOT_ACCEPTED, "that exact direct conversation is no longer accepted");
+}
+
+function refuseUnacceptedMessage(
+	session: Session,
+	reply: Ref | null,
+	attachments: Attachment[],
+	callbacks: DirectRealizationCallbacks,
+): never {
+	const capabilities = attachmentCapabilities(attachments);
+	if (reply != null) capabilities.add(reply);
+	for (const capability of capabilities) {
+		void callbacks.cleanup(
+			Promise.resolve().then(() => session.release(capability)),
+			"an unaccepted direct message capability would not release",
+		);
+	}
+	throw directNotAccepted();
+}
 
 export function directEmitter(
 	archive: DurableRoomsArchive,
-	receivers: ReadonlySet<DirectEventObserver>,
+	receivers: ReadonlySet<ConversationEventObserver>,
 	keepHistory: () => boolean,
 ): DirectRealizationCallbacks["emit"] {
 	return (held, conversationId, generation, message, editable, files) =>
@@ -41,9 +58,9 @@ export function directEmitter(
 }
 
 export function directTypingEmitter(
-	receivers: ReadonlySet<DirectEventObserver>,
+	receivers: ReadonlySet<ConversationEventObserver>,
 ): DirectRealizationCallbacks["typing"] {
-	return (_held, conversationId, peer, on) => emitDirectTyping(receivers, conversationId, peer, on);
+	return (_held, conversationId, peer, on) => emitTypingEvent(receivers, conversationId, peer, on);
 }
 
 export interface DirectRealizationCallbacks {
@@ -61,7 +78,7 @@ export interface DirectRealizationCallbacks {
 		held: LiveDirectory,
 		conversationId: string,
 		generation: string,
-		message: import("../lib/room_client.ts").Message,
+		message: Message,
 		editable: boolean,
 		files?: RuntimeAttachment[],
 	): void;
@@ -73,13 +90,29 @@ export interface DirectRealizationCallbacks {
 		locator: string,
 		nick: string,
 	): Promise<void> | void;
+	handRoom(held: LiveDirectory, owner: Session, label: string, room: Ref, from: string): Promise<void> | void;
+	acceptDirect?(
+		held: LiveDirectory,
+		peer: string,
+		peerRegistrationId: string,
+	): Promise<string>;
 	typing?(held: LiveDirectory, conversationId: string, peer: string, on: boolean): void;
 	archiveShare?(
 		held: LiveDirectory,
 		owner: Session,
 		directory: unknown,
+		kind: unknown,
 		conversation: unknown,
 		archive: Ref,
+		from: string,
+		fromRegistrationId: string,
+	): Promise<void> | void;
+	archiveOffer?(
+		held: LiveDirectory,
+		directory: unknown,
+		kind: unknown,
+		conversation: unknown,
+		sturdyref: string,
 		from: string,
 		fromRegistrationId: string,
 	): Promise<void> | void;
@@ -108,16 +141,16 @@ export function receiveDirect(
 		}),
 	);
 	const files = direct.files.retainIncoming(message, session);
-	emit(held, conversationId, direct.generation, message, false, files);
+	emit(held, conversationId, direct.generation, message, true, files);
 	return line;
 }
 
-export function emitDirectMessage(
+function emitDirectMessage(
 	archive: DurableRoomsArchive,
 	receivers: ReadonlySet<
 		(
 			conversationId: string,
-			message: import("../lib/room_client.ts").Message,
+			message: Message,
 			editable: boolean,
 			files: RuntimeAttachment[],
 			history: ArchiveCoordinates | null,
@@ -127,7 +160,7 @@ export function emitDirectMessage(
 	held: LiveDirectory,
 	conversationId: string,
 	generation: string,
-	message: import("../lib/room_client.ts").Message,
+	message: Message,
 	editable: boolean,
 	files: RuntimeAttachment[] = [],
 ): void {
@@ -142,32 +175,6 @@ export function emitDirectMessage(
 		files,
 	});
 	for (const receive of receivers) receive(conversationId, message, editable, files, history);
-}
-
-export function emitDirectTyping(
-	receivers: ReadonlySet<DirectEventObserver>,
-	conversationId: string,
-	peer: string,
-	on: boolean,
-): void {
-	// Typing is deliberately not a Message in the durable model. It is carried
-	// through the same observer fan-out only so each view can apply its bounded
-	// auto-clear timer locally.
-	for (const receive of receivers) {
-		receive(
-			conversationId,
-			{
-				from: peer,
-				text: "",
-				system: true,
-				presence: { kind: "typing", name: peer, on },
-				attachments: [],
-			},
-			false,
-			[],
-			null,
-		);
-	}
 }
 
 export async function sendDirectFiles(
@@ -202,9 +209,7 @@ export async function reconcileDirects(
 	callbacks: DirectRealizationCallbacks,
 ): Promise<void> {
 	const wanted = new Map(
-		conversations.filter((conversation): conversation is Extract<WorkspaceConversation, { kind: "direct" }> =>
-			conversation.kind === "direct" && conversation.directory === held.id
-		).map((conversation) => [conversation.id, conversation]),
+		directoryDirects(held.id, conversations).map((conversation) => [conversation.id, conversation]),
 	);
 	const prefix = `direct:${held.id}:`;
 	for (const subject of callbacks.subjects()) {
@@ -390,7 +395,7 @@ function adoptDirectRoute(
 			Promise.resolve().then(() => session.release(reply)),
 			"an unaccepted reciprocal direct route would not release",
 		);
-		throw new Error("that direct conversation is not accepted in this Rooms session");
+		throw directNotAccepted();
 	}
 	const existing = held.directs.get(conversation);
 	if (existing?.line.usesRoute(session, reply)) {
@@ -440,12 +445,13 @@ export function directInbox(
 				held.nick,
 			);
 		},
+		handRoom: (label, room, owner) => callbacks.handRoom(held, owner, label, room, peer),
 		typing: (on) => {
 			const conversation = conversationForPeer(held, peerRegistrationId);
-			if (conversation == null) throw new Error("that direct conversation is not accepted in this Rooms session");
+			if (conversation == null) throw directNotAccepted();
 			callbacks.typing?.(held, conversation, peer, on);
 		},
-		handArchive: (directory, conversation, archive, owner) => {
+		handArchive: (directory, kind, conversation, archive, owner) => {
 			if (callbacks.archiveShare == null) {
 				const refusal = new Error("archive sharing is unavailable on this direct line");
 				try {
@@ -455,20 +461,28 @@ export function directInbox(
 				}
 				throw refusal;
 			}
-			return callbacks.archiveShare(held, owner, directory, conversation, archive, peer, peerRegistrationId);
+			return callbacks.archiveShare(
+				held,
+				owner,
+				directory,
+				kind,
+				conversation,
+				archive,
+				peer,
+				peerRegistrationId,
+			);
+		},
+		offerArchive: (directory, kind, conversation, sturdyref) => {
+			if (callbacks.archiveOffer == null) {
+				throw new Error("durable archive offers are unavailable on this direct line");
+			}
+			return callbacks.archiveOffer(held, directory, kind, conversation, sturdyref, peer, peerRegistrationId);
 		},
 		message: (text, attachments, session, reply) => {
-			const conversation = conversationForPeer(held, peerRegistrationId);
-			if (conversation == null) throw new Error("that direct conversation is not accepted in this Rooms session");
+			const existing = conversationForPeer(held, peerRegistrationId);
+			if (existing == null) refuseUnacceptedMessage(session, reply, attachments, callbacks);
 			if (reply != null) adoptDirectRoute(held, peer, peerRegistrationId, session, reply, callbacks);
-			return callbacks.receive(
-				held,
-				conversation,
-				peer,
-				text,
-				attachments,
-				session,
-			);
+			return callbacks.receive(held, existing, peer, text, attachments, session);
 		},
 	});
 }

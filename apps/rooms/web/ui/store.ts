@@ -6,11 +6,11 @@
 // lines, and directories live in `store/`; this file is who is in a room, where
 // this reader stands, and what they have been offered.
 
-import type { DirId, Invitation, RoomConv } from "./types.ts";
-import { get, set, type State } from "./store/core.ts";
-import type { Presence } from "../../lib/room_presence.ts";
-import { applyRoomPresence } from "../../lib/room_presence.ts";
-import type { RoomMemberState } from "../../lib/room_presence.ts";
+import type { BridgeFacts, DirId, Invitation, RoomConv } from "./types.ts";
+import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
+import type { Presence } from "../../lib/room/presence.ts";
+import { applyRoomPresence } from "../../lib/room/presence.ts";
+import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { getConv, put } from "./store/convs.ts";
 import { patchDir } from "./store/dirs.ts";
 
@@ -20,16 +20,20 @@ export * from "./store/core.ts";
 export * from "./store/chrome.ts";
 export * from "./store/archive.ts";
 export * from "./store/convs.ts";
+export * from "./store/rooms.ts";
 export * from "./store/items.ts";
 export * from "./store/dirs.ts";
 export * from "./store/reaching.ts";
 export * from "./store/trouble.ts";
 
 // ── Room membership and typing ────────────────────────────────────────────
-export function applyPresence(key: string, event: Presence | null): void {
-	const conv = getConv(key);
-	if (!event || conv?.type !== "room") return;
-	put({ ...conv, members: applyRoomPresence(conv.members, event) });
+export function applyPresence(projection: PageProjection, key: string, event: Presence | null): void {
+	if (event == null || event.kind === "typing") return;
+	if (getConv(projection, key)?.type !== "room") return;
+	const current = membersOf(projection, key);
+	const next = applyRoomPresence(current, event);
+	if (next === current || rosterEquals(current, next)) return;
+	replaceMembers(projection, key, next);
 }
 
 /** What a room says it is about.
@@ -38,42 +42,148 @@ export function applyPresence(key: string, event: Presence | null): void {
  * has had its topic taken down says so with an empty string, and a room that has
  * never had one says nothing. The bar draws neither, so the difference shows
  * only in whether a change is worth announcing — taking one down is news. */
-export function setTopic(key: string, topic: string): void {
-	const conv = getConv(key);
+export function setTopic(projection: PageProjection, key: string, topic: string): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.topic === topic) return;
-	put({ ...conv, topic });
+	put(projection, { ...conv, topic });
 }
 
 /** What a room will carry in one line, in bytes. See `lineBytes`. */
-export function setLineBytes(key: string, lineBytes: number): void {
-	const conv = getConv(key);
+export function setLineBytes(projection: PageProjection, key: string, lineBytes: number): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.lineBytes === lineBytes) return;
-	put({ ...conv, lineBytes });
+	put(projection, { ...conv, lineBytes });
+}
+
+/** Every field of a room's bridge facts, exhaustively. A field the comparison
+ * below does not know is a bridge whose change never reaches the roster, so
+ * listing them as a `Record` over the schema's own keys makes forgetting one a
+ * build error. `SEAT_FIELD_SET` guards a seat the same way. */
+const BRIDGE_FIELD_SET: Record<keyof BridgeFacts, true> = {
+	prefix: true,
+	badge: true,
+	said: true,
+	scope: true,
+};
+const BRIDGE_FIELDS = Object.keys(BRIDGE_FIELD_SET) as readonly (keyof BridgeFacts)[];
+
+/** Whether two statements of a room's bridge say the same thing.
+ *
+ * Compared field by field rather than by reference, because the fact arrives on
+ * a fresh object every time a room repeats it and an identity check would
+ * rewrite the conversation on every welcome. Both a line stating the fact and a
+ * snapshot carrying it ask this, so they cannot disagree about what changed. */
+function bridgeFactsEqual(left: BridgeFacts | undefined, right: BridgeFacts | undefined): boolean {
+	return BRIDGE_FIELDS.every((field) => left?.[field] === right?.[field]);
+}
+
+/** What the bridge behind a room calls its own, as a line stated it. See
+ * `readBridge`. */
+export function setBridgeFacts(projection: PageProjection, key: string, bridge: BridgeFacts): void {
+	const conv = getConv(projection, key);
+	if (conv?.type !== "room") return;
+	if (bridgeFactsEqual(conv.bridge, bridge)) return;
+	put(projection, { ...conv, bridge });
+}
+
+/** Every field of a seat, exhaustively.
+ *
+ * The comparison below decides whether a roster re-renders, so a field it does
+ * not know is a member whose row silently stops updating. Listing them as a
+ * `Record` over the seat's own keys makes that a build error rather than a
+ * stale badge: adding one to the schema and not here will not compile. */
+type SeatField = keyof NonNullable<RoomMemberState["seat"]>;
+const SEAT_FIELD_SET: Record<SeatField, true> = {
+	network: true,
+	state: true,
+	nick: true,
+	badge: true,
+	said: true,
+};
+const SEAT_FIELDS = Object.keys(SEAT_FIELD_SET) as readonly SeatField[];
+
+/** One attached room's complete live view, as a session snapshot states it.
+ *
+ * Every field is required, and that is the point rather than strictness for its
+ * own sake. This shape is the whole of what an attached reader rebuilds a room
+ * from after a reload, so a field that may be left out is a field a snapshot
+ * can quietly stop carrying. That is how bridge facts went missing here, and
+ * left a bridged room's foreign members drawn under bare row keys. Adding a
+ * field breaks every caller until each one says what it means to send. */
+export interface RoomViewUpdate {
+	members: readonly [string, RoomMemberState][];
+	topic: string | null;
+	lineBytes: number | null;
+	bridge: BridgeFacts | null;
+	canSetTopic: boolean;
+	canModerate: boolean;
 }
 
 /** Replace one attached room's complete live view from a session snapshot. */
-export function setRoomView(
-	key: string,
-	members: readonly [string, RoomMemberState][],
-	topic: string | null,
-	lineBytes: number | null,
-	canSetTopic = false,
-	canModerate = false,
-): void {
-	const conv = getConv(key);
+export function setRoomView(projection: PageProjection, key: string, view: RoomViewUpdate): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room") return;
-	const { topic: _topic, lineBytes: _lineBytes, ...base } = conv;
-	put({
-		...base,
-		members: new Map(members),
-		grants: new Set([
-			...(canSetTopic ? ["topic"] : []),
-			...(canModerate ? ["steward"] : []),
-		]),
-		...(topic == null ? {} : { topic }),
-		...(lineBytes == null ? {} : { lineBytes }),
-	});
+	const grants = new Set([
+		...(view.canSetTopic ? ["topic"] : []),
+		...(view.canModerate ? ["steward"] : []),
+	]);
+	const nextTopic = view.topic == null ? undefined : view.topic;
+	const nextLineBytes = view.lineBytes == null ? undefined : view.lineBytes;
+	const nextBridge = view.bridge ?? undefined;
+	const viewChanged = !setsEqual(conv.grants, grants) || conv.topic !== nextTopic ||
+		conv.lineBytes !== nextLineBytes || !bridgeFactsEqual(conv.bridge, nextBridge);
+	const roster = new Map(view.members);
+	const rosterChanged = !rosterEquals(membersOf(projection, key), roster);
+	if (!viewChanged && !rosterChanged) return;
+	const next: Partial<Pick<State, "convs" | "members">> = {};
+	if (viewChanged) {
+		const convs = new Map(projection.get().convs);
+		// Each optional field is stripped before the spread puts it back, so a
+		// view that stops carrying one clears it rather than leaving the previous
+		// snapshot's value standing.
+		const { topic: _topic, lineBytes: _lineBytes, bridge: _bridge, ...base } = conv;
+		convs.set(key, {
+			...base,
+			grants,
+			...(nextTopic == null ? {} : { topic: nextTopic }),
+			...(nextLineBytes == null ? {} : { lineBytes: nextLineBytes }),
+			...(nextBridge == null ? {} : { bridge: nextBridge }),
+		});
+		next.convs = convs;
+	}
+	if (rosterChanged) {
+		const held = new Map(projection.get().members);
+		if (roster.size === 0) held.delete(key);
+		else held.set(key, roster);
+		next.members = held;
+	}
+	projection.set(next);
 }
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+	if (left.size !== right.size) return false;
+	for (const value of right) if (!left.has(value)) return false;
+	return true;
+}
+
+function rosterEquals(
+	left: ReadonlyMap<string, RoomMemberState>,
+	right: ReadonlyMap<string, RoomMemberState>,
+): boolean {
+	if (left.size !== right.size) return false;
+	for (const [name, standing] of right) {
+		const was = left.get(name);
+		if (was == null || was.online !== standing.online || was.away !== standing.away) return false;
+		if ((was.seat == null) !== (standing.seat == null)) return false;
+		if (was.seat != null && standing.seat != null) {
+			for (const field of SEAT_FIELDS) {
+				if (was.seat[field] !== standing.seat[field]) return false;
+			}
+		}
+	}
+	return true;
+}
+
 /** Whose lines this window does not show.
  *
  * Kept in this window rather than told to the room, which is the honest shape:
@@ -84,36 +194,37 @@ export function setRoomView(
  * Persisted, because an ignore that forgot itself on reload would have to be
  * made again every morning by exactly the person who least wants to think about
  * whoever it names. */
-export function ignore(name: string): void {
+export function ignore(projection: PageProjection, name: string): void {
 	const folded = name.toLowerCase();
-	const state = get();
+	const state = projection.get();
 	if (state.ignored.has(folded)) return;
 	const ignored = new Set(state.ignored);
 	ignored.add(folded);
-	set({ ignored });
+	projection.set({ ignored });
 }
 
-export function unignore(name: string): boolean {
+export function unignore(projection: PageProjection, name: string): boolean {
 	const folded = name.toLowerCase();
-	const state = get();
+	const state = projection.get();
 	if (!state.ignored.has(folded)) return false;
 	const ignored = new Set(state.ignored);
 	ignored.delete(folded);
-	set({ ignored });
+	projection.set({ ignored });
 	return true;
 }
 
 /** Remember what this conversation just submitted, including a command that
- * never became a chat line. Empty text is not a submission worth recalling. */
-export function rememberLastSent(key: string, text: string): void {
-	if (text === "") return;
-	const lastSent = new Map(get().lastSent);
+ * never became a chat line. Empty text is not a submission worth recalling, and a
+ * conversation that has already left is not one: last sent dies with it. */
+export function rememberLastSent(projection: PageProjection, key: string, text: string): void {
+	if (text === "" || !projection.get().convs.has(key)) return;
+	const lastSent = new Map(projection.get().lastSent);
 	lastSent.set(key, text);
-	set({ lastSent });
+	projection.set({ lastSent });
 }
 
-export function lastSentFor(key: string | null): string | undefined {
-	return key === null ? undefined : get().lastSent.get(key);
+export function lastSentFor(projection: PageProjection, key: string | null): string | undefined {
+	return key === null ? undefined : projection.get().lastSent.get(key);
 }
 // ── Where this reader stands, at three levels ──────────────────────────────
 //
@@ -137,33 +248,33 @@ export function lastSentFor(key: string | null): string | undefined {
  * directory's, or theirs. */
 type StandingState = Readonly<Pick<State, "standing" | "convs" | "dirs">>;
 
-export function standingFor(key: string, s: StandingState = get()): string {
-	const conv = getConv(key, s);
+export function standingFor(projection: PageProjection, key: string, s: StandingState = projection.get()): string {
+	const conv = getConv(projection, key, s);
 	if (conv?.type !== "room") return s.standing;
 	return conv.standing ?? s.dirs.get(conv.dir)?.standing ?? s.standing;
 }
 
 /** Where this reader stands on one directory, for a room it has not spoken for
  * itself: the directory's own word, or theirs. */
-export function standingOn(dir: DirId, s: StandingState = get()): string {
+export function standingOn(projection: PageProjection, dir: DirId, s: StandingState = projection.get()): string {
 	return s.dirs.get(dir)?.standing ?? s.standing;
 }
 
 /** Say where this reader stands everywhere. */
-export function setStanding(standing: string): void {
-	if (get().standing !== standing) set({ standing });
+export function setStanding(projection: PageProjection, standing: string): void {
+	if (projection.get().standing !== standing) projection.set({ standing });
 }
 
 /** Say where they stand on one directory, or `null` to follow their own. */
-export function setDirStanding(dir: DirId, standing: string | null): void {
-	if (get().dirs.get(dir)?.standing !== standing) patchDir(dir, { standing });
+export function setDirStanding(projection: PageProjection, dir: DirId, standing: string | null): void {
+	if (projection.get().dirs.get(dir)?.standing !== standing) patchDir(projection, dir, { standing });
 }
 
 /** Say where they stand in one room, or `null` to follow its directory. */
-export function setRoomStanding(key: string, standing: string | null): void {
-	const conv = getConv(key);
+export function setRoomStanding(projection: PageProjection, key: string, standing: string | null): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.standing === standing) return;
-	put({ ...conv, standing });
+	put(projection, { ...conv, standing });
 }
 
 /** Record what this room handed this membership, once subscribing has answered.
@@ -173,46 +284,75 @@ export function setRoomStanding(key: string, standing: string | null): void {
 // ── Rooms somebody handed you ──────────────────────────────────────────────
 
 /** Put an invitation in front of the reader. */
-export function addInvite(invite: Invitation): void {
-	set({ invites: [...get().invites, invite] });
+export function addInvite(projection: PageProjection, invite: Invitation): void {
+	projection.set({ invites: [...projection.get().invites, invite] });
 }
 
 /** Forget one, however it was answered. */
-export function dropInvite(id: string): void {
-	const invites = get().invites;
+export function dropInvite(projection: PageProjection, id: string): void {
+	const invites = projection.get().invites;
 	if (!invites.some((invite) => invite.id === id)) return;
-	set({ invites: invites.filter((invite) => invite.id !== id) });
+	projection.set({ invites: invites.filter((invite) => invite.id !== id) });
 }
 
-export function setGrants(key: string, grants: ReadonlySet<string>): void {
-	const conv = getConv(key);
+export function setGrants(projection: PageProjection, key: string, grants: ReadonlySet<string>): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room") return;
-	put({ ...conv, grants });
+	put(projection, { ...conv, grants });
 }
 
 /** Record what the conversation's current history request learned. */
-export function setEarlierHistory(key: string, earlierHistory: RoomConv["earlierHistory"]): void {
-	const conv = getConv(key);
+export function setEarlierHistory(
+	projection: PageProjection,
+	key: string,
+	earlierHistory: RoomConv["earlierHistory"],
+): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.earlierHistory === earlierHistory) return;
-	put({ ...conv, earlierHistory });
+	put(projection, { ...conv, earlierHistory });
 }
-export function clearMembers(key: string): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || conv.members.size === 0) return;
-	put({ ...conv, members: new Map() });
+export function clearMembers(projection: PageProjection, key: string): void {
+	if (getConv(projection, key)?.type !== "room" || membersOf(projection, key).size === 0) return;
+	replaceMembers(projection, key, NO_MEMBERS);
 }
 
 /** Whether this room has said `name` is one of its members. */
-export function hasMember(key: string, name: string): boolean {
-	const conv = getConv(key);
-	return conv?.type === "room" && conv.members.has(name);
+export function hasMember(projection: PageProjection, key: string, name: string): boolean {
+	return getConv(projection, key)?.type === "room" && membersOf(projection, key).has(name);
 }
 
-export function setTyper(key: string, who: string, typing: boolean): void {
-	const conv = getConv(key);
-	if (conv == null || conv.typers.has(who) === typing) return;
-	const typers = new Set(conv.typers);
-	if (typing) typers.add(who);
-	else typers.delete(who);
-	put({ ...conv, typers });
+export function membersOf(
+	projection: PageProjection,
+	key: string | null,
+	s: Readonly<Pick<State, "members">> = projection.get(),
+): ReadonlyMap<string, RoomMemberState> {
+	return key == null ? NO_MEMBERS : s.members.get(key) ?? NO_MEMBERS;
+}
+
+function replaceMembers(projection: PageProjection, key: string, roster: ReadonlyMap<string, RoomMemberState>): void {
+	const members = new Map(projection.get().members);
+	if (roster.size === 0) members.delete(key);
+	else members.set(key, roster);
+	projection.set({ members });
+}
+
+export function typersOf(
+	projection: PageProjection,
+	key: string | null,
+	s: Readonly<Pick<State, "typers">> = projection.get(),
+): ReadonlySet<string> {
+	return key == null ? NO_TYPERS : s.typers.get(key) ?? NO_TYPERS;
+}
+
+export function setTyper(projection: PageProjection, key: string, who: string, typing: boolean): void {
+	if (getConv(projection, key) == null) return;
+	const current = typersOf(projection, key);
+	if (current.has(who) === typing) return;
+	const names = new Set(current);
+	if (typing) names.add(who);
+	else names.delete(who);
+	const typers = new Map(projection.get().typers);
+	if (names.size === 0) typers.delete(key);
+	else typers.set(key, names);
+	projection.set({ typers });
 }

@@ -11,17 +11,17 @@
 # Deno comes from the official image's `bin` variant (just the binary), copied onto
 # the same pinned debian:trixie-slim base as the dev image. Building in that
 # devcontainer and running on this image keeps the glibc boundary aligned.
-# Nothing here needs ca-certificates: the public TLS is cloudflared's and CapTP
+# Nothing here needs ca-certificates: the web surface is host-local and CapTP
 # peers authenticate with iroh's own node keys. The browser bundle is prepared in
 # the devcontainer so startup does not depend on package-cache state. There is no
 # apt layer. The iroh Rust sidecar is statically linked into the transport .so, so
 # this image needs no cargo either.
 #
-# The Deno tag and the base image digest below both come from
-# .devcontainer/pins.sh. `update-pins.sh bump` rewrites them here, and
-# .devcontainer/test/env-sync.sh fails the build if either drifts from it.
+# The Deno tag, its source-image index digest, and the base image digest below
+# come from .devcontainer/pins.sh. `update-pins.sh bump deno` stages the Deno
+# version, release hashes, digest, and this reference as one transaction.
 
 FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
-COPY --from=denoland/deno:bin-2.9.5 /deno /usr/local/bin/deno
+COPY --from=denoland/deno:bin-2.9.5@sha256:0d1262facd139e815217c001945eb822c7a78584cf660142c34a6b53effec1aa /deno /usr/local/bin/deno
 ENV DENO_DIR=/deno-dir
 ENTRYPOINT ["deno"]

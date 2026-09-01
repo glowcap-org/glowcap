@@ -142,9 +142,22 @@ export class VowBroken extends PancakeError {
 	}
 }
 
+/** A durable publication the remote Host no longer knows. This is the
+ * application-facing lifecycle fact behind CapTP's canonical
+ * `unknown swissnum` break: consumers can reconcile retained sturdyrefs
+ * without branching on protocol text. */
+export class PublicationNotFound extends VowBroken {
+	constructor() {
+		super("unknown swissnum");
+		this.name = "PublicationNotFound";
+	}
+}
+
 /** Project a core-issued vow failure code into the binding's typed hierarchy. */
 export function vowFailure(code: number, reason: string): PancakeError {
-	return code === BROKEN ? new VowBroken(reason) : new PancakeError(code, reason);
+	return code === BROKEN
+		? reason === "unknown swissnum" ? new PublicationNotFound() : new VowBroken(reason)
+		: new PancakeError(code, reason);
 }
 
 /** A `fetch` that settled, but not with a capability, the application-level

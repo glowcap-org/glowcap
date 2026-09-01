@@ -3,8 +3,8 @@
 pancake should be a dependable OCapN implementation for people who need
 capability networking from Zig or another systems boundary.
 
-This page describes that destination. [What ships](shipped.md) describes the
-code today; [the roadmap](roadmap.md) names the work between the two.
+[What ships](shipped.md) describes the code today; [the roadmap](roadmap.md)
+names the work between here and that destination.
 
 ## The goal
 
@@ -45,7 +45,7 @@ The destination is 500,000 live CapTP sessions on one node.
 That is a target. A recorded run has to hold that many real socket sessions
 with acceptable memory and scheduling cost. Until then, per-session footprint
 checks and allocation budgets keep the design moving in the right direction.
-[The route to 1.0](ladder.md) owns the measured numbers.
+[The route to 1.0](ladder.md) records the measured numbers.
 
 The core cannot create scale by itself; the connection loop and operating
 system do the serving. Its responsibility is to avoid making the target

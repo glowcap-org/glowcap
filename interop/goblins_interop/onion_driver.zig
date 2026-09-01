@@ -31,7 +31,7 @@
 //! Two things about the daemon are decided by the partner rather than by pancake.
 //! Its control endpoint takes no credential, because Goblins sends a bare
 //! `AUTHENTICATE`, so the check runs the narrower of the two peers' capabilities.
-//! And both peers share one Tor, which is what a deployment would not do but is
+//! And both peers share one Tor, a thing a deployment would not do but is
 //! exactly right here: the bytes still cross the network between two hidden
 //! service circuits, and one bootstrap is paid once instead of twice.
 //!

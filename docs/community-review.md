@@ -4,8 +4,8 @@ This is the review brief for OCapN and Spritely Goblins maintainers. It states
 the interop target, the evidence that runs, and the known differences from the
 draft text or a live peer.
 
-pancake pins the OCapN suite and Goblins source and gates both in
-[`ci/gates.sh`](../ci/gates.sh) for main-branch pushes and pull requests. The
+pancake pins the OCapN suite and Goblins source and checks both in
+[`ci/gates.sh`](../ci/gates.sh) for main and dev pushes and pull requests. The
 repository is still private, and its current GitHub Actions runs stop before a
 job starts because of the account's payment/spending state; restoring public,
 green evidence for the exact release commit is an explicit
@@ -19,7 +19,7 @@ forbid them. The policy is in
 
 | Goblins / CapTP / OCapN | pancake |
 | --- | --- |
-| `mycapn` | Two roles: the product is a `Host`; the sans-io handoff router is `engine.Node`. Never one type equation. |
+| `mycapn` | Two roles: the product is a `Host`; the I/O-free handoff router is `engine.Node`. Goblins combines those jobs in one type; pancake keeps them apart. |
 | CapTP session with one partner | Application-facing `Session`; the Host ABI's registered shell is `PancakeHostSession`. A byte stream is a `Connection` / transport `*Conn`, never the CapTP partner. |
 | Goblins vow / OCapN promise / answer position | A Goblins vow is a passable eventual reference. pancake's `Vow` is a local host/actor observation and send-result handle over an OCapN promise. `desc:answer` names the sender-chosen session slot used for pipelining. These are related projections, not one type. |
 | CapTP value-level sealer / unsealer | Not implemented as a pancake type. The unrelated `SealedChannel` is pancake's Noise-encrypted transport byte channel (ADR-0107). |
@@ -27,9 +27,10 @@ forbid them. The policy is in
 Two findings may be useful upstream: the draft, suite, and Goblins disagree on
 the operand count for `op:listen`, and the draft's mapping-shaped locator hints
 do not match the pinned Goblins string-or-false constructor contract. The
-checked records are in
-[`conformance/ocapn-findings/`](../conformance/ocapn-findings/README.md). It
-will be reproduced by hand if an upstream maintainer asks for it.
+records in
+[`conformance/ocapn-findings/`](../conformance/ocapn-findings/README.md) are
+enough for a maintainer to reproduce the disagreement without a pancake
+checkout.
 
 ## Interop Target
 
@@ -130,6 +131,7 @@ that script, so a removed step cannot remain marked as recurring evidence.
 | `zig build ocapn-findings-check` | yes | The pinned sources still disagree on `op:listen` arity and locator-hints typing. | Which form upstream should choose. |
 | `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, onion, or iroh. |
 | `zig build goblins-rooms` | yes | A real Goblins vat and a pancake member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the pancake session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport; those have separate on-demand rows. |
+| `zig build goblins-rooms-peering` | no | A real Goblins vat enters a foreign room through a pancake directory publication over Syrup/v1.0, continues using the handed room after its publication is revoked, and lets the source reclaim and reuse the public name. | Recurring CI, browser behavior, a secure transport, or revocation of authority already handed to a member. |
 | `zig build goblins-rooms-irc` | yes | Both shipped IRC application edges compose with a real Goblins vat. Fixture IRC traffic crosses the bridge both ways. Through the front, an ordinary IRC client and Goblins exchange native room lines; IRC then initiates a direct message, and Goblins replies on its arriving v1.0/Syrup TCP session. | A public IRC network, browser behavior, or the front's iroh deployment posture. The fixture is local and deterministic. |
 | `zig build goblins-onion` | no | Live Goblins sessions both ways over the Goblins onion netlayer and pancake's Tor resident. | Recurring CI (needs `tor` and outbound network), live scale, or hinted-onion sturdyrefs. |
 | `zig build ocapn-conformance-onion` | no | Every portable upstream module against pancake over the upstream Onion netlayer, including pancake in all three handoff roles. | Goblins application behavior, recurring CI, live scale, or the reset-sensitive raw `tests.op_abort`. |
@@ -145,7 +147,7 @@ that script, so a removed step cannot remain marked as recurring evidence.
 | Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or the reciprocal listener direction, which the sibling listener matrix owns. | <!-- ci-gate: bindings-goblins-interop -->
 | Binding `*-goblins-listen` steps | yes | Goblins dials Deno, Python, Rust, and Racket binding Hosts, enlivens one published actor, calls it, and reads its exact reply. | Bun, whose synchronous FFI cannot host the native loop. | <!-- ci-gate: bindings-goblins-listen -->
 | Binding `*-goblins-handoff` / `*-goblins-gift` | yes | Deno, Python, Rust, and Racket act as recipient and gifter against Goblins; each gifter lifts a delegated capability from an ordinary vendor reply, returns it twice in one nested value, and Goblins redeems and calls both gives directly. | Bun or live recursive Tagged/user-record interop, which pinned Goblins does not implement. | <!-- ci-gate: bindings-goblins-handoff, bindings-goblins-gift -->
-| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient gate covers pancake's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
+| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient check covers pancake's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
 | `zig build fuzz` | yes | Coverage-guided inputs exercise codecs, framing, sessions, handoff, locators, the host, actors, persistent collections, and completion-loop accounting. Saved crashes replay under `check`. | Agreement with the specification, unreached code, or a well-formed but wrong decode. The recurring search is shallow. |
 | `zig build cli-test` / `pancake` | yes | CLI budgets, hang-proof dial, listen/call behavior, REPL, and MCP. | OCapN suite or Goblins behavior. | <!-- ci-gate: check -->
 

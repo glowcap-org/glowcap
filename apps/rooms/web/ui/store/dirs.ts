@@ -9,16 +9,16 @@
 import type { DirId, DirView, SessionPhase } from "../types.ts";
 import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publications.ts";
 import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../../../lib/limits.ts";
-import { get, set } from "./core.ts";
+import { type PageProjection } from "./core.ts";
 
 /** Replace one directory's view, leaving every other directory alone. */
-export function patchDir(dir: DirId, fields: Partial<DirView>): void {
-	const current = get().dirs;
+export function patchDir(projection: PageProjection, dir: DirId, fields: Partial<DirView>): void {
+	const current = projection.get().dirs;
 	const held = current.get(dir);
 	if (held === undefined) return;
 	const dirs = new Map(current);
 	dirs.set(dir, { ...held, ...fields });
-	set({ dirs });
+	projection.set({ dirs });
 }
 
 /** Start holding `dir`, or leave it as it stands if this tab already does.
@@ -26,10 +26,10 @@ export function patchDir(dir: DirId, fields: Partial<DirView>): void {
  * Idempotent because asking for a directory twice must never be a way to lose
  * what is already on it: the rooms are conversations, but the room list and the
  * reachable peers live here. */
-export function openDir(dir: DirId, locator = dir as string): void {
-	const current = get().dirs;
+export function openDir(projection: PageProjection, dir: DirId, locator: string): void {
+	const current = projection.get().dirs;
 	if (current.has(dir)) {
-		if (current.get(dir)?.locator !== locator) patchDir(dir, { locator });
+		if (current.get(dir)?.locator !== locator) patchDir(projection, dir, { locator });
 		return;
 	}
 	// The lowest mark nobody is wearing, so two directories can never share one
@@ -54,21 +54,21 @@ export function openDir(dir: DirId, locator = dir as string): void {
 		dmUnreachable: "",
 		standing: null,
 	});
-	set({ dirs });
+	projection.set({ dirs });
 }
 
 /** Stop holding `dir`. Its conversations are forgotten by their own verb: this
  * is the directory's own state and nothing else. */
-export function forgetDir(dir: DirId): void {
-	const current = get().dirs;
+export function forgetDir(projection: PageProjection, dir: DirId): void {
+	const current = projection.get().dirs;
 	if (!current.has(dir)) return;
 	const dirs = new Map(current);
 	dirs.delete(dir);
-	set({ dirs });
+	projection.set({ dirs });
 }
 
-export function setDirSession(dir: DirId, session: SessionPhase): void {
-	patchDir(dir, { session });
+export function setDirSession(projection: PageProjection, dir: DirId, session: SessionPhase): void {
+	patchDir(projection, dir, { session });
 }
 
 /** Name the directory this page came with. Written once, by the one open that
@@ -77,9 +77,9 @@ export function setDirSession(dir: DirId, session: SessionPhase): void {
  * One field and nothing else. Which locator a reader means by "here" is a
  * question the join card resolves as it draws, so this can be learned late
  * without anything reaching into what the reader is looking at. */
-export function setHomeDir(dir: DirId): void {
-	if (get().homeDir === dir) return;
-	set({ homeDir: dir });
+export function setHomeDir(projection: PageProjection, dir: DirId): void {
+	if (projection.get().homeDir === dir) return;
+	projection.set({ homeDir: dir });
 }
 
 /** Record that this directory has answered. One way only: one that has been
@@ -87,24 +87,24 @@ export function setHomeDir(dir: DirId): void {
  * exists to tell apart is "this address may be wrong" from "this directory has
  * gone away", and only the first of those is ever true before the first
  * answer. */
-export function markDirReached(dir: DirId): void {
-	patchDir(dir, { reached: true });
+export function markDirReached(projection: PageProjection, dir: DirId): void {
+	patchDir(projection, dir, { reached: true });
 }
 
 /** Whether this directory has ever answered in this tab. An unknown one reads
  * as not reached, which is the safe answer: it is the arm that gives up. */
-export function dirReached(dir: DirId): boolean {
-	return get().dirs.get(dir)?.reached ?? false;
+export function dirReached(projection: PageProjection, dir: DirId): boolean {
+	return projection.get().dirs.get(dir)?.reached ?? false;
 }
-export function setDirStatus(dir: DirId, statusText: string): void {
-	patchDir(dir, { statusText });
+export function setDirStatus(projection: PageProjection, dir: DirId, statusText: string): void {
+	patchDir(projection, dir, { statusText });
 }
 
 /** Say whether others can reach this tab for direct messages on `dir`: a reason
  * when they cannot, empty when they can. */
-export function setDmUnreachable(dir: DirId, why: string): void {
-	if ((get().dirs.get(dir)?.dmUnreachable ?? "") === why) return;
-	patchDir(dir, { dmUnreachable: why });
+export function setDmUnreachable(projection: PageProjection, dir: DirId, why: string): void {
+	if ((projection.get().dirs.get(dir)?.dmUnreachable ?? "") === why) return;
+	patchDir(projection, dir, { dmUnreachable: why });
 }
 
 /** Whether `name` is the name this directory granted this tab.
@@ -113,65 +113,81 @@ export function setDmUnreachable(dir: DirId, why: string): void {
  * else. This is the one answer those paths share, so a forgotten check cannot
  * mint a conversation with yourself. Empty until a name is granted, because
  * there is then no "you" to compare to. */
-export function isSelf(dir: DirId, name: string): boolean {
-	const nick = get().dirs.get(dir)?.nick ?? "";
+export function isSelf(projection: PageProjection, dir: DirId, name: string): boolean {
+	const nick = projection.get().dirs.get(dir)?.nick ?? "";
 	return nick !== "" && name.toLowerCase() === nick.toLowerCase();
 }
 function liveRoomKey(name: string): string {
 	return name.toLowerCase();
 }
 
-export function liveRoom(dir: DirId, name: string): RoomInfo | null {
-	return get().dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
+export function liveRoom(projection: PageProjection, dir: DirId, name: string): RoomInfo | null {
+	return projection.get().dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
 }
 
 /** The publication `name` must be entered through, or null to enter by name.
  *
- * Only a foreign room answers with its listing entry: entering its name with
- * an ordinary open would mint a fresh local room wearing it, so the exact
- * publication generation is the one way in. A local room is the opposite —
+ * Foreign and bridged rooms answer with their listing entry: the exact
+ * publication generation is their identity in this directory, and retaining
+ * it keeps presentation and re-entry tied to that room rather than to a
+ * reusable human label. A local room is the opposite —
  * it is always reachable by name, and keying its conversation by a listing
  * entry made one room two conversations whenever the listing arrived after
  * the first entry, with the address mirror then re-entering whichever copy
  * the reader had just left. Every entry path asks this one question so that
  * split cannot come back. */
-export function enteredPublication(dir: DirId, name: string): RoomInfo | null {
-	const live = liveRoom(dir, name);
-	return live !== null && live.kind === "foreign" ? live : null;
+export function enteredPublication(projection: PageProjection, dir: DirId, name: string): RoomInfo | null {
+	const live = liveRoom(projection, dir, name);
+	return live !== null && live.kind !== "local" ? live : null;
 }
 
-/** Where a bridged room's channel lives, or null for every other room. Read
- * from the directory view a component already holds, so presentation does not
- * reach past its props; the key fold stays this module's. */
+/** Where one exact bridged publication's channel lives, or null for every
+ * other publication. Publication ids are non-bearer directory identity; the
+ * gateway capability remains the authority to administer the bridge. */
 export function bridgedOrigin(
 	view: { liveRooms: ReadonlyMap<string, RoomInfo> } | undefined,
-	name: string,
+	publicationId: string | undefined,
 ): string | null {
-	const live = view?.liveRooms.get(liveRoomKey(name));
-	return live !== undefined && live.kind === "bridge" ? live.origin : null;
+	const publication = roomPublication(view, publicationId);
+	return publication?.kind === "bridge" ? publication.origin : null;
 }
 
-export function setLiveRoom(dir: DirId, room: RoomInfo): void {
-	const held = get().dirs.get(dir);
+export function roomPublication(
+	view: { liveRooms: ReadonlyMap<string, RoomInfo> } | undefined,
+	publicationId: string | undefined,
+): RoomInfo | null {
+	if (publicationId === undefined) return null;
+	for (const live of view?.liveRooms.values() ?? []) if (live.id === publicationId) return live;
+	return null;
+}
+
+export function setLiveRoom(projection: PageProjection, dir: DirId, room: RoomInfo): void {
+	const held = projection.get().dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
 	liveRooms.set(liveRoomKey(room.name), room);
-	patchDir(dir, { liveRooms });
+	patchDir(projection, dir, { liveRooms });
 }
-export function dropLiveRoom(dir: DirId, room: RoomInfo): void {
-	const held = get().dirs.get(dir);
+export function dropLiveRoom(projection: PageProjection, dir: DirId, room: RoomInfo): void {
+	const held = projection.get().dirs.get(dir);
 	if (held === undefined) return;
 	const liveRooms = new Map(held.liveRooms);
 	const key = liveRoomKey(room.name);
 	if (liveRooms.get(key)?.id !== room.id) return;
 	liveRooms.delete(key);
-	patchDir(dir, { liveRooms });
+	patchDir(projection, dir, { liveRooms });
 }
-export function resetLiveRooms(dir: DirId, rooms: Iterable<RoomInfo>): void {
-	patchDir(dir, { liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])) });
+export function resetLiveRooms(projection: PageProjection, dir: DirId, rooms: Iterable<RoomInfo>): void {
+	patchDir(projection, dir, { liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])) });
 }
-export function setDmable(dir: DirId, name: string, registrationId: string, reachable: boolean): boolean {
-	const held = get().dirs.get(dir);
+export function setDmable(
+	projection: PageProjection,
+	dir: DirId,
+	name: string,
+	registrationId: string,
+	reachable: boolean,
+): boolean {
+	const held = projection.get().dirs.get(dir);
 	if (held == null) return true;
 	const key = name.toLowerCase();
 	const current = held.dmablePeers.get(key);
@@ -181,23 +197,24 @@ export function setDmable(dir: DirId, name: string, registrationId: string, reac
 	const dmablePeers = new Map(held.dmablePeers);
 	if (reachable) dmablePeers.set(key, { name, registrationId });
 	else dmablePeers.delete(key);
-	patchDir(dir, { dmablePeers });
+	patchDir(projection, dir, { dmablePeers });
 	return true;
 }
 export function resetDirectoryDiscovery(
+	projection: PageProjection,
 	dir: DirId,
 	rooms: Iterable<RoomInfo>,
 	peers: Iterable<DirectoryMember>,
 ): void {
-	patchDir(dir, {
+	patchDir(projection, dir, {
 		liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])),
 		dmablePeers: new Map([...peers].map((peer) => [peer.name.toLowerCase(), peer])),
 	});
 }
-export function clearDmable(dir: DirId): void {
-	patchDir(dir, { dmablePeers: new Map() });
+export function clearDmable(projection: PageProjection, dir: DirId): void {
+	patchDir(projection, dir, { dmablePeers: new Map() });
 }
 
-export function peerRegistration(dir: DirId, name: string): DirectoryMember | null {
-	return get().dirs.get(dir)?.dmablePeers.get(name.toLowerCase()) ?? null;
+export function peerRegistration(projection: PageProjection, dir: DirId, name: string): DirectoryMember | null {
+	return projection.get().dirs.get(dir)?.dmablePeers.get(name.toLowerCase()) ?? null;
 }

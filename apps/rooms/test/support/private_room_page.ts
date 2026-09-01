@@ -41,17 +41,34 @@ export async function makeRoom(tab: Page, label: string, privately: boolean): Pr
 	await tab.click("#newRoomBtn");
 	const publicName = await tab.getAttribute("#newRoomInput", "placeholder");
 	if (publicName !== "room name") {
-		fail(`the rail field said ${JSON.stringify(publicName)} before the lock was pressed`);
+		fail(`the rail field said ${JSON.stringify(publicName)} before the access control was pressed`);
 	}
 	await tab.fill("#newRoomInput", label);
 	if (privately) {
+		// The control cycles open, moderated, private, so private is two presses
+		// from the default. The placeholder below is what says which one this
+		// stopped on, which is why it is read rather than assumed.
+		await tab.click(".newroom-private");
 		await tab.click(".newroom-private");
 		const privateName = await tab.getAttribute("#newRoomInput", "placeholder");
 		if (privateName !== "private room name") {
-			fail(`the rail field said ${JSON.stringify(privateName)} after the lock was pressed`);
+			fail(`the rail field said ${JSON.stringify(privateName)} after pressing through to private`);
 		}
 	}
 	await tab.press("#newRoomInput", "Enter");
+	await tab.waitForFunction(
+		({ label, privately }) => {
+			const line = document.querySelector<HTMLInputElement>("#line");
+			return line !== null && !line.disabled &&
+				[...document.querySelectorAll("#roomList li")].some((row) =>
+					(row.querySelector(".rname")?.textContent ?? "") === label &&
+					(row.querySelector(".hash svg") !== null) === privately &&
+					row.classList.contains("here")
+				);
+		},
+		{ label, privately },
+		{ timeout: 30_000 },
+	).catch(() => fail(`creating ${privately ? "private " : ""}${JSON.stringify(label)} never opened it`));
 }
 
 /** Every room row this tab holds, as a reader sees it. */
@@ -65,26 +82,35 @@ export function railRooms(tab: Page): Promise<{ name: string; locked: boolean; h
 	);
 }
 
-/** Stand in the rail row called `name` — the locked one, or the listed one. */
-export async function openRailRoom(tab: Page, name: string, locked: boolean): Promise<void> {
-	const opened = await tab.evaluate(({ name, locked }) => {
+/** Stand in the rail row called `name`, telling two rooms of one name apart by
+ * their mark.
+ *
+ * `marked` is whether the row draws a glyph rather than the plain `#`, which is
+ * every access except the open one: a private room draws its lock and a
+ * moderated one its observer. So this is not only "the private one" — a room
+ * whose access was changed to moderated is marked too, and asking for the
+ * unmarked row would look past it. */
+export async function openRailRoom(tab: Page, name: string, marked: boolean): Promise<void> {
+	const opened = await tab.evaluate(({ name, marked }) => {
 		const row = [...document.querySelectorAll("#roomList li")].find((li) =>
 			(li.querySelector(".rname")?.textContent ?? "") === name &&
-			(li.querySelector(".hash svg") !== null) === locked
+			(li.querySelector(".hash svg") !== null) === marked
 		);
 		if (row === undefined) return false;
 		((row.querySelector(".rname") ?? row) as HTMLElement).click();
 		return true;
-	}, { name, locked });
-	if (!opened) fail(`no ${locked ? "locked" : "listed"} room called ${JSON.stringify(name)} to stand in`);
+	}, { name, marked });
+	if (!opened) {
+		fail(`no ${marked ? "marked" : "open-access"} room called ${JSON.stringify(name)} to stand in`);
+	}
 	await tab.waitForFunction(
-		({ name, locked }) =>
+		({ name, marked }) =>
 			[...document.querySelectorAll("#roomList li")].some((li) =>
 				(li.querySelector(".rname")?.textContent ?? "") === name &&
-				(li.querySelector(".hash svg") !== null) === locked &&
+				(li.querySelector(".hash svg") !== null) === marked &&
 				li.classList.contains("here")
 			),
-		{ name, locked },
+		{ name, marked },
 		{ timeout: 15_000 },
 	).catch(() => fail(`standing in ${JSON.stringify(name)} never became the open conversation`));
 }
@@ -119,15 +145,17 @@ export async function roomLink(tab: Page, who: string): Promise<string> {
 	) {
 		fail(`the room-link control did not explain its authority and lifetime: ${JSON.stringify(explanation)}`);
 	}
-	if (await tab.locator("#convcardCreateRoomLink").count() !== 1) {
-		fail(`the Capabilities tab did not offer a room-link control for ${who}`);
+	if (await tab.locator("#convcardRoomLink").count() === 0) {
+		if (await tab.locator("#convcardCreateRoomLink").count() !== 1) {
+			fail(`the Capabilities tab did not offer a room-link control for ${who}`);
+		}
+		await tab.click("#convcardCreateRoomLink");
+		await tab.waitForSelector("#convcardRoomLink", { timeout: 30_000 })
+			.catch(() => fail(`pressing Create room link did not expose ${who}'s link`));
 	}
-	await tab.click("#convcardCreateRoomLink");
-	await tab.waitForSelector("#convcardRoomLink", { timeout: 30_000 })
-		.catch(() => fail(`pressing Create room link did not expose ${who}'s link`));
 	const shown = (await tab.textContent("#convcardRoomLink"))?.trim() ?? null;
 	if (typeof shown !== "string" || !shown.includes("/s/")) {
-		fail(`Create room link did not expose a link to ${who}'s room: ${JSON.stringify(shown)}`);
+		fail(`the Capabilities tab did not expose a link to ${who}'s room: ${JSON.stringify(shown)}`);
 	}
 	await tab.click("#convcardClose");
 	return shown;

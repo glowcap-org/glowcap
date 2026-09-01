@@ -156,8 +156,8 @@
 ;; is the vat's durable name, not a tuning knob: an `iroh` locator's designator
 ;; IS this key, so a vat that draws a fresh one is a different peer after every
 ;; restart and no sturdyref naming it survives. Omitting it draws a fresh random
-;; key, which is what both scripts in this directory do, because a driver's vat
-;; lives for one run.
+;; key, as both scripts in this directory do, because a driver's vat lives
+;; for one run.
 ;;
 ;; Optional `#:session-trace sink` — a `(lambda (event handle info) ...)` called
 ;; with the CapTP session facts this netlayer observes at the wire. The shape and

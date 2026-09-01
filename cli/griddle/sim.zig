@@ -1,8 +1,8 @@
 //! The griddle simulator: deterministic CapTP conversations under a seeded
 //! schedule.
 //!
-//! The protocol core is sync and does no I/O, which is what makes this
-//! possible at all — a peer is a value that takes frames and hands frames
+//! The protocol core is sync and does no I/O, and that alone makes this
+//! possible — a peer is a value that takes frames and hands frames
 //! back, so a scheduler can own the network entirely and replay it exactly.
 //! Given a seed, this runs a whole conversation and emits a timeline; the
 //! same seed always produces the same timeline, byte for byte.
@@ -407,8 +407,7 @@ pub fn run(
         },
         .crossed_fetch => {
             // Both sides publish, then both ask at once: two questions in
-            // flight in opposite directions, which is what gives the seed a
-            // real choice.
+            // flight in opposite directions, so the seed has a real choice.
             _ = try pair.p1.registerBootstrapCap("left");
             _ = try pair.p2.registerBootstrapCap("right");
             const from_left = try engine.fetch.prepareFetchSwissnum(gpa, &pair.p1.session_state, "right");

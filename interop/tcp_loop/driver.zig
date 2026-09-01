@@ -216,8 +216,8 @@ const backpressure_batch: usize = 512;
 /// against a number the kernel picks.
 ///
 /// Setting `SO_RCVBUF` explicitly opts this socket out of that auto-tuning,
-/// which is what makes the proof a statement about pancake rather than about
-/// the host's sysctls. Small on purpose: the window closes almost at once, so
+/// so the proof is a statement about pancake rather than about the host's
+/// sysctls. Small on purpose: the window closes almost at once, so
 /// the server's writes back up into the queue ADR-0042 bounds.
 const client_rcvbuf_bytes: c_int = 4096;
 

@@ -107,10 +107,10 @@ export type CopyFieldProps = {
 	label: string;
 	/** Names the text itself, for anything that reads what the field shows. */
 	id?: string;
-	/** One line, cut with an ellipsis, for a list where the value is one fact
-	 * among several and the whole of it is on the clipboard and in the title.
-	 * The default lets a locator run to any length, for a card that is about
-	 * that locator. */
+	/** One line, cut with an ellipsis, while the whole value remains on the
+	 * clipboard and in the title. This is the default because capability URIs
+	 * are usually an action, not prose to dominate the surface. Pass false only
+	 * where reading and comparing the complete value is the task. */
 	compact?: boolean;
 };
 
@@ -126,7 +126,7 @@ export type CopyFieldProps = {
  * the text run to any length. The corner is held open by the field's own
  * padding, so a value that wraps to three lines stops short of the mark on
  * every one of them, and a value that fits on one sits beside it. */
-export function CopyField({ text, label, id, compact = false }: CopyFieldProps) {
+export function CopyField({ text, label, id, compact = true }: CopyFieldProps) {
 	const { copied, copy } = useCopy(text);
 	return (
 		<button

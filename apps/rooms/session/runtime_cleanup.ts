@@ -87,10 +87,11 @@ export async function closeRuntimeDirectory(
 	for (const direct of [...held.directs.values()].reverse()) {
 		await cleanup.attempt("direct conversation would not close", () => direct.close());
 	}
-	for (const live of [...held.roomRealization.rooms.values()].reverse()) {
-		await cleanup.attempt("room resources would not release", () => releaseRoomResources(live));
-		await cleanup.attempt("room would not leave", () => live.room.leave());
-	}
+	await held.roomRealization.close(
+		releaseRoomResources,
+		(work, label) => cleanup.attempt(label, () => work),
+	);
+	await cleanup.attempt("WebRTC signaling would not close", () => held.signaling?.close() ?? Promise.resolve());
 	await cleanup.attempt("directory would not close", () => held.directory.close());
 	await cleanup.attempt("direct route openings would not settle", () => openings);
 	cleanup.finish();

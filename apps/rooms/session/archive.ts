@@ -9,6 +9,7 @@ import {
 	type ArchiveLine,
 	type ArchivePage,
 	type ArchiveRecord,
+	type ArchiveStanding,
 	type ErasableArchiveBackend,
 	MAX_ARCHIVE_READ,
 	MemoryArchiveBackend,
@@ -17,12 +18,14 @@ import {
 	readAllArchiveRecords,
 	readArchive,
 	readArchiveAttachment,
-} from "../lib/archive.ts";
-import { type ArchivedAttachmentSource, isBlobArchiveBackend, lineAttachmentAddress } from "../lib/archive_blobs.ts";
+} from "../lib/archive/protocol.ts";
+import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../lib/archive/client.ts";
+import { ARCHIVE_CANNOT_MINT_SHARE } from "../lib/archive/durable_protocol.ts";
+import { type ArchivedAttachmentSource, isBlobArchiveBackend, lineAttachmentAddress } from "../lib/archive/blobs.ts";
 import { fetchBlobChunk } from "../lib/attachment.ts";
-import type { Message } from "../lib/room_client.ts";
+import type { Message } from "../lib/room/client.ts";
 import type { RuntimeAttachment } from "./room_files.ts";
-import { parseRoomsSturdyref, roomsSturdyrefForSession } from "../lib/locator.ts";
+import { parseRoomsSturdyref } from "../lib/locator.ts";
 import { BLOB_CHUNK, MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES } from "../lib/limits.ts";
 
 interface SessionArchiveMessage {
@@ -93,6 +96,7 @@ export class DurableRoomsArchive {
 	#writes: Promise<void> = Promise.resolve();
 	#pendingFileBytes = 0;
 	#eraseRequired = false;
+	#stood = new Set<string>();
 
 	constructor(
 		runtime: Runtime,
@@ -162,7 +166,7 @@ export class DurableRoomsArchive {
 			!input.keep || input.generation == null || message.system ||
 			message.text === "" && input.files.length === 0 && message.change !== "withdrawn"
 		) return null;
-		return this.record({
+		const coords = this.record({
 			kind: "line",
 			...(message.lineId == null ? {} : { id: String(message.lineId) }),
 			generation: input.generation,
@@ -189,6 +193,32 @@ export class DurableRoomsArchive {
 					blob: null,
 				})),
 		}, message.change === "withdrawn" ? [] : input.files);
+		if (coords != null && input.kind === "room") {
+			this.#rememberStanding(input.directory, input.conversation, input.generation, input.nick);
+		}
+		return coords;
+	}
+
+	#rememberStanding(directory: string, conversation: string, generation: string, nick: string): void {
+		if (nick === "") return;
+		const key = `${directory}\u0000${conversation}\u0000${generation}`;
+		if (this.#stood.has(key)) return;
+		this.#stood.add(key);
+		const held = this.#held;
+		const standing: ArchiveStanding = {
+			kind: "standing",
+			source: this.#source,
+			generation,
+			id: "standing",
+			directory,
+			room: conversation,
+			nick,
+			at: Date.now(),
+		};
+		this.#writes = this.#writes.then(
+			() => this.#put(held, standing, []),
+			() => this.#put(held, standing, []),
+		).catch((error) => this.#issue(error));
 	}
 
 	async read(kind: ArchiveConversationKind, directory: string, conversation: string): Promise<ArchiveRecord[]> {
@@ -267,6 +297,24 @@ export class DurableRoomsArchive {
 		return await this.#local.read(filter, after, limit);
 	}
 
+	issueShare(id: string, label: string, filter: ArchiveFilter): Promise<string> {
+		const held = this.#held;
+		if (held == null) return Promise.reject(new Error(ARCHIVE_CANNOT_MINT_SHARE));
+		return issueArchiveShare(held.session, held.capability, id, label, filter);
+	}
+
+	revokeShare(id: string): Promise<boolean> {
+		const held = this.#held;
+		if (held == null) return Promise.reject(new Error(ARCHIVE_CANNOT_MINT_SHARE));
+		return revokeArchiveShare(held.session, held.capability, id);
+	}
+
+	listShares(): Promise<import("../lib/archive/facet.ts").ArchiveDurableShareView[]> {
+		const held = this.#held;
+		if (held == null) return Promise.reject(new Error(ARCHIVE_CANNOT_MINT_SHARE));
+		return listArchiveShares(held.session, held.capability);
+	}
+
 	async close(): Promise<void> {
 		await this.#retire();
 		await this.#retirePrepared();
@@ -296,7 +344,7 @@ export class DurableRoomsArchive {
 		const parsed = parseRoomsSturdyref(sturdyref);
 		const session = await this.#runtime.connect(parsed.locator);
 		try {
-			const capability = await session.enliven(roomsSturdyrefForSession(sturdyref, session));
+			const capability = await session.enliven(sturdyref);
 			await readArchive(session, capability, ALL_ARCHIVE_RECORDS, 0, 1);
 			return { sturdyref, session, capability };
 		} catch (error) {
@@ -304,8 +352,8 @@ export class DurableRoomsArchive {
 		}
 	}
 
-	async #put(held: HeldArchive | null, record: ArchiveLine, files: RuntimeAttachment[]): Promise<void> {
-		if (files.length === 0) {
+	async #put(held: HeldArchive | null, record: ArchiveRecord, files: RuntimeAttachment[]): Promise<void> {
+		if (record.kind !== "line" || files.length === 0) {
 			if (held == null) await this.#local.put(record);
 			else await putArchive(held.session, held.capability, record);
 			return;

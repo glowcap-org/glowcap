@@ -23,7 +23,7 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 	await tab.setViewportSize({ width: 760, height: 800 });
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
+	await tab.click("#holdingsTab");
 	const capabilities = [
 		["#opsListenersToggle", "ROOMS-ADMIN-LISTENERS", secrets.listeners],
 		["#opsDiagnosticsToggle", "ROOMS-DIAGNOSTICS", secrets.diagnostics],
@@ -64,8 +64,22 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 		return layer !== null && getComputedStyle(layer).opacity === "1";
 	});
 	await tab.click("#opsBtn");
-	await tab.waitForSelector('#opsNav[data-count="5"]');
-	await tab.waitForSelector("#settingsPanel", { state: "detached", timeout: 5_000 })
+	await tab.waitForSelector('#opsNav[data-count="5"]').catch(async () => {
+		const state = await tab.evaluate(() => {
+			const save = document.querySelector<HTMLButtonElement>("#opsCapabilitySetSave");
+			return {
+				path: location.pathname,
+				settings: document.getElementById("settingsTitle") !== null,
+				commitment: document.getElementById("settingsUnsavedTitle") !== null,
+				saveDisabled: save?.disabled ?? null,
+				saveBusy: save?.hasAttribute("data-busy") ?? null,
+				saved: document.getElementById("opsCapabilitySetSaved")?.textContent?.trim() ?? "",
+				errors: [...document.querySelectorAll(".capability-set-errors")].map((row) => row.textContent?.trim()),
+			};
+		});
+		fail(`the complete Operations control did not navigate: ${JSON.stringify(state)}`);
+	});
+	await tab.waitForSelector("#holdingsPanel", { state: "detached", timeout: 5_000 })
 		.catch(() => fail("Settings did not finish leaving after Operations opened"));
 	const layout = await tab.evaluate(() => {
 		const nav = document.getElementById("opsNav");
@@ -102,8 +116,8 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 	}
 
 	// At phone width the same five destinations form rows of two, the last one
-	// alone. The whole chooser remains on screen; none becomes an
-	// overflow-only item.
+	// taking its row rather than sitting beside a hole. The whole chooser stays
+	// on screen and none becomes an overflow-only item.
 	await tab.setViewportSize({ width: 390, height: 844 });
 	const phone = await tab.evaluate(() => {
 		const nav = document.getElementById("opsNav");
@@ -136,7 +150,7 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 	await tab.setViewportSize({ width: 1280, height: 800 });
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
+	await tab.click("#holdingsTab");
 	for (const [toggle] of capabilities) {
 		await tab.click(toggle);
 		await tab.waitForFunction(

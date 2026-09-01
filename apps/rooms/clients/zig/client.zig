@@ -29,7 +29,6 @@ const std = @import("std");
 const pancake = @import("pancake");
 const build_options = @import("rooms_client_build_options");
 
-const rooms_profile = @import("rooms_profile");
 const demo_rooms = @import("demo_rooms_cli");
 const demo_usage = @import("demo_usage");
 
@@ -119,15 +118,24 @@ const RoomInfo = struct {
     kind: []const u8,
     origin: []const u8,
     proof: []const u8,
+    offers: ?[]const u8,
 };
 
 fn roomInfo(fields: []const model.Argument) ?RoomInfo {
-    if (fields.len < 6 or fields[0] != .string or fields[2] != .string or
+    if (fields.len != 7 or fields[0] != .string or fields[2] != .string or
         fields[3] != .string or fields[4] != .string or fields[5] != .string)
         return null;
     const count: ?i64 = switch (fields[1]) {
         .integer => |value| if (value >= 0) value else return null,
         .void => null,
+        else => return null,
+    };
+    const offers: ?[]const u8 = switch (fields[6]) {
+        .void => null,
+        .string => |kind| if (std.mem.eql(u8, kind, "observer") or std.mem.eql(u8, kind, "participant"))
+            kind
+        else
+            return null,
         else => return null,
     };
     return .{
@@ -137,6 +145,7 @@ fn roomInfo(fields: []const model.Argument) ?RoomInfo {
         .kind = fields[3].string,
         .origin = fields[4].string,
         .proof = fields[5].string,
+        .offers = offers,
     };
 }
 
@@ -174,14 +183,14 @@ const Watcher = struct {
     }
 };
 
-/// Every dial this client makes wears the room's profile (`rooms_profile`
-/// is the one Zig authority for it) and the same finite waits, so they are
-/// named once here rather than respelled per transport.
+/// Every dial this client makes wears the core-authored native profile and the
+/// same finite waits, so they are named once here rather than respelled per
+/// transport.
 fn roomsSessionOpts() driver.SessionOptions {
     return .{
         .frame_cap = frame_cap,
-        .codec = rooms_profile.codec,
-        .captp_version = rooms_profile.captp_version,
+        .codec = model.Preference.native.codec,
+        .captp_version = model.Preference.native.captp_version,
         .handshake = .{ .ms = 10_000 },
         .settle = .{ .ms = 10_000 },
     };
@@ -331,8 +340,8 @@ fn dialVia(
     line: []const u8,
 ) !void {
     var peer = engine.Peer.initNegotiatingWith(allocator, .{
-        .captp_version = rooms_profile.captp_version,
-        .codec = rooms_profile.codec,
+        .captp_version = model.Preference.native.captp_version,
+        .codec = model.Preference.native.codec,
         .limits = .{ .max_frame_bytes = frame_cap },
     });
     defer peer.deinit();

@@ -1,0 +1,39 @@
+{
+	"//": "The complete Rooms browser bundle map. Deno config inheritance does not merge import maps, so this application names both the binding-owned browser adapters and its own UI dependencies. source-check holds the adapter half against bindings/ts/web/browser-bundle.json, and browser_bundle_test.ts rejects host-runtime imports in the built artifact.",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"jsxImportSource": "react",
+		"jsxImportSourceTypes": "npm:@types/react@19.2.18"
+	},
+	"imports": {
+		"@pancake/abi": "../../../bindings/ts/abi/constants.ts",
+		"@pancake/web": "../../../bindings/ts/web/mod.ts",
+		"@pancake/runtime": "../../../bindings/ts/runtime/mod.ts",
+		"@pancake/runtime/websocket": "../../../bindings/ts/runtime/websocket.ts",
+		"@pancake/runtime/ffi": "../../../bindings/ts/web/browser_ffi.ts",
+		"@pancake/runtime/transport": "../../../bindings/ts/runtime/transport.ts",
+		"@pancake/relay": "../../../bindings/ts/relay/mod.ts",
+		"@pancake/iroh": "../../../bindings/ts/web/browser_iroh_stub.ts",
+		"@pancake/iroh/internal": "../../../bindings/ts/web/browser_iroh_stub.ts",
+		"@pancake/webrtc": "../../../bindings/ts/webrtc/mod.ts",
+		"@pancake/webrtc/channel": "../../../bindings/ts/webrtc/channel.ts",
+		"@pancake/tcp": "../../../bindings/ts/tcp/mod.ts",
+		"node:net": "../../../bindings/ts/web/browser_ffi_stubs.ts",
+		"bun:ffi": "../../../bindings/ts/web/browser_ffi_stubs.ts",
+		"react": "npm:react@19.2.8",
+		"@types/react": "npm:@types/react@19.2.18",
+		"@types/react-dom": "npm:@types/react-dom@19.2.4",
+		"react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
+		"react-dom": "npm:react-dom@19.2.8",
+		"react-dom/client": "npm:react-dom@19.2.8/client",
+		"react-router": "npm:react-router@7.18.2",
+		"zustand": "npm:zustand@5.0.15",
+		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
+		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
+		"zod/mini": "npm:zod@4.4.3/mini"
+	},
+	"lock": {
+		"path": "./deno.lock",
+		"frozen": true
+	}
+}

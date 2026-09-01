@@ -18,7 +18,7 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: 7px;
+	gap: var(--gap-tight);
 	width: var(--icon-button-normal);
 	height: var(--icon-button-normal);
 	border: 1px solid transparent;
@@ -230,7 +230,7 @@
 .said[data-kind="success"] {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	color: var(--teal-ink);
 }
 .said[data-kind="success"] > .icon-svg {
@@ -243,7 +243,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	gap: 2px;
+	gap: var(--gap-hair);
 	width: 100%;
 	box-sizing: border-box;
 	cursor: pointer;
@@ -271,9 +271,8 @@
 .said-more:focus-visible .said-show {
 	text-decoration: underline;
 }
+/* The ring is the base rule's; this only rounds the corners it follows. */
 .said-more:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
 	border-radius: var(--radius-chip);
 }
 .said-more[data-kind="failure"] {
@@ -287,6 +286,28 @@ html,
 body {
 	height: 100%;
 }
+html {
+	/* Hold text at the size this page asked for. Left to itself, iOS grows the
+	   text in a column it thinks is too narrow to read, which moves a layout
+	   that was already measured for that width. */
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	/* Panning only, so neither pinch nor a double tap scales the page. This is
+	   an application with its own header, rail, and composer measured to the
+	   viewport, and a scaled viewport leaves a reader panning around furniture
+	   that was meant to be reachable.
+
+	   It belongs on the root: the gesture is the page's, and the same
+	   declaration on `body` leaves the document scalable around it. Naming both
+	   axes rather than `manipulation` is the whole difference, because
+	   `manipulation` only drops the double tap and keeps pinch.
+
+	   What it does not touch is text size. Browser and system text scaling still
+	   reflow this page, which is the setting a reader who needs larger type
+	   actually reaches for; `ui/gestures.ts` covers the one engine that
+	   implements pinch outside this property. */
+	touch-action: pan-x pan-y;
+}
 /* Make the hidden attribute authoritative. Component display rules would
    otherwise override it and leave a toggled control visible — e.g. a Members
    button lingering in a direct message. */
@@ -297,11 +318,39 @@ body {
 	margin: 0;
 	-webkit-tap-highlight-color: transparent;
 	overscroll-behavior: none;
-	touch-action: manipulation;
-	font: 15px/1.5 var(--font-sans);
+	/* No `touch-action` here. The root owns it, and a browser intersects what an
+	   element and its ancestors allow, so a second declaration on `body` can
+	   only ever be equal to that one or a misleading copy of it. */
+	/* Longhands rather than the `font` shorthand. A shorthand carrying a
+	   custom property is invalid as a whole if that property is ever missing,
+	   and it would take the family and the leading down with the size. */
+	font-family: var(--font-sans);
+	font-size: var(--type-read);
+	line-height: 1.5;
 	font-kerning: normal;
 	-webkit-font-smoothing: antialiased;
 	color: var(--ink);
+	background: none;
+}
+/* The ground is a property of the window, not of the document. On a phone the
+   document scrolls, and a ground painted on `body` would carry the floor away
+   with it — the composer, its tucked banner, and the log fade are anchored to
+   the viewport and resolve to the solid floor, so mid-scroll they would sit on
+   a ground that had not settled yet. A fixed layer keeps the crown at the top
+   of the window and the floor under the composer wherever the conversation has
+   scrolled to. (`background-attachment: fixed` says the same thing, but iOS
+   Safari has never honored it; a fixed element is honored everywhere.) The
+   `html` backstop paints the same picture over the canvas so overscroll
+   rubber-banding shows the crown above and the floor below rather than a flat
+   flash. */
+html {
+	background: var(--page-bg);
+}
+body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: -1;
 	background: var(--page-bg);
 }
 /* The app shell: a fixed two-column grid on desktop (sidebar + main column).
@@ -340,8 +389,17 @@ body {
 /* Many controls reset with all:unset, which drops the focus ring. Restore a
    clear keyboard-only ring so tabbing through rooms, DMs, and toolbar buttons
    is visible; :focus-visible keeps it off mouse clicks. Inputs keep their own
-   softer :focus ring below. */
+   softer :focus ring below.
+
+   Every focusable shape the app builds is named here, because one it cannot
+   reach has to draw its own ring, and a surface that draws its own ring is a
+   surface that can drift from this one. The link and the disclosure arrow are
+   the two that used to. A reset more specific than this rule takes the ring
+   away again, so a control that resets itself stays scoped by class; the rooms
+   rail carries that note where it bit. */
+a[href]:focus-visible,
 button:focus-visible,
+summary:focus-visible,
 [tabindex]:focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;

@@ -2,7 +2,7 @@
 
 import type { Attachment } from "../lib/attachment.ts";
 import { MAX_ROOM_ATTACHMENT_BYTES, MAX_SCROLLBACK } from "../lib/limits.ts";
-import type { Message, Room } from "../lib/room_client.ts";
+import type { Message, Room } from "../lib/room/client.ts";
 import { settleCapabilityCleanup } from "../lib/capability_cleanup.ts";
 
 export interface RuntimeAttachment {

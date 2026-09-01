@@ -52,7 +52,49 @@
 .card-plane .field:focus {
 	outline: none;
 	border-color: var(--accent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+	box-shadow: var(--ring);
+}
+/* Text a reader types is 16px wherever a finger can reach it.
+
+   Under sixteen, iOS zooms the page in when the field takes focus and leaves
+   it zoomed, which is the zoom a reader actually meets: nothing to do with
+   pinching, and the one worth removing. Safari decides that from the field's
+   own text and never from the viewport, so this cannot be a phone-width media
+   query. The same phone turned sideways is wider than one, and every field on
+   it was zooming.
+
+   It answers to the pointer instead, which is what the behaviour depends on,
+   and leaves a mouse-driven page at the size it was drawn for. `any-pointer`
+   rather than `pointer`, so a tablet holding a trackpad is still a tablet
+   whose glass can be touched.
+
+   Only the controls that summon a keyboard. A select opens a picker rather
+   than zooming, and a checkbox, radio, file, or range control would take a
+   text size it has no text for and grow the box that follows it.
+
+   The two named selectors are the rules this has to outrank. Both say
+   `font: inherit`, which hands their fields the body's fifteen, and both carry
+   more than the bare element name; this file is imported after the composer's,
+   so naming them is enough and no weight has to be invented. Measured rather
+   than assumed: reading only the elements, and written above these rules, it
+   lost, and the composer and the card fields sat at fifteen while the comment
+   claimed otherwise.
+
+   A floor, not a ruling. A surface that deliberately sets a smaller size after
+   this one keeps it, which is how the capability-set editor stays the dense
+   monospace it was drawn as. Such a field does zoom on focus, and that is the
+   trade its own rule is making. */
+@media (any-pointer: coarse) {
+	.card-plane .field,
+	.composer textarea,
+	input:is([type="text"], [type="search"], [type="url"], [type="email"], [type="password"], [type="tel"], [type="number"], :not([type])),
+	textarea {
+		/* Sixteen because the platform picked it, not because the ramp did:
+		   iOS zooms the page in on any field it focuses that is set smaller,
+		   and a layout already measured for the viewport moves under the
+		   reader. The number is the threshold, so it is written as one. */
+		font-size: 16px;
+	}
 }
 .card-plane .field:disabled {
 	opacity: .55;
@@ -63,7 +105,7 @@
 }
 .card-plane .field[aria-invalid="true"]:focus {
 	border-color: var(--danger);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+	box-shadow: var(--ring-danger);
 }
 /* A select wears the field's clothes: the platform arrow and fill go, the
    app's own chevron sits at the line's end, and the closed control is exactly
@@ -116,10 +158,6 @@
 	line-height: 1.4;
 	overflow-wrap: anywhere;
 }
-.card-plane .hint code {
-	font-size: 11px;
-}
-
 /* One question: label, hint, the control, and the refusal it answered with,
    stacked on a tight rhythm inside the group's looser one. Inline lays the
    name to the left of the control for a short list of knobs that would read
@@ -127,14 +165,14 @@
    whole list so the fields line up down it. */
 .field-stack {
 	display: grid;
-	gap: 6px;
+	gap: var(--gap-tight);
 	min-width: 0;
 }
 .field-stack[data-layout="inline"] {
 	--field-name-w: 88px;
 	grid-template-columns: var(--field-name-w) minmax(0, 1fr);
 	align-items: center;
-	column-gap: 10px;
+	column-gap: var(--gap-row);
 }
 .field-stack[data-layout="inline"] > .hint,
 .field-stack[data-layout="inline"] > .said {
@@ -150,9 +188,17 @@
 	margin-top: 2px;
 }
 /* A short answer takes a short box. The box says how long an answer it
-   expects, and a five-digit port in a line-wide field said "paragraph". */
+   expects, and a five-digit port in a line-wide field said "paragraph".
+
+   Three widths, because two could not say what an address is: a port is
+   short, prose is the whole line, and an address is neither. A listener's
+   bind and advertise knobs are the case — held to the line they were a wall
+   of boxes each wide enough for a sentence nobody was going to type. */
 .field-stack[data-width="short"] .field {
 	max-width: 20ch;
+}
+.field-stack[data-width="medium"] .field {
+	max-width: 34ch;
 }
 /* A field with the one act that takes it, on one line. Both stand at
    `--field-h`, so the pair reads as one control with two halves. On a phone
@@ -161,7 +207,7 @@
 .field-row {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
-	gap: 8px;
+	gap: var(--gap-row);
 	align-items: start;
 	min-width: 0;
 }
@@ -178,6 +224,14 @@
 	margin-top: calc(var(--type-caption) * 1.5 + 6px);
 }
 @media (max-width: 520px) {
+	/* The caps exist to stop a short value sprawling across a wide card. A
+	   phone has no sprawl to stop, and holding to them there only leaves one
+	   field short of the edge its neighbours reach, which reads as a field
+	   that failed to grow rather than as a port being short. */
+	.field-stack[data-width="short"] .field,
+	.field-stack[data-width="medium"] .field {
+		max-width: none;
+	}
 	.field-row {
 		grid-template-columns: minmax(0, 1fr);
 	}
@@ -201,7 +255,7 @@
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
-	gap: 8px;
+	gap: var(--gap-row);
 	min-width: 0;
 }
 .actions[data-fill] > .button {
@@ -239,7 +293,7 @@
    well. */
 .confirm {
 	display: grid;
-	gap: 10px;
+	gap: var(--gap-row);
 	min-width: 0;
 	padding: 8px 0 2px 12px;
 	border-inline-start: 2px solid color-mix(in srgb, var(--danger) 65%, var(--rule));
@@ -280,16 +334,18 @@
 	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: var(--gap-group);
 	min-width: 0;
 }
 .entry {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--gap-tight);
 	min-width: 0;
 }
-.entry + .entry {
+/* A rule tells one row from the next. A row wearing its own `well` already has
+   an edge on every side, and a rule above it is that edge drawn twice. */
+.entry + .entry:not(.well) {
 	padding-top: 12px;
 	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
 }
@@ -297,8 +353,15 @@
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 8px 10px;
+	gap: var(--gap-row);
 	min-height: var(--control-h);
+}
+/* The reserved control height is there so a name sits centred against the
+   button at the end of its line. A head with nothing to press is a line of
+   text, and reserving a control's height under it opens a gap between the name
+   and the sentence that explains it, which are one unit to a reader. */
+.entry-head:not(:has(.actions, .button, .icon-button)) {
+	min-height: 0;
 }
 .entry-name {
 	flex: 1 1 10rem;
@@ -319,11 +382,32 @@
 .entry-head > .entry-meta {
 	white-space: nowrap;
 }
-.entry-meta code {
-	font-size: 11px;
-}
 .entry-head > .actions {
 	margin-inline-start: auto;
+}
+/* A head that tries to be one line. The name is the only part of one that can
+   be any length, and left to itself it claims a share of the line and pushes
+   the act off the end, where it stands alone with a hole beside it. Here the
+   name takes only what it needs, so what qualifies it and the act on it stay
+   where a reader looking down a column of acts expects them.
+
+   It never gives up more than its longest word: a name squeezed past that
+   breaks mid-word, which is worse than the act moving down. When even that
+   does not fit, the line wraps as any line does, and on a phone it is told
+   where to break — the name takes the line, and what qualifies it shares the
+   one below, one at each end. */
+.entry-head[data-one-line] > .entry-name {
+	flex: 0 1 auto;
+	min-width: min-content;
+}
+.entry-head[data-one-line] > .tag,
+.entry-head[data-one-line] > .actions {
+	flex: none;
+}
+@media (max-width: 520px) {
+	.entry-head[data-one-line] > .entry-name {
+		flex: 1 1 100%;
+	}
 }
 /* An entry that cannot act fades as one piece; the sentence saying why keeps
    full ink so the reason stays readable. */
@@ -348,7 +432,7 @@
 	display: grid;
 	grid-template-columns: 38px minmax(0, 1fr) auto;
 	align-items: center;
-	gap: 12px;
+	gap: var(--gap-group);
 	min-width: 0;
 }
 .launch-mark {
@@ -363,7 +447,7 @@
 }
 .launch-copy {
 	display: grid;
-	gap: 3px;
+	gap: var(--gap-line);
 	min-width: 0;
 }
 .launch-copy .group-label,
@@ -374,7 +458,7 @@
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 7px;
+	gap: var(--gap-tight);
 	margin: 0;
 	font-size: var(--type-body);
 	font-weight: 700;
@@ -423,7 +507,14 @@
 /* ── Small marks ────────────────────────────────────────────────────────── */
 /* A short fact worn as a chip beside a name: who owns a session, what a grant
    may do. A state, never an act, in the teal the plane says "you are here"
-   in. */
+   in.
+
+   `data-tone` is for a list whose chips are a scale rather than a set of
+   equals. Session access is the one that has it: an administering link can
+   revoke every other link and read the session's own state, so a column of
+   chips all wearing one colour hides the row worth a second look. Quiet sits
+   below the ordinary teal and warning above it. Teal stays the default, so a
+   chip that is only a fact carries no ranking it did not ask for. */
 .tag {
 	display: inline-flex;
 	align-items: center;
@@ -436,6 +527,16 @@
 	font-size: var(--type-tiny);
 	font-weight: 700;
 	white-space: nowrap;
+}
+.tag[data-tone="quiet"] {
+	border-color: var(--rule);
+	background: color-mix(in srgb, var(--ink) 4%, transparent);
+	color: var(--ink-soft);
+}
+.tag[data-tone="warn"] {
+	border-color: color-mix(in srgb, var(--warn) 32%, var(--rule));
+	background: color-mix(in srgb, var(--warn) 8%, transparent);
+	color: var(--warn);
 }
 /* A labeled checkbox row whose label has a sentence under it: the name stays
    on the mark's line and the sentence wraps under the name, not under the
@@ -485,7 +586,7 @@
 .file-pick-face {
 	display: flex;
 	align-items: center;
-	gap: 9px;
+	gap: var(--gap-row);
 	min-height: var(--field-h);
 	box-sizing: border-box;
 	padding: 0 12px;

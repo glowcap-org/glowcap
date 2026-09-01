@@ -131,6 +131,48 @@ test "containsIgnoringWhitespace follows tokens across formatter wrapping" {
     ));
 }
 
+/// Every file beneath `root_path` that `keep` accepts, as repository-relative
+/// paths in sorted order, or null when the directory cannot be opened.
+///
+/// One authority for what counts as a file a check reads. The walk itself is
+/// the part three checks were each spelling out, and they had already come to
+/// disagree about vendored trees, which is the ordinary way duplicated
+/// traversal rots. Sorted because violation output a reader compares between
+/// runs should not depend on what order a filesystem hands its entries back.
+///
+/// The caller owns the list and every path in it, and reads each file itself:
+/// the read limit and the sentence a failure gets belong to the check, not
+/// here.
+pub fn collectSourceFiles(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    root_path: []const u8,
+    keep: *const fn (path: []const u8) bool,
+) !?[][]u8 {
+    var dir = root.openDir(io, root_path, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var walker = dir.walk(gpa) catch return null;
+    defer walker.deinit();
+    var found: std.ArrayList([]u8) = .empty;
+    errdefer {
+        for (found.items) |path| gpa.free(path);
+        found.deinit(gpa);
+    }
+    while (walker.next(io) catch return null) |entry| {
+        if (entry.kind != .file or !keep(entry.path)) continue;
+        // Vendored trees carry their own conventions and are nobody's to edit here.
+        if (std.mem.indexOf(u8, entry.path, "node_modules") != null) continue;
+        try found.append(gpa, try std.fmt.allocPrint(gpa, "{s}/{s}", .{ root_path, entry.path }));
+    }
+    std.mem.sort([]u8, found.items, {}, struct {
+        fn less(_: void, a: []u8, b: []u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.less);
+    return try found.toOwnedSlice(gpa);
+}
+
 /// Read one source file, or concatenate every regular file beneath a package
 /// directory when `path` ends in `/`. Directory subjects keep ownership bans
 /// honest after a module becomes a package: a new leaf cannot evade a rule

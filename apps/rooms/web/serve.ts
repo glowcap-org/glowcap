@@ -30,8 +30,9 @@
 // Open the printed URL. It also prints the room's locator, so you can join from
 // a terminal (`chat.ts <locator> <room> <nick>`) at the same time.
 
-import { Directory } from "../lib/room_client.ts";
-import { dial, isUriLocator, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
+import { isLoopbackHost, isWildcardHost } from "../lib/bind_host.ts";
+import { Directory } from "../lib/room/client.ts";
+import { dialDirectory, isUriLocator, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
 import { addressDesignator } from "@pancake/tcp";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 import { nextRestartWait } from "./restart.ts";
@@ -110,9 +111,10 @@ const ANNOUNCE_HOST = flagAnnounceHost ?? optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HO
 // the only way a direct message (a session between two members that this
 // server never carries) reaches the timeline. Empty when viz is off, and the
 // page then installs no tap. Enabling also mints the viz capability the
-// endpoint requires of every socket; the page publishes only while a reader
-// holds that swiss (the "Protocol visualizer" toggle in Settings under
-// Advanced).
+// endpoint requires of every socket. A local tab publishes through this door
+// only while a reader holds that swiss (the "Protocol visualizer" toggle in
+// Settings under Holdings). A shared session publishes from the session
+// process; attached tabs do not arm a second producer here.
 const VIZ_PORT = (() => {
 	if (!VIZ) return "";
 	try {
@@ -320,7 +322,7 @@ function roomPortInUse(): boolean {
 // this process shares the machine with that server. Both arms join host and
 // port through the core grammar, so an IPv6 bind host stays well-formed.
 function attachDesignator(): string {
-	if (BIND_HOST === "0.0.0.0" || BIND_HOST === "::" || BIND_HOST === "[::]" || BIND_HOST === "127.0.0.1") {
+	if (isWildcardHost(BIND_HOST) || isLoopbackHost(BIND_HOST)) {
 		return loopbackTcpDesignator(Number(ROOM_PORT));
 	}
 	return addressDesignator(BIND_HOST, Number(ROOM_PORT));
@@ -335,7 +337,7 @@ async function isRoomsServer(locator: string): Promise<boolean> {
 			iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
 		});
 		runtime = opened;
-		const dir = await Directory.connect(locator, (address) => dial(address, opened));
+		const dir = await Directory.connect(locator, (address) => dialDirectory(address, opened));
 		await dir.close();
 		return true;
 	} catch {

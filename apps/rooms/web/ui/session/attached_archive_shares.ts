@@ -1,25 +1,67 @@
 // Attached-view actions over archive facets held by the durable session.
 
-import type { RoomsSessionController } from "../controller/session.ts";
 import * as store from "../store.ts";
 import { prependSharedArchive } from "../net/history.ts";
+import { ensureAttachedDirect } from "./attached_command_powers.ts";
+import type { ArchiveShareKind } from "../../../lib/archive/handover.ts";
 import type { AttachedRoomsController } from "./attached.ts";
-
+import type { PageProjection } from "../store/core.ts";
+import type { RoomsPageContext } from "../page.ts";
+import type { RoomsSessionController } from "../controller/session.ts";
 export type AttachedArchiveShareActions = Pick<
 	RoomsSessionController,
-	"shareArchiveHistory" | "readArchiveShare" | "dropArchiveShare"
+	| "shareArchiveHistory"
+	| "offerDurableArchive"
+	| "readArchiveShare"
+	| "dropArchiveShare"
+	| "listIssuedArchiveShares"
+	| "revokeIssuedArchiveShare"
 >;
 
+async function routeAttachedShare(
+	projection: PageProjection,
+	controller: AttachedRoomsController,
+	key: string,
+	peer: string | undefined,
+	records: "line" | "standing",
+): Promise<{ kind: ArchiveShareKind; conversationId: string; peer: string } | string> {
+	const conversation = store.getConv(projection, key);
+	if (conversation == null) return "That conversation is no longer open.";
+	if (conversation.type === "directory") return "This view has no archive to share.";
+	const kind: ArchiveShareKind = records === "standing"
+		? "standing"
+		: conversation.type === "room"
+		? "room"
+		: "direct";
+	if (kind === "direct") return { kind, conversationId: conversation.persistId, peer: "" };
+	const who = peer?.trim() ?? "";
+	if (who === "") return "Name the member who should receive this archive account.";
+	await ensureAttachedDirect(projection, controller, conversation.dir, who);
+	return { kind, conversationId: conversation.persistId, peer: who };
+}
+
 export function attachedArchiveShareActions(
+	projection: PageProjection,
+	page: RoomsPageContext,
 	controller: AttachedRoomsController,
 	onFailure: (error: unknown) => void,
 ): AttachedArchiveShareActions {
 	return {
-		shareArchiveHistory: async (key) => {
-			const conversation = store.getConv(key);
-			if (conversation?.type !== "dm") return "Only a direct conversation can share its history.";
+		shareArchiveHistory: async (key, peer, records = "line") => {
 			try {
-				await controller.shareArchiveHistory(conversation.persistId);
+				const routed = await routeAttachedShare(projection, controller, key, peer, records);
+				if (typeof routed === "string") return routed;
+				await controller.shareArchiveHistory(routed.kind, routed.conversationId, routed.peer);
+				return "";
+			} catch (error) {
+				return error instanceof Error ? error.message : String(error);
+			}
+		},
+		offerDurableArchive: async (key, peer, records = "line") => {
+			try {
+				const routed = await routeAttachedShare(projection, controller, key, peer, records);
+				if (typeof routed === "string") return routed;
+				await controller.offerDurableArchive(routed.kind, routed.conversationId, routed.peer);
 				return "";
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
@@ -28,11 +70,9 @@ export function attachedArchiveShareActions(
 		readArchiveShare: async (id) => {
 			try {
 				const { view, records } = await controller.readArchiveShare(id);
-				const conversation = [...store.get().convs.values()].find((entry) =>
-					entry.persistId === view.conversationId
-				);
+				const conversation = store.convByPersistId(projection, view.conversationId);
 				if (conversation == null) return "That shared archive's conversation is no longer open.";
-				prependSharedArchive(conversation.key, records, view.from);
+				prependSharedArchive(page, conversation.key, records, view.from);
 				return "";
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
@@ -40,6 +80,15 @@ export function attachedArchiveShareActions(
 		},
 		dropArchiveShare: (id) => {
 			void controller.dropArchiveShare(id).catch(onFailure);
+		},
+		listIssuedArchiveShares: () => controller.listIssuedArchiveShares(),
+		revokeIssuedArchiveShare: async (id) => {
+			try {
+				await controller.revokeIssuedArchiveShare(id);
+				return "";
+			} catch (error) {
+				return error instanceof Error ? error.message : String(error);
+			}
 		},
 	};
 }

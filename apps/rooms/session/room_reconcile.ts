@@ -1,34 +1,39 @@
+// Bring one directory's live rooms into line with the checkpoint's intended rooms.
+
 import type { WorkspaceConversation } from "../lib/rooms_state.ts";
-import type { Message } from "../lib/room_client.ts";
-import type { ArchiveCoordinates } from "../lib/archive.ts";
+import type { Message } from "../lib/room/client.ts";
 import type { DurableRoomsArchive } from "./archive.ts";
 import type { RuntimeAttachment } from "./room_files.ts";
 import type { LiveDirectory, LiveRoom } from "./live.ts";
 import { type RoomDrainCallbacks, RoomRealization } from "./room_realization.ts";
+import type { RoomAuthorityAcquisition, RoomAuthorityRetirement, RoomReconnectResult } from "./state_sync.ts";
+import { type ConversationEventObserver, emitTypingEvent } from "./conversation_events.ts";
 
 export interface RoomReconcileCallbacks extends RoomDrainCallbacks {
+	current(): boolean;
 	setIssue(subject: string, error: unknown | null): boolean;
 	cleanup(work: Promise<unknown>, label: string): Promise<void>;
+	reconcileAuthority(retired: RoomAuthorityRetirement): Promise<void>;
+	reconcileAcquisition(acquired: RoomAuthorityAcquisition): Promise<void>;
+	reconcileReconnect(result: RoomReconnectResult): Promise<void>;
+	bridgeSecrets(directoryId: string, scope: string): Record<string, string> | null;
 }
-
-export type RoomMessageReceiver = (
-	conversationId: string,
-	message: Message,
-	editable: boolean,
-	files: RuntimeAttachment[],
-	history: ArchiveCoordinates | null,
-) => void;
 
 interface RoomCallbackOptions {
 	held: LiveDirectory;
 	archive: DurableRoomsArchive;
 	keepHistory: () => boolean;
-	receivers: ReadonlySet<RoomMessageReceiver>;
+	receivers: ReadonlySet<ConversationEventObserver>;
 	release(live: LiveRoom): void;
 	retry(): void;
 	notifyView(): void;
 	setIssue(subject: string, error: unknown | null): boolean;
 	cleanup(work: Promise<unknown>, label: string): Promise<void>;
+	reconcileAuthority(retired: RoomAuthorityRetirement): Promise<void>;
+	reconcileAcquisition(acquired: RoomAuthorityAcquisition): Promise<void>;
+	reconcileReconnect(result: RoomReconnectResult): Promise<void>;
+	bridgeSecrets(directoryId: string, scope: string): Record<string, string> | null;
+	current(): boolean;
 }
 
 export function reconcileRooms(
@@ -43,14 +48,20 @@ export function reconcileRooms(
 		callbacks.setIssue,
 		callbacks.cleanup,
 		callbacks.release,
+		callbacks.reconcileAuthority,
+		callbacks.reconcileAcquisition,
+		callbacks.reconcileReconnect,
+		callbacks.current,
+		callbacks.scheduleRoomViewNotify,
+		callbacks.bridgeSecrets,
 		callbacks,
 	);
 }
 
-export function emitRoomMessage(
+function emitRoomMessage(
 	archive: DurableRoomsArchive,
 	keep: boolean,
-	receivers: ReadonlySet<RoomMessageReceiver>,
+	receivers: ReadonlySet<ConversationEventObserver>,
 	held: LiveDirectory,
 	conversationId: string,
 	message: Message,
@@ -88,9 +99,15 @@ export function makeRoomCallbacks(
 				files,
 				generation,
 			),
+		typing: (conversationId, peer, on) => emitTypingEvent(options.receivers, conversationId, peer, on),
 		scheduleRetry: options.retry,
 		scheduleRoomViewNotify: options.notifyView,
 		setIssue: options.setIssue,
 		cleanup: options.cleanup,
+		reconcileAuthority: options.reconcileAuthority,
+		reconcileAcquisition: options.reconcileAcquisition,
+		reconcileReconnect: options.reconcileReconnect,
+		bridgeSecrets: options.bridgeSecrets,
+		current: options.current,
 	};
 }

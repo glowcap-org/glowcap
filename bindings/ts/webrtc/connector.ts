@@ -103,6 +103,9 @@ export function connector(signaling: SignalingAuthority, options: ConnectorOptio
 					locator,
 					peer.channel(),
 					request.handshakeTimeoutMs,
+					// Directory signaling was scoped to this designator; DTLS binds
+					// the channel to the SDP that exchange ferried (ADR-0105).
+					locator.designator,
 				),
 				bringup.signal,
 				(error) => host.recordCallerlessBindingFailure("webrtc.session.cancel.cleanup", error),

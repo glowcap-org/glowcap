@@ -137,6 +137,7 @@ def driver_sigs(
         "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_enliven_for_version": ([P, u32, P, size, u64_p], i32),
+        "pancake_host_fetch_at": ([P, ctypes.POINTER(_LocatorView), P, size, u64_p], i32),
         "pancake_host_set_trace": ([P, _TraceCallback, P], i32),
         "pancake_host_resolver_fulfill": ([P, u64, ctypes.POINTER(_Argument)], i32),
         "pancake_host_resolver_break": ([P, u64, P, size], i32),

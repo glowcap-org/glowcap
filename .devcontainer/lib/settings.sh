@@ -20,6 +20,10 @@ pancake_devcontainer_validate_pins() {
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
         return 1
     fi
+    if ! [[ "${DENO_IMAGE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "pins.sh: DENO_IMAGE_DIGEST must be sha256:<64 hex>, got '${DENO_IMAGE_DIGEST:-}'" >&2
+        return 1
+    fi
     case "${ZLS_ENABLED:-true}" in
         true)
             if [[ "${ZIG_VERSION%%.*}" != "${ZLS_VERSION%%.*}" ]]; then

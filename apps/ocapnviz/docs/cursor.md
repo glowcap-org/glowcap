@@ -1,7 +1,7 @@
 # Cursor
 
 The interaction pipeline lives in [`interaction-model.md`](interaction-model.md).
-This page is the one cursor rule `cursor.ts` implements.
+`cursor.ts` implements one cursor rule.
 
 `cursorFor` in `cursor.ts` is the app's one cursor authority. Sprites carry no
 cursor of their own and no component spells the rule a second time.

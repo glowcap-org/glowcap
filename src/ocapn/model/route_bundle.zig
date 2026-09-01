@@ -58,7 +58,8 @@ pub fn validateCombinedListBytes(first: []const u8, second: []const u8) ViewErro
 
 /// Available only to spans that came out of `uri_shape.inspect`, whose first
 /// act validates every escape in the whole URI: a `%` here always has two hex
-/// digits behind it, which is what makes the slice and the parse infallible.
+/// digits behind it, and that guarantee makes the slice and the parse
+/// infallible.
 fn decodedByte(bytes: []const u8, at: *usize) u8 {
     if (bytes[at.*] != '%') {
         defer at.* += 1;
@@ -88,8 +89,8 @@ fn decodedContains(bytes: []const u8, needle: u8) bool {
 /// is an empty hint map (the owned parser in `model.uri` reads it the same
 /// way), so it yields nothing rather than one nameless segment; a segment with
 /// no `=` is a refusal, never an invariant. Both readers below walk a query
-/// through this one iterator, which is what keeps them from disagreeing about
-/// what a segment is.
+/// through this one iterator, so they cannot disagree about what a segment
+/// is.
 const QueryNames = struct {
     segments: ?std.mem.SplitIterator(u8, .scalar),
 

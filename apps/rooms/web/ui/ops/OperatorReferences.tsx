@@ -19,8 +19,10 @@ import type { ReactNode } from "react";
 import type { OperatorReferenceRow } from "../../../lib/operator.ts";
 import { Button } from "../Button.tsx";
 import { Said } from "../Said.tsx";
-import { type OperatorActs, SectionTitle } from "./operator_acts.tsx";
+import type { OperatorActs } from "./operator_acts.tsx";
+import { SectionTitle } from "./Section.tsx";
 import { OperatorSweep } from "./OperatorSweep.tsx";
+import { useOperatorActivity } from "./operator_activity.tsx";
 
 /** Every kind the directory can hold, in the order an operator reads them:
  * what people are in, what they are talking through, then the plumbing that
@@ -37,27 +39,34 @@ const REFERENCE_KINDS: readonly { kind: OperatorReferenceRow["kind"]; label: str
 	{ kind: "signal-exchange", label: "Signaling exchanges" },
 ];
 
+/** The key the kind filter's wait and refusal are kept under. Named here, where
+ * the answer is drawn, and used by the pane that presses it. */
+export const referencesFilterKey = "references:filter";
+
 export function OperatorReferences(
-	{ rows, total, search, onFilter, acts, more }: {
+	{ rows, total, search, referenceKind, onFilter, acts, more }: {
 		rows: readonly OperatorReferenceRow[];
 		/** How many references the directory holds that match the search. The
 		 * rows above are one page of them. */
 		total: number;
 		search: string;
+		referenceKind: OperatorReferenceRow["kind"] | null;
 		/** Ask the directory for one kind alone. */
-		onFilter(kind: string): void;
+		onFilter(kind: OperatorReferenceRow["kind"]): void;
 		acts: OperatorActs;
 		more: ReactNode;
 	},
 ) {
+	const activity = useOperatorActivity();
 	return (
 		<section className="ops-section" id="operatorReferences">
 			<SectionTitle count={total}>Retained references</SectionTitle>
 			<div className="group well">
 				<p className="hint">
 					These are capability occurrences this server currently holds. Releasing one updates its owning
-					aggregate here; it does not revoke copies already held by remote peers.
+					aggregate here. It does not revoke copies already held by remote peers.
 				</p>
+				{acts.why[referencesFilterKey] != null && <Said kind="failure">{acts.why[referencesFilterKey]}</Said>}
 				{rows.length === 0
 					? <p className="empty">This server holds no independently releasable references.</p>
 					: REFERENCE_KINDS.map(({ kind, label }) => {
@@ -69,6 +78,8 @@ export function OperatorReferences(
 								<p className="ops-kind-head">
 									<Button
 										variant="link"
+										busy={acts.busy(referencesFilterKey)}
+										disabled={activity.sweeping}
 										title={`Search this directory for ${label.toLowerCase()}`}
 										onClick={() => onFilter(kind)}
 									>
@@ -97,7 +108,7 @@ export function OperatorReferences(
 													</span>
 													{row.room !== "" && row.member !== "" && (
 														<span className="entry-meta">
-															member <code>{row.member}</code>
+															member {row.member}
 														</span>
 													)}
 													<div className="actions">
@@ -113,7 +124,7 @@ export function OperatorReferences(
 												<p className="hint">{row.detail}</p>
 												{acts.confirm(
 													key,
-													"Only this server's retained occurrence will be released. Remote holders keep their copies and authority.",
+													"Only this server's retained occurrence is released. Remote holders keep their copies and their authority.",
 													"Release retained reference",
 													() => acts.session.releaseOperatorReference(row.id),
 												)}
@@ -131,9 +142,10 @@ export function OperatorReferences(
 					act="Release"
 					past="Released"
 					subject="references"
-					effect="Only this server's retained occurrences are released; remote holders keep their copies and authority."
+					effect="Only this server's retained occurrences are released. Remote holders keep their copies and their authority."
 					search={search}
 					total={total}
+					referenceKind={referenceKind}
 				/>
 			</div>
 		</section>

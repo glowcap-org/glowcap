@@ -201,9 +201,9 @@ fn runNestedSettlement(
     try std.testing.expect(recipient.takeOutbound() == null);
     // The flow aggregate drains to zero regardless of what the answer store
     // still retains: table state and in-flight outbound work are separate
-    // ledgers (`peer/outbound/budget.zig`), which is what keeps a
-    // long-answering session from saturating its own waterline with rows only
-    // `op:gc-answers` can release.
+    // ledgers (`peer/outbound/budget.zig`), so a long-answering session
+    // cannot saturate its own waterline with rows only `op:gc-answers` can
+    // release.
     try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
 
     if (path == .v1_virtual)

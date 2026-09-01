@@ -9,13 +9,15 @@
 // closing it puts the reader back exactly where they were, on the control that
 // answered.
 
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 import { ModalHead } from "./ModalHead.tsx";
 import { CopyButton } from "./Copy.tsx";
 
-export function ErrorDetail({ title, text }: { title: string | null; text: string | null }) {
+export const ErrorDetail = memo(function ErrorDetail(
+	{ title, text }: { title: string | null; text: string | null },
+) {
 	type View = { title: string; text: string };
 	const last = useRef<View | null>(
 		title === null || text === null ? null : { title, text },
@@ -25,7 +27,7 @@ export function ErrorDetail({ title, text }: { title: string | null; text: strin
 	const { held, onExited } = useHeldModal(title !== null);
 	if (!held || shown === null) return null;
 	return <ErrorDialog open={title !== null} onExited={onExited} {...shown} />;
-}
+});
 
 function ErrorDialog(
 	{ open, onExited, title, text }: {
@@ -42,15 +44,17 @@ function ErrorDialog(
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="errorTitle">
 			<div className="modal-card card-plane">
-				<ModalHead
-					titleId="errorTitle"
-					title={title}
-					closeId="errorClose"
-					closeRef={close}
-					actions={<CopyButton text={text} label={"Copy " + title} size="small" variant="ghost" />}
-					onClose={() => browser.closeError()}
-				/>
-				<pre id="errorBody" className="error-body">{text}</pre>
+				<div className="modal-body">
+					<ModalHead
+						titleId="errorTitle"
+						title={title}
+						closeId="errorClose"
+						closeRef={close}
+						actions={<CopyButton text={text} label={"Copy " + title} size="small" variant="ghost" />}
+						onClose={() => browser.closeError()}
+					/>
+					<pre id="errorBody" className="error-body">{text}</pre>
+				</div>
 			</div>
 		</dialog>
 	);

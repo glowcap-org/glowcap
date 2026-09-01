@@ -1,4 +1,3 @@
-import * as tcp from "@pancake/tcp";
 // The live timeline endpoint: one WebSocket that carries the room's own
 // sessions AND every other peer's, in the versioned timeline schema ocapnviz's
 // Live mode consumes. Give the viewer the `ROOMS-VIZ-LISTENING` sturdyref and
@@ -58,6 +57,7 @@ import * as tcp from "@pancake/tcp";
 // one wire is two rows here, and a viewer drawing them one at a time would
 // invent the same learning sequence a live feed genuinely goes through.
 
+import * as tcp from "@pancake/tcp";
 import { currentSession, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
@@ -75,7 +75,6 @@ import {
 } from "./viz/policy.ts";
 import { parseRecord, utf8Bytes } from "./viz/records.ts";
 import { formatRoomsSturdyref } from "../lib/locator.ts";
-import { noteTrouble } from "./journal.ts";
 
 export { parseRecord } from "./viz/records.ts";
 
@@ -203,7 +202,11 @@ export function replayLines(
  * and the swissnum that both admits the socket and enlivens the trace.
  * Sends never block the room server: a socket that cannot accept a frame
  * is dropped (the viewer reconnects and replays). */
-export function startViz(port: number, swiss: string): VizServer {
+export function startViz(
+	port: number,
+	swiss: string,
+	onTrouble: (source: string, error: unknown) => void,
+): VizServer {
 	const traceHost = new Host(); // rooms-profile-exempt: generic v1.0 observer, not a Rooms peer.
 	const traceDesignator = traceHost.designator();
 	traceHost.publishGiftable(swiss, (verb, args) => {
@@ -278,13 +281,13 @@ export function startViz(port: number, swiss: string): VizServer {
 		if (closeSession) {
 			observeCloseFailure(
 				() => subscriber.session.close(),
-				(error) => noteTrouble("a viz subscriber would not retire", error),
+				(error) => onTrouble("a viz subscriber would not retire", error),
 			);
 		} else {
 			try {
 				subscriber.session.release(subscriber.inbox);
 			} catch (error) {
-				noteTrouble("a viz subscriber capability release failed", error);
+				onTrouble("a viz subscriber capability release failed", error);
 			}
 		}
 	}
@@ -328,7 +331,7 @@ export function startViz(port: number, swiss: string): VizServer {
 			releaseRefusedCapability(
 				session,
 				inbox,
-				(error) => noteTrouble("a refused viz subscriber capability release failed", error),
+				(error) => onTrouble("a refused viz subscriber capability release failed", error),
 			);
 			throw new Error("trace subscriber limit reached");
 		}
@@ -492,14 +495,14 @@ export function startViz(port: number, swiss: string): VizServer {
 						});
 						acceptedSessions.add(session);
 						await session.serve().catch((error) => {
-							noteTrouble("a viz viewer session failed", error);
+							onTrouble("a viz viewer session failed", error);
 						});
 					} catch (error) {
-						noteTrouble("a viz viewer setup failed", error);
+						onTrouble("a viz viewer setup failed", error);
 						try {
 							socket.close();
 						} catch (closeError) {
-							noteTrouble("a viz viewer socket would not close", closeError);
+							onTrouble("a viz viewer socket would not close", closeError);
 						}
 					} finally {
 						viewerSockets.delete(socket);

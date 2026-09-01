@@ -19,6 +19,14 @@ Cross-surface consistency is part of that derivation: a negligible cost off
 the wire path, paid so sibling fronts keep one contract, earns its name more
 easily than a micro-saving earns an asymmetry.
 
+**Deleting a copy is a claim about cost, so measure it.** The allocation
+budgets count allocations, not work, so a change can delete one copy, add a
+growth realloc, and still pass every gate green. A reservation that lands just
+under a common message size is the usual way this happens, and it is asymmetric:
+reserving spare capacity is nearly free where falling one unit short is not. Run
+the `bench/` step covering the path against the pre-change tree before claiming
+the win.
+
 The ledger at the end of this rule is the list of copies that survived that
 derivation. Each entry names the contract that requires it and what deleting it
 would cost. **Do not "optimize" one away without re-deriving its contract**, and
@@ -250,10 +258,17 @@ pointing it at nothing.
   range becomes session authority, making release infallible under allocator
   pressure; no layer above keeps a session's base.
 - **Canonical set and struct ordering** — `writeCanonicalSet`,
-  `writeCanonicalStruct`, `writeHintDict`, `encodeArgumentSetList`. Encode each
-  element once and sort the encodings, turn scratch freed before encode returns.
-  **Sorting on model values instead lets two encoders disagree; the bytes are the
-  only order both sides reproduce.**
+  `writeCanonicalStruct`, `writeHintDict`, `encodeArgumentSetList`,
+  `Builder.finishCopying`. Encode each element once and sort the encodings, turn
+  scratch freed before encode returns. **Sorting on model values instead lets two
+  encoders disagree; the bytes are the only order both sides reproduce.** A Cap'n
+  Proto set element snapshots its framed bytes because its builder stays live for
+  the graft that follows. An ordinary Cap'n Proto message copies none of its
+  encoded bytes: the builder reserves the segment-table word ahead of the
+  segment and `Builder.initial_words` ahead of the growth cliff, so `finishOwned`
+  hands its one allocation to the frame. The trim `finishOwned` ends on is
+  in-place on the allocators pancake ships against; one that cannot shrink there
+  falls back to `std`'s copy, the cost this replaced.
 - **Boxed handoff argument** — the handoff arm of `view.zig`'s
   `Argument.toOwned`. Boxed so the largest arm does not set the size of _every_
   `Argument`; `src/ocapn/model/mod.zig` asserts 40 bytes for `Argument` and 48

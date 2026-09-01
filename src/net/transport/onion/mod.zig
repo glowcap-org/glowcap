@@ -12,8 +12,8 @@
 //! Tor control protocol: `control.zig` formats the authenticate, create, and
 //! restore requests and classifies the reply lines they answer with.
 //!
-//! Those two modules are bytes only, opening no socket, which is what lets the
-//! conformance evidence run with no Tor daemon and no network: the tests compare
+//! Those two modules are bytes only, opening no socket, so the conformance
+//! evidence runs with no Tor daemon and no network: the tests compare
 //! their buffers to the two reference implementations. `endpoint.zig` says where a
 //! local Tor listens, `session.zig` carries those bytes over real streams, and
 //! `resident.zig` presents the pair as a netlayer the driver dials and hosts

@@ -45,6 +45,14 @@ pub const Preference = struct {
     /// What pancake offers when a caller does not override the session profile.
     pub const default_offer: Preference = .{};
 
+    /// Pancake's coherent peer-to-peer preference. Applications select this
+    /// as one profile rather than pairing its codec and CapTP version by hand.
+    pub const native: Preference = .{
+        .captp_version = .next,
+        .codec = .capnp,
+        .features = FeatureSet.full(),
+    };
+
     /// The profile every conforming peer speaks, and so what a peer has
     /// told us by telling us nothing.
     pub const baseline: Preference = .{ .features = FeatureSet.baseline() };

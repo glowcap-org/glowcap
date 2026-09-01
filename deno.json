@@ -24,8 +24,12 @@
 		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
 		"@types/react": "npm:@types/react@19.2.18",
     "@types/react-dom": "npm:@types/react-dom@19.2.4",
-    "zod": "npm:zod@^4.4.3",
-    "zod/mini": "npm:zod@^4.4.3/mini"
+    "zod": "npm:zod@4.4.3",
+    "zod/mini": "npm:zod@4.4.3/mini"
+  },
+  "lock": {
+    "path": "./deno.lock",
+    "frozen": true
   },
   // ocapnviz stays its own scope for everything else, but the rooms viz proofs
   // load its real converter and its real `Observation` schema at run time
@@ -36,8 +40,8 @@
   // rather than a reader remembering to.
   // The rooms browser page is the one TypeScript here that is JSX, and Deno reads
   // compilerOptions only from the root config of a scope, so its transform is
-  // declared here rather than beside it in apps/rooms/web/ui/deno.json. It applies
-  // to .tsx files alone, and this is the only directory that has any.
+  // declared here. It applies to .tsx files alone, and this is the only
+  // directory that has any.
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",

@@ -1,22 +1,6 @@
 {
-	"//": "The deno config every browser bundle in this repository is built with. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the native archive cascade out of the graph. The remaining node:net and bun:ffi stubs cover runtime adapters a bundler may discover through the dynamic adapter import, though the injected web adapter never selects them. React is pinned to the version the Rooms page type-checks against. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
-	"compilerOptions": {
-		"jsx": "react-jsx",
-		"jsxImportSource": "react",
-		"jsxImportSourceTypes": "npm:@types/react@19.2.18"
-	},
+	"//": "The browser-adapter base config. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the native archive cascade out of a browser graph. The node:net and bun:ffi stubs cover adapters a bundler may discover through the dynamic import even though the injected web adapter never selects them. Applications extend this config and add their own dependencies.",
 	"imports": {
-		"react": "npm:react@19.2.8",
-		"@types/react": "npm:@types/react@19.2.18",
-		"@types/react-dom": "npm:@types/react-dom@19.2.4",
-		"react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
-		"react-dom": "npm:react-dom@19.2.8",
-		"react-dom/client": "npm:react-dom@19.2.8/client",
-		"react-router": "npm:react-router@7.18.2",
-		"zustand": "npm:zustand@5.0.15",
-		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
-		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
-		"zod/mini": "npm:zod@^4.4.3/mini",
 		"@pancake/web": "./mod.ts",
 		"@pancake/runtime": "../runtime/mod.ts",
 		"@pancake/runtime/websocket": "../runtime/websocket.ts",

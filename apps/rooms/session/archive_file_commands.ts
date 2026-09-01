@@ -1,25 +1,33 @@
 // Lazy archived-file readers issued through a durable Rooms session.
 
 import { type Argument, type Behavior, type Session } from "@pancake/runtime";
-import { parseArchiveRecord } from "../lib/archive.ts";
-import { ROOMS_SESSION_ARCHIVED_ATTACHMENT, type RoomsSessionFacet } from "../lib/rooms_session.ts";
+import { parseArchiveRecord } from "../lib/archive/protocol.ts";
+import { ROOMS_SESSION_ARCHIVED_ATTACHMENT } from "../lib/session/client.ts";
 import { BLOB_CHUNK } from "../lib/limits.ts";
 import { READ } from "../lib/protocol.ts";
 import type { DurableRoomsRuntime } from "./runtime.ts";
+import { releaseUnclaimedCapabilityArguments } from "../lib/argument_custody.ts";
 
 export const ARCHIVED_FILE_UNHANDLED = Symbol("archived file verb not handled");
 const MAX_ARCHIVED_ATTACHMENT_READS = 512;
 const archivedAttachmentReads = new WeakMap<Session, number>();
 
 export function dispatchArchivedFileCommand(
-	rights: RoomsSessionFacet,
+	/** Whether this facet may read what was recorded before it arrived. The same
+	 * answer the history verb is given, because it is the same authority. */
+	history: boolean,
 	verb: string,
 	args: Argument[],
 	session: Session,
 	runtime: DurableRoomsRuntime,
 ): ReturnType<Behavior> | typeof ARCHIVED_FILE_UNHANDLED {
 	if (verb !== ROOMS_SESSION_ARCHIVED_ATTACHMENT) return ARCHIVED_FILE_UNHANDLED;
-	if (rights !== "admin") throw new Error("this Rooms session facet cannot read archived files");
+	releaseUnclaimedCapabilityArguments(
+		session,
+		args,
+		"an archived-file request could not return an unexpected capability",
+	);
+	if (!history) throw new Error("this Rooms session facet cannot read archived files");
 	if (
 		args.length !== 2 || typeof args[1] !== "bigint" || args[1] < 0n ||
 		args[1] > BigInt(Number.MAX_SAFE_INTEGER)
@@ -50,6 +58,11 @@ export function dispatchArchivedFileCommand(
 		return source;
 	};
 	const proxy = session.spawn(async (readVerb, readArgs) => {
+		releaseUnclaimedCapabilityArguments(
+			session,
+			readArgs,
+			"an archived-file read could not return an unexpected capability",
+		);
 		if (
 			readVerb !== READ || readArgs.length !== 2 || typeof readArgs[0] !== "bigint" ||
 			readArgs[0] < 0n || readArgs[0] > BigInt(Number.MAX_SAFE_INTEGER) ||

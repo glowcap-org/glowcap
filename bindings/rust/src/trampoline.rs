@@ -118,7 +118,7 @@ pub(crate) struct ActorCell {
 // pump brackets each feed with the arriving Session; a native loop step
 // (ADR-0112) delivers for any of its host's sessions at once, so it brackets
 // itself with the loop's adopted Host instead — the loop-tier sibling of the
-// Session bracket, which is what latches a turn to its Host (turn-time spawn)
+// Session bracket, and it latches a turn to its Host (turn-time spawn)
 // when a behavior fires inside `pancake_driver_step`.
 enum DeliverCtx {
 	Session(Weak<SessionShared>),

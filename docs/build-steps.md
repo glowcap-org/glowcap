@@ -55,7 +55,7 @@ zig build cli                  # alias of `zig build cli-test`
 zig build pancake              # run the CapTP CLI; pass `-- <command> …`
 zig build examples             # the public examples
 zig build consumer-check       # build a downstream package against the pancake module, the README's fetch-and-import path, as a check; part of check
-zig build cross-check          # compile-only: full library for macOS (kqueue) + sans-io core for wasm32 + the browser-binding wasm Host, part of check
+zig build cross-check          # compile-only: full library for macOS (kqueue) + I/O-free core for wasm32 + the browser-binding wasm Host, part of check
 zig build perf-check           # ReleaseFast wall-clock cost: warm dispatch + outbound send against the docs/ladder.md step 2 ceilings, plus the gc-storm linearity ratio; part of check
 zig build fuzz                 # mutation-fuzz every hostile-input target, one fuzzer run each; -Dfuzz-runs sets how long each one searches (default 500K)
 zig build fuzz-run             # the fuzz worker `zig build fuzz` drives; add --fuzz yourself for Zig's coverage UI
@@ -71,7 +71,7 @@ zig build site                 # build the documentation site (Zine + autodoc) u
 zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
 zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site at http://127.0.0.1:1990/pancake/ (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
-zig build -Doptimize=ReleaseSafe release-pack # stage optimized archives, headers, licenses, and product binaries into one versioned, checksummed per-target tarball under zig-out/release/, then prove its extracted static/shared C consumers and CLIs (needs cargo; Debug is refused)
+zig build -Doptimize=ReleaseSafe release-pack # stage optimized archives, headers, product binaries, the project provenance disclosure, and licenses into one versioned, checksummed per-target tarball under zig-out/release/, then prove its extracted static/shared C consumers and CLIs (needs cargo; Debug is refused)
 zig build native-tls-build     # fetch Mbed TLS 4.2.0 by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
 ```
 
@@ -161,7 +161,7 @@ Each binding exercises the C ABI as a real consumer. These steps prove the ABI
 is consumable; they are never the authority for Zig semantics.
 
 ```sh
-zig build bindings       # every binding dogfood plus the published-example checks
+zig build bindings       # every binding check plus the published-example checks
 zig build rust-dogfood   # the Rust binding against the pancake archives (needs cargo)
 zig build deno-dogfood   # the Deno binding against the pancake archives (needs deno)
 zig build bun-dogfood    # the Bun binding, the same multi-runtime JS binding as Deno (needs bun)
@@ -211,7 +211,7 @@ zig build goblins-rooms-irc-front  # the front half of that proof
 zig build goblins-rooms-iroh       # the same room over encrypted QUIC, with the accepting side recording the endpoint key QUIC authenticated (needs cargo + deno + racket + goblins)
 zig build goblins-rooms-dm         # a browser redeems a room introduction and direct-messages a real Goblins vat off-room over cleartext TCP, the vat answers on that connection, and the vat starts a direct message of its own to a native pancake member (needs deno + racket + goblins + a Playwright Chromium)
 zig build goblins-rooms-dm-iroh    # both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a native member's introduction (needs cargo + deno + racket + goblins + a Playwright Chromium)
-zig build goblins-rooms-matrix-iroh # heavyweight four-peer end gate: pin Goblins' cross-receiver count defect, then run room topology, every DM pair, close/reopen, and restart over iroh
+zig build goblins-rooms-matrix-iroh # heavyweight four-peer end check: pin Goblins' cross-receiver count defect, then run room topology, every DM pair, close/reopen, and restart over iroh
 zig build goblins-relay            # a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)
 zig build bindings-goblins-interop # per-binding live keyed conversation with a real Goblins vat, every binding (needs racket + goblins + the runtimes)
 zig build deno-goblins-interop     # that conversation, the Deno binding over the C ABI (needs deno + racket + goblins)
@@ -373,7 +373,7 @@ zig build demo-rooms-iroh              # the rooms chat over iroh's encrypted QU
 zig build demo-rooms-dm                # rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)
 zig build demo-rooms-dm-reply          # a host-wide giftable replies to its caller over the arriving session via currentSession(), so a non-listening peer receives the reply on the session it opened (needs deno)
 zig build demo-rooms-dm-back           # a member replies to a non-listening sender across a redeemed introduction, hosting a reply inbox on the redeemed direct session (sendRedeeming); the native, Chromium-free sibling of rooms-web-dm (needs deno)
-zig build demo-rooms-dm-reredeem       # sendRedeeming resolves the direct exporter from the reply's route, so a re-redeem reaches the same live session with no second dial (needs deno)
+zig build rooms-dm-reredeem            # sendRedeeming resolves the direct exporter from the reply's route, so a re-redeem reaches the same live session with no second dial (needs deno)
 zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encrypted QUIC, where the gift names the exporter's direct addresses (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the gift names the exporter by node id alone and the recipient resolves it through n0 discovery, no direct-address hints (needs cargo + deno + internet)
 zig build demo-tasks                   # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno)
@@ -387,6 +387,7 @@ zig build demo-accountability          # cross-language accountability demo: Zig
 zig build rooms-client                 # run the native Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer                   # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
 zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs deno)
+zig build rooms-terminal-client-test   # run the Rust, Python, and Racket client contracts for watcher parsing and unread backpressure (needs cargo + python3 + racket)
 zig build rooms-archive-test           # prove the member archive contract, bounded durable store, v1/Syrup wire path, and process restart (needs deno)
 zig build rooms-archive                # run the durable archive peer; pass `-- --state=<directory>` (iroh by default, needs cargo + deno)
 zig build rooms-session                # run the durable Rooms session capability; pass `-- --state=<directory> [--checkpoint=<Rooms JSON>]` (iroh by default, needs cargo + deno)
@@ -411,6 +412,8 @@ zig build rooms-web-dm-native     # a native peer cold-dials a browser member ov
 zig build rooms-web-dm-noise      # two browser members DM through the room relay over an end-to-end Noise-sealed rendezvous session, with the room off the message path (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0089; needs deno + a Playwright Chromium)
 zig build rooms-web-routes        # the page address is a shareable place to stand: a cold /room/<name> link arrives named, opening writes its address, back and forward walk it with the view, following an address never moves the rail, and a private room's key stays out of it (needs deno + a Playwright Chromium)
+zig build rooms-web-manager       # a reloaded workspace re-enters the rooms it manages by name and its saved manager capability still works, pressed rather than read (needs deno + a Playwright Chromium)
+zig build rooms-web-boot-theme    # the first paint is the theme the reader left, guessed from the stored workspace before any application code exists, and a browser holding no workspace is left to its own preference (needs deno + a Playwright Chromium)
 zig build rooms-web-private       # a private room is reachable only by the reference to it: in no list, its name opens a different room, and handing it over is the only way in (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-foreign    # a visitor starts a direct message in a room they joined: the tab holds its own page's directory and the one it went to, and the redeem signals through the directory that introduced the member (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-viz        # a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, and the endpoint scopes both producers' session ids apart (needs deno + a Playwright Chromium)

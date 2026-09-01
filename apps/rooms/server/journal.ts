@@ -8,8 +8,9 @@
 // bounded, newest first, repeats folded into a count, and ride the inspect
 // capability's snapshot as ordinary `trouble` rows.
 
-import { noteOperatorChange } from "./operator/revision.ts";
+import type { Ref, Session } from "@pancake/runtime";
 import { MAX_TROUBLE_REASON_BYTES, MAX_TROUBLE_SOURCE_BYTES } from "../lib/limits.ts";
+import type { OperatorRevision } from "./operator/revision.ts";
 
 /** One filed trouble, folded: a repeat of the newest entry raises its count. */
 export interface TroubleEntry {
@@ -21,7 +22,6 @@ export interface TroubleEntry {
 /** The ring keeps this many distinct troubles; the oldest fall off. */
 const TROUBLE_KEPT = 50;
 
-let ring: TroubleEntry[] = [];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -32,31 +32,49 @@ function bounded(value: string, maxBytes: number): string {
 	return `${prefix}…`;
 }
 
-/** File one trouble: stderr keeps the full value for whoever is debugging,
- * and the journal keeps the sentence the inspect capability can serve. */
-export function noteTrouble(source: string, error: unknown): void {
-	console.error(`rooms: ${source}:`, error);
-	source = bounded(source, MAX_TROUBLE_SOURCE_BYTES);
-	const reason = bounded(error instanceof Error ? error.message : String(error), MAX_TROUBLE_REASON_BYTES);
-	const newest = ring[0];
-	if (newest !== undefined && newest.source === source && newest.reason === reason) {
-		ring = [{ ...newest, count: newest.count + 1 }, ...ring.slice(1)];
-		noteOperatorChange();
-		return;
+/** One server's diagnostic account. Constructing another server constructs
+ * another ring; acknowledging one does not clear the other. */
+export class TroubleJournal {
+	#ring: TroubleEntry[] = [];
+
+	constructor(readonly operator: OperatorRevision) {}
+
+	/** File one trouble: stderr keeps the full value for whoever is debugging,
+	 * and the journal keeps the sentence the inspect capability can serve. */
+	note(source: string, error: unknown): void {
+		console.error(`rooms: ${source}:`, error);
+		source = bounded(source, MAX_TROUBLE_SOURCE_BYTES);
+		const reason = bounded(error instanceof Error ? error.message : String(error), MAX_TROUBLE_REASON_BYTES);
+		const newest = this.#ring[0];
+		if (newest !== undefined && newest.source === source && newest.reason === reason) {
+			this.#ring = [{ ...newest, count: newest.count + 1 }, ...this.#ring.slice(1)];
+			this.operator.noteChange();
+			return;
+		}
+		this.#ring = [{ source, reason, count: 1 }, ...this.#ring.slice(0, TROUBLE_KEPT - 1)];
+		this.operator.noteChange();
 	}
-	ring = [{ source, reason, count: 1 }, ...ring.slice(0, TROUBLE_KEPT - 1)];
-	noteOperatorChange();
-}
 
-/** The journal, newest first, for the snapshot to serve. */
-export function troubleRows(): readonly TroubleEntry[] {
-	return ring;
-}
+	/** The journal, newest first, for the snapshot to serve. */
+	rows(): readonly TroubleEntry[] {
+		return this.#ring;
+	}
 
-/** Clear the process-owned diagnostic account. This changes no application or
- * protocol state; the operator is acknowledging the rows it already read. */
-export function clearTrouble(): void {
-	if (ring.length === 0) return;
-	ring = [];
-	noteOperatorChange();
+	/** Clear this server's diagnostic account. This changes no application or
+	 * protocol state; the operator is acknowledging the rows it already read. */
+	clear(): void {
+		if (this.#ring.length === 0) return;
+		this.#ring = [];
+		this.operator.noteChange();
+	}
+
+	/** Give one capability back on the session it lives on. A refused release
+	 * is this journal's diagnostic, not a second process-owned sink. */
+	release(session: Session, ref: Ref, what = "retained capability"): void {
+		try {
+			session.release(ref);
+		} catch (error) {
+			this.note(`could not release ${what}`, error);
+		}
+	}
 }

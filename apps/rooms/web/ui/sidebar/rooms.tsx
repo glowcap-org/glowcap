@@ -6,9 +6,19 @@
 // dms.tsx holds the same for the direct lines, and the rail itself only decides
 // which sections there are.
 
-import { type Conv, type DirId, dirMarkIn, type DirView, type Invitation, type RoomConv } from "../types.ts";
-import { dirWhere } from "../text.ts";
-import { dirRow, inviteRow, type RailRow, roomRow } from "./filter.ts";
+import {
+	CAUGHT_UP,
+	type Conv,
+	type DirId,
+	dirMarkIn,
+	type DirView,
+	type Invitation,
+	type RoomConv,
+	type Unread,
+} from "../types.ts";
+import { dirWhere, nothingWhilePaused } from "../text.ts";
+import { useSessionPaused } from "../hooks.ts";
+import { dirRow, inviteRow, type RailRow, roomRow, unreadCount } from "./filter.ts";
 import { Empty, EmptyDirRow, heldBack, InviteRow, nothingMatches, RoomRow } from "./rows.tsx";
 import { bridgedOrigin } from "../store.ts";
 
@@ -25,12 +35,12 @@ import { bridgedOrigin } from "../store.ts";
  * once there is more than one to tell apart, and says how that directory is
  * doing whenever it is not simply connected. The words are the row's own,
  * because the directory is a fact about the room rather than about where the
- * row happens to sit, and pressing them opens what is known about that
- * directory. */
+ * row happens to sit, and pressing them opens that directory. */
 export function YourRooms(
 	{
 		canInteract,
 		convs,
+		unreads,
 		dirs,
 		home,
 		activeKey,
@@ -47,6 +57,7 @@ export function YourRooms(
 	}: {
 		canInteract: boolean;
 		convs: ReadonlyMap<string, Conv>;
+		unreads: ReadonlyMap<string, Unread>;
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
 		activeKey: string | null;
@@ -68,15 +79,21 @@ export function YourRooms(
 	},
 ) {
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
+	const paused = useSessionPaused();
+	const unreadOf = (key: string) => unreads.get(key) ?? CAUGHT_UP;
 	const held = invites.filter((invite) => shows(inviteRow(invite)));
-	const open = rooms.filter((conv) => shows(roomRow(conv)));
+	const open = rooms.filter((conv) => shows(roomRow(conv, unreadOf(conv.key))));
 	const bare = empty.filter((dir) => shows(dirRow(dir, home)));
 	const total = invites.length + rooms.length + empty.length;
 	const hidden = total - held.length - open.length - bare.length;
 	if (total === 0) {
 		return (
 			<Empty
-				text={dirs.size === 0 ? "Reaching a directory…" : "Rooms you join appear here."}
+				text={paused
+					? nothingWhilePaused
+					: dirs.size === 0
+					? "Reaching a directory…"
+					: "Rooms you join appear here."}
 			/>
 		);
 	}
@@ -100,12 +117,12 @@ export function YourRooms(
 					key={conv.key}
 					canInteract={canInteract}
 					conv={conv}
-					unread={conv.unread.kind === "unread" ? conv.unread.count : 0}
+					unread={unreadCount(unreadOf(conv.key))}
 					here={activeKey === conv.key}
 					where={dirWhere(conv.dir, home, dirs)}
 					home={home}
 					phase={dirs.get(conv.dir)?.session ?? "disconnected"}
-					bridgedFrom={bridgedOrigin(dirs.get(conv.dir), conv.id)}
+					bridgedFrom={bridgedOrigin(dirs.get(conv.dir), conv.publicationId)}
 					onPick={onPick}
 					onLeave={onLeave}
 					onAbout={onAbout}

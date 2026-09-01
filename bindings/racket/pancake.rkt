@@ -77,6 +77,7 @@
          host-defer-turn resolver?
          resolver-fulfill! resolver-break!
          host-enliven
+         host-fetch-at
          (struct-out failure-event) host-take-failures! take-runtime-failures!
          enable-trace!
          parse-locator parse-sturdyref format-locator-uri format-peer-uri format-sturdyref

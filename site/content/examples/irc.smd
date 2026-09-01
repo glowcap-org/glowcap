@@ -51,9 +51,9 @@ files or overlong lines, becomes a notice rather than a partial message.
 # What holds it up
 
 The front admits a bounded number of clients, rooms, direct lines, and
-queued writes, so one connection cannot grow the process. The in-tree tests
-run inside `zig build check` and drive a real socket at the Goblins-compatible
-baseline; `zig build goblins-rooms-irc` runs both edges live against a real
+queued writes, so one connection cannot grow the process. Automated tests open
+a real socket and speak the same CapTP dialect Goblins expects, and they run
+inside `zig build check`; `zig build goblins-rooms-irc` runs both edges live against a real
 [Spritely Goblins](https://spritely.institute/) vat, including a direct
 message the vat answers. The
 [IRC README](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/irc/README.md)

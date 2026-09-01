@@ -1,0 +1,31 @@
+# Copy to docker-compose.override.yml to say how this Docker host reaches the
+# Rooms web surface. The tracked base publishes no port and joins one shared
+# network, so every machine-local exposure choice lives here, in a file Git
+# ignores. This host's port and this site's network names stay out of the
+# repository.
+#
+# There are two ways in, and a host may use either or both. A published
+# loopback port reaches the page from a browser on this machine. A shared
+# Docker network reaches it from a reverse proxy or tunnel container running
+# beside it, which sends plain HTTP to http://pancake-rooms:8000 and needs no
+# published port at all.
+services:
+  rooms:
+    # Keep the interface named. Dropping the `127.0.0.1:` prefix publishes the
+    # page on every interface this machine has, including its LAN address.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Uncomment to also join the network that proxy or tunnel already runs on.
+    # Keep rooms-net in the list: the pancake devcontainer's terminal peers
+    # dial the room over it, and an override naming only the new network takes
+    # that reach away.
+    # networks:
+    #   - rooms-net
+    #   - site-ingress
+
+# The site network is declared here as well, so Compose knows it belongs to
+# somebody else. Give `name` whatever `docker network ls` calls it.
+# networks:
+#   site-ingress:
+#     name: CHANGE-ME
+#     external: true

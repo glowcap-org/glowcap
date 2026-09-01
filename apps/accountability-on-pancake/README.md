@@ -31,7 +31,7 @@ roots under `.data/`; that directory is generated and gitignored.
 5. The run audits the records, then confirms that a tampered signature and a
    retired key are both refused.
 
-The identity scheme follows a deliberately small KERI-shaped model. Its
+The identity scheme follows a small KERI-shaped model. Its
 self-certifying identifier is called an AID. The service being invoked is
 called an Affordance. Both concepts belong to this application; pancake only
 carries the capability call and its result.

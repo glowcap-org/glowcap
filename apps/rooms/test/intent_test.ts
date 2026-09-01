@@ -14,7 +14,7 @@
 // act said — the original defect, exactly — fails five of these; letting an
 // override outlive the act it was made under fails the sixth. What is not
 // covered here is which act each surface files, because that is a question
-// about the surfaces: `web_routes_test.ts` drives it through a real page.
+// about the surfaces: `web/routes_test.ts` drives it through a real page.
 //
 // Run: `deno test --allow-read apps/rooms/test/intent_test.ts`.
 
@@ -122,8 +122,8 @@ Deno.test("a lock is never offered from a past visit", () => {
 	// A private room is minted for good on submit, so a lock remembered from
 	// last week would mint one nobody asked for.
 	const answers = card({ source: "restore" }, { room: "lobby" });
-	assert(answers.secret.value === false, "the card opened locked with nobody having pressed it");
-	assert(answers.secret.from === "default", "a lock claimed evidence behind it");
+	assert(answers.roomPreset.value === "open", "the card opened restricted with nobody having pressed it");
+	assert(answers.roomPreset.from === "default", "room access claimed evidence behind it");
 });
 
 Deno.test("what the reader typed applies to the act they typed it under, and no other", () => {
@@ -232,8 +232,22 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 
 	const answers = card({ source: "press" }, {}, { seq: 1, locator: link, room: "plans" });
 	const lead = joining.joinLead(answers, "this page's directory");
-	assert(lead.includes("This is a room link"), "pasting a room link did not change what the card said it was for");
+	assert(
+		lead.includes("This is a room entry link"),
+		"pasting a room entry link did not change what the card said it was for",
+	);
 	assert(!lead.includes("does not exist yet"), "a room link was described as opening a room that does not exist yet");
+});
+
+Deno.test("a private room cannot impersonate a live room label in the join UI", () => {
+	assert(
+		joining.privateRoomNameRefusal("Network-Channel", ["network-channel"]) !== null,
+		"a case-variant private room could reuse a live publication label",
+	);
+	assert(
+		joining.privateRoomNameRefusal("quiet-room", ["network-channel"]) === null,
+		"an unrelated private room name was refused",
+	);
 });
 
 Deno.test("the card says what it is for once, and only an address gets to say it", () => {
@@ -249,12 +263,18 @@ Deno.test("the card says what it is for once, and only an address gets to say it
 		joining.joinLead(toADirectory, "elsewhere").includes("Name a room to enter there"),
 		"a link naming only a directory did not ask for a room",
 	);
-	// A press put the reader here a moment ago and they can see what they
-	// pressed, so the card keeps its ordinary words.
+	// A press that already named the room is a gate on that room: say so, and
+	// ask for the name, without talking like an address they followed.
 	const pressed = card({ source: "press", room: named("arrivals"), locator: implied("") });
 	assert(
 		!joining.joinLead(pressed, "this page's directory").includes("This address"),
 		"a room the reader just typed was described as an address they followed",
+	);
+	assert(
+		joining.joinLead(pressed, "this page's directory").includes(
+			"This is #arrivals in this page's directory. Choose your name.",
+		),
+		"a pressed room gate did not ask for a name",
 	);
 	// And what this browser merely remembers is an offer, never a destination.
 	const cold = card({ source: "restore" }, { room: "lobby", locator: AWAY });
@@ -309,6 +329,22 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 	// directory wears.
 	assert(aimed("ocapn://stranger.iroh", stranger).mark === "unknown", "an unheld directory wore no mark");
 	assert(aimed("not an address", null).name === "that directory", "text that names nowhere claimed a destination");
+});
+
+Deno.test("a named directory this tab has not reached is a connect", () => {
+	const none = new Map() as ReadonlyMap<
+		import("../web/ui/types.ts").DirId,
+		import("../web/ui/types.ts").DirView
+	>;
+	const away = card({ source: "press" }, {}, { seq: 1, locator: AWAY });
+	assert(
+		joining.resolveJoin(away, none, HOME, () => null).act === "connect",
+		"an address this tab has not reached was offered as a join",
+	);
+	assert(
+		joining.resolveJoin(card({ source: "press" }), none, HOME, () => HOME).act === "join",
+		"this page's own directory asked to be connected before a room could be named",
+	);
 });
 
 Deno.test("past the ramp the join card stops claiming a color the rail is not showing", () => {

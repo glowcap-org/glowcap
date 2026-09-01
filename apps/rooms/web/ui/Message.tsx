@@ -6,17 +6,17 @@
 // room repaints the newest row and leaves the rest of the log alone.
 
 import { memo, useState } from "react";
-import { canRetry, type ChatItem, isUnsent, type SendControlPolicy } from "./types.ts";
+import { type BridgeFacts, canRetry, type ChatItem, isUnsent, type SendControlPolicy } from "./types.ts";
 import { type Group } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
-import { ircName } from "./member_identity.ts";
+import { foreignName } from "./member_identity.ts";
 import { fmtTime, mentionsYou } from "./text.ts";
 
 import { RichText } from "./RichText.tsx";
 
 import { IconButton } from "./IconButton.tsx";
 import { useCopy } from "./Copy.tsx";
-import { MenuList, MenuRow, useMenu } from "./Menu.tsx";
+import { MenuLayer, MenuList, MenuRow, useMenu } from "./Menu.tsx";
 import { Attached, mediaLayouts } from "./message/attach.tsx";
 /** Everything else one message can be asked to do.
  *
@@ -40,7 +40,7 @@ function LineMenu(
 ) {
 	const [above, setAbove] = useState(false);
 	const [inward, setInward] = useState(false);
-	const { open, setOpen, holder, trigger } = useMenu();
+	const { open, setOpen, holder, trigger, layer } = useMenu();
 	const { copy } = useCopy(item.text);
 	// Copying is about the words; there are none on a line that was taken back.
 	const words = !item.withdrawn && item.text !== "";
@@ -69,60 +69,69 @@ function LineMenu(
 				}}
 			/>
 			{open && (
-				<MenuList
-					className={"line-menu" + (above ? " above" : "") + (inward ? " inward" : "")}
-				>
-					{words && (
-						<MenuRow
-							icon="copy"
-							className="line-menu-row"
-							first
-							onPick={() => {
-								setOpen(false);
-								void copy(holder.current);
-							}}
-						>
-							Copy text
-						</MenuRow>
-					)}
-					{!item.mine && (
-						<MenuRow
-							icon="mention"
-							className="line-menu-row"
-							first={!words}
-							onPick={() => {
-								setOpen(false);
-								onMention(item.from);
-							}}
-						>
-							Mention {item.from}
-						</MenuRow>
-					)}
-					{held && (
-						<MenuRow
-							icon="pencil"
-							className="line-menu-row"
-							onPick={() => {
-								setOpen(false);
-								onEdit(item);
-							}}
-						>
-							Edit
-						</MenuRow>
-					)}
-					{held && (
-						<MenuRow
-							icon="close"
-							className="line-menu-row danger"
-							onPick={() => {
-								setOpen(false);
-								onWithdraw(item.id);
-							}}
-						>
-							Delete
-						</MenuRow>
-					)}
-				</MenuList>
+				<MenuLayer holder={holder} layer={layer} className={item.mine ? undefined : "from-them"}>
+					<MenuList
+						className={"line-menu" + (above ? " above" : "") + (inward ? " inward" : "")}
+					>
+						{words && (
+							<MenuRow
+								icon="copy"
+								className="line-menu-row"
+								first
+								onPick={() => {
+									setOpen(false);
+									void copy(holder.current);
+								}}
+							>
+								Copy text
+							</MenuRow>
+						)}
+						{!item.mine && (
+							<MenuRow
+								icon="mention"
+								className="line-menu-row"
+								first={!words}
+								onPick={() => {
+									setOpen(false);
+									onMention(item.from);
+								}}
+							>
+								Mention {item.from}
+							</MenuRow>
+						)}
+						{held && (
+							<MenuRow
+								icon="pencil"
+								className="line-menu-row"
+								onPick={() => {
+									setOpen(false);
+									onEdit(item);
+								}}
+							>
+								Edit
+							</MenuRow>
+						)}
+						{held && (
+							<MenuRow
+								icon="close"
+								className="line-menu-row danger"
+								onPick={() => {
+									setOpen(false);
+									onWithdraw(item.id);
+								}}
+							>
+								{
+									/* What it does, which is not deleting. The line keeps its
+								    place and says what became of it — the comment on that
+								    place says why — so a control promising removal promised
+								    something the room does not do, and the reader met the
+								    other word a moment later in "Message withdrawn". */
+								}
+								Withdraw
+							</MenuRow>
+						)}
+					</MenuList>
+				</MenuLayer>
 			)}
 		</div>
 	);
@@ -282,12 +291,13 @@ function sameGroup(a: Group, b: Group): boolean {
 	// `blocksOf` is memoised, so when the history has not changed these are the
 	// same object and the walk below is skipped entirely.
 	if (a === b) return true;
-	if (a.from !== b.from || a.mine !== b.mine || a.items.length !== b.items.length) return false;
+	if (a.from !== b.from || a.mine !== b.mine || a.showTime !== b.showTime) return false;
+	if (a.items.length !== b.items.length) return false;
 	return a.items.every((item, at) => item === b.items[at]);
 }
 
 export const MessageGroup = memo(function MessageGroup(
-	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, sendControls, changing }: {
+	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, sendControls, changing, bridge }: {
 		group: Group;
 		nick: string;
 		/** Which conversation these lines are in, so a file's fetch names the
@@ -301,10 +311,14 @@ export const MessageGroup = memo(function MessageGroup(
 		sendControls: SendControlPolicy;
 		/** The line being rewritten, so the one on screen can say it is the one. */
 		changing: number | undefined;
+		/** What the bridge behind this room calls its own, when there is one. The
+		 * author line names a foreign speaker the way the roster does rather than
+		 * by their row's key. */
+		bridge: BridgeFacts | undefined;
 	},
 ) {
 	const last = group.items[group.items.length - 1];
-	const irc = ircName(group.from);
+	const foreign = foreignName(group.from, bridge);
 	// The bubble already carries its author and the sidebar its arrival, so the
 	// per-line timestamp is decorative for a screen reader; it is hidden from the
 	// tree rather than read out with every line.
@@ -312,8 +326,8 @@ export const MessageGroup = memo(function MessageGroup(
 		<div className="stack">
 			{!group.mine && (
 				<div className="who">
-					{irc ?? group.from}
-					{irc !== null && <span className="irc-chip">IRC</span>}
+					{foreign ?? group.from}
+					{foreign !== null && bridge !== undefined && <span className="irc-chip">{bridge.badge}</span>}
 				</div>
 			)}
 			{group.items.map((item) => (
@@ -331,20 +345,24 @@ export const MessageGroup = memo(function MessageGroup(
 					changing={item.id === changing}
 				/>
 			))}
-			<div className="time" aria-hidden="true">{fmtTime(new Date(last.at))}</div>
+			{group.showTime && <div className="time" aria-hidden="true">{fmtTime(new Date(last.at))}</div>}
 		</div>
 	);
 	return (
 		<div className={"row " + (group.mine ? "mine" : "them")} data-from={group.from}>
 			{!group.mine && (
 				// Purely a coloured initial; the author is already spoken in the `who` line.
-				<Avatar name={group.from} />
+				<Avatar name={foreign ?? group.from} />
 			)}
 			{stack}
 		</div>
 	);
+	// Prop by prop, and a prop missing from this list is a group that stops
+	// repainting rather than an error anybody sees. `bridge` compares by identity
+	// because `setBridgeFacts` only replaces it when a value actually changed.
 }, (prev, next) =>
 	prev.nick === next.nick &&
+	prev.bridge === next.bridge &&
 	prev.changing === next.changing &&
 	prev.convKey === next.convKey &&
 	prev.onRetry === next.onRetry &&

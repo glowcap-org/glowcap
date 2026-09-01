@@ -7,7 +7,7 @@ decision: "A Rooms session is a capability-owned application runtime that serial
 supersedes: []
 superseded_by: []
 amends: [ADR-0133]
-amended_by: [ADR-0135, ADR-0137, ADR-0138]
+amended_by: [ADR-0135, ADR-0137, ADR-0138, ADR-0139]
 ---
 
 # ADR-0134 Shared Rooms session capability
@@ -28,6 +28,11 @@ A Rooms session owns the application runtime above CapTP. It holds directory ses
 conversations, remembered capabilities, the selected archive, and the revisioned workspace. A browser view attaches by
 holding a session capability. Possession grants the ability to observe that session and, when the facet allows it, send
 commands to it.
+The shared session, not the attached browser or the workspace DTO, is the live
+capability holder. It keeps those holdings while every view is detached, like a
+network bouncer keeping a client's presence. A saved sturdyref in its checkpoint
+is separately dormant bearer authority; it appears there only after an explicit
+retention act and is re-enlivened into the runtime holder on reconstruction.
 
 The durable root mints attenuated observe, interact, and admin facets. A holder can pass one through ordinary OCapN
 handoff. Each grant has a separate revoker. Revocation blocks later calls and drops that facet's watcher without changing
@@ -55,7 +60,17 @@ because an interaction facet cannot inspect the bearer custody it would otherwis
 A room join is one typed checkpoint transition. It validates the directory route and requested nickname, adds or updates
 that directory, reuses an already-intended room when applicable, selects the conversation, and derives public-room join
 defaults from the committed directory. There is no separate command that can save parallel join defaults or a browser
-sequence that can commit only the directory half of a public join. Opening a direct conversation likewise creates and
+sequence that can commit only the directory half of a public join. A conversation this tab already holds without a
+directory name uses that same join card as its gate; Retry does not invent a nickname, and the directory card reports
+the grant rather than collecting one. Pressing a directory on the rail, a conversation, or Settings selects that
+directory's conversation in this tab; the directory card still opens from that conversation's title. The
+title's close mark on a room, a direct line, or a directory asks to leave in that conversation's card,
+rather than acting from the header. Directory
+conversations are a view, not a checkpoint row, and the workspace document does not persist them. Their
+address still names which directory is showing, using the same `?dir=` a room on another directory uses,
+so two directories cannot share one link. The view is a command surface for that directory: slash
+commands run there and their results stay in that log. It is not a chat, and there is no directory post.
+Opening a direct conversation likewise creates and
 selects it in one transition, while creating a direct solely to deliver an invitation deliberately preserves the current
 selection.
 The browser controller keeps positional command names and argument arrays private. Attached UI adapters call typed
@@ -94,9 +109,12 @@ intentionally empty and a result-bearing authority commit. Starting the peer wit
 replacement and therefore closes adoption before the sturdyref is announced. This is durable lifecycle state, not a
 conclusion drawn from revision zero, an empty document, or any other incidental checkpoint shape.
 
-The current snapshot wire contract is one exact eleven-position tuple. Its final access envelope is version one and
-always carries facet rights, workspace-adoption state, and the bounded grant view; archive and directory views occupy
-their fixed positions even when empty. No tuple-length or missing-field fallback represents an older prerelease shape.
+The current snapshot wire contract is one exact twelve-position tuple. Its
+eleventh access envelope is version one and always carries facet rights,
+workspace-adoption state, and the bounded grant view. The final position carries
+runtime-held room offers without serializing their references. Archive and
+directory views occupy their fixed positions even when empty. No tuple-length
+or missing-field fallback represents an older prerelease shape.
 
 The operations capability vault is edited as one scoped set. Switches and the canonical `ROOMS-*` text are two
 projections of that set, not independent acquisition paths. Enabling one switch collects its bearer in a focused modal;
@@ -104,6 +122,11 @@ the set commits to durable storage once before live capabilities reconcile. A re
 saved bearer visible for correction, with one capability-named failure, rather than rolling back unrelated accepted
 entries or repeating a storage write per capability. The editor replaces the home directory's set and the one app-wide
 visualizer entry. Credentials scoped to another joined directory remain untouched.
+Settings presents this vault with the other Holdings: live session possession,
+saved room entry and management authority, the selected archive capability, and
+session access grants. Session remains about storage ownership and retention
+policy, while Reachability owns locators and connection choices. This prevents a locator or preference from reading as authority and a
+saved bearer from reading as ordinary configuration.
 
 The shared session owns facts that must agree everywhere:
 
@@ -122,6 +145,12 @@ The direct-message protocol is independent of which side uses a durable session.
 one receiver grammar for messages, typing, room invitations, and archive shares. A durable session may adopt the reply
 route handed over by an ordinary member without losing those sibling verbs, and reconnect replaces that route without
 changing the durable conversation identity.
+A handed room remains a live runtime holding while its offer is pending. The
+snapshot exposes only bounded display metadata. Declining or losing the carrying
+direct session retires the occurrence. Accepting is the explicit durability
+act: the session asks the room's source for its entry link, commits that bearer
+to the checkpoint, and only then releases the transient occurrence. Arrival
+alone never mints or persists room authority.
 An intended direct conversation does not dial its saved nickname merely because a session restored. Each live nickname
 registration receives an opaque directory-issued registration ID. Discovery, inbox offers, reciprocal requests,
 introductions, and the durable conversation record carry that registration ID; an introduction succeeds only while the named registration
@@ -151,25 +180,52 @@ Removing a file retires its retained buffer, while an already-admitted read rema
 Files selected in one view remain there until a command transfers their bytes or a hosted blob capability to the
 session. A checkpoint never invents persistence for those handles.
 
-The browser workspace envelope separately names its controller: not established, local reconstruction, or an attached
-session sturdyref. No directory or room interaction is rendered before that choice is established. Fresh and explicitly
+The browser workspace envelope separately names its controller: not established, local reconstruction, an attached
+session sturdyref, or this tab hosting the session actor. No directory or room interaction is rendered before that choice is established. Fresh and explicitly
 detached browsers use one session-establishment surface; a failed saved attachment returns there with its bearer and
 failure intact. Settings gives session choice and recovery their own tab, while workspace export, import, and clearing
 open in a focused nested modal. Each state action follows the established controller: local mode mutates this browser's
 session document and archive, while attached mode mutates the durable session checkpoint and leaves browser-local or
 separately selected archives alone. An attached export must not substitute a browser cache when the durable controller
 has supplied no checkpoint. Continuing locally from an attachment is an explicit fork of the latest shared checkpoint,
-not a return to an independently preserved local session. That selector is neither shared checkpoint content nor device
+not a return to an independently preserved local session. The fork copies reconstructible rooms and settings. It does
+not copy directory names: those remain granted to the session that still holds them, and reconstructing with that
+intent would retry another peer's identity. Leaving an attached session for setup likewise drops those names from the
+leftover document, so a later local reconstruction cannot retry them. Copied rooms therefore appear without claimed
+membership until this browser joins under a name of its own. That selector is neither shared checkpoint content nor device
 presentation state. The browser exposes that selector as one discriminated controller value. An attached value carries
 the exact sturdyref used for reconnection, and Session settings presents it as bearer authority that can be copied. A
+hosted value also carries that sturdyref, naming this tab as the listener. Reloading ends sharing: the wasm Host identity is not persisted, so the next load is local reconstruction rather than a dial of a dead peer. A
 local value carries no sturdyref because local reconstruction is not a published durable capability. A complete export
 may carry the attached-session bearer; an ordinary redacted export changes the selector to local reconstruction. Adding
 this field changes the current prerelease schema. Until a released format exists, stale development documents are
 refused rather than migrated.
 
-The first durable host is a standalone Deno peer that reuses the current Rooms client and runtime. A later Zig host can
-implement the same capability facets, command admission, revision stream, and checkpoint contract for lower overhead.
-The implementation language and host location do not change command, event, checkpoint, or view semantics.
+The session actor binds onto a running CapTP Host through a document store and an advertised locator. The shipped
+durable host is a standalone Deno peer that reuses the current Rooms client and runtime and writes `session.json`,
+`effects.json`, and `grants.json`. A browser tab can bind the same actor onto its wasm Host for the life of the tab:
+the session sturdyref names the same locator this tab already advertises for direct messages (WebRTC by default,
+`noise-relay` when Settings or `?dm=relay` chooses the sealed relay). A WebRTC session door also names the directory
+that served this page, as a `signaling-directory` hint, so Attach can `signalOffer` there even when the attaching
+browser was served by a different directory. A leftover membership on the attaching tab and the store's workspace
+home are not that inbox. The browser WebRTC connector binds that designator as the
+verified channel key before CapTP bytes move, the same signaling-scoped claim
+native `authorizeRemote` records (ADR-0105), so Attach can enliven the session
+sturdyref. After Share, the hosted runtime keeps this tab's live directory sessions — the same Host
+sessions DMs already signal through. It re-registers each stolen session under the name the
+directory already granted this tab, so hosted DM callbacks replace the UI ones, then files the
+WebRTC answering inbox Attach looks up. Re-register withdraws the previous intro; the UI presence
+path must not file a second inbox on the stolen session, because that later file races the replace
+and can leave the directory holding a dead answerer. Only a failed Share closes unused stolen
+sessions. Share waits until this page's home directory is live under a registered name before the
+sturdyref is shown; a membership on another directory is not that inbox. Joining a room on this
+page's directory is that registration. The attacher uses a live session on the named directory when
+this Host already holds one, and otherwise registers there only to be admitted to signaling; it does
+not take up the hosted session's rooms under this tab's Host. The hosting tab does not join the
+attaching browser's directory. Session documents stay in memory for that tab; IndexedDB is not a session store. Closing or
+reloading the tab ends sharing. Connection choice and checkpoint replacement on this tab therefore commit in place:
+those acts reload an attached client, and a reload here would end the session. The implementation language and host
+location do not change command, event, checkpoint, or view semantics.
 
 ## Reactivity and failure
 

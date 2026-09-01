@@ -1,32 +1,11 @@
 # Persistence as a capability
 
-Status: active plan. Browser workspace reconstruction, bounded room retention,
-member-owned room and direct-message history, the member-owned archive
-capability, a durable archive peer, explicit browser selection, monotonic
-facets, and direct-line handover ship. A durable Rooms session capability now
-lets several views control one network identity. Its durable
-checkpoint, attenuated facets, bounded revision and event watches, default file
-archive, capability vault, room and direct-message restoration, room sends,
-file proxy, operator path, listener and IRC administration, diagnostics, public
-directory joins, and browser reconnect now ship. Archive reconciliation keeps
-the source, conversation generation, and record id instead of treating a
-reconnect-local line number as durable identity. The controller contract
-prevents attached views from falling through to local network effects. Private
-rooms now use an opaque idempotent creation key and a typed result journal that
-replays authority into the checkpoint across every local crash boundary. The
-workspace state surface exposes pending session effects for explicit resume or
-resolution without depending on the directory's separate operator capability.
-Invitations, peering leases, visualizer publishing, direct and room attachment
-projection, file-set changes, live room facts, and bounded directory discovery
-now run through the durable owner. Operator-managed server listeners and IRC
-bridges have their own replayable server document. Broader archive views,
-indefinite ordinary-effect deduplication, and local-tab merging remain open.
-Restart-stable attenuated session grants now have their own bounded ledger,
-deterministic durable publications, revocation tombstones, and access-aware
-attached UI. Interaction grants operate ordinary workspace intent without
-receiving or replacing the session's retained operations and archive bearers;
-that custody remains on the administration facet.
-Archive lines retain bounded attachment metadata and content-addressed blobs.
+Status: active plan. Browser reconstruction, room retention, the member
+archive, the archive peer, facets, handover, session sharing, and grants
+already exist. The operational description lives in
+[`apps/rooms/operating.md`](../../apps/rooms/operating.md#storage-and-room-history).
+What remains is the broader archive views, indefinite
+ordinary-effect deduplication, and local-tab merging.
 
 Rooms forgets by default, not unconditionally. An operator can retain the last
 lines of listed public rooms in memory, state-directory files, or PostgreSQL;
@@ -37,17 +16,12 @@ local policies. The browser implements the archive object below and can project
 it on a live session. A standalone peer hosts the same object behind a durable
 sturdyref. Settings can select that whole-archive authority for
 direct-message reads and writes. A conversation card can hand the other member
-a read-only facet narrowed to that direct line. The server retention path does
+a live read-only facet or a durable archive-peer share, including a room or
+standing account whose scope is independent of that DM. The server retention path does
 not implement the archive object. The member archive retains attachment bytes;
 room-owned server history still keeps only file captions.
 
-The remaining questions concern broader archive views, restart-stable session
-grants, and durable or independently revocable offers. This page records both
-the shipped object and that remaining shape. The operational behavior that
-exists today lives in
-[`apps/rooms/operating.md`](../../apps/rooms/operating.md#storage-and-room-history).
-
-The temptation is to answer it with storage: pick a database, write the lines
+The temptation is to start with storage: pick a database, write the lines
 into it, read them back. That answers the wrong question first. What a member
 can *fetch* is a product feature, and until Rooms is designed with those
 features in it there is nothing to store honestly. So this page names the reads
@@ -94,7 +68,7 @@ that keeps what it is told and hands back what it kept, and holding a reference
 to one is the whole of the authority to use it. Nothing about it is a property
 of the room.
 
-That has a consequence worth stating plainly, because it is the point where
+That has a consequence, because it is the point where
 this design parts company with the obvious one. Two members standing in the
 same room can hold different histories, and neither is wrong. A room does not
 have a past; the people in it have pasts. Somebody who was never in the room
@@ -265,6 +239,14 @@ rungs.
    card hands the other member a read-only facet for that line; the receiver
    explicitly reads it once or gives it back, with bounded custody and separate
    attribution.
+6. **Shipped — room and standing handover, durable offers, hash homes.** A
+   room card names a member and hands a facet over a DM without stealing
+   selection. Standing records are a kind of their own. Independently
+   revocable durable offers are Host publications from the archive peer's
+   share ledger; the tab recorder refuses that mint. A content digest is a
+   seventh filter dimension that authorizes `blob(digest)` only inside the
+   held facet.
 
 The memory archive remains the focused contract implementation. The standalone
 peer proves the same behavior across the live wire and a process restart.
+Combining several archive accounts into one evidence-backed view remains open.

@@ -4,7 +4,6 @@ import { Unanswered } from "./deadline.ts";
 import type { Directory } from "./directory.ts";
 import { REQUEST_TIMEOUT_MS } from "./limits.ts";
 import { PUBLICATION_READY, PUBLISH_DURABLE_ROOM, REVOKE } from "./protocol.ts";
-import { roomsSturdyrefForSession } from "./locator.ts";
 
 export interface DurableRoom {
 	readonly reference: Ref;
@@ -128,10 +127,7 @@ export class DirectoryPeering {
 		if (this.#closed) throw new Error("directory peering is closed");
 		// Enlivenment verifies the complete source-authored sturdyref and retains
 		// its canonical locator on the actual exporter session for later gives.
-		const durable = await source.session.host.enliven(
-			roomsSturdyrefForSession(link, source.session),
-			source.session.profile.captpVersion,
-		);
+		const durable = await source.session.host.enliven(link);
 		const held: SourceHold = { session: source.session, ref: durable };
 		if (this.#closed) {
 			this.#releaseOrRetainSource(held);

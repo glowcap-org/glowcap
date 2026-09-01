@@ -75,7 +75,7 @@ export const profiles = [
 	},
 	{
 		transport: TRANSPORT_NOISE_TCP,
-		summary: "TCP sealed end to end with Noise_XK; finishing the handshake proves the peer's durable key.",
+		summary: "TCP sealed end to end with Noise_XK. Finishing the handshake proves the peer's durable key.",
 		reference: "https://noiseprotocol.org/",
 		referenceName: "Noise",
 		takes: [

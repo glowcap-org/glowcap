@@ -33,8 +33,8 @@ const model = @import("model");
 
 const v1_0_syrup_versions = [_]model.CaptpVersion{.v1_0};
 const v1_0_syrup_codecs = [_]model.CodecId{.syrup};
-const native_versions = [_]model.CaptpVersion{ .next, .v1_0 };
-const native_codecs = [_]model.CodecId{ .capnp, .syrup };
+const native_versions = [_]model.CaptpVersion{ model.Preference.native.captp_version, .v1_0 };
+const native_codecs = [_]model.CodecId{ model.Preference.native.codec, .syrup };
 
 /// What a peer offers at handshake: the CapTP versions and codecs it can speak
 /// (index 0 most preferred) and the semantic feature set it supports.

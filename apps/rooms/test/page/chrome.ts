@@ -89,7 +89,12 @@ export async function runChrome(
 		const dms = document.querySelector("#dmList");
 		const title = document.querySelector(".workspace");
 		const foot = document.querySelector(".sidebar-foot");
+		const roster = document.querySelector(".members");
+		const rosterBody = document.querySelector(".members-body");
+		const rosterList = document.querySelector("#members");
+		const rosterHead = roster?.querySelector("h2") ?? null;
 		if (body == null || rooms == null || dms == null || title == null || foot == null) return null;
+		if (roster == null || rosterBody == null || rosterList == null || rosterHead == null) return null;
 		const box = body.getBoundingClientRect();
 		return {
 			body: scrolling(body),
@@ -98,9 +103,13 @@ export async function runChrome(
 			shared: ancestor(rooms) === body && ancestor(dms) === body,
 			belowTitle: box.top >= title.getBoundingClientRect().bottom - 1,
 			aboveFoot: box.bottom <= foot.getBoundingClientRect().top + 1,
+			rosterPane: scrolling(roster),
+			roster: scrolling(rosterBody),
+			rosterList: scrolling(rosterList),
+			rosterShared: ancestor(rosterList) === rosterBody && ancestor(rosterHead) === rosterBody,
 		};
 	});
-	if (railScroll == null) fail("the left rail had no title, body, lists, and status line to compare");
+	if (railScroll == null) fail("the rails had no title, body, lists, roster, and status line to compare");
 	const broken = [
 		!railScroll.body && "the region under the title does not scroll",
 		railScroll.rooms && "the rooms list still scrolls on its own",
@@ -110,6 +119,18 @@ export async function runChrome(
 		!railScroll.aboveFoot && "that region runs into the status line rather than stopping above it",
 	].filter((said) => said !== false);
 	if (broken.length > 0) fail(`the left rail is not one scroller: ${broken.join("; ")}`);
+	// The roster is the same kind of region with no title or foot of its own, so
+	// `.members-body` is the scroller. The heading used to stay pinned while
+	// the names moved in a box of their own, which is the nested scroller the
+	// rooms list used to be. The pane around it is chrome, not a second
+	// scroller — on a phone that chrome is the sheet handle.
+	const rosterBroken = [
+		railScroll.rosterPane && "the pane still scrolls around its body",
+		!railScroll.roster && "the roster body does not scroll",
+		railScroll.rosterList && "the member list still scrolls on its own",
+		!railScroll.rosterShared && "the heading and the names do not share that region",
+	].filter((said) => said !== false);
+	if (rosterBroken.length > 0) fail(`the roster is not one scroller: ${rosterBroken.join("; ")}`);
 
 	// And they draw the same row. Two rails flank the conversation and a reader
 	// sees both at once, so a name in one that starts a few pixels off a name in
@@ -177,10 +198,17 @@ export async function runChrome(
 	}
 
 	// Drawing alike is only half of it: the same treatment has to keep meaning the
-	// same thing. A wash under the pointer means "this row opens" everywhere in
-	// the rail, so a roster row — a name, a state, and a button that answers for
-	// itself — must not wear one. Both halves are asked, because "nothing lights
-	// up" is also what a broken selector looks like.
+	// same thing. A wash under the pointer means "this row opens", and in both
+	// rails it now does — a room row opens the room, a roster row opens what is
+	// known about that member, which `member_card.ts` presses. So both light, and
+	// both are asked, because "nothing lights up" is also what a broken selector
+	// looks like.
+	//
+	// This asked the opposite while a roster row had nothing to press. It kept
+	// passing through the change that gave it one, because the wash went on the
+	// button and this reads the row around it — a proof still agreeing with a
+	// design it had stopped describing. The row is the button now, so there is
+	// no longer a gap between them for that to hide in.
 	const ground = (row: string) =>
 		tab.evaluate((r) => {
 			const el = document.querySelector(r);
@@ -196,11 +224,10 @@ export async function runChrome(
 		await tab.hover(row);
 		return cold !== await ground(row);
 	};
-	if (!await lights("#roomList li")) {
-		fail("a room row does not answer the pointer, so nothing in the rail says which row a press would open");
-	}
-	if (await lights("#members li")) {
-		fail("a roster row lights up under the pointer like a row that opens, but pressing it does nothing");
+	for (const [row, what] of [["#roomList li", "a room row"], ["#members li", "a roster row"]] as const) {
+		if (!await lights(row)) {
+			fail(`${what} does not answer the pointer, so nothing says which row a press would open`);
+		}
 	}
 
 	// The mark is one control with two homes: the rail holds it while the list is

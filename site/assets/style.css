@@ -9,8 +9,8 @@
      so the same declaration that puts a soft shadow under a card on paper puts
      a halo of light around it in the dark.
 
-     That halo is right for a code block and wrong for a card, which is what a
-     reader notices without being able to name it. A code block is a well cut
+     That halo is right for a code block and wrong for a card, and a reader
+     notices the difference without being able to name it. A code block is a well cut
      into the page, darker than what surrounds it, and a faint light rim reads
      as its edge catching the light. A card is raised, lighter than the page,
      and a light halo around a light panel leaves no edge to see at all: the
@@ -113,6 +113,19 @@ body {
      instead of leaving a ragged band of empty paper mid-page. */
   display: flex;
   flex-direction: column;
+  background: none;
+}
+
+/* The ground is a property of the window here exactly as in Rooms: the crown
+   holds the top of what a reader sees and the floor sits under the fold, on
+   every screenful of a long article rather than only at its end. A ground
+   painted on the scrolling document would show most readers nothing but paper.
+   The `html` backstop keeps overscroll rubber-banding on the same picture. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
   background: var(--page-bg);
 }
 

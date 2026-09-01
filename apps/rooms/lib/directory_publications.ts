@@ -8,6 +8,7 @@ import type { Argument } from "@pancake/runtime";
 import * as z from "zod/mini";
 import { MAX_DIRECTORY_DISCOVERY_ROWS, MAX_NICK, MAX_ROOM } from "./limits.ts";
 import { boundedText, nonemptyText, nonnegativeSafeInteger } from "./schema.ts";
+import { isRoomMembershipKind } from "./room/membership.ts";
 
 /** One exact room publication in the directory. */
 export const RoomInfoSchema = z.strictObject({
@@ -17,13 +18,15 @@ export const RoomInfoSchema = z.strictObject({
 	count: z.nullable(nonnegativeSafeInteger),
 	origin: boundedText(256),
 	proof: z.enum(["local", "authenticated", "session", "bridge"]),
+	/** Membership the public registration offers, or null when it is listed for invitation only. */
+	offers: z.nullable(z.enum(["observer", "participant"])),
 }).check(
 	z.refine((room) =>
 		room.kind === "local"
 			? room.count != null && room.origin === "" && room.proof === "local"
 			: room.kind === "foreign"
 			? room.count == null && room.origin !== "" && room.proof !== "local"
-			: room.count == null && room.origin !== "" && room.proof === "bridge"
+			: room.origin !== "" && room.proof === "bridge"
 	),
 );
 
@@ -137,7 +140,7 @@ function naturalNumber(raw: Argument): number | null {
 }
 
 function parseRoom(raw: Argument): RoomInfo | null {
-	if (!Array.isArray(raw) || (raw.length !== 2 && raw.length !== 6)) return null;
+	if (!Array.isArray(raw) || (raw.length !== 2 && raw.length !== 7)) return null;
 	if (raw.length === 2) {
 		const [name, countRaw] = raw;
 		if (typeof name !== "string" || name.length === 0 || name.length > MAX_ROOM) return null;
@@ -150,10 +153,11 @@ function parseRoom(raw: Argument): RoomInfo | null {
 			count,
 			origin: "",
 			proof: "local",
+			offers: "participant",
 		});
 		return parsed.success ? parsed.data : null;
 	}
-	const [name, countRaw, id, kind, origin, proof] = raw;
+	const [name, countRaw, id, kind, origin, proof, offers] = raw;
 	if (typeof name !== "string" || name.length === 0 || name.length > MAX_ROOM) return null;
 	if (typeof id !== "string" || id.length === 0 || id.length > 128) return null;
 	let count: number | null = null;
@@ -161,7 +165,8 @@ function parseRoom(raw: Argument): RoomInfo | null {
 		count = naturalNumber(countRaw);
 		if (count === null) return null;
 	}
-	const parsed = z.safeParse(RoomInfoSchema, { id, name, kind, count, origin, proof });
+	if (offers !== null && !isRoomMembershipKind(offers)) return null;
+	const parsed = z.safeParse(RoomInfoSchema, { id, name, kind, count, origin, proof, offers });
 	return parsed.success ? parsed.data : null;
 }
 

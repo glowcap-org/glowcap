@@ -4,9 +4,9 @@ These are open questions in OCapN and Spritely Goblins. pancake cannot settle
 any of them alone, so they are not on [the roadmap](roadmap.md). A few already
 have an answer pancake meets; those say so, and say what holds it.
 
-Each section names the proposal that owns the question, because `pancake-next`
+Each section names the proposal that is deciding the question, because `pancake-next`
 follows current direction rather than only merged text. Every number below was
-open at the last review of this page.
+open at the last review.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and
@@ -130,7 +130,7 @@ wire now.
 The CapTP text's `deposit-gift` example shows the gifted reference as a
 `desc:import-object`. PR 244 reports that it should be a `desc:export`, because
 the gifter is naming an object the exporter itself exported. pancake sends the
-exported form, which is what the live Goblins gift checks redeem, and accepts
+exported form, the one the live Goblins gift checks redeem, and accepts
 either shape on receive.
 
 ## Goblins over iroh

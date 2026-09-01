@@ -1,7 +1,7 @@
 // Live connection and capability issues for one durable Rooms runtime.
 
 export class RoomsRuntimeIssues {
-	readonly #issues = new Map<string, string>();
+	readonly #issues = new Map<string, { reason: string; retryable: boolean }>();
 	readonly #changed = new Set<() => void>();
 
 	onChange(changed: () => void): () => void {
@@ -24,20 +24,25 @@ export class RoomsRuntimeIssues {
 	}
 
 	list(): { subject: string; reason: string }[] {
-		return [...this.#issues].map(([subject, reason]) => ({ subject, reason }));
+		return [...this.#issues].map(([subject, issue]) => ({ subject, reason: issue.reason }));
 	}
 
 	subjects(): IterableIterator<string> {
 		return this.#issues.keys();
 	}
 
-	set(subject: string, error: unknown | null): boolean {
+	*retryableSubjects(): IterableIterator<string> {
+		for (const [subject, issue] of this.#issues) if (issue.retryable) yield subject;
+	}
+
+	set(subject: string, error: unknown | null, retryable = true): boolean {
 		const reason = error == null ? null : error instanceof Error ? error.message : String(error);
 		if (reason == null) {
 			if (!this.#issues.delete(subject)) return false;
 		} else {
-			if (this.#issues.get(subject) === reason) return false;
-			this.#issues.set(subject, reason);
+			const previous = this.#issues.get(subject);
+			if (previous?.reason === reason && previous.retryable === retryable) return false;
+			this.#issues.set(subject, { reason, retryable });
 		}
 		this.notify();
 		return true;

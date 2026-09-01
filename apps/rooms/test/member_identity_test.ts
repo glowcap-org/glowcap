@@ -3,7 +3,7 @@
 // Rooms member's IRC seat keeps both network and presence facts visible.
 
 import { assertEquals } from "./assert.ts";
-import { hueOf, initials, ircName, memberDetail, memberIdentity } from "../web/ui/member_identity.ts";
+import { foreignName, hueOf, initials, memberDetail, memberIdentity } from "../web/ui/member_identity.ts";
 
 Deno.test("initials take the first letter of up to two words", () => {
 	assertEquals(initials("alice"), "A");
@@ -30,52 +30,108 @@ Deno.test("a name keeps one tint and the tint is a ramp slot", () => {
 });
 
 Deno.test("a bridged identity is named bare, marked as IRC, and keeps a person's tint", () => {
-	assertEquals(ircName("irc/alice"), "alice");
-	assertEquals(ircName("alice"), null);
-	assertEquals(ircName("irc/"), null);
-	assertEquals(ircName("IRC/alice"), null);
-	assertEquals(initials("irc/alice"), "A");
-	assertEquals(hueOf("irc/alice"), hueOf("alice"));
-	assertEquals(hueOf("irc/bob"), hueOf("bob"));
-	assertEquals(hueOf("irc/alice") === hueOf("irc/bob"), false);
+	// The prefix is the room's, so it is handed in rather than known here.
+	const irc = { prefix: "irc/", badge: "IRC", said: "IRC only", scope: "Libera" };
+	assertEquals(foreignName("irc/alice", irc), "alice");
+	assertEquals(foreignName("alice", irc), null);
+	assertEquals(foreignName("irc/", irc), null);
+	assertEquals(foreignName("IRC/alice", irc), null);
+	// A room that named no bridge has no foreign members, whatever a name looks
+	// like, so a native member called `irc/alice` is simply called that.
+	assertEquals(foreignName("irc/alice", undefined), null);
+	// And a different bridge's prefix is a different bridge's.
+	assertEquals(
+		foreignName("irc/alice", { prefix: "xmpp/", badge: "XMPP", said: "XMPP only", scope: "example.org" }),
+		null,
+	);
+	// A bridged person keeps their own initial and their own tint rather than the
+	// network's, which is the property that mattered. What changed is who strips:
+	// the caller hands in the name a reader sees, because these two cannot tell a
+	// roster key from a name and should not guess.
+	const shown = (key: string) => foreignName(key, irc) ?? key;
+	assertEquals(initials(shown("irc/alice")), "A");
+	assertEquals(hueOf(shown("irc/alice")), hueOf("alice"));
+	assertEquals(hueOf(shown("irc/bob")), hueOf("bob"));
+	assertEquals(hueOf(shown("irc/alice")) === hueOf(shown("irc/bob")), false);
 	assertEquals(hueOf("alice").startsWith("var(--avatar-"), true);
 });
 
 Deno.test("a roster distinguishes IRC-only, Rooms-only, linked, and unhealthy bridge seats", () => {
 	const present = { online: true, away: "" };
-	assertEquals(memberIdentity("irc/alice", present), {
+	const irc = { prefix: "irc/", badge: "IRC", said: "IRC only", scope: "Libera" };
+	assertEquals(memberIdentity("irc/alice", present, irc), {
 		name: "alice",
 		mark: "IRC",
 		said: "IRC only",
-		network: "irc",
+		network: "foreign",
 	});
-	assertEquals(memberIdentity("alice", { ...present, irc: { state: "rooms", nick: "alice_irc" } }), {
-		name: "alice",
-		mark: "ROOMS",
-		said: "Rooms only",
-		network: "rooms",
-	});
-	assertEquals(memberIdentity("alice", { ...present, irc: { state: "linked", nick: "alice_irc" } }), {
-		name: "alice",
-		mark: "LINKED",
-		said: "Rooms + IRC as alice_irc",
-		network: "rooms-linked",
-	});
+	// The seat cases hand in no bridge facts on purpose: a seated member is a
+	// native member, so a room's foreign prefix has nothing to say about them.
+	//
+	// Deliberately not IRC's words. A bridge writes its own badge and sentence
+	// and this reading carries them; asserting IRC's here would only prove that
+	// two copies of one vocabulary still agree, which is the arrangement this
+	// replaced. Nonsense words fail loudly if anything starts spelling its own.
 	assertEquals(
-		memberIdentity("alice", { ...present, irc: { state: "connecting", nick: "alice_irc" } }).network,
+		memberIdentity("alice", {
+			...present,
+			seat: { network: "Elsewhere", state: "rooms", nick: "alice_there", badge: "HERE", said: "Only here" },
+		}, undefined),
+		{ name: "alice", mark: "HERE", said: "Only here", network: "rooms" },
+	);
+	assertEquals(
+		memberIdentity("alice", {
+			...present,
+			seat: {
+				network: "Elsewhere",
+				state: "linked",
+				nick: "alice_there",
+				badge: "BOTH",
+				said: "Here and Elsewhere as alice_there",
+			},
+		}, undefined),
+		{ name: "alice", mark: "BOTH", said: "Here and Elsewhere as alice_there", network: "rooms-linked" },
+	);
+	// The link state is the room's fact and the page styles on it, so unlike the
+	// words it is not the bridge's to choose.
+	assertEquals(
+		memberIdentity("alice", {
+			...present,
+			seat: { network: "Elsewhere", state: "connecting", nick: "a", badge: "X", said: "y" },
+		}, undefined).network,
 		"rooms-connecting",
 	);
 	assertEquals(
-		memberIdentity("alice", { ...present, irc: { state: "failed", nick: "alice_irc" } }).network,
+		memberIdentity("alice", {
+			...present,
+			seat: { network: "Elsewhere", state: "failed", nick: "a", badge: "X", said: "y" },
+		}, undefined).network,
 		"rooms-failed",
 	);
 });
 
 Deno.test("network treatment keeps an away reason instead of flattening it to presence", () => {
 	const away = { online: true, away: "back after lunch" };
-	assertEquals(memberDetail(memberIdentity("alice", away), away), "back after lunch");
-	const linked = { ...away, irc: { state: "linked" as const, nick: "alice_irc" } };
-	assertEquals(memberDetail(memberIdentity("alice", linked), linked), "Rooms + IRC as alice_irc · back after lunch");
+	assertEquals(memberDetail(memberIdentity("alice", away, undefined), away), "back after lunch");
+	const linked = {
+		...away,
+		seat: {
+			network: "Elsewhere",
+			state: "linked" as const,
+			nick: "alice_there",
+			badge: "BOTH",
+			said: "Here and Elsewhere as alice_there",
+		},
+	};
+	assertEquals(
+		memberDetail(memberIdentity("alice", linked, undefined), linked),
+		"Here and Elsewhere as alice_there · back after lunch",
+	);
 	const offline = { online: false, away: "stale reason" };
-	assertEquals(memberDetail(memberIdentity("alice", offline), offline), "offline");
+	assertEquals(memberDetail(memberIdentity("alice", offline, undefined), offline), "offline");
+	// A plain member who is here draws no line at all: the filled pip on their
+	// chip has said it, and the chip announces it to a screen reader, so a word
+	// under the name would be the same fact twice down a column of names.
+	const here = { online: true, away: "" };
+	assertEquals(memberDetail(memberIdentity("alice", here, undefined), here), "");
 });

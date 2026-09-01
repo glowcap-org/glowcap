@@ -3,12 +3,17 @@
 import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
 import { attachmentArgs } from "../lib/attachment.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
-import type { ArchiveCoordinates } from "../lib/archive.ts";
+import type { ArchiveCoordinates } from "../lib/archive/protocol.ts";
 import { settleCapabilityCleanup } from "../lib/capability_cleanup.ts";
 import { BLOB_CHUNK } from "../lib/limits.ts";
-import { ROOMS_SESSION_CHANGED, ROOMS_SESSION_EVENT, type RoomsSessionFacet } from "../lib/rooms_session.ts";
+import {
+	mayInteract,
+	ROOMS_SESSION_CHANGED,
+	ROOMS_SESSION_EVENT,
+	type RoomsSessionAccess,
+} from "../lib/session/client.ts";
 import { READ } from "../lib/protocol.ts";
-import type { Message } from "../lib/room_client.ts";
+import type { Message } from "../lib/room/client.ts";
 import type { RuntimeAttachment } from "./room_files.ts";
 import { fitSessionSnapshot } from "./snapshot_wire.ts";
 
@@ -40,7 +45,10 @@ export function attachedFileProxyBehavior(
 export class AttachedViewDelivery {
 	readonly #session: Session;
 	readonly #observer: Ref;
-	readonly #rights: RoomsSessionFacet;
+	/** Not readonly: what this view may do can change under it, and a delivery
+	 * still marking lines editable after its grant was narrowed is a narrowing
+	 * that did not reach the person it was about. */
+	#rights: RoomsSessionAccess;
 	readonly #current: () => boolean;
 	readonly #gapSnapshot: () => Argument[];
 	readonly #reportFailure: (error: unknown) => void;
@@ -56,7 +64,7 @@ export class AttachedViewDelivery {
 	constructor(options: {
 		session: Session;
 		observer: Ref;
-		rights: RoomsSessionFacet;
+		rights: RoomsSessionAccess;
 		current: () => boolean;
 		gapSnapshot: () => Argument[];
 		failed: (error: unknown) => void;
@@ -67,6 +75,12 @@ export class AttachedViewDelivery {
 		this.#current = options.current;
 		this.#gapSnapshot = options.gapSnapshot;
 		this.#reportFailure = options.failed;
+	}
+
+	/** Say what this view may do now. Called when the grant behind it changes, so
+	 * a line delivered after a narrowing is not still offered for editing. */
+	retier(rights: RoomsSessionAccess): void {
+		this.#rights = rights;
 	}
 
 	queueEvent(
@@ -107,7 +121,7 @@ export class AttachedViewDelivery {
 				BigInt(Date.now()),
 				message.lineId == null ? null : BigInt(message.lineId),
 				message.change ?? null,
-				editable && this.#rights !== "observe",
+				editable && mayInteract(this.#rights),
 				history?.source ?? null,
 				history?.generation ?? null,
 				history?.id ?? null,

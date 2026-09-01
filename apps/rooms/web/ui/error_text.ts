@@ -1,4 +1,6 @@
-// Whether a refusal is too much to keep next to the control it answers.
+// What a reader is told about a link they pasted: whether the refusal is too
+// much to keep beside the control it answers, and what to say before a link is
+// worth trying at all.
 
 /** Whether the rest of an error belongs in a card rather than only where it
  * appeared.
@@ -18,14 +20,37 @@ export function errorDetailTitle(kind: "failure" | "warning" | "success"): strin
 	return kind === "failure" ? "What went wrong" : "The full message";
 }
 
-/** A refusal in the reader's words for a pasted link the peer could not read.
+/** A refusal in the reader's words for a pasted link that was not taken.
  *
- * The parser's sentence names the shape it could not read, which says what to
- * do only once it is said as that: paste the whole link. The parser's own
- * words stay after it, for whoever is debugging. `noun` names what the link
- * was meant to be, so the sentence is about the reader's mistake and not the
- * parser's. */
+ * What arrives here is a native error code and a diagnostic, which says
+ * nothing a reader can act on. What they can act on is a paste that stopped
+ * short, so the sentence offers that and keeps the original words after it
+ * for whoever is debugging.
+ *
+ * It offers rather than diagnoses, because the same shape carries refusals
+ * this cannot tell apart: a peer that answered and declined reads exactly
+ * like a link that was never whole. Telling a reader their link is truncated
+ * when the peer simply said no sends them to check the one thing that was
+ * never wrong. `noun` names what the link was meant to be. */
 export function locatorRefusal(why: string, noun: string): string {
 	if (why === "" || !why.startsWith("pancake error")) return why;
-	return `This is not a whole ${noun}. Paste everything that was printed, from ocapn:// to the end. (${why})`;
+	return `This ${noun} was refused. Check that you pasted all of it, from ocapn:// to the end. (${why})`;
+}
+
+/** What a session capability has to look like before it is worth trying.
+ *
+ * Both places that take one — the establishment screen and the Settings attach
+ * card — ask this first, because the two mistakes it catches are the ones a
+ * reader actually makes, and neither is worth a round trip to the peer to
+ * find out. The parser's own answer to either is `UriParseError`, which tells
+ * a reader nothing about which of their several ocapn:// strings they should
+ * have reached for. */
+export function sessionCapabilityRefusal(capability: string): string {
+	if (capability === "") return "";
+	if (!capability.startsWith("ocapn://")) return "Paste the session's ocapn:// capability link.";
+	if (!capability.includes("/s/")) {
+		return "That is a peer's address rather than a capability it granted. " +
+			"The session's own link has a /s/ in it, after the address.";
+	}
+	return "";
 }

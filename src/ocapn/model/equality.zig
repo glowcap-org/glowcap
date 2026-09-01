@@ -150,8 +150,8 @@ fn hashHandoff(h: *std.hash.Wyhash, handoff: anytype) void {
 /// Structural hash consistent with `argumentsEqual`: two Equal values always
 /// hash equal. It is `viewArgumentHash` over the owned projection, so the two
 /// shapes share one hasher and one grouping: distinct values that collide
-/// under one entry point collide under the other, which is what lets a fold
-/// that grouped by one hasher confirm with either comparison. Process-local
+/// under one entry point collide under the other, so a fold that grouped by
+/// one hasher can confirm with either comparison. Process-local
 /// grouping only (duplicate detection inside one frame); never a wire
 /// artifact.
 pub fn argumentHash(arg: model.Argument) u64 {

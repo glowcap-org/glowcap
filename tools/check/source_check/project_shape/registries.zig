@@ -365,9 +365,10 @@ pub fn checkRepositoryUrl(
         if (std.mem.endsWith(u8, path, "project_shape.zig")) continue;
 
         const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            // tolerant: overlay rows may name a directory symlink; a
-            // directory has no body for this scan.
-            if (err == error.IsDir) continue;
+            // Tolerant: overlay rows may name a directory symlink, and Git's
+            // index still names a tracked file deliberately deleted in this
+            // working tree. Neither has a body left for this content scan.
+            if (err == error.IsDir or err == error.FileNotFound) continue;
             try appendViolation(gpa, violations, "{s}: cannot be read for the constant-parity check ({s})", .{ path, @errorName(err) });
             continue;
         };

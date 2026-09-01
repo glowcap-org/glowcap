@@ -120,7 +120,7 @@ where
 
 /// The binding half of one CapTP Host: the raw `PancakeHost`, the CapTP session
 /// registry, the vow table, and the redeem posture, shared behind an `Rc` by
-/// the public [`Host`] and every [`SessionShared`] — which is what mechanically
+/// the public [`Host`] and every [`SessionShared`], and that sharing mechanically
 /// enforces the header's "release the host always after its CapTP sessions" (the
 /// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {

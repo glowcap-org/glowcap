@@ -1,9 +1,8 @@
 // Directory-wide observers of live room and registration state.
 
-import { noteTrouble } from "./journal.ts";
+import type { TroubleJournal } from "./journal.ts";
 import { type Argument, type Ref, type Session } from "@pancake/runtime";
 import { NOTIFY, type RoomRecordShape } from "../lib/protocol.ts";
-import { handBack } from "./registry.ts";
 
 /** One directory watcher per session, bounded so notification work cannot be
  * multiplied without limit by watcher registrations. */
@@ -15,8 +14,10 @@ export type Watcher = {
 	records: RoomRecordShape;
 };
 
-class WatcherTable implements Iterable<Watcher> {
+export class WatcherTable implements Iterable<Watcher> {
 	readonly #bySession = new Map<Session, Watcher>();
+
+	constructor(readonly journal: TroubleJournal) {}
 
 	get length(): number {
 		return this.#bySession.size;
@@ -42,26 +43,28 @@ class WatcherTable implements Iterable<Watcher> {
 	}
 }
 
-export const watchers = new WatcherTable();
-
 /** Push one delta to every watcher. A failed notification is not liveness
  * authority: session retirement owns removal, while the exact failure remains
  * observable to the process that owns this server. */
-export function notifyWatchers(args: Argument[], publicationArgs: Argument[] = args): void {
+export function notifyWatchers(
+	watchers: WatcherTable,
+	args: Argument[],
+	publicationArgs: Argument[] = args,
+): void {
 	for (const watcher of [...watchers]) {
 		const delivered = watcher.records === "publication" ? publicationArgs : args;
 		watcher.session.tell(watcher.observer, NOTIFY, delivered).catch((error) => {
 			if (!watcher.session.sessionOpen) {
-				dropWatchers(watcher.session);
+				dropWatchers(watchers, watcher.session);
 				return;
 			}
-			noteTrouble("a directory watcher notification failed", error);
+			watchers.journal.note("a directory watcher notification failed", error);
 		});
 	}
 }
 
-export function dropWatchers(session: Session): void {
+export function dropWatchers(watchers: WatcherTable, session: Session): void {
 	const watcher = watchers.delete(session);
 	if (watcher === undefined) return;
-	handBack(watcher.session, watcher.observer, "directory watcher");
+	watchers.journal.release(watcher.session, watcher.observer, "directory watcher");
 }

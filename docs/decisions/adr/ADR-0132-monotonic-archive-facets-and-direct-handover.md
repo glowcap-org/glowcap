@@ -7,7 +7,7 @@ decision: "The archive object adds a synchronous `narrow` verb that intersects e
 supersedes: []
 superseded_by: []
 amends: [ADR-0129, ADR-0130, ADR-0131]
-amended_by: [ADR-0136]
+amended_by: [ADR-0136, ADR-0140]
 ---
 
 # ADR-0132 Monotonic archive facets and direct handover
@@ -100,7 +100,7 @@ inside this live-session facet.
 
 ## Evidence
 
-`apps/rooms/test/archive_wire_test.ts` proves nested filter intersection,
+`apps/rooms/test/archive/wire_test.ts` proves nested filter intersection,
 read-only refusal, scoped write authority, no access widening, bounded whole
 reads, and the facet mint ceiling over the Goblins-compatible v1/Syrup profile.
 `zig build rooms-web-archive` drives two

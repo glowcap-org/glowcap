@@ -1,16 +1,23 @@
-// Room-server state, admission, indexing, and reclamation.
+// Room-server types and small helpers: membership records, publication entry
+// shapes, and the name/session folding those records share.
+//
+// Live tables live on `RoomLiveIndex`. This file names the rows, not the
+// inventory that holds them.
 
-import { durableIdentityAuthenticated, type Ref, type Session } from "@pancake/runtime";
-import { ROOM_EXISTS, RoomError, TOO_MANY_PEERED_ROOMS, TOO_MANY_ROOMS } from "../lib/errors.ts";
-import {
-	MAX_PEERED_ROOMS,
-	MAX_PEERED_ROOMS_PER_SOURCE,
-	MAX_ROOMS_PER_CREATOR,
-	newPrivateRoomKey,
-} from "../lib/limits.ts";
-import type { RoomLinks } from "./room_links.ts";
-import { noteTrouble } from "./journal.ts";
-import { noteOperatorChange } from "./operator/revision.ts";
+import { type Ref, type Session } from "@pancake/runtime";
+import type { RoomPolicy } from "../lib/room/policy.ts";
+import type { RoomMembershipKind } from "../lib/room/membership.ts";
+
+/** One live invitation, and the membership whose say-so it carries.
+ *
+ * `session` is the minter rather than the claimant: an invitation is authority
+ * somebody chose to hand out, and the room keeps that edge so it can take the
+ * authority back when the choosing stops. */
+export interface RoomInvitation {
+	session: Session;
+	ref: Ref | null;
+	active: boolean;
+}
 
 /** One subscriber: the nickname it chose and the capability to call it back on,
  * plus the connection that capability lives on (a far ref is sent over the
@@ -31,7 +38,7 @@ export interface Member {
 	 * import keeps it alive and callable. That is the point rather than a
 	 * caveat — the authority is the reference they hold, and the room could not
 	 * revoke it by tidying its own bookkeeping even if it wanted to. */
-	lines: Ref[];
+	lines: Array<{ ref: Ref; session: Session }>;
 	/** Why this member has stepped away, empty while they are here.
 	 *
 	 * Theirs to state rather than the room's to decide, so nothing is handed
@@ -43,7 +50,10 @@ export interface Member {
 	/** The room's own hold on the topic capability this membership was answered
 	 * with. Superseded by a fresh one on every subscribe, so it is handed back
 	 * whenever the membership record goes, silently or not. */
-	topic: Ref;
+	topic: Ref | null;
+	/** The room's own hold on this live seat. */
+	seat: Ref | null;
+	kind: RoomMembershipKind;
 }
 
 /** How many line references one room keeps a hold of per member. Its own
@@ -59,20 +69,16 @@ export interface RoomState {
 	/** Opaque identity for this exact public-room generation. */
 	entryId: string;
 	name: string;
-	/** What `rooms` is keyed by, which is also what makes a room private.
-	 *
-	 * A public room's key is its name folded, so the name is how you enter it and
-	 * two rooms cannot share one. A private room's key is an unguessable id and
-	 * its name is only a label: nothing looks a private room up by name, so two
-	 * of them may be called the same thing, and the only way to reach one is to
-	 * hold a reference somebody handed you. That is the whole of the privacy —
-	 * there is no member list to be on and no check to pass. */
+	/** Stable runtime identity. Managed rooms use an opaque id independent of
+	 * the public namespace; unmanaged public rooms use their folded name. */
 	key: string;
-	/** Whether this room is private. Read where a room would otherwise be shown
-	 * to somebody who does not hold it: the live list, its deltas, and links. */
-	private: boolean;
+	/** Discovery and admission are one explicit policy. */
+	policy: RoomPolicy;
 	members: Member[];
-	creator: Session;
+	/** Live invitations minted into this room, each holding the membership
+	 * session that minted it so a departure can retire exactly its own. */
+	invitations: Set<RoomInvitation>;
+	lifetimeOwner: Session;
 	/** The files posted here, oldest first, and the bytes they add up to. The
 	 * room hosts media so a picture outlives the tab that posted it; that
 	 * makes storage the room's to bound, which is what `dropOldestFiles`
@@ -82,7 +88,7 @@ export interface RoomState {
 	/** Uploads begun here and not yet posted, by the connection driving each.
 	 * Nobody has seen these bytes, so an abandoned upload is pure cost and
 	 * leaves with its connection. */
-	uploads: Map<Session, Set<PendingUpload>>;
+	uploads: Map<Member, Set<PendingUpload>>;
 	/** Names the next line this live room generation makes. Current members use
 	 * it to match edit and withdrawal notifications. Retained history uses a
 	 * process-local mutation token instead: this counter deliberately restarts
@@ -94,32 +100,6 @@ export interface RoomState {
 	 * a topic set by a member who then leaves is still what the room is about,
 	 * and everyone arriving afterwards is told it. */
 	topic: string;
-	/** Whether this live generation issued the durable steward authority to its
-	 * opener. False after reconstruction: a new session must present the sturdyref
-	 * already issued for the room, never inherit it by arriving first. */
-	stewardIssuedHere: boolean;
-}
-
-export function makeRoomState(
-	name: string,
-	creator: Session,
-	kept?: { private: boolean; key?: string; topic?: string },
-): RoomState {
-	const isPrivate = kept?.private === true;
-	return {
-		entryId: publicRoomId(),
-		name,
-		key: kept?.key ?? (isPrivate ? newPrivateRoomKey() : roomKey(name)),
-		private: isPrivate,
-		members: [],
-		creator,
-		nextLine: 1,
-		topic: kept?.topic ?? "",
-		stewardIssuedHere: false,
-		files: [],
-		fileBytes: 0,
-		uploads: new Map(),
-	};
 }
 
 /** One file the room holds. `bytes` is null once it has been dropped to stay
@@ -165,13 +145,19 @@ export interface PendingUpload {
 	 * retain back when the upload is spent or abandoned. Null only between
 	 * minting the row and spawning its object. */
 	ref: Ref | null;
+	/** The participant membership that admitted this upload. */
+	member: Member;
+	/** The session on which the room spawned and retained the upload object. */
+	session: Session;
 	/** Re-armed on every chunk. An upload holds a reservation against the size
 	 * it declared, so one that goes quiet has to be reclaimed rather than
 	 * waited on: see `UPLOAD_IDLE_MS`. */
 	expires: ReturnType<typeof setTimeout> | null;
 }
 
-export const rooms = new Map<string, RoomState>();
+export function roomDurableIdentity(state: RoomState): string {
+	return state.key;
+}
 
 export interface LocalRoomEntry {
 	kind: "local";
@@ -214,241 +200,13 @@ export interface BridgeRoomEntry {
 
 export type PublicRoomEntry = LocalRoomEntry | ForeignRoomEntry | BridgeRoomEntry;
 
-/** How many IRC channels one server bridges at most. */
-export const MAX_BRIDGED_ROOMS = 16;
-let bridgedRoomCount = 0;
-
-/** File a bridged channel under the ordinary public namespace. */
-export function registerBridgeRoom(
-	name: string,
-	origin: string,
-	bridge: { roomBehavior(): import("@pancake/runtime").Behavior },
-): BridgeRoomEntry {
-	const key = roomKey(name);
-	if (publicRoomKeyTaken(key)) throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
-	if (bridgedRoomCount >= MAX_BRIDGED_ROOMS) {
-		throw new RoomError(TOO_MANY_ROOMS, `this directory already bridges ${MAX_BRIDGED_ROOMS} channels`);
-	}
-	const entry: BridgeRoomEntry = { kind: "bridge", id: publicRoomId(), name, origin, proof: "bridge", bridge };
-	publicRooms.set(key, entry);
-	publicRoomsById.set(entry.id, entry);
-	bridgedRoomCount += 1;
-	noteOperatorChange();
-	return entry;
-}
-
-/** Drop a bridged channel from the namespace; the gateway owns the
- * connection this frees. */
-export function forgetBridgeRoom(id: string): BridgeRoomEntry | null {
-	const entry = publicRoomsById.get(id);
-	if (entry === undefined || entry.kind !== "bridge") return null;
-	publicRoomsById.delete(id);
-	publicRooms.delete(roomKey(entry.name));
-	bridgedRoomCount -= 1;
-	noteOperatorChange();
-	return entry;
-}
-
 export function localRoomEntry(state: RoomState): LocalRoomEntry {
 	return { kind: "local", id: state.entryId, name: state.name, state };
 }
 
-/** The one case-folded public namespace used by open, enter, list, and peering. */
-export const publicRooms = new Map<string, PublicRoomEntry>();
-
-const publicRoomsById = new Map<string, PublicRoomEntry>();
-const foreignRoomReservationsById = new Map<string, ForeignRoomReservation>();
-const foreignRoomReservationByKey = new Map<string, string>();
-interface ForeignRoomSource {
-	ids: Set<string>;
-	origin: string;
-	proof: "authenticated" | "session";
-}
-
-/** One projection of a publisher's identity and the generations it owns.
- * Identity is immutable for a Session, so encoding it once avoids rebuilding
- * the same origin string for every publication. */
-const foreignRoomsBySource = new Map<Session, ForeignRoomSource>();
-let foreignRoomCount = 0;
-
-function publicRoomId(): string {
-	let id = crypto.randomUUID();
-	while (publicRoomsById.has(id) || foreignRoomReservationsById.has(id)) id = crypto.randomUUID();
-	return id;
-}
-
-function publicRoomKeyTaken(key: string): boolean {
-	return publicRooms.has(key) || foreignRoomReservationByKey.has(key);
-}
-
-export function publicRoomNameTaken(name: string): boolean {
-	return publicRoomKeyTaken(roomKey(name));
-}
-
-export function publicRoomById(id: string): PublicRoomEntry | null {
-	return publicRoomsById.get(id) ?? null;
-}
-
-/** How many rooms each connection currently has open, so `open` can be bounded
- * per creator in O(1) rather than by scanning every room on the server. A row
- * lives exactly as long as one of the creator's rooms does. */
-export const roomsPerCreator = new Map<Session, number>();
-
-/** File a new room, and count it against its creator's ceiling. The one place
- * `rooms` gains a row is also the one that admits the memory: directory opens
- * and cold durable-link reconstruction cannot drift into different limits. */
-export function registerRoom(state: RoomState): void {
-	const held = roomsPerCreator.get(state.creator) ?? 0;
-	if (held >= MAX_ROOMS_PER_CREATOR) {
-		throw new RoomError(
-			TOO_MANY_ROOMS,
-			`this connection already has ${MAX_ROOMS_PER_CREATOR} rooms open`,
-		);
-	}
-	if (!state.private && publicRoomKeyTaken(state.key)) {
-		throw new RoomError(ROOM_EXISTS, `room "${state.name}" already exists`);
-	}
-	rooms.set(state.key, state);
-	if (!state.private) {
-		const entry = localRoomEntry(state);
-		publicRooms.set(state.key, entry);
-		publicRoomsById.set(entry.id, entry);
-	}
-	roomsPerCreator.set(state.creator, held + 1);
-	noteOperatorChange();
-}
-
-/** Drop a room and release its creator's count. The one place `rooms` loses a
- * row, so the count cannot drift from the map. */
-export function forgetRoom(state: RoomState): void {
-	if (rooms.get(state.key) !== state) return;
-	rooms.delete(state.key);
-	if (!state.private) {
-		const entry = publicRooms.get(state.key);
-		if (entry?.kind === "local" && entry.id === state.entryId) {
-			publicRooms.delete(state.key);
-			publicRoomsById.delete(entry.id);
-		}
-	}
-	const rest = (roomsPerCreator.get(state.creator) ?? 1) - 1;
-	if (rest > 0) roomsPerCreator.set(state.creator, rest);
-	else roomsPerCreator.delete(state.creator);
-	noteOperatorChange();
-}
-
-function sessionOrigin(source: Session): Pick<ForeignRoomReservation, "origin" | "proof"> {
-	const identity = source.partnerIdentity();
-	if (durableIdentityAuthenticated(identity)) {
-		return { origin: identity.designator, proof: "authenticated" };
-	}
-	return {
-		origin: [...identity.sessionKey].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
-		proof: "session",
-	};
-}
-
-/** Reserve one bounded publication generation before handoff resolution. */
-export function reserveForeignRoom(name: string, source: Session): ForeignRoomReservation {
-	const key = roomKey(name);
-	if (publicRoomKeyTaken(key)) throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
-	if (foreignRoomCount >= MAX_PEERED_ROOMS) {
-		throw new RoomError(TOO_MANY_PEERED_ROOMS, `this directory already holds ${MAX_PEERED_ROOMS} peered rooms`);
-	}
-	let owned = foreignRoomsBySource.get(source);
-	if (owned !== undefined && owned.ids.size >= MAX_PEERED_ROOMS_PER_SOURCE) {
-		throw new RoomError(
-			TOO_MANY_PEERED_ROOMS,
-			`this source already holds ${MAX_PEERED_ROOMS_PER_SOURCE} peered rooms here`,
-		);
-	}
-	const reservation: ForeignRoomReservation = {
-		id: publicRoomId(),
-		name,
-		key,
-		source,
-		...(owned ?? sessionOrigin(source)),
-	};
-	if (owned === undefined) {
-		owned = { ids: new Set(), origin: reservation.origin, proof: reservation.proof };
-		foreignRoomsBySource.set(source, owned);
-	}
-	owned.ids.add(reservation.id);
-	foreignRoomReservationsById.set(reservation.id, reservation);
-	foreignRoomReservationByKey.set(key, reservation.id);
-	foreignRoomCount += 1;
-	noteOperatorChange();
-	return reservation;
-}
-
-/** Attach the resolved room capability to an exact live reservation. */
-export function commitForeignRoom(reservation: ForeignRoomReservation, room: Ref): ForeignRoomEntry {
-	if (foreignRoomReservationsById.get(reservation.id) !== reservation) {
-		throw new Error("room publication was revoked before its capability became ready");
-	}
-	foreignRoomReservationsById.delete(reservation.id);
-	if (foreignRoomReservationByKey.get(reservation.key) === reservation.id) {
-		foreignRoomReservationByKey.delete(reservation.key);
-	}
-	const entry: ForeignRoomEntry = {
-		kind: "foreign",
-		id: reservation.id,
-		name: reservation.name,
-		room,
-		source: reservation.source,
-		origin: reservation.origin,
-		proof: reservation.proof,
-	};
-	publicRoomsById.set(entry.id, entry);
-	publicRooms.set(reservation.key, entry);
-	noteOperatorChange();
-	return entry;
-}
-
-function releaseForeignRoomSlot(source: Session, id: string): void {
-	foreignRoomCount -= 1;
-	const owned = foreignRoomsBySource.get(source);
-	owned?.ids.delete(id);
-	if (owned?.ids.size === 0) foreignRoomsBySource.delete(source);
-}
-
-export function cancelForeignRoom(reservation: ForeignRoomReservation): boolean {
-	if (foreignRoomReservationsById.get(reservation.id) !== reservation) return false;
-	foreignRoomReservationsById.delete(reservation.id);
-	if (foreignRoomReservationByKey.get(reservation.key) === reservation.id) {
-		foreignRoomReservationByKey.delete(reservation.key);
-	}
-	releaseForeignRoomSlot(reservation.source, reservation.id);
-	noteOperatorChange();
-	return true;
-}
-
-/** Remove one exact generation. A stale lease cannot remove its replacement. */
-export function forgetForeignRoom(id: string): ForeignRoomEntry | null {
-	const found = publicRoomsById.get(id);
-	if (found?.kind !== "foreign") return null;
-	const entry = found;
-	publicRoomsById.delete(id);
-	const key = roomKey(entry.name);
-	if (publicRooms.get(key)?.id === id) publicRooms.delete(key);
-	releaseForeignRoomSlot(entry.source, id);
-	handBack(entry.source, entry.room, "peered room");
-	noteOperatorChange();
-	return entry;
-}
-
-export function forgetForeignRoomsFrom(source: Session): ForeignRoomEntry[] {
-	const ids = [...foreignRoomsBySource.get(source)?.ids ?? []];
-	const removed: ForeignRoomEntry[] = [];
-	for (const id of ids) {
-		const reservation = foreignRoomReservationsById.get(id);
-		if (reservation !== undefined) {
-			cancelForeignRoom(reservation);
-			continue;
-		}
-		const entry = forgetForeignRoom(id);
-		if (entry !== null) removed.push(entry);
-	}
-	return removed;
+export interface PublicRoomNameReservation {
+	readonly key: string;
+	readonly token: symbol;
 }
 
 /** One introducible member.
@@ -481,57 +239,6 @@ export interface Introduction {
 	 * redeemed, as hex. Single-use, bounded by `MAX_NAME_VOUCHERS`, and gone
 	 * with the introduction — a voucher's life is the registration's. */
 	vouchers: Set<string>;
-}
-
-/** Introducible members, by nick. */
-export const introductions = new Map<string, Introduction>();
-/** The same live registrations by opaque incarnation and owning connection.
- * These indexes make identity, caller lookup, and exact cleanup O(1); the
- * nickname map remains the public discovery authority. */
-export const introductionsById = new Map<string, Introduction>();
-export const introductionsBySession = new Map<Session, Introduction>();
-
-/** Members reachable at a `webrtc` locator, by that locator's designator. A
- * `signalOffer` names the designator (that is all a `webrtc` locator carries),
- * so this is the index that finds whose signaling inbox carries the exchange.
- * A row lives exactly as long as its registration. */
-export const webrtcDesignators = new Map<string, string>();
-
-/** One in-flight WebRTC signaling exchange: who started it (and the reply
- * capability their answer and candidates ride back on), and which member
- * answers it. Transient scratch for one channel bring-up, capped by
- * `MAX_SIGNAL_EXCHANGES` with oldest-first eviction. */
-interface SignalExchange {
-	originator: Session;
-	reply: Ref;
-	targetKey: string;
-	expires: ReturnType<typeof setTimeout>;
-}
-
-export const signalExchanges = new Map<string, SignalExchange>();
-
-let nextSignalExchange = 0;
-
-/** Name the next signaling exchange. Minted here, beside the table it keys, so
- * the counter and the rows it names cannot come apart. */
-export function mintSignalExchangeId(): string {
-	return `x${nextSignalExchange++}`;
-}
-
-/** Give one capability back on the session it lives on. The room does this for
- * everything it holds and no longer needs — an offered inbox, a signaling
- * reply, a posted file's blob — so the object retires when its last holder
- * lets go rather than being pinned by a retain nobody is using. */
-export function handBack(session: Session, ref: Ref, what = "retained capability"): void {
-	try {
-		session.release(ref);
-	} catch (error) {
-		// Cleanup cannot replace the operation that made this reference unwanted,
-		// but a refusal is still an exact process-owned diagnostic. Session release
-		// is already wire-free after teardown, so a refusal here is never evidence
-		// that teardown harmlessly reclaimed it.
-		noteTrouble(`could not release ${what}`, error);
-	}
 }
 
 /** The key a public room lives under. Room names are unique ignoring case, like
@@ -568,27 +275,4 @@ export function claimedByAnother(
 ): boolean {
 	const key = nickKey(nick);
 	return state.members.some((m) => m.session !== session && nickKey(m.nick) === key);
-}
-
-/** The durable-name registry this server was started with, or null when it
- * keeps no state and so mints no sturdyrefs.
- *
- * Held here rather than threaded through every room because a room is asked
- * for its own link by whoever holds it, and a room is reached from three
- * places: the directory's `open` and `enter`, and a link being redeemed. */
-let roomLinks: RoomLinks | null = null;
-
-/** Name the durable-room registry this server was started with, once.
- *
- * A room is asked for its own link by whoever holds it, and a room is reached
- * from three places, so the registry lives beside the tables rather than being
- * threaded through every one of them. */
-export function useRoomLinks(links: RoomLinks | null): void {
-	roomLinks = links;
-}
-
-/** The durable-name registry, or null when this server keeps no state and so
- * mints no sturdyrefs. */
-export function heldRoomLinks(): RoomLinks | null {
-	return roomLinks;
 }

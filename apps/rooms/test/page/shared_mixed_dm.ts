@@ -28,7 +28,7 @@ export async function proveSharedMixedDirect(
 	await ordinary.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
 		const state = await ordinary.evaluate(() => ({
 			join: document.getElementById("joinForm")?.textContent ?? null,
-			composer: (document.getElementById("line") as HTMLTextAreaElement | null)?.placeholder ?? null,
+			composer: document.getElementById("composerAvailability")?.textContent?.trim() ?? null,
 		}));
 		fail(`the ordinary browser did not join before the mixed DM: ${JSON.stringify(state)}`);
 	});

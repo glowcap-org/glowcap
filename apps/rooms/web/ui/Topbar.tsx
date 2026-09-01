@@ -9,20 +9,31 @@
 // describing a wait that was over.
 
 import { memo } from "react";
-import type { Conv } from "./types.ts";
+import type { Conv, DirId } from "./types.ts";
+import { awayByPeer, awayOf, membersHere } from "./types.ts";
 import { PresenceAvatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
+import { roomMarkGlyph } from "./room_mark.tsx";
+import { roomPreset } from "../../lib/room/policy.ts";
 import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
 import { StandingMenu } from "./Standing.tsx";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
-import { openModalFrom } from "./modal.ts";
-import { roomCalled } from "./text.ts";
+import { useOpenModal } from "./modal.ts";
+import { useRoomsState } from "./hooks.ts";
+import { NO_MEMBERS, unreadTotal } from "./store/core.ts";
+import { directoryName, roomCalled } from "./text.ts";
+
+const NO_CONVS: ReadonlyMap<string, Conv> = new Map();
 
 /** What the title says, and what its mark would do. */
-function titleOf(conv: Conv | null): { name: string; said: string } {
+function titleOf(conv: Conv | null, home: DirId | null): { name: string; said: string } {
 	if (!conv) return { name: "No room yet", said: "No room yet" };
+	if (conv.type === "directory") {
+		const name = directoryName(conv.dir, home);
+		return { name, said: "Leave " + name };
+	}
 	if (conv.type === "room") {
 		// A held room's leave is one-way — there is no name to walk back in by —
 		// and the control is where that has to be said, before it is pressed.
@@ -58,16 +69,14 @@ function TopbarPane(
 		conv,
 		ops,
 		online,
-		away,
-		unread,
 		mobile,
 		railShown,
 		rosterShown,
-		memberCount,
 		settingsOpen,
 		standing,
 		follows,
 		aboutConv,
+		aboutDir,
 	}: {
 		canInteract: boolean;
 		conv: Conv | null;
@@ -75,14 +84,9 @@ function TopbarPane(
 		 * operations title. */
 		ops: boolean;
 		online: boolean;
-		/** Why a direct peer has stepped away, by the shared rooms' word, or
-		 * null while they are here; always null over a room. */
-		away: string | null;
-		unread: number;
 		mobile: boolean;
 		railShown: boolean;
 		rosterShown: boolean;
-		memberCount: number;
 		settingsOpen: boolean;
 		/** Where the reader stands in this room, whichever level is answering. */
 		standing: string;
@@ -91,10 +95,19 @@ function TopbarPane(
 		follows: string;
 		/** Whether the card about this conversation is up. */
 		aboutConv: boolean;
+		/** Whether the card about this directory is up. */
+		aboutDir: boolean;
 	},
 ) {
+	const openModalFrom = useOpenModal();
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
+	const members = useRoomsState((state) => state.members);
+	const homeDir = useRoomsState((state) => state.homeDir);
+	const unread = useRoomsState(unreadTotal);
+	const convs = useRoomsState((state) => conv?.type === "dm" ? state.convs : NO_CONVS);
+	const memberCount = conv?.type === "room" ? membersHere(members.get(conv.key) ?? NO_MEMBERS) : 0;
+	const away = conv?.type === "dm" ? awayOf(awayByPeer(convs, members), conv.dir, conv.id) : null;
 	// The rail toggle is the bar's one constant, whatever the cell shows.
 	const railToggle = (
 		<IconButton
@@ -127,19 +140,26 @@ function TopbarPane(
 			</header>
 		);
 	}
-	const title = titleOf(conv);
+	const title = titleOf(conv, homeDir);
 	const isRoom = conv?.type === "room";
+	const isDirectory = conv?.type === "directory";
 	// How many people are here now, rather than how many the room has ever seen —
 	// the roster behind this button draws the same distinction in words.
-	const said = "Members, " + memberCount + " online";
+	const said = "Members, " + memberCount + " here";
 	// The title names the thing you are in. A room is a place, so it wears its
 	// hash — or a lock, if it is private, which is the one place a reader can
 	// see without leaving that this room is not one anybody can walk into by
-	// name. A direct line is a person, so it wears the same chip the rail and
-	// the log already use. What kind of path the messages take is the
-	// provenance beside the title, not a second mark fighting the face.
+	// name. A directory wears the same glyph the rail already uses for one. A
+	// direct line is a person, so it wears the same chip the rail and the log
+	// already use. What kind of path the messages take is the provenance beside
+	// the title, not a second mark fighting the face.
 	const heldRoom = conv?.type === "room" && conv.held;
-	const sigil = heldRoom ? <Icon name="lock" size={15} /> : isRoom ? "#" : conv
+	const roomStanding = conv?.type === "room" ? roomPreset(conv.policy) : null;
+	const sigil = roomStanding !== null
+		? roomMarkGlyph(roomStanding, 15)
+		: isDirectory
+		? <Icon name="directory" size={15} />
+		: conv
 		? (
 			<PresenceAvatar
 				name={conv.id}
@@ -148,11 +168,20 @@ function TopbarPane(
 			/>
 		)
 		: null;
+	const aboutOpen = isDirectory ? aboutDir : aboutConv;
+	const aboutControls = isDirectory ? "dircardTitle" : "convcardTitle";
 	const about = conv === null
 		? undefined
+		: conv.type === "directory"
+		? "About " + directoryName(conv.dir, homeDir)
 		: conv.type === "room"
 		? "About " + roomCalled(conv.id, conv.held)
 		: "About the direct message with " + conv.id;
+	const openAbout = (event: { currentTarget: HTMLElement }) =>
+		openModalFrom(event.currentTarget, () => {
+			if (conv?.type === "directory") browser.aboutDirectory(conv.dir);
+			else browser.aboutConversation();
+		});
 	return (
 		<header className="topbar">
 			{railToggle}
@@ -177,15 +206,14 @@ function TopbarPane(
 								id="roomAbout"
 								className="title-about"
 								aria-haspopup="dialog"
-								aria-expanded={aboutConv}
-								aria-controls={aboutConv ? "convcardTitle" : undefined}
+								aria-expanded={aboutOpen}
+								aria-controls={aboutOpen ? aboutControls : undefined}
 								aria-label={about}
 								title={about}
-								onClick={(event) =>
-									openModalFrom(event.currentTarget, () => browser.aboutConversation())}
+								onClick={openAbout}
 							>
 								<span
-									className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
+									className={heldRoom ? "hash held-lock" : isRoom || isDirectory ? "hash" : undefined}
 									id="roomSigil"
 									title={heldRoom
 										? "A private room: it is not listed, and only people it was handed to are here"
@@ -206,10 +234,17 @@ function TopbarPane(
 						// Leaving a named room is calm and reversible, so the mark wears
 						// the quiet ink. Danger is kept for the one leave that cannot be
 						// walked back: a private room, which the label already warns
-						// about in the same condition.
+						// about in the same condition. The mark asks first in every
+						// conversation's own card; the question wears the danger colour.
 						tone={heldRoom ? "danger" : "neutral"}
 						hidden={conv === null || !canInteract}
-						onClick={session.endConv}
+						onClick={(event) => {
+							if (conv == null) return;
+							openModalFrom(event.currentTarget, () => {
+								if (conv.type === "directory") browser.aboutDirectory(conv.dir, true);
+								else browser.aboutConversation("about", true);
+							});
+						}}
 					/>
 				</span>
 			</h1>

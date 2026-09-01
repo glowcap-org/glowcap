@@ -58,14 +58,14 @@ export const profiles = [
 	{
 		transport: "keyed-relay",
 		summary:
-			"Held sockets registered at a WebSocket relay, in the clear; peers reach this peer through the relay without it opening a port.",
+			"Held sockets registered at a WebSocket relay, in the clear. Somebody reaches this peer through the relay, so it opens no port of its own.",
 		reference: "",
 		referenceName: "",
 		takes: [{ name: "relay", kind: "url", hint: "" }],
 	},
 	{
 		transport: "noise-relay",
-		summary: "The same relay pipe with the Noise_XK seal over it; the relay forwards only ciphertext.",
+		summary: "The same relay pipe with the Noise_XK seal over it. The relay forwards only ciphertext.",
 		reference: "https://noiseprotocol.org/",
 		referenceName: "Noise",
 		takes: [{ name: "relay", kind: "url", hint: "" }],

@@ -2,6 +2,9 @@
 
 import type { AttachmentSource } from "../../lib/attachment.ts";
 
+/** One browser file as the shared attachment layer reads it. The description
+ * is also validated before Send clears the composer, so refusal preserves the
+ * reader's draft and attached chips. */
 export function pickedSource(file: File): AttachmentSource {
 	return {
 		name: file.name,

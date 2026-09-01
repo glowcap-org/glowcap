@@ -6,7 +6,7 @@
 //
 // Evidence, honestly bounded: the hermetic suites hold the walk to RFC
 // 7677's vector and a scripted fixture speaking this same grammar, which
-// proves pancake agrees with pancake. `storage_postgres_live_test.ts` runs
+// proves pancake agrees with pancake. `test/storage/postgres_live_test.ts` runs
 // the round trip against a real database whenever
 // PANCAKE_ROOMS_STORAGE_LIVE_URL names one; until a deployment has, the
 // boot line is part of the evidence.

@@ -12,6 +12,7 @@ import { Ref } from "@pancake/runtime";
 import type { Argument, Behavior, Session } from "@pancake/runtime";
 import { ATTACH, DISCARD, POST_FILES, READ, WRITE } from "./protocol.ts";
 import { answerWithin } from "./deadline.ts";
+import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import {
 	BLOB_CHUNK,
 	MAX_ATTACHMENT_BYTES,
@@ -178,9 +179,6 @@ export function readRefileChange(
 	return { caption, keep, records };
 }
 
-/** Validate a source before minting an actor for it. A direct-message sender is
- * its file host, so this is the same admission boundary the room server owns
- * for room-hosted files. */
 /** Why a room will not take a file described this way, or null when it will.
  *
  * Both sides ask: a sender so it fails before a byte moves, and the room because
@@ -206,6 +204,9 @@ export function attachmentRefusal(name: string, mime: string, size: number): str
 	return null;
 }
 
+/** Validate a source before minting an actor for it. A direct-message sender is
+ * its file host, so this is the same admission boundary the room server owns
+ * for room-hosted files. */
 export function validateAttachmentSource(source: AttachmentSource): number {
 	const size = sourceSize(source);
 	const refused = attachmentRefusal(source.name, source.mime, size);
@@ -260,11 +261,17 @@ function retainHostedSource(source: AttachmentSource, size: number): HostedSourc
  * its source. A DM has one recipient, and that recipient now owns the local
  * copy; retaining a browser `File` in the sender's Host after that point would
  * keep every sent file alive until the tab closed. */
-function sourceBlob(slot: HostedSource): Behavior {
+function sourceBlob(slot: HostedSource, session: Session): Behavior {
 	const { name, size } = slot;
 	let servedPrefix = 0;
 	return async (verb, args): Promise<Uint8Array> => {
+		releaseUnclaimedCapabilityArguments(
+			session,
+			args,
+			"a direct sender blob could not return an unexpected capability",
+		);
 		if (verb !== READ) throw new Error(`blob has no method ${verb}`);
+		if (args.length !== 2) throw new Error("read needs an offset and maximum length");
 		const offset = args[0];
 		const maxLen = args[1];
 		if (typeof offset !== "bigint" || offset < 0n) throw new Error("read needs offset >= 0");
@@ -327,7 +334,7 @@ export async function sendWithAttachments(
 			const size = sizes[index];
 			const slot = retainHostedSource(source, size);
 			slots.push(slot);
-			const blob = session.spawn(sourceBlob(slot));
+			const blob = session.spawn(sourceBlob(slot, session));
 			refs.push(blob);
 			records.push(...attachmentArgs({
 				name: source.name,
@@ -419,6 +426,13 @@ export class UploadStopped extends Error {
 	}
 }
 
+/** Wait for one chunk's answer, and give up if it never comes. The bound is
+ * larger than an ordinary request's because a read for bytes the room has not
+ * received yet waits rather than answering short, and that wait is honest. */
+function chunkWithin<T>(answer: Promise<T>, what: string, stallMs: number): Promise<T> {
+	return answerWithin(answer, what, stallMs);
+}
+
 /** Fill one admitted file. Writes within a file stay ordered; callers run one
  * of these per file concurrently.
  *
@@ -428,12 +442,6 @@ export class UploadStopped extends Error {
  * makes the longest a stop can take one chunk, whatever the file's size, which
  * is what lets a reader who picked the wrong sixty-megabyte file take it back
  * rather than wait for it. */
-/** Wait for one chunk's answer, and give up if it never comes. The bound is
- * larger than an ordinary request's because a read for bytes the room has not
- * received yet waits rather than answering short, and that wait is honest. */
-function chunkWithin<T>(answer: Promise<T>, what: string, stallMs: number): Promise<T> {
-	return answerWithin(answer, what, stallMs);
-}
 
 export async function fillUpload(
 	session: Session,

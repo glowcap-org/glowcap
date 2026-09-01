@@ -7,11 +7,12 @@ pancake peers over real iroh endpoints or a real Tor hidden service. A failure
 here means two implementations disagree on the wire or two pancake peers cannot
 reach each other, not that a single layer's invariant broke.
 
-These are live drivers, not the arbiters of correct. The external authority they
-lean on — the Goblins peer they dial, the OCapN spec — lives in
-[`../conformance/`](../conformance/README.md). The C-ABI boundary between Zig and
-its language bindings is a different seam again, exercised by `test/c_abi/`, the
-binding checks (`*-dogfood`), and the self-contained per-binding proof families in
+These drivers run live sessions against Goblins or real transports. Protocol
+fixtures under [`../conformance/`](../conformance/README.md) remain the
+reference for wire correctness. The C-ABI boundary between Zig and
+its language bindings is a different seam, exercised by `test/c_abi/`, the
+binding checks that exercise the C ABI as a real consumer (`*-dogfood`), and the
+self-contained per-binding proof families in
 [`../bindings/proofs/`](../bindings/proofs/README.md), never called interop.
 
 The toolchains these need (Racket with Goblins, Python, `cargo` for the iroh
@@ -31,7 +32,7 @@ one directory per language; the Zig drivers' shared harness is
 | [`goblins_rooms/`](goblins_rooms/)             | A real Goblins vat as an ordinary member of the rooms chat, beside a pancake member: the vat's session settles on the v1.0 Syrup baseline while the pancake member's settles on pancake-next over Cap'n Proto, and the server's own live trace is what says so. | `zig build goblins-rooms`                                           |
 | [`goblins_rooms_dm/`](goblins_rooms_dm/)       | A browser tab and a real Goblins vat hold a direct message: the room introduces them and carries none of it, the tab redeems the give by dialing the vat, and the vat answers over that same connection. Both transports the vat can be reached over, with the conversation drawn on the live timeline from both ends. | `zig build goblins-rooms-dm` / `goblins-rooms-dm-iroh`              |
 | [`goblins_rooms_irc/`](goblins_rooms_irc/)     | Both shipped IRC edges composed with real Goblins: a TLS/SASL IRC fixture exchanges room lines through the bridge, then an ordinary IRC client and Goblins exchange native room traffic through the front before Goblins replies on the IRC-initiated direct session. | `zig build goblins-rooms-irc` (`-bridge` / `-front`) |
-| [`goblins_rooms_matrix/`](goblins_rooms_matrix/) | Sparse heavyweight end gate: clean modular runs cover room topology, every DM pair, close/reopen, and restart; a final run reproduces Goblins' pinned cross-receiver count defect. | `zig build goblins-rooms-matrix-iroh` |
+| [`goblins_rooms_matrix/`](goblins_rooms_matrix/) | Sparse heavyweight end check: clean modular runs cover room topology, every DM pair, close/reopen, and restart; a final run reproduces Goblins' pinned cross-receiver count defect. | `zig build goblins-rooms-matrix-iroh` |
 | [`iroh_interop/`](iroh_interop/)               | Live pancake-to-pancake OCapN over real iroh endpoints: direct dial, dial-by-id discovery, key unification, durable identity. | `zig build iroh-interop`                                            |
 | [`iroh_reachability/`](iroh_reachability/)     | Opt-in dial-by-id over n0 relays and DNS/pkarr — real public discovery, not the in-process book; Zig driver plus per-binding siblings. | `zig build iroh-reachability` / `bindings-iroh-reachability` (`rust-iroh-reachability`, etc.) |
 | [`iroh_loop/`](iroh_loop/)                     | Live iroh scale: many concurrent connections from one readiness loop (ADR-0057).                                        | `zig build iroh-loop` / binding siblings (`python-iroh-loop`, etc.) |

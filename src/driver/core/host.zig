@@ -157,7 +157,7 @@ pub const Host = struct {
     /// A partner's **authenticated durable identity** → peer handle: the second
     /// of the two peer directories, and deliberately not the same one
     /// (ADR-0097). `partner_by_side` names a session *incarnation* through the
-    /// key that signed it, which is what a handoff certificate must resolve
+    /// key that signed it, the identity a handoff certificate must resolve
     /// against; this names the durable peer a locator designates, which is
     /// what "do I already have a session reaching P" must ask. They differ by
     /// construction: every session has a fresh signing key, while the
@@ -246,8 +246,8 @@ pub const Host = struct {
     /// not seen the pressure become actionable since. While set, the drain's
     /// per-action resume pump stands down, so one unfulfillable refusal cannot
     /// re-feed the same drain pass forever: the pass runs out of actions and
-    /// returns, which is what lets the embedder reach the write, poll, or
-    /// close that actually moves the pressure. Reset at every drain-pass
+    /// returns, so the embedder can reach the write, poll, or close that
+    /// actually moves the pressure. Reset at every drain-pass
     /// entry and wherever the embedder takes outbound bytes; a refusal that
     /// truly persists re-latches after one bounded retry per reset.
     resume_pump_refused: bool = false,

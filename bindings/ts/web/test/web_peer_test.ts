@@ -12,8 +12,8 @@ import * as tcp from "@pancake/tcp";
 // boundary inbound).
 //
 // Everything here is browser-shaped API (WebAssembly, WebSocket, fetch-style
-// bytes); Deno supplies the same globals, which is what makes the check
-// in-tree and socket-real at once.
+// bytes); Deno supplies the same globals, so the check is in-tree and
+// socket-real at once.
 
 import { init } from "@pancake/web";
 import { proveChromiumNoiseRelay } from "./browser_noise_relay_test.ts";

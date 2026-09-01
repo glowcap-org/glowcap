@@ -10,10 +10,10 @@ description: >-
 
 # pancake — Work Skill
 
-Substantial work on pancake should leave the repository closer to
-[`docs/vision.md`](../../../docs/vision.md) and easier for the next agent to
-continue. Assess first, then act or prove inaction, do not stop at a report
-when the right move is to fix what you found.
+Substantial work leaves pancake closer to [`docs/vision.md`](../../../docs/vision.md)
+and easier to continue. Assess, then act or prove inaction. A defect discovered
+while executing an item may block it; fixing that defect clears the block and
+immediately resumes the original item—it does not redefine completion.
 
 ## When not to use
 
@@ -28,6 +28,9 @@ Read only what the task needs:
 Economy is a routing rule, not a quality bar. Start with the smallest
 authoritative slice, widen the moment a claim depends on another surface, and
 prefer generated inventories or build steps over re-deriving facts by hand.
+Release gates are evidence for the product claims this scope derives; they do
+not define the scope, and a green gate cannot close a design question it never
+asked.
 
 | If the task touches…                                  | Read first                                                                                                 |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |

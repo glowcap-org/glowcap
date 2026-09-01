@@ -1,6 +1,6 @@
 # Remaining work
 
-This page lists unfinished work only. [What ships](shipped.md) covers the
+The list below is unfinished work only. [What ships](shipped.md) covers the
 present, [known limitations](boundaries.md) covers their consequences, and
 [the ladder](ladder.md) tracks progress toward 1.0. Open OCapN and Goblins
 questions are [watched separately](upstream-watch.md).
@@ -33,18 +33,14 @@ questions are [watched separately](upstream-watch.md).
 
 ## Rooms capability completion
 
-- **Shareable archives.** The bounded member-owned `put`/`read` archive
-  capability, the tab's IndexedDB implementation, and a durable standalone
-  archive peer ship, with recorder source and conversation generation retained
-  in every key. Advanced Settings selects that peer explicitly, optionally
-  remembers its whole-archive bearer, and reports an unreachable selection
-  without silently forking writes into the device store. The archive can mint
-  monotonic scoped and read-only facets, and a direct-conversation card hands
-  the other member only that line's read facet for an explicit one-shot read or
-  give-back. The remaining work is room and standing handover, independently
-  revocable or durable offers, multi-source views, and durable attachment homes
-  addressed by hash. The design is in
-  [`docs/planning/rooms-persistence.md`](planning/rooms-persistence.md).
+- **Combined archive views.** The member-owned archive capability, the
+  standalone archive peer, facets, and handover ship
+  ([the plan](planning/rooms-persistence.md) tracks each step). What remains is
+  the read side of holding several archives at once: an evidence-backed view
+  that lets a reader coalesce records from more than one source without
+  mistaking any source for live traffic or rewriting its source and
+  generation keys.
+
 ## Beyond the library
 
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by

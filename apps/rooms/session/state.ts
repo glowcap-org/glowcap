@@ -1,7 +1,7 @@
 // Durable identity, checkpoint, revision, and retry admission for one Rooms session.
 
 import * as z from "zod/mini";
-import { acceptInitialWorkspace } from "../lib/rooms_session_adoption.ts";
+import { acceptInitialWorkspace } from "../lib/session/adoption.ts";
 import { type RoomsSessionState, RoomsSessionStateSchema } from "../lib/rooms_state.ts";
 import {
 	describeOrdinaryEffect,
@@ -27,22 +27,20 @@ import type { RoomsCheckpointImpact } from "./commands.ts";
 import { RoomsSessionStateObservers } from "./state_observers.ts";
 import { inspectOrdinaryEffect } from "./ordinary_effect_inspection.ts";
 import { openSessionStorage } from "./state_storage.ts";
+import type { RoomsSessionDocumentStore } from "./documents.ts";
 import {
 	type NewOrdinaryEffectInspection,
 	type OrdinaryEffectInspection,
 	ordinaryEffectInspection,
 	type PendingEffectDetail,
+	type RoomsSessionResultApplier,
+	type RoomsSessionResultValidator,
 } from "./state_contract.ts";
+import { reconcileSessionState, type RoomsSessionReconciliation } from "./state_reconciliation.ts";
+import { operationKnown, pendingEffectDetails, pendingEffectIds, pendingResultEffect } from "./state_inspection.ts";
+import { DurableRoomsSessionGrants, type RoomsSessionGrantPublisher } from "./grants.ts";
 
 export type { OrdinaryEffectInspection, PendingEffectDetail } from "./state_contract.ts";
-
-export type RoomsSessionResultApplier = (
-	checkpoint: RoomsSessionState,
-	kind: string,
-	intent: string,
-	result: string,
-) => RoomsSessionState;
-export type RoomsSessionResultValidator = (checkpoint: RoomsSessionState, kind: string, intent: string) => void;
 
 interface RoomsSessionMutation {
 	operationId: string;
@@ -55,15 +53,15 @@ interface RoomsSessionMutation {
 export class DurableRoomsSessionState {
 	readonly #identitySeed: Uint8Array<ArrayBuffer>;
 	readonly #sessionEntropy: Uint8Array<ArrayBuffer>;
-	readonly #directory: string;
+	readonly #documents: RoomsSessionDocumentStore;
 	#disk: DiskState;
 	#effects: EffectsState;
 	#tail: Promise<void> = Promise.resolve();
 	readonly #inspectionOwner = Symbol("Rooms session state owner");
 	readonly #observers = new RoomsSessionStateObservers();
 
-	private constructor(directory: string, disk: DiskState, effects: EffectsState) {
-		this.#directory = directory;
+	private constructor(documents: RoomsSessionDocumentStore, disk: DiskState, effects: EffectsState) {
+		this.#documents = documents;
 		this.#disk = disk;
 		this.#effects = effects;
 		this.#identitySeed = unhex(disk.identitySeed, IDENTITY_BYTES, "identity seed");
@@ -78,13 +76,17 @@ export class DurableRoomsSessionState {
 		return this.#sessionEntropy.slice();
 	}
 
+	openGrants(publisher: RoomsSessionGrantPublisher): Promise<DurableRoomsSessionGrants> {
+		return DurableRoomsSessionGrants.open(this.#documents, this.#sessionEntropy, publisher);
+	}
+
 	static async open(
-		directory: string,
+		documents: RoomsSessionDocumentStore,
 		applyResult?: RoomsSessionResultApplier,
 		validateResult?: RoomsSessionResultValidator,
 	): Promise<DurableRoomsSessionState> {
-		const { disk, effects } = await openSessionStorage(directory);
-		const state = new DurableRoomsSessionState(directory, disk, effects);
+		const { disk, effects } = await openSessionStorage(documents);
+		const state = new DurableRoomsSessionState(documents, disk, effects);
 		if (validateResult != null) {
 			for (const effect of effects.pending) {
 				if (effect.type === "result") validateResult(disk.checkpoint, effect.resultKind, effect.intent);
@@ -103,38 +105,19 @@ export class DurableRoomsSessionState {
 	}
 
 	pendingEffectIds(): string[] {
-		return this.#effects.pending.map((operation) => operation.id);
+		return pendingEffectIds(this.#effects);
 	}
 
 	pendingEffectDetails(): PendingEffectDetail[] {
-		return this.#effects.pending.map((operation) =>
-			operation.type === "ordinary"
-				? { id: operation.id, kind: "external", phase: "unresolved", intent: operation.subject }
-				: {
-					id: operation.id,
-					kind: operation.resultKind,
-					phase: operation.marker != null ? "applied" : operation.result != null ? "completed" : "prepared",
-					intent: operation.intent,
-				}
-		);
+		return pendingEffectDetails(this.#effects);
 	}
 
 	pendingResultEffect(operationId: string): PendingEffectDetail & { result: string | null } {
-		const pending = this.#effects.pending.find((operation) => operation.id === operationId);
-		if (pending?.type !== "result") throw new Error("session has no result-bearing effect with that operation id");
-		return {
-			id: pending.id,
-			kind: pending.resultKind,
-			phase: pending.marker != null ? "applied" : pending.result != null ? "completed" : "prepared",
-			intent: pending.intent,
-			result: pending.result,
-		};
+		return pendingResultEffect(this.#effects, operationId);
 	}
 
 	operationKnown(operationId: string): boolean {
-		return this.#disk.recent.some((operation) => operation.id === operationId) ||
-			this.#effects.recent.some((operation) => operation.id === operationId) ||
-			this.#effects.pending.some((operation) => operation.id === operationId);
+		return operationKnown(this.#disk, this.#effects, operationId);
 	}
 
 	onChange(changed: (revision: number, checkpoint: RoomsSessionState) => void): () => void {
@@ -172,6 +155,24 @@ export class DurableRoomsSessionState {
 
 	mutate(mutation: RoomsSessionMutation): Promise<number> {
 		const run = this.#tail.then(() => this.#mutate(mutation));
+		this.#tail = run.then(() => {}, () => {});
+		return run;
+	}
+
+	/** Serialize a fact learned from a live authority into the durable
+	 * checkpoint. Unlike a reader command it has no stale client revision or
+	 * retry id: the reducer must compare the exact fact and return null when it
+	 * is already applied or has been superseded. The serialized state changes,
+	 * but the optimistic command revision does not: an observation pushed by a
+	 * room or learned on reconnect cannot create a false edit conflict. */
+	reconcile(reconciliation: RoomsSessionReconciliation): Promise<number | null> {
+		const run = this.#tail.then(async () => {
+			const next = await reconcileSessionState(this.#documents, this.#disk, reconciliation);
+			if (next == null) return null;
+			this.#disk = next;
+			this.#notifyCheckpointChanged(reconciliation.impact);
+			return next.revision;
+		});
 		this.#tail = run.then(() => {}, () => {});
 		return run;
 	}
@@ -292,7 +293,7 @@ export class DurableRoomsSessionState {
 				},
 			],
 		};
-		await writeEffects(this.#directory, next);
+		await writeEffects(this.#documents, next);
 		this.#effects = next;
 		this.#notifyChanged();
 		return { kind: "prepared" };
@@ -379,7 +380,7 @@ export class DurableRoomsSessionState {
 				marker: null,
 			}],
 		};
-		await writeEffects(this.#directory, next);
+		await writeEffects(this.#documents, next);
 		this.#effects = next;
 		this.#notifyChanged();
 		return { kind: "prepared" };
@@ -411,7 +412,7 @@ export class DurableRoomsSessionState {
 			]
 				.slice(0, RECENT_OPERATIONS),
 		};
-		await writeEffects(this.#directory, next);
+		await writeEffects(this.#documents, next);
 		this.#effects = next;
 		this.#notifyChanged();
 		return revision;
@@ -466,7 +467,7 @@ export class DurableRoomsSessionState {
 				...this.#effects,
 				pending: this.#effects.pending.map((operation) => operation.id === pending.id ? pending : operation),
 			};
-			await writeEffects(this.#directory, completed);
+			await writeEffects(this.#documents, completed);
 			this.#effects = completed;
 		}
 		return await this.#applyResultEffect(pending, applyResult, true);
@@ -513,7 +514,7 @@ export class DurableRoomsSessionState {
 				...this.#effects,
 				pending: this.#effects.pending.map((operation) => operation.id === pending.id ? pending : operation),
 			};
-			await writeEffects(this.#directory, marked);
+			await writeEffects(this.#documents, marked);
 			this.#effects = marked;
 		} else if (marker.resultDigest !== resultDigest) {
 			throw new Error("session result marker does not name its returned authority");
@@ -537,7 +538,7 @@ export class DurableRoomsSessionState {
 				workspaceAdoption: "closed",
 				checkpoint: candidate,
 			};
-			await write(this.#directory, next);
+			await write(this.#documents, next);
 			this.#disk = next;
 			if (notify) this.#notifyCheckpointChanged("realization");
 		} else if (this.#disk.revision === marker.revision) {
@@ -567,7 +568,7 @@ export class DurableRoomsSessionState {
 				result,
 			}, ...this.#effects.recent].slice(0, RECENT_OPERATIONS),
 		};
-		await writeEffects(this.#directory, finalized);
+		await writeEffects(this.#documents, finalized);
 		this.#effects = finalized;
 		if (notify) this.#notifyChanged();
 		return marker.revision;
@@ -593,7 +594,7 @@ export class DurableRoomsSessionState {
 			}, ...this.#effects.recent]
 				.slice(0, RECENT_OPERATIONS),
 		};
-		await writeEffects(this.#directory, next);
+		await writeEffects(this.#documents, next);
 		this.#effects = next;
 		this.#notifyChanged();
 	}
@@ -629,7 +630,7 @@ export class DurableRoomsSessionState {
 			recent: [{ id: operationId, digest: operationDigest, revision }, ...this.#disk.recent]
 				.slice(0, RECENT_OPERATIONS),
 		};
-		await write(this.#directory, next);
+		await write(this.#documents, next);
 		this.#disk = next;
 		this.#notifyCheckpointChanged(impact);
 		return revision;

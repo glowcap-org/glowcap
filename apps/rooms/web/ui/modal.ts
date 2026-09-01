@@ -15,26 +15,101 @@
 // the tree while Help has the top layer, so the opener that opened Settings
 // is still the one Escape returns to.
 
-import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+	createContext,
+	createElement,
+	type ReactNode,
+	type RefObject,
+	useCallback,
+	useContext,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 
-// A nested modal can close back onto a retained-but-closed parent. Focusing its
-// opener while that parent is inert cannot land, so keep the exact element and
-// let the parent consume it after it becomes modal again. One slot is enough:
-// native modal layers are a stack, and only its top can be closing.
-let deferredModalFocus: HTMLElement | null = null;
-let nextModalOpener: HTMLElement | null = null;
+interface ModalCoordinator {
+	readonly nextOpener: RefObject<HTMLElement | null>;
+	readonly deferredFocus: RefObject<HTMLElement | null>;
+	openFrom(opener: HTMLElement, open: () => void): void;
+	push(layer: HTMLDialogElement): void;
+	drop(layer: HTMLDialogElement): void;
+	top(): HTMLDialogElement | null;
+	subscribe(changed: () => void): () => void;
+}
 
-/** Open a nested modal with an exact focus-return target. Capturing the active
- * element later in a layout effect is too late: its parent dialog may already
- * have closed and returned focus somewhere else. */
-export function openModalFrom(opener: HTMLElement, open: () => void): void {
-	nextModalOpener = opener;
-	try {
-		open();
-	} catch (error) {
-		nextModalOpener = null;
-		throw error;
-	}
+const ModalContext = createContext<ModalCoordinator | null>(null);
+
+function useModalCoordinator(): ModalCoordinator {
+	const coordinator = useContext(ModalContext);
+	if (coordinator === null) throw new Error("a Rooms modal was rendered outside its provider");
+	return coordinator;
+}
+
+/** One modal/focus owner per rendered Rooms application. Native dialogs are a
+ * stack by show order, which is runtime state rather than DOM order. */
+export function ModalProvider({ children }: { children: ReactNode }) {
+	const nextOpener = useRef<HTMLElement | null>(null);
+	const deferredFocus = useRef<HTMLElement | null>(null);
+	const stack = useRef<HTMLDialogElement[]>([]);
+	const listeners = useRef(new Set<() => void>());
+	const changed = useCallback(() => listeners.current.forEach((listener) => listener()), []);
+	const top = useCallback(() => {
+		while (stack.current.length > 0) {
+			const layer = stack.current[stack.current.length - 1];
+			if (layer?.isConnected && layer.open && !layer.inert) return layer;
+			stack.current.pop();
+		}
+		return null;
+	}, []);
+	const coordinator = useMemo<ModalCoordinator>(() => ({
+		nextOpener,
+		deferredFocus,
+		openFrom: (opener, open) => {
+			nextOpener.current = opener;
+			try {
+				open();
+			} catch (error) {
+				nextOpener.current = null;
+				throw error;
+			}
+		},
+		push: (layer) => {
+			const prior = stack.current.indexOf(layer);
+			if (prior >= 0) stack.current.splice(prior, 1);
+			stack.current.push(layer);
+			changed();
+		},
+		drop: (layer) => {
+			const prior = stack.current.indexOf(layer);
+			if (prior >= 0) stack.current.splice(prior, 1);
+			changed();
+		},
+		top,
+		subscribe: (listener) => {
+			listeners.current.add(listener);
+			return () => listeners.current.delete(listener);
+		},
+	}), [changed, top]);
+	useEffect(() => () => {
+		nextOpener.current = null;
+		deferredFocus.current = null;
+		stack.current.length = 0;
+		listeners.current.clear();
+	}, []);
+	return createElement(ModalContext.Provider, { value: coordinator }, children);
+}
+
+/** Open a nested modal with the exact control focus must return to. */
+export function useOpenModal(): ModalCoordinator["openFrom"] {
+	return useModalCoordinator().openFrom;
+}
+
+export function useTopModalLayer(): HTMLDialogElement | null {
+	const coordinator = useModalCoordinator();
+	return useSyncExternalStore(coordinator.subscribe, coordinator.top, () => null);
 }
 
 /** Keep a modal's tree mounted through its close transition. `retain` keeps it
@@ -59,6 +134,7 @@ export function useModalDialog(
 	onExited: () => void,
 	retain = false,
 ): void {
+	const coordinator = useModalCoordinator();
 	const dismissRef = useRef(dismiss);
 	dismissRef.current = dismiss;
 	const exitedRef = useRef(onExited);
@@ -70,12 +146,12 @@ export function useModalDialog(
 		if (layer === null) return;
 		if (open) {
 			if (openerRef.current == null || !openerRef.current.isConnected) {
-				const requested = nextModalOpener;
+				const requested = coordinator.nextOpener.current;
 				if (requested?.isConnected) {
 					openerRef.current = requested;
-					nextModalOpener = null;
+					coordinator.nextOpener.current = null;
 				} else {
-					nextModalOpener = null;
+					coordinator.nextOpener.current = null;
 					openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 				}
 			}
@@ -90,11 +166,12 @@ export function useModalDialog(
 			layer.addEventListener("click", backdrop);
 			layer.inert = false;
 			if (!layer.open) layer.showModal();
-			const deferred = deferredModalFocus;
-			if (deferred !== null && !deferred.isConnected) deferredModalFocus = null;
+			coordinator.push(layer);
+			const deferred = coordinator.deferredFocus.current;
+			if (deferred !== null && !deferred.isConnected) coordinator.deferredFocus.current = null;
 			if (deferred !== null && deferred.isConnected && layer.contains(deferred)) {
 				deferred.focus();
-				if (document.activeElement === deferred) deferredModalFocus = null;
+				if (document.activeElement === deferred) coordinator.deferredFocus.current = null;
 			} else {
 				initialFocus?.current?.focus();
 			}
@@ -107,15 +184,17 @@ export function useModalDialog(
 			const opener = openerRef.current;
 			if (!opener?.isConnected) return;
 			opener.focus();
-			if (document.activeElement !== opener) deferredModalFocus = opener;
+			if (document.activeElement !== opener) coordinator.deferredFocus.current = opener;
 		};
 		if (retain) {
 			layer.inert = true;
 			if (layer.open) layer.close();
+			coordinator.drop(layer);
 			return;
 		}
 		if (!layer.open) {
 			layer.inert = true;
+			coordinator.drop(layer);
 			restore();
 			openerRef.current = null;
 			exitedRef.current();
@@ -134,6 +213,7 @@ export function useModalDialog(
 			clearTimeout(failsafe);
 			layer.removeEventListener("transitionend", finish);
 			if (layer.open) layer.close();
+			coordinator.drop(layer);
 			restore();
 			openerRef.current = null;
 			exitedRef.current();
@@ -141,16 +221,18 @@ export function useModalDialog(
 		layer.addEventListener("transitionend", finish);
 		layer.inert = true;
 		layer.close();
+		coordinator.drop(layer);
 		const failsafe = setTimeout(() => finish(), 280);
 		return () => {
 			clearTimeout(failsafe);
 			layer.removeEventListener("transitionend", finish);
 			if (!finished) {
 				if (layer.open) layer.close();
+				coordinator.drop(layer);
 				restore();
 				openerRef.current = null;
 				exitedRef.current();
 			}
 		};
-	}, [dialog, initialFocus, open, retain]);
+	}, [coordinator, dialog, initialFocus, open, retain]);
 }

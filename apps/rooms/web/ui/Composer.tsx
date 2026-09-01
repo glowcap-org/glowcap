@@ -8,22 +8,23 @@
 // draft held locally they would each need a handle reaching in.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useCoarsePointer, useDismissOnClickOutside } from "./hooks.ts";
+import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside } from "./hooks.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
-import { type AttachmentView, type Conv, liveRoomNames, type LiveRooms, type SessionPhase } from "./types.ts";
-import { commandIn, hereOf } from "./commands.ts";
-import { acceptCompletion, type Candidate, commandArgTrigger, completeCandidates, triggerAt } from "./complete.ts";
-import { lineRoom, PICKER, roomCalled } from "./text.ts";
-import { lineCost } from "../../lib/limits.ts";
-import { PHASE_SAID } from "./text.ts";
-import { MAX_LINE } from "../../lib/limits.ts";
+import { type AttachmentView, type Conv, type LiveRooms, type SessionPhase } from "./types.ts";
+import { acceptCompletion, type Candidate, commandArgTrigger, composerCandidates, triggerAt } from "./complete.ts";
+import { lineCapSaid, PHASE_SAID, PICKER, roomCalled } from "./text.ts";
 
 import { IconButton } from "./IconButton.tsx";
+import { Button } from "./Button.tsx";
 import { kindOf } from "./media.ts";
-import { FileChip, KEYBOARD_SETTLE_MS, nickSource, typingText, useTypingSignal } from "./composer/bits.tsx";
+import { FileChip, KEYBOARD_SETTLE_MS, useTypingSaid, useTypingSignal } from "./composer/bits.tsx";
+import { useComposerMeasure } from "./composer/measure.tsx";
+import { Said } from "./Said.tsx";
+
 export function Composer(
 	{
+		canInteract,
 		conv,
 		nick,
 		draft,
@@ -38,11 +39,11 @@ export function Composer(
 		availability,
 		keepLatestInView,
 	}: {
+		canInteract: boolean;
 		conv: Conv | null;
 		nick: string;
 		draft: string;
 		draftFiles: readonly File[];
-		/** Whether these words are a line being rewritten rather than a new one. */
 		/** The line being rewritten, or nothing while an ordinary message is being
 		 * written. The id rather than a flag, because moving from changing one line
 		 * to changing another is a change this has to notice. */
@@ -71,6 +72,7 @@ export function Composer(
 ) {
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
+	const members = useConversationMembers(conv?.type === "room" ? conv.key : null);
 	const bar = useRef<HTMLDivElement>(null);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const filePick = useRef<HTMLInputElement>(null);
@@ -79,6 +81,7 @@ export function Composer(
 	const [emojiOpen, setEmojiOpen] = useState(false);
 	const closeEmoji = useCallback(() => setEmojiOpen(false), []);
 	const [focused, setFocused] = useState(false);
+	const [recoveringRoom, setRecoveringRoom] = useState(false);
 	// Inline completion. The caret is tracked as state so the trigger under it
 	// is a plain derivation; Escape remembers which trigger it dismissed (by
 	// its start index), so the list stays down until a new token begins.
@@ -89,15 +92,7 @@ export function Composer(
 	// Down restores empty while this still matches; any other edit drops it.
 	const [recalled, setRecalled] = useState<string | null>(null);
 	const trigger = focused && enabled ? commandArgTrigger(draft, caret) ?? triggerAt(draft, caret) : null;
-	const candidates = trigger !== null && trigger.start !== dismissedAt
-		? completeCandidates(trigger, {
-			nicks: nickSource(trigger, conv, draft, reachable, nick),
-			rooms: trigger.kind === "room" ? liveRoomNames(liveRooms) : [],
-			grants: conv?.type === "room" ? conv.grants : undefined,
-			here: hereOf(conv),
-			targets: commandIn(draft)?.command.targets,
-		})
-		: [];
+	const candidates = composerCandidates(trigger, dismissedAt, conv, draft, reachable, nick, members, liveRooms);
 	const listOpen = candidates.length > 0;
 	// Where the selection really is. The list is derived from the roster and the
 	// live rooms, so it can shrink under a reader mid-token — somebody leaves
@@ -145,12 +140,24 @@ export function Composer(
 	// device there is no Shift, so Return inserts a newline and sending is the
 	// button's job.
 	const coarse = useCoarsePointer();
+	const roomWaiting = conv?.type === "room" && conv.membership !== "joined";
+	const recoverRoom = () => {
+		if (conv?.type !== "room" || recoveringRoom) return;
+		if (conv.held && conv.link == null) {
+			browser.aboutConversation("capabilities");
+			return;
+		}
+		setRecoveringRoom(true);
+		void session.recoverRoom(conv.key).then((refused) => {
+			if (refused !== "") browser.toast("failure", refused);
+		}).finally(() => setRecoveringRoom(false));
+	};
 
 	// Rooms and direct lines both carry an ephemeral typing level. Every way of
 	// stopping — sending, going idle, blurring, switching away, closing the tab —
 	// is this one condition going false.
 	useTypingSignal(
-		enabled && focused && conv !== null && draft.trim() !== "",
+		enabled && focused && conv !== null && conv.type !== "directory" && draft.trim() !== "",
 		draft,
 		session.setTyping,
 	);
@@ -183,45 +190,6 @@ export function Composer(
 		box.setSelectionRange(box.value.length, box.value.length);
 	}, [changing]);
 
-	// Fit the box to its content. The cap is the stylesheet's `max-height`, read
-	// rather than repeated: two copies of one number drift the moment either moves.
-	// It is read once and remembered, because asking for it is a style
-	// recalculation and asking on every character is one per keystroke; the band's
-	// own observer below re-reads it when anything could have changed it.
-	const cap = useRef(Infinity);
-	const fit = useCallback(() => {
-		const box = field.current;
-		if (!box) return;
-		box.style.height = "auto";
-		box.style.height = Math.min(box.scrollHeight, cap.current) + "px";
-	}, []);
-	useLayoutEffect(() => {
-		const box = field.current;
-		if (box) cap.current = parseFloat(getComputedStyle(box).maxHeight) || Infinity;
-		fit();
-	}, [draft, enabled, fit]);
-
-	// The composer floats over the bottom of the message column, so the log has to
-	// leave that much of itself clear, the fade has to be that tall, and the
-	// jump-to-latest button has to sit above it. All three read one number, set on
-	// the root so anything in the page can reach it. The band holds one height at
-	// rest by design, because every row in it reserves its space, but a long draft
-	// grows the field and the window can be resized under it, so the number is
-	// measured rather than guessed.
-	useLayoutEffect(() => {
-		const band = bar.current;
-		if (!band) return;
-		const observer = new ResizeObserver(() => {
-			document.documentElement.style.setProperty(
-				"--composer-h",
-				`${Math.round(band.getBoundingClientRect().height)}px`,
-			);
-			keepLatestInView();
-		});
-		observer.observe(band);
-		return () => observer.disconnect();
-	}, [keepLatestInView]);
-
 	useDismissOnClickOutside(emojiOpen, ".emoji-pop, #emojiBtn", closeEmoji);
 
 	const insertAtCursor = (s: string) => {
@@ -236,34 +204,38 @@ export function Composer(
 		});
 	};
 
-	// What this room will carry, and what the draft costs against it. Shown only
-	// when the room asks for less than this app does and the draft is close
-	// enough for the answer to be worth the space.
-	const lineCap = lineRoom(conv, MAX_LINE);
-	const cost = lineCost(draft);
-	const overBy = cost - lineCap;
-	const room = lineCap < MAX_LINE && cost > lineCap * 0.8 ? lineCap : null;
-	const files = draftFiles;
+	const capSaid = lineCapSaid(conv, draft);
 	// Changing a file line can send with an empty field and no new files: removing
 	// every file with no caption left is a real instruction — it takes the line
 	// down. So a file-line change is always sendable; `draftKeeping` is what says
 	// this is one.
-	const canSend = draft.trim() !== "" || files.length > 0 || draftKeeping !== undefined;
+	const canSend = draft.trim() !== "" || draftFiles.length > 0 || draftKeeping !== undefined;
 	// Editing a file line down to no files and no caption leaves nothing for the
 	// message to be, so sending takes it back. That is a real thing to want — it
 	// is how the last file comes off a message that was only ever its files — but
 	// it must not arrive as a surprise: the bar above says what will happen and
 	// the control below stops calling itself Send.
-	const emptiesLine = draftKeeping !== undefined && draftKeeping.length === 0 && files.length === 0 &&
+	const emptiesLine = draftKeeping !== undefined && draftKeeping.length === 0 && draftFiles.length === 0 &&
 		draft.trim() === "";
-	const said = typingText(conv?.typers ?? [], nick);
+	const said = useTypingSaid(conv?.key ?? null, nick);
 	const addressee = conv
-		? (conv.type === "dm" ? "Message " + conv.id + " directly" : "Message " + roomCalled(conv.id, conv.held))
+		? (conv.type === "dm"
+			? "Message " + conv.id + " directly"
+			: conv.type === "room"
+			? "Message " + roomCalled(conv.id, conv.held)
+			: conv.type === "directory"
+			? "A command, like /help"
+			: "Message")
 		: "Message";
-	// An enabled placeholder names the addressee; a disabled one says why the
-	// field is unavailable, without repeating that sentence below the field.
+	// A placeholder names the addressee, and only while there is one to name. Why
+	// the field is unavailable is said once, on the line under it, which is where
+	// a standing condition belongs and the one place it can be read at all: a
+	// placeholder is hidden by whatever the reader had already typed, and a
+	// reason that disappears behind their own draft is a field that has gone
+	// quiet on them. The accessible name below carries it either way.
 	const unavailable = availability || (!enabled && conv ? PHASE_SAID[phase] : "");
-	const placeholder = enabled ? addressee : unavailable;
+	const placeholder = enabled ? addressee : "";
+	useComposerMeasure({ field, band: bar, draft, enabled, placeholder, onMeasured: keepLatestInView });
 
 	return (
 		<div className="composer" ref={bar}>
@@ -335,7 +307,7 @@ export function Composer(
 				<div id="changing" className="changing-bar">
 					<span className="changing-said">
 						{emptiesLine
-							? "Nothing left on this message — sending takes it back"
+							? "Nothing left on this message: sending takes it back"
 							: draftKeeping !== undefined
 							? "Editing this line's files"
 							: "Editing a message"}
@@ -378,9 +350,9 @@ export function Composer(
 						))}
 					</div>
 				)}
-				{files.length > 0 && (
+				{draftFiles.length > 0 && (
 					<div className="composer-files" aria-label="Attached files">
-						{files.map((file, index) => (
+						{draftFiles.map((file, index) => (
 							<FileChip
 								key={`${file.name}:${file.size}:${index}`}
 								image={kindOf(file.type) === "image"}
@@ -402,7 +374,9 @@ export function Composer(
 						autoCapitalize="sentences"
 						enterKeyHint="send"
 						role="combobox"
-						aria-label={enabled ? "Message" : unavailable || "Message unavailable"}
+						aria-label={enabled
+							? (conv?.type === "directory" ? "Command" : "Message")
+							: unavailable || "Message unavailable"}
 						aria-autocomplete="list"
 						aria-expanded={listOpen}
 						aria-controls={listOpen ? "completePop" : undefined}
@@ -416,7 +390,10 @@ export function Composer(
 						onPaste={(e) => {
 							// A screenshot on the clipboard arrives as a file with no name
 							// worth showing; posting it is what a person means by pasting it
-							// here, and the text arm of the same paste is left alone.
+							// here, and the text arm of the same paste is left alone. A
+							// directory has no message to carry a file, so the paste stays
+							// text.
+							if (conv?.type === "directory") return;
 							const files = [...e.clipboardData.files];
 							if (files.length === 0) return;
 							e.preventDefault();
@@ -479,7 +456,7 @@ export function Composer(
 							) {
 								if (
 									e.key === "ArrowUp" && changing === undefined &&
-									draft.trim() === "" && files.length === 0
+									draft.trim() === "" && draftFiles.length === 0
 								) {
 									const last = session.recallLastSent();
 									if (last !== null) {
@@ -539,7 +516,7 @@ export function Composer(
 							label="Attach a file"
 							size={mobile ? "large" : "normal"}
 							variant="ghost"
-							disabled={!enabled}
+							disabled={!enabled || conv?.type === "directory"}
 							onMouseDown={(e) => e.preventDefault()}
 							onClick={() => filePick.current?.click()}
 						/>
@@ -556,46 +533,75 @@ export function Composer(
 							onClick={() => setEmojiOpen(!emojiOpen)}
 						/>
 					</div>
-					<IconButton
-						id="sendBtn"
-						icon={emptiesLine ? "close" : "send"}
-						label={emptiesLine ? "Take this message back" : "Send"}
-						size={mobile ? "large" : "normal"}
-						variant={canSend ? "solid" : "outline"}
-						tone={emptiesLine ? "danger" : canSend ? "accent" : "neutral"}
-						shape="circle"
-						type="submit"
-						disabled={!enabled || !canSend}
-					/>
+					{roomWaiting && canInteract
+						? (
+							<Button
+								id="roomReconnect"
+								type="button"
+								busy={recoveringRoom || conv.membership === "joining"}
+								disabled={recoveringRoom || conv.membership === "joining"}
+								onClick={recoverRoom}
+							>
+								{conv.membership === "joining"
+									? "Joining…"
+									: conv.held && conv.link == null
+									? "Restore access…"
+									: nick === ""
+									? "Join"
+									: "Retry joining"}
+							</Button>
+						)
+						: (
+							<IconButton
+								id="sendBtn"
+								icon={emptiesLine ? "close" : "send"}
+								label={emptiesLine ? "Take this message back" : "Send"}
+								size={mobile ? "large" : "normal"}
+								variant={canSend ? "solid" : "outline"}
+								tone={emptiesLine ? "danger" : canSend ? "accent" : "neutral"}
+								shape="circle"
+								type="submit"
+								disabled={!enabled || !canSend}
+							/>
+						)}
 				</div>
 			</form>
 			<div className="composer-status">
 				<div id="typing" className={said ? "typing show" : "typing"} aria-hidden="true">
 					{said}
 				</div>
-				{
-					/* The room's own cap, once a draft is near enough to it to matter.
-				    A room bridged somewhere else may carry less than this app allows,
-				    and finding that out by having a message cut in half on the other
-				    side is finding out too late. Quiet until the last fifth, because
-				    a counter that is always there is furniture. Urgent
-				    once it is past, because then the message will not go. */
-				}
-				{unavailable !== "" ? null : room !== null
+				<Said
+					id="composerAvailability"
+					className={unavailable === "" ? "composer-availability" : "composer-availability show"}
+					kind="warning"
+				>
+					{unavailable}
+				</Said>
+				{unavailable !== "" ? null : capSaid !== null
 					? (
 						<div
 							id="lineRoom"
-							className={overBy > 0 ? "hint room-cap over" : "hint room-cap"}
-							role={overBy > 0 ? "alert" : undefined}
+							className={capSaid.over ? "hint room-cap over" : "hint room-cap"}
+							role={capSaid.over ? "alert" : undefined}
 						>
-							{overBy > 0 ? `${overBy} bytes too long for this room` : `${room - cost} bytes left`}
+							{capSaid.said}
 						</div>
 					)
 					: (
 						<div id="hint" className="hint">
-							<b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> · <b>*italic*</b>
-							{" "}
-							· <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b>
+							{conv?.type === "directory"
+								? (
+									<>
+										<b>Enter</b> to run · <b>/</b> for a command, like <b>/help</b>
+									</>
+								)
+								: (
+									<>
+										<b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> ·
+										{" "}
+										<b>*italic*</b> · <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b>
+									</>
+								)}
 						</div>
 					)}
 			</div>

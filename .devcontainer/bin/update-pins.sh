@@ -130,7 +130,7 @@ run_check() {
 # ---------------------------------------------------------------------------
 
 run_bump() {
-    local dep var pinned latest class changed="" gates=""
+    local dep var pinned latest class changed="" gates="" deno_image_digest=""
     # The staged paths stay global: the EXIT trap fires after this function's
     # locals are gone, and a moved file is a harmless rm -f no-op.
     staged_pins="$(mktemp -t pancake-pins-XXXXXX)"
@@ -168,7 +168,18 @@ run_bump() {
             echo "${dep}: ${pinned} -> ${latest}"
             continue
         fi
-        pancake_pins_stage_companions "${dep}" "${pinned}" "${latest}"
+        if [[ "${dep}" == deno ]]; then
+            deno_image_digest="$(pancake_pins_docker_hub_index_digest denoland/deno "bin-${latest}")"
+            if ! [[ "${deno_image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "update-pins: deno image index is not a SHA-256: '${deno_image_digest}'" >&2
+                return 1
+            fi
+            pancake_pins_stage_companions \
+                "${dep}" "${pinned}" "${latest}" "${DENO_IMAGE_DIGEST}" "${deno_image_digest}"
+            pancake_pins_replace_line "${staged_pins}" DENO_IMAGE_DIGEST "${deno_image_digest}"
+        else
+            pancake_pins_stage_companions "${dep}" "${pinned}" "${latest}"
+        fi
         pancake_pins_replace_line "${staged_pins}" "${var}" "${latest}"
         pancake_pins_refresh_hashes "${dep}" "${latest}" "${staged_sums}"
         changed="${changed}${changed:+, }${dep} ${pinned} -> ${latest}"

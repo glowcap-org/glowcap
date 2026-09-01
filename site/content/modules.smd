@@ -8,8 +8,7 @@
 
 Most applications use `driver.Session` and a transport. The modules below
 matter when you need to host many sessions, supply an event loop, add a codec,
-or drive the protocol without I/O. Import rules keep those responsibilities
-separate at compile time. The diagram above is the map, and
+or drive the protocol without I/O. The diagram above is the map, and
 [architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
@@ -37,7 +36,7 @@ you can test it without a host runtime.
   borrows them, and IDs are plain values.
 - **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
-  [Syrup](https://github.com/ocapn/syrup) is the Goblins floor;
+  [Syrup](https://github.com/ocapn/syrup) is what Goblins speaks;
   [Cap'n Proto](https://capnproto.org/) is the second encoding.
   [Codecs]($link.page('codecs')) compares them.
 - **session** is the authority: import, export, and answer tables, and what is

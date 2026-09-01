@@ -8,22 +8,22 @@
 // reader is in, including the ones that had a word of their own.
 
 import * as store from "../store.ts";
-import type { DirId } from "../types.ts";
 import { convSession } from "./live.ts";
 import { reason } from "./common.ts";
 import { roomCalled } from "../text.ts";
-
+import type { RoomsPageContext } from "../page.ts";
+import type { DirId } from "../types.ts";
 /** Tell one room where this reader stands, when that has changed for it.
  *
  * What it was last told is `Live.standingTold`, so a room hears a standing when
  * it changes and not otherwise: saying one word everywhere would otherwise
  * reach every room a reader is in, including the ones with a word of their own
  * that are not affected at all. */
-export function tellStanding(key: string): void {
-	const session = convSession(key);
+export function tellStanding(page: RoomsPageContext, key: string): void {
+	const session = convSession(page, key);
 	const room = session?.rooms.get(key);
 	if (session === null || room === undefined) return;
-	const standing = store.standingFor(key);
+	const standing = store.standingFor(page.projection, key);
 	if (session.standingTold.get(key) === standing) return;
 	session.standingTold.set(key, standing);
 	// The room tells everybody, this tab included, so nothing is shown from here:
@@ -38,10 +38,12 @@ export function tellStanding(key: string): void {
 		// In the room it failed for, named: `tellStandingEverywhere` runs this
 		// once per room, and several bare "Could not say that" lines landing in
 		// whatever conversation was open said nothing anyone could act on.
-		const named = store.getConv(key);
+		const named = store.getConv(page.projection, key);
 		store.deliver(
+			page.projection,
 			key,
 			store.sysItem(
+				page.projection,
 				`Could not tell ${named?.type === "room" ? roomCalled(named.id, named.held) : "this room"} ` +
 					`where you are: ${reason(error)}`,
 			),
@@ -50,28 +52,28 @@ export function tellStanding(key: string): void {
 }
 
 /** Tell every room this reader is in, or every room on one directory. */
-function tellStandingEverywhere(onDir?: DirId): void {
-	for (const conv of store.get().convs.values()) {
+function tellStandingEverywhere(page: RoomsPageContext, onDir?: DirId): void {
+	for (const conv of page.projection.get().convs.values()) {
 		if (conv.type !== "room") continue;
 		if (onDir !== undefined && conv.dir !== onDir) continue;
-		tellStanding(conv.key);
+		tellStanding(page, conv.key);
 	}
 }
 
 /** Say where this reader stands everywhere. */
-export function setStanding(standing: string): void {
-	store.setStanding(standing);
-	tellStandingEverywhere();
+export function setStanding(page: RoomsPageContext, standing: string): void {
+	store.setStanding(page.projection, standing);
+	tellStandingEverywhere(page);
 }
 
 /** Say where they stand on one directory, or null to follow their own. */
-export function setDirStanding(dir: DirId, standing: string | null): void {
-	store.setDirStanding(dir, standing);
-	tellStandingEverywhere(dir);
+export function setDirStanding(page: RoomsPageContext, dir: DirId, standing: string | null): void {
+	store.setDirStanding(page.projection, dir, standing);
+	tellStandingEverywhere(page, dir);
 }
 
 /** Say where they stand in one room, or null to follow its directory. */
-export function setRoomStanding(key: string, standing: string | null): void {
-	store.setRoomStanding(key, standing);
-	tellStanding(key);
+export function setRoomStanding(page: RoomsPageContext, key: string, standing: string | null): void {
+	store.setRoomStanding(page.projection, key, standing);
+	tellStanding(page, key);
 }

@@ -13,10 +13,11 @@ import * as relay from "@pancake/relay";
 import * as webrtc from "@pancake/webrtc";
 import { iceServers } from "./ice.ts";
 import { directorySignalingAuthority } from "../../../lib/signaling.ts";
-import { CAPTP_VERSION, CODEC } from "../../../lib/protocol.ts";
-import { readyRuntime, soleLive } from "./bootstrap.ts";
+import { roomsHostOptions } from "../../../lib/profile.ts";
+import { readyRuntime } from "./bootstrap.ts";
 import { relayLocatorUrl, relayWsUrl } from "./reachable.ts";
-import { ensureVizPublisher } from "./viz.ts";
+import { webrtcSignalingRoute } from "./webrtc_route.ts";
+import type { RoomsPageContext } from "../page.ts";
 
 /** Instantiate the page's wasm peer, memoized through `readyRuntime`. The
  * entry module awaits this while the opening screen is still up, because
@@ -25,22 +26,21 @@ import { ensureVizPublisher } from "./viz.ts";
  * shares the same attempt, so the screen's wait and the dial's wait are one
  * instantiation. A rejected attempt is not cached (`readyRuntime`), so the
  * wasm asset losing its build race is retried, not remembered. */
-export function bootRuntime(): Promise<WebRuntime> {
-	return readyRuntime(async () => {
-		// Install tracing before `init` creates the page's long-lived Runtime
-		// Host, so the visualizer sees the Host's own sessions from birth.
-		await ensureVizPublisher();
+export function bootRuntime(page: RoomsPageContext): Promise<WebRuntime> {
+	return readyRuntime(page, async () => {
 		return await init({
 			wasm: fetch("/pancake_host.wasm"),
+			...roomsHostOptions(),
 			wsUrl: relayWsUrl,
 			relayUrl: relayLocatorUrl,
-			codec: CODEC,
-			captpVersion: CAPTP_VERSION,
 			connectors: [
 				relay.connector(),
-				webrtc.connector(directorySignalingAuthority(() => soleLive()?.dir ?? null), {
-					iceServers,
-				}),
+				webrtc.connector(
+					directorySignalingAuthority(() => webrtcSignalingRoute(page)),
+					{
+						iceServers,
+					},
+				),
 			],
 		});
 	});

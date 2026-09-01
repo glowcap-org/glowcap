@@ -214,7 +214,7 @@ test "libpancake_host: pump callback refusal preserves the exact action for retr
     const client = try newHostWithProfile(0x35, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
     defer _ = cd.pancake_host_release(client);
 
-    const sturdyref = "ocapn://127.0.0.1%3A7025.tcp/s/widget";
+    const sturdyref = "ocapn://127.0.0.1%3A7025.tcp/s/d2lkZ2V0";
     var vow: u64 = 0;
     try expectOk(cd.pancake_host_enliven(client, sturdyref, sturdyref.len, &vow));
 

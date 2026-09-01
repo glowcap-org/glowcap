@@ -91,3 +91,40 @@ Deno.test("explicit directory openings share the workspace admission bound", asy
 	gate.resolve();
 	await Promise.all([first, second]);
 });
+
+Deno.test("drain stops every opening and reconnect without a later reopen", async () => {
+	const lifecycle = new DirectoryConnectionLifecycle(32);
+	const directory = dirId("directory");
+	const gate = deferred();
+	let reopened = false;
+	const opening = lifecycle.open(directory, 0, undefined, () => false, async (attempt) => {
+		await gate.promise;
+		return attempt.stale() ? "stale" : "seated";
+	});
+	lifecycle.schedule(directory, 0, () => reopened = true);
+	lifecycle.drainAll();
+	gate.resolve();
+	assertEquals(await opening, "stale");
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assertEquals(reopened, false);
+});
+
+Deno.test("drain then an explicit open starts a new holding epoch", async () => {
+	const lifecycle = new DirectoryConnectionLifecycle(32);
+	const directory = dirId("directory");
+	const gate = deferred();
+	const opening = lifecycle.open(directory, 0, undefined, () => false, async (attempt) => {
+		await gate.promise;
+		return attempt.stale() ? "stale" : "seated";
+	});
+	lifecycle.drainAll();
+	gate.resolve();
+	assertEquals(await opening, "stale");
+	let reopened = false;
+	const fresh = lifecycle.open(directory, 0, undefined, () => false, (attempt) => {
+		reopened = !attempt.stale();
+		return Promise.resolve(reopened ? "seated" : "stale");
+	});
+	assertEquals(await fresh, "seated");
+	assertEquals(reopened, true);
+});

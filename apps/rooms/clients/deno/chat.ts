@@ -9,7 +9,7 @@
 //   /leave           leave the current room (stay connected)
 //   /help            this list
 //
-// All the OCapN machinery lives in `room_client.ts` (`Directory`, `Room`): one
+// All the OCapN machinery lives in `lib/room/client.ts` (`Directory`, `Room`): one
 // connection holds the directory, a live room-list `watch`, and your current
 // membership; switching rooms leaves one and enters another on that same
 // connection. Press Ctrl-D to quit.
@@ -22,12 +22,12 @@
 // needs `--unstable-ffi`. The room you start in is named: entering one that does
 // not exist yet opens it.
 
-import { Directory, Room } from "../../lib/room_client.ts";
+import { Directory, Room } from "../../lib/room/client.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import type { Ref } from "@pancake/runtime";
 import { Reachability } from "@pancake/iroh";
-import { dial, isUriLocator } from "../../lib/locator.ts";
+import { dialDirectory, isUriLocator } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 
 const [locator, room_name, nick] = Deno.args;
@@ -41,7 +41,7 @@ if (!locator || !room_name || !nick) {
 await using runtime = await openRoomsRuntime({
 	iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
 });
-const dir = await Directory.connect(locator, (address) => dial(address, runtime));
+const dir = await Directory.connect(locator, (address) => dialDirectory(address, runtime));
 
 // Follow the directory so `/list` is always current: fold each delta into a map
 // of live rooms, seeded with the snapshot `watch` returns.

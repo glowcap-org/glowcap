@@ -3,9 +3,17 @@
 // A room's identity is its directory and its name; a direct line's is the
 // introduction that opened it. The page reaches these through `store.ts`.
 
-import type { Conv, ConvBase, DirId, DirView, DmConv, DmLine, RoomConv, Unread } from "../types.ts";
-import type { WorkspaceRoomIrcIdentity } from "../../../lib/rooms_state.ts";
-import { get, letLinesGo, set, type State } from "./core.ts";
+import type { Conv, ConvBase, DirectoryConv, DirId, DirView, DmConv, DmLine, RoomConv, SessionConv } from "../types.ts";
+import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
+import {
+	OPEN_ROOM_POLICY,
+	PRIVATE_ROOM_POLICY,
+	roomPoliciesEqual,
+	type RoomPolicy,
+	roomPreset,
+} from "../../../lib/room/policy.ts";
+import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
+import { type PageProjection, type State } from "./core.ts";
 import { isSelf } from "./dirs.ts";
 
 // ── Conversations ─────────────────────────────────────────────────────────
@@ -33,38 +41,103 @@ export function publishedRoomKey(dir: DirId, publicationId: string): string {
 	return "room-publication:" + dir + "\u0000" + publicationId;
 }
 
-// Introductions this tab has opened, counted. A direct conversation is keyed on
-// the introduction rather than on the member's nick, which is the whole of the
-// fix for a thread that used to change hands: the nick is a claim the room
-// grants and reclaims, so keying a conversation on it meant that when the claim
-// moved, the next message in a thread — same title, same history — was redeemed
-// to whoever held the name now.
-let introductions = 0;
+/** One view per held directory. Recreated when shown; never a workspace row. */
+function directoryKey(dir: DirId): string {
+	return "directory:" + dir;
+}
 
-export function getConv(key: string | null, s: Readonly<Pick<State, "convs">> = get()): Conv | null {
+/** The conversation a leave or close should stand on next: a room or a
+ * direct line, never a directory view. Those views are this tab's, not a
+ * place a room was sitting in front of. */
+export function nextStandingKey(convs: ReadonlyMap<string, Conv>): string | undefined {
+	for (const conv of convs.values()) {
+		if (conv.type !== "directory") return conv.key;
+	}
+	return undefined;
+}
+
+// Introductions this tab has opened are counted on the page projection. A
+// direct conversation is keyed on the introduction rather than on the member's
+// nick, which is the whole of the fix for a thread that used to change hands:
+// the nick is a claim the room grants and reclaims, so keying a conversation
+// on it meant that when the claim moved, the next message in a thread — same
+// title, same history — was redeemed to whoever held the name now.
+
+export function getConv(
+	projection: PageProjection,
+	key: string | null,
+	s: Readonly<Pick<State, "convs">> = projection.get(),
+): Conv | null {
 	return key === null ? null : s.convs.get(key) ?? null;
 }
-export function activeConv(): Conv | null {
-	return getConv(get().activeKey);
+
+/** The listed room this tab already holds for `dir` and `name`.
+ *
+ * A caller with a conversation key names that row. Without one, a name-key and a
+ * publication-key are two spellings of the same listed room; preferring the
+ * publication identity keeps a bridge from becoming a second join. Private rooms
+ * are not found by label: two of them may share one, and only the key tells
+ * them apart. */
+export function existingRoom(
+	projection: PageProjection,
+	dir: DirId,
+	name: string,
+	at?: string,
+): RoomConv | null {
+	if (at != null) {
+		const conv = getConv(projection, at);
+		if (conv?.type === "room") return conv;
+	}
+	const want = name.toLowerCase();
+	let found: RoomConv | null = null;
+	for (const conv of projection.get().convs.values()) {
+		if (conv.type !== "room" || conv.dir !== dir || conv.held || conv.id.toLowerCase() !== want) continue;
+		if (found == null || conv.publicationId != null) found = conv;
+	}
+	return found;
+}
+
+/** The conversation whose durable id is `persistId`, or null. Session commands
+ * and snapshots name conversations this way; this tab's map is keyed on `key`. */
+export function convByPersistId(
+	projection: PageProjection,
+	persistId: string,
+	s: Readonly<Pick<State, "convs">> = projection.get(),
+): SessionConv | null {
+	for (const conversation of s.convs.values()) {
+		if (conversation.type !== "directory" && conversation.persistId === persistId) return conversation;
+	}
+	return null;
+}
+
+export function activeConv(projection: PageProjection): Conv | null {
+	return getConv(projection, projection.get().activeKey);
 }
 
 /** The directory a reader means by "here": the one the open conversation is on,
  * or the first this tab holds while the join card is up. */
-export function actingDir(
-	s: Readonly<Pick<State, "activeKey" | "convs" | "dirs">> = get(),
-): DirView | null {
-	const conv = s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null;
-	if (conv !== null) {
-		const held = s.dirs.get(conv.dir);
-		if (held !== undefined) return held;
+export function directoryHere(conv: Conv | null, dirs: ReadonlyMap<DirId, DirView>): DirView | null {
+	if (conv != null) {
+		const directory = dirs.get(conv.dir);
+		if (directory != null) return directory;
 	}
-	for (const held of s.dirs.values()) return held;
+	for (const directory of dirs.values()) return directory;
 	return null;
+}
+
+export function actingDir(
+	projection: PageProjection,
+	s: Readonly<Pick<State, "activeKey" | "convs" | "dirs">> = projection.get(),
+): DirView | null {
+	return directoryHere(s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null, s.dirs);
 }
 
 /** Whether any directory has answered at all, which is what the opening screen
  * waits for: it covers the wait, not one directory's health. */
-export function anyDirSettled(s: Readonly<Pick<State, "dirs">> = get()): boolean {
+export function anyDirSettled(
+	projection: PageProjection,
+	s: Readonly<Pick<State, "dirs">> = projection.get(),
+): boolean {
 	for (const held of s.dirs.values()) {
 		if (held.session !== "connecting") return true;
 	}
@@ -80,11 +153,22 @@ export function patch<C extends Conv>(conv: C, fields: Partial<ConvBase>): C {
 	return Object.assign({}, conv, fields);
 }
 
-/** Put a conversation into the map, replacing whatever was there. */
-export function put(conv: Conv): void {
-	const convs = new Map(get().convs);
-	convs.set(conv.key, conv);
-	set({ convs });
+/** Put a conversation into the map, replacing whatever was there.
+ *
+ * Whether a room is held is what its policy says, so it is settled here rather
+ * than by whoever wrote the room. The two were set together when the room was
+ * first seen and only the policy moved afterwards, which left every surface
+ * reading `held` — the rail's mark, the topbar, the card, the log, the
+ * composer's addressee — drawing the standing the room arrived with. Two
+ * writers already move the policy and only one of them would have remembered;
+ * every writer comes through here. */
+export function put(projection: PageProjection, conv: Conv): void {
+	const settled = conv.type === "room" && conv.held !== (roomPreset(conv.policy) === "private")
+		? { ...conv, held: !conv.held }
+		: conv;
+	const convs = new Map(projection.get().convs);
+	convs.set(settled.key, settled);
+	projection.set({ convs });
 }
 
 interface RoomIdentity {
@@ -93,9 +177,13 @@ interface RoomIdentity {
 	publicationId?: string;
 	held?: boolean;
 	link?: string;
+	manager?: string;
 	steward?: string;
-	stewardClaimable?: boolean;
-	irc?: WorkspaceRoomIrcIdentity | null;
+	reconnect?: "manual" | "requested";
+	membership?: RoomConv["membership"];
+	bridgeIntent?: WorkspaceRoomBridgeIntent | null;
+	policy?: RoomPolicy;
+	membershipKind?: RoomMembershipKind;
 }
 
 interface DirectIdentity {
@@ -103,53 +191,114 @@ interface DirectIdentity {
 	peerRegistrationId: string;
 }
 
-function makeConv(type: "room", dir: DirId, id: string, identity?: RoomIdentity): RoomConv;
-function makeConv(type: "dm", dir: DirId, id: string, identity: DirectIdentity): DmConv;
-function makeConv(type: "room" | "dm", dir: DirId, id: string, identity?: RoomIdentity | DirectIdentity): Conv {
-	introductions += type === "dm" ? 1 : 0;
+/** Stable local archive identity for one exact directory registration. A
+ * deliberate close removes the visible row, but reopening the same live member
+ * must query the history it just kept. A new holder receives a new registration
+ * id and therefore cannot inherit that record. */
+function directPersistId(dir: DirId, peerRegistrationId: string): string {
+	return `direct:${dir}:${peerRegistrationId}`;
+}
+
+function makeConv(projection: PageProjection, type: "room", dir: DirId, id: string, identity?: RoomIdentity): RoomConv;
+function makeConv(projection: PageProjection, type: "dm", dir: DirId, id: string, identity: DirectIdentity): DmConv;
+function makeConv(
+	projection: PageProjection,
+	type: "room" | "dm",
+	dir: DirId,
+	id: string,
+	identity?: RoomIdentity | DirectIdentity,
+): Conv {
 	const roomIdentity = type === "room" ? identity as RoomIdentity | undefined : undefined;
 	const directIdentity = type === "dm" ? identity as DirectIdentity : null;
 	const key = type === "room"
 		? roomIdentity?.key ??
 			(roomIdentity?.publicationId == null ? roomKey(dir, id) : publishedRoomKey(dir, roomIdentity.publicationId))
-		: "dm:" + introductions;
+		: "dm:" + projection.nextIntroduction();
 	const base = {
 		id,
 		key,
 		dir,
-		persistId: identity?.persistId ?? crypto.randomUUID(),
-		history: [],
-		unread: { kind: "caught-up" } as Unread,
+		persistId: identity?.persistId ??
+			(type === "dm" ? directPersistId(dir, directIdentity!.peerRegistrationId) : crypto.randomUUID()),
 	};
 	// Build only the fields the kind owns, so the union stays honest: a room gets
-	// its member set, a direct line gets its standing, and both get typing.
+	// its membership and a direct line gets its standing.
 	const conv: Conv = type === "room"
 		? {
 			...base,
 			type,
-			membership: "joining",
-			members: new Map(),
-			typers: new Set(),
+			membership: roomIdentity?.membership ?? "joining",
+			membershipIssue: "",
 			earlierHistory: "unasked",
 			grants: new Set(),
+			membershipKind: roomIdentity?.membershipKind ?? "participant",
+			policy: roomIdentity?.policy ?? (roomIdentity?.held === true ? PRIVATE_ROOM_POLICY : OPEN_ROOM_POLICY),
 			standing: null,
-			ircIssue: "",
+			bridgeIssue: "",
 			held: roomIdentity?.held === true,
-			stewardClaimable: roomIdentity?.stewardClaimable === true,
+			...(roomIdentity?.reconnect == null ? {} : { reconnect: roomIdentity.reconnect }),
 			...(roomIdentity?.publicationId != null ? { publicationId: roomIdentity.publicationId } : {}),
 			...(roomIdentity?.link == null ? {} : { link: roomIdentity.link }),
+			...(roomIdentity?.manager == null ? {} : { manager: roomIdentity.manager }),
 			...(roomIdentity?.steward == null ? {} : { steward: roomIdentity.steward }),
-			...(roomIdentity != null && Object.hasOwn(roomIdentity, "irc") ? { irc: roomIdentity.irc } : {}),
+			...(roomIdentity != null && Object.hasOwn(roomIdentity, "bridgeIntent")
+				? { bridgeIntent: roomIdentity.bridgeIntent }
+				: {}),
 		}
 		: {
 			...base,
 			type,
 			peerRegistrationId: directIdentity!.peerRegistrationId,
 			line: "introducing",
-			typers: new Set(),
 		};
-	put(conv);
+	put(projection, conv);
 	return conv;
+}
+
+/** The row a room identity already names in this tab, whichever key it wears.
+ * A row's key is minted when the room is first seen and never changes, so a
+ * publication id resolved later must find the row a link-era join filed under
+ * its name. The checkpoint's persistId outranks everything; a publication id
+ * then adopts the same-named row that claims no other publication. A row
+ * claiming a different publication is a different room, never adopted. */
+function adoptableRoomConv(
+	projection: PageProjection,
+	dir: DirId,
+	name: string,
+	identity: RoomIdentity | undefined,
+): RoomConv | null {
+	const rooms = [...projection.get().convs.values()].filter(
+		(conv): conv is RoomConv => conv.type === "room" && conv.dir === dir,
+	);
+	if (identity?.persistId != null) {
+		const byPersist = rooms.find((conv) => conv.persistId === identity.persistId);
+		if (byPersist != null) return byPersist;
+	}
+	const lowered = name.toLowerCase();
+	if (identity?.publicationId != null) {
+		return rooms.find((conv) =>
+			!conv.held && conv.id.toLowerCase() === lowered &&
+			(conv.publicationId == null || conv.publicationId === identity.publicationId)
+		) ?? null;
+	}
+	// A name-only identity adopts the one same-named public row whatever
+	// publication it recorded, because the checkpoint keeps one public row per
+	// name. Two candidates are a genuine collision left apart.
+	const named = rooms.filter((conv) => !conv.held && conv.id.toLowerCase() === lowered);
+	return named.length === 1 ? named[0] : null;
+}
+
+/** The key the room named by `identity` wears, or would wear if made now.
+ * Callers that seat live state under a computed key resolve here first, so a
+ * publication-bearing join lands on the row a link-era join already minted. */
+export function resolveRoomKey(
+	projection: PageProjection,
+	dir: DirId,
+	name: string,
+	publicationId?: string,
+): string {
+	return adoptableRoomConv(projection, dir, name, { publicationId })?.key ??
+		(publicationId == null ? roomKey(dir, name) : publishedRoomKey(dir, publicationId));
 }
 
 /** The conversation for a room, made if this tab has none.
@@ -157,105 +306,59 @@ function makeConv(type: "room" | "dm", dir: DirId, id: string, identity?: RoomId
  * `key` is given for a room reached by a reference rather than by name: a
  * private room's label is not unique, so `heldRoomKey` mints its identity the
  * way an introduction mints a direct line's. */
-export function ensureRoom(dir: DirId, name: string, identity?: RoomIdentity): RoomConv {
+export function ensureRoom(projection: PageProjection, dir: DirId, name: string, identity?: RoomIdentity): RoomConv {
 	const key = identity?.key ??
 		(identity?.publicationId === undefined ? roomKey(dir, name) : publishedRoomKey(dir, identity.publicationId));
-	const existing = getConv(key);
+	const existing = getConv(projection, key) ??
+		(identity?.key == null ? adoptableRoomConv(projection, dir, name, identity) : null);
 	if (existing && existing.type === "room") {
 		const linkChanged = identity?.link !== undefined && existing.link !== identity.link;
 		const stewardChanged = identity?.steward != null && existing.steward !== identity.steward;
-		const claimChanged = identity?.stewardClaimable !== undefined &&
-			existing.stewardClaimable !== identity.stewardClaimable;
-		const ircSpecified = identity != null && Object.hasOwn(identity, "irc");
-		const ircChanged = ircSpecified && JSON.stringify(existing.irc) !== JSON.stringify(identity?.irc);
-		if (linkChanged || stewardChanged || claimChanged || ircChanged) {
+		const managerChanged = identity?.manager != null && existing.manager !== identity.manager;
+		const reconnectChanged = identity?.reconnect !== undefined && existing.reconnect !== identity.reconnect;
+		const membershipKindChanged = identity?.membershipKind != null &&
+			existing.membershipKind !== identity.membershipKind;
+		const policyChanged = identity?.policy != null && !roomPoliciesEqual(existing.policy, identity.policy);
+		const publicationChanged = identity?.publicationId != null &&
+			existing.publicationId !== identity.publicationId;
+		const intentSpecified = identity != null && Object.hasOwn(identity, "bridgeIntent");
+		const intentChanged = intentSpecified &&
+			JSON.stringify(existing.bridgeIntent) !== JSON.stringify(identity?.bridgeIntent);
+		if (
+			linkChanged || managerChanged || stewardChanged || reconnectChanged || membershipKindChanged ||
+			policyChanged || publicationChanged ||
+			intentChanged
+		) {
 			const next = {
 				...existing,
 				...(identity?.link === undefined ? {} : { link: identity.link }),
+				...(identity?.manager == null ? {} : { manager: identity.manager }),
 				...(identity?.steward == null ? {} : { steward: identity.steward }),
-				...(identity?.stewardClaimable === undefined ? {} : { stewardClaimable: identity.stewardClaimable }),
-				...(ircSpecified ? { irc: identity?.irc } : {}),
+				...(identity?.reconnect === undefined ? {} : { reconnect: identity.reconnect }),
+				...(identity?.membershipKind == null ? {} : { membershipKind: identity.membershipKind }),
+				...(identity?.policy == null ? {} : { policy: identity.policy }),
+				...(identity?.publicationId == null ? {} : { publicationId: identity.publicationId }),
+				...(intentSpecified ? { bridgeIntent: identity?.bridgeIntent } : {}),
 			};
-			put(next);
+			put(projection, next);
 			return next;
 		}
 		return existing;
 	}
-	return makeConv("room", dir, name, identity);
+	return makeConv(projection, "room", dir, name, identity);
 }
 
-/** Remember the exact IRC identity the user asked this room to maintain. */
-export function setRoomIrcIdentity(key: string, irc: WorkspaceRoomIrcIdentity): void {
-	setRoomIrcIntent(key, irc);
-}
-
-export function setRoomIrcIntent(key: string, irc: WorkspaceRoomIrcIdentity | null | undefined): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || JSON.stringify(conv.irc) === JSON.stringify(irc)) return;
-	if (irc === undefined) {
-		const { irc: _irc, ...automatic } = conv;
-		put(automatic);
-		return;
-	}
-	put({ ...conv, irc });
-}
-
-/** Remember that this room must remain Rooms-only across reconstruction. */
-export function disconnectRoomIrcIdentity(key: string): void {
-	setRoomIrcIntent(key, null);
-}
-
-export function setRoomIrcIssue(key: string, issue: string): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || conv.ircIssue === issue) return;
-	put({ ...conv, ircIssue: issue });
-}
-
-/** Remember a room link this tab already holds, so the conversation card can
- * copy it. Does not mint: a mint is `/link`, and looking at a room is not that. */
-export function noteRoomLink(key: string, link: string): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || conv.link === link) return;
-	put({ ...conv, link });
-}
-
-export function setRoomMembership(key: string, membership: RoomConv["membership"]): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || conv.membership === membership) return;
-	put({ ...conv, membership });
-}
-
-/** Remember the matching room and steward authorities after a claim or
- * handover has been validated. They move together because the steward was
- * accepted specifically for this room; recording only one would discard the
- * evidence the operation just established. */
-export function noteRoomSteward(key: string, roomLink: string, steward: string): void {
-	const conv = getConv(key);
-	if (
-		conv?.type !== "room" ||
-		(conv.link === roomLink && conv.steward === steward && !conv.stewardClaimable)
-	) return;
-	put({ ...conv, link: roomLink, steward, stewardClaimable: false });
-}
-
-/** Retire a creator-only claim after the room has answered. A refusal is
- * authoritative too: leaving a dead action on screen would invite the same
- * impossible request forever. */
-export function clearRoomStewardClaim(key: string): void {
-	const conv = getConv(key);
-	if (conv?.type !== "room" || !conv.stewardClaimable) return;
-	put({ ...conv, stewardClaimable: false });
-}
-
-// Rooms this tab holds a reference to, counted. A private room is not named by
-// anything anybody could look up, so — exactly like an introduced direct line —
-// its conversation is keyed by the holding rather than by what it is called.
-let heldRooms = 0;
-
-/** Mint the identity for a room this tab holds a reference to. */
-export function heldRoomKey(): string {
-	heldRooms += 1;
-	return "held:" + heldRooms;
+/** The conversation for a held directory, made if this tab has none.
+ *
+ * It is this tab's view of the directory, not a room and not a checkpoint row.
+ * Showing it again reuses the same key; leaving the directory forgets it. */
+export function ensureDirectory(projection: PageProjection, dir: DirId): DirectoryConv {
+	const key = directoryKey(dir);
+	const existing = getConv(projection, key);
+	if (existing?.type === "directory") return existing;
+	const conv: DirectoryConv = { type: "directory", id: dir, key, dir };
+	put(projection, conv);
+	return conv;
 }
 
 /** Every room this tab is in, in the order it entered them, across every
@@ -264,14 +367,12 @@ export function heldRoomKey(): string {
  * A `Map` preserves insertion order, so this needs no timestamp on a
  * conversation to answer "the room I joined first" — which is what a reconnect
  * replays and what the foot names when there is only one. */
-export function joinedRooms(dir?: DirId): RoomConv[] {
-	return [...get().convs.values()].filter((conv): conv is RoomConv =>
+export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[] {
+	return [...projection.get().convs.values()].filter((conv): conv is RoomConv =>
 		conv.type === "room" && (dir === undefined || conv.dir === dir)
 	);
 }
 
-/** Every conversation of either kind on one directory, which is what that
- * directory's teardown has to account for. */
 /** The directories this tab holds with nothing open on them.
  *
  * Holding one is a live session and a name registered on it, so a directory with
@@ -284,15 +385,20 @@ export function joinedRooms(dir?: DirId): RoomConv[] {
  * Never this page's own. It has no rooms before the first join either, and a row
  * saying so at the moment the join card is asking for one is noise. */
 export function emptyDirs(
-	s: Readonly<Pick<State, "convs" | "dirs" | "homeDir">> = get(),
+	s: Readonly<Pick<State, "convs" | "dirs" | "homeDir">>,
 ): DirView[] {
 	const busy = new Set<DirId>();
-	for (const conv of s.convs.values()) busy.add(conv.dir);
+	for (const conv of s.convs.values()) {
+		if (conv.type === "directory") continue;
+		busy.add(conv.dir);
+	}
 	return [...s.dirs.values()].filter((dir) => dir.id !== s.homeDir && !busy.has(dir.id));
 }
 
-export function convsOn(dir: DirId): Conv[] {
-	return [...get().convs.values()].filter((conv) => conv.dir === dir);
+/** Every conversation of either kind on one directory, which is what that
+ * directory's teardown has to account for. */
+export function convsOn(projection: PageProjection, dir: DirId): Conv[] {
+	return [...projection.get().convs.values()].filter((conv) => conv.dir === dir);
 }
 
 /** The open conversation with `peer`, if there is one.
@@ -303,9 +409,14 @@ export function convsOn(dir: DirId): Conv[] {
  * fresh conversation rather than continuing one that would now reach someone
  * else. Two conversations may therefore carry the same name, which is honest:
  * they are with two different people. */
-export function liveDmWith(dir: DirId, peer: string, peerRegistrationId: string): DmConv | null {
+export function liveDmWith(
+	projection: PageProjection,
+	dir: DirId,
+	peer: string,
+	peerRegistrationId: string,
+): DmConv | null {
 	const want = peer.toLowerCase();
-	for (const conv of get().convs.values()) {
+	for (const conv of projection.get().convs.values()) {
 		if (
 			conv.type === "dm" && conv.dir === dir && conv.line !== "closed" &&
 			conv.id.toLowerCase() === want && conv.peerRegistrationId === peerRegistrationId
@@ -318,35 +429,47 @@ export function liveDmWith(dir: DirId, peer: string, peerRegistrationId: string)
 /** The conversation with `peer`, made if this tab has none — or `null` when
  * `peer` is this tab. A line to yourself is not a conversation, so the mint
  * refuses rather than leaving every caller to remember. */
-export function ensureDm(dir: DirId, peer: string, peerRegistrationId: string): DmConv | null {
-	if (isSelf(dir, peer)) return null;
-	return liveDmWith(dir, peer, peerRegistrationId) ?? makeConv("dm", dir, peer, { peerRegistrationId });
+export function ensureDm(
+	projection: PageProjection,
+	dir: DirId,
+	peer: string,
+	peerRegistrationId: string,
+): DmConv | null {
+	if (isSelf(projection, dir, peer)) return null;
+	return liveDmWith(projection, dir, peer, peerRegistrationId) ??
+		makeConv(projection, "dm", dir, peer, { peerRegistrationId });
 }
 
 /** Rebuild one direct-conversation record without claiming its old live
  * introduction survived. A fresh send requires the same registration ID;
  * a later holder of the displayed nickname receives a new conversation. */
 export function restoreDm(
+	projection: PageProjection,
 	dir: DirId,
 	peer: string,
 	peerRegistrationId: string,
 	persistId: string,
 	closed: boolean,
 ): DmConv | null {
-	if (isSelf(dir, peer)) return null;
-	const conv = makeConv("dm", dir, peer, { persistId, peerRegistrationId });
+	if (isSelf(projection, dir, peer)) return null;
+	const conv = makeConv(projection, "dm", dir, peer, { persistId, peerRegistrationId });
 	if (!closed) return conv;
 	const closedConv = { ...conv, line: "closed" as const };
-	put(closedConv);
+	put(projection, closedConv);
 	return closedConv;
 }
 
 /** Close every open conversation with `peer` — the member has left, so the name
  * is back in the room's hands. Returns the keys closed, for the caller to drop
  * whatever it was holding for them. */
-export function closeDmsWith(dir: DirId, peer: string, peerRegistrationId: string): string[] {
+export function closeDmsWith(
+	projection: PageProjection,
+	dir: DirId,
+	peer: string,
+	peerRegistrationId: string,
+): string[] {
 	const closed: string[] = [];
-	const convs = new Map(get().convs);
+	const convs = new Map(projection.get().convs);
 	for (const conv of convs.values()) {
 		if (
 			conv.type === "dm" && conv.dir === dir && conv.line !== "closed" &&
@@ -356,7 +479,7 @@ export function closeDmsWith(dir: DirId, peer: string, peerRegistrationId: strin
 			closed.push(conv.key);
 		}
 	}
-	if (closed.length > 0) set({ convs });
+	if (closed.length > 0) projection.set({ convs });
 	return closed;
 }
 
@@ -372,9 +495,9 @@ export function closeDmsWith(dir: DirId, peer: string, peerRegistrationId: strin
  * was one caller away from not working, which is the same shape as any
  * invariant kept by everybody remembering rather than by the seam that owns
  * it. */
-export function forgetConv(key: string): void {
-	const state = get();
-	letLinesGo(key, state.convs.get(key)?.history ?? []);
+export function forgetConv(projection: PageProjection, key: string): void {
+	const state = projection.get();
+	projection.letLinesGo(key, state.histories.get(key) ?? []);
 	const convs = new Map(state.convs);
 	convs.delete(key);
 	// The draft goes with it. What was half-written to a room is addressed to
@@ -384,27 +507,36 @@ export function forgetConv(key: string): void {
 	drafts.delete(key);
 	const lastSent = new Map(state.lastSent);
 	lastSent.delete(key);
-	if (state.activeKey === key) set({ convs, drafts, lastSent, activeKey: null });
-	else set({ convs, drafts, lastSent });
+	const typers = new Map(state.typers);
+	typers.delete(key);
+	const members = new Map(state.members);
+	members.delete(key);
+	const histories = new Map(state.histories);
+	histories.delete(key);
+	const unreads = new Map(state.unreads);
+	unreads.delete(key);
+	const gone = { convs, drafts, lastSent, typers, members, histories, unreads };
+	if (state.activeKey === key) projection.set({ ...gone, activeKey: null });
+	else projection.set(gone);
 }
 
 /** Mark every direct conversation as no longer live, which is what a dropped
  * directory session means for all of them at once. */
-export function unreadyDms(): void {
-	const convs = new Map(get().convs);
+export function unreadyDms(projection: PageProjection): void {
+	const convs = new Map(projection.get().convs);
 	for (const conv of convs.values()) {
 		if (conv.type === "dm" && conv.line === "live") {
 			convs.set(conv.key, { ...conv, line: "introducing" });
 		}
 	}
-	set({ convs });
+	projection.set({ convs });
 }
 
 /** Move a direct line between introducing and live. A closed one stays closed:
  * the room has the nick back, so nothing arriving under it belongs to this
  * conversation. */
-export function setDmLine(key: string, line: Exclude<DmLine, "closed">): void {
-	const conv = getConv(key);
+export function setDmLine(projection: PageProjection, key: string, line: Exclude<DmLine, "closed">): void {
+	const conv = getConv(projection, key);
 	if (conv?.type !== "dm" || conv.line === "closed" || conv.line === line) return;
-	put({ ...conv, line });
+	put(projection, { ...conv, line });
 }

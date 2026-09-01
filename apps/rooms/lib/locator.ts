@@ -1,4 +1,3 @@
-import { addressDesignator, listen, locator as tcpLocator, type Server } from "@pancake/tcp";
 // DENO-SPECIFIC: dialing a rooms locator.
 //
 // The rooms server, its clients, the web bridge, and the orchestrator all carry
@@ -6,9 +5,17 @@ import { addressDesignator, listen, locator as tcpLocator, type Server } from "@
 // of transport: a `hostname:port` dials over TCP; an `ocapn://<nodeid>.iroh?…`
 // URI dials over iroh's encrypted QUIC; an `ocapn://<serviceid>.onion` URI
 // dials through Tor — directly from a terminal, or through serve.ts's `/relay`
-// byte pipe from a browser (which has no socket API).
+// byte pipe from a browser (which has no socket API); an
+// `ocapn://<key>.webrtc` URI is the default browser-to-browser door for both
+// DMs and a tab-hosted session, signaled through a directory. A tab-hosted
+// session sturdyref names that directory in its `signaling-directory` hint so
+// Attach does not guess the attaching tab's page. An
+// `ocapn://<key>.noise-relay?…` URI is that same door when DMs use the sealed
+// relay. The browser connector reads a noise-relay locator's rendezvous-relay
+// hint and opens it as a rendezvous bridge, often the same `/relay`.
 
-import { CAPTP_VERSION, CODEC } from "./protocol.ts";
+import { addressDesignator, listen, locator as tcpLocator, type Server } from "@pancake/tcp";
+import { DIRECTORY } from "./protocol.ts";
 import {
 	designatorHostPort,
 	formatLocatorUri,
@@ -20,11 +27,15 @@ import {
 	type Session,
 	TRANSPORT_ID,
 	TRANSPORT_IROH,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_ONION,
 	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
 } from "@pancake/runtime";
-import { TRANSPORT_ONION } from "@pancake/abi";
+import type { Ref } from "@pancake/runtime";
+import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
 
-/** Whether `locator` is an `ocapn://` URI (iroh) rather than a `hostname:port`. */
+/** Whether `locator` is an `ocapn://` URI rather than a `hostname:port`. */
 export function isUriLocator(locator: string): boolean {
 	return locator.includes("://");
 }
@@ -71,10 +82,17 @@ export async function readAnnouncedLocator(
 }
 
 export interface RoomsRuntime {
+	readonly host: Host;
 	connect(partner: Locator): Promise<Session>;
 }
 
 export type RoomsDial = (locator: string) => Promise<Session>;
+
+/** A directory reached through the Host-owned route scheduler already carries
+ * the public directory capability it redeemed. A concrete physical locator
+ * carries only its session and fetches the same capability after opening. */
+export type ReachedRoomsDirectory = Session | { session: Session; directory: Ref };
+export type RoomsDirectoryDial = (locator: string) => Promise<ReachedRoomsDirectory>;
 
 /** Rooms durable capabilities have one URI encoding, independent of the live
  * CapTP profile that later carries them. The Goblins-compatible base64url form
@@ -89,17 +107,21 @@ export function roomsSturdyrefLocator(sturdyref: string): Locator {
 	return parseRoomsSturdyref(sturdyref).locator;
 }
 
-export function formatRoomsSturdyref(locator: Locator, swissnum: string | Uint8Array): string {
-	return formatSturdyRef(locator, swissnum, ROOMS_STURDYREF_VERSION);
+/** Locator hint naming the directory that routes WebRTC signaling for a
+ * tab-hosted session sturdyref. A bare `webrtc` designator does not say which
+ * directory filed the answering inbox; Attach reads this instead of guessing
+ * the attaching tab's page directory. */
+export const WEBRTC_SIGNALING_DIRECTORY_HINT = "signaling-directory";
+
+/** The directory locator a webrtc session door names for `signalOffer`, or
+ * undefined when the sturdyref predates the hint. */
+export function webrtcSignalingDirectoryHint(locator: Locator): string | undefined {
+	const hinted = locator.hints.get(WEBRTC_SIGNALING_DIRECTORY_HINT);
+	return typeof hinted === "string" && hinted !== "" ? hinted : undefined;
 }
 
-/** Re-encode one Rooms authority for the session that will enliven it. */
-export function roomsSturdyrefForSession(
-	sturdyref: string,
-	session: Pick<Session, "profile">,
-): string {
-	const parsed = parseRoomsSturdyref(sturdyref);
-	return formatSturdyRef(parsed.locator, parsed.swissnum, session.profile.captpVersion);
+export function formatRoomsSturdyref(locator: Locator, swissnum: string | Uint8Array): string {
+	return formatSturdyRef(locator, swissnum, ROOMS_STURDYREF_VERSION);
 }
 
 /** Parse the two locator forms Rooms accepts into the shared OCapN value: a
@@ -127,8 +149,8 @@ export function roomsAddress(locator: Locator): string {
 /** Mint a Host for a rooms peer.
  *
  * Every rooms peer — the server, a terminal client, a browser tab, a test —
- * needs a Host that speaks the rooms profile — `CODEC` and `CAPTP_VERSION`
- * together — because both ends of an OCapN session must name the same pair
+ * needs a Host that speaks the Rooms wire posture because both ends of an
+ * OCapN session must name a coherent profile
  * and a default Host speaks the v1.0 Syrup interop floor. Spelling
  * `new Host(...)` at each site is how a fleet drifts: one site keeps the
  * default, its sessions refuse every frame, and the failure reads as a
@@ -137,15 +159,8 @@ export function roomsAddress(locator: Locator): string {
  *
  * `seed` pins the retained OCapN identity (the iroh endpoint shares it);
  * omitted, the host takes a fresh one. */
-export type RoomsHostPosture = "full" | "next-baseline" | "v1-syrup";
-
 export function roomsHost(seed?: Uint8Array, posture: RoomsHostPosture = "full"): Host {
-	const profile = posture === "full"
-		? { codec: CODEC, captpVersion: CAPTP_VERSION, features: "full" } as const
-		: posture === "next-baseline"
-		? { codec: CODEC, captpVersion: CAPTP_VERSION, features: "baseline" } as const
-		: { codec: "syrup", captpVersion: "v1_0", features: "baseline" } as const;
-	return new Host(seed, profile);
+	return new Host(seed, roomsHostOptions(posture));
 }
 
 /** Listen for rooms peers on `bindHost:port`.
@@ -170,10 +185,13 @@ export function roomsListen(
 	return listen(bindHost, port, { host, advertisedHost });
 }
 
-/** Dial a rooms peer from a locator: an `ocapn://…id?via=…` route through its
- * negotiated alternatives, an iroh URI over iroh, an onion URI over Tor (in
- * the browser, both concrete transports ride the relay), otherwise
- * `hostname:port` over TCP. A `host` keys the dial with the host's
+/** Dial one physical Rooms transport: an iroh URI over iroh, an onion URI over Tor,
+ * a webrtc URI through directory signaling (the default browser-to-browser door
+ * for DMs and a tab-hosted session), a noise-relay URI over the sealed relay
+ * (the same door when DMs use relay), otherwise `hostname:port` over TCP. In the
+ * browser, iroh and onion ride `/relay?target=`; webrtc uses the directory;
+ * noise-relay opens the locator's rendezvous-relay hint. A `host` keys the dial
+ * with the host's
  * retained OCapN identity and live-session handoff directory (a member's listen endpoint
  * and its room dial share one Host, so an inbox it publishes giftably is the one
  * a caller's redeem withdraws). Omitted, the dial gets a fresh identity, which is
@@ -188,15 +206,34 @@ export function roomsListen(
 export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = roomsLocator(locator);
+		if (loc.transport === TRANSPORT_ID) {
+			throw new Error("a Rooms identity locator must be reached through a named capability");
+		}
 		if (
-			loc.transport !== TRANSPORT_ID && loc.transport !== TRANSPORT_IROH &&
-			loc.transport !== TRANSPORT_ONION
+			loc.transport !== TRANSPORT_IROH && loc.transport !== TRANSPORT_ONION &&
+			loc.transport !== TRANSPORT_WEBRTC && loc.transport !== TRANSPORT_NOISE_RELAY
 		) {
 			throw new Error(
-				`rooms expected an id, iroh, or onion ocapn:// URI, got "${loc.transport}": ${locator}`,
+				`rooms expected an iroh, onion, webrtc, or noise-relay ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
 		return runtime.connect(loc);
 	}
 	return runtime.connect(roomsLocator(locator));
+}
+
+/** Reach the public Rooms directory through the owner appropriate to its
+ * locator. Concrete transports open one physical session. An `id/via` locator
+ * is authority plus routing advice, not a physical transport, so let the
+ * Host's Node expand, validate, race, cancel, and fall back through the bundle
+ * while Rooms supplies only the publication name it wants. */
+export async function dialDirectory(locator: string, runtime: RoomsRuntime): Promise<ReachedRoomsDirectory> {
+	const parsed = roomsLocator(locator);
+	if (parsed.transport !== TRANSPORT_ID) return await dial(locator, runtime);
+	const directory = await runtime.host.fetchAt(parsed, DIRECTORY);
+	const session = runtime.host.exporterFor(directory);
+	if (session === null) {
+		throw new Error("the identity route returned a directory capability without its exporter session");
+	}
+	return { session, directory };
 }

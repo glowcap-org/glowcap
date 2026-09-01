@@ -70,6 +70,15 @@ impl Default for HostOptions {
 }
 
 impl HostOptions {
+	/// Select one core-authored coherent codec/version pair.
+	pub fn with_profile(profile: crate::HostProfile) -> Self {
+		Self {
+			codec: profile.codec(),
+			captp_version: profile.captp_version(),
+			..Self::default()
+		}
+	}
+
 	pub fn with_codec(codec: Codec) -> Self {
 		Self {
 			codec,
@@ -249,6 +258,34 @@ impl Host {
 	/// while this Host still owns live-session selection and dialing.
 	pub async fn enliven_for_version(&self, sturdyref: &str, captp_version: CaptpVersion) -> Result<Ref> {
 		self.enliven_inner(sturdyref, Some(captp_version)).await
+	}
+
+	/// Fetch a named publication at a typed locator. This Host's configured
+	/// profile owns version, codec, route admission, and physical dial selection.
+	pub async fn fetch_at(&self, locator: &Locator, name: &str) -> Result<Ref> {
+		self.shared.guard_handle()?;
+		let owned = OwnedLocator::new(locator)?;
+		let mut vow: u64 = 0;
+		check_host(unsafe {
+			ffi::pancake_host_fetch_at(
+				self.shared.raw(),
+				owned.borrow_view()?,
+				name.as_ptr(),
+				name.len(),
+				&mut vow,
+			)
+		})?;
+		drop(owned);
+		self.shared.vow_minted(vow, None);
+		let _release = crate::gc::VowGuard::new(&self.shared, vow);
+		let settled = self.shared.await_vow(vow);
+		self.shared.kick_actions().await?;
+		match settled.await? {
+			Argument::Reference(reference) => Ok(reference),
+			_ => Err(Error::broken(format!(
+				"publication {name:?} did not resolve to a capability"
+			))),
+		}
 	}
 
 	async fn enliven_inner(&self, sturdyref: &str, captp_version: Option<CaptpVersion>) -> Result<Ref> {

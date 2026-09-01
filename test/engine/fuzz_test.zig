@@ -261,7 +261,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
                 .resolution = .{ .fulfill = .{ .integer = 7 } },
             } }) catch {};
         },
-        // Watch a promise, which is what queues listener fires.
+        // Watch a promise, the act that queues listener fires.
         2 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
             actor.sendCopying(.{ .listen = .{

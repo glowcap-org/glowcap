@@ -1,20 +1,19 @@
-// Durable file schema for one Rooms session checkpoint and retry ledger.
+// Durable document schema for one Rooms session checkpoint and retry ledger.
 
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
 import * as z from "zod/mini";
-import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
 import { emptyRoomsSessionState, RoomsSessionStateSchema } from "../lib/rooms_state.ts";
-import { RoomsSessionWorkspaceAdoptionSchema } from "../lib/rooms_session_adoption.ts";
+import { RoomsSessionWorkspaceAdoptionSchema } from "../lib/session/adoption.ts";
 import { fixedHex, nonnegativeSafeInteger } from "../lib/schema.ts";
 import { RECENT_OPERATIONS, RecentOperationSchema } from "./effects.ts";
+import { decodeSessionDocument, type RoomsSessionDocumentStore, SESSION_DOCUMENT_CEILINGS } from "./documents.ts";
 
-const FILE = "session.json";
 const VERSION = 1;
 export const IDENTITY_BYTES = 32;
 export const ENTROPY_BYTES = DURABLE_SWISS_ENTROPY_BYTES;
 /** The same ceiling is enforced before every write and before every restore.
  * A checkpoint that can be written must therefore be restartable. */
-export const MAX_STATE_BYTES = 768 * 1024;
+export const MAX_STATE_BYTES = SESSION_DOCUMENT_CEILINGS.checkpoint;
 
 const RoomsSessionDiskStateShapeSchema = z.strictObject({
 	version: z.literal(VERSION),
@@ -94,7 +93,10 @@ function parse(text: string): RoomsSessionDiskState {
 	return parsed.data;
 }
 
-export async function writeCheckpoint(directory: string, disk: RoomsSessionDiskState): Promise<void> {
+export async function writeCheckpoint(
+	documents: RoomsSessionDocumentStore,
+	disk: RoomsSessionDiskState,
+): Promise<void> {
 	const parsed = z.safeParse(RoomsSessionDiskStateSchema, disk);
 	if (!parsed.success) {
 		throw new Error(`Rooms session refused invalid checkpoint state:\n${z.prettifyError(parsed.error)}`);
@@ -103,21 +105,20 @@ export async function writeCheckpoint(directory: string, disk: RoomsSessionDiskS
 	if (bytes.length > MAX_STATE_BYTES) {
 		throw new Error(`Rooms session state exceeds its ${MAX_STATE_BYTES}-byte ceiling`);
 	}
-	await atomicWrite(`${directory}/${FILE}`, bytes);
+	await documents.write("checkpoint", bytes);
 }
 
 export async function openCheckpoint(
-	directory: string,
+	documents: RoomsSessionDocumentStore,
 ): Promise<{ disk: RoomsSessionDiskState; created: boolean }> {
-	try {
-		const parsed = parse(await readBoundedText(`${directory}/${FILE}`, MAX_STATE_BYTES, "Rooms session state"));
-		const disk = { ...parsed, checkpoint: freezeCheckpoint(parsed.checkpoint) };
-		return { disk, created: false };
-	} catch (error) {
-		if (!(error instanceof Deno.errors.NotFound)) throw error;
+	const raw = await documents.read("checkpoint");
+	if (raw == null) {
 		const created = fresh();
 		const disk = { ...created, checkpoint: freezeCheckpoint(created.checkpoint) };
-		await writeCheckpoint(directory, disk);
+		await writeCheckpoint(documents, disk);
 		return { disk, created: true };
 	}
+	const parsed = parse(decodeSessionDocument(raw, MAX_STATE_BYTES, "Rooms session state"));
+	const disk = { ...parsed, checkpoint: freezeCheckpoint(parsed.checkpoint) };
+	return { disk, created: false };
 }

@@ -93,6 +93,7 @@ export const hostS = lazySymbols(() => libPath("pancake_host"), {
 	pancake_host_session_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_enliven_for_version: { parameters: [P, "u32", B, U, B], result: I, outBuffers: [4] },
+	pancake_host_fetch_at: { parameters: [P, P, B, U, B], result: I, outBuffers: [4] },
 	// Live trace: the host reports session opens, message verbs, and closes
 	// through one callback (null clears), or into a ring the embedder drains.
 	pancake_host_set_trace: { parameters: [P, P, P], result: I },

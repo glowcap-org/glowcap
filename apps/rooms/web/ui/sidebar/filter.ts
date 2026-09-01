@@ -18,7 +18,7 @@
 // per kind of answer rather than one per question, and `criterionShows` is the
 // only place a single question is decided.
 
-import type { DirId, DirView, DmConv, Invitation, RoomConv, Unread } from "../types.ts";
+import { type DirId, type DirView, type DmConv, type Invitation, type RoomConv, type Unread } from "../types.ts";
 import { directoryName } from "../text.ts";
 
 /** A row of the rail, reduced to the facts the questions ask about.
@@ -112,7 +112,7 @@ export function offKey(criterion: string, value: string): string {
 }
 
 /** Whether one question is hiding anything. */
-export function isAsked(criterion: Criterion, answers: FilterAnswers): boolean {
+function isAsked(criterion: Criterion, answers: FilterAnswers): boolean {
 	if (criterion.kind === "text") return (answers.typed.get(criterion.id) ?? "").trim() !== "";
 	return criterion.choices.some((choice) => answers.off.has(offKey(criterion.id, choice.value)));
 }
@@ -225,21 +225,27 @@ export function railCriteria(
 	];
 }
 
+/** How many lines are waiting on this row, for the badge. Zero when caught up
+ * or when the rule is still standing. */
+export function unreadCount(unread: Unread): number {
+	return unread.kind === "unread" ? unread.count : 0;
+}
+
 /** A room this tab is in. A private room has no name anybody can enter, so it
  * answers the access question the other way. */
-export function roomRow(conv: RoomConv): RailRow {
+export function roomRow(conv: RoomConv, unread: Unread): RailRow {
 	return {
 		dir: conv.dir,
 		name: conv.id,
 		access: conv.held ? "private" : "public",
-		unread: unreadAnswer(conv.unread),
+		unread: unreadAnswer(unread),
 	};
 }
 
 /** A direct line. It answers the access question with nothing, because a line
  * between two people is neither open nor closed to a directory. */
-export function dmRow(conv: DmConv): RailRow {
-	return { dir: conv.dir, name: conv.id, access: null, unread: unreadAnswer(conv.unread) };
+export function dmRow(conv: DmConv, unread: Unread): RailRow {
+	return { dir: conv.dir, name: conv.id, access: null, unread: unreadAnswer(unread) };
 }
 
 /** A room somebody handed this tab and it has not answered yet. Private, since

@@ -35,8 +35,8 @@ const max_ops = 96;
 /// How many versions are kept alive at once. Enough for later writes to share
 /// structure with several older ones, which is when a refcount slip shows.
 const kept_versions = 4;
-/// Keys are drawn from a small space so puts and removes collide, which is what
-/// makes a trie rebuild paths rather than only grow.
+/// Keys are drawn from a small space so puts and removes collide and a trie
+/// rebuilds paths rather than only growing.
 const key_space = 64;
 
 /// The draws that select each operation. Named so the switch and the seed

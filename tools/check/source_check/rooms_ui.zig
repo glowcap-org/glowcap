@@ -22,6 +22,12 @@ pub const loadRoomsCss = shared.loadRoomsCss;
 const codeOnly = shared.codeOnly;
 
 pub const checkRoomsSelectors = @import("rooms_ui/selectors.zig").checkRoomsSelectors;
+pub const checkRoomsCustomProperties = @import("rooms_ui/tokens.zig").checkRoomsCustomProperties;
+pub const checkRoomsCardWidths = @import("rooms_ui/tokens.zig").checkRoomsCardWidths;
+pub const checkRoomsTypeRamp = @import("rooms_ui/tokens.zig").checkRoomsTypeRamp;
+pub const checkRoomsGapSteps = @import("rooms_ui/tokens.zig").checkRoomsGapSteps;
+pub const checkRoomsComposedTokens = @import("rooms_ui/tokens.zig").checkRoomsComposedTokens;
+pub const checkRoomsRequestDeadlines = @import("rooms_ui/tokens.zig").checkRoomsRequestDeadlines;
 
 /// Who writes the opening screen's state, for `checkRoomsBootStates`.
 const boot_writers = [_][]const u8{ ui_dir ++ "/page.html", ui_dir ++ "/boot.ts" };
@@ -207,7 +213,69 @@ pub fn checkRoomsLayerBans(
         );
     }
 
+    try checkRoomsVizStartupOrder(io, gpa, root, violations);
     try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
+}
+
+/// Remembered capability state must exist before the visualizer publisher is
+/// armed, and the publisher must be armed before the first local session.
+fn checkRoomsVizStartupOrder(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const main_path = ui_dir ++ "/main.tsx";
+    const main = root.readFileAlloc(io, main_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read visualizer startup order ({s})", .{ main_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(main);
+    const restore = std.mem.indexOf(u8, main, "restoreWorkspaceState(");
+    const arm = std.mem.indexOf(u8, main, "await net.ensureVizPublisher(");
+    const connect = std.mem.indexOf(u8, main, "net.connect(");
+    if (restore == null or arm == null or connect == null or !(restore.? < arm.? and arm.? < connect.?)) {
+        try appendViolation(gpa, violations, "{s}: local visualizer startup must restore workspace state, arm the remembered capability, then connect", .{main_path});
+    }
+
+    const boot_path = ui_dir ++ "/net/runtime_boot.ts";
+    const boot = root.readFileAlloc(io, boot_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read visualizer runtime boot ({s})", .{ boot_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(boot);
+    if (std.mem.indexOf(u8, boot, "ensureVizPublisher") != null) {
+        try appendViolation(gpa, violations, "{s}: visualizer capability state is not restored during runtime boot; arm it from main.tsx after workspace restoration", .{boot_path});
+    }
+
+    const setup_at = std.mem.indexOf(u8, main, "function showSessionSetup") orelse {
+        try appendViolation(gpa, violations, "{s}: session setup is gone", .{main_path});
+        return;
+    };
+    const handoff_at = std.mem.indexOfPos(u8, main, setup_at, "handOffNow();") orelse {
+        try appendViolation(gpa, violations, "{s}: session setup has no handoff", .{main_path});
+        return;
+    };
+    const setup = main[setup_at..handoff_at];
+    const by_surface = std.mem.indexOf(u8, setup, "PageSurface") != null;
+    if (std.mem.indexOf(u8, setup, "RoomsProjectionProvider") == null and !by_surface) {
+        try appendViolation(gpa, violations, "{s}: session setup must wrap the page projection; omitting it crashes first paint and detach", .{main_path});
+    }
+    if (by_surface) {
+        const surface_at = std.mem.indexOf(u8, main, "function PageSurface") orelse {
+            try appendViolation(gpa, violations, "{s}: PageSurface is used but not defined", .{main_path});
+            return;
+        };
+        // Read the definition itself rather than the text between it and the
+        // render that uses it. A function declaration hoists, so moving this
+        // one below `showSessionSetup` is legal TypeScript, and a span taken
+        // from the later position to the earlier one ends the check in a
+        // panic instead of a verdict.
+        const surface_end = std.mem.indexOfPos(u8, main, surface_at, "\n}") orelse main.len;
+        if (std.mem.indexOf(u8, main[surface_at..surface_end], "RoomsProjectionProvider") == null) {
+            try appendViolation(gpa, violations, "{s}: PageSurface must wrap the page projection", .{main_path});
+        }
+    }
 }
 
 /// Modal and Operations controls share one visual grammar.
@@ -427,7 +495,7 @@ const rail_row = [_][]const u8{ ".room-open", ".dm-open" };
 /// parse, both apply, and only their order decides — so nothing but a browser
 /// could see it.
 ///
-/// `apps/rooms/test/web_dm_tabs_test.ts` measures that geometry and would catch
+/// `apps/rooms/test/web/dm_tabs_test.ts` measures that geometry and would catch
 /// it again. This catches it at the edit.
 pub fn checkRoomsRailRow(
     io: std.Io,

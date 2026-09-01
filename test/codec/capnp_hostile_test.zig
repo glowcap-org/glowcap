@@ -379,7 +379,7 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // ArgKind discriminant, 1 pointer word to the next level).
     const list_body_words: u29 = 4;
 
-    var b = wire.Builder{};
+    var b = try wire.Builder.init(allocator);
     defer b.deinit(allocator);
 
     // Pre-allocate every word so forward pointers (root -> envelope -> deliver
@@ -417,7 +417,7 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
         }
     }
 
-    var frame = try b.finish(allocator);
+    var frame = try b.finishOwned(allocator);
     defer frame.deinit();
 
     // The test completing at all is the time bound: without the budget this
@@ -450,7 +450,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     const ptr_words: u16 = 2;
     const stride: usize = data_words + ptr_words;
 
-    var b = wire.Builder{};
+    var b = try wire.Builder.init(allocator);
     defer b.deinit(allocator);
 
     const root = try b.allocWords(allocator, 1);
@@ -490,7 +490,7 @@ test "an aliasing hint list is charged against the traversal budget" {
         b.set(e + 3, wire.encodeListPointer(wire.Builder.offsetTo(e + 3, blob), .byte, @intCast(blob_words * 8)));
     }
 
-    var frame = try b.finish(allocator);
+    var frame = try b.finishOwned(allocator);
     defer frame.deinit();
 
     // Materializing this unbudgeted dupes entry_count * 2 * 4 KiB from a frame
@@ -585,4 +585,32 @@ test "a Cap'n Proto locator cannot carry false and non-empty hints" {
         s.recordRecvView(body),
     );
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, mutable_view));
+}
+
+test "a composite tag wearing a non-struct pointer kind is refused" {
+    const allocator = std.testing.allocator;
+    const args = [_]model.Argument{.{ .integer = 0x1111_2222_3333_4444 }};
+    var frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } });
+    defer frame.deinit();
+
+    const bytes = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(bytes);
+    const mutable_view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const message_view = try capnp.decodeMessageView(mutable_view);
+    // The args list is deliver's pointer field 1; its content begins with the
+    // struct-pointer-shaped tag word this test corrupts.
+    const clist = (try capnp.shared.compositeList(message_view.reader, message_view.body, 1)) orelse
+        return error.TestUnexpectedResult;
+    const tag_bytes = bytes[(clist.tag_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES];
+    const tag_word = std.mem.readInt(u64, tag_bytes, .little);
+    std.mem.writeInt(u64, tag_bytes, tag_word | @backingInt(wire.PointerKind.capability), .little);
+
+    // Every field bit still reads the same, so only the kind check can refuse
+    // this word; a decoder that ignores it would accept two spellings of one
+    // list.
+    try std.testing.expectError(error.InvalidPointer, capnp.decodeBody(mutable_view));
+    try std.testing.expectError(error.InvalidPointer, capnp.decodeOwned(allocator, mutable_view));
 }

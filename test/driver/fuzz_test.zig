@@ -200,8 +200,8 @@ fn hostFeedOneWithAllocator(
         // Leave a call genuinely in flight: sent, not pumped. The vow is
         // unsettled when the hostile bytes arrive, so the settle path and the
         // refusal path meet in whatever order the fuzzer picks rather than the
-        // tidy one. Its frame is also what `feedDamaged` breaks, which is what
-        // carries a delivery as far as the published capability.
+        // tidy one. Its frame is also what `feedDamaged` breaks, and that
+        // frame carries a delivery as far as the published capability.
         if (captured.ref) |cap| {
             _ = dialer.send(pair.a, cap, .{ .verb = "hit", .args = &.{} }) catch {};
         }

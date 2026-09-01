@@ -169,6 +169,14 @@ pub fn stageDial(
 ) !void {
     var admission = try Internal.acquireOpenAdmission(self, authority);
     errdefer admission.release();
+    // A routed dial knows its candidates before it has a session. Prove the
+    // provider for this attempt first so an unavailable route cannot become
+    // this node's advertised location before fallback. Application dials keep
+    // their established ensure-then-provider contract for custom transports.
+    const pending_provider = switch (authority) {
+        .application => null,
+        .pending_dial => Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport,
+    };
     const session = switch (authority) {
         .application => blk: {
             try self.core.ensureAdvertisedLocator(locator.transport);
@@ -179,6 +187,12 @@ pub fn stageDial(
                 .redeem => |value| value,
                 .operation, .listener_accept => unreachable,
             };
+            // A Host-level fetch can be this runtime's first connection. The
+            // selected concrete route owns the same dial-side hello default as
+            // an application-started dial; handoff redemption merely used to
+            // hide this requirement behind its already-open source session.
+            if (self.core.advertisedLocator(locator.transport) == null)
+                try self.core.ensureAdvertisedLocator(locator.transport);
             break :blk try self.core.openPendingDial(redeem.ticket, redeem.route_index) orelse {
                 admission.release();
                 return;
@@ -193,7 +207,8 @@ pub fn stageDial(
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     const deadline_ms = handshakeDeadline(self);
-    const provider = Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
+    const provider = pending_provider orelse
+        Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
     switch (provider.source) {
         .resident => |resident_index| {
             const runtime = &self.residents.items[resident_index];

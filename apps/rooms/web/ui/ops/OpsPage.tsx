@@ -1,112 +1,69 @@
-// The Operations surface: the /ops namespace, one address per held capability.
+// The Operations surface in the content cell: one address per held capability.
 //
 // It is not its own screen. The shell — rail, topbar, Settings — stays up,
-// and the surface stands in the content cell where the conversation stands,
-// so the way back is the rail itself and Settings opens over it exactly as
-// it opens over a room. The modal this surface replaced could only show what
-// was already held; an address can be arrived at cold, so the gate lives in
-// the surface: a pane this tab holds is drawn, and one it does not hold leads
-// to the one saved capability-set editor. Possession, not the address, is what
-// grants the server's side.
+// and this surface stands where the conversation stands, so the way back is
+// the rail itself and Settings opens over it exactly as it opens over a room.
+// The modal this surface replaced could only show what was already held; an
+// address can be arrived at cold, so the gate lives here: a pane this tab
+// holds is drawn, and one it does not hold leads to the one saved
+// capability-set editor. Possession, not the address, is what grants the
+// server's side.
 //
-// Two halves, split the way the router splits every address: `OpsRoute` is
-// the navigation logic and draws nothing, and `OpsMain` is what `App` puts
-// in the content cell while the address stands in this namespace.
+// `OpsRoute` is the navigation logic and draws nothing. This module is what
+// `App` puts in the content cell, loaded when the address stands in /ops.
 
-import { useEffect } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Fragment, lazy, type ReactNode, Suspense, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useRoomsBrowser } from "../controller/browser.ts";
-import { useRoomsSession } from "../controller/session.ts";
-import * as store from "../store.ts";
 import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
-import { OPS_CAPS, opsHeldOf } from "../types.ts";
+import { type OpsHeld, opsHeldOf } from "../types.ts";
 import { peeringSourcesOf } from "../text.ts";
+import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadVizPane, prefetch } from "../chunks.ts";
 import { OPS_CATALOG } from "./catalog.ts";
-import { OPS_PANES, type OpsPaneFace, paneCapsHeld, paneForCap, paneOf } from "./panes.ts";
-import { ListenersPane } from "./Listeners.tsx";
+import { OPS_PANES, type OpsPaneFace, paneCapsHeld, paneOf } from "./panes.ts";
+import { effectiveRoomsSessionAccess } from "../controller/access.ts";
 import { DirectoryPane } from "./Directory.tsx";
-import { IrcPane } from "./Irc.tsx";
+import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
-import { PeeringPane } from "./Peering.tsx";
-import { VizPane } from "./Viz.tsx";
 
-/** Where an address stands in the /ops namespace: not in it at all, on the
- * index, or on a segment. `App` reads this to decide what the content cell
- * draws; the route elements below own what standing there does. */
-export function opsAddressOf(
-	pathname: string,
-): { on: false } | { on: true; segment: string | null } {
-	if (pathname === "/ops" || pathname === "/ops/") return { on: true, segment: null };
-	if (!pathname.startsWith("/ops/")) return { on: false };
-	const segment = decodeURIComponent(pathname.slice("/ops/".length));
-	return { on: true, segment: segment === "" ? null : segment };
-}
+const ListenersPane = lazy(() => loadListenersPane());
+const IrcPane = lazy(() => loadIrcPane());
+const PeeringPane = lazy(() => loadPeeringPane());
+const VizPane = lazy(() => loadVizPane());
 
-/** The namespace's address logic, drawn by nothing: /ops lands on the
- * remembered held pane when it is held, else the first held one; with
- * nothing held it stays, and the surface is the asks. Arriving asks every
- * capability again, and standing on a held pane remembers it. */
-export function OpsRoute() {
-	const browser = useRoomsBrowser();
-	const session = useRoomsSession();
-	const s = useRoomsState(useShallow((state) => ({
-		listeners: state.listeners,
-		diagnostics: state.diagnostics,
-		irc: state.irc,
-		operator: state.operator,
-		peering: state.peering,
-		viz: state.viz,
-		opsPane: state.opsPane,
-	})));
-	const navigate = useNavigate();
-	const { pane: segment } = useParams();
-	// Standing on operations means looking at the server, not a room: the
-	// selection clears, the rail marks nothing, and any later pick is a
-	// transition the router's mirror answers by leaving the namespace.
+/** A held pane's body: start its chunk as soon as the address stands here,
+ * and keep the same sheen whether the wait is the chunk or the first answer. */
+function HeldPane(
+	{ id, what, panelId, ready, children }: {
+		id: string;
+		what: string;
+		panelId: string;
+		ready: boolean;
+		children: ReactNode;
+	},
+) {
 	useEffect(() => {
-		if (store.get().activeKey !== null) store.clearConv();
-	}, []);
-	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.viz);
-	const pane = segment === undefined ? null : paneOf(segment);
-	const heldCaps = OPS_CAPS.filter((c) => held[c]);
-	const heldKey = heldCaps.join(",");
-	const paneCaps = pane === null ? [] : paneCapsHeld(pane, held);
-	const paneKey = paneCaps.join(",");
-
-	useEffect(() => {
-		if (segment !== undefined) return;
-		const remembered = held[s.opsPane] ? s.opsPane : undefined;
-		const landing = remembered ?? heldCaps[0];
-		if (landing !== undefined) navigate(`/ops/${paneForCap(landing).path}`, { replace: true });
-		// heldKey stands in for the array it derives from.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [segment, heldKey, s.opsPane, navigate]);
-
-	// A capability's own word still answers, so an address from before the
-	// directory pane lands on the pane that draws it rather than nowhere.
-	useEffect(() => {
-		if (segment === undefined || pane === null || pane.path === segment) return;
-		navigate(`/ops/${pane.path}`, { replace: true });
-	}, [segment, pane, navigate]);
-
-	useEffect(() => {
-		if (paneCaps.length === 0) return;
-		browser.setOpsPane(paneCaps[0]);
-		for (const cap of paneCaps) void session.refreshOpsCap(cap);
-		// paneKey stands in for the array it derives from.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [browser, paneKey, session]);
-
-	return null;
+		prefetch(() => loadOpsPane(id));
+	}, [id]);
+	return (
+		<div id={panelId} className="ops-panel card-plane">
+			<ErrorBoundary part={`${what} pane`}>
+				<Suspense fallback={<OpsLoading what={what} />}>
+					{ready ? children : <OpsLoading what={what} />}
+				</Suspense>
+			</ErrorBoundary>
+		</div>
+	);
 }
 
 /** A pane this tab cannot open: what each capability behind it would give,
  * and the one route to the capability set, standing where the pane will. A
  * pane filled by two capabilities names both, because taking either opens the
- * address and the second is what makes it act. */
-function GateCard({ pane }: { pane: OpsPaneFace }) {
+ * address and the second is what makes it act, and it names them in the same
+ * shape one capability gets rather than shrinking both into a caption. */
+function GateCard({ pane, canEdit }: { pane: OpsPaneFace; canEdit: boolean }) {
 	const browser = useRoomsBrowser();
 	const single = pane.caps.length === 1 ? OPS_CATALOG[pane.caps[0]] : null;
 	return (
@@ -117,28 +74,34 @@ function GateCard({ pane }: { pane: OpsPaneFace }) {
 					<>
 						<p>{single.lead}</p>
 						<p className="hint">
-							The server mints it with the <code>{single.flag}</code> flag.
+							The server mints it with the {single.flag} flag.
 						</p>
 					</>
 				)
 				: pane.caps.map((cap) => (
-					<p className="hint" key={cap}>
-						<strong>{OPS_CATALOG[cap].label}</strong> {OPS_CATALOG[cap].lead} The server mints it with the
-						{" "}
-						<code>{OPS_CATALOG[cap].flag}</code> flag.
-					</p>
+					<div className="ops-gate-cap" key={cap}>
+						<h3>{OPS_CATALOG[cap].label}</h3>
+						<p>{OPS_CATALOG[cap].lead}</p>
+						<p className="hint">
+							The server mints it with the {OPS_CATALOG[cap].flag} flag.
+						</p>
+					</div>
 				))}
-			<div className="actions">
-				<Button
-					id={`opsGateTake-${pane.path}`}
-					onClick={() => {
-						browser.setSettingsTab("settings");
-						browser.openSettings();
-					}}
-				>
-					Edit capability set
-				</Button>
-			</div>
+			{canEdit
+				? (
+					<div className="actions">
+						<Button
+							id={`opsGateTake-${pane.path}`}
+							onClick={() => {
+								browser.setSettingsTab("holdings");
+								browser.openSettings();
+							}}
+						>
+							Edit capability set
+						</Button>
+					</div>
+				)
+				: <p className="hint">An administrator session capability is required to change this set.</p>}
 		</section>
 	);
 }
@@ -147,7 +110,17 @@ function GateCard({ pane }: { pane: OpsPaneFace }) {
  * than a segmented tab control. The grid keeps every held capability visible
  * and reflows as a whole; no label is squeezed, clipped, or hidden behind an
  * overflow menu when the server mints the complete set. */
-function OpsNav({ panes, selected }: { panes: readonly OpsPaneFace[]; selected: OpsPaneFace | null }) {
+function OpsNav(
+	{ panes, selected, held }: {
+		panes: readonly OpsPaneFace[];
+		selected: OpsPaneFace | null;
+		held: OpsHeld;
+	},
+) {
+	const prefetchPane = (pane: OpsPaneFace) => {
+		prefetch(() => loadOpsPane(pane.id));
+		for (const cap of paneCapsHeld(pane, held)) prefetch(() => loadOpsPane(cap));
+	};
 	return (
 		<nav
 			id="opsNav"
@@ -162,6 +135,8 @@ function OpsNav({ panes, selected }: { panes: readonly OpsPaneFace[]; selected: 
 					className={pane === selected ? "ops-nav-item here" : "ops-nav-item"}
 					to={`/ops/${pane.path}`}
 					aria-current={pane === selected ? "page" : undefined}
+					onPointerEnter={() => prefetchPane(pane)}
+					onFocus={() => prefetchPane(pane)}
 				>
 					{pane.label}
 				</Link>
@@ -185,27 +160,39 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		convs: state.convs,
 		homeDir: state.homeDir,
 		dirs: state.dirs,
+		sessionAccess: state.sessionAccess,
 	})));
+	const browser = useRoomsBrowser();
 	const navigate = useNavigate();
 	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.viz);
 	const pane = segment === null ? null : paneOf(segment);
 	const open = pane !== null && paneCapsHeld(pane, held).length > 0;
 	const heldPanes = OPS_PANES.filter((face) => paneCapsHeld(face, held).length > 0);
+	const canEdit = effectiveRoomsSessionAccess(browser.roomsController(), s.sessionAccess) === "admin";
 
 	return (
 		<section className="ops-main" id="opsPage" aria-label="Operations">
-			{heldPanes.length > 1 && <OpsNav panes={heldPanes} selected={open ? pane : null} />}
+			{heldPanes.length > 1 && <OpsNav panes={heldPanes} selected={open ? pane : null} held={held} />}
 			<div className="ops-page-body">
 				{segment !== null && pane === null && (
 					<section className="ops-card card-plane ops-gate" id="opsNotFound">
 						<h2>Nothing answers this address</h2>
 						<p>
-							<code>/ops/{segment}</code> names no operations pane.
+							/ops/{segment} names no operations pane.
 						</p>
+						{
+							/* Named the way the chooser names them, and each name is the way
+							   there. The list used to be the address segments themselves,
+							   which asked a reader who had just mistyped one to read four
+							   more and retype the right one. */
+						}
 						<p className="hint">
-							The panes are {OPS_PANES.map((face) =>
-								face.path
-							).join(", ")}. Each opens when this tab holds a capability that fills it.
+							The panes are {OPS_PANES.map((face, at) => (
+								<Fragment key={face.id}>
+									{at > 0 && (at === OPS_PANES.length - 1 ? ", and " : ", ")}
+									<Link to={`/ops/${face.path}`}>{face.label}</Link>
+								</Fragment>
+							))}. Each opens when this tab holds a capability that fills it.
 						</p>
 						<div className="actions">
 							<Button
@@ -224,17 +211,22 @@ export function OpsMain({ segment }: { segment: string | null }) {
 							Nothing is held yet. Each pane below opens when this tab takes its capability from the
 							server that minted it.
 						</p>
-						{OPS_PANES.map((face) => <GateCard key={face.id} pane={face} />)}
+						{OPS_PANES.map((face) => <GateCard key={face.id} pane={face} canEdit={canEdit} />)}
 					</>
 				)}
-				{pane !== null && !open && <GateCard pane={pane} />}
+				{pane !== null && !open && <GateCard pane={pane} canEdit={canEdit} />}
 				{open && pane?.id === "listeners" && (
-					<div id="listenersOpsPanel" className="ops-card card-plane">
-						{s.listeners === null ? <OpsLoading what="listeners" /> : <ListenersPane rows={s.listeners} />}
-					</div>
+					<HeldPane
+						id="listeners"
+						what="listeners"
+						panelId="listenersOpsPanel"
+						ready={s.listeners !== null}
+					>
+						<ListenersPane rows={s.listeners} />
+					</HeldPane>
 				)}
 				{open && pane?.id === "directory" && (
-					<div id="directoryOpsPanel" className="ops-card card-plane">
+					<div id="directoryOpsPanel" className="ops-panel card-plane">
 						<DirectoryPane
 							operatorHeld={held.operator}
 							operator={s.operator}
@@ -245,24 +237,32 @@ export function OpsMain({ segment }: { segment: string | null }) {
 					</div>
 				)}
 				{open && pane?.id === "irc" && (
-					<div id="ircOpsPanel" className="ops-card card-plane">
-						{s.irc === null ? <OpsLoading what="IRC bridges" /> : <IrcPane state={s.irc} />}
-					</div>
+					<HeldPane id="irc" what="IRC bridges" panelId="ircOpsPanel" ready={s.irc !== null}>
+						<IrcPane state={s.irc} />
+					</HeldPane>
 				)}
 				{open && pane?.id === "peering" && (
-					<div id="peeringOpsPanel" className="ops-card card-plane">
-						{s.peering === null ? <OpsLoading what="peered rooms" /> : (
-							<PeeringPane
-								state={s.peering}
-								sources={peeringSourcesOf(s.convs, s.homeDir, s.dirs)}
-							/>
-						)}
-					</div>
+					<HeldPane
+						id="peering"
+						what="peered rooms"
+						panelId="peeringOpsPanel"
+						ready={s.peering !== null}
+					>
+						<PeeringPane
+							state={s.peering}
+							sources={peeringSourcesOf(s.convs, s.homeDir, s.dirs)}
+						/>
+					</HeldPane>
 				)}
 				{open && pane?.id === "viz" && (
-					<div id="vizOpsPanel" className="ops-card card-plane">
-						{s.viz === null ? <OpsLoading what="visualizer status" /> : <VizPane state={s.viz} />}
-					</div>
+					<HeldPane
+						id="viz"
+						what="visualizer status"
+						panelId="vizOpsPanel"
+						ready={s.viz !== null}
+					>
+						<VizPane state={s.viz} />
+					</HeldPane>
 				)}
 			</div>
 		</section>

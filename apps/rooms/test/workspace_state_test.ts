@@ -17,31 +17,26 @@ Object.defineProperty(globalThis, "localStorage", {
 
 const {
 	adoptAttachedSessionState,
-	clearWorkspaceState,
-	exportWorkspaceState,
-	importWorkspaceState,
-	installWorkspaceStatePersistence,
+	forgetForkedDirectoryNames,
 	parseWorkspaceState,
 	rememberedWorkspaceArchivePeer,
-	rememberedWorkspaceOperation,
-	restoreWorkspaceState,
-	setRememberedWorkspaceOperations,
-	setRememberedWorkspaceOperation,
 	setWorkspaceControllerSelection,
 	workspaceStateOf,
 	WORKSPACE_STATE_KEY,
 } = await import("../web/ui/workspace_state.ts");
+const { exportWorkspaceState, importWorkspaceState, restoreWorkspaceState } = await import(
+	"../web/ui/workspace/bundle.ts"
+);
+const { RoomsPage } = await import("../web/ui/page.ts");
 type RoomsSessionState = import("../lib/rooms_state.ts").RoomsSessionState;
-const {
-	MAX_WORKSPACE_DIRECTORIES,
-	parseRoomsSessionStateValue,
-	redactWorkspaceCapabilities,
-} = await import("../lib/rooms_state.ts");
-const { LS } = await import("../web/ui/storage.ts");
+const { parseRoomsSessionStateValue, redactWorkspaceCapabilities, sharedRoomsSession } = await import(
+	"../lib/rooms_state.ts"
+);
 const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
-const { registrationId } = await import("./support/registration.ts");
-const { workspaceFixture: valid } = await import("./support/workspace.ts");
+const { fixtureSturdyref, workspaceFixture: valid } = await import("./support/workspace.ts");
+const { splitBridgeSubmission } = await import("../lib/bridge/form.ts");
+const { IRC_SECRET_FIELDS } = await import("../irc/bridge/identity_form.ts");
 
 function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
@@ -54,21 +49,32 @@ Deno.test("workspace state keeps reconstructible user choices under stable conve
 	assert(parsed.session.conversations[0].id === "room-id", "the room identity moved");
 	assert(
 		parsed.session.conversations[0].kind === "room" &&
-			(parsed.session.conversations[0].steward?.includes("moderator") ?? false),
+			parsed.session.conversations[0].steward != null,
 		"the held room moderator authority was lost",
 	);
 	assert(parsed.session.conversations[1].id === "dm-id", "the direct identity moved");
 	assert(
-		parsed.session.conversations[0].kind === "room" && parsed.session.conversations[0].irc?.password === "secret",
+		parsed.session.conversations[0].kind === "room" &&
+			parsed.session.conversations[0].bridgeIntent?.answers["account"] === "acct",
 		"the room IRC identity intent moved",
 	);
 });
 
 Deno.test("a fresh browser has no implicit session controller", () => {
+	const page = new RoomsPage();
 	assert(
-		workspaceStateOf(store.get()).controller.kind === "none",
+		workspaceStateOf(page, page.projection.get()).controller.kind === "none",
 		"fresh state silently established a local session",
 	);
+	assert(sharedRoomsSession({ kind: "none" }) === null, "an unestablished controller looked shared");
+	assert(sharedRoomsSession({ kind: "local" }) === null, "a local controller looked shared");
+	const attached = {
+		kind: "attached" as const,
+		sturdyref: fixtureSturdyref("ocapn://session.iroh", "shared-session"),
+	};
+	assert(sharedRoomsSession(attached) === attached, "an attached controller was not shared");
+	const hosted = { kind: "hosted" as const, sturdyref: fixtureSturdyref("ocapn://session.iroh", "hosted-session") };
+	assert(sharedRoomsSession(hosted) === hosted, "a hosted controller was not shared");
 	assert(
 		parseWorkspaceState(JSON.stringify({ ...valid(), controller: { kind: "none" } }))?.controller.kind === "none",
 		"the session-establishment state was refused",
@@ -76,22 +82,24 @@ Deno.test("a fresh browser has no implicit session controller", () => {
 });
 
 Deno.test("attached session adoption retains the complete shared capability and peering projection", () => {
+	const page = new RoomsPage();
 	const attached = valid().session as unknown as RoomsSessionState;
 	attached.peering = [{ id: "publication", destination: "destination", source: "room-id", name: "general" }];
-	adoptAttachedSessionState(attached);
+	adoptAttachedSessionState(page, attached);
 	assert(
-		workspaceStateOf(store.get()).session.peering[0]?.id === "publication",
+		workspaceStateOf(page, page.projection.get()).session.peering[0]?.id === "publication",
 		"attached session adoption dropped shared peering intent",
 	);
 	assert(
-		rememberedWorkspaceArchivePeer() === attached.capabilities.archivePeer,
+		rememberedWorkspaceArchivePeer(page) === attached.capabilities.archivePeer,
 		"attached session adoption left archive selection behind in browser storage",
 	);
 	attached.peering = [];
-	adoptAttachedSessionState(attached);
+	adoptAttachedSessionState(page, attached);
 });
 
 Deno.test("controller selection persists once and redacts from ordinary export", () => {
+	const page = new RoomsPage();
 	const base = valid();
 	const reset = {
 		...base,
@@ -104,14 +112,17 @@ Deno.test("controller selection persists once and redacts from ordinary export",
 			capabilities: { operations: [], archivePeer: null },
 		},
 	};
-	assert(importWorkspaceState(JSON.stringify(reset)) === "", "the controller fixture was not installed");
-	const controller = { kind: "attached" as const, sturdyref: "ocapn://session.iroh/s/shared-session" };
-	assert(setWorkspaceControllerSelection(controller), "the attached controller selection was not saved");
-	const complete = JSON.parse(exportWorkspaceState(true));
-	const ordinary = JSON.parse(exportWorkspaceState(false));
+	assert(importWorkspaceState(page, JSON.stringify(reset)) === "", "the controller fixture was not installed");
+	const controller = {
+		kind: "attached" as const,
+		sturdyref: fixtureSturdyref("ocapn://session.iroh", "shared-session"),
+	};
+	assert(setWorkspaceControllerSelection(page, controller), "the attached controller selection was not saved");
+	const complete = JSON.parse(exportWorkspaceState(page, true));
+	const ordinary = JSON.parse(exportWorkspaceState(page, false));
 	assert(complete.controller.sturdyref === controller.sturdyref, "complete export lost the attached controller");
 	assert(ordinary.controller.kind === "local", "ordinary export retained attached controller authority");
-	assert(importWorkspaceState(JSON.stringify(reset)) === "", "the controller test did not restore local state");
+	assert(importWorkspaceState(page, JSON.stringify(reset)) === "", "the controller test did not restore local state");
 });
 
 Deno.test("ordinary state export removes every retained bearer", () => {
@@ -120,7 +131,7 @@ Deno.test("ordinary state export removes every retained bearer", () => {
 	const redacted = redactWorkspaceCapabilities(complete);
 	const room = redacted.session.conversations.find((conversation) => conversation.kind === "room");
 	assert(room?.kind === "room" && room.steward == null && room.link == null, "room authority survived redaction");
-	assert(room?.kind === "room" && room.irc == null, "IRC identity credentials survived redaction");
+	assert(room?.kind === "room" && room.bridgeIntent == null, "IRC identity credentials survived redaction");
 	assert(redacted.session.capabilities.operations.length === 0, "operations authority survived redaction");
 	assert(redacted.session.capabilities.archivePeer == null, "archive authority survived redaction");
 	assert(redacted.session.invitations.length === 0, "pending room-link authority survived redaction");
@@ -135,13 +146,23 @@ Deno.test("workspace and session parsers accept only their current prerelease sc
 	}
 	const attached = {
 		...valid(),
-		controller: { kind: "attached", sturdyref: "ocapn://session.iroh/s/shared-session" },
+		controller: { kind: "attached", sturdyref: fixtureSturdyref("ocapn://session.iroh", "shared-session") },
 	};
 	const parsed = parseWorkspaceState(JSON.stringify(attached));
 	assert(parsed?.controller.kind === "attached", "a valid attached session selector was refused");
 	assert(
 		redactWorkspaceCapabilities(parsed!).controller.kind === "local",
 		"ordinary export retained session authority",
+	);
+	const hosted = {
+		...valid(),
+		controller: { kind: "hosted", sturdyref: fixtureSturdyref("ocapn://session.iroh", "hosted-session") },
+	};
+	const hostedParsed = parseWorkspaceState(JSON.stringify(hosted));
+	assert(hostedParsed?.controller.kind === "hosted", "a valid hosted session selector was refused");
+	assert(
+		redactWorkspaceCapabilities(hostedParsed!).controller.kind === "local",
+		"ordinary export retained hosted session authority",
 	);
 	const invalid = { ...valid(), controller: { kind: "attached", sturdyref: "not-a-sturdyref" } };
 	assert(parseWorkspaceState(JSON.stringify(invalid)) === null, "an invalid attached session selector was accepted");
@@ -150,70 +171,161 @@ Deno.test("workspace and session parsers accept only their current prerelease sc
 	const incompleteSession = { ...valid().session } as Partial<RoomsSessionState>;
 	delete incompleteSession.peering;
 	assert(parseRoomsSessionStateValue(incompleteSession) === null, "an incomplete current session was accepted");
+	const leaked = valid();
+	const leakedRoom = leaked.session.conversations[0];
+	if (leakedRoom.kind === "room" && leakedRoom.bridgeIntent != null) {
+		(leakedRoom.bridgeIntent as unknown as Record<string, string>).password = "must-not-persist";
+	}
+	assert(parseWorkspaceState(JSON.stringify(leaked)) === null, "a persisted IRC password was accepted");
 });
 
 Deno.test("workspace projection restores room and moderator capabilities together", () => {
+	const page = new RoomsPage();
 	const directory = dirId("ocapn://directory.id");
-	store.openDir(directory, directory);
-	store.patchDir(directory, { requestedNick: "ada", nick: "granted-ada" });
-	store.setHomeDir(directory);
-	const room = store.ensureRoom(directory, "general");
-	store.noteRoomSteward(
+	store.openDir(page.projection, directory, directory);
+	store.patchDir(page.projection, directory, { requestedNick: "ada", nick: "granted-ada" });
+	store.setHomeDir(page.projection, directory);
+	const room = store.ensureRoom(page.projection, directory, "general");
+	const roomLink = fixtureSturdyref("ocapn://directory.id", "room-link");
+	const moderatorLink = fixtureSturdyref("ocapn://directory.id", "moderator-link");
+	store.noteRoomSteward(page.projection, room.key, roomLink, moderatorLink);
+	// Built the way the browser builds one, from everything a reader typed split
+	// by IRC's own declaration of which field is a credential. Handing the
+	// already-split answers in instead would prove only that this test can leave
+	// a password out.
+	const submission = splitBridgeSubmission(IRC_SECRET_FIELDS, {
+		nick: "pancake",
+		account: "acct",
+		password: "hunter2",
+	});
+	store.setRoomBridgeIntent(
+		page.projection,
 		room.key,
-		"ocapn://directory.id/s/room-link",
-		"ocapn://directory.id/s/moderator-link",
+		{
+			scope: "Libera",
+			action: "link",
+			answers: submission.answers,
+			secretsGiven: Object.keys(submission.secrets).length > 0,
+		},
+		"Libera",
 	);
-	store.setRoomIrcIdentity(room.key, { nick: "pancake", account: "acct", password: "secret" });
-	store.addInvite({
+	store.addInvite(page.projection, {
 		id: "saved-invite",
 		dir: dirId("ocapn://target.id"),
 		way: "link",
 		label: "quiet room",
 		from: "bo",
-		link: "ocapn://target.id/s/invited-room",
+		link: fixtureSturdyref("ocapn://target.id", "invited-room"),
 		locator: "ocapn://target.id",
 		nick: "ada",
 	});
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(store.get())));
-	store.dropInvite("saved-invite");
-	store.forgetConv(room.key);
-	store.forgetDir(directory);
-	restoreWorkspaceState((locator) => locator === directory ? directory : null);
-	const restored = store.getConv(room.key);
+	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	const persisted = memory.get(WORKSPACE_STATE_KEY)!;
+	assert(!persisted.includes("hunter2"), "a secret answer entered browser storage");
+	assert(persisted.includes("pancake"), "the remembered answers did not reach browser storage");
+	store.dropInvite(page.projection, "saved-invite");
+	store.forgetConv(page.projection, room.key);
+	store.forgetDir(page.projection, directory);
+	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
+	const restored = store.getConv(page.projection, room.key);
 	assert(restored?.type === "room", "the room record was not restored");
-	assert(restored.link?.endsWith("room-link") ?? false, "the room capability was not restored");
-	assert(restored.steward?.endsWith("moderator-link") ?? false, "the moderator capability was not restored");
-	assert(restored.irc?.nick === "pancake", "the room IRC identity intent was lost");
-	assert(store.get().dirs.get(directory)?.requestedNick === "ada", "the requested nickname intent was lost");
-	assert(store.get().dirs.get(directory)?.nick === "", "workspace reconstruction invented a live nickname grant");
-	store.disconnectRoomIrcIdentity(room.key);
-	const clearedRoom = store.getConv(room.key);
-	assert(clearedRoom?.type === "room" && clearedRoom.irc === null, "the Rooms-only IRC choice was not retained");
-	const roomsOnly = workspaceStateOf(store.get());
+	assert(restored.membership === "unavailable", "workspace reconstruction invented a live membership");
+	assert(restored.link === roomLink, "the room capability was not restored");
+	assert(restored.steward === moderatorLink, "the moderator capability was not restored");
+	assert(restored.bridgeIntent?.answers["nick"] === "pancake", "the room IRC identity intent was lost");
 	assert(
-		roomsOnly.session.conversations[0]?.kind === "room" && roomsOnly.session.conversations[0].irc === null,
+		page.projection.get().dirs.get(directory)?.requestedNick === "ada",
+		"the requested nickname intent was lost",
+	);
+	assert(
+		page.projection.get().dirs.get(directory)?.nick === "",
+		"workspace reconstruction invented a live nickname grant",
+	);
+	assert(
+		page.projection.get().dirs.get(directory)?.reached === false,
+		"workspace reconstruction invented a successful dial",
+	);
+	assert(
+		page.projection.get().dirs.get(directory)?.session === "connecting",
+		"an unreached restore claimed the directory had been live",
+	);
+	store.clearRoomBridgeIntent(page.projection, room.key);
+	const clearedRoom = store.getConv(page.projection, room.key);
+	assert(
+		clearedRoom?.type === "room" && clearedRoom.bridgeIntent === null,
+		"the Rooms-only IRC choice was not retained",
+	);
+	const roomsOnly = workspaceStateOf(page, page.projection.get());
+	assert(
+		roomsOnly.session.conversations[0]?.kind === "room" && roomsOnly.session.conversations[0].bridgeIntent === null,
 		"workspace projection dropped the explicit Rooms-only IRC choice",
 	);
 	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(roomsOnly));
-	store.forgetConv(room.key);
-	store.forgetDir(directory);
-	restoreWorkspaceState((locator) => locator === directory ? directory : null);
-	const restoredRoomsOnly = store.getConv(room.key);
+	store.forgetConv(page.projection, room.key);
+	store.forgetDir(page.projection, directory);
+	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
+	const restoredRoomsOnly = store.getConv(page.projection, room.key);
 	assert(
-		restoredRoomsOnly?.type === "room" && restoredRoomsOnly.irc === null,
+		restoredRoomsOnly?.type === "room" && restoredRoomsOnly.bridgeIntent === null,
 		"workspace reconstruction silently re-enabled the automatic IRC seat",
 	);
 	assert(
-		store.get().invites.some((invitation) => invitation.id === "saved-invite"),
+		page.projection.get().invites.some((invitation) => invitation.id === "saved-invite"),
 		"the room-link invitation was lost",
 	);
-	const restoredInvite = store.get().invites.find((invitation) => invitation.id === "saved-invite");
+	const restoredInvite = page.projection.get().invites.find((invitation) => invitation.id === "saved-invite");
 	assert(restoredInvite?.locator === "ocapn://target.id", "the invitation target route was lost");
 	assert(restoredInvite?.nick === "ada", "the invitation requested nickname was lost");
-	store.dropInvite("saved-invite");
-	store.forgetConv(room.key);
-	store.forgetDir(directory);
+	store.dropInvite(page.projection, "saved-invite");
+	store.forgetConv(page.projection, room.key);
+	store.forgetDir(page.projection, directory);
 	memory.delete(WORKSPACE_STATE_KEY);
+});
+
+Deno.test("workspace restore preserves actual reach evidence without inventing it", () => {
+	const page = new RoomsPage();
+	page.projection.reset();
+	const reached = dirId("ocapn://reached.id");
+	const route = "ocapn://reached.iroh";
+	store.openDir(page.projection, reached, route);
+	store.markDirReached(page.projection, reached);
+	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	store.forgetDir(page.projection, reached);
+	restoreWorkspaceState(page, (locator) => locator === route ? reached : null);
+	assert(
+		page.projection.get().dirs.get(reached)?.reached === true,
+		"restore discarded a successful prior connection",
+	);
+	assert(
+		page.projection.get().dirs.get(reached)?.session === "reconnecting",
+		"a previously reached restore did not say the directory was coming back",
+	);
+	page.projection.reset();
+});
+
+Deno.test("an attached restore does not present directories as a dropped live connection", () => {
+	const page = new RoomsPage();
+	page.projection.reset();
+	const reached = dirId("ocapn://reached.id");
+	const route = "ocapn://reached.iroh";
+	store.openDir(page.projection, reached, route);
+	store.markDirReached(page.projection, reached);
+	page.workspace.retained.controller = {
+		kind: "attached",
+		sturdyref: fixtureSturdyref("ocapn://session.iroh", "attached-restore"),
+	};
+	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	store.forgetDir(page.projection, reached);
+	restoreWorkspaceState(page, (locator) => locator === route ? reached : null);
+	assert(
+		page.projection.get().dirs.get(reached)?.reached === false,
+		"an attached restore treated a prior connection as this tab's live reach",
+	);
+	assert(
+		page.projection.get().dirs.get(reached)?.session === "connecting",
+		"an attached restore said the directory was coming back before CapTP existed",
+	);
+	page.projection.reset();
 });
 
 Deno.test("workspace state preserves unnamed intent and refuses invalid authority relations", () => {
@@ -239,7 +351,10 @@ Deno.test("workspace state preserves unnamed intent and refuses invalid authorit
 	mismatchedRoute.session.directories[0].locator = "ocapn://elsewhere.id";
 	assert(parseWorkspaceState(JSON.stringify(mismatchedRoute)) === null, "a directory route mismatch was accepted");
 	const mismatchedInvitation = valid();
-	(mismatchedInvitation.session.invitations[0] as { link: string }).link = "ocapn://elsewhere.id/s/invited-room";
+	(mismatchedInvitation.session.invitations[0] as { link: string }).link = fixtureSturdyref(
+		"ocapn://elsewhere.id",
+		"invited-room",
+	);
 	assert(
 		parseWorkspaceState(JSON.stringify(mismatchedInvitation)) === null,
 		"an invitation route mismatch was accepted",
@@ -257,11 +372,26 @@ Deno.test("workspace state preserves unnamed intent and refuses invalid authorit
 	splitSwiss.session.capabilities.operations[0].swiss = "two words";
 	assert(parseWorkspaceState(JSON.stringify(splitSwiss)) === null, "a split operations credential was accepted");
 	const mismatchedRoomLink = valid();
-	(mismatchedRoomLink.session.conversations[0] as { link?: string }).link = "ocapn://elsewhere.id/s/room-link";
+	(mismatchedRoomLink.session.conversations[0] as { link?: string }).link = fixtureSturdyref(
+		"ocapn://elsewhere.id",
+		"room-link",
+	);
 	assert(parseWorkspaceState(JSON.stringify(mismatchedRoomLink)) === null, "a foreign room link was accepted");
 	const mismatchedModerator = valid();
-	(mismatchedModerator.session.conversations[0] as { steward?: string }).steward = "ocapn://elsewhere.id/s/moderator";
+	(mismatchedModerator.session.conversations[0] as { steward?: string }).steward = fixtureSturdyref(
+		"ocapn://elsewhere.id",
+		"moderator",
+	);
 	assert(parseWorkspaceState(JSON.stringify(mismatchedModerator)) === null, "a foreign moderator was accepted");
+	const mismatchedManager = valid();
+	(mismatchedManager.session.conversations[0] as { manager?: string }).manager = fixtureSturdyref(
+		"ocapn://elsewhere.id",
+		"manager",
+	);
+	assert(parseWorkspaceState(JSON.stringify(mismatchedManager)) === null, "a foreign room manager was accepted");
+	const malformedManager = valid();
+	(malformedManager.session.conversations[0] as { manager?: string }).manager = "ocapn://directory.id/s/";
+	assert(parseWorkspaceState(JSON.stringify(malformedManager)) === null, "a malformed room manager was accepted");
 	const moderatorWithoutRoom = valid();
 	delete (moderatorWithoutRoom.session.conversations[0] as { link?: string }).link;
 	assert(
@@ -281,9 +411,14 @@ Deno.test("workspace state preserves unnamed intent and refuses invalid authorit
 		directory: "ocapn://directory.id",
 		name: "general",
 		held: false,
-		link: "ocapn://directory.id/s/other-room-link",
-		steward: "ocapn://directory.id/s/other-moderator",
-		irc: { nick: "pancake", account: "acct", password: "secret" },
+		link: fixtureSturdyref("ocapn://directory.id", "other-room-link"),
+		steward: fixtureSturdyref("ocapn://directory.id", "other-moderator"),
+		bridgeIntent: {
+			scope: "Libera",
+			action: "link",
+			answers: { nick: "pancake", account: "acct" },
+			secretsGiven: true,
+		},
 		standing: null,
 		draft: "",
 	});
@@ -327,260 +462,43 @@ Deno.test("workspace state refuses runtime-shaped and unbounded content", () => 
 	assert(parseWorkspaceState("x".repeat(600_000)) === null, "an oversized document was accepted");
 });
 
-Deno.test("workspace state bounds reconnect and credential fan-out", () => {
-	const directoryBase = valid();
-	const manyDirectories = {
-		...directoryBase,
-		session: {
-			...directoryBase.session,
-			directories: Array.from({ length: 33 }, (_, at) => ({
-				id: `ocapn://directory-${at}.iroh`,
-				locator: `ocapn://directory-${at}.iroh`,
-				home: at === 0,
-				nick: "ada",
-				standing: null,
-			})),
-			conversations: [],
-			active: null,
-		},
-	};
-	assert(
-		parseWorkspaceState(JSON.stringify(manyDirectories)) === null,
-		"too many directory reconnects were accepted",
-	);
-
-	const conversationBase = valid();
-	const manyConversations = {
-		...conversationBase,
-		session: {
-			...conversationBase.session,
-			conversations: Array.from({ length: 257 }, (_, at) => ({
-				kind: "direct",
-				id: `dm-${at}`,
-				directory: "ocapn://directory.iroh",
-				peer: `peer-${at}`,
-				peerRegistrationId: registrationId(at),
-				closed: false,
-				draft: at === 0 ? "x".repeat(70_000) : "",
-			})),
-			active: null,
-		},
-	};
-	assert(
-		parseWorkspaceState(JSON.stringify(manyConversations)) === null,
-		"too many conversation replays were accepted",
-	);
-	const duplicateCredential = valid();
-	duplicateCredential.session.capabilities.operations.push({
-		...duplicateCredential.session.capabilities.operations[0],
+Deno.test("a local fork of an attached session drops directory names and keeps rooms unreadied", () => {
+	const page = new RoomsPage();
+	const directory = dirId("ocapn://fork.id");
+	store.openDir(page.projection, directory, directory);
+	store.patchDir(page.projection, directory, { requestedNick: "ada", nick: "ada" });
+	store.remember(page.projection, { nick: "ada" });
+	const room = store.ensureRoom(page.projection, directory, "general", {
+		publicationId: "bridge-gen",
+		reconnect: "manual",
 	});
+	const restore = forgetForkedDirectoryNames(page);
 	assert(
-		parseWorkspaceState(JSON.stringify(duplicateCredential)) === null,
-		"duplicate bearer authority was accepted",
+		page.projection.get().dirs.get(directory)?.requestedNick === "",
+		"the forked copy kept the shared nickname intent",
 	);
-	const duplicateVisualizer = valid();
-	duplicateVisualizer.session.capabilities.operations.push({
-		capability: "viz",
-		scope: "wss://elsewhere.test/viz",
-		swiss: "another-viz-swiss",
-	});
+	assert(page.projection.get().dirs.get(directory)?.nick === "", "the forked copy kept a live nickname grant");
+	restore();
 	assert(
-		parseWorkspaceState(JSON.stringify(duplicateVisualizer)) === null,
-		"multiple app-wide visualizer capabilities were accepted",
+		page.projection.get().dirs.get(directory)?.requestedNick === "ada" &&
+			page.projection.get().dirs.get(directory)?.nick === "ada" &&
+			page.projection.get().remembered.nick === "ada",
+		"a failed controller commit could not put the shared names back",
 	);
-});
-
-Deno.test("workspace persistence retries after browser storage recovers", async () => {
-	memory.delete(WORKSPACE_STATE_KEY);
-	const ordinarySet = LS.set;
-	let attempts = 0;
-	LS.set = (key, value) => {
-		attempts += 1;
-		return attempts === 1 ? false : ordinarySet(key, value);
-	};
-	const stop = installWorkspaceStatePersistence();
-	try {
-		store.setStanding("first refused write");
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		store.setStanding("retry proof");
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		assert(attempts >= 2, "workspace persistence did not retry its refused write");
-		assert(
-			parseWorkspaceState(memory.get(WORKSPACE_STATE_KEY) ?? null)?.session.standing === "retry proof",
-			"the retry did not persist current state",
-		);
-		const settledAttempts = attempts;
-		await new Promise((resolve) => setTimeout(resolve, 800));
-		assert(attempts === settledAttempts, "a successful workspace write left its older retry timer armed");
-	} finally {
-		stop();
-		LS.set = ordinarySet;
-	}
-});
-
-Deno.test("a runtime restore refusal cannot overwrite the intact saved workspace", async () => {
-	const original = JSON.stringify(valid());
-	memory.set(WORKSPACE_STATE_KEY, original);
-	restoreWorkspaceState(() => {
-		throw new Error("directory authority resolution is unavailable");
-	});
-	const stop = installWorkspaceStatePersistence();
-	try {
-		store.setStanding("must not replace the saved document");
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		assert(
-			memory.get(WORKSPACE_STATE_KEY) === original,
-			"a refused all-or-nothing restore was overwritten from the empty runtime store",
-		);
-	} finally {
-		stop();
-		assert(
-			importWorkspaceState(original) === "",
-			"the saved workspace could not be explicitly restored after refusal",
-		);
-	}
-});
-
-Deno.test("state replacement validates before commit and clear cannot be resurrected", () => {
-	memory.delete(WORKSPACE_STATE_KEY);
-	assert(importWorkspaceState('{"version":2') !== "", "a torn import was reported as installed");
-	assert(!memory.has(WORKSPACE_STATE_KEY), "a refused import changed saved state");
-	assert(importWorkspaceState(JSON.stringify(valid())) === "", "a complete state bundle was refused");
-	const beforeInvalidOverride = memory.get(WORKSPACE_STATE_KEY);
-	const invalidOverride = {
-		kind: "attached",
-		sturdyref: "not a sturdyref",
-	} as import("../lib/rooms_state.ts").RoomsControllerSelection;
+	forgetForkedDirectoryNames(page);
+	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	store.forgetConv(page.projection, room.key);
+	store.forgetDir(page.projection, directory);
+	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
+	const restored = store.getConv(page.projection, room.key);
+	assert(restored?.type === "room", "the copied room was not restored");
+	assert(restored.membership === "unavailable", "the copied room reconstructed as already joining");
+	assert(restored.reconnect === "manual", "explicit rejoin intent was lost");
+	assert(restored.publicationId === "bridge-gen", "the bridge publication identity was lost");
 	assert(
-		importWorkspaceState(JSON.stringify(valid()), invalidOverride) !== "",
-		"an invalid session override bypassed workspace validation",
+		page.projection.get().dirs.get(directory)?.requestedNick === "",
+		"reconstruction restored a nickname the fork had dropped",
 	);
-	assert(
-		memory.get(WORKSPACE_STATE_KEY) === beforeInvalidOverride,
-		"a refused session override changed the saved workspace",
-	);
-	assert(
-		parseWorkspaceState(memory.get(WORKSPACE_STATE_KEY) ?? null) !== null,
-		"the imported bundle was not committed",
-	);
-	assert(clearWorkspaceState(), "the saved state could not be cleared");
-	store.setStanding("a later store mutation");
-	assert(!memory.has(WORKSPACE_STATE_KEY), "a store mutation resurrected cleared state");
-});
-
-Deno.test("explicit export refuses runtime state beyond the workspace schema", () => {
-	store.set(store.initial);
-	for (let at = 0; at <= MAX_WORKSPACE_DIRECTORIES; at += 1) {
-		const locator = `ocapn://directory-${at}.id`;
-		store.openDir(dirId(locator), locator);
-	}
-	let refused = "";
-	try {
-		exportWorkspaceState();
-	} catch (error) {
-		refused = error instanceof Error ? error.message : String(error);
-	} finally {
-		store.set(store.initial);
-	}
-	assert(refused.includes("not a valid state bundle"), "explicit export emitted an over-bound runtime workspace");
-});
-
-Deno.test("explicit controller selection replaces protected obsolete state", () => {
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify({ ...valid(), version: 7 }));
-	restoreWorkspaceState(() => null);
-	const controller = { kind: "attached" as const, sturdyref: "ocapn://session.iroh/s/recovered" };
-	assert(setWorkspaceControllerSelection(controller), "explicit attachment did not replace obsolete browser state");
-	const saved = parseWorkspaceState(memory.get(WORKSPACE_STATE_KEY) ?? null);
-	assert(
-		saved?.controller.kind === "attached" && saved.controller.sturdyref === controller.sturdyref,
-		"the recovered controller selection was not durable",
-	);
-});
-
-Deno.test("a refused credential update keeps the prior bearer authoritative", () => {
-	assert(importWorkspaceState(JSON.stringify(valid())) === "", "the credential fixture was not installed");
-	const ordinarySet = LS.set;
-	LS.set = () => false;
-	try {
-		assert(
-			!setRememberedWorkspaceOperation("operator", "ocapn://directory.id", null),
-			"a refused credential deletion reported success",
-		);
-		assert(
-			rememberedWorkspaceOperation("operator", "ocapn://directory.id") === "operator-swiss",
-			"a refused deletion changed in-memory authority",
-		);
-	} finally {
-		LS.set = ordinarySet;
-		clearWorkspaceState();
-	}
-});
-
-Deno.test("an explicit capability-set save replaces protected invalid workspace state", () => {
-	const directory = dirId("ocapn://capability-recovery.id");
-	store.openDir(directory, directory);
-	store.setHomeDir(directory);
-	memory.set(WORKSPACE_STATE_KEY, '{"version":2');
-	restoreWorkspaceState(() => null);
-	const ordinarySet = LS.set;
-	let writes = 0;
-	LS.set = (key, value) => {
-		writes += 1;
-		return ordinarySet(key, value);
-	};
-	let saved = false;
-	try {
-		saved = setRememberedWorkspaceOperations([{
-			capability: "operator",
-			scope: directory,
-			swiss: "  replacement-operator-swiss  ",
-		}]);
-	} finally {
-		LS.set = ordinarySet;
-	}
-	assert(saved, "the explicit capability-set replacement stayed blocked by invalid saved state");
-	assert(writes === 1, `the capability bundle used ${writes} storage writes instead of one`);
-	const recovered = parseWorkspaceState(memory.get(WORKSPACE_STATE_KEY) ?? null);
-	assert(recovered != null, "the capability-set replacement did not install a valid workspace");
-	assert(
-		recovered.session.capabilities.operations[0]?.swiss === "replacement-operator-swiss",
-		"the recovered workspace lost the requested capability set",
-	);
-	clearWorkspaceState();
-	store.forgetDir(directory);
-});
-
-Deno.test("capability replacement removes dependent peering intent in the same workspace commit", () => {
-	const document = valid();
-	document.session.directories.push({
-		id: "ocapn://destination.id",
-		locator: "ocapn://destination.id",
-		home: false,
-		nick: "ada",
-		standing: null,
-	});
-	const peering = document.session.capabilities.operations.find((entry) => entry.capability === "peering");
-	if (peering == null) throw new Error("workspace fixture has no peering credential");
-	peering.scope = "ocapn://destination.id";
-	document.session.peering = [{
-		id: "publication",
-		destination: "ocapn://destination.id",
-		source: "room-id",
-		name: "annex",
-	}];
-	assert(importWorkspaceState(JSON.stringify(document)) === "", "the peering workspace fixture was refused");
-	restoreWorkspaceState((locator) => dirId(locator));
-	assert(
-		setRememberedWorkspaceOperations(
-			document.session.capabilities.operations.filter((entry) => entry.capability !== "peering"),
-		),
-		"removing the peering capability could not commit its dependent cleanup",
-	);
-	assert(
-		parseWorkspaceState(memory.get(WORKSPACE_STATE_KEY) ?? null)?.session.peering.length === 0,
-		"the capability replacement retained peering intent without its authority",
-	);
-	clearWorkspaceState();
-	for (const conversation of [...store.get().convs.keys()]) store.forgetConv(conversation);
-	for (const directory of [...store.get().dirs.keys()]) store.forgetDir(directory);
+	store.forgetConv(page.projection, room.key);
+	store.forgetDir(page.projection, directory);
 });

@@ -34,6 +34,7 @@
                      pancake_host_session_enliven*
                      pancake_host_enliven*
                      pancake_host_enliven_for_version*
+                     pancake_host_fetch_at*
                      pancake_host_session_listen*
                      pancake_host_session_send*
                      pancake_host_vow_send*
@@ -162,6 +163,10 @@
   (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
   #:c-id pancake_host_enliven_for_version)
 (define pancake_host_enliven_for_version (wrap-out1 pancake_host_enliven_for_version* _uint64 0))
+(define-host pancake_host_fetch_at*
+  (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer _size _pointer -> _int32)
+  #:c-id pancake_host_fetch_at)
+(define pancake_host_fetch_at (wrap-out1 pancake_host_fetch_at* _uint64 0))
 (define-host pancake_host_set_trace (_fun _pointer _fpointer _pointer -> _int32))
 (define-host pancake_host_resolver_fulfill (_fun _pointer _uint64 (_or-null _PancakeArgument-pointer) -> _int32))
 (define-host pancake_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))

@@ -9,6 +9,7 @@ import { assertEquals } from "./assert.ts";
 import { MAX_DIRECT_ATTACHMENTS } from "../lib/limits.ts";
 import { EDIT, REFILE } from "../lib/protocol.ts";
 import { registrationId } from "./support/registration.ts";
+import { DIRECT_NOT_ACCEPTED, roomErrorOf } from "../lib/errors.ts";
 
 function fakeLine(overrides: Partial<DirectMessage> = {}): DirectMessage {
 	return {
@@ -227,6 +228,7 @@ Deno.test("direct inbox routes typing as an ephemeral conversation event", () =>
 		receive: () => ({} as Ref),
 		emit: () => {},
 		onInvitation: () => {},
+		handRoom: () => {},
 		typing: (_held, conversationId, peer, on) => seen.push({ conversationId, peer, on }),
 		cleanup: async (work) => {
 			await work;
@@ -238,6 +240,28 @@ Deno.test("direct inbox routes typing as an ephemeral conversation event", () =>
 		{ conversationId: "conversation", peer: "bob", on: true },
 		{ conversationId: "conversation", peer: "bob", on: false },
 	]);
+});
+
+Deno.test("a direct inbox gives an exact retired conversation a typed refusal", () => {
+	const held = { directConversationByRegistration: new Map() } as unknown as LiveDirectory;
+	const inbox = directInbox(held, "bob", registrationId(1), {
+		setIssue: () => false,
+		subjects: () => [],
+		receive: () => ({} as Ref),
+		emit: () => {},
+		onInvitation: () => {},
+		handRoom: () => {},
+		cleanup: async (work) => {
+			await work;
+		},
+	});
+	let code = "";
+	try {
+		inbox("typing", [true]);
+	} catch (error) {
+		code = roomErrorOf(error)?.code ?? "";
+	}
+	assertEquals(code, DIRECT_NOT_ACCEPTED);
 });
 
 Deno.test("refile parsing rejects malformed spans and repeated kept indices", () => {

@@ -32,11 +32,11 @@ export const ROOM_COMMANDS: readonly Command[] = [
 	},
 	{
 		name: "link",
-		// Holding the room is the authority to ask for durable reach. The mint is
-		// the cost: the server records the room for good, while `/invite` below
-		// hands over the live reference and creates no durable state.
+		// A room or directory can report an existing entry link. Creating one is
+		// the manager's durable-state act; `/invite` below instead hands over the
+		// live reference and creates no durable state.
 		kind: "tab",
-		summary: "a link to this room, or to a listed room you name",
+		summary: "the entry link for this room, or a listed room you name",
 		usage: "/link, or /link lobby for a listed room",
 		place: "room",
 		argument: "room",

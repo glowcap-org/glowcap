@@ -1,229 +1,464 @@
-// The IRC pane of the Operations page, drawn only while this tab holds the
-// gateway capability (the Capabilities toggle is how it is taken).
+// IRC network capabilities and the channel leases beneath them.
 //
-// One well bridges a new channel: the channel's own coordinates as labeled
-// fields, TLS on unless the operator says otherwise, and a refusal landing
-// beside the form that asked. Under it, one row per bridged channel with the
-// room it stands under, where its connection points, and the part that takes
-// it down. Members are IRC citizens through per-reader connections; the pane
-// says so where an operator would otherwise assume a shared relay nick.
+// The hierarchy is the product model: an operator retains a network without
+// having to invent a first channel, then adds and removes bridged channels
+// independently. A zero-channel network is still owned and manageable; its
+// transport is dormant until a channel lease enacts it.
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useRoomsSession } from "../controller/session.ts";
-import { useRoomsState } from "../hooks.ts";
-import type { IrcGatewayState } from "../types.ts";
 import { Button } from "../Button.tsx";
+import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
-import { Switch } from "../Switch.tsx";
 import { Said } from "../Said.tsx";
+import { Switch } from "../Switch.tsx";
+import { useRoomsSession } from "../controller/session.ts";
 import { identifierField } from "../field.ts";
+import { useRoomsState } from "../hooks.ts";
+import { roomAddress } from "../route_address.ts";
+import type { IrcBridgeRow, IrcGatewayState } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
+import { SectionTitle } from "./Section.tsx";
+
+const connectionKey = (network: string): string => network.toLowerCase();
+const channelKey = (network: string, channel: string): string => `${connectionKey(network)}\n${channel.toLowerCase()}`;
+
+function statusLabel(status: IrcGatewayState["networks"][number]["status"]): string {
+	return status === "dormant" ? "ready" : status === "up" ? "connected" : status;
+}
 
 export function IrcPane({ state }: { state: IrcGatewayState | null }) {
 	const session = useRoomsSession();
-	const home = useRoomsState((state) => state.homeDir);
+	const home = useRoomsState((current) => current.homeDir);
 	const navigate = useNavigate();
 	const [network, setNetwork] = useState("");
-	const [channel, setChannel] = useState("");
 	const [host, setHost] = useState("");
 	const [port, setPort] = useState("");
 	const [nick, setNick] = useState("");
 	const [saslAccount, setSaslAccount] = useState("");
 	const [saslPassword, setSaslPassword] = useState("");
 	const [tls, setTls] = useState(true);
-	const [joining, setJoining] = useState(false);
-	const [bridged, setBridged] = useState("");
-	const [why, setWhy] = useState<string | null>(null);
+	const [opening, setOpening] = useState(false);
+	const [opened, setOpened] = useState("");
+	const [openWhy, setOpenWhy] = useState<string | null>(null);
+	const [channelDrafts, setChannelDrafts] = useState<Readonly<Record<string, string>>>({});
+	const [joining, setJoining] = useState<ReadonlySet<string>>(() => new Set());
 	const [parting, setParting] = useState<ReadonlySet<string>>(() => new Set());
-	const [partWhy, setPartWhy] = useState<Partial<Record<string, string>>>({});
+	const [confirmingPart, setConfirmingPart] = useState<string | null>(null);
+	const [channelWhy, setChannelWhy] = useState<Readonly<Record<string, string | undefined>>>({});
+	const [confirmingClose, setConfirmingClose] = useState<string | null>(null);
+	const [closing, setClosing] = useState<ReadonlySet<string>>(() => new Set());
+	const [closeWhy, setCloseWhy] = useState<Readonly<Record<string, string | undefined>>>({});
+	const watchingConnection = state?.networks.some((row) => row.status === "connecting" || row.status === "backoff") ??
+		false;
+	const channelsByNetwork = useMemo(() => {
+		const grouped = new Map<string, IrcBridgeRow[]>();
+		for (const row of state?.bridged ?? []) {
+			const key = connectionKey(row.network);
+			const channels = grouped.get(key);
+			if (channels == null) grouped.set(key, [row]);
+			else channels.push(row);
+		}
+		return grouped;
+	}, [state?.bridged]);
+	useEffect(() => {
+		if (!watchingConnection) return;
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const refresh = async () => {
+			await session.refreshOpsCap("irc");
+			if (!stopped) timer = setTimeout(refresh, 3_000);
+		};
+		timer = setTimeout(refresh, 750);
+		return () => {
+			stopped = true;
+			if (timer !== null) clearTimeout(timer);
+		};
+	}, [session, watchingConnection]);
 
-	// The page draws one pane per held capability; see the listeners pane.
 	if (state === null) return null;
 	const portNumber = port === "" ? (tls ? 6697 : 6667) : Number(port);
-	const canBridge = network !== "" && channel !== "" && host !== "" && nick !== "" &&
-		Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
+	const canOpen = network !== "" && host !== "" && nick !== "" && Number.isInteger(portNumber) &&
+		portNumber >= 1 && portNumber <= 65535 && (saslAccount === "" || saslPassword !== "");
 
-	const bridge = () => {
-		setWhy(null);
-		setBridged("");
-		setJoining(true);
-		void session.joinIrc({
+	const open = () => {
+		setOpening(true);
+		setOpened("");
+		setOpenWhy(null);
+		void session.openIrcNetwork({
 			network,
-			channel,
 			host,
 			port: portNumber,
 			tls,
 			nick,
 			sasl: saslAccount === "" ? undefined : { account: saslAccount, password: saslPassword },
-		}).then((refused) => {
-			setJoining(false);
-			if (refused !== "") {
-				setWhy(refused);
-				return;
+		}).then((why) => {
+			if (why !== "") setOpenWhy(why);
+			else {
+				setOpened(`${network} is ready. Add a channel from its connection card.`);
+				setNetwork("");
+				setSaslPassword("");
 			}
-			setBridged(`${network}/${channel} is bridged; its room is listed below.`);
-			setNetwork("");
-			setChannel("");
-			setSaslPassword("");
+		}).finally(() => setOpening(false));
+	};
+
+	const join = (network: string) => {
+		const networkId = connectionKey(network);
+		const channelName = (channelDrafts[networkId] ?? "").trim().replace(/^#+/, "");
+		if (channelName === "") return;
+		const channel = `#${channelName}`;
+		const key = channelKey(network, channel);
+		setJoining((prior) => new Set(prior).add(networkId));
+		setChannelWhy((prior) => ({ ...prior, [key]: undefined }));
+		void session.joinIrcChannel(network, channel).then((why) => {
+			if (why !== "") setChannelWhy((prior) => ({ ...prior, [key]: why }));
+			else setChannelDrafts((prior) => ({ ...prior, [networkId]: "" }));
+		}).finally(() => {
+			setJoining((prior) => {
+				const next = new Set(prior);
+				next.delete(networkId);
+				return next;
+			});
 		});
 	};
 
 	const part = (network: string, channel: string) => {
-		const key = `${network}\n${channel}`;
+		const key = channelKey(network, channel);
 		setParting((prior) => new Set(prior).add(key));
-		setPartWhy((prior) => ({ ...prior, [key]: undefined }));
-		void session.partIrc(network, channel).then((refused) => {
+		setChannelWhy((prior) => ({ ...prior, [key]: undefined }));
+		void session.partIrc(network, channel).then((why) => {
+			if (why !== "") setChannelWhy((prior) => ({ ...prior, [key]: why }));
+			else setConfirmingPart(null);
+		}).finally(() => {
 			setParting((prior) => {
 				const next = new Set(prior);
 				next.delete(key);
 				return next;
 			});
-			if (refused !== "") setPartWhy((prior) => ({ ...prior, [key]: refused }));
 		});
 	};
 
-	const field = (
-		id: string,
-		name: string,
-		value: string,
-		onValue: (next: string) => void,
-		placeholder: string,
-	) => (
-		<Field id={id} label={name} layout="inline" width={id === "ircJoinPort" ? "short" : undefined}>
-			{(wiring) => (
-				<input
-					id={wiring.id}
-					className="field"
-					type={id === "ircJoinPort" ? "number" : "text"}
-					inputMode={id === "ircJoinPort" ? "numeric" : undefined}
-					min={id === "ircJoinPort" ? 1 : undefined}
-					max={id === "ircJoinPort" ? 65535 : undefined}
-					value={value}
-					placeholder={placeholder}
-					disabled={joining}
-					required={id !== "ircJoinPort" && id !== "ircJoinSaslAccount"}
-					{...identifierField}
-					onChange={(event) => onValue(event.currentTarget.value)}
-				/>
-			)}
-		</Field>
-	);
+	const close = (network: string) => {
+		const key = connectionKey(network);
+		setClosing((prior) => new Set(prior).add(key));
+		setCloseWhy((prior) => ({ ...prior, [key]: undefined }));
+		void session.closeIrcNetwork(network).then((why) => {
+			if (why !== "") setCloseWhy((prior) => ({ ...prior, [key]: why }));
+			else setConfirmingClose(null);
+		}).finally(() => {
+			setClosing((prior) => {
+				const next = new Set(prior);
+				next.delete(key);
+				return next;
+			});
+		});
+	};
+
+	const openRoom = (row: IrcBridgeRow) => {
+		if (home === null) return;
+		session.pickRoom(home, row.roomName);
+		navigate(roomAddress(row.roomName));
+	};
 
 	return (
-		<div className="ops-pane">
+		<div className="ops-pane irc-operations">
 			<OpsHead refresh={() => session.refreshOpsCap("irc")}>
-				IRC channels bridged into this directory as rooms, and the form that bridges another. Members are IRC
-				citizens: each appears on the channel under their own nick and their lines go to IRC as them.
+				IRC networks this server may administer. Each connection owns an identity, and its channels become
+				ordinary Rooms rooms. Members speak on IRC under their own network identity.
 			</OpsHead>
-			<h3 className="well-title overline" id="ircJoinLegend">Bridge a channel</h3>
-			<form
-				className="group well"
-				role="group"
-				aria-labelledby="ircJoinLegend"
-				onSubmit={(event) => {
-					event.preventDefault();
-					bridge();
-				}}
-			>
-				{field("ircJoinNetwork", "Network", network, setNetwork, "libera")}
-				{field("ircJoinChannel", "Channel", channel, setChannel, "#ocapn")}
-				{field("ircJoinHost", "Host", host, setHost, "irc.libera.chat")}
-				{field("ircJoinPort", "Port", port, setPort, tls ? "6697" : "6667")}
-				{field("ircJoinNick", "Bot nick", nick, setNick, "pancake-rooms")}
-				{field(
-					"ircJoinSaslAccount",
-					"Bot account",
-					saslAccount,
-					setSaslAccount,
-					"registered account (optional)",
-				)}
-				<Field id="ircJoinSaslPassword" label="Password" layout="inline">
-					{(wiring) => (
-						<input
-							id={wiring.id}
-							className="field"
-							type="password"
-							value={saslPassword}
-							placeholder="sent once and never kept"
-							disabled={joining}
-							{...identifierField}
-							onChange={(event) => setSaslPassword(event.currentTarget.value)}
-						/>
-					)}
-				</Field>
-				<p className="hint">
-					The bot is the bridge's own connection: it carries the channel into the room under this nick, while
-					each member speaks on IRC under their own. Networks that require a registered account take the bot's
-					at connect time (SASL) and need TLS. The password goes to your rooms server once and is not
-					remembered here.
-				</p>
-				<div className="switch-row">
-					<p className="group-label" id="ircJoinTlsLegend">TLS</p>
-					<Switch
-						id="ircJoinTls"
-						checked={tls}
-						label="TLS"
-						aria-labelledby="ircJoinTlsLegend"
-						disabled={joining}
-						onClick={() => setTls(!tls)}
-					/>
-				</div>
-				<div className="actions">
-					<Button id="ircJoinBtn" type="submit" busy={joining} disabled={!canBridge}>
-						{joining ? "Bridging…" : "Bridge the channel"}
-					</Button>
-				</div>
-				{bridged !== "" && <Said kind="success">{bridged}</Said>}
-				{why !== null && <Said id="ircJoinWhy" kind="failure">{why}</Said>}
-			</form>
-			<h3 className="well-title overline" id="ircBridgedLegend">Bridged channels</h3>
-			<div className="group well" id="ircBridgedList" role="group" aria-labelledby="ircBridgedLegend">
-				{state.bridged.length === 0
-					? <p className="empty">Nothing is bridged right now.</p>
+
+			<section className="ops-section" aria-labelledby="ircConnectionsTitle">
+				<SectionTitle id="ircConnectionsTitle" count={state.networks.length}>IRC connections</SectionTitle>
+				{state.networks.length === 0
+					? (
+						<div className="irc-connections-empty well">
+							<p>No IRC connections yet.</p>
+							<p className="hint">Open one below. A channel is not required.</p>
+						</div>
+					)
 					: (
-						<ul className="entries">
-							{state.bridged.map((row) => {
-								const key = `${row.network}\n${row.channel}`;
-								const waiting = parting.has(key);
+						<ul className="irc-connections">
+							{state.networks.map((connection) => {
+								const key = connectionKey(connection.network);
+								const channels = channelsByNetwork.get(key) ?? [];
+								const draft = channelDrafts[key] ?? "";
+								const closingNow = closing.has(key);
 								return (
-									<li className="entry" key={row.roomName} data-room={row.roomName}>
-										<div className="entry-head">
-											<span className="entry-name">{row.roomName}</span>
-											{row.status === "up"
-												? <span className="ops-serving">connected</span>
-												: <span className="entry-meta">{row.status}</span>}
-											<div className="actions">
-												{home !== null && (
-													<Button
-														variant="quiet"
-														onClick={() => {
-															session.pickRoom(home, row.roomName);
-															navigate("/");
-														}}
-													>
-														Open
-													</Button>
-												)}
-												<Button
-													variant="quiet"
-													busy={waiting}
-													onClick={() => part(row.network, row.channel)}
-												>
-													{waiting ? "Parting…" : "Part"}
-												</Button>
+									<li className="irc-connection" key={key} data-network={connection.network}>
+										<header className="irc-connection-head">
+											<div>
+												<h4>{connection.network}</h4>
+												<p className="irc-connection-meta">
+													{connection.endpoint}
+													<span aria-hidden="true">·</span>{" "}
+													{connection.tls ? "TLS" : "cleartext"}
+													<span aria-hidden="true">·</span> <span>{connection.nick}</span>
+													{connection.account !== "" && (
+														<>
+															<span aria-hidden="true">·</span> {connection.account}
+														</>
+													)}
+												</p>
 											</div>
+											<span className={`irc-connection-status status-${connection.status}`}>
+												{statusLabel(connection.status)}
+											</span>
+										</header>
+										{connection.problem !== "" && <Said kind="failure">{connection.problem}</Said>}
+
+										<div className="irc-channels">
+											<div className="irc-channels-head">
+												<h5>Channels</h5>
+												<span>{channels.length}</span>
+											</div>
+											{channels.length === 0
+												? (
+													<p className="irc-no-channels">
+														No channels. This connection is retained without a live
+														transport.
+													</p>
+												)
+												: (
+													<ul className="irc-channel-list">
+														{channels.map((row) => {
+															const rowKey = channelKey(row.network, row.channel);
+															const rowProblem = channelWhy[rowKey] ??
+																(row.problem === "" ? undefined : row.problem);
+															return (
+																<li key={rowKey}>
+																	<div className="irc-channel-name">
+																		<strong>{row.channel}</strong>
+																		<span>
+																			{row.status === "up" ? "live" : row.status}
+																		</span>
+																	</div>
+																	{confirmingPart === rowKey
+																		? (
+																			<Confirm
+																				label={`Part ${row.channel}`}
+																				say={`Part ${row.channel} from ${row.network}? Its bridged Rooms room will close and every current membership will end.`}
+																				keep="Keep channel"
+																				commit="Part channel"
+																				busy={parting.has(rowKey)}
+																				onKeep={() => setConfirmingPart(null)}
+																				onCommit={() =>
+																					part(row.network, row.channel)}
+																			/>
+																		)
+																		: (
+																			<div className="actions">
+																				{home !== null && (
+																					<Button
+																						variant="quiet"
+																						onClick={() => openRoom(row)}
+																					>
+																						Open room
+																					</Button>
+																				)}
+																				<Button
+																					variant="quiet"
+																					disabled={closingNow}
+																					onClick={() =>
+																						setConfirmingPart(rowKey)}
+																				>
+																					Part…
+																				</Button>
+																			</div>
+																		)}
+																	{rowProblem !== undefined && (
+																		<Said kind="failure">{rowProblem}</Said>
+																	)}
+																</li>
+															);
+														})}
+													</ul>
+												)}
+											<form
+												className="irc-channel-add"
+												aria-label={`Add a channel to ${connection.network}`}
+												onSubmit={(event) => {
+													event.preventDefault();
+													join(connection.network);
+												}}
+											>
+												<label htmlFor={`ircChannel-${key}`}>Add channel</label>
+												<div className="irc-channel-field">
+													<span aria-hidden="true">#</span>
+													<input
+														id={`ircChannel-${key}`}
+														className="field"
+														value={draft}
+														placeholder="pancake"
+														disabled={joining.has(key) || closingNow}
+														{...identifierField}
+														onChange={(event) => {
+															const value = event.currentTarget.value.replace(/^#+/, "");
+															setChannelDrafts((prior) => ({ ...prior, [key]: value }));
+														}}
+													/>
+												</div>
+												<Button
+													type="submit"
+													busy={joining.has(key)}
+													disabled={draft.trim().replace(/^#+/, "") === "" || closingNow}
+												>
+													{joining.has(key) ? "Joining…" : "Join"}
+												</Button>
+											</form>
 										</div>
-										<p className="entry-meta">
-											<code>{row.endpoint}</code>
-										</p>
-										{partWhy[key] !== undefined && <Said kind="failure">{partWhy[key]}</Said>}
+
+										{confirmingClose === key
+											? (
+												<Confirm
+													label={`Close ${connection.network}`}
+													say={channels.length === 0
+														? `Delete the saved ${connection.network} connection?`
+														: `Delete this connection and part its ${channels.length} bridged ${
+															channels.length === 1 ? "channel" : "channels"
+														}?`}
+													keep="Keep connection"
+													commit="Close connection"
+													busy={closingNow}
+													onKeep={() => setConfirmingClose(null)}
+													onCommit={() => close(connection.network)}
+												/>
+											)
+											: (
+												<div className="irc-connection-actions">
+													<Button variant="quiet" onClick={() => setConfirmingClose(key)}>
+														Close connection…
+													</Button>
+												</div>
+											)}
+										{closeWhy[key] !== undefined && <Said kind="failure">{closeWhy[key]}</Said>}
 									</li>
 								);
 							})}
 						</ul>
 					)}
-			</div>
+			</section>
+
+			<section className="ops-section irc-new" aria-labelledby="ircNewTitle">
+				<SectionTitle id="ircNewTitle">New IRC connection</SectionTitle>
+				<form
+					className="well irc-new-form"
+					onSubmit={(event) => {
+						event.preventDefault();
+						open();
+					}}
+				>
+					<div className="irc-new-grid">
+						<ConnectionField
+							id="ircNetwork"
+							label="Name"
+							value={network}
+							placeholder="Libera"
+							disabled={opening}
+							onValue={setNetwork}
+						/>
+						<ConnectionField
+							id="ircHost"
+							label="Server"
+							value={host}
+							placeholder="irc.libera.chat"
+							disabled={opening}
+							onValue={setHost}
+						/>
+						<ConnectionField
+							id="ircPort"
+							label="Port"
+							value={port}
+							placeholder={tls ? "6697" : "6667"}
+							disabled={opening}
+							onValue={setPort}
+							port
+						/>
+						<ConnectionField
+							id="ircNick"
+							label="Feed nick"
+							value={nick}
+							placeholder="pancake-rooms"
+							disabled={opening}
+							onValue={setNick}
+						/>
+						<ConnectionField
+							id="ircAccount"
+							label="Account"
+							value={saslAccount}
+							placeholder="optional"
+							disabled={opening}
+							onValue={setSaslAccount}
+							optional
+						/>
+						<ConnectionField
+							id="ircPassword"
+							label="Password"
+							value={saslPassword}
+							placeholder="sent to your server"
+							disabled={opening}
+							onValue={setSaslPassword}
+							password
+							optional
+						/>
+					</div>
+					<div className="irc-new-foot">
+						<div className="switch-row irc-tls-row">
+							<p className="group-label" id="ircTlsLabel">TLS</p>
+							<Switch
+								id="ircTls"
+								checked={tls}
+								label="TLS"
+								aria-labelledby="ircTlsLabel"
+								disabled={opening}
+								onClick={() => setTls(!tls)}
+							/>
+						</div>
+						<p className="hint">
+							This creates the network capability only. Add channels after it appears above.
+						</p>
+						<Button id="ircOpenNetwork" type="submit" busy={opening} disabled={!canOpen}>
+							{opening ? "Opening…" : "Open connection"}
+						</Button>
+					</div>
+					{opened !== "" && <Said kind="success">{opened}</Said>}
+					{openWhy !== null && <Said kind="failure">{openWhy}</Said>}
+				</form>
+			</section>
 		</div>
+	);
+}
+
+function ConnectionField(
+	{ id, label, value, placeholder, disabled, onValue, port = false, password = false, optional = false }: {
+		id: string;
+		label: string;
+		value: string;
+		placeholder: string;
+		disabled: boolean;
+		onValue: (next: string) => void;
+		port?: boolean;
+		password?: boolean;
+		optional?: boolean;
+	},
+) {
+	return (
+		<Field id={id} label={label}>
+			{(wiring) => (
+				<input
+					id={wiring.id}
+					className="field"
+					type={password ? "password" : port ? "number" : "text"}
+					inputMode={port ? "numeric" : undefined}
+					min={port ? 1 : undefined}
+					max={port ? 65535 : undefined}
+					value={value}
+					placeholder={placeholder}
+					disabled={disabled}
+					required={!optional && !port}
+					{...identifierField}
+					onChange={(event) => onValue(event.currentTarget.value)}
+				/>
+			)}
+		</Field>
 	);
 }

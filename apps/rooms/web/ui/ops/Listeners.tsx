@@ -109,113 +109,109 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 			<OpsHead refresh={() => session.refreshOpsCap("listeners")}>
 				Where this server accepts connections: one listener per transport, switched here.
 			</OpsHead>
-			<div className="group well">
-				<ul id="listenersList" className="entries">
-					{rows.map((row) => {
-						const up = row.id !== null;
-						const idle = row.unavailable !== "" && !up;
-						const why = refused[row.transport];
-						return (
-							<li
-								key={row.transport}
-								className="entry"
-								data-transport={row.transport}
-								data-up={String(up)}
-								data-idle={idle ? "true" : undefined}
-							>
-								<div className="entry-head">
-									<span className="entry-name" id={`listenerName-${row.transport}`}>
-										{row.transport}
-									</span>
-									{
-										/* The serving listener carries this very page (and the
+			<ul id="listenersList" className="entries ops-tiles">
+				{rows.map((row) => {
+					const up = row.id !== null;
+					const idle = row.unavailable !== "" && !up;
+					const why = refused[row.transport];
+					return (
+						<li
+							key={row.transport}
+							className="entry well"
+							data-transport={row.transport}
+							data-up={String(up)}
+							data-idle={idle ? "true" : undefined}
+						>
+							<div className="entry-head">
+								<span className="entry-name" id={`listenerName-${row.transport}`}>
+									{row.transport}
+								</span>
+								{
+									/* The serving listener carries this very page (and the
 									    admin session with it), so its switch is disabled and
 									    the mark says why an off is not on offer. */
-									}
-									{row.serving && (
-										<span
-											className="ops-serving"
-											data-serving="true"
-											title="This listener is serving this page"
-										>
-											this page
-										</span>
-									)}
-									<Switch
-										id={`listenerSwitch-${row.transport}`}
-										checked={up}
-										label={up
-											? `Take the ${row.transport} listener down`
-											: `Bring the ${row.transport} listener up`}
-										disabled={row.serving || idle}
-										busy={busyOn.has(row.transport)}
-										title={row.serving
-											? "This listener is serving this page"
-											: idle
-											? row.unavailable
-											: undefined}
-										onClick={() => flip(row)}
-									/>
-								</div>
-								<p className="hint">
-									{row.description}
-									{row.reference !== "" && (
-										<>
-											{" "}
-											<a href={row.reference} target="_blank" rel="noreferrer">
-												about {row.referenceName}
-											</a>
-										</>
-									)}
-								</p>
-								{idle && <p className="hint ops-idle">{row.unavailable}</p>}
-								{up && row.locator !== null && (
-									<CopyField
-										text={row.locator}
-										label={`Copy the ${row.transport} listener's locator`}
-									/>
-								)}
-								{!up && !idle && row.takes.map((knob) => (
-									<Field
-										key={knob.name}
-										id={`listenerOpt-${row.transport}-${knob.name}`}
-										label={knob.name}
-										layout="inline"
-										width={knob.kind === "port" ? "short" : undefined}
+								}
+								{row.serving && (
+									<span
+										className="ops-serving"
+										data-serving="true"
+										title="This listener is serving this page"
 									>
-										{(wiring) => (
-											<input
-												id={wiring.id}
-												className="field"
-												type="text"
-												inputMode={knob.kind === "port"
-													? "numeric"
-													: knob.kind === "url"
-													? "url"
-													: "text"}
-												enterKeyHint="done"
-												value={fieldValue(row, knob.name, knob.kind, knob.hint)}
-												disabled={busyOn.has(row.transport)}
-												placeholder={knob.hint}
-												onChange={(event) =>
-													setFields((prior) => ({
-														...prior,
-														[`${row.transport}/${knob.name}`]: event.target.value,
-													}))}
-												{...identifierField}
-												aria-label={`${knob.name} for the ${row.transport} listener`}
-											/>
-										)}
-									</Field>
-								))}
-								{why !== undefined && (
-									<Said id={`listenerWhy-${row.transport}`} kind="failure">{why}</Said>
+										this page
+									</span>
 								)}
-							</li>
-						);
-					})}
-				</ul>
-			</div>
+								<Switch
+									id={`listenerSwitch-${row.transport}`}
+									checked={up}
+									label={up
+										? `Take the ${row.transport} listener down`
+										: `Bring the ${row.transport} listener up`}
+									disabled={row.serving || idle}
+									busy={busyOn.has(row.transport)}
+									title={row.serving
+										? "This listener is serving this page"
+										: idle
+										? row.unavailable
+										: undefined}
+									onClick={() => flip(row)}
+								/>
+							</div>
+							<p className="hint">
+								{row.description}
+								{row.reference !== "" && (
+									<>
+										{" "}
+										<a href={row.reference} target="_blank" rel="noreferrer">
+											about {row.referenceName}
+										</a>
+									</>
+								)}
+							</p>
+							{idle && <p className="hint ops-idle">{row.unavailable}</p>}
+							{up && row.locator !== null && (
+								<CopyField
+									text={row.locator}
+									label={`Copy the ${row.transport} listener's locator`}
+								/>
+							)}
+							{!up && !idle && row.takes.map((knob) => (
+								<Field
+									key={knob.name}
+									id={`listenerOpt-${row.transport}-${knob.name}`}
+									label={knob.name}
+									layout="inline"
+									width={knob.kind === "port" ? "short" : "medium"}
+								>
+									{(wiring) => (
+										<input
+											id={wiring.id}
+											className="field"
+											type="text"
+											inputMode={knob.kind === "port"
+												? "numeric"
+												: knob.kind === "url"
+												? "url"
+												: "text"}
+											enterKeyHint="done"
+											value={fieldValue(row, knob.name, knob.kind, knob.hint)}
+											disabled={busyOn.has(row.transport)}
+											placeholder={knob.hint}
+											onChange={(event) =>
+												setFields((prior) => ({
+													...prior,
+													[`${row.transport}/${knob.name}`]: event.target.value,
+												}))}
+											{...identifierField}
+											aria-label={`${knob.name} for the ${row.transport} listener`}
+										/>
+									)}
+								</Field>
+							))}
+							{why !== undefined && <Said id={`listenerWhy-${row.transport}`} kind="failure">{why}</Said>}
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }

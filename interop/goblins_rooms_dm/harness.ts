@@ -19,10 +19,10 @@
 //      half that makes a direct message a conversation rather than a drop box.
 //   3. The vat starts one of its own. A native pancake member registers, the vat
 //      asks the room to introduce it, and Goblins redeems that give by dialing
-//      the member directly. This is the corner that needs the exporter's own
-//      claim: Goblins files each open session under the whole location its
-//      partner claimed and looks a give's exporter location up in that table, so
-//      the gifter relays that claim rather than building a locator of its own.
+//      the member directly. The member observes the exact line and then refuses
+//      its call; the vat reports that refusal without printing `DM SENT`. This
+//      proves both the exporter claim and that terminal narration follows the
+//      asynchronous delivery result rather than message submission.
 //   4. The conversation reaches the live timeline as a session of its own, from
 //      both ends, with the room off its path. The vat publishes what its own
 //      netlayer saw, so a viewer draws this wire from inside it.
@@ -47,14 +47,15 @@ import { type Browser, chromium, type Page } from "playwright";
 
 import type { Argument, Behavior } from "@pancake/runtime";
 import { inboxPublisher } from "../../apps/rooms/lib/dm_inbox.ts";
-import { Directory, Room } from "../../apps/rooms/lib/room_client.ts";
+import { Directory, Room } from "../../apps/rooms/lib/room/client.ts";
 import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
-import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
-import { until as untilWithin } from "../../apps/rooms/test/support/page.ts";
+import { confirmTitleLeave, until as untilWithin } from "../../apps/rooms/test/support/page.ts";
+import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
@@ -123,17 +124,28 @@ function rejectInvalidHandoff(): void {
 	}
 }
 
+function expectWireProvenance(
+	record: Record<string, unknown>,
+	label: string,
+	provenance: "authenticated-transport" | "unauthenticated",
+): void {
+	const transport = IROH ? "iroh" : "tcp";
+	if (record.transport !== transport || record.provenance !== provenance) {
+		fail(
+			`${label} reported ${record.transport}/${record.provenance}, wanted ${transport}/${provenance}`,
+		);
+	}
+}
+
 /** Every line the native pancake member has been sent directly.
  *
- * It records and answers nothing. The vat answers every message it receives, so
- * a member that answered back would leave the two of them trading
- * acknowledgements for as long as this harness runs. What (3) claims is that the
- * vat's line arrived at all, and arriving is what this records. */
+ * It records and then refuses. That gives the vat a completed negative delivery
+ * result: the line demonstrably arrived, while `DM SENT` must remain absent. */
 const nativeInbox: string[] = [];
-const recordOnlyDm: Behavior = (verb: string, args: Argument[]): null => {
+const recordOnlyDm: Behavior = (verb: string, args: Argument[]): never => {
 	if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 	nativeInbox.push(String(args[0]));
-	return null;
+	throw new Error("the native inbox refused after observing the line");
 };
 
 /** Stand the native pancake member up where the vat can dial it, and hand back
@@ -317,9 +329,9 @@ try {
 		});
 		// The locator registered here is what the room stamps as this member's
 		// exporter location, and therefore what the vat's give has to name.
-		await nativeDir.register(NATIVE_NICK, native.locator, (peer) => {
+		await nativeDir.register(NATIVE_NICK, native.locator, (peer, registrationId) => {
 			console.log(`  [native] the room asked for an inbox for ${peer}`);
-			nativeOfferer.offer(peer);
+			nativeOfferer.offer(peer, registrationId);
 		});
 		console.log(`  [native] registered as ${NATIVE_NICK} at ${native.locator}`);
 	}
@@ -332,8 +344,19 @@ try {
 		vizMemorySeed(httpPort, vizRef),
 	);
 	const tab: Page = await context.newPage();
+	tab.on("console", (message) => {
+		if (message.type() === "error" || message.type() === "warning") {
+			console.error(`  [page ${message.type()}] ${message.text()}`);
+		}
+	});
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
+	await establishLocalSession(tab);
+	await tab.waitForSelector("#joinBtn", { timeout: 10_000 }).catch(async (error) => {
+		console.error(`  [page url] ${tab.url()}`);
+		console.error(`  [page body] ${JSON.stringify((await tab.locator("body").innerText()).slice(0, 2_000))}`);
+		throw error;
+	});
 	await tab.fill("#nick", TAB_NICK);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -375,21 +398,17 @@ try {
 	// which is dialable and is not what the member claimed on the room's own
 	// connection, so the gifter composes the two.
 	{
-		// The vat says `DM SENT` as it hands the line to its own DM library, before
-		// any introduction is redeemed, so that line is a start and not a delivery.
-		// What proves the give was usable is the member holding the text.
-		await until(
-			() => vatSaid(new RegExp(`^DM SENT ${NATIVE_NICK}$`)),
-			"the Goblins vat to start its own direct message to the native member",
-		);
 		await until(
 			() => nativeInbox.includes(TO_NATIVE),
 			"the native pancake member to receive the vat's direct message",
 		);
-		// A refusal is narrated rather than thrown, so a redeem that failed would
-		// otherwise leave only a timeout above. Say which line the vat printed.
-		const vatComplaint = vatLines.find((line) => line.startsWith("!"));
-		if (vatComplaint !== undefined) fail(`the vat reported a failure: ${vatComplaint}`);
+		await until(
+			() => vatSaid(new RegExp(`^! could not direct message to ${NATIVE_NICK}:`)),
+			"the Goblins vat to report the native member's asynchronous refusal",
+		);
+		if (vatSaid(new RegExp(`^DM SENT ${NATIVE_NICK}$`))) {
+			fail("the vat narrated a refused direct message as sent");
+		}
 	}
 
 	// (4) The conversation between the tab and the vat, on the live timeline.
@@ -420,7 +439,6 @@ try {
 			| string
 			| undefined;
 	};
-
 	await until(
 		() => tabDmSessions().size > 0 && vatSideOf(tabDmSessions()) !== undefined,
 		"the tab's direct conversation with the vat to reach the timeline from both ends",
@@ -455,9 +473,30 @@ try {
 		);
 	}
 	const vatSideOpen = opensNow().find((r) => r.session === vatSide);
-	if (vatSideOpen?.b === roomDesignator) {
+	const tabSideOpen = opensNow().find((r) => r.session === tabSide);
+	if (tabSideOpen === undefined || vatSideOpen === undefined) {
+		fail("the direct conversation lost one opened-session provenance record");
+	}
+	// The browser's configured relay reports the exact iroh target it dialed, and
+	// the far CapTP hello must claim that same key before the browser accepts its
+	// testimony. The vat sees the relay's QUIC endpoint rather than the browser
+	// Host, so that opposite view has no matching durable-peer proof.
+	expectWireProvenance(
+		tabSideOpen,
+		"the browser's direct wire",
+		IROH ? "authenticated-transport" : "unauthenticated",
+	);
+	expectWireProvenance(vatSideOpen, "the vat's direct wire", "unauthenticated");
+	if (vatSideOpen.b === roomDesignator) {
 		fail("the direct conversation was drawn on the vat's session to the room");
 	}
+	const vatRoomOpen = vatSessions.find((r) => r.b === roomDesignator);
+	if (vatRoomOpen === undefined) fail("the vat's room session lost its provenance record");
+	expectWireProvenance(
+		vatRoomOpen,
+		"the vat's room wire",
+		IROH ? "authenticated-transport" : "unauthenticated",
+	);
 
 	// (5) Closing the conversation in the browser takes its session off the
 	// timeline. The vat's own end is what says so, because a session ends when
@@ -469,7 +508,7 @@ try {
 				.map((r) => r.session as string),
 		);
 	if (closed().has(vatSide)) fail("the direct conversation was already closed before the test");
-	await tab.locator("#leaveBtn").click();
+	await confirmTitleLeave(tab);
 	await until(
 		() => closed().has(vatSide) && closed().has(tabSide),
 		"both observations of the closed conversation to leave the live timeline",
@@ -520,7 +559,7 @@ try {
 	);
 	const reopenedId = reopened![0].session_id as string;
 	const reopenedSides = reopened!.map((record) => record.session as string);
-	await tab.locator("#leaveBtn").click();
+	await confirmTitleLeave(tab);
 	await until(
 		() => reopenedSides.every((session) => closed().has(session)),
 		"both observations of the reopened conversation to close",
@@ -532,7 +571,8 @@ try {
 			`introduction and reached the vat off-room; the vat answered over that same ` +
 			`connection, which is the only way back to a tab that never listens; ` +
 			`the vat started a direct message of its own, redeeming a give that named a ` +
-			`pancake member as its exporter; the tab's conversation reached the live timeline from ` +
+			`pancake member as its exporter, and reported that member's deliberate refusal without ` +
+			`claiming the line was sent; the tab's conversation reached the live timeline from ` +
 			`both ends under session id ${sharedId.slice(0, 12)}…, on a wire the room is not ` +
 			`on; closing it retired both observations; and reopening started a distinct ` +
 			`two-ended session ${reopenedId.slice(0, 12)}… only after the first had closed, ` +

@@ -9,8 +9,10 @@ import {
 	TRANSPORT_IROH,
 } from "@pancake/runtime";
 import * as irohTransport from "@pancake/iroh";
+import { isWildcardHost } from "./bind_host.ts";
 import { roomsListen } from "./locator.ts";
 import { optionalEnv } from "./env.ts";
+import { routinePeerDisconnect } from "./session_failure.ts";
 
 export type StandaloneTransport = "iroh" | "tcp";
 
@@ -81,7 +83,7 @@ export async function listenStandalone(
 
 	const bind = option(options.args, "bind") ?? optionalEnv(envName(options, "BIND")) ?? "127.0.0.1";
 	const announce = option(options.args, "announce-host") ?? optionalEnv(envName(options, "ANNOUNCE_HOST"));
-	if ((bind === "0.0.0.0" || bind === "::" || bind === "[::]") && announce == null) {
+	if (isWildcardHost(bind) && announce == null) {
 		throw new Error(`${options.label} bind ${bind} needs --announce-host=<dialable-host>`);
 	}
 	const server = await roomsListen(bind, portChoice(options), host, announce);
@@ -102,7 +104,9 @@ async function serveConnection(session: Session): Promise<void> {
 }
 
 function reportConnectionFailure(label: string, error: unknown): void {
-	console.error(`${label}: a peer connection ended unexpectedly: ${failureText(error)}`);
+	if (!routinePeerDisconnect(error)) {
+		console.error(`${label}: a peer connection ended unexpectedly: ${failureText(error)}`);
+	}
 	for (const cleanup of secondaryFailures(error)) {
 		console.error(`${label}: closing that connection also failed: ${failureText(cleanup)}`);
 	}

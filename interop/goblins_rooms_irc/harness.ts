@@ -185,7 +185,7 @@ async function bridgePhase(): Promise<void> {
 	const bridge = new LiveChild("deno", [
 		...DENO_FLAGS,
 		"--unsafely-ignore-certificate-errors=127.0.0.1",
-		`${ROOT}/apps/rooms/irc/main.ts`,
+		`${ROOT}/apps/rooms/irc/bridge/main.ts`,
 		"--network=fixture",
 		"--channel=#ocapn",
 		"--irc-host=127.0.0.1",
@@ -249,7 +249,7 @@ async function frontPhase(): Promise<void> {
 
 		front = new LiveChild("deno", [
 			...DENO_FLAGS,
-			`${ROOT}/apps/rooms/irc/front_main.ts`,
+			`${ROOT}/apps/rooms/irc/front/main.ts`,
 			`--directory=${locator}`,
 			"--port=0",
 			"--dm-transport=tcp",

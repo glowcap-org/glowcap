@@ -192,7 +192,7 @@ test "the scan branch reports incomplete while a stalled frame is still under th
     try std.testing.expectEqual(engine.Peer.RecvStream.incomplete, try peer.recvStreamPrefix(bytes));
     // The decoder would also have said `incomplete`, so the outcome alone does
     // not show the scan ran. What shows it is the peer's own cursor: it walked
-    // the prefix and kept its place, which is what makes the next read cheap.
+    // the prefix and kept its place, so the next read is cheap.
     try std.testing.expect(peer.stream_scan.cursor > codec.framing.scan_threshold_bytes);
     // Withholding the decoder is not the same as refusing: nothing was aborted.
     try std.testing.expect(peer.lastAbort() == null);

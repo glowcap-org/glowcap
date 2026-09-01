@@ -1,9 +1,11 @@
 //! Human doc voice: the banned scaffold needles, habitual em-dash shapes,
-//! connective arrows outside fences, headings that spend contrast before the
-//! subject has a name, and the prose sentence-length ceiling.
+//! the justification tic and its closed `apps/` debt list, connective arrows
+//! outside fences, headings that spend contrast before the subject has a
+//! name, and the prose sentence-length ceiling.
 
 const std = @import("std");
 const util = @import("../util.zig");
+const voice_debt = @import("voice_debt.zig");
 
 const appendViolation = util.appendViolation;
 const bans = @import("../bans.zig");
@@ -54,6 +56,33 @@ pub fn checkHumanDocVoice(
             try banHabitualEmDash(gpa, violations, path, contents);
         }
     }
+
+    // The justification tic runs its own, wider walk over every first-party
+    // prose tree. `apps/` files still carrying it ride the closed debt list
+    // in `voice_debt.zig` until each is rewritten.
+    for (justification_tic_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        // tolerant: an unopenable tree already violates through the ban rows.
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            // tolerant: a read failure already reports through the ban rows.
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try banHabitualJustification(gpa, violations, path, contents);
+        }
+    }
+    for (voice_debt.justification_tic) |debt| {
+        // A deleted or moved file leaves the walk above, so its row is
+        // checked directly.
+        root.access(io, debt, .{}) catch {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: no longer exists — retire its row from source_check/docs/voice_debt.zig",
+                .{debt},
+            );
+        };
+    }
 }
 
 /// Where the em-dash overuse check runs. Wider than the human first-read scopes
@@ -101,6 +130,60 @@ fn banHabitualEmDash(
             );
             return;
         }
+    }
+}
+
+/// Where the justification-tic check runs: every first-party prose tree,
+/// wider than the em-dash scopes because the tic was measured across all of
+/// them. Vendored and generated stores are pruned by directory.
+const justification_tic_scopes = [_]bans.Where{
+    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "tools", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "test", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "examples", .suffixes = &.{ ".zig", ".c", ".md" } } },
+    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
+    .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
+    .{ .tree = .{ .dir = "include", .suffixes = &.{".h"} } },
+    .{ .tree = .{ .dir = "bindings", .suffixes = &.{ ".rs", ".ts", ".tsx", ".py", ".rkt" }, .skip_dirs = &.{ "node_modules", "target/" } } },
+    .{ .tree = .{ .dir = "conformance/goblins-peer/racket", .suffixes = &.{".rkt"} } },
+    .{ .tree = .{ .dir = "conformance/ocapn-conformance", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "interop", .suffixes = &.{ ".zig", ".rs", ".ts", ".py", ".rkt" } } },
+    .{ .tree = .{ .dir = "apps", .suffixes = &.{ ".zig", ".ts", ".tsx", ".css", ".md", ".py", ".rkt" }, .skip_dirs = &.{"node_modules"} } },
+};
+
+/// The which-is-what justification tic is one authorial habit repeated
+/// across every language's comments, and each instance rewrites to a plainer
+/// joint: a comma apposition, `so`, or a second sentence. `apps/` files
+/// still carrying it are listed in `voice_debt.zig`, a closed list a file
+/// leaves by being rewritten, so the tic thins as files are touched instead
+/// of surviving by habit.
+fn banHabitualJustification(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    // Split so this file passes its own walk.
+    const needle = "which is" ++ " what";
+    const listed = for (voice_debt.justification_tic) |debt| {
+        if (std.mem.eql(u8, path, debt)) break true;
+    } else false;
+    const present = std.mem.indexOf(u8, contents, needle) != null;
+    if (present and !listed) {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: `{s}` is a justification tic (doc-voice) — rewrite as a comma apposition, `so`, or a second sentence",
+            .{ path, needle },
+        );
+    } else if (listed and !present) {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: its `{s}` instances are gone — retire its row from source_check/docs/voice_debt.zig",
+            .{ path, needle },
+        );
     }
 }
 

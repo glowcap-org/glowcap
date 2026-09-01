@@ -7,7 +7,7 @@
 
 import type { Page } from "playwright";
 import { removeCapability, takeCapability } from "./capability_set.ts";
-import { fail } from "./harness.ts";
+import { fail, reachDirectoryOnCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 async function joinForeignRoom(tab: Page, foreignLocator: string): Promise<void> {
@@ -19,6 +19,7 @@ async function joinForeignRoom(tab: Page, foreignLocator: string): Promise<void>
 	await tab.waitForSelector("#joinForm", { timeout: 10_000 })
 		.catch(() => fail("the rail offered no way to reach a room on another server"));
 	await tab.fill("#locator", foreignLocator);
+	await reachDirectoryOnCard(tab);
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 		.catch(() => fail("the second directory's room did not open for the peering scene"));
@@ -27,8 +28,8 @@ async function joinForeignRoom(tab: Page, foreignLocator: string): Promise<void>
 async function takePeering(tab: Page, peeringSwiss: string): Promise<void> {
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await takeCapability(tab, "#opsPeeringToggle", peeringSwiss);
 	await tab.waitForSelector("#opsBtn", { timeout: 15_000 })
 		.catch(() => fail("taking the peering capability did not land its toggle on"));
@@ -48,8 +49,8 @@ async function publish(tab: Page): Promise<void> {
 async function dropCapability(tab: Page): Promise<void> {
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await removeCapability(tab, "#opsPeeringToggle");
 	await tab.click("#settingsClose");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
@@ -97,10 +98,12 @@ export async function runPeeringScene(
 		const row = document.querySelector("#peeringList li");
 		return {
 			name: row?.querySelector(".entry-name")?.textContent ?? "",
-			source: row?.querySelector("code")?.textContent ?? "",
+			// The row says where the room came from in its own voice, under the
+			// name: "from <directory>", with nothing set in code type.
+			source: row?.querySelector(".entry-meta")?.textContent ?? "",
 		};
 	});
-	if (published.name !== "annex-here" || published.source === "") {
+	if (published.name !== "annex-here" || !published.source.startsWith("from ")) {
 		fail(`the publication row does not carry its name and source: ${JSON.stringify(published)}`);
 	}
 

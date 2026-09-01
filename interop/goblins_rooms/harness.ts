@@ -34,7 +34,7 @@
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@pancake/runtime";
-import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -122,6 +122,8 @@ async function drainToLog(
 interface SessionRow {
 	codec?: string;
 	captpVersion?: string;
+	transport?: string;
+	provenance?: string;
 	label?: string;
 	selfProfile?: string;
 	sessionId?: string;
@@ -150,6 +152,8 @@ async function watchTrace(
 		if (ev.kind === "ocapn.session-opened") {
 			row.codec = ev.codec;
 			row.captpVersion = ev.captp_version;
+			row.transport = ev.transport;
+			row.provenance = ev.provenance;
 			row.selfProfile = ev.a_profile;
 			row.sessionId = ev.session_id;
 		} else if (ev.kind === "ocapn.session-meta" && ev.meta?.label) {
@@ -206,6 +210,19 @@ function expectProfile(
 		);
 	}
 	console.log(`${GATE}: ${label} settled codec=${row.codec} captp=${row.captpVersion}`);
+}
+
+/** The transport and its proof are separate trace facts. An iroh connection
+ * proves the endpoint key that answered; cleartext TCP names only an address. */
+function expectTransport(row: SessionRow, label: string): void {
+	const transport = IROH ? "iroh" : "tcp";
+	const provenance = IROH ? "authenticated-transport" : "unauthenticated";
+	if (row.transport !== transport || row.provenance !== provenance) {
+		fail(
+			`${label}'s session reported ${row.transport}/${row.provenance}, wanted ${transport}/${provenance}`,
+		);
+	}
+	console.log(`${GATE}: ${label} transport=${row.transport} provenance=${row.provenance}`);
 }
 
 // The room server, on an ephemeral port, with its trace broadcast on another.
@@ -290,18 +307,22 @@ try {
 	// The profiles, off the server's own trace rather than off either member's
 	// word. A Goblins vat speaks only the baseline; the pancake member and the
 	// server both prefer pancake-next over Cap'n Proto and get it.
+	const goblinsServerView = sessionOf(trace.rows, GOBLINS_NICK);
+	const pancakeServerView = sessionOf(trace.rows, PANCAKE_NICK);
 	expectProfile(
-		sessionOf(trace.rows, GOBLINS_NICK),
+		goblinsServerView,
 		GOBLINS_NICK,
 		"syrup",
 		CAPTP_VERSION_WIRE.v1_0,
 	);
 	expectProfile(
-		sessionOf(trace.rows, PANCAKE_NICK),
+		pancakeServerView,
 		PANCAKE_NICK,
 		"capnp",
 		CAPTP_VERSION_WIRE.next,
 	);
+	expectTransport(goblinsServerView, `${GOBLINS_NICK} at the room`);
+	expectTransport(pancakeServerView, `${PANCAKE_NICK} at the room`);
 
 	// The vat is a PRODUCER here, not only a member: `PANCAKE_ROOMS_VIZ_URL` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
@@ -313,8 +334,9 @@ try {
 	// Neither end is told the name. Each derives it from the two session keys
 	// the handshake already exchanged, so this is also the assertion that
 	// pancake's derivation and Goblins's agree byte for byte.
-	const serverView = sessionOf(trace.rows, GOBLINS_NICK);
+	const serverView = goblinsServerView;
 	const vatView = vatSelfReport(trace.rows);
+	expectTransport(vatView, `${GOBLINS_NICK} at the vat`);
 	if (serverView.selfProfile !== PANCAKE_PROFILE) {
 		fail(
 			`the room server reported its own end as "${serverView.selfProfile}", wanted "${PANCAKE_PROFILE}"`,

@@ -1,6 +1,7 @@
 // Admission, invalidation, and retry timing for browser directory connections.
 
 import type { DirId } from "../types.ts";
+import type { RoomPolicy } from "../../../lib/room/policy.ts";
 
 export interface DirectoryConnectionAttempt {
 	/** The reader canceled this attempt, or gave the directory back after the
@@ -23,13 +24,16 @@ function completionOf(work: Promise<unknown>): Promise<void> {
 /** One lifecycle per browser tab. A directory has at most one current opening,
  * one retry timer, and one holding epoch. Explicit opens wait for an earlier
  * attempt but never join it; Leave invalidates both the attempt in front and
- * every request already waiting behind it. */
+ * every request already waiting behind it. One staged first join waits here
+ * until a directory is up to enter it on. */
 export class DirectoryConnectionLifecycle {
 	readonly #limit: number;
 	readonly #opening = new Map<DirId, Promise<string>>();
 	readonly #left = new Set<DirId>();
 	readonly #epochs = new Map<DirId, symbol>();
 	readonly #reconnects = new Map<DirId, ReturnType<typeof setTimeout>>();
+	#staged: { room: string; nick: string; policy: RoomPolicy } | null = null;
+	#stagedSettle: ((message: string) => void) | null = null;
 
 	constructor(limit: number) {
 		if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("directory connection limit must be positive");
@@ -79,6 +83,17 @@ export class DirectoryConnectionLifecycle {
 
 	forget(id: DirId): void {
 		this.#invalidate(id);
+	}
+
+	/** Stop every opening and reconnect without forgetting saved holdings.
+	 * DurableRoomsRuntime then reconnects as the same Host identity. */
+	drainAll(): void {
+		const ids = new Set<DirId>([
+			...this.#opening.keys(),
+			...this.#epochs.keys(),
+			...this.#reconnects.keys(),
+		]);
+		for (const id of ids) this.leave(id);
 	}
 
 	schedule(id: DirId, delay: number, reopen: () => void): void {
@@ -141,5 +156,35 @@ export class DirectoryConnectionLifecycle {
 		if (!this.#left.has(id) || this.#opening.has(id) || this.#reconnects.has(id)) return;
 		this.#left.delete(id);
 		this.#epochs.delete(id);
+	}
+
+	/** Hold the room a reader asked for until a directory is up to enter it on. */
+	stageJoin(room: string, nick: string, policy: RoomPolicy, signal?: AbortSignal): Promise<string> {
+		this.settleStaged("");
+		if (signal?.aborted) return Promise.resolve("");
+		this.#staged = { room, nick, policy };
+		return new Promise<string>((resolve) => {
+			this.#stagedSettle = resolve;
+			signal?.addEventListener("abort", () => this.abandonJoin(), { once: true });
+		});
+	}
+
+	/** Take the room a reader asked for before this directory was up, if one is
+	 * waiting. Read once: whoever takes it owns settling it. */
+	takeStaged(): { room: string; nick: string; policy: RoomPolicy } | null {
+		const wanted = this.#staged;
+		this.#staged = null;
+		return wanted;
+	}
+
+	settleStaged(message: string): void {
+		const settle = this.#stagedSettle;
+		this.#stagedSettle = null;
+		settle?.(message);
+	}
+
+	abandonJoin(): void {
+		this.#staged = null;
+		this.settleStaged("");
 	}
 }

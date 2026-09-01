@@ -196,8 +196,8 @@ test "planDial keyed-relay: a non-key designator is DesignatorNotPeerKey" {
 
 test "planAccept webrtc: signs the server key, and its netlayer offers no address to publish" {
     // Empty because a `webrtc` peer is reached through a signaling exchange and
-    // has no dialable address to give (ADR-0089), which is what its resident
-    // reports. The planner does not filter by transport: it publishes whatever
+    // has no dialable address to give (ADR-0089), and its resident reports
+    // exactly that. The planner does not filter by transport: it publishes whatever
     // the netlayer — or, on the byte-fed path, the embedder that owns the
     // transport — said this side is reachable at. Which hints a locator carries
     // is the netlayer's business, so a second table here could only drift from

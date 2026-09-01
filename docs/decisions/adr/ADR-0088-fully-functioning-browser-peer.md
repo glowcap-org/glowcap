@@ -303,9 +303,9 @@ it is what `currentSession()` enables.
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,
   `src/c_abi/host/host.zig`); the rooms client's `DirectMessage`
-  (`apps/rooms/lib/room_client.ts`); proofs `apps/rooms/demos/dm_back_demo.ts`
+  (`apps/rooms/lib/room/client.ts`); proofs `apps/rooms/demos/dm_back_demo.ts`
   (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
-  attribution), and `apps/rooms/test/web_dm_test.ts` (browser).
+  attribution), and `apps/rooms/test/web/dm_test.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
   `webSocketChannel` in `@pancake/relay` (`bindings/ts/relay/rendezvous.ts`,
   `bindings/ts/relay/ws_relay.ts`); the accept side `serveRendezvous` and the
@@ -317,8 +317,8 @@ it is what `currentSession()` enables.
   symbol (`src/ocapn/model/transport.zig`, `src/driver/core/vocab.zig`); the
   rooms relay endpoints and rooms UI wiring (`apps/rooms/web/relay.ts`,
   `apps/rooms/web/serve.ts`, `apps/rooms/web/ui/net.ts`); proofs
-  `apps/rooms/test/web_dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
-  `apps/rooms/test/web_dm_native_dial_test.ts`
+  `apps/rooms/test/web/dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
+  `apps/rooms/test/web/dm_native_dial_test.ts`
   (`zig build rooms-web-dm-native`).
 - Cross-runtime route proof: `bindings/proofs/keyed_relay_rendezvous/`, run by
   `zig build bindings-keyed-relay-rendezvous`; native registration proof:

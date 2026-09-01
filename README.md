@@ -171,7 +171,7 @@ a local preview, run `zig build docs-serve` and open
 interface so the published host port (`PANCAKE_DOCS_HOST_PORT`, 1990 on the
 primary checkout) reaches it.
 
-Docs kept in step with today's code own the inventory:
+These pages must match the code as it is today:
 
 - [What ships](docs/shipped.md) lists the usable APIs and transports.
 - [Known limitations](docs/boundaries.md) lists deployment and API constraints.

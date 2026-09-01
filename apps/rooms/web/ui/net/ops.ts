@@ -5,16 +5,13 @@
 // refresh; `ops/catalog.ts` owns the matching presentation vocabulary.
 //
 // The visualizer and peering have no refresh because they have nothing to
-// ask: the viz pane draws this tab's own publishing socket and the peering
-// pane draws this tab's own publications, both of which the store already
-// knows about.
+// ask: the viz pane draws the publishing socket the store already knows about
+// and the peering pane draws this tab's own publications.
 
 import type { OpsCap } from "../types.ts";
 import { opsHeldOf } from "../types.ts";
-import * as store from "../store.ts";
 import { formatOpsBundle, OPS_BUNDLE_CAPABILITIES, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
 import { onOperationsInvalidated } from "../ops/invalidation.ts";
-import { broadcastCapabilitySetChanged } from "../ops/capability_set_events.ts";
 import { dropDiagnosticCap, refreshDiagnostics, takeDiagnosticCap } from "./diagnostics.ts";
 import { dropIrcGatewayCap, refreshIrcGateway, takeIrcGatewayCap } from "./irc.ts";
 import { dropListenersCap, refreshListeners, takeListenersCap } from "./listeners.ts";
@@ -22,6 +19,7 @@ import { dropOperatorCap, refreshOperator, takeOperatorCap } from "./operator.ts
 import { dropPeeringCap, takePeeringCap } from "./peering.ts";
 import { dropVizCap, takeVizCap, vizCapabilityScope } from "./viz.ts";
 import { rememberedOpsCredentials, replaceOpsCredentials } from "./ops_memory.ts";
+import type { RoomsPageContext } from "../page.ts";
 
 interface OpsVerbs {
 	/** Redeem `pasted` for this capability, empty when the tab now holds it
@@ -35,28 +33,56 @@ interface OpsVerbs {
 	readonly refresh?: () => Promise<void>;
 }
 
-const VERBS: Record<OpsCap, OpsVerbs> = {
-	listeners: { take: takeListenersCap, drop: dropListenersCap, refresh: refreshListeners },
-	diagnostics: { take: takeDiagnosticCap, drop: dropDiagnosticCap, refresh: refreshDiagnostics },
-	irc: { take: takeIrcGatewayCap, drop: dropIrcGatewayCap, refresh: refreshIrcGateway },
-	operator: { take: takeOperatorCap, drop: dropOperatorCap, refresh: refreshOperator },
-	peering: { take: takePeeringCap, drop: dropPeeringCap },
-	viz: { take: takeVizCap, drop: dropVizCap },
-};
-
-onOperationsInvalidated(async () => {
-	await Promise.all(Object.values(VERBS).map((verbs) => verbs.refresh?.()));
-});
-
-function takeOpsCap(cap: OpsCap, pasted: string, remember = false): Promise<string> {
-	return VERBS[cap].take(pasted, remember);
+function opsVerbs(page: RoomsPageContext): Record<OpsCap, OpsVerbs> {
+	return {
+		listeners: {
+			take: (pasted, remember) => takeListenersCap(page, pasted, remember),
+			drop: (updateVault) => dropListenersCap(page, updateVault),
+			refresh: () => refreshListeners(page),
+		},
+		diagnostics: {
+			take: (pasted, remember) => takeDiagnosticCap(page, pasted, remember),
+			drop: (updateVault) => dropDiagnosticCap(page, updateVault),
+			refresh: () => refreshDiagnostics(page),
+		},
+		irc: {
+			take: (pasted, remember) => takeIrcGatewayCap(page, pasted, remember),
+			drop: (updateVault) => dropIrcGatewayCap(page, updateVault),
+			refresh: () => refreshIrcGateway(page),
+		},
+		operator: {
+			take: (pasted, remember) => takeOperatorCap(page, pasted, remember),
+			drop: (updateVault) => dropOperatorCap(page, updateVault),
+			refresh: () => refreshOperator(page),
+		},
+		peering: {
+			take: (pasted, remember) => takePeeringCap(page, pasted, remember),
+			drop: (updateVault) => dropPeeringCap(page, updateVault),
+		},
+		viz: {
+			take: (pasted, remember) => takeVizCap(page, pasted, remember),
+			drop: (updateVault) => dropVizCap(page, updateVault),
+		},
+	};
 }
 
-async function savedOpsBundle(): Promise<Map<OpsCap, string>> {
-	const home = store.get().homeDir;
+/** Ask every held capability again when another tab mutates the same server.
+ * Installed once from the page that owns those takes. */
+export function installOpsInvalidation(page: RoomsPageContext): void {
+	onOperationsInvalidated(page, async () => {
+		await Promise.all(Object.values(opsVerbs(page)).map((verbs) => verbs.refresh?.()));
+	});
+}
+
+function takeOpsCap(page: RoomsPageContext, cap: OpsCap, pasted: string, remember = false): Promise<string> {
+	return opsVerbs(page)[cap].take(pasted, remember);
+}
+
+async function savedOpsBundle(page: RoomsPageContext): Promise<Map<OpsCap, string>> {
+	const home = page.projection.get().homeDir;
 	const vizScope = await vizCapabilityScope();
 	const bundle = new Map<OpsCap, string>();
-	for (const credential of rememberedOpsCredentials()) {
+	for (const credential of rememberedOpsCredentials(page)) {
 		const inScope = credential.capability === "viz"
 			? vizScope != null && credential.scope === vizScope
 			: home != null && credential.scope === home;
@@ -65,8 +91,8 @@ async function savedOpsBundle(): Promise<Map<OpsCap, string>> {
 	return bundle;
 }
 
-export async function readOpsBundle(): Promise<string> {
-	return formatOpsBundle(await savedOpsBundle());
+export async function readOpsBundle(page: RoomsPageContext): Promise<string> {
+	return formatOpsBundle(await savedOpsBundle(page));
 }
 
 export interface OpsBundleResult {
@@ -87,7 +113,7 @@ function explainRefusal(capability: OpsCap, reason: string): string {
  * accepted entry is remembered; every removed entry is released and erased.
  * Refusals are isolated, and the returned bundle is the authority that
  * actually committed rather than the draft that was requested. */
-export async function replaceOpsBundle(raw: string): Promise<OpsBundleResult> {
+export async function replaceOpsBundle(page: RoomsPageContext, raw: string): Promise<OpsBundleResult> {
 	let wanted: Map<OpsCap, string>;
 	try {
 		wanted = new Map(parseOpsBundleDraft(raw));
@@ -96,15 +122,15 @@ export async function replaceOpsBundle(raw: string): Promise<OpsBundleResult> {
 		}
 	} catch (error) {
 		return {
-			bundle: await readOpsBundle(),
+			bundle: await readOpsBundle(page),
 			failures: [{ capability: null, reason: error instanceof Error ? error.message : String(error) }],
 		};
 	}
-	const before = await savedOpsBundle();
-	const home = store.get().homeDir;
+	const before = await savedOpsBundle(page);
+	const home = page.projection.get().homeDir;
 	const vizScope = await vizCapabilityScope();
 	const scopedFailures: { capability: OpsCap; reason: string }[] = [];
-	const nextCredentials = rememberedOpsCredentials().filter((credential) =>
+	const nextCredentials = rememberedOpsCredentials(page).filter((credential) =>
 		credential.capability !== "viz" && (home == null || credential.scope !== home)
 	);
 	for (const [capability, swiss] of wanted) {
@@ -121,7 +147,7 @@ export async function replaceOpsBundle(raw: string): Promise<OpsBundleResult> {
 		nextCredentials.push({ capability, scope, swiss });
 	}
 	if (scopedFailures.length > 0) return { bundle: formatOpsBundle(before), failures: scopedFailures };
-	if (!replaceOpsCredentials(nextCredentials)) {
+	if (!replaceOpsCredentials(page, nextCredentials)) {
 		return {
 			bundle: formatOpsBundle(before),
 			failures: [{
@@ -135,12 +161,12 @@ export async function replaceOpsBundle(raw: string): Promise<OpsBundleResult> {
 	for (const { capability } of OPS_BUNDLE_CAPABILITIES) {
 		const desired = wanted.get(capability) ?? null;
 		const current = before.get(capability) ?? null;
-		let state = store.get();
+		let state = page.projection.get();
 		let held = opsHeldOf(state.listeners, state.diagnostics, state.irc, state.operator, state.peering, state.viz);
 		if (desired === current && held[capability]) continue;
 		if (held[capability]) {
-			await dropOpsCap(capability, false);
-			state = store.get();
+			await dropOpsCap(page, capability, false);
+			state = page.projection.get();
 			held = opsHeldOf(state.listeners, state.diagnostics, state.irc, state.operator, state.peering, state.viz);
 			if (held[capability]) {
 				failures.push({
@@ -151,19 +177,18 @@ export async function replaceOpsBundle(raw: string): Promise<OpsBundleResult> {
 			}
 		}
 		if (desired == null) continue;
-		const why = await takeOpsCap(capability, desired, true);
+		const why = await takeOpsCap(page, capability, desired, true);
 		if (why !== "") failures.push({ capability, reason: explainRefusal(capability, why) });
 	}
-	const bundle = await readOpsBundle();
-	broadcastCapabilitySetChanged();
+	const bundle = await readOpsBundle(page);
 	return { bundle, failures };
 }
 
-async function dropOpsCap(cap: OpsCap, updateVault = true): Promise<void> {
-	await VERBS[cap].drop(updateVault);
+async function dropOpsCap(page: RoomsPageContext, cap: OpsCap, updateVault = true): Promise<void> {
+	await opsVerbs(page)[cap].drop(updateVault);
 }
 
 /** Ask `cap` again, or do nothing where it has nothing to ask. */
-export async function refreshOpsCap(cap: OpsCap): Promise<void> {
-	await VERBS[cap].refresh?.();
+export async function refreshOpsCap(page: RoomsPageContext, cap: OpsCap): Promise<void> {
+	await opsVerbs(page)[cap].refresh?.();
 }

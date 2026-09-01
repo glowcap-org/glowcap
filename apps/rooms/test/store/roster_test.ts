@@ -1,0 +1,107 @@
+/// <reference lib="dom" />
+
+// Type-only, so it is erased rather than evaluated: every value import here is
+// dynamic and below, because the store reads `matchMedia` as it loads.
+import type { RoomMemberState } from "../../lib/room/presence.ts";
+
+Object.defineProperty(globalThis, "matchMedia", {
+	configurable: true,
+	value: () => ({
+		matches: false,
+		addEventListener() {},
+		removeEventListener() {},
+	}),
+});
+
+const store = await import("../../web/ui/store.ts");
+const projection = new store.PageProjection();
+const { dirId } = await import("../../web/ui/types.ts");
+const { assertEquals } = await import("../assert.ts");
+
+function assert(ok: boolean, what: string): asserts ok {
+	if (!ok) throw new Error(what);
+}
+
+Deno.test("a join does not replace the conversation", () => {
+	projection.reset();
+	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-identity");
+	const before = store.getConv(projection, room.key);
+	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	assert(store.getConv(projection, room.key) === before, "a join replaced the conversation");
+	assertEquals([...store.membersOf(projection, room.key).keys()], ["bob"]);
+	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	assert(store.getConv(projection, room.key) === before, "a repeated join replaced the conversation");
+	const roster = store.membersOf(projection, room.key);
+	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	assert(store.membersOf(projection, room.key) === roster, "a repeated join replaced the roster");
+	store.applyPresence(projection, room.key, { kind: "away", name: "bob", reason: "lunch" });
+	assert(store.getConv(projection, room.key) === before, "an away word replaced the conversation");
+	assertEquals(store.membersOf(projection, room.key).get("bob")?.away, "lunch");
+});
+
+Deno.test("an attached snapshot can refresh the roster without replacing the conversation", () => {
+	projection.reset();
+	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-snapshot");
+	store.setRoomMembership(projection, room.key, "joined");
+	const before = store.getConv(projection, room.key);
+	const shared = {
+		topic: "Shared work",
+		lineBytes: 4096,
+		bridge: null,
+		canSetTopic: true,
+		canModerate: true,
+	};
+	store.setRoomView(projection, room.key, { ...shared, members: [["ada", { online: true, away: "" }]] });
+	const afterTopic = store.getConv(projection, room.key);
+	assert(afterTopic !== before, "the first view left the joining conversation in place");
+	assertEquals(afterTopic?.type === "room" ? afterTopic.topic : null, "Shared work");
+	const both: [string, RoomMemberState][] = [["ada", { online: true, away: "" }], ["bo", {
+		online: true,
+		away: "",
+	}]];
+	store.setRoomView(projection, room.key, { ...shared, members: both });
+	assert(store.getConv(projection, room.key) === afterTopic, "a roster-only snapshot replaced the conversation");
+	assertEquals([...store.membersOf(projection, room.key).keys()], ["ada", "bo"]);
+	store.setRoomView(projection, room.key, { ...shared, members: both });
+	assert(store.getConv(projection, room.key) === afterTopic, "an identical snapshot replaced the conversation");
+});
+
+// The bug this covers: a bridged room drew its foreign members under bare row
+// keys after a reload, because bridge facts reached a live reader on the
+// welcome line and an attached reader rebuilds from the snapshot instead.
+Deno.test("an attached snapshot carries the bridge behind a room, and lets it go", () => {
+	projection.reset();
+	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-bridge");
+	store.setRoomMembership(projection, room.key, "joined");
+	const view = {
+		members: [["irc/ada", { online: true, away: "" }]] as [string, RoomMemberState][],
+		topic: null,
+		lineBytes: null,
+		canSetTopic: false,
+		canModerate: false,
+	};
+	const bridge = { prefix: "irc/", badge: "IRC", said: "Bridged from libera.", scope: "Libera" };
+	store.setRoomView(projection, room.key, { ...view, bridge });
+	const bridged = store.getConv(projection, room.key);
+	assertEquals(bridged?.type === "room" ? bridged.bridge?.badge : null, "IRC");
+
+	const again = store.getConv(projection, room.key);
+	store.setRoomView(projection, room.key, { ...view, bridge: { ...bridge } });
+	assert(store.getConv(projection, room.key) === again, "an equal bridge rewrote the conversation");
+
+	// A room that stops naming a bridge has stopped being bridged. Leaving the
+	// previous snapshot's facts standing would keep drawing badges for it.
+	store.setRoomView(projection, room.key, { ...view, bridge: null });
+	const plain = store.getConv(projection, room.key);
+	assertEquals(plain?.type === "room" ? plain.bridge : "unset", undefined);
+});
+
+Deno.test("forgetting a conversation forgets who was in it", () => {
+	projection.reset();
+	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-forget");
+	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.forgetConv(projection, room.key);
+	assertEquals([...store.membersOf(projection, room.key)], []);
+	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	assertEquals([...store.membersOf(projection, room.key)], []);
+});

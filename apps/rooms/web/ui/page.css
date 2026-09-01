@@ -11,6 +11,7 @@
 @import url("rail-captions.css");
 @import url("filter.css");
 @import url("workarea.css");
+@import url("session-effect.css");
 @import url("members.css");
 @import url("composer.css");
 @import url("join.css");
@@ -19,6 +20,7 @@
 @import url("settings.css");
 @import url("session-setup.css");
 @import url("operations.css");
+@import url("operations-irc.css");
 @import url("bubbles.css");
 @import url("irc.css");
 @import url("stream.css");
@@ -75,6 +77,27 @@
 	   makes it pop, carried by the hairline and a breath of shadow. */
 	--field-fill: #fff;
 	--field-lift: 0 1px 2px var(--shadow-sm-color);
+	/* The band a control wears while it is the one in play: a field holding
+	   focus, a choice that has been made, the panel a name is being typed
+	   into. One shape and one strength for all of them, spelled once because a
+	   shape written at each site drifts, and this one already had: seven
+	   places said twenty-eight per cent and the rail said thirty-two, which
+	   nobody chose and nobody could see.
+
+	   Named once per hue, rather than as one band plus a hue each site sets.
+	   That is what this was, and it cannot work: a custom property composed
+	   here is substituted here, so a hue set further down arrives after the
+	   colour has already been chosen. Three bands asked for the refusal's
+	   colour, or a directory's own mark, and drew the accent — the property
+	   was set, and read back correctly, and the shadow was the wrong colour
+	   regardless. A hue known only on the element, like a directory's, cannot
+	   be named up here at all and writes its band out where it stands.
+
+	   Two hues, because two are wanted. A band falls outside the box it
+	   belongs to, so what it has to be read against is whatever the box is
+	   standing on, and everything here stands on the same paper. */
+	--ring: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+	--ring-danger: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
 }
 /* Inline code: one chip wherever a sentence names a flag, a verb, or an
    address — the mono a step under the prose, a breath of ink behind it, and
@@ -83,6 +106,10 @@
    is code throughout, resets the chip and keeps the mono. */
 code {
 	font-family: var(--font-mono);
+	/* Relative, and not a ramp step. A monospace face sets a larger eye than
+	   the sans beside it at the same size, so this is the correction that makes
+	   the two read as one line of text; it has to follow whatever the prose
+	   around it is set in rather than name a size of its own. */
 	font-size: .9em;
 	background: color-mix(in srgb, var(--ink) 9%, transparent);
 	padding: 1px 5px;
@@ -161,6 +188,65 @@ code {
 	   It is the topbar's natural height: the 36px buttons plus 12px+12px padding, the
 	   accent line, and the 1px border. Keep in step with --control-h if that changes. */
 	--header-h: 64px;
+	/* What the sticky chrome actually occupies, which is the header plus
+	   whatever the device keeps above it. Anything that pins below the topbar
+	   reads this rather than restating the sum, because the phone query grows
+	   the bar by the safe-area inset and a second copy of that arithmetic is a
+	   bar that parts company with the one above it on exactly the screens that
+	   have an inset to grow by. */
+	--header-total: var(--header-h);
+	/* How far apart two things stand, by what they are to each other. Five
+	   steps, and a surface names the one its relationship asks for.
+
+	   Nineteen values were doing this work across the cards and the operations
+	   panes, and nine of them sat inside ten pixels of each other: three
+	   different distances for "one group from the next", which is three
+	   authors' eyes rather than a decision. Named, the question at a new rule
+	   is which relationship this is, and the answer is the same everywhere
+	   that relationship appears.
+
+	   line     within one line: a mark and its word, a chip beside a name.
+	   tight    parts of one thing: a name and the sentence under it, a label
+	            and the field it names.
+	   row      one row or control to the next inside a group.
+	   group    one group to the next inside a card.
+	   section  one section to the next down a page.
+
+	   A column gap is its own step, because side by side needs more air than
+	   stacked to read as two columns rather than one wrapped line. */
+	/* Rows of a list that reads as one surface: a menu's items, a rail's
+	   rooms. Below this a list becomes a block of text; above it the rows stop
+	   being one thing. */
+	--gap-hair: 2px;
+	--gap-line: 4px;
+	--gap-tight: 6px;
+	--gap-row: 8px;
+	--gap-group: 12px;
+	--gap-section: 20px;
+	--gap-column: 16px;
+	/* How wide a card stands, by what it holds rather than by who drew it.
+	   Cards used to name their own number, and seven of them accumulated: two
+	   pairs sat twenty and sixty pixels apart, which no reader can take as a
+	   decision, and four gave no reason at all.
+
+	   Four steps, far enough apart to be read as chosen. A card names the step
+	   its contents ask for and nothing else, so the question at a new card is
+	   "which of these is it", not "how wide should this be".
+
+	   ask    one question and its answer.
+	   panel  grouped answers, a short form, a card about one thing. The
+	          default: a card that names no step is this one.
+	   rows   rows carrying a name and the act that takes it, which fold the
+	          act under the name in anything narrower.
+	   pair   two subjects side by side, each with a wide row of its own.
+
+	   Every step collapses the same way, through `min(step, 100%)` inside the
+	   backdrop's own inset, so the phone answer is one answer and no card has
+	   its own version of it to get wrong. */
+	--card-ask: 400px;
+	--card-panel: 480px;
+	--card-rows: 600px;
+	--card-pair: 880px;
 	/* Shared cap for the centered conversation card. 40px is the same inset a
 	   message row uses, so the intro and a long system pill share an edge. */
 	--card-cap: 760px;
@@ -210,9 +296,15 @@ code {
 	   field for that frame. Measured at the band's resting height and rounded up,
 	   because erring high leaves a hair of paper and erring low hides a line. */
 	--composer-h-rest: 118px;
+	/* Mirrors the page ground so the two full-height columns cool with it, at
+	   half the depth: a narrow strip shows a gradient more strongly than the
+	   wide field beside it, because its edges hand the eye a reference, so an
+	   equal journey here read stronger than the page's. */
 	--rail-fill: linear-gradient(180deg, var(--paper-raised), color-mix(in srgb,
 		var(--accent) 5%,
-		var(--paper-raised)));
+		var(--paper-raised)) 55%, color-mix(in srgb, var(--paper-raised) 92%,
+		var(--raised-foot)) 78%, color-mix(in srgb, var(--paper-raised) 80%,
+		var(--raised-foot)) 94%);
 }
 /* "Syrup" — the same warmth turned down to a dark roast. Two arms, mirroring
    ui/tokens.css: the media query answers for a reader who never touches the

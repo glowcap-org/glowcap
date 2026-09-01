@@ -5,14 +5,16 @@
 // the privacy: there is no member list to be on and no check to pass, which
 // is why these verbs are about references rather than names.
 
-import { roomCalledAs } from "../../../lib/room_client.ts";
 import * as store from "../store.ts";
+import { roomCalledAs } from "../../../lib/room/client.ts";
+import { type RoomLinkDestination, roomLinkDestination } from "../joining.ts";
 import { dirSession, isCurrent } from "./live.ts";
-import { FIRST_BACKOFF_MS, linkDirectory } from "./bootstrap.ts";
+import { FIRST_BACKOFF_MS } from "./bootstrap.ts";
 import { leaveDirectory, openDirectory } from "./connection.ts";
 import { takeHandedRoom } from "./direct_offers.ts";
 import { enterRoom } from "./rooms.ts";
 import { redeemRoomLink } from "./room_links.ts";
+import type { RoomsPageContext } from "../page.ts";
 
 // A private room is not in any list and cannot be entered by name, so the only
 // way anybody reaches one is by holding a reference to it: the reader who made
@@ -30,30 +32,31 @@ import { redeemRoomLink } from "./room_links.ts";
  * fails to seat is gone for good — the reference was the offer, and its
  * sessions decide its life — so the failure says to ask for another rather
  * than promising a retry that cannot work. */
-export async function acceptInvite(id: string): Promise<string> {
-	const invite = store.get().invites.find((row) => row.id === id);
+export async function acceptInvite(page: RoomsPageContext, id: string): Promise<string> {
+	const invite = page.projection.get().invites.find((row) => row.id === id);
 	if (invite === undefined) return "that offer is no longer good";
-	const nick = invite.nick ?? store.dirNick(invite.dir) ?? store.reachingNick();
+	const nick = invite.nick ?? store.dirNick(page.projection, invite.dir) ?? store.reachingNick(page.projection);
 	if (!nick) return "join a room here first, so this directory knows what to call you";
 	if (invite.way === "link") {
 		// Redeemed where the link says, not where it arrived. A link is data and
 		// names its own peer, so an offer that reached this tab over a direct
 		// line on one directory may well be for a room on another, and taking it
 		// up does not wait on the directory it arrived over.
-		store.dropInvite(id);
-		return await takeRoomLink(invite.link, invite.label, nick);
+		store.dropInvite(page.projection, id);
+		const destination = roomLinkDestination(invite.link, invite.label);
+		if (destination === null) return "that is not a room entry link";
+		return await takeRoomLink(page, destination, nick);
 	}
-	const session = dirSession(invite.dir);
-	// A reconnect does not invalidate a Host-scoped handed reference. Keep the
-	// row so the same press can succeed once its directory is back, instead of
-	// deleting the only UI path to an occurrence we still own.
+	const session = dirSession(page, invite.dir);
+	// The carrying direct session owns this imported reference. Its close
+	// observer removes the row, so a row here still has a live owner.
 	if (session === null) return "not connected to that room directory yet";
-	store.dropInvite(id);
+	store.dropInvite(page.projection, id);
 	// Taking one up is asking to be in the room, so it opens on screen the way
 	// pressing a room in the rail does.
 	// Moved out, never read twice: whatever happens next, this id spends its
 	// reference exactly once.
-	const handed = takeHandedRoom(id);
+	const handed = takeHandedRoom(page, id);
 	if (handed === null) return "that offer is no longer good";
 	// The sender's label proves nothing, so let the room say what it is called
 	// when it implements that question. Listed-ness is not asked here: subscribe
@@ -76,17 +79,12 @@ export async function acceptInvite(id: string): Promise<string> {
 	// host is whoever handed it — which may be a peer who spawned an object
 	// that only looks like a room. That matters for one thing, the name
 	// voucher, which enterRoom must never mint toward it (see the guard).
-	const why = await enterRoom(
-		session.id,
-		roomName,
-		nick,
-		{
-			room: handed.room,
-			requested: nick,
-			trusted: false,
-			select: true,
-		},
-	);
+	const why = await enterRoom(page, session.id, roomName, nick, {
+		room: handed.room,
+		requested: nick,
+		trusted: false,
+		select: true,
+	});
 	if (why === "") return "";
 	// The reference did not seat the reader, and there is nothing here that can
 	// revive it: the sender holds the room, so another offer is theirs to make.
@@ -117,30 +115,33 @@ export async function acceptInvite(id: string): Promise<string> {
  * being entered has granted them nothing yet; a directory that has granted a
  * name is answered by that grant. The label is what they wrote after the
  * locator, or empty so the room can say what it is called. */
-export async function takeRoomLink(link: string, label: string, nick: string): Promise<string> {
-	for (const conv of store.joinedRooms()) {
-		const live = dirSession(conv.dir);
+export async function takeRoomLink(
+	page: RoomsPageContext,
+	destination: RoomLinkDestination,
+	nick: string,
+): Promise<string> {
+	const { link, label, directory: id, address } = destination;
+	for (const conv of store.joinedRooms(page.projection)) {
+		const live = dirSession(page, conv.dir);
 		if (conv.link === link && live?.rooms.has(conv.key)) {
-			store.switchTo(conv.key);
-			store.deliver(conv.key, store.sysItem("You are already in this room."));
+			store.switchTo(page.projection, conv.key);
+			store.deliver(page.projection, conv.key, store.sysItem(page.projection, "You are already in this room."));
 			return "";
 		}
 	}
-	const named = linkDirectory(link);
-	if (named === null) return "that is not a room link";
 	// Whether this tab had anything of that directory before the link named it:
 	// a live session, or a row still reconnecting to one. A directory this
 	// redeem opened from nothing and did not seat a room in is given back rather
 	// than left in the rail as a server the reader never asked to hold; one that
 	// was already there is never touched, because it is somebody's home page or
 	// it is carrying their other rooms.
-	const wasHeld = dirSession(named.id) !== null || store.get().dirs.has(named.id);
-	if (dirSession(named.id) === null) {
-		const unreachable = await openDirectory(named.address, FIRST_BACKOFF_MS);
+	const wasHeld = dirSession(page, id) !== null || page.projection.get().dirs.has(id);
+	if (dirSession(page, id) === null) {
+		const unreachable = await openDirectory(page, address, FIRST_BACKOFF_MS);
 		if (unreachable !== "") return unreachable;
 	}
-	const why = await redeemRoomLink(named.id, link, label, nick);
-	if (why !== "" && !wasHeld && store.joinedRooms(named.id).length === 0) leaveDirectory(named.id);
+	const why = await redeemRoomLink(page, id, link, label, nick);
+	if (why !== "" && !wasHeld && store.joinedRooms(page.projection, id).length === 0) leaveDirectory(page, id);
 	return why;
 }
 
@@ -149,9 +150,9 @@ export async function takeRoomLink(link: string, label: string, nick: string): P
  * A link is forgotten — it was a string, and the room was never told there was
  * an offer. A handed room is given back: the reference is released, so the
  * server stops holding an export for a reader who is not coming. */
-export function declineInvite(id: string): void {
-	const room = takeHandedRoom(id);
-	store.dropInvite(id);
+export function declineInvite(page: RoomsPageContext, id: string): void {
+	const room = takeHandedRoom(page, id);
+	store.dropInvite(page.projection, id);
 	if (room === null) return;
 	room.release("declined handed room");
 }

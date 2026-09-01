@@ -1,0 +1,237 @@
+/* IRC connection capability cards and their nested channel leases. */
+.irc-connections {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+}
+.irc-connections-empty p {
+	margin: 0;
+}
+.irc-connections-empty .hint {
+	margin-top: 4px;
+}
+.irc-connection {
+	padding: 15px;
+	border: 1px solid color-mix(in srgb, var(--rule) 82%, var(--accent) 18%);
+	border-radius: var(--radius-well);
+	background: color-mix(in srgb, var(--paper) 88%, var(--accent) 12%);
+	box-shadow: var(--shadow-sm);
+}
+.irc-connection-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--gap-group);
+}
+.irc-connection-head h4 {
+	margin: 0;
+	font-size: var(--type-title);
+	line-height: 1.15;
+}
+.irc-connection-meta {
+	margin: 5px 0 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--gap-line) var(--gap-tight);
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.irc-connection-status {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--gap-tight);
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--rule) 58%, transparent);
+	color: var(--ink-soft);
+	font-size: var(--type-tiny);
+	font-weight: 800;
+	text-transform: uppercase;
+	letter-spacing: .035em;
+	white-space: nowrap;
+}
+.irc-connection-status::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+.irc-connection-status.status-up {
+	background: color-mix(in srgb, var(--teal-ink) 12%, transparent);
+	color: var(--teal-ink);
+}
+.irc-connection-status.status-dormant {
+	background: color-mix(in srgb, var(--accent) 34%, transparent);
+	color: color-mix(in srgb, var(--accent-ink) 76%, var(--ink));
+}
+.irc-channels {
+	margin-top: 14px;
+	padding: 12px 12px 12px 14px;
+	border-inline-start: 3px solid color-mix(in srgb, var(--accent) 64%, var(--rule));
+	border-radius: 0 var(--radius-well) var(--radius-well) 0;
+	background: color-mix(in srgb, var(--paper-raised) 82%, transparent);
+}
+.irc-channels-head {
+	display: flex;
+	align-items: baseline;
+	gap: var(--gap-tight);
+}
+.irc-channels-head h5 {
+	margin: 0;
+	font-size: var(--type-ui);
+}
+.irc-channels-head span,
+.irc-channel-name span {
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.irc-no-channels {
+	margin: 8px 0 0;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.irc-channel-list {
+	list-style: none;
+	margin: 8px 0 0;
+	padding: 0;
+}
+.irc-channel-list > li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-tight) var(--gap-group);
+	padding: 7px 0;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.irc-channel-list > li:first-child {
+	border-top: 0;
+}
+.irc-channel-list .said {
+	grid-column: 1 / -1;
+}
+.irc-channel-list .confirm {
+	grid-column: 1 / -1;
+}
+.irc-channel-name {
+	display: flex;
+	align-items: baseline;
+	gap: var(--gap-row);
+	min-width: 0;
+}
+.irc-channel-add {
+	display: grid;
+	grid-template-columns: auto minmax(120px, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-row);
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 65%, transparent);
+}
+.irc-channel-add label {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+.irc-channel-field {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	border: 1px solid var(--rule);
+	border-radius: 11px;
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	overflow: hidden;
+}
+.irc-channel-field:focus-within {
+	border-color: var(--accent);
+	box-shadow: var(--ring);
+}
+.irc-channel-field > span {
+	padding-inline-start: 10px;
+	color: var(--ink-soft);
+	font-weight: 700;
+}
+.card-plane .irc-channel-field .field {
+	padding-inline-start: 4px;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	background: transparent;
+}
+.card-plane .irc-channel-field .field:focus {
+	outline: 0;
+	border: 0;
+	box-shadow: none;
+}
+.irc-connection-actions {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: 9px;
+}
+.irc-connection > .confirm,
+.irc-connection > .said {
+	margin-top: 10px;
+}
+.irc-new-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+}
+.irc-new-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--gap-group);
+}
+.irc-new-foot {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-group);
+}
+.irc-new-foot .hint {
+	margin: 0;
+}
+.irc-tls-row {
+	margin: 0;
+}
+@container (max-width: 700px) {
+	.irc-new-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.irc-new-foot {
+		grid-template-columns: auto 1fr;
+	}
+	.irc-new-foot > .button {
+		grid-column: 1 / -1;
+		justify-self: end;
+	}
+}
+@container (max-width: 460px) {
+	.irc-connection {
+		padding: 12px;
+	}
+	.irc-channel-list > li {
+		grid-template-columns: 1fr;
+	}
+	.irc-channel-list .actions {
+		justify-content: flex-start;
+	}
+	.irc-channel-add {
+		grid-template-columns: 1fr auto;
+	}
+	.irc-channel-add label {
+		grid-column: 1 / -1;
+	}
+	.irc-new-grid,
+	.irc-new-foot {
+		grid-template-columns: 1fr;
+	}
+	.irc-new-foot > .button {
+		grid-column: auto;
+		justify-self: stretch;
+	}
+}

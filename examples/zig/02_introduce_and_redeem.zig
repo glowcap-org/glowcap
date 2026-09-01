@@ -87,8 +87,7 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
 
 /// The directory host: fetch the widget from the widget host, then publish a
 /// directory that hands that capability out. One `driver.HostRuntime` holds both
-/// sessions, which is what lets a capability from one be introduced over the
-/// other.
+/// sessions, so a capability from one can be introduced over the other.
 fn serveDirectory(
     allocator: std.mem.Allocator,
     io: std.Io,

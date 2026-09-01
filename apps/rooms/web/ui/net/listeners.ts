@@ -6,37 +6,39 @@
 // fetched on, so a reconnect drops it and the reader takes it again if they
 // still want it. The rows in the store are only what it last said.
 
-import { listenerDown, listenerUp, listListeners, takeListeners } from "../../../lib/room_client.ts";
-import { roomErrorOf } from "../../../lib/errors.ts";
 import * as store from "../store.ts";
-import { dirs } from "./live.ts";
-import { opsLost, reason } from "./common.ts";
+import { listenerDown, listenerUp, listListeners, takeListeners } from "../../../lib/room/client.ts";
+import { roomErrorOf } from "../../../lib/errors.ts";
+import type { RoomsPageContext } from "../page.ts";
+import { DIRECTORY_NOT_CONNECTED, liveHomeDir, opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 import { invalidateOperations } from "../ops/invalidation.ts";
 import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
 
-/** The listeners capability this tab fetched, while it still holds it. */
-let listenersHeld: HeldDirectoryCapability | null = null;
+/** The listeners capability one page fetched. */
+export class PageListeners {
+	held: HeldDirectoryCapability | null = null;
+}
 
 /** Session teardown's drop: return the import while its session is available;
  * the remembered swiss survives so reconnect can take it again. */
-export function dropListeners(): void {
-	const held = listenersHeld;
-	listenersHeld = null;
-	store.setListeners(null);
+export function dropListeners(page: RoomsPageContext): void {
+	const held = page.listeners.held;
+	page.listeners.held = null;
+	store.setListeners(page.projection, null);
 	releaseHeldCapability(held, "listeners capability release failed");
 }
 
 /** The reader's drop, from the Capabilities toggle: the capability goes and so
  * does its remembered swiss — no path may drop the cap but keep the secret
  * the reader asked to give up. */
-export function dropListenersCap(updateVault = true): void {
-	const dir = listenersHeld?.dir;
-	if (updateVault && dir != null && !forgetOpsSwiss("listeners", dir)) {
-		store.noteTrouble("capability storage", "the saved listeners capability could not be removed");
+export function dropListenersCap(page: RoomsPageContext, updateVault = true): void {
+	const dir = page.listeners.held?.dir;
+	if (updateVault && dir != null && !forgetOpsSwiss(page, "listeners", dir)) {
+		store.noteTrouble(page.projection, "capability storage", "the saved listeners capability could not be removed");
 		return;
 	}
-	dropListeners();
+	dropListeners(page);
 }
 
 /** What a refused listener verb should read as: the typed sentence when the
@@ -49,27 +51,28 @@ function refusal(error: unknown): string {
  *
  * Returns an empty string when the tab now holds it, or the reason it would
  * not take. */
-export async function takeListenersCap(pasted: string, remember = false): Promise<string> {
-	const home = store.get().homeDir;
-	const live = home === null ? null : dirs.get(home) ?? null;
-	if (home === null || live === null) return "This directory is not connected yet.";
+export async function takeListenersCap(page: RoomsPageContext, pasted: string, remember = false): Promise<string> {
+	const live = liveHomeDir(page);
+	if (live === null) return DIRECTORY_NOT_CONNECTED;
 	try {
 		const taken = await takeListeners(live.dir.session, pasted);
 		// The checkbox is the reader's current word on remembering, so an
 		// unchecked take erases an earlier memory rather than leaving it to
 		// auto-redeem against their answer.
-		const stored = remember ? rememberOpsSwiss("listeners", home, pasted) : forgetOpsSwiss("listeners", home);
+		const stored = remember
+			? rememberOpsSwiss(page, "listeners", live.id, pasted)
+			: forgetOpsSwiss(page, "listeners", live.id);
 		if (!stored) {
 			releaseHeldCapability(
-				{ session: live.dir.session, cap: taken.cap, dir: home },
+				{ session: live.dir.session, cap: taken.cap, dir: live.id },
 				"unsaved listeners capability release failed",
 			);
 			return "This browser refused to update the saved listeners capability.";
 		}
-		const previous = listenersHeld;
-		listenersHeld = { session: live.dir.session, cap: taken.cap, dir: home };
+		const previous = page.listeners.held;
+		page.listeners.held = { session: live.dir.session, cap: taken.cap, dir: live.id };
 		releaseHeldCapability(previous, "replaced listeners capability release failed");
-		store.setListeners(taken.rows);
+		store.setListeners(page.projection, taken.rows);
 		return "";
 	} catch (error) {
 		return reason(error);
@@ -81,17 +84,17 @@ export async function takeListenersCap(pasted: string, remember = false): Promis
  * A refusal ends the capability rather than leaving a stale seat list on
  * screen under switches that would refuse, and says so; see the same catch in
  * `refreshDiagnostics` next door. */
-export async function refreshListeners(): Promise<void> {
-	const held = listenersHeld;
+export async function refreshListeners(page: RoomsPageContext): Promise<void> {
+	const held = page.listeners.held;
 	if (held === null) return;
 	try {
 		const rows = await listListeners(held.session, held.cap);
-		if (listenersHeld !== held) return;
-		store.setListeners(rows);
+		if (page.listeners.held !== held) return;
+		store.setListeners(page.projection, rows);
 	} catch (error) {
-		if (listenersHeld !== held) return;
-		dropListeners();
-		opsLost("listeners", reason(error));
+		if (page.listeners.held !== held) return;
+		dropListeners(page);
+		opsLost(page.projection, "listeners", reason(error));
 	}
 }
 
@@ -100,13 +103,14 @@ export async function refreshListeners(): Promise<void> {
  * fresh list is already in the store), otherwise the refusal for the pane to
  * show. */
 export async function requestListenerUp(
+	page: RoomsPageContext,
 	transport: string,
 	options?: Record<string, string | number>,
 ): Promise<string> {
-	if (listenersHeld === null) return "This tab no longer holds the listeners capability.";
+	if (page.listeners.held === null) return "This tab no longer holds the listeners capability.";
 	try {
-		await listenerUp(listenersHeld.session, listenersHeld.cap, transport, options);
-		await invalidateOperations(listenersHeld.dir);
+		await listenerUp(page.listeners.held.session, page.listeners.held.cap, transport, options);
+		await invalidateOperations(page, page.listeners.held.dir);
 		return "";
 	} catch (error) {
 		return refusal(error);
@@ -114,11 +118,11 @@ export async function requestListenerUp(
 }
 
 /** Take the listener numbered `id` down, the same way. */
-export async function requestListenerDown(id: number): Promise<string> {
-	if (listenersHeld === null) return "This tab no longer holds the listeners capability.";
+export async function requestListenerDown(page: RoomsPageContext, id: number): Promise<string> {
+	if (page.listeners.held === null) return "This tab no longer holds the listeners capability.";
 	try {
-		await listenerDown(listenersHeld.session, listenersHeld.cap, id);
-		await invalidateOperations(listenersHeld.dir);
+		await listenerDown(page.listeners.held.session, page.listeners.held.cap, id);
+		await invalidateOperations(page, page.listeners.held.dir);
 		return "";
 	} catch (error) {
 		return refusal(error);

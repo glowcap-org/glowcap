@@ -3,8 +3,8 @@
 import { nonemptyText, nonnegativeSafeInteger, positiveSafeInteger } from "../../lib/schema.ts";
 import * as z from "zod/mini";
 
-export const HISTORY_DB = "rooms-history";
-export const DB_VERSION = 1;
+const HISTORY_DB = "rooms-history";
+const DB_VERSION = 1;
 export const RECORDS = "archive-records";
 export const BLOBS = "archive-blobs";
 export const META = "archive-meta";
@@ -46,8 +46,72 @@ export interface StoredArchiveBlob {
 	bytes: Blob;
 }
 
-let opened: Promise<IDBDatabase | null> | null = null;
-let deleting: Promise<void> | null = null;
+/** Open/delete lifecycle for this page's handle on the origin `rooms-history` store. */
+export class PageArchiveDatabase {
+	opened: Promise<IDBDatabase | null> | null = null;
+	deleting: Promise<void> | null = null;
+
+	open(): Promise<IDBDatabase | null> {
+		if (this.deleting != null) return this.deleting.then(() => this.open());
+		if (this.opened != null) return this.opened;
+		this.opened = new Promise((resolve) => {
+			let abandoned = false;
+			try {
+				const req = indexedDB.open(HISTORY_DB, DB_VERSION);
+				req.onupgradeneeded = () => {
+					const held = req.result;
+					if (held.objectStoreNames.length !== 0) {
+						req.transaction?.abort();
+						return;
+					}
+					const records = held.createObjectStore(RECORDS, { keyPath: "key" });
+					records.createIndex(REVISION_INDEX, "revision", { unique: true });
+					records.createIndex(COORDINATES_INDEX, "coordinates", { unique: false });
+					held.createObjectStore(BLOBS, { keyPath: "key" });
+					held.createObjectStore(META, { keyPath: "key" });
+				};
+				req.onsuccess = () => {
+					const held = req.result;
+					if (abandoned || !hasCurrentArchiveSchema(held)) {
+						held.close();
+						if (!abandoned) resolve(null);
+						return;
+					}
+					held.onversionchange = () => held.close();
+					resolve(held);
+				};
+				req.onerror = () => resolve(null);
+				req.onblocked = () => {
+					abandoned = true;
+					resolve(null);
+				};
+			} catch {
+				resolve(null);
+			}
+		});
+		return this.opened;
+	}
+
+	drop(): Promise<void> {
+		if (this.deleting != null) return this.deleting;
+		const prior = this.opened;
+		this.opened = null;
+		const work = (async () => {
+			(await prior)?.close();
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.deleteDatabase(HISTORY_DB);
+				request.onsuccess = () => resolve();
+				request.onerror = () => reject(request.error ?? new Error("browser history deletion failed"));
+				request.onblocked = () => reject(new Error("browser history deletion is blocked by another tab"));
+			});
+		})();
+		const settled = work.finally(() => {
+			if (this.deleting === settled) this.deleting = null;
+		});
+		this.deleting = settled;
+		return settled;
+	}
+}
 
 function hasCurrentArchiveSchema(database: IDBDatabase): boolean {
 	if (Array.from(database.objectStoreNames).sort().join("\0") !== [BLOBS, META, RECORDS].sort().join("\0")) {
@@ -68,67 +132,6 @@ function hasCurrentArchiveSchema(database: IDBDatabase): boolean {
 	} catch {
 		return false;
 	}
-}
-
-export function historyDatabase(): Promise<IDBDatabase | null> {
-	if (deleting != null) return deleting.then(() => historyDatabase());
-	if (opened != null) return opened;
-	opened = new Promise((resolve) => {
-		let abandoned = false;
-		try {
-			const req = indexedDB.open(HISTORY_DB, DB_VERSION);
-			req.onupgradeneeded = () => {
-				const held = req.result;
-				if (held.objectStoreNames.length !== 0) {
-					req.transaction?.abort();
-					return;
-				}
-				const records = held.createObjectStore(RECORDS, { keyPath: "key" });
-				records.createIndex(REVISION_INDEX, "revision", { unique: true });
-				records.createIndex(COORDINATES_INDEX, "coordinates", { unique: false });
-				held.createObjectStore(BLOBS, { keyPath: "key" });
-				held.createObjectStore(META, { keyPath: "key" });
-			};
-			req.onsuccess = () => {
-				const held = req.result;
-				if (abandoned || !hasCurrentArchiveSchema(held)) {
-					held.close();
-					if (!abandoned) resolve(null);
-					return;
-				}
-				held.onversionchange = () => held.close();
-				resolve(held);
-			};
-			req.onerror = () => resolve(null);
-			req.onblocked = () => {
-				abandoned = true;
-				resolve(null);
-			};
-		} catch {
-			resolve(null);
-		}
-	});
-	return opened;
-}
-
-export function deleteHistoryDatabase(): Promise<void> {
-	if (deleting != null) return deleting;
-	const prior = opened;
-	opened = null;
-	const work = (async () => {
-		(await prior)?.close();
-		await new Promise<void>((resolve, reject) => {
-			const request = indexedDB.deleteDatabase(HISTORY_DB);
-			request.onsuccess = () => resolve();
-			request.onerror = () => reject(request.error ?? new Error("browser history deletion failed"));
-			request.onblocked = () => reject(new Error("browser history deletion is blocked by another tab"));
-		});
-	})();
-	const settled = work.finally(() => {
-		if (deleting === settled) deleting = null;
-	});
-	deleting = settled;
-	return settled;
 }
 
 export function transactionFailure(tx: IDBTransaction, fallback: string): Error {

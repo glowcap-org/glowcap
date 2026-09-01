@@ -35,6 +35,8 @@
  * means here. Filing one would be the application putting words in the
  * reader's mouth; filing none leaves the last real answer standing, and
  * leaves anything the reader had typed exactly where they left it. */
+import type { RoomPreset } from "../../lib/room/policy.ts";
+
 export type Source =
 	/** A control on this page was operated. */
 	| "press"
@@ -98,7 +100,7 @@ export interface Act {
 	 * directory serving this page, which is the one way the card says "here". */
 	readonly locator?: Given<string>;
 	readonly nick?: Given<string>;
-	readonly secret?: Given<boolean>;
+	readonly roomPreset?: Given<RoomPreset>;
 }
 
 /** An act with its place in the order left to the store to assign. */
@@ -116,7 +118,7 @@ export interface Edits {
 	readonly room?: string;
 	readonly locator?: string;
 	readonly nick?: string;
-	readonly secret?: boolean;
+	readonly roomPreset?: RoomPreset;
 }
 
 /** What this browser did last, offered when no act has anything to say.

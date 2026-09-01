@@ -98,6 +98,10 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
 /// Validate a proposed link without mutating the forest. Following self-roots
 /// includes pending targets and detects a partner-proposed cycle in bounded
 /// time; every existing non-self link was admitted by this same check.
+/// The deliver route classifier reaches here only after
+/// `sourceForShorteningResolver` saw this resolver's pending link row in the
+/// same dispatch, so the lookup below can assert presence and a shortening
+/// purpose rather than refuse a partner-named position.
 pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, target: model.FarRef) session.Error!void {
     const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
     const source = switch (purpose) {

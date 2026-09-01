@@ -12,6 +12,8 @@ set -uo pipefail
 dir="${PANCAKE_DEVCONTAINER_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
+# shellcheck source=../lib/playwright.sh
+source "${dir}/lib/playwright.sh"
 pancake_devcontainer_init "${dir}"
 pancake_require_devcontainer "image/verify-toolchains"
 
@@ -150,18 +152,13 @@ rm -rf "${cursor_state}"
 # are checked, and running each one proves more than a file test would: it needs
 # the apt libraries too, and (during post-create, which runs as vscode) it needs
 # the image's root-installed files to be readable. Playwright picks the browser
-# build number, so the check globs it rather than restating it here. The path
-# pin is read through the same skew guard as every version pin above.
+# build number and architecture-specific archive layout, so the resolver owns
+# both supported Linux forms. The path pin is read through the same skew guard
+# as every version pin above.
 if require_pin "playwright" PLAYWRIGHT_BROWSERS_PATH; then
     browsers_path="${PLAYWRIGHT_BROWSERS_PATH}"
-    shopt -s nullglob
-    playwright_bins=(
-        "${browsers_path}"/chromium-*/chrome-linux/chrome
-        "${browsers_path}"/chromium_headless_shell-*/chrome-linux/headless_shell
-    )
-    shopt -u nullglob
-    if [[ "${#playwright_bins[@]}" -lt 2 ]]; then
-        fail "playwright: expected a Chromium and a headless shell under ${browsers_path}; image/playwright.sh puts them there during the image build, so rebuild the container"
+    if ! pancake_playwright_binaries "${browsers_path}"; then
+        fail "playwright: expected exactly one Chromium and one headless shell under ${browsers_path}; image/playwright.sh puts them there during the image build, so rebuild the container"
     else
         for bin in "${playwright_bins[@]}"; do
             expect_ok "playwright" "${bin}" --version

@@ -9,9 +9,10 @@
 // with it is `joining.ts`.
 
 import { current, type Reach } from "../intent.ts";
+import type { RoomPreset } from "../../../lib/room/policy.ts";
 import { type DirectoryDestinationContext, type JoinAnswers, joinAnswers } from "../joining.ts";
 import { clearConv, showJoinCard } from "./chrome.ts";
-import { get, set, type State } from "./core.ts";
+import { type PageProjection, type State } from "./core.ts";
 
 /** Somebody has arrived at the join card, and this is how.
  *
@@ -23,8 +24,8 @@ import { get, set, type State } from "./core.ts";
  * going away, or landing on the card after leaving the last room, is not
  * somebody asking for anything, so the last real act keeps standing and
  * whatever the reader had typed stays where they left it. */
-export function reach(act: Reach): void {
-	set({ reaching: { ...act, seq: get().reaching.seq + 1 } });
+export function reach(projection: PageProjection, act: Reach): void {
+	projection.set({ reaching: { ...act, seq: projection.get().reaching.seq + 1 } });
 }
 
 /** File an act and put the card up as its answer.
@@ -34,26 +35,29 @@ export function reach(act: Reach): void {
  * open and means to leave it, so the list screen and the roster sheet go. A
  * link decides where the reader is standing and nothing else, so the furniture
  * stays exactly as they left it. */
-export function showJoinFor(act: Reach): void {
-	reach(act);
-	if (act.source === "press") showJoinCard();
-	else clearConv();
+export function showJoinFor(projection: PageProjection, act: Reach): void {
+	reach(projection, act);
+	if (act.source === "press") showJoinCard(projection);
+	else clearConv(projection);
 }
 
 /** The reader changing an answer, which counts against the act they are
  * answering. */
-export function editJoin(
-	patch: { room?: string; locator?: string; nick?: string; secret?: boolean },
-): void {
+export function editJoin(projection: PageProjection, patch: {
+	room?: string;
+	locator?: string;
+	nick?: string;
+	roomPreset?: RoomPreset;
+}): void {
 	// Over what the reader has already said *about this act*, not over whatever
 	// the last one left behind. Filing an act does not clear overrides — the act
 	// they belong to is what makes them apply, and reading through `current` is
-	// the one place that is decided. Spreading `get().edits` raw here would have
+	// the one place that is decided. Spreading `projection.get().edits` raw here would have
 	// been a second answer to the same question, and the wrong one: an override
 	// the reader made two rooms ago would ride back in the moment they touched
 	// any other field.
-	const state = get();
-	set({ edits: { ...current(state.edits, state.reaching), ...patch } });
+	const state = projection.get();
+	projection.set({ edits: { ...current(state.edits, state.reaching), ...patch } });
 }
 
 /** What this browser should offer next time, written when a join has actually
@@ -62,19 +66,20 @@ export function editJoin(
  * On success rather than on every keystroke, because a locator typed halfway
  * and abandoned is not something the reader did, and offering it back would
  * present it as though it were. */
-export function remember(patch: { room?: string; locator?: string; nick?: string }): void {
-	const was = get().remembered;
+export function remember(projection: PageProjection, patch: { room?: string; locator?: string; nick?: string }): void {
+	const was = projection.get().remembered;
 	const next = { ...was, ...patch };
 	// A reader re-entering the room they always enter is the ordinary case, and
 	// it changes nothing here. Saying so anyway would replace the object every
 	// other surface resolves against and redraw the page for it.
 	if (next.room === was.room && next.locator === was.locator && next.nick === was.nick) return;
-	set({ remembered: next });
+	projection.set({ remembered: next });
 }
 
 /** What the join card shows, and the evidence behind each field. */
 export function answers(
-	snapshot: Readonly<Pick<State, "homeDir" | "reaching" | "edits" | "remembered">> = get(),
+	projection: PageProjection,
+	snapshot: Readonly<Pick<State, "homeDir" | "reaching" | "edits" | "remembered">> = projection.get(),
 	context: DirectoryDestinationContext = { home: snapshot.homeDir, defaultDirectory: null },
 ): JoinAnswers {
 	return joinAnswers(snapshot.reaching, snapshot.edits, snapshot.remembered, context);
@@ -86,6 +91,6 @@ export function answers(
  * into the card but not yet used counts, and so does one remembered from a
  * past visit. A directory's own grant is a different and stronger answer, and
  * lives in `dirNick`. */
-export function reachingNick(): string {
-	return answers().nick.value;
+export function reachingNick(projection: PageProjection): string {
+	return answers(projection).nick.value;
 }

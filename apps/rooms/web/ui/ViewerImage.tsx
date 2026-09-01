@@ -11,7 +11,7 @@
 import { useLayoutEffect, useRef } from "react";
 
 export function ViewerImage(
-	{ src, alt, actual, oversized, onMeasure, onToggle, onBackdrop }: {
+	{ src, alt, actual, oversized, onMeasure, onGutter, onToggle, onBackdrop }: {
 		src: string;
 		alt: string;
 		/** Actual size (scrolling) rather than fitted. Owned by the viewer, so
@@ -23,6 +23,9 @@ export function ViewerImage(
 		/** Report `oversized`, measured here because the stage is here; the
 		 * viewer keeps the answer beside the button that depends on it. */
 		onMeasure: (oversized: boolean) => void;
+		/** How much width this stage's own scrollbar takes, measured for the
+		 * same reason. Nought where scrollbars float over the content. */
+		onGutter: (px: number) => void;
 		onToggle: () => void;
 		onBackdrop: () => void;
 	},
@@ -32,6 +35,16 @@ export function ViewerImage(
 	/** Where in the picture the toggle was aimed, as fractions of its size, so
 	 * the point under the pointer is the point actual size centers on. */
 	const aim = useRef<{ x: number; y: number } | null>(null);
+
+	/** What the scrollbar takes out of this stage's width. A classic scrollbar
+	 * is laid out inside the border box and answers here with its width; one
+	 * that floats over the content takes none and answers nought. The bar
+	 * across the top is fixed over this column and stops short by whatever
+	 * this says. */
+	const reportGutter = () => {
+		const box = stage.current;
+		if (box != null) onGutter(box.offsetWidth - box.clientWidth);
+	};
 
 	const measure = () => {
 		const box = stage.current;
@@ -45,9 +58,13 @@ export function ViewerImage(
 
 	useLayoutEffect(() => {
 		measure();
+		reportGutter();
 		const box = stage.current;
 		if (box == null) return;
-		const watch = new ResizeObserver(measure);
+		const watch = new ResizeObserver(() => {
+			measure();
+			reportGutter();
+		});
 		watch.observe(box);
 		return () => watch.disconnect();
 	}, [src]);
@@ -55,6 +72,9 @@ export function ViewerImage(
 	// Entering actual size, put the aimed point (or the middle) in the middle
 	// of the stage. Native scroll owns the position from then on.
 	useLayoutEffect(() => {
+		// Whether this stage scrolls at all is what actual size decides, so the
+		// gutter is answered again here rather than waiting for a resize.
+		reportGutter();
 		const box = stage.current;
 		const pic = img.current;
 		if (!actual || box == null || pic == null) return;
@@ -73,6 +93,19 @@ export function ViewerImage(
 			onClick={(event) => {
 				const pic = img.current;
 				if (event.target !== pic) {
+					// A press on this stage's own scrollbar arrives as a click on
+					// the stage, so leaving on every click that missed the picture
+					// would dismiss the viewer the moment somebody reached for the
+					// thumb. A scrollbar with layout width is drawn past the client
+					// box, so a point beyond it is on one and belongs to the
+					// browser. Where scrollbars float over the content there is no
+					// such point and this never fires.
+					const box = stage.current;
+					if (
+						box != null && event.target === box &&
+						(event.nativeEvent.offsetX > box.clientWidth ||
+							event.nativeEvent.offsetY > box.clientHeight)
+					) return;
 					onBackdrop();
 					return;
 				}

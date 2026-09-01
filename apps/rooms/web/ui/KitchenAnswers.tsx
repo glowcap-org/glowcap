@@ -12,6 +12,7 @@ import { PHASE_SAID } from "./text.ts";
 import { ToastCard } from "./Toast.tsx";
 import type { SessionPhase } from "./types.ts";
 import { Row, Sample } from "./KitchenSample.tsx";
+import { useState } from "react";
 
 const phases: readonly SessionPhase[] = [
 	"connected",
@@ -22,6 +23,7 @@ const phases: readonly SessionPhase[] = [
 
 export function KitchenAnswers() {
 	const browser = useRoomsBrowser();
+	const [dynamicRefusal, setDynamicRefusal] = useState("Waiting for the request.");
 	return (
 		<>
 			<Sample
@@ -96,6 +98,25 @@ export function KitchenAnswers() {
 					</Said>
 				</div>
 				<div className="kitchen-stack">
+					<p className="kitchen-note">A refusal that arrives after the action</p>
+					<Row>
+						<Button
+							id="kitchenDynamicRefusalRun"
+							variant="quiet"
+							onClick={() =>
+								setDynamicRefusal(
+									"Could not reach ocapn://dynamic.example/s/unreachableswissnum: " +
+										"the peer closed the session before the asynchronous request finished, " +
+										"so none of the queued capability work was accepted and the operation remains pending " +
+										"until a reachable route can be established.",
+								)}
+						>
+							Run request
+						</Button>
+					</Row>
+					<Said id="kitchenDynamicRefusal" kind="failure">{dynamicRefusal}</Said>
+				</div>
+				<div className="kitchen-stack">
 					<p className="kitchen-note">The draft is past what this room will carry</p>
 					<div className="hint room-cap over">12 bytes too long for this room</div>
 				</div>
@@ -156,7 +177,9 @@ export function KitchenAnswers() {
 						<div className="sys-aside">
 							<span className="aside-mark" aria-hidden="true">Only you</span>
 							<div className="sys-run">
-								<span className="sys-line">Not connected, your message was not sent</span>
+								<span className="sys-line">
+									{PHASE_SAID.disconnected + ". Your message was not sent."}
+								</span>
 							</div>
 						</div>
 					</div>

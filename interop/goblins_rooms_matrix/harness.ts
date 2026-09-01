@@ -5,7 +5,8 @@
 // pins that incompatibility directly.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
+import { confirmTitleLeave } from "../../apps/rooms/test/support/page.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
@@ -264,7 +265,7 @@ async function joinRoom(peer: WebPeer, room: string): Promise<void> {
 }
 
 async function moveWeb(peer: WebPeer, room: string): Promise<void> {
-	await peer.page.click("#leaveBtn");
+	await confirmTitleLeave(peer.page);
 	await peer.page.waitForSelector("#joinBtn", { state: "visible", timeout: WAIT_MS });
 	await joinRoom(peer, room);
 }
@@ -356,7 +357,7 @@ async function reopenBrowserDm(
 ): Promise<void> {
 	await showWebDm(browserPeer, other.nick);
 	const liveBefore = liveWireIds(timeline);
-	await browserPeer.page.click("#leaveBtn");
+	await confirmTitleLeave(browserPeer.page);
 	await until(
 		() => {
 			const live = liveWireIds(timeline);

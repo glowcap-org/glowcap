@@ -9,9 +9,11 @@
 // `/link` and `/join` also complete a listed room name as their argument,
 // without needing `#`.
 
-import { type CommandHere, commandIn, held } from "./commands.ts";
+import { type CommandHere, commandIn, held, hereOf } from "./commands.ts";
 import { MENTION_QUERY, ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
+import { type Conv, liveRoomNames, type LiveRooms } from "./types.ts";
+import { foreignName } from "./member_identity.ts";
 
 export type TriggerKind = "nick" | "room" | "emoji" | "command";
 
@@ -42,6 +44,41 @@ export function triggerAt(text: string, caret: number): Trigger | null {
 		return { kind: "emoji", start, query };
 	}
 	return null;
+}
+
+/** Whose names an `@` completes against, here.
+ *
+ * A mention reaches somebody in the conversation, so most `@`s complete against
+ * the room's members (or the one person a direct line is with). But a command
+ * whose target is somebody to bring in — `/invite`, `/msg` — wants the people
+ * the members list leaves out, so its `@` completes against the directory's
+ * reachable set instead. The command registry declares which (`targets`); the
+ * one place that knows a name is not present is here, where the draft is.
+ * Room-wide names are not in this list: they are mention vocabulary, and
+ * completion keeps them off any command that declared `targets`. Your own
+ * name is not either: a line to yourself is not a conversation. */
+export function nickSource(
+	trigger: Trigger | null,
+	conv: Conv | null,
+	draft: string,
+	reachable: ReadonlySet<string>,
+	you: string,
+	members: ReadonlyMap<string, unknown>,
+): readonly string[] {
+	if (trigger?.kind !== "nick" || conv === null) return [];
+	if (commandIn(draft)?.command.targets === "reachable") {
+		const mine = you.toLowerCase();
+		return mine === "" ? [...reachable] : [...reachable].filter((name) => name.toLowerCase() !== mine);
+	}
+	if (conv.type !== "room") return conv.type === "dm" ? [conv.id] : [];
+	// An attribution prefix is the room's bookkeeping, not part of a name anybody
+	// goes by and not valid mention syntax, so it comes off. One visible spelling
+	// also covers the rare collision where a native member and a bridged one share
+	// a name: `@alice` reaches the native reader and crosses the bridge anyway, so
+	// two identical rows would offer no distinct act.
+	const names = new Set<string>();
+	for (const name of members.keys()) names.add(foreignName(name, conv.bridge) ?? name);
+	return [...names];
 }
 
 /** A listed room name as the argument of `/link` or `/join`.
@@ -95,9 +132,6 @@ export interface Candidate {
 	keepsEnter: boolean;
 }
 
-/** Lower is better; `Infinity` filters the row out. A prefix match beats a
- * substring match, and for emoji the code beats its keywords, so `:fir`
- * offers `fire` before anything that merely mentions it. */
 /** Where `query` sits in `hay`, as a rank: at the front, somewhere inside, or
  * nowhere. Lower sorts first, and `Infinity` means it does not match at all.
  *
@@ -132,6 +166,9 @@ const LIMITS: Readonly<Record<TriggerKind, number>> = {
 
 const EMPTY_GRANTS: ReadonlySet<string> = new Set();
 
+/** Lower is better; `Infinity` filters the row out. A prefix match beats a
+ * substring match, and for emoji the code beats its keywords, so `:fir`
+ * offers `fire` before anything that merely mentions it. */
 export function completeCandidates(
 	trigger: Trigger,
 	sources: {
@@ -229,6 +266,27 @@ export function completeCandidates(
 	}
 	scored.sort((a, b) => a.score - b.score || a.candidate.label.localeCompare(b.candidate.label));
 	return scored.slice(0, limit).map((s) => s.candidate);
+}
+
+/** The completion list under this caret, or none while the token is dismissed. */
+export function composerCandidates(
+	trigger: Trigger | null,
+	dismissedAt: number | null,
+	conv: Conv | null,
+	draft: string,
+	reachable: ReadonlySet<string>,
+	you: string,
+	members: ReadonlyMap<string, unknown>,
+	liveRooms: LiveRooms,
+): readonly Candidate[] {
+	if (trigger === null || trigger.start === dismissedAt) return [];
+	return completeCandidates(trigger, {
+		nicks: nickSource(trigger, conv, draft, reachable, you, members),
+		rooms: trigger.kind === "room" ? liveRoomNames(liveRooms) : [],
+		grants: conv?.type === "room" ? conv.grants : undefined,
+		here: hereOf(conv),
+		targets: commandIn(draft)?.command.targets,
+	});
 }
 
 /** The draft after accepting `candidate`, and where the caret lands in it. */

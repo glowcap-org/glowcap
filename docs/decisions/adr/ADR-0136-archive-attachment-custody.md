@@ -7,7 +7,7 @@ decision: "A Rooms archive line retains bounded attachment metadata and an archi
 supersedes: []
 superseded_by: []
 amends: [ADR-0129, ADR-0131, ADR-0132, ADR-0135]
-amended_by: []
+amended_by: [ADR-0140]
 ---
 
 # ADR-0136 Archive attachment custody
@@ -33,7 +33,10 @@ Metadata grants no byte authority. A blob-capable archive mints a SHA-256 digest
 while streaming each file through `putFiles`. The digest identifies content in
 the line record, while `attachment` returns the scoped capability that grants
 access to those bytes. Callers cannot select an existing blob by supplying a
-digest. A metadata-only line still restores as explicitly unavailable.
+digest to `attachment`. ADR-0140 adds digest as a filter dimension that
+authorizes `blob(digest)` only when the facet's current scope already includes a
+line that names that digest. A metadata-only line still restores as explicitly
+unavailable.
 
 Browser IndexedDB and the standalone file archive store the same canonical line
 record and enforce a 512 MiB aggregate blob ceiling. IndexedDB commits its line,
@@ -60,8 +63,8 @@ images still load on arrival.
 
 ## Evidence
 
-`apps/rooms/test/archive_test.ts` holds memory custody, exact wire bounds, and
-withdrawal erasure. `apps/rooms/test/archive_storage_test.ts` proves bytes
+`apps/rooms/test/archive/protocol_test.ts` holds memory custody, exact wire bounds, and
+withdrawal erasure. `apps/rooms/test/archive/storage_test.ts` proves bytes
 survive file-archive restart and obey the byte ceiling. The baseline archive
 wire and standalone peer tests fetch retained blob capabilities across OCapN
 and process restart. The whole-page and shared-session browser checks recover

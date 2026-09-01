@@ -99,8 +99,8 @@
     directory-vow
     (lambda (directory)
       ;; The direct-message half. Each message that arrives is answered straight
-      ;; back over its own connection, which is what makes this vat a partner in
-      ;; a conversation rather than a mailbox.
+      ;; back over its own connection, so this vat is a partner in a
+      ;; conversation rather than a mailbox.
       (define dm
         (spawn-dm-member
          directory
@@ -112,6 +112,7 @@
            ;; `dm` is the very member being defined here. The handler runs on a
            ;; later turn, by which time the definition has landed.
            (dm-say dm from (string-append (reply-prefix) text)))
+         #:on-sent (lambda (peer _text) (say "DM SENT ~a" peer))
          #:on-status (lambda (text) (say "* ~a" text))
          #:on-error (lambda (what err) (say "! could not ~a: ~v" what err))))
       (dm-register dm)
@@ -125,7 +126,11 @@
                  (methods
                   [(notify event . rest)
                    (define name (if (pair? rest) (car rest) ""))
-                   (dm-notify dm event name)
+                   (define registration-id
+                     (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
+                         (caddr rest)
+                         ""))
+                   (dm-notify dm event name registration-id)
                    (when (and (equal? event "registered")
                               (not (string-ci=? name nick)))
                      (say "DM SEEN ~a" name)
@@ -133,8 +138,7 @@
                                 (string-ci=? name (dm-peer))
                                 (not (unbox greeted)))
                        (set-box! greeted #t)
-                       (dm-say dm name (dm-text))
-                       (say "DM SENT ~a" name)))]))))
+                       (dm-say dm name (dm-text))))]))))
       (on (<- directory 'watch watcher)
           void
           #:catch (lambda (err) (say "! could not watch the directory: ~v" err)))

@@ -3,7 +3,8 @@
 The bindings are not published yet. In a checkout, run `zig build`; the
 bindings find the resulting libraries under `zig-out/lib`.
 
-This page describes the archive lookup and the release switch for packagers.
+Bindings look up archives in the order below. The release switch is the last
+section.
 The machine-readable contract is
 [`c-abi-resolve.json`](c-abi-resolve.json), as decided in
 [ADR-0077](../docs/decisions/adr/ADR-0077-publishable-c-abi-resolve.md).
@@ -69,8 +70,10 @@ consumer across the packaged shared libraries, loads the iroh companion through
 that shared path, and runs both product binaries there.
 The archive table in `build.zig` is the release manifest. Packaging copies only
 those libraries, their public headers, and the product binaries by name, so a
-dirty `zig-out` cannot contribute another target or an internal artifact. The
-tarballs contain regular files rather than library symlinks.
+dirty `zig-out` cannot contribute another target or an internal artifact. Each
+tarball also carries the repository's `PROVENANCE.md` disclosure and its license
+files. The extracted smoke compares that disclosure byte for byte against the
+source tree. The tarballs contain regular files rather than library symlinks.
 
 The optional native relay archive is self-contained: its pinned, namespaced
 Mbed TLS client is linked privately into `libpancake_net_transport_relay` and
@@ -89,14 +92,15 @@ change it until the corresponding assets can be downloaded and verified.
 1. Run `zig build -Doptimize=ReleaseSafe release-pack` for every published
    target.
 2. Push the release commit and require its exact SHA to complete `check.yml`
-   successfully, including both the full gates and macOS runtime jobs.
+   successfully, including both the `check.yml` jobs and macOS runtime jobs.
 3. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`. The release
    workflow independently queries the successful exact-SHA check before it
    builds archives.
 4. Push the tag and confirm the release workflow publishes the tarballs and
-   `SHA256SUMS`, and records GitHub artifact attestations for both.
-5. Download each archive, verify `SHA256SUMS`, then verify its build provenance
-   with `gh attestation verify --repo OWNER/REPO <archive>`.
+   `SHA256SUMS`, and records GitHub artifact attestations for both. Confirm each
+   archive contains the tagged `PROVENANCE.md` disclosure.
+5. Download each archive, verify `SHA256SUMS`, then verify its artifact
+   attestation with `gh attestation verify --repo OWNER/REPO <archive>`.
 6. Set `releases_published` to true in `c-abi-resolve.json`, then copy the
    updated contract to every path in its `package_copies` list.
 7. Push that consumer-enablement commit and require `check.yml` to pass for its

@@ -4,7 +4,7 @@
 //
 // The proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 export const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
 
@@ -18,11 +18,12 @@ export function fail(message: string): never {
 	throw new Error(message);
 }
 
-/** Lowest ink contrast for a translucent descendant surface over either end of
- * its containing bubble's gradient. This checks the composite a person sees,
- * not the declarations in isolation. */
 /** How readable `selector` is over the gradient bubble behind it, or why that
- * could not be worked out. */
+ * could not be worked out.
+ *
+ * The answer is the lowest ink contrast a translucent descendant surface
+ * reaches over either end of its containing bubble's gradient, so it is the
+ * composite a person actually sees rather than the declarations in isolation. */
 export async function bubbleInkContrast(
 	page: Page,
 	selector: string,
@@ -119,3 +120,46 @@ export async function fillSettled(tab: Page, selector: string, value: string): P
 }
 
 export { freePort, waitForHttp } from "../support/rooms_server.ts";
+export { confirmTitleLeave, reachDirectoryOnCard } from "../support/page.ts";
+
+/** The directory conversation's title opens the existing directory card. */
+export async function openDirectoryCard(tab: Page): Promise<void> {
+	await tab.click("#roomAbout");
+	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
+		.catch(() => fail("the directory conversation's title did not open its card"));
+}
+
+/** Pressing a rail caption selects that directory's conversation. */
+export async function showDirectoryFromCaption(tab: Page, caption: Locator): Promise<void> {
+	const said = (await caption.getAttribute("aria-label")) ?? "";
+	await caption.click();
+	await tab.waitForFunction(
+		(said) => {
+			if (location.pathname !== "/directory") return false;
+			const name = document.getElementById("roomName")?.textContent ?? "";
+			return name !== "" && said.includes(name);
+		},
+		said,
+		{ timeout: 10_000 },
+	).catch(() => fail(`clicking a directory caption did not open that directory's conversation: ${said}`));
+}
+
+/** Pressing a rail caption, then the title, opens the directory card. */
+export async function openDirectoryCardFromCaption(tab: Page, caption: Locator): Promise<void> {
+	await showDirectoryFromCaption(tab, caption);
+	await openDirectoryCard(tab);
+}
+
+/** Settings names the directory; the button opens that conversation, and the
+ * title chip opens the card. */
+export async function openDirectoryCardFromSettings(tab: Page): Promise<void> {
+	await tab.click("#settingsAboutDir");
+	await tab.waitForSelector("#settingsTitle", { state: "hidden", timeout: 10_000 })
+		.catch(() => fail("Settings stayed up instead of opening the directory"));
+	await tab.waitForFunction(
+		() => location.pathname === "/directory" && new URLSearchParams(location.search).get("dir") === null,
+		undefined,
+		{ timeout: 10_000 },
+	).catch(() => fail("Settings did not open this directory"));
+	await openDirectoryCard(tab);
+}

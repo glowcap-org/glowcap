@@ -12,13 +12,13 @@
 // on screen to the wire that carries it. No behavior, so nothing to reason
 // about twice.
 
+import * as store from "../store.ts";
+import { type AttachmentView, type DirId, dirId } from "../types.ts";
 import type { Attachment } from "../../../lib/attachment.ts";
-import type { DirectMessage, Directory, PostedLine, Room } from "../../../lib/room_client.ts";
+import type { DirectMessage, Directory, PostedLine, Room } from "../../../lib/room/client.ts";
 import type { WebrtcSignalingServer } from "../../../lib/signaling.ts";
 import type { Ref } from "@pancake/runtime";
-import { type AttachmentView, type DirId, dirId } from "../types.ts";
-import * as store from "../store.ts";
-
+import type { RoomsPageContext } from "../page.ts";
 /** Everything that belongs to one directory session, and nothing that outlives
  * one.
  *
@@ -27,7 +27,8 @@ import * as store from "../store.ts";
  * with it: the room it had us in, the direct lines redeemed over it, the name it
  * advertised. What is reachable *about us* does not — a cold-dial line is
  * browser-to-browser through the relay, so a room respawn must not disturb it —
- * and that state stays in module scope below.
+ * and that state stays on the page, beside the inbox host rather than any
+ * connection to a directory.
  *
  * Both used to be module scope, and which was which lived in one place: a list
  * inside the disconnect handler, of everything to put back. A field added
@@ -50,6 +51,9 @@ export interface AttachmentProgress {
 }
 
 export interface Live {
+	/** The page that owns this session's directory table. Ending the session
+	 * does not end the page; reconnect seats a new session on the same page. */
+	readonly page: RoomsPageContext;
 	/** Which directory this session is. Every table below belongs to it, and a
 	 * captured session can ask whether it is still the live one for its own
 	 * directory without knowing anything about the others. */
@@ -73,10 +77,7 @@ export interface Live {
 	 * the connection that fetched it. Dropping the session drops every room with
 	 * it, and a reconnect re-enters them all against the new one. */
 	rooms: Map<string, Room>;
-	/** Rooms this exact directory connection opened and may therefore ask to
-	 * issue stewardship for, by conversation key. This is connection state, not
-	 * a role: reconnecting creates a new session and an empty set. */
-	stewardClaimable: Set<string>;
+	stewardshipPending: Map<string, symbol>;
 	/** What each room on this connection was last told about where this reader
 	 * stands, by conversation key.
 	 *
@@ -97,7 +98,7 @@ export interface Live {
 	 * fresh blob under the view already on screen rather than replacing it — a
 	 * kept file keeps its bytes and a new one keeps the local copy we uploaded,
 	 * so a refile of our own line downloads nothing. */
-	refiling: Map<number, readonly AttachmentView[]>;
+	refiling: Map<string, Map<number, readonly AttachmentView[]>>;
 	/** The reference the room answered with for each of our own lines, by the id
 	 * this window knows that line by. Holding one is the authority to change or
 	 * withdraw that line, so this map is exactly what this tab may still act on —
@@ -122,6 +123,9 @@ export interface Live {
 	backoff: number;
 	/** Pending WebRTC offer bring-ups filed through this directory session. */
 	signaling: WebrtcSignalingServer | null;
+	/** Share is handing this session to the hosted runtime. The answering inbox
+	 * is filed on it, so a later advertise callback must not close that inbox. */
+	keepTransport?: boolean;
 	/** The blob capability behind each received file, by the file's id, with the
 	 * fetch and release operations for the session it is reachable through.
 	 * Capabilities live here rather than in the
@@ -151,45 +155,80 @@ export interface Live {
 	>;
 }
 
-/** Every directory this tab holds, by the authority its locator names.
- *
- * A directory is not a place you switch to. Holding one means a live session, a
- * nickname registered on it, and everything reachable through that nickname, so
- * opening a second takes nothing away from the first — the same rule rooms
- * follow, one level up.
- *
- * Insertion order is the order they were opened, which is the order the rail
- * lists them and the order a reconnect works through them. */
-export const dirs = new Map<DirId, Live>();
+/** Live directory sessions and remembered routes for one browser page. */
+export class PageLiveIndex {
+	readonly #page: RoomsPageContext;
 
-/** The freshest route known for each directory authority. A live session owns
- * its route, but Settings and reconnect still need it after that session has
- * been retired. */
-export const directoryLocators = new Map<DirId, string>();
+	constructor(page: RoomsPageContext) {
+		this.#page = page;
+	}
 
-/** The address to hand somebody for `dir`: the route this tab actually used,
- * routing hints and all, because a shared locator is for somebody else to dial
- * and the hints are part of what makes it dialable. The bare authority is the
- * fallback only when no route was ever recorded. Every surface that puts a
- * directory's address in front of a reader — the card's copy field, a room
- * link, the directory listing — answers with this, while the store stays keyed
- * by the bare authority so one directory stays one directory across address
- * changes. */
-export function dirAddress(dir: DirId): string {
-	return directoryLocators.get(dir) ?? (dir as string);
-}
+	/** Every directory this tab holds, by the authority its locator names.
+	 *
+	 * A directory is not a place you switch to. Holding one means a live session, a
+	 * nickname registered on it, and everything reachable through that nickname, so
+	 * opening a second takes nothing away from the first — the same rule rooms
+	 * follow, one level up.
+	 *
+	 * Insertion order is the order they were opened, which is the order the rail
+	 * lists them and the order a reconnect works through them. */
+	readonly dirs = new Map<DirId, Live>();
 
-/** The session for one directory, or null when this tab does not hold it. */
-export function dirSession(dir: DirId): Live | null {
-	return dirs.get(dir) ?? null;
-}
+	/** The freshest route known for each directory authority. A live session owns
+	 * its route, but Settings and reconnect still need it after that session has
+	 * been retired. */
+	readonly directoryLocators = new Map<DirId, string>();
 
-/** The session a conversation belongs to. Every conversation names its
- * directory, so this is the one route from anything on screen to the wire that
- * carries it. */
-export function convSession(key: string | null): Live | null {
-	const conv = store.getConv(key);
-	return conv === null ? null : dirSession(conv.dir);
+	/** The address to hand somebody for `dir`: the route this tab actually used,
+	 * routing hints and all, because a shared locator is for somebody else to dial
+	 * and the hints are part of what makes it dialable. The bare authority is the
+	 * fallback only when no route was ever recorded. Every surface that puts a
+	 * directory's address in front of a reader — the card's copy field, a room
+	 * link, the directory listing — answers with this, while the store stays keyed
+	 * by the bare authority so one directory stays one directory across address
+	 * changes. A restored row falls back to its separately stored route, never to
+	 * the authority key itself. */
+	dirAddress(dir: DirId): string {
+		const address = this.directoryLocators.get(dir) ?? this.#page.projection.get().dirs.get(dir)?.locator;
+		if (address == null) throw new Error("a held directory has no recorded route");
+		return address;
+	}
+
+	/** The session for one directory, or null when this tab does not hold it. */
+	dirSession(dir: DirId): Live | null {
+		return this.dirs.get(dir) ?? null;
+	}
+
+	/** The session a conversation belongs to. Every conversation names its
+	 * directory, so this is the one route from anything on screen to the wire that
+	 * carries it. */
+	convSession(key: string | null): Live | null {
+		const conv = store.getConv(this.#page.projection, key);
+		return conv === null ? null : this.dirSession(conv.dir);
+	}
+
+	/** Whether `session` is still the live one for its own directory. A session a
+	 * reconnect replaced, or whose directory has been left, is not — and the test
+	 * says so without asking what any other directory is doing. */
+	isCurrent(session: Live): boolean {
+		return this.dirs.get(session.id) === session;
+	}
+
+	isConnected(): boolean {
+		return this.anyLive() !== null;
+	}
+
+	/** Any directory this tab holds, for the questions that are about the tab
+	 * rather than about one of them. */
+	anyLive(): Live | null {
+		for (const session of this.dirs.values()) return session;
+		return null;
+	}
+
+	/** The one live directory, or null when there are several. */
+	soleLive(): Live | null {
+		return this.dirs.size === 1 ? this.anyLive() : null;
+	}
 }
 
 /** The directory whose answer speaks for the page right now, as a name to send
@@ -201,24 +240,27 @@ export function convSession(key: string | null): Live | null {
  * picked: the join card's, and a command typed with nothing open. Empty while
  * this tab holds none, because the callers here are already in a session and
  * have somewhere to put the answer. */
-export function actingDir(): DirId {
-	return store.actingDir()?.id ?? dirId("");
+export function actingDir(page: RoomsPageContext): DirId {
+	return store.actingDir(page.projection)?.id ?? dirId("");
 }
 
-/** Whether `session` is still the live one for its own directory. A session a
- * reconnect replaced, or whose directory has been left, is not — and the test
- * says so without asking what any other directory is doing. */
+/** Whether `session` is still the live one for its own directory. */
 export function isCurrent(session: Live): boolean {
-	return dirs.get(session.id) === session;
+	return session.page.live.isCurrent(session);
 }
 
-export function isConnected(): boolean {
-	return anyLive() !== null;
+export function dirSession(page: RoomsPageContext, dir: DirId): Live | null {
+	return page.live.dirSession(dir);
 }
 
-/** Any directory this tab holds, for the questions that are about the tab
- * rather than about one of them. */
-export function anyLive(): Live | null {
-	for (const session of dirs.values()) return session;
-	return null;
+export function convSession(page: RoomsPageContext, key: string | null): Live | null {
+	return page.live.convSession(key);
+}
+
+export function dirAddress(page: RoomsPageContext, dir: DirId): string {
+	return page.live.dirAddress(dir);
+}
+
+export function isConnected(page: RoomsPageContext): boolean {
+	return page.live.isConnected();
 }

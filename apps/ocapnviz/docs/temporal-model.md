@@ -1,8 +1,8 @@
 # Time spans
 
-This page explains how an entity's placement in time is stored, inherited, and
-clamped. It is one part of layer 2 in `data-model.md`, which covers the document
-as a whole.
+An entity's placement in time is stored, inherited, and clamped as follows.
+This is one part of layer 2 in `data-model.md`, which covers the document as a
+whole.
 
 The code is the specification. `src/engine/temporal/time-span.ts` holds the
 storage shape and the gesture rewrites, `doc-resolver.ts` holds the table of

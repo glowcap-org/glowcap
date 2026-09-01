@@ -7,13 +7,15 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDismissOnClickOutside } from "../hooks.ts";
-import { useMenu } from "../Menu.tsx";
+import { MenuLayer, useMenu } from "../Menu.tsx";
 import { tooLong } from "../text.ts";
 import { identifierField } from "../field.ts";
 import { useSuggest } from "../Suggest.tsx";
 import { Icon } from "../icons.tsx";
+import { roomMarkGlyph } from "../room_mark.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
+import { nextRoomPreset, type RoomPreset } from "../../../lib/room/policy.ts";
 
 /** One "+" and the field under it, wherever it is being held.
  *
@@ -40,9 +42,9 @@ export interface AddField {
 	/** Whether this panel can make the thing being named a private one: offered
 	 * for rooms, where a reference is the only way in, and not for a direct
 	 * line, which is private by being between two people. */
-	canBePrivate?: boolean;
+	canChooseAccess?: boolean;
 	onOpen: (open: boolean) => void;
-	onSubmit: (value: string, isPrivate: boolean) => void;
+	onSubmit: (value: string, preset: RoomPreset) => void;
 	/** Present while this field is another form's remote control: the value and
 	 * lock live there, typing here writes there, and Enter submits that form
 	 * instead of `onSubmit`. Closing the panel then keeps what was typed,
@@ -60,9 +62,14 @@ export interface AddField {
 		 * disagree about which form that is. */
 		form: string;
 		value: string;
-		secret: boolean;
+		roomPreset: RoomPreset;
+		/** Whether that standing is the room's own rather than a choice: set for
+		 * a name a directory already answers to, and while no listing has
+		 * arrived to say either way. The control still shows the standing, so a
+		 * reader can see what they would be walking into. */
+		accessFixed?: boolean;
 		onValue: (value: string) => void;
-		onSecret: (secret: boolean) => void;
+		onRoomPreset: (preset: RoomPreset) => void;
 	};
 	/** Offered when this panel can also reach somewhere this tab does not hold
 	 * yet. Absent means the panel has no elsewhere: a direct line is opened from
@@ -137,7 +144,7 @@ export function NamePanel(
 		max,
 		noun,
 		canAdd,
-		canBePrivate,
+		canChooseAccess,
 		onOpen,
 		onSubmit,
 		link,
@@ -153,16 +160,20 @@ export function NamePanel(
 	// The destination menu, when this panel has one. Its holder is the panel
 	// itself, so a press on the line that opens it — or anywhere else the panel
 	// offers — is not "somewhere else".
-	const { open: picking, setOpen: setPicking, holder: panel, trigger: elsewhere } = useMenu();
+	const { open: picking, setOpen: setPicking, holder: panel, trigger: elsewhere, layer } = useMenu();
 	const [localValue, setLocalValue] = useState("");
-	const [localSecret, setLocalSecret] = useState(false);
+	const [localRoomPreset, setLocalRoomPreset] = useState<RoomPreset>("open");
 	// Linked, the field is a second view of the join card's answers; alone, it
 	// keeps its own ephemeral state, which closing still empties.
 	const value = link?.value ?? localValue;
-	const secret = link?.secret ?? localSecret;
+	const roomPreset = link?.roomPreset ?? localRoomPreset;
+	const secret = roomPreset === "private";
 	const setValue = link?.onValue ?? setLocalValue;
-	const setSecret = link?.onSecret ?? setLocalSecret;
+	const setRoomPreset = link?.onRoomPreset ?? setLocalRoomPreset;
 	const showing = open && canAdd;
+	// The panel's list of names has its own layer: it and the directory menu are
+	// two things this one panel can put on screen.
+	const offered = useRef<HTMLDivElement>(null);
 	const suggest = useSuggest({
 		id,
 		label,
@@ -201,13 +212,18 @@ export function NamePanel(
 		setPicking(false);
 		if (link == null) {
 			setLocalValue("");
-			setLocalSecret(false);
+			setLocalRoomPreset("open");
 		}
 	}, [showing]);
 
 	// The other form counts as inside, so a press over there leaves this panel
 	// standing; see `link` above.
-	const region = link == null ? `#${id}, #${id}Btn` : `#${id}, #${id}Btn, ${link.form}`;
+	// This panel's own menu counts as inside it. It is drawn at the end of the
+	// document so that scrolling to a row cannot scroll the rail out from under
+	// it, which takes it off the path a press travels; it names this panel, and
+	// this panel names it back.
+	const mine = `#${id}, #${id}Btn, [data-menu-in="${id}"]`;
+	const region = link == null ? mine : `${mine}, ${link.form}`;
 	useDismissOnClickOutside(showing, region, () => onOpen(false));
 
 	// Closing takes the field out of the tab order, so focus goes back to the
@@ -227,7 +243,7 @@ export function NamePanel(
 				   control they pressed. */
 			}
 			<span className="hash" aria-hidden="true">
-				{secret ? <Icon name="lock" size={13} /> : sigil}
+				{roomPreset === "open" ? sigil : roomMarkGlyph(roomPreset, 13)}
 			</span>
 			<input
 				id={id + "Input"}
@@ -303,11 +319,11 @@ export function NamePanel(
 					const named = value;
 					if (!named) return;
 					if (named.length > max) {
-						onError(tooLong(noun, max));
+						onError(tooLong(noun, max, "characters"));
 						return;
 					}
 					close();
-					onSubmit(named, secret);
+					onSubmit(named, roomPreset);
 				}}
 			/>
 			{
@@ -315,25 +331,29 @@ export function NamePanel(
 				   and decides that by containment: a list rendered anywhere else would
 				   put the panel away on the way to its own rows. */
 			}
-			{suggest.list}
-			{canBePrivate === true && (
+			{suggest.list !== null && (
+				<MenuLayer holder={panel} layer={offered} owner={id} className="rail-offers">
+					{suggest.list}
+				</MenuLayer>
+			)}
+			{canChooseAccess === true && (
 				// Inside the panel, beside the field, because it is part of naming
 				// this room rather than a setting somewhere: pressing it changes
 				// what Enter is about to make. Focus is put back in the field
 				// afterwards, because a press that left it elsewhere would blur the
 				// field and put the panel away on the way to its own control.
 				<IconButton
-					icon="lock"
+					icon={roomPreset === "private" ? "lock" : roomPreset === "moderated" ? "observer" : "group"}
 					className="newroom-private"
-					label={secret
-						? "Making a private room: only people you hand it to can reach it"
-						: "Make this room private, so only people you hand it to can reach it"}
+					label={link?.accessFixed === true
+						? `Room access: ${roomPreset}. Not this session's to change.`
+						: `Room access: ${roomPreset}. Change to ${nextRoomPreset(roomPreset)}.`}
 					size="small"
 					variant="ghost"
-					aria-pressed={secret}
+					disabled={link?.accessFixed === true}
 					onMouseDown={(event) => event.preventDefault()}
 					onClick={() => {
-						setSecret(!secret);
+						setRoomPreset(nextRoomPreset(roomPreset));
 						field.current?.focus();
 					}}
 				/>
@@ -393,12 +413,16 @@ export function NamePanel(
 					<span className="rwhere-change">Change</span>
 				</Button>
 			)}
-			{picks !== undefined && picking && picks(() => {
-				setPicking(false);
-				// Back to the name being typed, which is what the reader was doing
-				// before they said where it lands.
-				field.current?.focus();
-			})}
+			{picks !== undefined && picking && (
+				<MenuLayer holder={panel} layer={layer} owner={id}>
+					{picks(() => {
+						setPicking(false);
+						// Back to the name being typed, which is what the reader was
+						// doing before they said where it lands.
+						field.current?.focus();
+					})}
+				</MenuLayer>
+			)}
 		</div>
 	);
 }

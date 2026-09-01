@@ -11,7 +11,6 @@ pub const Inputs = struct {
     iroh: *std.Build.Module,
     native_relay: *std.Build.Module,
     check_relay: *std.Build.Module,
-    rooms_profile: *std.Build.Module,
     version: std.SemanticVersion,
     iroh_sidecar_archive: std.Build.LazyPath,
     check: *std.Build.Step,
@@ -119,7 +118,6 @@ fn cliModule(
     );
     module.addImport("native_relay", native_relay);
     module.addImport("vaxis", vaxis);
-    module.addImport("rooms_profile", in.rooms_profile);
     module.addOptions("build_options", options);
     if (link_iroh) common.linkIrohSidecar(b, module, in.target, in.iroh_sidecar_archive);
     return module;
@@ -142,7 +140,6 @@ fn testApiModule(
     module.addImport("vaxis", vaxis);
     module.addImport("iroh", in.iroh);
     module.addImport("iroh_sidecar_stub", iroh_stub);
-    module.addImport("rooms_profile", in.rooms_profile);
     module.addOptions("build_options", options);
     return module;
 }

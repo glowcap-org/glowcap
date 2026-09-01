@@ -1,15 +1,15 @@
 // Bounded content-addressed file custody for one durable member archive.
 
 import { createHash } from "node:crypto";
-import type { ArchiveLine, ArchiveRecord } from "../lib/archive.ts";
-import type { ArchiveIndex } from "../lib/archive_index.ts";
+import type { ArchiveLine, ArchiveRecord } from "../lib/archive/protocol.ts";
+import type { ArchiveIndex } from "../lib/archive/index.ts";
 import {
 	type ArchiveAttachmentAddress,
 	type ArchivedAttachmentRead,
 	type ArchivedAttachmentSource,
 	attachmentMetadataEqual,
 	MAX_ARCHIVE_BLOB_BYTES,
-} from "../lib/archive_blobs.ts";
+} from "../lib/archive/blobs.ts";
 import { BLOB_CHUNK } from "../lib/limits.ts";
 import { renameSynced, writeAll } from "../lib/durable_file.ts";
 

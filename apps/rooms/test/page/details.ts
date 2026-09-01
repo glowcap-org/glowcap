@@ -2,14 +2,16 @@
 //
 // The title is the way into what this tab knows about the room or line on
 // screen; `/details` opens the same card. The directory named there opens that
-// directory's own card, and Escape puts this one back. A room's card is where
-// you stand in it and where you leave it. A long error stays two lines where it
-// appeared, and Show is the way into the rest. Both cards are native dialogs,
-// so Escape and a press on the dim around them put the reader back on the
-// control that opened them.
+// directory's conversation; its title opens the directory card. A room's card
+// is where you stand in it and where you leave it. The title's close mark
+// asks to leave in this same card. A long error stays two lines
+// where it appeared, and Show is the way into the rest. Both cards are native
+// dialogs, so Escape and a press on the dim around them put the reader back on
+// the control that opened them.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail, openDirectoryCard } from "./harness.ts";
+import { namedRoomRow } from "../support/conversation_row.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// ── A long refusal stays in its slot ─────────────────────────────────
@@ -36,6 +38,10 @@ export async function run(tab: Page): Promise<void> {
 	if (boxed === null) fail("the parts catalog has no long refusal beside a field");
 	if (!boxed.show) fail("a long refusal in the catalog is not the Show control");
 	if (boxed.overflows) fail("a long refusal in the catalog shoved the field's sample off the card");
+	await tab.click("#kitchenDynamicRefusalRun");
+	await tab.waitForSelector("#kitchenDynamicRefusal.said-more").catch(() =>
+		fail("a long refusal that arrived after mount did not become the Show control")
+	);
 	await tab.click("#kitchenLongWhy");
 	await tab.waitForSelector("#errorTitle").catch(() => fail("Show did not open the rest of the refusal"));
 	const rest = await tab.evaluate(() => {
@@ -109,12 +115,35 @@ export async function run(tab: Page): Promise<void> {
 		fail("the room card offered moderation without its capability");
 	}
 	await tab.click("#convcardCapabilitiesTab");
+	await tab.fill("#convcardStewardTake", "ocapn://draft.example/s/draft");
+	await tab.click("#convcardAboutTab");
+	await tab.click("#convcardCapabilitiesTab");
+	if (await tab.inputValue("#convcardStewardTake") !== "ocapn://draft.example/s/draft") {
+		fail("switching room-detail tabs discarded an unsaved capability draft");
+	}
+	await tab.click("#convcardClose");
+	await tab.waitForSelector("#settingsUnsavedTitle").catch(() =>
+		fail("closing room details with a capability draft did not stack the discard question")
+	);
+	await tab.click("#settingsUnsavedKeep");
+	await tab.waitForSelector("#settingsUnsavedTitle", { state: "detached" });
+	if (await tab.inputValue("#convcardStewardTake") !== "ocapn://draft.example/s/draft") {
+		fail("keeping a room capability draft did not return to the intact form");
+	}
+	await tab.fill("#convcardStewardTake", "");
 	const capGroup = (await tab.locator('[aria-label="Room capabilities"]').textContent()) ?? "";
-	if (!capGroup.includes("Available to this room's creator connection")) {
+	if (!capGroup.includes("Available through the held room manager")) {
 		fail(`the conversation card did not show its moderation capability: ${JSON.stringify(capGroup)}`);
 	}
+	const manager = (await tab.textContent("#convcardManager"))?.trim() ?? "";
+	if (!manager.startsWith("ocapn://") || !manager.includes("/s/")) {
+		fail(`the conversation card did not expose its passable room manager: ${JSON.stringify(manager)}`);
+	}
+	if (!capGroup.includes("does not grant entry or moderation") || !capGroup.includes("delegates management")) {
+		fail("the room manager did not explain the bounds and consequence of sharing it");
+	}
 	if (await tab.locator("#convcardStewardClaim").count() !== 1) {
-		fail("the room creator's details did not offer its moderator capability claim");
+		fail("the held room manager did not offer moderator capability issuance");
 	}
 	if (await tab.locator("#convcardStewardTake").count() !== 1) {
 		fail("the conversation card did not offer a place to take a shared moderator capability");
@@ -127,7 +156,7 @@ export async function run(tab: Page): Promise<void> {
 		fail("claiming moderation did not expose its handover capability in the room details")
 	);
 	if (await tab.locator("#convcardStewardClaim").count() !== 0) {
-		fail("claiming moderation left the creator-only action available a second time");
+		fail("issuing moderation left the manager-backed action available a second time");
 	}
 	const steward = (await tab.textContent("#convcardSteward"))?.trim() ?? "";
 	if (!steward.startsWith("ocapn://") || !steward.includes("/s/")) {
@@ -144,23 +173,49 @@ export async function run(tab: Page): Promise<void> {
 	if (await tab.locator('[aria-label="Room moderation"]').count() !== 1) {
 		fail("the Moderation tab did not contain the room-scoped operations");
 	}
+	await tab.click("#convcardCapabilitiesTab");
+	const linkBeforeDrop = (await tab.textContent("#convcardRoomLink"))?.trim() ?? "";
+	await tab.click("#convcardStewardDropAsk");
+	const dropQuestion = tab.getByRole("group", { name: "Discard room moderator capability" });
+	if (!(await dropQuestion.textContent())?.includes("Other copies still work")) {
+		fail("discarding moderation did not distinguish local release from revocation");
+	}
+	await dropQuestion.getByRole("button", { name: "Discard capability" }).click();
+	await tab.waitForSelector("#convcardSteward", { state: "detached" });
+	if ((await tab.textContent("#convcardRoomLink"))?.trim() !== linkBeforeDrop) {
+		fail("discarding moderation also discarded the room link");
+	}
+	if (await tab.locator("#convcardModerationTab").count() !== 0) {
+		fail("discarding moderation left live moderation operations visible");
+	}
+	await tab.fill("#convcardStewardTake", steward);
+	await tab.getByRole("button", { name: "Take capability" }).click();
+	await tab.waitForFunction(() =>
+		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this tab") === true
+	).catch(() => fail("a moderator capability discarded locally could not be taken again"));
+	await tab.waitForSelector("#convcardModerationTab");
+	await tab.click("#convcardManagerDropAsk");
+	const discardManager = tab.getByRole("group", { name: "Discard room manager capability" });
+	if (!(await discardManager.textContent())?.includes("Other copies continue to work")) {
+		fail("discarding room management did not distinguish local custody from revocation");
+	}
+	await discardManager.getByRole("button", { name: "Discard capability" }).click();
+	await tab.waitForSelector("#convcardManager", { state: "detached" });
+	if ((await tab.textContent("#convcardRoomLink"))?.trim() !== linkBeforeDrop) {
+		fail("discarding room management changed the room link");
+	}
+	if ((await tab.textContent("#convcardSteward"))?.trim() !== steward) {
+		fail("discarding room management changed the retained moderator capability");
+	}
+	await tab.fill("#convcardManagerTake", manager);
+	await tab.getByRole("button", { name: "Take manager capability" }).click();
+	await tab.waitForSelector("#convcardManager").catch(() =>
+		fail("a discarded room manager capability could not be taken again")
+	);
 	if (about.pressed !== "true") fail("the title did not say the card was open");
 	const hash = await tab.evaluate(() => document.querySelector("#convcardTitle .hash")?.textContent ?? "");
 	if (hash !== "#") fail("a public room's card did not wear the hash the rest of the page wears");
 	await tab.click("#convcardAboutTab");
-	await tab.click("#convcardDir");
-	await tab.waitForSelector("#dircardTitle").catch(() =>
-		fail("the directory named on the conversation card did not open that directory")
-	);
-	const dirTitle = (await tab.textContent("#dircardTitle"))?.toLowerCase() ?? "";
-	if (!dirTitle.includes("directory")) {
-		fail(`the directory card is titled ${JSON.stringify(dirTitle)}`);
-	}
-	await tab.keyboard.press("Escape");
-	await tab.waitForFunction(() => document.getElementById("dircardTitle") === null)
-		.catch(() => fail("Escape did not put the conversation card back"));
-	await tab.waitForFunction(() => document.activeElement?.id === "convcardDir")
-		.catch(() => fail("closing the directory did not return focus to its name on the conversation card"));
 	await tab.waitForSelector("#convcardStanding").catch(() =>
 		fail("the conversation card did not offer where you are in this room")
 	);
@@ -172,6 +227,36 @@ export async function run(tab: Page): Promise<void> {
 	}
 	await tab.click("#convcardLeaveStay");
 	await tab.waitForSelector("#convcardLeaveAsk").catch(() => fail("Stay did not put Leave this room back"));
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("convcardTitle") === null)
+		.catch(() => fail("Escape did not put the conversation away after staying"));
+	await tab.click("#leaveBtn");
+	await tab.waitForSelector("#convcardLeaveSaid").catch(() =>
+		fail("the title's mark did not ask before leaving the room")
+	);
+	await tab.click("#convcardLeaveStay");
+	await tab.waitForSelector("#convcardLeaveAsk").catch(() =>
+		fail("Stay from the title's mark did not keep the room")
+	);
+	await tab.click("#convcardDir");
+	await tab.waitForFunction(() => location.pathname === "/directory", { timeout: 10_000 }).catch(() =>
+		fail("the directory named on the conversation card did not open that directory")
+	);
+	await openDirectoryCard(tab);
+	const dirTitle = (await tab.textContent("#dircardTitle"))?.toLowerCase() ?? "";
+	if (!dirTitle.includes("directory")) {
+		fail(`the directory card is titled ${JSON.stringify(dirTitle)}`);
+	}
+	await tab.keyboard.press("Escape");
+	await tab.waitForFunction(() => document.getElementById("dircardTitle") === null)
+		.catch(() => fail("Escape did not put the directory conversation back"));
+	await tab.waitForFunction(() => document.activeElement?.id === "roomAbout")
+		.catch(() => fail("closing the directory card did not return focus to the title"));
+	await namedRoomRow(tab, "lobby").locator(".room-open").click();
+	await tab.waitForSelector("#line:not([disabled])");
+
+	await tab.click("#roomAbout");
+	await tab.waitForSelector("#convcardTitle").catch(() => fail("returning to the room did not restore its title"));
 	await tab.keyboard.press("Escape");
 	await tab.waitForFunction(() => document.getElementById("convcardTitle") === null)
 		.catch(() => fail("Escape did not put the conversation away"));

@@ -5,6 +5,7 @@
 /* Settings: the same card the join form uses, inside a native dialog. Saving
    reloads so the peer opens with the new locator. */
 .modal {
+	box-sizing: border-box;
 	position: fixed;
 	inset: 0;
 	width: auto;
@@ -17,7 +18,8 @@
 	background: transparent;
 	overflow: visible;
 	padding: 24px;
-	place-items: center;
+	align-items: center;
+	justify-content: center;
 	opacity: 0;
 	transform: scale(.96);
 	transition:
@@ -27,7 +29,7 @@
 		display .18s ease allow-discrete;
 }
 .modal[open] {
-	display: grid;
+	display: flex;
 	opacity: 1;
 	transform: none;
 }
@@ -53,6 +55,25 @@
 	background: var(--cover);
 	backdrop-filter: blur(var(--cover-blur));
 	-webkit-backdrop-filter: blur(var(--cover-blur));
+}
+/* The other half of what covering means: the page under a cover does not move.
+   A reader who drags the ground behind a sheet comes back from it somewhere
+   they never asked to be, and on a phone that drag is the same flick that
+   dismisses things, so it happens by accident more than on purpose.
+
+   Stated once, here, beside the paint, because it is the same fact about the
+   same layer. It was not: the rooms list locked the page itself, in its own
+   sheet, and the members sheet locked nothing at all, so a rule that reads as
+   a property of covers was really one overlay's private arrangement.
+
+   Two clauses because there are two kinds of cover, not two policies. A
+   dialog announces itself in the markup and needs nobody's help to be found.
+   A layout overlay is a state of the shell, so the shell names it, and
+   `covered` in `App.tsx` is where a new one joins: it says what it is and this
+   already knows what that means. */
+html:has(dialog[open]),
+html:has(.app.covered) {
+	overflow: hidden;
 }
 .modal::backdrop {
 	opacity: 0;
@@ -87,68 +108,71 @@
    taller than the screen while the toolbars are up, and it changes height under
    the reader as they come and go.
 
-   The children hold their own height for the second half of the same problem. A
+   The card is a shell around the rows rather than the box holding them, and the
+   scrolling belongs to the body inside it. That is what leaves the cap above a
+   plain absolute box: a cap that stands inside the scrolling area has to be
+   held against a scroll position, and the card would otherwise have to fence
+   the rows out of a band to keep it. The rows go behind it instead.
+
+   The rows hold their own height for the second half of the same problem. A
    flex column that can shrink its items will do that before it scrolls, so the
    scroll never engages and the panel inside is squashed instead, by an amount
-   each engine works out for itself. Held to their content, the box scrolls,
+   each engine works out for itself. Held to their content, the body scrolls,
    which is what `overflow-y` was asked for. */
 .modal-card {
-	width: min(420px, 100%);
+	box-sizing: border-box;
+	width: min(var(--card-panel), 100%);
 	max-height: min(90dvh, 720px);
-	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
-	gap: 13px;
 	border: 1px solid var(--rule);
 	border-radius: 18px;
-	padding: 28px;
-	background: var(--paper-raised);
+	/* It clips, and can, because nothing inside it needs to leave. A menu opens
+	   into its own layer (`Menu.tsx`) rather than into the card that happens to
+	   hold the control, so a card no longer has to promise never to cut anything
+	   off on behalf of whatever somebody put in it. */
+	overflow: hidden;
+	/* The card settles the way the page does: raised paper cooling onto its
+	   gray foot, so a tall dialog quiets toward its base in both themes. It
+	   starts later than the page's settle because the card is short: the same
+	   stops compressed into a few hundred pixels change faster per pixel than
+	   the window's ground, and read harder for it. */
+	background: linear-gradient(
+		180deg,
+		var(--paper-raised) 68%,
+		color-mix(in srgb, var(--paper-raised) 55%, var(--raised-foot)) 86%,
+		var(--raised-foot) 100%
+	);
 	box-shadow: var(--shadow);
 	position: relative;
 }
-/* The card's top stripe. On the join card it is a background layer, but this
-   card scrolls its own content, and a background sits under whatever passes
-   over it. The stripe is the card's cap, so it rides a sticky box glued to
-   the scrollport's top edge and painted above the content instead: rows
-   slide beneath it rather than over it. The box is as tall as the corner
-   radius so its rounding carves the stripe's ends the way the card's own
-   corners carved the background layer, and it is opaque for that whole
-   height: the 4px gradient over the card's own paper. That paper layer is
-   what makes it a cap rather than a stripe. Without it the thirteen pixels
-   under the gradient are transparent, so a row sliding beneath them shows
-   straight through and reads as content leaking out of the card's top edge,
-   which is what a phone shows most of, its modals being the ones tall enough
-   to scroll. The negative margins seat it across the padding and hand back
-   the height it took from the flex column, so the card's rows sit exactly
-   where they did. */
-.modal-card::before {
-	content: "";
-	flex: none;
-	position: sticky;
-	/* The card's top padding: the sticky inset measures from the scrollport,
-	   and the stripe's seat is a padding-width above it. */
-	top: -28px;
-	z-index: 1;
-	height: 17px;
-	margin: -28px -28px -2px;
-	background: var(--card-stripe), var(--paper-raised);
-	border-radius: 17px 17px 0 0;
-	pointer-events: none;
+/* The rows, and the only thing here that scrolls.
+   The card around it does not, which is what lets the cap above be an ordinary
+   absolute box: a cap inside the scrolling area has to be held in place against
+   a scroll position every frame, and it is only ever as still as that
+   arithmetic, which is not still at all while a scroll runs past its end and
+   springs back. Nothing holds this one, so there is no frame in which it can be
+   somewhere else. */
+.modal-body {
+	/* A flex item will not shrink below its content without this, and a body
+	   that cannot shrink cannot scroll. */
+	min-height: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+	padding: 28px;
 }
-.modal-card > * {
+.modal-body > * {
 	flex: none;
-}
-/* This card is a handful of answers, not a long form, and it hosts a hanging
-   menu (where you are here). Overflow auto would take that menu into the
-   card's scroll, so opening it grew a scrollbar instead of sitting over the
-   facts. */
-.modal-card.dircard {
-	overflow: visible;
 }
 .settings-head {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: var(--gap-row);
+}
+.settings-head > .tabs {
+	height: 44px;
 }
 /* The first line of every card that opens over the page: the name, and the
    marks that act on the whole card at the line's end, the dismiss last. */
@@ -156,7 +180,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
+	gap: var(--gap-group);
 	min-width: 0;
 }
 .modal-head h2 {
@@ -165,7 +189,7 @@
 .modal-head-actions {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: var(--gap-line);
 	flex: none;
 }
 .error-body {
@@ -224,18 +248,57 @@
 	color: var(--ink-soft);
 	overflow-wrap: anywhere;
 }
+/* The person card's title: the chip wearing their presence, then the name, then
+   whatever marks their origin. The avatar gap rather than the mark gap, the same
+   as a direct conversation's title, because both lead with the same chip. */
+#membercardTitle {
+	display: flex;
+	align-items: center;
+	gap: var(--avatar-gap);
+	min-width: 0;
+}
+.membercard-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* "(you)" is an aside on the name rather than part of it, so it takes the quiet
+   ink the roster's second line takes and never competes with the name it
+   qualifies. */
+.membercard-you {
+	flex: none;
+	font-size: var(--type-caption);
+	font-weight: 500;
+	color: var(--ink-soft);
+}
+/* The names a reader holds, one per line: each belongs to a different directory
+   and each opens it, so a comma-run would have two doors sharing a line and a
+   reader aiming between them. The row is what grows on this card, so it is also
+   the one that has to wrap rather than widen the panel. */
+.modal-card.membercard #membercardName {
+	overflow-wrap: anywhere;
+}
+.membercard-grants {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	row-gap: var(--gap-line);
+	min-width: 0;
+}
 .dircard-mark {
 	display: inline-flex;
 	flex: none;
 	color: var(--dir-mark, var(--ink-soft));
 }
 /* Window-level toggles that apply at once (theme, notifications, Help). They
-   sit on the title so they stay in reach on Locators and Advanced alike, and so
+   sit on the title so they stay in reach on every Settings panel, and so
    a new sibling is one button in the row rather than another fieldset. Help
    uses the same pressed treatment as the Settings control. */
 .settings-toggles {
 	display: flex;
-	gap: 8px;
+	gap: var(--gap-row);
 	flex: none;
 	/* A row of its own under the title line, tucked under the corner X: the
 	   title row carries only the name and the one dismiss, the way the
@@ -278,21 +341,20 @@
 	color: inherit;
 	cursor: pointer;
 }
+/* The ring is the base rule's; this only rounds the corners it follows. */
 .secret-door:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
 	border-radius: 4px;
 }
 .glossary {
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	gap: var(--gap-group);
 	margin: 0;
 }
 .glossary > div {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--gap-line);
 }
 .glossary dt {
 	font-size: var(--type-ui);
@@ -323,7 +385,7 @@
 	border-radius: 11px;
 	border: 1px solid var(--rule);
 	background: var(--paper);
-	font-size: 11px;
+	font-size: var(--type-fine);
 	line-height: 1.4;
 	text-align: left;
 	color: var(--ink);
@@ -344,9 +406,9 @@
 	word-break: break-all;
 	user-select: all;
 }
-/* The compact form: one line at the in-row height, cut with an ellipsis, the
-   whole value in the title and on the clipboard. For a list where the value
-   is one fact among several. */
+/* The ordinary form: one line at the in-row height, cut with an ellipsis, the
+   whole value in the title and on the clipboard. Expanded values opt out when
+   reading and comparison, rather than copying, is the surface's actual task. */
 .copy-field[data-compact] {
 	min-height: var(--control-h);
 	padding: 0 32px 0 10px;
@@ -390,10 +452,15 @@
 	bottom: calc(100% - 2px);
 	transform: none;
 }
-/* The join card always keeps a slot for a refusal, so a rejected name does not
-   shove the button down. Colour and weight live on `.said`. */
+/* A refusal tucks up under the question it answers rather than sitting on a
+   line of its own. Colour and weight live on `.said`.
+
+   It used to keep its slot while empty, so a rejected name would not shove the
+   button down. The slot cost 1.2em plus the card's own gap, on every reading of
+   a card where a refusal is the rare state, and a second control's reply took
+   the same reservation by matching this selector. The card renders a reply only
+   when there is one now, and a refusal moves the button as it arrives. */
 .join .said {
-	min-height: 1.2em;
 	margin: -4px 0 0;
 }
 
@@ -420,7 +487,7 @@
 .capability-set-row {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 	padding: 9px 2px;
 }
 .capability-set-row + .capability-set-row {
@@ -439,7 +506,7 @@
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) var(--icon-button-small);
 	align-items: center;
-	gap: 4px;
+	gap: var(--gap-line);
 	min-width: 0;
 }
 .capability-set-edit-slot {
@@ -456,32 +523,92 @@
 .capability-set-errors {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--gap-tight);
 }
-/* The Data tab's managers open cards of their own. A grant list and a state
-   file want more room than Settings itself; a single pasted capability wants
-   less, so the card does not stand three times taller than the one question
-   on it. */
+/* Session managers open cards of their own, and each takes the step its
+   contents ask for. A grant list and a state file are rows with acts at the
+   end of them. */
 .session-data-modal {
-	width: min(620px, 100%);
+	width: min(var(--card-rows), 100%);
 }
+/* Wider than its siblings because it carries two subjects rather than one,
+   and each has a wide row to fit. On the left an access level is a name and
+   the sentence saying what it permits. On the right a grant is a grantee's
+   name, the level it was given, and the act that takes it back, all on one
+   line. A column too narrow for that line folds the act under it. */
 .session-access-modal {
-	width: min(680px, 100%);
+	width: min(var(--card-pair), 100%);
 }
+/* Handing an archive account over is a name, two questions and an act: one
+   column of questions, which is what the default step is for, so it names no
+   step of its own.
+
+   Attaching a session and naming an archive peer are rows instead, each a
+   name with the act that takes it at the line's end. */
 .session-attach-modal,
 .archive-peer-modal {
-	width: min(540px, 100%);
+	width: min(var(--card-rows), 100%);
 }
-/* The grant form's two questions side by side: the name takes the room, the
-   access picker its own; one column on a phone. */
-.session-grant-fields {
+/* Where a browser works next is one question with two or three answers, and
+   they are drawn as the same row: what the answer is, the act that takes it,
+   and one sentence saying what taking it does. Closer together than the
+   entries vocabulary sets by default, and told apart by the gap rather than a
+   rule, because a rule between them read as three separate subjects instead
+   of three halves of one choice. */
+.session-moves .entries {
+	gap: var(--gap-row);
+}
+.session-moves .entry + .entry {
+	padding-top: 9px;
+	border-top: none;
+}
+/* Creating a link and managing existing links are the modal's peer subjects.
+   Give each a column while there is room; the creation questions and authority
+   choices keep their natural vertical reading order within the first. */
+.session-access-columns {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(150px, .45fr);
-	gap: 10px;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--gap-group);
+	align-items: start;
 }
-@media (max-width: 520px) {
-	.session-grant-fields {
+.session-access-column {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+	min-width: 0;
+}
+.session-grant-actions {
+	justify-content: flex-end;
+}
+/* The act on a grant is swapped for the question it opens, and the head would
+   drop a control's height with it, lifting the name. `data-one-line` on the
+   head is what keeps the rest of that line in one place. */
+.session-grant .entry-head {
+	min-height: var(--control-h);
+}
+/* Once the card is narrower than it asked to be, the two columns start taking
+   the space out of their own rows, and the grant heading line is the first to
+   feel it. One column of whole rows reads better than two of squeezed ones,
+   so the split ends before the squeeze begins. */
+@media (max-width: 800px) {
+	.session-access-columns {
 		grid-template-columns: minmax(0, 1fr);
+	}
+}
+/* On a phone the card stands in from every edge by the same distance.
+   `.modal` already pads all four sides equally, so the side gaps are that
+   padding and nothing else; the taller gaps above and below were the cap
+   above, which stops the card short of the space it was given and centring
+   then splits the remainder. On a 390×844 screen that measured 62px top and
+   bottom against 24px at the sides.
+
+   Filling the padded box hands those gaps back to the reader, which is the
+   dimension a phone has least of, and the card keeps its own inner scroll. The
+   cap stays on wider screens, where a modal grown to the height of a desktop
+   window would be a column of air around a short form. */
+@media (max-width: 820px) {
+	.modal-card {
+		max-height: 100%;
 	}
 }
 /* The settings form is a dense inventory: keep its controls aligned while

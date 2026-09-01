@@ -1,6 +1,12 @@
 // Reconnecting browser transport for one durable Rooms session capability.
 
-import { retainCleanupFailures, retainSecondaryFailure, secondaryFailureCount, type Session } from "@pancake/runtime";
+import {
+	retainCleanupFailures,
+	retainSecondaryFailure,
+	secondaryFailureCount,
+	type Session,
+	TRANSPORT_WEBRTC,
+} from "@pancake/runtime";
 import {
 	type RoomsOperationsSnapshot,
 	RoomsSessionClient,
@@ -8,15 +14,24 @@ import {
 	type RoomsSessionGrantView,
 	type RoomsSessionLineEvent,
 	type RoomsSessionSnapshot,
-} from "../../../lib/rooms_session.ts";
+} from "../../../lib/session/client.ts";
 import type { Attachment, AttachmentSource } from "../../../lib/attachment.ts";
-import type { ArchiveRecord } from "../../../lib/archive.ts";
-import type { OperatorCategory, OperatorPage, OperatorRetireBatch, OperatorSnapshot } from "../../../lib/operator.ts";
+import type { ArchiveRecord } from "../../../lib/archive/protocol.ts";
+import type { BridgeForm } from "../../../lib/bridge/form.ts";
+import type {
+	OperatorCategory,
+	OperatorPage,
+	OperatorReferenceKind,
+	OperatorRetireBatch,
+	OperatorSnapshot,
+} from "../../../lib/operator.ts";
 import type { RoomsSessionState } from "../../../lib/rooms_state.ts";
-import { dial, roomsAddress, roomsSturdyrefForSession, roomsSturdyrefLocator } from "../../../lib/locator.ts";
+import { dial, roomsAddress, roomsSturdyrefLocator } from "../../../lib/locator.ts";
 import { bootRuntime } from "../net/runtime_boot.ts";
+import type { RoomsPageContext } from "../page.ts";
+import { ensureWebrtcAttachSignaling } from "./attach_signaling.ts";
 import { AttachedRoomsController } from "./attached.ts";
-import type { AttachedRoomsRemote } from "./remote.ts";
+import type { AttachedRoomsRemote, RoomsSessionGrantPatch } from "./remote.ts";
 import { answerWithin } from "../../../lib/deadline.ts";
 
 const RECONNECT_FLOOR_MS = 500;
@@ -59,6 +74,7 @@ export async function firstAttachedSnapshot(
 }
 
 class ReconnectingAttachedRemote implements AttachedRoomsRemote {
+	readonly #page: RoomsPageContext;
 	readonly #sturdyref: string;
 	#active: ActiveConnection | null = null;
 	#snapshot: RoomsSessionSnapshot | null = null;
@@ -71,7 +87,8 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 	#connecting: Promise<RoomsSessionSnapshot> | null = null;
 	#generation: symbol | null = null;
 
-	constructor(sturdyref: string) {
+	constructor(page: RoomsPageContext, sturdyref: string) {
+		this.#page = page;
 		this.#sturdyref = sturdyref;
 	}
 
@@ -154,12 +171,26 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		return this.#client().readHistory(kind, directory, conversation);
 	}
 
-	operatorSnapshot(scope: string, query = ""): Promise<OperatorSnapshot> {
-		return this.#client().operatorSnapshot(scope, query);
+	roomBridgeForm(conversationId: string): Promise<BridgeForm | null> {
+		return this.#client().roomBridgeForm(conversationId);
 	}
 
-	operatorPage(scope: string, category: OperatorCategory, cursor: number, query = ""): Promise<OperatorPage> {
-		return this.#client().operatorPage(scope, category, cursor, query);
+	operatorSnapshot(
+		scope: string,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorSnapshot> {
+		return this.#client().operatorSnapshot(scope, query, referenceKind);
+	}
+
+	operatorPage(
+		scope: string,
+		category: OperatorCategory,
+		cursor: number,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorPage> {
+		return this.#client().operatorPage(scope, category, cursor, query, referenceKind);
 	}
 
 	operatorRetireMatching(
@@ -167,8 +198,9 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		category: OperatorCategory,
 		query: string,
 		limit: number,
+		referenceKind: OperatorReferenceKind | null = null,
 	): Promise<OperatorRetireBatch> {
-		return this.#client().operatorRetireMatching(scope, category, query, limit);
+		return this.#client().operatorRetireMatching(scope, category, query, limit, referenceKind);
 	}
 
 	operationsSnapshot(
@@ -178,8 +210,12 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		return this.#client().operationsSnapshot(scope, capability);
 	}
 
-	shareArchiveHistory(conversationId: string): Promise<void> {
-		return this.#client().shareArchiveHistory(conversationId);
+	shareArchiveHistory(kind: string, conversationId: string, peer = ""): Promise<void> {
+		return this.#client().shareArchiveHistory(kind, conversationId, peer);
+	}
+
+	offerDurableArchive(kind: string, conversationId: string, peer = ""): Promise<void> {
+		return this.#client().offerDurableArchive(kind, conversationId, peer);
 	}
 
 	readArchiveShare(id: string): ReturnType<RoomsSessionClient["readArchiveShare"]> {
@@ -188,6 +224,14 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 
 	dropArchiveShare(id: string): Promise<void> {
 		return this.#client().dropArchiveShare(id);
+	}
+
+	listIssuedArchiveShares(): ReturnType<RoomsSessionClient["listIssuedArchiveShares"]> {
+		return this.#client().listIssuedArchiveShares();
+	}
+
+	revokeIssuedArchiveShare(id: string): Promise<boolean> {
+		return this.#client().revokeIssuedArchiveShare(id);
 	}
 
 	fetchAttachment(attachment: Attachment, onProgress?: (got: number) => void): Promise<Uint8Array> {
@@ -214,12 +258,21 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		return this.#client().resumeEffect(operationId);
 	}
 
-	issueGrant(id: string, rights: RoomsSessionFacet, label: string): Promise<RoomsSessionGrantView> {
-		return this.#client().issueGrant(id, rights, label);
+	issueGrant(
+		id: string,
+		rights: RoomsSessionFacet,
+		label: string,
+		history: boolean,
+	): Promise<RoomsSessionGrantView> {
+		return this.#client().issueGrant(id, rights, label, history);
 	}
 
 	revokeGrant(id: string): Promise<void> {
 		return this.#client().revokeGrant(id);
+	}
+
+	changeGrant(id: string, patch: RoomsSessionGrantPatch): Promise<RoomsSessionGrantView> {
+		return this.#client().setGrantPolicy(id, patch);
 	}
 
 	async close(): Promise<void> {
@@ -229,30 +282,34 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		if (this.#timer != null) clearTimeout(this.#timer);
 		this.#timer = null;
 		const connecting = this.#connecting;
-		if (connecting != null) {
-			try {
-				await connecting;
-			} catch (error) {
-				// Closing supersedes this reconnect. #open owns and awaits any
-				// transport resources it acquired before rejecting.
-				if (secondaryFailureCount(error) > 0) throw error;
+		try {
+			if (connecting != null) {
+				try {
+					await connecting;
+				} catch (error) {
+					// Closing supersedes this reconnect. #open owns and awaits any
+					// transport resources it acquired before rejecting.
+					if (secondaryFailureCount(error) > 0) throw error;
+				}
 			}
+			const active = this.#active;
+			this.#active = null;
+			if (active == null) return;
+			let failure: unknown | null = null;
+			try {
+				await active.session.close();
+			} catch (error) {
+				failure = error;
+			}
+			try {
+				await active.serving;
+			} catch (error) {
+				failure = failure == null ? error : retainSecondaryFailure(failure, error);
+			}
+			if (failure != null) throw failure;
+		} finally {
+			this.#page.reachable.stopSignalingDirectory();
 		}
-		const active = this.#active;
-		this.#active = null;
-		if (active == null) return;
-		let failure: unknown | null = null;
-		try {
-			await active.session.close();
-		} catch (error) {
-			failure = error;
-		}
-		try {
-			await active.serving;
-		} catch (error) {
-			failure = failure == null ? error : retainSecondaryFailure(failure, error);
-		}
-		if (failure != null) throw failure;
 	}
 
 	#client(): RoomsSessionClient {
@@ -271,12 +328,13 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		const generation = Symbol("attached Rooms connection");
 		this.#generation = generation;
 		const locator = roomsSturdyrefLocator(this.#sturdyref);
-		const runtime = await bootRuntime();
+		const runtime = await bootRuntime(this.#page);
+		if (locator.transport === TRANSPORT_WEBRTC) await ensureWebrtcAttachSignaling(this.#page, this.#sturdyref);
 		const session = await dial(roomsAddress(locator), runtime);
 		const serving = session.serve();
 		const ended = observeServing(serving);
 		try {
-			const capability = await session.enliven(roomsSturdyrefForSession(this.#sturdyref, session));
+			const capability = await session.enliven(this.#sturdyref);
 			const client = new RoomsSessionClient(session, capability);
 			const snapshot = await firstAttachedSnapshot(
 				client.watch(
@@ -306,6 +364,37 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 		} catch (error) {
 			if (this.#generation === generation) this.#generation = null;
 			throw await retainCleanupFailures(connectionError(error), [() => session.close(), () => serving]);
+		}
+	}
+
+	/** Try a second capability for this peer over the connection already open
+	 * to it. Enliven is the session-scoped verb, so it never dials and refuses
+	 * a capability naming anyone else; asking for a snapshot is what proves the
+	 * reference behind it still answers, because a swissnum that was revoked
+	 * stops being published rather than staying and saying no. */
+	async verifySibling(sturdyref: string): Promise<void> {
+		const active = this.#active;
+		if (active === null) throw new Error("This browser is not connected to the shared session right now.");
+		const capability = await active.session.enliven(sturdyref);
+		// The answer this owes its caller is whether the capability answered.
+		// Letting the reference go afterwards is this session's own
+		// bookkeeping: a failure there rides along with a refusal rather than
+		// replacing it, and on the way out it must not turn a capability that
+		// answered into one that did not. The caller is about to commit the
+		// reader to this capability on the strength of this answer.
+		try {
+			await new RoomsSessionClient(active.session, capability).snapshot();
+		} catch (error) {
+			throw await retainCleanupFailures(connectionError(error), [() => active.session.release(capability)]);
+		}
+		try {
+			active.session.release(capability);
+		} catch (error) {
+			// best-effort: one reference outlives its check, on a session the
+			// page is about to reload away from.
+			console.error(
+				`rooms: a checked session capability could not be released: ${connectionError(error).message}`,
+			);
 		}
 	}
 
@@ -360,8 +449,11 @@ class ReconnectingAttachedRemote implements AttachedRoomsRemote {
 	}
 }
 
-export async function connectAttachedRoomsSession(sturdyref: string): Promise<AttachedRoomsController> {
-	return await settleAttachedOpening(openAttachedRoomsSession(sturdyref));
+export async function connectAttachedRoomsSession(
+	page: RoomsPageContext,
+	sturdyref: string,
+): Promise<AttachedRoomsController> {
+	return await settleAttachedOpening(openAttachedRoomsSession(page, sturdyref));
 }
 
 export async function settleAttachedOpening(
@@ -390,8 +482,11 @@ export async function settleAttachedOpening(
 	}
 }
 
-async function openAttachedRoomsSession(sturdyref: string): Promise<AttachedRoomsController> {
-	const remote = new ReconnectingAttachedRemote(sturdyref);
+async function openAttachedRoomsSession(
+	page: RoomsPageContext,
+	sturdyref: string,
+): Promise<AttachedRoomsController> {
+	const remote = new ReconnectingAttachedRemote(page, sturdyref);
 	const controller = new AttachedRoomsController(remote, () => remote.close());
 	await controller.start();
 	return controller;

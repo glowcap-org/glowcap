@@ -14,7 +14,7 @@ const resolution_math = @import("pipeline_resolution.zig");
 const resolution_chain = @import("resolution_chain.zig");
 const Peer = engine.Peer;
 const borrowedListenerFire = resolution_math.borrowedListenerFire;
-const classifyListenerDrain = resolution_math.classifyListenerDrain;
+const classifyTerminalListenerDrain = resolution_math.classifyTerminalListenerDrain;
 
 const InboundListenClass = union(enum) {
     answer: model.AnswerName,
@@ -35,6 +35,9 @@ fn classifyInboundListenTarget(peer: *Peer, listen: model.view.Listen) InboundLi
             }
             return .{ .live_export = near.export_position };
         },
+        // `validateInboundListen` ran first, and its target rule
+        // (`validateDeliverOrListenTarget`, received perspective) admits only
+        // `.near` and `.promise`.
         .far, .routed, .sturdy, .broken => unreachable,
     }
 }
@@ -115,10 +118,9 @@ fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPositi
     const resolution: model.Resolution = .{ .fulfill = .{
         .reference = .{ .near = model.NearRef.object(export_position.int()) },
     } };
-    switch (classifyListenerDrain(listener_entry, resolution)) {
+    switch (classifyTerminalListenerDrain(listener_entry, resolution)) {
         .fire => |position| try enqueueFire(peer, position, .{ .near_object = export_position }, resolution),
         .discard => peer.session_state.releaseImportRetain(listener_entry.listener.import_position),
-        .reinstall => unreachable,
     }
     retain_live = false;
 }
@@ -136,6 +138,10 @@ pub fn prepareAnswerListenerDrain(
         if (listeners.len == 0)
             .{ .terminal_break = "" }
         else
+            // Listeners on the payload made `has_consequences` true at the
+            // one caller (`Peer.stepPending`'s settled-answer arm), which
+            // then always ran the chain walk, so a null outcome cannot
+            // coincide with listeners to drain.
             listenerDrainPlan(outcome orelse unreachable),
     );
 }
@@ -171,7 +177,7 @@ fn applyStoredListener(
     entry: session.ListenerEntry,
 ) !void {
     switch (listenerDrainPlan(resolution_chain.follow(peer, first))) {
-        .terminal_break => |message| switch (classifyListenerDrain(entry, terminalBreak(message))) {
+        .terminal_break => |message| switch (classifyTerminalListenerDrain(entry, terminalBreak(message))) {
             .fire => |position| try enqueueFire(
                 peer,
                 position,
@@ -179,14 +185,13 @@ fn applyStoredListener(
                 terminalBreak(message),
             ),
             .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
-            .reinstall => unreachable,
         },
         .reinstall => |target| {
             var prepared = try peer.session_state.prepareListenerBatchTarget(target, 1);
             errdefer prepared.abandon(&peer.session_state);
             prepared.commit(&.{entry});
         },
-        .drain => |stored| switch (classifyListenerDrain(entry, stored.resolution)) {
+        .drain => |stored| switch (classifyTerminalListenerDrain(entry, stored.resolution)) {
             .fire => |position| try enqueueFire(
                 peer,
                 position,
@@ -194,7 +199,6 @@ fn applyStoredListener(
                 stored.resolution,
             ),
             .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
-            .reinstall => unreachable,
         },
     }
 }
@@ -229,7 +233,7 @@ pub const PreparedListenerDrain = struct {
             return;
         }
         switch (self.plan) {
-            .terminal_break => |reason| for (self.listeners) |entry| switch (classifyListenerDrain(entry, terminalBreak(reason))) {
+            .terminal_break => |reason| for (self.listeners) |entry| switch (classifyTerminalListenerDrain(entry, terminalBreak(reason))) {
                 .fire => |position| {
                     var args: [2]model.Argument = undefined;
                     const message = borrowedListenerFire(position, terminalBreak(reason), &args);
@@ -240,11 +244,10 @@ pub const PreparedListenerDrain = struct {
                     } });
                 },
                 .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
-                .reinstall => unreachable,
             },
             .reinstall => self.reinstall_prepared.?.commit(self.listeners),
             .drain => |stored| for (self.listeners) |entry| {
-                switch (classifyListenerDrain(entry, stored.resolution)) {
+                switch (classifyTerminalListenerDrain(entry, stored.resolution)) {
                     .fire => |position| {
                         var args: [2]model.Argument = undefined;
                         const message = borrowedListenerFire(position, stored.resolution, &args);
@@ -255,7 +258,6 @@ pub const PreparedListenerDrain = struct {
                         } });
                     },
                     .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
-                    .reinstall => unreachable,
                 }
             },
         }
@@ -290,17 +292,16 @@ fn prepareListenerDrainPlan(
     switch (prepared.plan) {
         .terminal_break => |reason| {
             var fire_count: usize = 0;
-            for (prepared.listeners) |entry| switch (classifyListenerDrain(entry, terminalBreak(reason))) {
+            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(entry, terminalBreak(reason))) {
                 .fire => {
                     try peer.session_state.validateListenerFireTarget(entry.listener);
                     fire_count += 1;
                 },
                 .discard => {},
-                .reinstall => unreachable,
             };
             if (fire_count == 0) return prepared;
             var batch = try peer.beginPendingBatch(fire_count);
-            for (prepared.listeners) |entry| switch (classifyListenerDrain(entry, terminalBreak(reason))) {
+            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(entry, terminalBreak(reason))) {
                 .fire => |position| {
                     const reservation = try batch.reserve(.{ .listener_fire = .{
                         .listener_position = position,
@@ -313,25 +314,23 @@ fn prepareListenerDrainPlan(
                     prepared.reserved += 1;
                 },
                 .discard => {},
-                .reinstall => unreachable,
             };
         },
         .reinstall => |next_target| prepared.reinstall_prepared =
             try peer.session_state.prepareListenerBatchTarget(next_target, prepared.listeners.len),
         .drain => |stored| {
             var fire_count: usize = 0;
-            for (prepared.listeners) |entry| switch (classifyListenerDrain(entry, stored.resolution)) {
+            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(entry, stored.resolution)) {
                 .fire => {
                     try peer.session_state.validateListenerFireTarget(entry.listener);
                     fire_count += 1;
                 },
                 .discard => {},
-                .reinstall => unreachable,
             };
             if (fire_count == 0) return prepared;
             try peer.session_state.ensureSentResolutionExportCapacity(stored.resolution);
             var batch = try peer.beginPendingBatch(fire_count);
-            for (prepared.listeners) |entry| switch (classifyListenerDrain(entry, stored.resolution)) {
+            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(entry, stored.resolution)) {
                 .fire => |position| {
                     try retainFireTarget(peer, stored.target);
                     prepared.target_retains += 1;
@@ -346,7 +345,6 @@ fn prepareListenerDrainPlan(
                     prepared.reserved += 1;
                 },
                 .discard => {},
-                .reinstall => unreachable,
             };
         },
     }

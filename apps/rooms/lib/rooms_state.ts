@@ -2,9 +2,10 @@
 
 import * as z from "zod/mini";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./boot_caps.ts";
-import { MAX_NICK, MAX_PENDING_INVITES, MAX_ROOM, nickRefusal } from "./limits.ts";
+import { MAX_FORM_SCOPE, MAX_PENDING_INVITES, MAX_ROOM, nickRefusal } from "./limits.ts";
+import { BridgeAnswersSchema } from "./bridge/form.ts";
 import { RegistrationIdSchema } from "./directory_publications.ts";
-import { roomsLocator } from "./locator.ts";
+import { parseRoomsSturdyref, roomsLocator } from "./locator.ts";
 import { roomsPeerAuthority } from "./routes.ts";
 import { boundedText as boundedSchemaText, nonemptyText as nonemptySchemaText } from "./schema.ts";
 import { vizOverrideRefusal } from "./viz_publish.ts";
@@ -28,6 +29,13 @@ const nullableText = z.nullable(boundedText());
 const sturdyrefText = boundedText(MAX_BEARER_CHARS).check(
 	z.startsWith("ocapn://"),
 	z.includes("/s/"),
+	z.refine((value) => {
+		try {
+			return parseRoomsSturdyref(value).swissnum.length > 0;
+		} catch {
+			return false;
+		}
+	}),
 );
 const optionalSturdyrefText = z.optional(z.pipe(
 	z.nullable(sturdyrefText),
@@ -54,23 +62,52 @@ export const WorkspaceDirectorySchema = z.strictObject({
 	id: nonemptyText(),
 	locator: nonemptyText(),
 	home: z.boolean(),
+	/** Whether a browser has ever received a successful answer from this route.
+	 * Absent is the conservative value for pre-field persisted documents. */
+	reached: z.optional(z.boolean()),
 	nick: nickText,
 	standing: nullableText,
 });
 
-export const WorkspaceRoomIrcIdentitySchema = z.strictObject({
-	nick: nonemptyText(MAX_NICK),
-	account: boundedText(MAX_FIELD_CHARS),
-	password: boundedText(MAX_FIELD_CHARS),
-}).check(z.refine((identity) => (identity.account === "") === (identity.password === "")));
+/** A bridge form a reader answered, kept so a reconnect can answer it again.
+ *
+ * What is kept is what the reader chose: which action, within which of the
+ * bridge's own scopes, and the answers that are not secrets. A secret is never
+ * checkpointed — it lives in the runtime until every room in its scope has read
+ * it, and a reconnect without one asks the reader again rather than guessing.
+ *
+ * `scope` is the bridge's word for how far one answer reaches, so a reader who
+ * linked an identity on one channel finds it on the others without this having
+ * to know why. */
+export const WorkspaceRoomBridgeIntentSchema = z.strictObject({
+	scope: nonemptyText(MAX_FORM_SCOPE),
+	action: nonemptyText(MAX_FIELD_CHARS),
+	answers: BridgeAnswersSchema,
+	/** Whether the reader answered a secret field.
+	 *
+	 * The secret itself is never here, so without this a replay could not tell a
+	 * submission that needed none from one whose password is simply missing, and
+	 * would send a blank where a credential was. Both replays read it: a browser
+	 * that holds nothing asks the reader again, and a durable runtime looks in
+	 * its own custody first. */
+	secretsGiven: z.boolean(),
+});
 
 export const WorkspaceRoomConversationSchema = z.strictObject({
 	kind: z.literal("room"),
+	/** Durable conversation id. The presentation store copies this to `persistId`. */
 	id: nonemptyText(),
 	directory: nonemptyText(),
+	/** What the reader sees as the room's name. Presentation `id`. */
 	name: nonemptyText(MAX_ROOM),
+	/** Private or source-owned. Not "this session is presently in the room". */
 	held: z.boolean(),
+	/** A definitive authority retirement requires an explicit rejoin choice.
+	 * `requested` is the durable half-commit while a fresh realization proves
+	 * that choice; success clears it and failure returns to `manual`. */
+	reconnect: z.optional(z.enum(["manual", "requested"])),
 	link: optionalSturdyrefText,
+	manager: optionalSturdyrefText,
 	steward: optionalSturdyrefText,
 	publicationId: z.optional(z.pipe(
 		z.nullable(boundedText()),
@@ -80,7 +117,9 @@ export const WorkspaceRoomConversationSchema = z.strictObject({
 	draft: boundedText(),
 	// Missing keeps the bridge's automatic projected seat. Null is the user's
 	// durable Rooms-only choice. An identity asks for that exact IRC login.
-	irc: z.optional(z.nullable(WorkspaceRoomIrcIdentitySchema)),
+	/** The bridge form this room's reader answered, null when they chose to
+	 * answer nothing, and absent when they never have. */
+	bridgeIntent: z.optional(z.nullable(WorkspaceRoomBridgeIntentSchema)),
 });
 
 /** Desired foreign-room publication. The lease and DirectoryPeering stay live
@@ -94,8 +133,11 @@ export const WorkspacePeeringIntentSchema = z.strictObject({
 
 export const WorkspaceDirectConversationSchema = z.strictObject({
 	kind: z.literal("direct"),
+	/** Durable conversation id. The presentation store copies this to `persistId`
+	 * and calls the row `type: "dm"`. */
 	id: nonemptyText(),
 	directory: nonemptyText(),
+	/** What the reader sees as the peer's nick. Presentation `id`. */
 	peer: peerText,
 	peerRegistrationId: RegistrationIdSchema,
 	closed: z.boolean(),
@@ -132,6 +174,7 @@ export const RoomsIgnoredNamesSchema = z.array(boundedText()).check(z.maxLength(
 const EstablishedRoomsControllerSelectionSchema = z.union([
 	z.strictObject({ kind: z.literal("local") }),
 	z.strictObject({ kind: z.literal("attached"), sturdyref: sturdyrefText }),
+	z.strictObject({ kind: z.literal("hosted"), sturdyref: sturdyrefText }),
 ]);
 export const RoomsControllerSelectionSchema = z.union([
 	z.strictObject({ kind: z.literal("none") }),
@@ -169,7 +212,7 @@ export const RoomsViewStateSchema = z.strictObject({
 	notifyOn: z.boolean(),
 	railOpen: z.boolean(),
 	rosterOpen: z.boolean(),
-	settingsTab: z.enum(["overview", "session", "capabilities", "settings"]),
+	settingsTab: z.enum(["session", "holdings", "reachability"]),
 	opsPane: operationsCapability,
 });
 
@@ -216,6 +259,9 @@ function hasValidSessionRelations(session: RoomsSessionStateShape): boolean {
 			}
 		} else {
 			if (conversation.link != null && sturdyrefAuthority(conversation.link) !== conversation.directory) {
+				return false;
+			}
+			if (conversation.manager != null && sturdyrefAuthority(conversation.manager) !== conversation.directory) {
 				return false;
 			}
 			if (conversation.steward != null) {
@@ -274,7 +320,7 @@ function hasValidSessionRelations(session: RoomsSessionStateShape): boolean {
 	return true;
 }
 
-export function sessionOperationsAuthorizePeering(
+function sessionOperationsAuthorizePeering(
 	operations: readonly { capability: string; scope: string }[],
 	intent: { destination: string },
 ): boolean {
@@ -300,8 +346,11 @@ function routeAuthority(locator: string): string | null {
 }
 
 function sturdyrefAuthority(sturdyref: string): string | null {
-	const at = sturdyref.indexOf("/s/");
-	return at < 0 ? null : routeAuthority(sturdyref.slice(0, at));
+	try {
+		return roomsPeerAuthority(parseRoomsSturdyref(sturdyref).locator);
+	} catch {
+		return null;
+	}
 }
 
 export const RoomsWorkspaceStateSchema = RoomsWorkspaceStateShapeSchema;
@@ -309,15 +358,29 @@ export const RoomsWorkspaceStateSchema = RoomsWorkspaceStateShapeSchema;
 export type RoomsSettingsTab = z.infer<typeof RoomsViewStateSchema>["settingsTab"];
 export type WorkspaceOperationCredential = z.infer<typeof WorkspaceOperationCredentialSchema>;
 export type WorkspaceDirectory = z.infer<typeof WorkspaceDirectorySchema>;
+export type WorkspaceRoomConversation = z.infer<typeof WorkspaceRoomConversationSchema>;
+export type WorkspaceDirectConversation = z.infer<typeof WorkspaceDirectConversationSchema>;
 export type WorkspaceConversation = z.infer<typeof WorkspaceConversationSchema>;
 export type RoomsRoomJoinIntent = z.infer<typeof RoomsRoomJoinIntentSchema>;
-export type WorkspaceRoomIrcIdentity = z.infer<typeof WorkspaceRoomIrcIdentitySchema>;
+export type WorkspaceRoomBridgeIntent = z.infer<typeof WorkspaceRoomBridgeIntentSchema>;
 export type WorkspacePeeringIntent = z.infer<typeof WorkspacePeeringIntentSchema>;
 export type WorkspaceInvitation = z.infer<typeof WorkspaceInvitationSchema>;
 export type RoomsControllerSelection = z.infer<typeof RoomsControllerSelectionSchema>;
+/** A capability-named shared session this browser is attached to or hosting. */
+export type SharedRoomsControllerSelection = Extract<
+	RoomsControllerSelection,
+	{ kind: "attached" } | { kind: "hosted" }
+>;
 export type RoomsWorkspaceState = z.infer<typeof RoomsWorkspaceStateSchema>;
 export type RoomsSessionState = z.infer<typeof RoomsSessionStateSchema>;
 export type RoomsViewState = z.infer<typeof RoomsViewStateSchema>;
+
+/** The shared session this controller names, or null when the workspace is local. */
+export function sharedRoomsSession(
+	controller: RoomsControllerSelection,
+): SharedRoomsControllerSelection | null {
+	return controller.kind === "attached" || controller.kind === "hosted" ? controller : null;
+}
 
 export function parseWorkspaceOperationCredentials(raw: unknown): WorkspaceOperationCredential[] | null {
 	const parsed = z.safeParse(WorkspaceOperationCredentialsSchema, raw);
@@ -329,7 +392,7 @@ export const DEFAULT_ROOMS_VIEW_STATE: RoomsViewState = {
 	notifyOn: false,
 	railOpen: true,
 	rosterOpen: true,
-	settingsTab: "overview",
+	settingsTab: "session",
 	opsPane: "listeners",
 };
 
@@ -383,8 +446,9 @@ export function redactRoomsSessionCapabilities(session: RoomsSessionState): Room
 		...session,
 		conversations: session.conversations.map((conversation) => {
 			if (conversation.kind === "direct") return conversation;
-			if (conversation.irc == null) return conversation;
-			const { link: _link, steward: _steward, irc: _irc, ...redacted } = conversation;
+			if (conversation.bridgeIntent == null) return conversation;
+			const { link: _link, manager: _manager, steward: _steward, bridgeIntent: _bridgeIntent, ...redacted } =
+				conversation;
 			return redacted;
 		}),
 		invitations: [],

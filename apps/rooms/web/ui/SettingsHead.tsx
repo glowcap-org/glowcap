@@ -5,8 +5,9 @@
 import { type MouseEvent, type ReactNode, type Ref, useState } from "react";
 import { IconButton } from "./IconButton.tsx";
 import { ModalHead } from "./ModalHead.tsx";
-import { openModalFrom } from "./modal.ts";
+import { useOpenModal } from "./modal.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
+import { loadOpsPage, prefetch } from "./chunks.ts";
 import { Said } from "./Said.tsx";
 
 export function SettingsHead(
@@ -49,6 +50,7 @@ export function SettingsHead(
 		children?: ReactNode;
 	},
 ) {
+	const openModalFrom = useOpenModal();
 	const browser = useRoomsBrowser();
 	const [notifyErr, setNotifyErr] = useState<string | null>(null);
 	const [notifyBusy, setNotifyBusy] = useState(false);
@@ -72,6 +74,8 @@ export function SettingsHead(
 						label="Operations"
 						title="Operations"
 						aria-pressed={ops.open}
+						onPointerEnter={() => prefetch(loadOpsPage)}
+						onFocus={() => prefetch(loadOpsPage)}
 						onClick={ops.onOpen}
 					/>
 				)}

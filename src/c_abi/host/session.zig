@@ -105,7 +105,7 @@ pub export fn pancake_host_session_fetch(
     return PANCAKE_OK;
 }
 
-/// Enliven the complete sturdyref URI (ADR-0098), minting a
+/// Enliven the complete canonical persistent sturdyref URI (ADR-0098), minting a
 /// host vow whose id lands in `*out_vow`; the live reference arrives as that
 /// vow's SETTLE action. The URI's transport and designator must match the
 /// selected session before the swiss namespace is consulted or wire traffic

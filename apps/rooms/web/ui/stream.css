@@ -40,7 +40,7 @@
 #dmList .dm-marks {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 /* The teal answer to what the selected room does with the amber, and for the
    same reason: this row stands on a wash of its own colour, so its ink has to
@@ -61,10 +61,10 @@
 }
 #dmList .lock {
 	color: var(--teal);
-	font-size: 11px;
+	font-size: var(--type-fine);
 }
 #dmList .rcount {
-	font-size: 11px;
+	font-size: var(--type-fine);
 	background: var(--mine-from);
 	color: var(--on-accent);
 	padding: 1px 7px;
@@ -78,6 +78,7 @@
 	color: var(--ink-soft);
 	font-size: var(--type-ui);
 	cursor: default;
+	text-wrap: pretty;
 }
 #dmList li.off {
 	opacity: .55;
@@ -96,7 +97,7 @@
 }
 #dmList .closed-mark {
 	flex: none;
-	font-size: 11px;
+	font-size: var(--type-fine);
 	letter-spacing: .04em;
 	text-transform: uppercase;
 	color: var(--ink-soft);
@@ -112,15 +113,28 @@
    glance, a control that only exists under the pointer cannot be found by
    looking, and the hidden button held its place in the row anyway — so every
    name it sat behind was cut short with a stretch of empty space beside it. */
+/* And it wears no box at rest. All three reasons above are about the control
+   being there to be found, and it still is: the glyph stands in teal on the
+   rail's own paper, holds its column, and takes the border and wash the icon
+   family gives every control under a pointer or a focus ring. What the box was
+   costing is that two outlined marks were the loudest thing in a rail whose
+   subject is who is here — the eye went to reachability, which is the lesser
+   fact about a person in a room. */
 #members li .dm-btn {
-	border: 1px solid color-mix(in srgb, var(--teal) 34%, transparent);
+	/* Over the row's one cell, at its trailing edge: a sibling of the button in
+	   the markup, inside the row to a reader. */
+	grid-area: 1 / 1;
+	justify-self: end;
+	align-self: center;
+	margin-right: var(--mark-inset);
+	border-color: transparent;
 }
 
 /* ── Direct-message provenance (topbar + in-stream note) ──────────────── */
 .provenance {
 	display: none;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	font-size: var(--type-caption);
 	font-weight: 600;
 	color: var(--teal-ink);
@@ -168,6 +182,9 @@
 	:root {
 		--icon-button-small: var(--icon-button-normal);
 		--bubble-max: 88%;
+		/* The topbar grows by the inset here, so everything pinned beneath it
+		   moves down by the same amount. Stated once. */
+		--header-total: calc(var(--header-h) + env(safe-area-inset-top));
 		/* How much conversation stays on screen to the right of the rooms list.
 		   Wide enough to tap, narrow enough that the list is still the screen. */
 		--rail-peek: calc(56px + env(safe-area-inset-right, 0px));
@@ -189,9 +206,9 @@
 		height: auto;
 		min-height: 100dvh;
 	}
+	/* Already a column; what the phone adds is that it fills the window, carries
+	   the dim below, and slides. */
 	.workarea {
-		display: flex;
-		flex-direction: column;
 		min-height: 100dvh;
 		position: relative;
 		transition: transform .2s ease;
@@ -320,8 +337,11 @@
 	   peek: the conversation is translated most of the way off to the right, and
 	   without a clip at this box that overflow widens the document instead of
 	   leaving a strip. */
+	/* Holding the page still is not stated here: an overlay is up, and what
+	   that means to the page is settled once beside the cover's own paint.
+	   This is the slide's own concern, which is that the gesture would fight
+	   an animation nothing can afford to reflow through. */
 	body:has(.app.show-list) {
-		overflow: hidden;
 		touch-action: none;
 	}
 	.app.show-list {
@@ -355,9 +375,6 @@
 	.section-head .icon-button {
 		margin-block: calc((var(--icon-button-normal) - var(--label-line)) / -2);
 	}
-	.newroom input {
-		font-size: 16px;
-	}
 	.sidebar-foot {
 		padding: 12px calc(var(--rail-pad) + var(--row-pad)) calc(12px +
 			env(safe-area-inset-bottom));
@@ -382,8 +399,8 @@
 	   mark centres in, so on a notched phone the bar has no slack left to centre
 	   in. Grown by the inset, that space is the same at every inset. */
 	.topbar {
-		gap: 8px;
-		min-height: calc(var(--header-h) + env(safe-area-inset-top));
+		gap: var(--gap-row);
+		/* Height comes from `--header-total`, which this query already grew. */
 		padding: calc(10px + var(--accent-line) + env(safe-area-inset-top)) calc(var(--rail-pad) +
 			var(--row-pad)) 10px;
 	}
@@ -447,10 +464,6 @@
 	.app.show-list #backBtn {
 		visibility: hidden;
 	}
-	.join input,
-	.composer textarea {
-		font-size: 16px;
-	}
 	/* Here the rooms list is a screen of its own, so the shortcut to it earns
 	   its place. */
 	.join #browseRoomsBtn {
@@ -505,6 +518,11 @@
 		transform: translateY(101%);
 		transition: transform .22s ease, visibility .22s ease;
 	}
+	/* The sheet's padding is the pane's; the body inside it must not add the
+	   desktop rail's padding on top, or the names sit in twice. */
+	.members-body {
+		padding: 0;
+	}
 	/* A grab handle, so the sheet reads as a dismissable sheet (tap the cover,
 	   or the Members button again, to close it). */
 	.members::before {
@@ -524,7 +542,16 @@
 	/* `#cover` is the one non-dialog tap target. Hidden until a layout overlay
 	   is up. Members takes the whole page and paints. The rooms list paints
 	   the dim on the sliding conversation; this node is only the peek strip
-	   a tap can hit. Members wins when both are, matching Escape. */
+	   a tap can hit. Members wins when both are, matching Escape.
+
+	   The states that raise this are the same states that carry `covered`, and
+	   they are one fact: something is over the page. A layout overlay that
+	   wanted this target and not that flag would be saying the page is covered
+	   for the purpose of catching a tap and uncovered for the purpose of
+	   holding still, which is not a distinction the reader can see. Dialogs
+	   need neither, having a backdrop and `:has(dialog[open])` of their own.
+	   A menu is not in this family at all: it follows the scroll rather than
+	   stopping it, and `Menu.tsx` says why. */
 	#cover {
 		display: block;
 		position: fixed;
@@ -578,7 +605,7 @@
 }
 .crash h2 {
 	margin: 0 0 6px;
-	font-size: 15px;
+	font-size: var(--type-title);
 }
 .crash p {
 	margin: 0 0 12px;

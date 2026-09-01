@@ -237,4 +237,4 @@ records the profile-by-knowledge amendment.
 
 [Choosing a transport]($link.page('transports/choosing')) puts onion beside the
 others. [What you can depend on]($link.page('stability')) lists the live Tor
-checks and what still sits beside ordinary `zig build check`.
+checks and known gaps.

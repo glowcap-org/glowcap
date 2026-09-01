@@ -2,18 +2,12 @@ import { type Argument, type Behavior, currentSession, Ref, type Session } from 
 import { MAX_ROOM, PEERED_ROOM_READY_TIMEOUT_MS } from "../lib/limits.ts";
 import { PUBLICATION_READY, PUBLISH_DURABLE_ROOM, REVOKE } from "../lib/protocol.ts";
 import { notifyPublicRoom } from "./discovery.ts";
-import {
-	cancelForeignRoom,
-	commitForeignRoom,
-	type ForeignRoomEntry,
-	forgetForeignRoom,
-	handBack,
-	reserveForeignRoom,
-} from "./registry.ts";
-import { noteOperatorChange } from "./operator/revision.ts";
+import type { RoomServerContext } from "./context.ts";
+import type { ForeignRoomEntry } from "./registry.ts";
+import type { OperatorRevision } from "./operator/revision.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
-interface PendingOperatorPublication {
+export interface PendingOperatorPublication {
 	readonly id: string;
 	readonly name: string;
 	readonly origin: string;
@@ -21,30 +15,45 @@ interface PendingOperatorPublication {
 	cancel(): void;
 }
 
-const pendingOperatorPublications = new Map<string, PendingOperatorPublication>();
+/** One server's in-flight peered publications. A second server does not see
+ * reservations this table still holds. */
+export class PendingPeering {
+	readonly #pending = new Map<string, PendingOperatorPublication>();
 
-export function* operatorPendingPeering(): Iterable<
-	Pick<PendingOperatorPublication, "id" | "name" | "origin" | "proof">
-> {
-	for (const { id, name, origin, proof } of pendingOperatorPublications.values()) {
-		yield { id, name, origin, proof };
+	constructor(readonly operator: OperatorRevision) {}
+
+	*rows(): Iterable<Pick<PendingOperatorPublication, "id" | "name" | "origin" | "proof">> {
+		for (const { id, name, origin, proof } of this.#pending.values()) {
+			yield { id, name, origin, proof };
+		}
+	}
+
+	set(publication: PendingOperatorPublication): void {
+		this.#pending.set(publication.id, publication);
+		this.operator.noteChange();
+	}
+
+	drop(id: string): boolean {
+		if (!this.#pending.delete(id)) return false;
+		this.operator.noteChange();
+		return true;
+	}
+
+	remove(id: string): boolean {
+		const pending = this.#pending.get(id);
+		if (pending == null) return false;
+		pending.cancel();
+		return true;
 	}
 }
 
-export function removeOperatorPendingPeering(id: string): boolean {
-	const pending = pendingOperatorPublications.get(id);
-	if (pending == null) return false;
-	pending.cancel();
-	return true;
-}
-
-function revoke(id: string): void {
-	const removed = forgetForeignRoom(id);
-	if (removed !== null) notifyPublicRoom(removed, "closed", null);
+function revoke(ctx: RoomServerContext, id: string): void {
+	const removed = ctx.live.forgetForeignRoom(id);
+	if (removed !== null) notifyPublicRoom(ctx, removed, "closed", null);
 }
 
 /** The separately published authority to add foreign rooms to this directory. */
-export function peeringBehavior(): Behavior {
+export function peeringBehavior(ctx: RoomServerContext): Behavior {
 	return (verb: string, args: Argument[]): ReturnType<Behavior> => {
 		const source = currentSession();
 		if (source == null) throw new Error("directory peering is reachable only over a session");
@@ -69,11 +78,11 @@ export function peeringBehavior(): Behavior {
 				),
 			);
 		}
-		let reservation: ReturnType<typeof reserveForeignRoom>;
+		let reservation: ReturnType<RoomServerContext["live"]["reserveForeignRoom"]>;
 		try {
-			reservation = reserveForeignRoom(name, source);
+			reservation = ctx.live.reserveForeignRoom(name, source);
 		} catch (error) {
-			handBack(source, room, "unreserved peered room");
+			ctx.journal.release(source, room, "unreserved peered room");
 			throw error;
 		}
 		let entry: ForeignRoomEntry | null = null;
@@ -91,14 +100,14 @@ export function peeringBehavior(): Behavior {
 		const failPending = (error: unknown): boolean => {
 			if (settled) return false;
 			settled = true;
-			if (pendingOperatorPublications.delete(reservation.id)) noteOperatorChange();
+			ctx.peering.drop(reservation.id);
 			if (expiry !== null) clearTimeout(expiry);
-			cancelForeignRoom(reservation);
-			handBack(source, room, "pending peered room");
+			ctx.live.cancelForeignRoom(reservation);
+			ctx.journal.release(source, room, "pending peered room");
 			failReady?.(error);
 			return true;
 		};
-		pendingOperatorPublications.set(reservation.id, {
+		ctx.peering.set({
 			id: reservation.id,
 			name: reservation.name,
 			origin: reservation.origin,
@@ -107,7 +116,6 @@ export function peeringBehavior(): Behavior {
 				failPending(new Error("the Rooms operator removed the pending room publication"));
 			},
 		});
-		noteOperatorChange();
 		let resolution: ReturnType<Session["listen"]>;
 		try {
 			resolution = source.listen(room);
@@ -125,26 +133,26 @@ export function peeringBehavior(): Behavior {
 					return;
 				}
 				if (settled) {
-					handBack(source, resolved, "late peered room");
+					ctx.journal.release(source, resolved, "late peered room");
 					return;
 				}
 				try {
-					if (pendingOperatorPublications.delete(reservation.id)) noteOperatorChange();
-					const committed = commitForeignRoom(reservation, resolved);
+					ctx.peering.drop(reservation.id);
+					const committed = ctx.live.commitForeignRoom(reservation, resolved);
 					try {
-						notifyPublicRoom(committed, "opened", null);
+						notifyPublicRoom(ctx, committed, "opened", null);
 					} catch (error) {
-						revoke(committed.id);
+						revoke(ctx, committed.id);
 						throw error;
 					}
 					entry = committed;
 					settled = true;
 					if (expiry !== null) clearTimeout(expiry);
-					handBack(source, room, "pending peered room");
+					ctx.journal.release(source, room, "pending peered room");
 					finishReady?.();
 				} catch (error) {
-					if (entry === null && !settled && cancelForeignRoom(reservation)) {
-						handBack(source, resolved, "unpublished peered room");
+					if (entry === null && !settled && ctx.live.cancelForeignRoom(reservation)) {
+						ctx.journal.release(source, resolved, "unpublished peered room");
 					}
 					failPending(error);
 				}
@@ -169,7 +177,7 @@ export function peeringBehavior(): Behavior {
 				if (leaseVerb === REVOKE) {
 					if (entry === null) {
 						failPending(new Error("room publication was revoked before it became ready"));
-					} else revoke(entry.id);
+					} else revoke(ctx, entry.id);
 					return null;
 				}
 				throw new Error(`room publication lease has no method ${leaseVerb}`);

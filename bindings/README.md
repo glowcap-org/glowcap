@@ -20,7 +20,7 @@ same row `driver.Capability`.
 ## Shared API
 
 Names follow each language's conventions, but the conceptual operations are the
-same. Each binding README gives the concrete signature and ownership spelling.
+same. Each binding README gives the concrete signature and how ownership is expressed.
 
 | Operation | Purpose |
 | --- | --- |
@@ -50,6 +50,12 @@ equality follows the opaque Host identity: Rust `==`, Python `==`, Racket
 `equal?`, and TypeScript `Ref.equals`. TypeScript `===` compares wrapper
 occurrences instead, which remain distinct because every occurrence owns its
 own release unit.
+
+Each Host can select the core-authored `native` or `interop` profile as one
+choice. The binding resolves that name through generated ABI constants, so an
+application does not pair a codec with a CapTP version itself. The individual
+selectors remain available for protocol tests and peers with an unusual
+preference.
 
 Each Host also accepts selective session-limit options in the language's named
 argument convention. Frame admission, pending-answer queue entries, transient
@@ -100,10 +106,10 @@ barrier for the Host it adopts.
   for that write to flush.
 - Rust reports a session abort through the promises it breaks rather than an
   error returned by `serve()`.
-- The generated binding-policy cap is 1024 stored outcomes that no caller has
-  awaited yet in TypeScript, Python, and Rust. After that, the oldest result is
-  dropped and a late await fails.
-  Racket waits at the call site and needs no queue.
+- TypeScript, Python, and Rust keep at most 1024 settled outcomes that no
+  caller has awaited yet, a cap the binding-policy generator writes into all
+  three. Past it, the oldest result is dropped and a late await fails. Racket
+  waits at the call site and needs no queue.
 - Racket keeps its native actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
   and `methods`.
 - Every binding has a recurring check in which Goblins dials it as a server,
@@ -142,21 +148,21 @@ construction, configuration, setup, and operation options; generic bindings
 never name a concrete transport.
 
 The native relay package projects one Zig provider through the C ABI. Its
-declarative configuration selects `ws` or `wss`, system or copied-PEM trust,
-and registration posture; bindings do not parse certificates or own TLS state.
-Provider installation, listener close, and final loop release all use the same
-versioned driver-failure record, so a binding copies exact primary and cleanup
-facts without treating diagnostic text as control flow.
-Final release refusal is non-consuming: a terminal binding loop retains one
-retry owner and makes at most one release attempt at each later safe runtime
-boundary. A later consuming result retires that owner exactly once, while its
-release and wrapper-cleanup failures remain consequences of the original
-terminal failure.
-Managed browser and event-loop connectors use their runtime's WebSocket while
-the byte-fed Host still owns Noise and CapTP. TypeScript, Python, Rust, and
-Racket also expose managed keyed and Noise relay listeners over the native
-provider. The listeners register one durable Host identity, publish the
-relay-routed locator, and accept sessions through their ordinary server type.
+configuration is declarative: it selects `ws` or `wss`, system or copied-PEM
+trust, and the registration posture, so a binding never parses a certificate
+or owns TLS state. Provider installation, listener close, and the final loop
+release all report through one versioned driver-failure record, and a binding
+copies its exact primary and cleanup facts rather than reading diagnostic text
+as control flow. A refused final release stays retryable: the binding keeps
+one retry owner, makes at most one attempt at each later safe runtime
+boundary, and retires that owner exactly once when a consuming result
+arrives. Any release or cleanup failure along the way is recorded as a
+consequence of the original terminal failure. Managed browser and event-loop
+connectors use their runtime's WebSocket while the byte-fed Host still owns
+Noise and CapTP. All four bindings also expose managed keyed and Noise relay
+listeners over the native provider: a listener registers one durable Host
+identity, publishes the relay-routed locator, and accepts sessions through
+the binding's ordinary server type.
 
 ## Building and checking
 

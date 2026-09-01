@@ -15,28 +15,29 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const store = await import("../web/ui/store.ts");
+const projection = new store.PageProjection();
 const { opsLost } = await import("../web/ui/net/common.ts");
 const { OPS_CAPS } = await import("../web/ui/types.ts");
 const { OPS_CATALOG } = await import("../web/ui/ops/catalog.ts");
 const { assertEquals } = await import("./assert.ts");
 
 function clearToasts(): void {
-	for (const notice of [...store.get().toasts]) store.dismissToast(notice.id);
+	for (const notice of [...projection.get().toasts]) store.dismissToast(projection, notice.id);
 }
 
 Deno.test("toasts stack, and dismissing one leaves the others in order", () => {
 	clearToasts();
-	store.toast("success", "Room created");
-	store.toast("failure", "Would not copy");
-	store.toast("warning", "Look at this");
-	const stacked = store.get().toasts;
+	store.toast(projection, "success", "Room created");
+	store.toast(projection, "failure", "Would not copy");
+	store.toast(projection, "warning", "Look at this");
+	const stacked = projection.get().toasts;
 	assertEquals(stacked.map((notice) => [notice.kind, notice.text]), [
 		["warning", "Look at this"],
 		["failure", "Would not copy"],
 		["success", "Room created"],
 	], "three notices stand with the newest on top");
-	store.dismissToast(stacked[1].id);
-	assertEquals(store.get().toasts.map((notice) => notice.text), [
+	store.dismissToast(projection, stacked[1].id);
+	assertEquals(projection.get().toasts.map((notice) => notice.text), [
 		"Look at this",
 		"Room created",
 	], "the gap closes rather than leaving a hole");
@@ -45,8 +46,8 @@ Deno.test("toasts stack, and dismissing one leaves the others in order", () => {
 
 Deno.test("a looping failure cannot bury the page in notices", () => {
 	clearToasts();
-	for (let n = 0; n < 8; n++) store.toast("failure", "again " + n);
-	const left = store.get().toasts;
+	for (let n = 0; n < 8; n++) store.toast(projection, "failure", "again " + n);
+	const left = projection.get().toasts;
 	assertEquals(left.length, 5, "the stack is capped");
 	assertEquals(left[0].text, "again 7", "the newest remain on top");
 	assertEquals(left[4].text, "again 3", "the oldest above the cap were dropped");
@@ -55,19 +56,19 @@ Deno.test("a looping failure cannot bury the page in notices", () => {
 
 Deno.test("dismissing a notice that is already gone is nothing", () => {
 	clearToasts();
-	store.toast("success", "Room created");
-	const id = store.get().toasts[0].id;
-	store.dismissToast(id);
-	store.dismissToast(id);
-	assertEquals(store.get().toasts.length, 0);
+	store.toast(projection, "success", "Room created");
+	const id = projection.get().toasts[0].id;
+	store.dismissToast(projection, id);
+	store.dismissToast(projection, id);
+	assertEquals(projection.get().toasts.length, 0);
 });
 
 Deno.test("a capability that stops answering is named, with the reason", () => {
 	for (const cap of OPS_CAPS) {
 		clearToasts();
-		opsLost(cap, "the server said no.");
+		opsLost(projection, cap, "the server said no.");
 		assertEquals(
-			store.get().toasts.map((notice) => [notice.kind, notice.text]),
+			projection.get().toasts.map((notice) => [notice.kind, notice.text]),
 			[[
 				"failure",
 				`${OPS_CATALOG[cap].short}: this tab no longer holds that capability. the server said no.`,

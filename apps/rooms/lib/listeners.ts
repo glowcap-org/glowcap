@@ -17,7 +17,8 @@ import {
 	TRANSPORT_TCP,
 } from "@pancake/runtime";
 import * as z from "zod/mini";
-import { DOWN, LIST, UP } from "./protocol.ts";
+import { LIST } from "./protocol.ts";
+import { DOWN, UP } from "./protocol_operator.ts";
 import { ask } from "./ask.ts";
 import { takeOperationsCap } from "./operations.ts";
 import { MAX_OPERATIONS_ROWS } from "./limits.ts";
@@ -45,19 +46,11 @@ export const LISTENER_OPTION_NAMES: Record<ListenerTransport, readonly ListenerO
 	[TRANSPORT_ONION]: [],
 };
 
-/** One transport seat, as the admin capability reports it: the server's own
- * catalog entry (name, description, an optional reference page, what an `up`
- * may carry) plus its live state. The set is the server's to name, so an
- * operator surface renders whatever arrives instead of keeping a copy.
- * `serving` marks the listener whose locator the server announced — the one
- * the web relay dials, and the one `down` refuses to take. A standing
- * `unavailable` sentence means the server already knows an `up` would
- * refuse. */
-/** One knob a seat's `up` accepts, as the server lists it. */
 const listenerText = boundedText(64 * 1024);
 const listenerOptionKind = z.enum(["host", "port", "url"]);
 const listenerTakes = z.array(z.tuple([listenerText, listenerOptionKind, listenerText])).check(z.maxLength(32));
 
+/** One knob a seat's `up` accepts, as the server lists it. */
 export const ListenerUpOptionSchema = z.strictObject({
 	name: listenerText,
 	kind: listenerOptionKind,
@@ -77,6 +70,15 @@ export function listenerOptionsFitTransport(transport: ListenerTransport, option
 	const allowed = new Set<string>(LISTENER_OPTION_NAMES[transport]);
 	return Object.keys(options).every((name) => allowed.has(name));
 }
+
+/** One transport seat, as the admin capability reports it: the server's own
+ * catalog entry (name, description, an optional reference page, what an `up`
+ * may carry) plus its live state. The set is the server's to name, so an
+ * operator surface renders whatever arrives instead of keeping a copy.
+ * `serving` marks the listener whose locator the server announced — the one
+ * the web relay dials, and the one `down` refuses to take. A standing
+ * `unavailable` sentence means the server already knows an `up` would
+ * refuse. */
 
 export const ListenerRowSchema = z.strictObject({
 	transport: listenerText,

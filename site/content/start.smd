@@ -50,8 +50,8 @@ exe.root_module.addImport("native_relay", pancake.module("pancake_native_relay")
 # Dial
 
 The first tab is **iroh**: encrypted QUIC, the peer's node id is the identity.
-`noise-tcp` is the in-tree sealed path the README uses. Plain `tcp` is
-testing-only. For a deployment, pick a row from
+`noise-tcp` is the sealed TCP path for two pancake peers that already share a
+route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick a row from
 [Choosing a transport]($link.page('transports/choosing')) and switch tabs.
 
 ```=html

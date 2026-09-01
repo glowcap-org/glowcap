@@ -1,9 +1,12 @@
 // The wire contract shared by the rooms server and every rooms client, in every
-// language. It is deliberately tiny: the directory's published name, the method
-// verbs the directory, a room, and an inbox answer to, and — when the process is
-// started that way — one extra Host publication whose swiss is the inspect
-// capability. There is no schema negotiation and no RPC framework — just
-// object-capability messages over OCapN.
+// language. It is deliberately plain: the directory's published name, the
+// method verbs the directory, a room, and an inbox answer to, and, when the
+// process is started that way, one extra Host publication whose swiss is the
+// inspect capability. There is no schema negotiation and no RPC framework,
+// just object-capability messages over OCapN. Three families whose speakers
+// are their own trees live beside this file: handover in
+// `protocol_handover.ts`, IRC bridging in `protocol_irc.ts`, and the operator
+// surface in `protocol_operator.ts`.
 //
 // The directory is the server's ordinary published capability. A client fetches it by
 // name and eventual-sends it `open` or `enter`, each of which *returns a room
@@ -12,8 +15,8 @@
 // hands the room a capability to its own `inbox` actor; the room keeps that
 // capability and calls the client back with `notify` whenever anyone posts. That
 // callback — the room holding a live capability to the client and invoking it —
-// is the whole point of the demo, and a method returning a fresh room capability
-// is the move that makes "rooms" plural.
+// is the shape everything here builds on, and a method returning a fresh room
+// capability is the move that makes "rooms" plural.
 
 /** The name the server publishes the directory under and clients fetch it by. */
 export const DIRECTORY = "directory";
@@ -57,11 +60,18 @@ export const SNAPSHOT = "snapshot";
  * which is also why `open` cannot answer "that name is taken" for one. That
  * answer is itself the leak.
  *
- * An ordinary private `open` answers a live room reference. A holder can ask
- * that room for a link. A durable session instead uses `openPrivateLink`, which
- * commits the opaque key and answers its sturdyref as one directory act, with
- * no temporary reference to strand if the answer is lost. */
+ * An ordinary private `open` answers only a live room reference. Managed open
+ * also supplies the authority that makes its entry durable. A durable session
+ * may instead use `openPrivateLink`, which commits the opaque recovery key and
+ * answers its sturdyref as one idempotent directory act, with no temporary
+ * reference to strand if the answer is lost. */
 export const OPEN = "open";
+/** Rooms-native creation with explicit management authority. Baseline `open`
+ * remains the room-only operation. This first answers a live room reference
+ * and one-use bootstrap reference; `roomAuthorities` on the bootstrap returns
+ * the durable room-entry and manager sturdyrefs as strings. */
+export const OPEN_MANAGED = "openManaged";
+export const ROOM_AUTHORITIES = "roomAuthorities";
 /** Persist and return one private-room sturdyref from an opaque recovery key.
  * This is one directory act so a lost answer never strands a live room between
  * creation and link publication. */
@@ -85,106 +95,10 @@ export const PUBLISH_DURABLE_ROOM = "publishDurableRoom";
 export const PUBLICATION_READY = "ready";
 export const REVOKE = "revoke";
 
-/** What the operator listeners object answers, when the process is started with
- * `--admin-listeners`.
- *
- * Like inspect, it is not a directory method: it is a second Host publication
- * under an unguessable swiss, and holding that swiss is the whole of the
- * authority to administer this server's listeners. `list` (the same verb name
- * the directory uses, on a different object) answers the live listeners as
- * `[id, transport, locator, serving]` rows, where `serving` marks the listener
- * whose locator this server announced — the one the web relay dials. `up(
- * transport, port?)` brings a listener up on `tcp`, `iroh`, or `onion` and
- * answers its row; only a `tcp` listener takes a port, and the native runtime
- * holds one live listener per transport at a time. `down(id)` stops that
- * listener admitting connections; sessions it already accepted stay live. An
- * `up` for a transport this process cannot realize, a second `up` on a
- * transport already up, and a `down` on the serving listener all refuse with
- * the typed codes in `errors.ts`. */
-/** Bridge an IRC channel into this directory as an ordinary room. */
-export const JOIN_IRC = "joinIrc";
-/** Part a bridged channel; its room leaves the directory with it. */
-export const PART_IRC = "partIrc";
-/** A member of a bridged room chooses the IRC nick and registered account for
- * their seat: sent once, held in memory beside their connections, gone with
- * the seat. Answered by the gateway's room wrapper, so a native room refuses
- * it as an unknown verb. */
-export const IRC_IDENTITY = "ircIdentity";
-/** Stop projecting this Rooms membership into IRC while keeping the room
- * membership itself. A later IRC_IDENTITY links it again. */
-export const IRC_DISCONNECT = "ircDisconnect";
-/** A bridged room's current projection of one Rooms member onto IRC. The
- * member name, seat phase, and outward IRC nick follow the display text. */
-export const IRC_SEAT = "irc-seat";
-/** The server-owned lifecycle of one Rooms member's IRC projection. Kept
- * beside the wire token so the gateway, parser, and interface cannot grow
- * different phase vocabularies. */
-export type IrcSeatPhase = "rooms" | "connecting" | "linked" | "failed";
-export const UP = "up";
-export const DOWN = "down";
-
-/** The Rooms operator's stewardship verbs. `giveSteward(name)` returns the
- * current durable authority for one server-owned room, minting it when none
- * has been issued. `revokeSteward(name)` rotates that authority: copied links
- * and already-live references from the old generation both stop governing. */
-export const GIVE_STEWARD = "giveSteward";
-export const REVOKE_STEWARD = "revokeSteward";
-/** Rooms-operator inventory and mutations. Targets are server-issued
- * session ids or durable room names, never diagnostic display strings. */
-export const OPERATOR_CATEGORIES = [
-	"stewardships",
-	"links",
-	"registrations",
-	"sessions",
-	"rooms",
-	"references",
-	"trouble",
-] as const;
-export type OperatorCategory = (typeof OPERATOR_CATEGORIES)[number];
-
-export function isOperatorCategory(value: unknown): value is OperatorCategory {
-	return typeof value === "string" && (OPERATOR_CATEGORIES as readonly string[]).includes(value);
-}
-export const OPERATOR_SNAPSHOT = "operatorSnapshot";
-export const OPERATOR_RETIRE_MATCHING = "operatorRetireMatching";
-export const OPERATOR_WATCH = "watch";
-export const OPERATOR_UNWATCH = "unwatch";
-export const OPERATOR_CHANGED = "changed";
-export const REVOKE_ROOM_LINK = "revokeRoomLink";
-export const REVOKE_NICK = "revokeNick";
-export const DISCONNECT_SESSION = "disconnectSession";
-export const REMOVE_OPERATOR_ROOM = "removeOperatorRoom";
-export const RELEASE_OPERATOR_REFERENCE = "releaseOperatorReference";
-export const CLEAR_OPERATOR_TROUBLE = "clearOperatorTrouble";
-export const RESET_OPERATOR_SCOPE = "resetOperatorScope";
-
 /** Mint the stable sturdyref for one existing room: `link(name)`. The Host
  * answers the complete link, composing its durable publication with the
  * location it authors for this exact session. */
 export const LINK = "link";
-
-/** The wire format every rooms peer speaks.
- *
- * Both ends of an OCapN session must name the same codec, and pancake's
- * negotiation exists for peers that do not know each other: it settles a
- * mutual preference from two offers. A closed fleet has no such problem —
- * pancake peers use the native pair here. The room protocol itself is ordinary
- * CapTP messaging: a Goblins peer may speak the same verbs over the 1.0/Syrup
- * floor, and pancake's additive list fields and methods do not alter those
- * baseline messages.
- */
-export const CODEC = "capnp" as const;
-
-/** The CapTP profile every rooms peer speaks.
- *
- * It travels with `CODEC`, not beside it by coincidence: ADR-0003 names
- * `next` + Cap'n Proto as the pancake-to-pancake pair (what
- * `engine.negotiation.Offer.native` prefers), and `v1_0` + Syrup as the
- * interop floor a Goblins vat and the upstream suite speak. This client chooses
- * the native pair; the server still negotiates the floor with a floor-only peer. Picking the
- * native codec while staying on the floor version would be half a
- * decision. */
-export const CAPTP_VERSION = "next" as const;
 
 /** Room methods a client sends. `subscribe(nick, inboxCap, voucher?)` returns
  * a welcome line; `post(text)` broadcasts to every subscriber; `typing(on)`
@@ -272,6 +186,7 @@ export const KICK = "kick";
  * public identity digest, never its bearer swiss number, so a client can prove
  * a handed-over steward belongs to the room without gaining room authority. */
 export const GOVERNS = "governs";
+export const MANAGED_ROOM_IDENTITY = "managedRoomIdentity";
 
 /** What this room calls itself: `called()`.
  *
@@ -286,6 +201,16 @@ export const CALLED = "called";
 /** Direct question: `private()`. Answers `"private"` or `"listed"`. Join does
  * not ask this — listed-ness arrives on subscribe as `LISTED` / `UNLISTED`. */
 export const PRIVATE = "private";
+/** Exact room admission policy: `access()` answers `public`, `invite-only`, or
+ * `private`. `private()` remains the coarse compatibility question. */
+export const ROOM_POLICY = "roomPolicy";
+export const ROOM_POLICY_CHANGED = "roomPolicyChanged";
+/** A live seat answers whether it is an observer or participant. */
+export const MEMBERSHIP_KIND = "membershipKind";
+/** Mint one consumable entrance from a participant membership or room manager. */
+export const MINT_INVITATION = "mintInvitation";
+/** Claim a one-shot entrance with a retry receipt chosen by the claimant. */
+export const CLAIM_INVITATION = "claimInvitation";
 
 /** The method on the reference `subscribe` answers with: what this room is
  * about.
@@ -297,76 +222,45 @@ export const PRIVATE = "private";
  * learning what a bot is. */
 export const SET_TOPIC = "setTopic";
 
-/** A durable authority to this room, asked for with the reference: `link()`.
+/** Ask a room or its manager for the current durable entry link: `link()`.
  *
- * Holding the room is the whole of the right to mint one, the same way holding
- * it is the right to say something in it. What comes back is a swissnum the
- * caller composes with the address it reached this room at, and whoever holds
- * that string can redeem it into the room — over any channel, at any later
- * time, including after everybody has left.
+ * An ordinary room reference returns only a link that already exists. The
+ * separate room manager capability may create or reissue one. What comes back
+ * is a complete sturdyref, and whoever holds that string can redeem it into
+ * the room over any channel, including after everybody has left.
  *
  * A private room mints one from its own unguessable name rather than its
  * label, so the link says nothing about what the room is called and the label
- * says nothing about the link. The directory's `link` verb is the same mint
- * asked for by *name*, which is why it answers nothing for a private room. */
+ * says nothing about the link. The directory's `link` verb asks for the same
+ * existing link by public name, which is why it answers nothing for a private
+ * room and never conveys management authority. */
 
-/** Hand somebody the room itself, over the direct line you already have with
- * them: `handRoom(label, room)` on their direct-message inbox.
- *
- * The second argument is the live reference. It crosses as a third-party
- * handoff — the sender's runtime deposits the gift and the receiver's redeems
- * it during delivery — so what arrives is a working reference to the room,
- * with nothing asked of the room or the directory about who may be handed
- * what. The label is only what the sender calls it.
- *
- * This is the invitation. It costs the server nothing durable, which its
- * data-shaped sibling below cannot say, and it lives exactly as long as live
- * references live: the offer dies with the sessions under it, and taking it up
- * later than that means asking for another. */
-export const HAND_ROOM = "handRoom";
+export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_handover.ts";
 
-/** Hand somebody a scoped archive facet over the direct line already joining
- * the two members: `handArchive(directory, conversation, archive)`.
- *
- * `archive` is a live read-only capability. The two strings name the exact
- * scope the sender requested, so the recipient can ask only for those records
- * and validate every returned row against it. The reference crosses through
- * ordinary third-party handoff; the room and directory carry none of the
- * history or the authority. */
-export const HAND_ARCHIVE = "handArchive";
-
-/** The durable sibling: `offerRoom(label, link)` on the same inbox, both
- * arguments strings.
- *
- * The link is a sturdyref the room minted for whoever holds it (`LINK`), so
- * this offer survives every connection under it and can be passed on as text.
- * The price is the mint: a durable name is server state that outlives the
- * room, so this is for an invitation that must outlive the sessions carrying
- * it, not the ordinary hand-over. */
-export const OFFER_ROOM = "offerRoom";
-
-/** What rides after a room line's display text, at the third argument.
- *
- * A subscriber that does not know a tag skips it, which is what lets the room
- * say more over time without every client being rebuilt first: a client
- * meeting a tag it cannot interpret still draws the line.
- *
- *   `"line"`, id            an ordinary line, and the id this room knows it by
- *   `"line"`, id, …files    a line carrying that id and a run of file records
- *   `"edited"`, id          that line now reads as this notify's text
- *   `"refiled"`, id, …files that line's files are now exactly this run
- *   `"withdrawn"`, id       that line is taken back
- *   `"roster"`, …names      who is here, on arrival
- *   `"join"` / `"leave"`, nick
- *   `"typing"`, nick, on
- *   `"away"`, nick, reason  that member has stepped away; empty reason is back
- *   `"topic"`, text         what the room is about; empty means taken down
- *   `"line-bytes"`, n       the longest line this room will carry
- *
- * An id names a line within one live room generation. Current subscribers use
- * it to apply edits and withdrawals; when retention is enabled the room uses
- * the same id to update or remove its kept copy before answering later history
- * requests. */
+// What rides after a room line's display text, at the third argument. This is
+// the whole set the `LINE` tag above points at, and it documents no one
+// declaration, so it is a standing note rather than a doc comment.
+//
+// A subscriber that does not know a tag skips it, which is what lets the room
+// say more over time without every client being rebuilt first: a client
+// meeting a tag it cannot interpret still draws the line.
+//
+//   `"line"`, id            an ordinary line, and the id this room knows it by
+//   `"line"`, id, …files    a line carrying that id and a run of file records
+//   `"edited"`, id          that line now reads as this notify's text
+//   `"refiled"`, id, …files that line's files are now exactly this run
+//   `"withdrawn"`, id       that line is taken back
+//   `"roster"`, …names      who is here, on arrival
+//   `"join"` / `"leave"`, nick
+//   `"typing"`, nick, on
+//   `"away"`, nick, reason  that member has stepped away; empty reason is back
+//   `"topic"`, text         what the room is about; empty means taken down
+//   `"line-bytes"`, n       the longest line this room will carry
+//
+// An id names a line within one live room generation. Current subscribers use
+// it to apply edits and withdrawals; when retention is enabled the room uses
+// the same id to update or remove its kept copy before answering later history
+// requests.
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
@@ -623,13 +517,27 @@ export const MEMBER_REGISTRATION = "memberRegistration";
  * inbox, and refuse the asker as pending. A member that offers quickly gets
  * `introducible` to the asker first, where it finds nothing waiting yet, and
  * there is no second notice to come. So a parking client remembers a notice that
- * arrived early and lets the refusal ask again at once. `room_client.ts` keeps
+ * arrived early and lets the refusal ask again at once. `lib/room/client.ts` keeps
  * that memo, and so does the Goblins vat's `conformance/goblins-peer/racket/
  * rooms-dm.rkt`; a client that surfaces the refusal instead needs neither.
  *
- * A room also pushes an ephemeral typing signal on this same inbox as
+ * A room also pushes application-state signals on this same inbox. Keeping
+ * these as additive `notify` tails means a baseline Rooms client that accepts
+ * `notify(from, text, . rest)` remains compatible while a newer client can act
+ * on the structured fact:
+ *
  * `notify("room", "", "typing", nick, on)`: `nick` is the member who started or
  * stopped typing and `on` is a boolean. It carries no line text and is never
- * stored, so a client that does not care simply skips any `notify` whose third
- * argument is `"typing"`. */
+ * stored.
+ *
+ * `notify("room", reason, "membershipEnded")` says this inbox's membership is
+ * over. The reason remains useful line text to an older client.
+ *
+ * `notify("room", "", "roomAuthorityChanged", kind, token, claimable)`
+ * invalidates the exact room or steward generation. It is intentionally blank
+ * line text, like the existing listed-status notification. */
 export const NOTIFY = "notify";
+/** `notify` tag: this room no longer holds the membership behind the inbox. */
+export const MEMBERSHIP_ENDED = "membershipEnded";
+/** `notify` tag: invalidate the room link alone or it and its moderator. */
+export const ROOM_AUTHORITY_CHANGED = "roomAuthorityChanged";

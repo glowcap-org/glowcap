@@ -7,7 +7,8 @@
 
 import type { Page } from "playwright";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
-import { fail } from "./harness.ts";
+import { fail, openDirectoryCardFromCaption, openDirectoryCardFromSettings } from "./harness.ts";
+import { proveDirectoryCommands } from "./directory_commands.ts";
 import { run as dirColorsRun } from "./dir_colors.ts";
 import { run as filteringRun } from "./filtering.ts";
 import { run as leavingRun } from "./leaving.ts";
@@ -168,14 +169,18 @@ export async function run(
 		);
 	}
 
-	// Pressing the directory a row names opens what is known about it. Every
-	// directory this tab holds uses the same card, this page's own included:
-	// Settings keeps the page locator and a button that opens that card, rather
-	// than answering the same three questions twice.
+	// Pressing the directory a row names opens that directory. Every directory
+	// this tab holds uses the same conversation, this page's own included:
+	// Settings keeps the page locator and a button that opens that conversation,
+	// rather than answering the same three questions twice. The title chip opens
+	// the card.
 	const aboutOf = (room: string) => namedRoomRow(tab, room).locator(".rwhere");
-	await (aboutOf("lobby")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the directory named on a room in this page's own directory did not open a card about it"));
+	await openDirectoryCardFromCaption(tab, aboutOf("lobby"));
+	const homeAt = await tab.evaluate(() => ({
+		path: location.pathname,
+		dir: new URLSearchParams(location.search).get("dir"),
+		full: location.pathname + location.search,
+	}));
 	const homeCard = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
 		facts: [...document.querySelectorAll(".modal .dirfacts dt")].map((dt) => dt.textContent?.trim() ?? ""),
@@ -184,7 +189,7 @@ export async function run(
 	if (homeCard.title !== "this directory") {
 		fail(`the card for this page's own directory titled ${JSON.stringify(homeCard.title)}`);
 	}
-	if (!homeCard.facts.includes("Your name here")) {
+	if (!homeCard.facts.includes("Your name")) {
 		fail(`the card does not say what this directory granted you; it lists ${JSON.stringify(homeCard.facts)}`);
 	}
 	if (homeCard.mark !== "home") {
@@ -196,14 +201,16 @@ export async function run(
 	}
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
+	await proveDirectoryCommands(tab);
 
 	// Settings still names this page's locator, and its button opens that same
-	// card rather than growing a second copy of the facts.
+	// directory rather than growing a second copy of the facts. The title chip
+	// opens the card.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle", { timeout: 10_000 });
 	// The dialog reopens on whichever panel was last selected, so name the
 	// one this check reads.
-	await tab.click("#overviewTab");
+	await tab.click("#reachabilityTab");
 	await tab.waitForSelector("#settingsAboutDir");
 	const aboutBox = await tab.evaluate(() => {
 		const about = document.querySelector("#settingsAboutDir");
@@ -225,14 +232,43 @@ export async function run(
 			}px group) rather than sitting at its words like Close`,
 		);
 	}
-	await tab.click("#settingsAboutDir");
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("Settings did not open this directory's card"));
+	await openDirectoryCardFromSettings(tab);
 	await tab.waitForSelector("#settingsTitle", { state: "hidden", timeout: 10_000 });
 	const fromSettings = (await tab.textContent("#dircardTitle"))?.trim() ?? "";
 	if (fromSettings !== "this directory") {
 		fail(`Settings opened a card titled ${JSON.stringify(fromSettings)}`);
 	}
+	const centered = await tab.evaluate(() => {
+		const card = document.querySelector<HTMLElement>("#dircardTitle")?.closest(".modal-card");
+		if (card == null) return null;
+		const bounds = card.getBoundingClientRect();
+		return Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2);
+	});
+	if (centered == null || centered > 1) {
+		fail(`Settings opened this directory ${centered ?? "without a card"}px off the viewport center`);
+	}
+	const priorViewport = tab.viewportSize();
+	await tab.setViewportSize({ width: 390, height: 720 });
+	const mobileCentered = await tab.evaluate(() => {
+		const card = document.querySelector<HTMLElement>("#dircardTitle")?.closest(".modal-card");
+		if (card == null) return null;
+		const bounds = card.getBoundingClientRect();
+		return {
+			delta: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
+			left: bounds.left,
+			right: innerWidth - bounds.right,
+		};
+	});
+	if (
+		mobileCentered == null || mobileCentered.delta > 1 || mobileCentered.left < 23 || mobileCentered.right < 23
+	) {
+		fail(
+			`the phone-sized directory card was not centered inside its modal padding: ${
+				JSON.stringify(mobileCentered)
+			}`,
+		);
+	}
+	if (priorViewport != null) await tab.setViewportSize(priorViewport);
 	// The dim around the card is the same press that leaves Settings and Help.
 	// Escape is the other half of that chain and is asked in opening.ts; this
 	// is the half a stacked directory card used to ignore.
@@ -250,14 +286,24 @@ export async function run(
 	await tab.mouse.click(dim.x, dim.y);
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 })
 		.catch(() => fail("pressing the dim around the directory card did not close it"));
-	await tab.waitForSelector("#settingsTitle", { timeout: 10_000 })
-		.catch(() => fail("closing the directory card did not return to Settings"));
-	await tab.keyboard.press("Escape");
-	await tab.waitForSelector("#settingsTitle", { state: "detached", timeout: 10_000 });
 
-	await (aboutOf("elsewhere")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the directory named on a room in another directory did not open a card about it"));
+	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));
+	// Two directories cannot share one address. This page's is `/directory`;
+	// the other carries its locator, the same `?dir=` a room on it would.
+	const otherAt = await tab.evaluate(() => ({
+		path: location.pathname,
+		dir: new URLSearchParams(location.search).get("dir"),
+		full: location.pathname + location.search,
+	}));
+	if (homeAt.path !== "/directory" || homeAt.dir !== null) {
+		fail(`this directory's address was ${homeAt.full}, not /directory`);
+	}
+	if (otherAt.path !== "/directory" || otherAt.dir === null) {
+		fail(`the other directory's address was ${otherAt.full}, with no locator`);
+	}
+	if (homeAt.full === otherAt.full) {
+		fail(`this directory and the other shared ${homeAt.full}`);
+	}
 	const cardSaid = await tab.evaluate(() => ({
 		title: document.getElementById("dircardTitle")?.textContent?.trim() ?? "",
 		locator: document.getElementById("dircardLocator")?.textContent?.trim() ?? "",
@@ -324,29 +370,48 @@ export async function run(
 	} else if (stripeAgrees.stripe === stripeAgrees.teal) {
 		fail("the directory card's top stripe stayed teal, the colour of this page's own directory");
 	}
-	// Where you are here is a hanging menu, not more card. Overflow auto took
-	// that menu into the card's scroll, so opening it grew a scrollbar instead
-	// of sitting over the facts.
+	// Where you are here is a hanging menu, not more card. It is drawn at the end
+	// of the document and lifted into the browser's top layer, so it is found by
+	// what it is rather than by where it sits — and the card neither grows a
+	// scrollbar to hold it nor has to promise never to clip.
 	await tab.click("#dircardStanding");
 	const standingMenu = await tab.evaluate(() => {
 		const card = document.querySelector(".modal-card.dircard");
-		const menu = document.querySelector(".dircard .standing-menu");
+		const menu = document.querySelector(".menu-layer .standing-menu");
 		if (card == null || menu == null) return null;
+		const m = menu.getBoundingClientRect();
 		return {
 			scrolls: card.scrollHeight > card.clientHeight + 1,
-			menuH: Math.round(menu.getBoundingClientRect().height),
+			menuH: Math.round(m.height),
+			// Whether it is painted where it was put, rather than clipped away by
+			// something between it and the screen.
+			onTop: document.elementFromPoint(m.left + m.width / 2, m.top + 6)?.closest(".standing-menu") != null,
+			// What is actually there, so a failure names it rather than leaving
+			// the next reader to go and look.
+			over: (() => {
+				const el = document.elementFromPoint(m.left + m.width / 2, m.top + 6);
+				return el == null ? "nothing" : el.tagName.toLowerCase() + "." + String(el.className);
+			})(),
+			popover: document.querySelector(".menu-layer")?.matches(":popover-open") ?? null,
+			at: { top: Math.round(m.top), left: Math.round(m.left), w: Math.round(m.width) },
 		};
 	});
 	if (standingMenu === null) fail("where you are here did not open a menu on the directory card");
 	else if (standingMenu.menuH < 40) {
 		fail(`the directory card's standing menu did not paint: ${JSON.stringify(standingMenu)}`);
+	} else if (!standingMenu.onTop) {
+		fail(`the directory card's standing menu was drawn behind something: ${JSON.stringify(standingMenu)}`);
 	} else if (standingMenu.scrolls) {
 		fail(`opening where you are here made the directory card scroll: ${JSON.stringify(standingMenu)}`);
 	}
 	await tab.keyboard.press("Escape");
-	await tab.waitForSelector(".dircard .standing-menu", { state: "detached", timeout: 5_000 });
+	await tab.waitForSelector(".menu-layer .standing-menu", { state: "detached", timeout: 5_000 });
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
+	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
+	await tab.waitForSelector("#line:not([disabled])").catch(() =>
+		fail("returning from the directory did not put the room back")
+	);
 
 	// The line naming a row's directory is a line of its own, so it has to line
 	// up like one: it is inset to the row's content box, starting where the

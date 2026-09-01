@@ -45,8 +45,8 @@ pub fn writeMsg(io: std.Io, msg: []const u8) void {
 /// stream: the build runner echoes stderr from passing steps, and the test
 /// protocol (`--listen=-`) owns stdout, so in a test build every CLI stream
 /// write lands in a capture instead. Instantiate with a distinct tag; each
-/// tag owns independent storage, which is what keeps the stdout/stderr
-/// split assertable. A case asserting on a stream calls `reset()` first,
+/// tag owns independent storage, so the stdout/stderr split stays
+/// assertable. A case asserting on a stream calls `reset()` first,
 /// drives the path, then reads `captured()`. Overflow truncates: a capture
 /// is evidence for assertions, not a transcript.
 pub fn TestCapture(comptime tag: @TypeOf(.enum_literal)) type {

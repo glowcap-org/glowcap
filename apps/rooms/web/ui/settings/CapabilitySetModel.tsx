@@ -8,7 +8,7 @@ import { OPS_CATALOG } from "../ops/catalog.ts";
 import { formatOpsBundle, type OpsBundleDraft, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import type { OpsCap } from "../types.ts";
-import { onCapabilitySetChanged } from "../ops/capability_set_events.ts";
+import { useChangeGroup, useCommitments } from "../commitment.tsx";
 
 interface CapabilitySetModel {
 	readonly draft: OpsBundleDraft;
@@ -34,6 +34,7 @@ interface CapabilitySetModel {
 	edit(capability: OpsCap): void;
 	setMode(mode: "controls" | "text"): void;
 	setText(text: string): void;
+	discard(): void;
 	commit(draft: OpsBundleDraft): Promise<void>;
 }
 
@@ -59,13 +60,19 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 	const [text, setText] = useState("");
 	const [modalLayer, setModalLayer] = useState(false);
 	const latest = useRef({ draft, savedBundle });
+	const loadGeneration = useRef(0);
+	const committing = useRef(false);
+	const commitWork = useRef<Promise<void> | null>(null);
+	const commitBarrier = useRef<PromiseWithResolvers<void> | null>(null);
+	const commitFinished = useRef(false);
 	latest.current = { draft, savedBundle };
 
 	useEffect(() => {
 		let current = true;
-		const load = (refresh: boolean) =>
-			session.readOpsBundle().then((bundle) => {
-				if (!current) return;
+		const load = (refresh: boolean) => {
+			const generation = ++loadGeneration.current;
+			return session.readOpsBundle().then((bundle) => {
+				if (!current || generation !== loadGeneration.current) return;
 				const prior = latest.current;
 				const dirty = formatOpsBundle(prior.draft) !== prior.savedBundle;
 				if (!refresh || !dirty) {
@@ -76,14 +83,16 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 				if (refresh && dirty) setNotice("The saved capability set changed. Your unsaved edits are still here.");
 				setLoaded(true);
 			}, (cause) => {
-				if (!current) return;
+				if (!current || generation !== loadGeneration.current) return;
 				setErrors([cause instanceof Error ? cause.message : String(cause)]);
 				setLoaded(true);
 			});
+		};
 		void load(false);
-		const stop = onCapabilitySetChanged(() => load(true));
+		const stop = session.watchOpsBundle(() => load(true));
 		return () => {
 			current = false;
+			loadGeneration.current += 1;
 			stop();
 		};
 	}, [session]);
@@ -105,16 +114,39 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 			currentBundle = text;
 		}
 	}
+	const discard = () => {
+		if (committing.current) throw new Error("Wait for the capability set to finish saving.");
+		setDraftState(parseOpsBundleDraft(savedBundle));
+		setText(savedBundle);
+		setMode("controls");
+		setErrors([]);
+		setNotice("");
+		setRetryPending(false);
+	};
+	const dirty = loaded && currentBundle !== savedBundle;
+	useLayoutEffect(() => {
+		if (busy || !commitFinished.current || commitBarrier.current == null) return;
+		commitFinished.current = false;
+		commitWork.current = null;
+		commitBarrier.current.resolve();
+		commitBarrier.current = null;
+	}, [busy, dirty, errors, notice]);
+	useChangeGroup("settings-capability-set", {
+		dirty,
+		discard,
+		settling: () => commitBarrier.current?.promise ?? null,
+	});
 
 	const model: CapabilitySetModel = {
 		draft,
 		savedBundle,
 		currentBundle,
-		dirty: loaded && currentBundle !== savedBundle,
+		dirty,
 		mode,
 		text,
 		setMode,
 		setText,
+		discard,
 		loaded,
 		busy,
 		errors,
@@ -137,27 +169,38 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 			setEditing(capability);
 		},
 		commit: async (wanted) => {
+			if (commitWork.current != null) return await commitWork.current;
+			committing.current = true;
+			commitFinished.current = false;
+			commitBarrier.current = Promise.withResolvers<void>();
+			loadGeneration.current += 1;
 			setBusy(true);
 			setErrors([]);
 			setNotice("");
 			setRetryPending(false);
-			try {
-				const requested = formatOpsBundle(wanted);
-				const result = await session.replaceOpsBundle(requested);
-				setDraftState(parseOpsBundleDraft(result.bundle));
-				setSavedBundle(result.bundle);
-				setErrors(
-					result.failures.map(({ capability, reason }) =>
-						capability == null ? reason : `${OPS_CATALOG[capability].label}: ${reason}`
-					),
-				);
-				setRetryPending(result.bundle === requested && result.failures.length > 0);
-				if (result.bundle === requested && result.failures.length === 0) setNotice("Capability set saved.");
-			} catch (cause) {
-				setErrors([cause instanceof Error ? cause.message : String(cause)]);
-			} finally {
-				setBusy(false);
-			}
+			const work = (async () => {
+				try {
+					const requested = formatOpsBundle(wanted);
+					const result = await session.replaceOpsBundle(requested);
+					setDraftState(parseOpsBundleDraft(result.bundle));
+					setSavedBundle(result.bundle);
+					setErrors(
+						result.failures.map(({ capability, reason }) =>
+							capability == null ? reason : `${OPS_CATALOG[capability].label}: ${reason}`
+						),
+					);
+					setRetryPending(result.bundle === requested && result.failures.length > 0);
+					if (result.bundle === requested && result.failures.length === 0) setNotice("Capability set saved.");
+				} catch (cause) {
+					setErrors([cause instanceof Error ? cause.message : String(cause)]);
+				} finally {
+					committing.current = false;
+					commitFinished.current = true;
+					setBusy(false);
+				}
+			})();
+			commitWork.current = work;
+			await work;
 		},
 	};
 
@@ -191,6 +234,7 @@ function CapabilityValueModal(
 		onLayer(held: boolean): void;
 	},
 ) {
+	const commitments = useCommitments();
 	const open = capability != null;
 	const [showing, setShowing] = useState<OpsCap>(capability ?? "listeners");
 	const [swiss, setSwiss] = useState("");
@@ -208,7 +252,15 @@ function CapabilityValueModal(
 		setSwiss(draft.get(capability) ?? "");
 		setWhy("");
 	}, [capability, draft]);
-	useModalDialog(dialog, onClose, field, open, onExited);
+	useChangeGroup("settings-capability-value", {
+		dirty: open && swiss !== (draft.get(showing) ?? ""),
+		discard: () => {
+			setSwiss(draft.get(showing) ?? "");
+			setWhy("");
+		},
+	});
+	const requestClose = () => commitments.request(onClose, { only: ["settings-capability-value"] });
+	useModalDialog(dialog, requestClose, field, open, onExited);
 	if (!held) return null;
 	const face = OPS_CATALOG[showing];
 	const save = () => {
@@ -227,44 +279,46 @@ function CapabilityValueModal(
 					save();
 				}}
 			>
-				<ModalHead
-					titleId="capabilityValueTitle"
-					title={face.label}
-					closeId="capabilityValueClose"
-					onClose={onClose}
-				/>
-				<p className="lead">{face.lead}</p>
-				<div className="group well">
-					<Field
-						id="capabilityValueSwiss"
-						label="Swiss number"
-						hint={
-							<>
-								The server mints it with <code>{face.flag}</code>. {face.how}{" "}
-								It is bearer authority and is kept in the Rooms state bundle.
-							</>
-						}
-						said={why}
-					>
-						{(wiring) => (
-							<input
-								ref={field}
-								id={wiring.id}
-								className="field"
-								value={swiss}
-								{...identifierField}
-								aria-describedby={wiring.describedBy}
-								aria-invalid={wiring.invalid}
-								onChange={(event) => {
-									setSwiss(event.currentTarget.value);
-									setWhy("");
-								}}
-							/>
-						)}
-					</Field>
-				</div>
-				<div className="actions" data-fill>
-					<Button type="submit" size="large">Save to capability set</Button>
+				<div className="modal-body">
+					<ModalHead
+						titleId="capabilityValueTitle"
+						title={face.label}
+						closeId="capabilityValueClose"
+						onClose={requestClose}
+					/>
+					<p className="lead">{face.lead}</p>
+					<div className="group well">
+						<Field
+							id="capabilityValueSwiss"
+							label="Swiss number"
+							hint={
+								<>
+									The server mints it with {face.flag}. {face.how}{" "}
+									It is bearer authority and is kept in the Rooms state bundle.
+								</>
+							}
+							said={why}
+						>
+							{(wiring) => (
+								<input
+									ref={field}
+									id={wiring.id}
+									className="field"
+									value={swiss}
+									{...identifierField}
+									aria-describedby={wiring.describedBy}
+									aria-invalid={wiring.invalid}
+									onChange={(event) => {
+										setSwiss(event.currentTarget.value);
+										setWhy("");
+									}}
+								/>
+							)}
+						</Field>
+					</div>
+					<div className="actions" data-fill>
+						<Button type="submit" size="large">Save to capability set</Button>
+					</div>
 				</div>
 			</form>
 		</dialog>

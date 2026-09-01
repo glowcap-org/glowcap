@@ -131,7 +131,7 @@ export type TraceEvent = {
 	 * session — a CLAIM by the producing application, never protocol
 	 * identity. `label` names the session's partner in the
 	 * application's own vocabulary (a chat nick); `null` WITHDRAWS the
-	 * claim, which is what an application says when it stops knowing the
+	 * claim, the way an application says it no longer knows the
 	 * connection by that name. */
 	meta?: { label?: string | null };
 };
@@ -183,7 +183,7 @@ let queueDepth = 512;
  * session id is scoped by: a core session id is host-scoped (the Names rule:
  * a bare id needs its namespace named), so two hosts in one process would
  * otherwise collide on the same `live-s1`. `designator` is the host's own key
- * designator, which is what a partner names it by, so one peer's node in a
+ * designator, the name a partner knows it by, so one peer's node in a
  * merged feed is the same node whichever producer reported it. */
 type TracedHost = { cookie: number; designator: string; context: Context; diagnosticId: bigint };
 const hosts = new Map<Ptr, TracedHost>();
@@ -374,7 +374,7 @@ export function traceDrainHost(raw: Ptr): void {
  * 0 turns payload capture off. `selfLabel`, when given, is what the producing
  * application would like its own endpoint CALLED — a display name beside the
  * identity, never instead of it: the `a` endpoint stays the host's own key
- * designator, which is what a partner names it by and so the only name two
+ * designator, the name a partner knows it by and the only one two
  * producers can agree on. */
 export function enableTrace(
 	next: TraceSink,

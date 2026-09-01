@@ -98,6 +98,11 @@
   (define bare
     (with-handlers ([exn:fail? (lambda (_) (bad-locator locator))])
       (url->ocapn-node url)))
+  ;; Goblins' URL path cannot produce the host:port designator its TCP netlayer
+  ;; needs. A literal colon becomes URL port syntax, while `%3A` stays encoded
+  ;; in the designator. Refuse both here rather than failing later in a socket
+  ;; dial; the bare host:port form below is the one TCP admission.
+  (when (eq? (ocapn-node-transport bare) 'tcp) (bad-locator locator))
   (define hints (query->hints (url-query url)))
   (if hints
       (make-wire-ocapn-node (ocapn-node-transport bare)
@@ -123,7 +128,7 @@
 ;; is read off the transparent struct instead.
 (define (node-hints node) (vector-ref (struct->vector node) 3))
 
-;; The locator string a peer reaches `node` by, which is what `locator->node`
+;; The locator string a peer reaches `node` by, the string `locator->node`
 ;; reads back.
 ;;
 ;; A `tcp` node answers the bare `host:port` shorthand, because that is the only
@@ -162,8 +167,14 @@
 
 ;; The bare `host:port` shorthand, which names a TCP peer and nothing else.
 (define (host:port->node locator)
-  (define parts (string-split locator ":"))
-  (unless (and (= (length parts) 2) (string->number (cadr parts)))
+  ;; The host is either one nonempty colon-free name or a bracketed IPv6
+  ;; literal. Restrict the port capture to decimal digits before converting it,
+  ;; then apply the socket API's u16 range here rather than letting a malformed
+  ;; designator fail later in Goblins networking.
+  (define match
+    (regexp-match #px"^(?:\\[[^\\]]+\\]|[^:\\[\\]]+):([0-9]+)$" locator))
+  (define port (and match (string->number (cadr match))))
+  (unless (and (exact-nonnegative-integer? port) (< port 65536))
     (bad-locator locator))
   (ocapn-node 'tcp locator #f))
 
@@ -244,14 +255,19 @@
   (on (<- directory 'enter name)
       on-room
       #:catch
-      (lambda (_no-such-room)
-        (on (<- directory 'open name)
-            on-room
-            #:catch
-            (lambda (err)
-              (if (equal? (room-error-code err) "room-exists")
-                  (on (<- directory 'enter name) on-room #:catch on-error)
-                  (on-error err)))))))
+      (lambda (err)
+        (if (no-such-room-error? err)
+            (on (<- directory 'open name)
+                on-room
+                #:catch
+                (lambda (open-err)
+                  (if (equal? (room-error-code open-err) "room-exists")
+                      (on (<- directory 'enter name) on-room #:catch on-error)
+                      (on-error open-err))))
+            (on-error err)))))
+
+(define (no-such-room-error? err)
+  (equal? (room-error-code err) "no-such-room"))
 
 ;; The failures a rooms peer branches on, as the room server spells them
 ;; (`apps/rooms/lib/errors.ts`). A broken OCapN promise carries a string reason,
@@ -300,15 +316,17 @@
     (check-equal? (ocapn-node-transport node) 'tcp)
     (check-equal? (ocapn-node-designator node) "127.0.0.1:9099")
     (check-false (node-hints node)))
-
-  ;; The URI form splits the host into a designator and a trailing transport
-  ;; symbol, and that is all a TCP peer can get out of it: a port after the
-  ;; designator is read as the URL's own port and refused, so the shorthand
-  ;; above is the only spelling that carries a TCP address.
-  (let ([node (locator->node "ocapn://127.0.0.1.tcp")])
+  (let ([node (locator->node "[::1]:9099")])
     (check-equal? (ocapn-node-transport node) 'tcp)
-    (check-equal? (ocapn-node-designator node) "127.0.0.1"))
+    (check-equal? (ocapn-node-designator node) "[::1]:9099")
+    (check-false (node-hints node)))
+
+  ;; A TCP URI cannot reach this netlayer. With no colon it lacks a port, a
+  ;; literal colon is URL port syntax, and an encoded colon stays encoded in the
+  ;; designator. All three are refused at locator admission.
+  (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1.tcp")))
   (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1:9099.tcp")))
+  (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1%3A9099.tcp")))
 
   ;; An iroh locator as a rooms server announces one: the designator is the
   ;; endpoint's Ed25519 key and the addresses ride percent-encoded in the query.
@@ -344,6 +362,10 @@
   ;; travelling on to fail at the dial.
   (check-exn #rx"rooms locator" (lambda () (locator->node "127.0.0.1")))
   (check-exn #rx"rooms locator" (lambda () (locator->node "127.0.0.1:not-a-port")))
+  (check-exn #rx"rooms locator" (lambda () (locator->node "127.0.0.1:1.5")))
+  (check-exn #rx"rooms locator" (lambda () (locator->node "127.0.0.1:65536")))
+  (check-exn #rx"rooms locator" (lambda () (locator->node "127.0.0.1:0x10")))
+  (check-exn #rx"rooms locator" (lambda () (locator->node "::1:9099")))
   (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://no-transport-here")))
 
   ;; A member registers by the locator other peers reach it at, so rendering a
@@ -400,6 +422,8 @@
   (check-equal? (room-error-code (make-exn:fail "not-registered: register first"
                                                 (current-continuation-marks)))
                 "not-registered")
+  (check-true (no-such-room-error? "no-such-room: no room named lobby"))
+  (check-false (no-such-room-error? "not-registered: register first"))
   ;; A failure carrying no known code is nobody's branch.
   (check-false (room-error-code "directory has no method wat"))
   (check-false (room-error-code "")))

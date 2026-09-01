@@ -157,9 +157,12 @@ export function parseTcpPeers(raw: string | null | undefined): TcpPeer[] {
 	return peers;
 }
 
-/** Whether a browser `Origin` header may drive the relay: absent (non-browser
- * clients) or matching the request's own `Host`. A cross-origin page is
- * refused before the WebSocket upgrade. */
+/** Whether a browser `Origin` header may drive a relay *proxy* (`/relay?target=`,
+ * `/register`, viz). Absent (non-browser clients) or matching the request's
+ * own `Host`. A cross-origin page must not use this process as an open
+ * dialer. `/relay?rendezvous=` is not this check: that path is a
+ * capability-addressed bridge, and attaching to a tab-hosted session from
+ * another origin is the product. */
 export function relayOriginAllowed(
 	origin: string | null,
 	host: string | null,

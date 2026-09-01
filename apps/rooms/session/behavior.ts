@@ -9,50 +9,49 @@ import {
 	type Session,
 } from "@pancake/runtime";
 import {
+	accessOf,
+	mayInteract,
+	mayObserve,
 	ROOMS_SESSION_ADOPT_WORKSPACE,
-	ROOMS_SESSION_CHANGED,
+	ROOMS_SESSION_BRIDGE_FORM,
 	ROOMS_SESSION_COMMAND,
 	ROOMS_SESSION_FACET,
 	ROOMS_SESSION_HISTORY,
-	ROOMS_SESSION_ISSUE_GRANT,
 	ROOMS_SESSION_OPERATIONS_CHANGED,
-	ROOMS_SESSION_OPERATIONS_SNAPSHOT,
-	ROOMS_SESSION_OPERATOR_PAGE,
-	ROOMS_SESSION_OPERATOR_RETIRE,
-	ROOMS_SESSION_OPERATOR_SNAPSHOT,
 	ROOMS_SESSION_REPLACE,
 	ROOMS_SESSION_RESOLVE_EFFECT,
 	ROOMS_SESSION_RESUME_EFFECT,
 	ROOMS_SESSION_REVOKE,
-	ROOMS_SESSION_REVOKE_GRANT,
 	ROOMS_SESSION_SNAPSHOT,
 	ROOMS_SESSION_TYPING,
 	ROOMS_SESSION_WATCH,
+	type RoomsSessionAccess,
 	type RoomsSessionFacet,
-	type RoomsSessionRoomView,
-} from "../lib/rooms_session.ts";
-import { archiveRecordRow } from "../lib/archive.ts";
+} from "../lib/session/client.ts";
+import { archiveRecordRow } from "../lib/archive/protocol.ts";
 import { redactRoomsSessionCapabilities, type RoomsSessionState } from "../lib/rooms_state.ts";
-import { OPERATOR_CATEGORIES, operatorPageAnswer, operatorRetireAnswer } from "../lib/operator.ts";
-import { MAX_OPERATOR_QUERY, MAX_OPERATOR_RETIRE_BATCH } from "../lib/limits.ts";
 import { DurableRoomsSessionState } from "./state.ts";
 import { DurableRoomsRuntime } from "./runtime.ts";
-import { describeRoomsSessionResult } from "./commands.ts";
-import { resumeResultEffect } from "./result_effect.ts";
+import { ResultEffectCoordinator, resumeResultEffect } from "./result_effect.ts";
 import { dispatchRoomsSessionCommand } from "./command_dispatch.ts";
 import { validateOperationId } from "./effects.ts";
 import { ARCHIVE_SHARE_UNHANDLED, dispatchArchiveShareCommand } from "./archive_share_commands.ts";
-import { encodeSessionAccess, encodeSessionSnapshot } from "./snapshot_wire.ts";
+import { dispatchGrantCommand, GRANT_COMMAND_UNHANDLED } from "./grant_commands.ts";
+import { effectDetailsFor, roomViewsVisibleTo, snapshotForFacet } from "./facet_view.ts";
+import { type GrantNoticeOwner, reprojectGrantViews, revokeGrantViews } from "./grant_notices.ts";
+import { encodeSessionAccess } from "./snapshot_wire.ts";
 import { ARCHIVED_FILE_UNHANDLED, dispatchArchivedFileCommand } from "./archive_file_commands.ts";
+import { dispatchOperatorVerb, OPERATOR_VERB_UNHANDLED } from "./operator_verbs.ts";
 import { ATTACHMENT_COMMAND_UNHANDLED, dispatchAttachmentCommand } from "./attachment_commands.ts";
 import { cleanupSettledBySessionClose } from "../lib/capability_cleanup.ts";
-import type { RoomsSessionGrantAuthority } from "./grants.ts";
+import type { RoomsSessionGrantAuthority, RoomsSessionGrantPolicy } from "./grants.ts";
 import { parseRoomsCheckpointRequest } from "./checkpoint_request.ts";
 import { AttachedViewDelivery } from "./attached_view_delivery.ts";
 import { admitSessionFacetArguments, takeSessionObserver } from "./facet_arguments.ts";
 import { refuseCapabilityArguments } from "../lib/argument_custody.ts";
 import { spawnFacetPair } from "./facet_pair.ts";
 import { RoomInvitationAdmission } from "./invitation_admission.ts";
+import { typingMessage } from "./conversation_events.ts";
 
 export {
 	assertSessionCommandEnvelope,
@@ -66,21 +65,14 @@ interface Observer {
 	stopClose: () => void;
 	active: () => boolean;
 	grant: symbol;
-	rights: RoomsSessionFacet;
+	/** What this view may do now, re-read whenever the grant behind it changes.
+	 * Not what it was issued with: a narrowing is worth having only if it
+	 * reaches the view already holding the link. */
+	rights: RoomsSessionAccess;
+	history: boolean;
+	/** Why this view is suspended, when it is. */
+	note: string;
 	delivery: AttachedViewDelivery;
-}
-
-function checkpointVisibleTo(rights: RoomsSessionFacet, checkpoint: RoomsSessionState): RoomsSessionState {
-	return rights === "admin" ? checkpoint : redactRoomsSessionCapabilities(checkpoint);
-}
-
-function roomViewsVisibleTo(
-	rights: RoomsSessionFacet,
-	views: readonly RoomsSessionRoomView[],
-): RoomsSessionRoomView[] {
-	return rights === "observe"
-		? views.map((view) => ({ ...view, canSetTopic: false, canModerate: false }))
-		: [...views];
 }
 
 function refuseOwnedObserver(session: Session, observer: Ref, refusal: unknown): never {
@@ -100,6 +92,7 @@ export class DurableRoomsSessionBehavior {
 	readonly #observers = new Map<Session, Observer>();
 	readonly #durableGrantTokens = new Map<string, symbol>();
 	readonly #invitationAdmission: RoomInvitationAdmission;
+	readonly #resultEffects = new ResultEffectCoordinator();
 
 	constructor(state: DurableRoomsSessionState, runtime: DurableRoomsRuntime, grants: RoomsSessionGrantAuthority) {
 		this.#state = state;
@@ -116,12 +109,8 @@ export class DurableRoomsSessionBehavior {
 			this.#notify(snapshot.revision, snapshot.checkpoint);
 		});
 		runtime.onOperationsInvalidated((scope) => {
-			for (const [session, held] of this.#observers) {
+			for (const [session, held] of this.#hearing()) {
 				if (held.rights !== "admin") continue;
-				if (!held.active()) {
-					this.#drop(session);
-					continue;
-				}
 				try {
 					session.tell(held.observer, ROOMS_SESSION_OPERATIONS_CHANGED, [scope])
 						.catch((error) => this.#deliveryFailed(session, "operations invalidation", error));
@@ -141,11 +130,7 @@ export class DurableRoomsSessionBehavior {
 			});
 		});
 		runtime.onMessage((conversationId, message, editable, files, history) => {
-			for (const [session, held] of this.#observers) {
-				if (!held.active()) {
-					this.#drop(session);
-					continue;
-				}
+			for (const [session, held] of this.#hearing()) {
 				try {
 					held.delivery.queueEvent(conversationId, message, editable, files, history);
 				} catch (error) {
@@ -165,38 +150,27 @@ export class DurableRoomsSessionBehavior {
 			token = Symbol(`durable Rooms session ${rights} grant ${id}`);
 			this.#durableGrantTokens.set(id, token);
 		}
-		return this.#behavior(rights, active, token);
+		return this.#behavior(rights, active, token, () => this.#grants.policy(id));
 	}
 
-	async revokeDurableFacet(id: string): Promise<void> {
-		const token = this.#durableGrantTokens.get(id);
-		if (token == null) return;
-		const deliveries: Promise<void>[] = [];
-		for (const [session, held] of this.#observers) {
-			if (held.grant !== token) continue;
-			deliveries.push(
-				session.tell(
-					held.observer,
-					ROOMS_SESSION_CHANGED,
-					this.#snapshotFor(held.rights, session, [{
-						subject: "session-access",
-						reason: "This session capability was revoked. Detach it or attach with another capability.",
-					}]),
-				).catch((error) => {
-					if (!cleanupSettledBySessionClose(error)) {
-						console.error(
-							`rooms session: attached-view revocation notice failed: ${
-								error instanceof Error ? error.message : error
-							}`,
-						);
-					}
-				}).finally(() => {
-					this.#drop(session);
-				}),
-			);
-		}
-		await Promise.all(deliveries);
-		this.#durableGrantTokens.delete(id);
+	/** See `grant_notices.ts`: both of these are about telling the views attached
+	 * under one grant that what it carries has changed or gone. */
+	reprojectGrant(id: string): void {
+		reprojectGrantViews(id, this.#noticeOwner());
+	}
+
+	revokeDurableFacet(id: string): Promise<void> {
+		return revokeGrantViews(id, this.#noticeOwner());
+	}
+
+	#noticeOwner(): GrantNoticeOwner {
+		return {
+			observers: this.#observers,
+			tokens: this.#durableGrantTokens,
+			grants: this.#grants,
+			snapshotFor: (rights, session, issues, note) => this.#facetSnapshot(rights, session, issues, note),
+			drop: (session) => this.#drop(session),
+		};
 	}
 
 	#drop(session: Session): unknown | null {
@@ -235,6 +209,44 @@ export class DurableRoomsSessionBehavior {
 		this.#drop(session);
 	}
 
+	/** The attached views entitled to hear what the session is doing.
+	 *
+	 * Every fan-out takes its views from here rather than from the table, so
+	 * sending is what has to be established and not sending is what happens by
+	 * default. Walking the table directly leaves that decision to be remembered
+	 * once per fan-out, and the one carrying the room's own lines is the one it
+	 * costs most to forget.
+	 *
+	 * Two kinds of view are in the table and hear nothing. One whose grant has
+	 * gone is dropped on the way past, which is the only place that sweep needs
+	 * to happen because it is the only place the table is read. One that is
+	 * suspended stays attached so it can be told the moment its access returns,
+	 * and the two deliveries it does get are about itself rather than about the
+	 * session: the snapshot announcing the pause, and the one announcing the
+	 * return. Both are sent by `reprojectGrantViews`, and both carry no session,
+	 * because that is what `snapshotForFacet` answers this access with.
+	 *
+	 * Projecting by rights is not a substitute. A paused reader who goes on
+	 * receiving every line is reading the room, whatever the flags in the views
+	 * handed to them say they may do.
+	 *
+	 * Answered as a list rather than lazily, because the sweep on the way past
+	 * removes rows from the table this reads, and because a caller needs to know
+	 * whether anyone is listening before it spends anything preparing what to
+	 * say. There are at most `MAX_ATTACHED_VIEWS` of them. */
+	#hearing(): [Session, Observer][] {
+		const listening: [Session, Observer][] = [];
+		for (const [session, held] of this.#observers) {
+			if (!held.active()) {
+				this.#drop(session);
+				continue;
+			}
+			if (!mayObserve(held.rights)) continue;
+			listening.push([session, held]);
+		}
+		return listening;
+	}
+
 	#dropGrant(grant: symbol): void {
 		for (const [session, held] of this.#observers) {
 			if (held.grant === grant) this.#drop(session);
@@ -242,7 +254,13 @@ export class DurableRoomsSessionBehavior {
 	}
 
 	#notify(revision: number, checkpoint: RoomsSessionState): void {
-		if (this.#observers.size === 0) return;
+		// Everything below this line is prepared for the views that will receive
+		// it, so who those are is settled first. A session whose only attached
+		// view is paused serializes the checkpoint, the room views, the archive
+		// shares, the directories, and the handed rooms on every change, for
+		// nobody.
+		const listening = this.#hearing();
+		if (listening.length === 0) return;
 		const encoded = JSON.stringify(checkpoint);
 		let redacted: string | null = null;
 		const pending = this.#state.pendingEffectIds();
@@ -254,15 +272,12 @@ export class DurableRoomsSessionBehavior {
 		const observedRoomViews = JSON.stringify(roomViewsVisibleTo("observe", liveRoomViews));
 		const archiveShares = JSON.stringify(this.#runtime.archiveShares());
 		const directoryViews = JSON.stringify(this.#runtime.directoryViews());
-		for (const [session, held] of this.#observers) {
-			if (!held.active()) {
-				this.#drop(session);
-				continue;
-			}
+		const handedRooms = JSON.stringify(this.#runtime.handedRooms.list());
+		for (const [session, held] of listening) {
 			let checkpointText = encoded;
 			let effectRows: Argument[] = [];
 			if (held.rights === "admin") {
-				if (adminEffects == null) adminEffects = this.#effectDetails("admin");
+				if (adminEffects == null) adminEffects = effectDetailsFor("admin", this.#state);
 				effectRows = adminEffects;
 			} else {
 				if (redacted == null) redacted = JSON.stringify(redactRoomsSessionCapabilities(checkpoint));
@@ -276,14 +291,16 @@ export class DurableRoomsSessionBehavior {
 				connected,
 				effectRows,
 				this.#runtime.memberLocator(),
-				held.rights === "observe" ? observedRoomViews : roomViews,
+				mayInteract(held.rights) ? roomViews : observedRoomViews,
 				archiveShares,
 				directoryViews,
 				encodeSessionAccess(
 					held.rights,
 					this.#state.workspaceAdoption,
 					held.rights === "admin" ? this.#grants.list(session) : [],
+					held.note,
 				),
+				handedRooms,
 			];
 			try {
 				held.delivery.queueSnapshot(args);
@@ -293,49 +310,29 @@ export class DurableRoomsSessionBehavior {
 		}
 	}
 
-	#effectDetails(rights: RoomsSessionFacet): Argument[] {
-		if (rights !== "admin") return [];
-		return this.#state.pendingEffectDetails().map((effect) =>
-			[
-				effect.id,
-				effect.kind,
-				effect.kind === "external"
-					? effect.intent ?? "Recover an external session operation"
-					: effect.intent == null
-					? "Recover an external session operation"
-					: describeRoomsSessionResult(effect.kind, effect.intent),
-				effect.phase,
-			] as Argument
-		);
-	}
-
-	#snapshotFor(
-		rights: RoomsSessionFacet,
+	/** What one facet sees of this session right now. */
+	#facetSnapshot(
+		rights: RoomsSessionAccess,
 		session: Session,
 		extraIssues: readonly { subject: string; reason: string }[] = [],
+		note = "",
 	): Argument[] {
-		const snapshot = this.#state.snapshot();
-		return encodeSessionSnapshot(
-			snapshot.revision,
-			checkpointVisibleTo(rights, snapshot.checkpoint),
-			this.#state.pendingEffectIds(),
-			[...this.#runtime.issues(), ...extraIssues],
-			this.#runtime.connectedDirectories(),
-			this.#effectDetails(rights),
-			this.#runtime.memberLocator(),
-			roomViewsVisibleTo(rights, this.#runtime.roomViews()),
-			this.#runtime.archiveShares(),
-			this.#runtime.directoryViews(),
-			rights,
-			this.#state.workspaceAdoption,
-			rights === "admin" ? this.#grants.list(session) : [],
-		);
+		return snapshotForFacet(rights, session, note, extraIssues, {
+			state: this.#state,
+			runtime: this.#runtime,
+			grants: this.#grants,
+		});
 	}
 
 	#behavior(
-		rights: RoomsSessionFacet,
+		issued: RoomsSessionFacet,
 		active: () => boolean = () => true,
 		grant: symbol = Symbol("Rooms session root"),
+		/** What the grant behind this facet carries now. Asked on every verb
+		 * rather than captured here, which is what lets an administrator narrow a
+		 * link, suspend it, or hand it its history back while somebody is holding
+		 * it. The root facet has no grant and is simply admin. */
+		policy: (() => RoomsSessionGrantPolicy | null) | null = null,
 	): Behavior {
 		return (verb: string, args: Argument[]): ReturnType<Behavior> => {
 			const session = currentSession();
@@ -343,10 +340,34 @@ export class DurableRoomsSessionBehavior {
 			if (!active()) {
 				refuseCapabilityArguments(session, args, "this Rooms session facet was revoked");
 			}
+			const carried = policy?.() ?? null;
+			const rights: RoomsSessionAccess = carried == null ? issued : accessOf(carried);
+			const history = carried == null ? true : carried.history;
+			const note = carried?.note ?? "";
 			admitSessionFacetArguments(session, verb, args);
 			if (verb === ROOMS_SESSION_SNAPSHOT) {
 				if (args.length !== 0) throw new Error("session snapshot takes no arguments");
-				return this.#snapshotFor(rights, session);
+				return this.#facetSnapshot(rights, session, [], note);
+			}
+			// A suspended link still answers for itself, and does nothing else.
+			// Watching is left open with it so a view already attached is told the
+			// moment the suspension lifts, rather than having to poll for it. Every
+			// other verb is refused here rather than in each dispatcher, so a facet
+			// carrying nothing cannot be reached through a route nobody thought to
+			// gate.
+			//
+			// Asked the way the fan-outs ask it, and for the same reason: naming the
+			// one rung that may do nothing leaves every rung nobody has thought of
+			// yet on the other side of this, admitted through a door that was meant
+			// to be shut.
+			if (!mayObserve(rights) && verb !== ROOMS_SESSION_WATCH) {
+				refuseCapabilityArguments(
+					session,
+					args,
+					note === ""
+						? "this Rooms session capability is suspended"
+						: `this Rooms session capability is suspended: ${note}`,
+				);
 			}
 			if (verb === ROOMS_SESSION_WATCH) {
 				const observer = takeSessionObserver(session, args);
@@ -370,11 +391,21 @@ export class DurableRoomsSessionBehavior {
 					observer,
 					rights,
 					current: () => this.#observers.get(session)?.delivery === delivery,
-					gapSnapshot: () =>
-						this.#snapshotFor(rights, session, [{
+					// Built from what this view carries now, not from what it carried
+					// when it attached. A gap snapshot is made at the moment a slow
+					// view overflows its queue, which can be long after its grant was
+					// narrowed, and the access it is built with decides whether the
+					// checkpoint in it is redacted and whether the session's own
+					// grants are listed in it. Reading the ledger at each use rather
+					// than capturing it is what the rest of this file does, and
+					// `retier` on the delivery beside this exists for the same reason.
+					gapSnapshot: () => {
+						const current = this.#observers.get(session);
+						return this.#facetSnapshot(current?.rights ?? rights, session, [{
 							subject: "event-gap",
 							reason: "A slow attached view exceeded its bounded event queue; history is reconciling.",
-						}]),
+						}], current?.note ?? note);
+					},
 					failed: (error) => this.#deliveryFailed(session, "delivery", error),
 				});
 				const held: Observer = {
@@ -382,12 +413,18 @@ export class DurableRoomsSessionBehavior {
 					stopClose,
 					active,
 					grant,
+					history,
+					note,
 					rights,
 					delivery,
 				};
 				this.#observers.set(session, held);
 				try {
-					return this.#snapshotFor(rights, session);
+					// The note travels with this one too. Attaching is how a browser
+					// that was not here when the pause happened finds out about it,
+					// and it is the only route a reload takes — so leaving it off
+					// here made a pause something you had to be watching to learn.
+					return this.#facetSnapshot(rights, session, [], note);
 				} catch (error) {
 					const cleanup = this.#drop(session);
 					if (cleanup != null) {
@@ -413,10 +450,10 @@ export class DurableRoomsSessionBehavior {
 					BigInt,
 				) as ReturnType<Behavior>;
 			}
-			const archivedFile = dispatchArchivedFileCommand(rights, verb, args, session, this.#runtime);
+			const archivedFile = dispatchArchivedFileCommand(history, verb, args, session, this.#runtime);
 			if (archivedFile !== ARCHIVED_FILE_UNHANDLED) return archivedFile;
 			if (verb === ROOMS_SESSION_HISTORY) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot read archived history");
+				if (!history) throw new Error("this Rooms session facet cannot read archived history");
 				if (
 					args.length !== 3 || (args[0] !== "room" && args[0] !== "direct") ||
 					typeof args[1] !== "string" || typeof args[2] !== "string"
@@ -424,77 +461,40 @@ export class DurableRoomsSessionBehavior {
 				return this.#runtime.readHistory(args[0], args[1], args[2])
 					.then((records) => records.map(archiveRecordRow)) as ReturnType<Behavior>;
 			}
+			if (verb === ROOMS_SESSION_BRIDGE_FORM) {
+				// The declared form carries no secrets, so any facet may read it
+				// the way any member asks the room itself. Submitting stays behind
+				// the command's own interact gate.
+				if (args.length !== 1 || typeof args[0] !== "string") {
+					throw new Error("roomBridgeForm takes a conversation id");
+				}
+				return this.#runtime.roomActions.bridgeForm(args[0])
+					.then((form) => form == null ? "" : JSON.stringify(form)) as ReturnType<Behavior>;
+			}
 			if (verb === ROOMS_SESSION_TYPING) {
-				if (rights === "observe") throw new Error("this Rooms session facet cannot send typing");
+				if (!mayInteract(rights)) throw new Error("this Rooms session facet cannot send typing");
 				if (args.length !== 2 || typeof args[0] !== "string" || typeof args[1] !== "boolean") {
 					throw new Error("typing takes a conversation id and a boolean");
 				}
-				this.#runtime.setTyping(args[0], args[1]);
+				if (this.#runtime.roomActions.setTyping(args[0], args[1])) {
+					const message = typingMessage("Another attached view", args[1]);
+					for (const [attached, held] of this.#observers) {
+						if (attached === session) continue;
+						if (!held.active()) {
+							this.#drop(attached);
+							continue;
+						}
+						try {
+							held.delivery.queueEvent(args[0], message, false, [], null);
+						} catch (error) {
+							this.#deliveryFailed(attached, "typing event admission", error);
+						}
+					}
+				}
 				return null;
 			}
-			if (verb === ROOMS_SESSION_OPERATOR_SNAPSHOT) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot inspect operator authority");
-				if (
-					args.length < 1 || args.length > 2 || typeof args[0] !== "string" ||
-					(args.length === 2 && (typeof args[1] !== "string" || args[1].length > MAX_OPERATOR_QUERY))
-				) {
-					throw new Error("operatorSnapshot takes a capability scope and an optional search");
-				}
-				return this.#runtime.operatorSnapshot(args[0], args.length === 2 ? args[1] as string : "").then((
-					snapshot,
-				) => JSON.stringify(
-					snapshot,
-					(_key, value) => typeof value === "bigint" ? value.toString() : value,
-				)) as ReturnType<Behavior>;
-			}
-			if (verb === ROOMS_SESSION_OPERATOR_RETIRE) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot change operator authority");
-				if (
-					args.length !== 4 || typeof args[0] !== "string" || typeof args[1] !== "string" ||
-					!OPERATOR_CATEGORIES.some((category) => category === args[1]) || typeof args[2] !== "string" ||
-					args[2].length > MAX_OPERATOR_QUERY || typeof args[3] !== "bigint" || args[3] < 1n ||
-					args[3] > BigInt(MAX_OPERATOR_RETIRE_BATCH)
-				) throw new Error("operatorRetire takes a scope, category, search, and batch limit");
-				return this.#runtime.operatorRetireMatching(
-					args[0],
-					args[1] as (typeof OPERATOR_CATEGORIES)[number],
-					args[2],
-					Number(args[3]),
-				).then(operatorRetireAnswer) as ReturnType<Behavior>;
-			}
-			if (verb === ROOMS_SESSION_OPERATIONS_SNAPSHOT) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot inspect operations authority");
-				if (
-					args.length !== 2 || typeof args[0] !== "string" ||
-					(args[1] !== "listeners" && args[1] !== "diagnostics" && args[1] !== "irc" &&
-						args[1] !== "peering" &&
-						args[1] !== "viz")
-				) throw new Error("operationsSnapshot takes a scope and supported capability name");
-				if (args[1] === "viz") {
-					const snapshot = this.#runtime.vizSnapshot(args[0]);
-					return JSON.stringify({ url: snapshot.url, connected: snapshot.connected });
-				}
-				if (args[1] === "peering") return JSON.stringify(this.#runtime.peeringSnapshot(args[0]));
-				return this.#runtime.operationsSnapshot(args[0], args[1]).then((snapshot) =>
-					JSON.stringify(snapshot.rows)
-				) as ReturnType<Behavior>;
-			}
-			if (verb === ROOMS_SESSION_OPERATOR_PAGE) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot inspect operator authority");
-				if (
-					args.length < 3 || args.length > 4 || typeof args[0] !== "string" || typeof args[1] !== "string" ||
-					!OPERATOR_CATEGORIES.some((category) => category === args[1]) || typeof args[2] !== "bigint" ||
-					args[2] < 0n || args[2] > BigInt(Number.MAX_SAFE_INTEGER) ||
-					(args.length === 4 && (typeof args[3] !== "string" || args[3].length > MAX_OPERATOR_QUERY))
-				) throw new Error("operatorPage takes a capability scope, category, cursor, and optional search");
-				return this.#runtime.operatorPage(
-					args[0],
-					args[1] as (typeof OPERATOR_CATEGORIES)[number],
-					Number(args[2]),
-					args.length === 4 ? args[3] as string : "",
-				)
-					.then(operatorPageAnswer) as ReturnType<Behavior>;
-			}
+			const operatorVerb = dispatchOperatorVerb(rights, verb, args, this.#runtime);
+			if (operatorVerb !== OPERATOR_VERB_UNHANDLED) return operatorVerb;
 			const attachmentCommand = dispatchAttachmentCommand(rights, verb, args, session, {
 				state: this.#state,
 				runtime: this.#runtime,
@@ -505,6 +505,7 @@ export class DurableRoomsSessionBehavior {
 					state: this.#state,
 					runtime: this.#runtime,
 					session,
+					resultEffects: this.#resultEffects,
 				});
 			}
 			const archiveShareResult = dispatchArchiveShareCommand(rights, verb, args, this.#runtime);
@@ -525,7 +526,11 @@ export class DurableRoomsSessionBehavior {
 				}
 				validateOperationId(args[0]);
 				const operationId = args[0];
-				return resumeResultEffect(this.#state, this.#runtime, operationId).then(BigInt) as ReturnType<Behavior>;
+				return this.#resultEffects.run(
+					operationId,
+					null,
+					() => resumeResultEffect(this.#state, this.#runtime, operationId),
+				).then(BigInt) as ReturnType<Behavior>;
 			}
 			if (verb === ROOMS_SESSION_FACET) {
 				if (rights !== "admin") throw new Error("this Rooms session facet cannot delegate");
@@ -549,22 +554,11 @@ export class DurableRoomsSessionBehavior {
 				};
 				return spawnFacetPair(session, facet, revoker);
 			}
-			if (verb === ROOMS_SESSION_ISSUE_GRANT) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot issue durable grants");
-				if (
-					args.length !== 3 || typeof args[0] !== "string" ||
-					(args[1] !== "observe" && args[1] !== "interact" && args[1] !== "admin") ||
-					typeof args[2] !== "string"
-				) throw new Error("issueGrant takes an id, rights, and label");
-				return this.#grants.issue(args[0], args[1], args[2], session).then((grant) =>
-					grant.sturdyref
-				) as ReturnType<Behavior>;
-			}
-			if (verb === ROOMS_SESSION_REVOKE_GRANT) {
-				if (rights !== "admin") throw new Error("this Rooms session facet cannot revoke durable grants");
-				if (args.length !== 1 || typeof args[0] !== "string") throw new Error("revokeGrant takes one grant id");
-				return this.#grants.revoke(args[0]).then(() => null) as ReturnType<Behavior>;
-			}
+			const grantCommand = dispatchGrantCommand(rights, verb, args, session, {
+				grants: this.#grants,
+				reproject: (id) => this.reprojectGrant(id),
+			});
+			if (grantCommand !== GRANT_COMMAND_UNHANDLED) return grantCommand;
 			throw new Error(`Rooms session facet has no method ${verb}`);
 		};
 	}

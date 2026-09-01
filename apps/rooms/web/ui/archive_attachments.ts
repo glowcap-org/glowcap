@@ -1,6 +1,6 @@
 // Pure projection of archived file facts into presentation state.
 
-import type { ArchivedAttachment } from "../../lib/archive.ts";
+import type { ArchivedAttachment } from "../../lib/archive/protocol.ts";
 import type { AttachmentView } from "./types.ts";
 
 export const ARCHIVED_BYTES_UNAVAILABLE = "These archived file bytes are not available in this view.";

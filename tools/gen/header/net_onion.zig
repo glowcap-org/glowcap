@@ -183,7 +183,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   file's bytes or the password's text per auth_kind, and is unread for
         \\   PANCAKE_ONION_AUTH_NONE. service_key empty asks Tor for a fresh service;
         \\   otherwise pass back the exact bytes an earlier pancake_onion_listen
-        \\   reported, which is what brings the same onion address back across a
+        \\   reported. That is how the same onion address comes back across a
         \\   restart. forward empty binds a loopback port and reports it to Tor. */
         \\typedef struct PancakeOnionConfig {
         \\  const uint8_t *socks;

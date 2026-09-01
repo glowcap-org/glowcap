@@ -12,46 +12,66 @@
 // arrive out of order are dropped by comparing what was asked with what is in
 // force.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { useRoomsSession } from "../controller/session.ts";
+import type { OperatorReferenceKind } from "../../../lib/operator.ts";
+import { useOperatorActivity } from "./operator_activity.tsx";
 
 /** How long the pane waits after the last keystroke. Long enough that a
  * typed word is one scan rather than five, short enough to feel like the page
  * is answering as you type. */
 const settleMs = 220;
 
-export function OperatorSearch({ search }: { search: string }) {
+export function OperatorSearch(
+	{ search, referenceKind }: { search: string; referenceKind: OperatorReferenceKind | null },
+) {
 	const session = useRoomsSession();
+	const activity = useOperatorActivity();
 	const [typed, setTyped] = useState(search);
 	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
-	const asked = useRef(search);
+	const asked = useRef({ search, referenceKind });
+	const generation = useRef(0);
+	const submit = useCallback((wanted: string, kind: OperatorReferenceKind | null) => {
+		const request = ++generation.current;
+		asked.current = { search: wanted, referenceKind: kind };
+		setBusy(true);
+		setWhy("");
+		void session.searchOperator(wanted, kind).then(
+			(refused) => {
+				if (generation.current !== request) return;
+				setBusy(false);
+				if (refused !== "") setWhy(refused);
+			},
+			(error) => {
+				if (generation.current !== request) return;
+				setBusy(false);
+				setWhy(error instanceof Error ? error.message : String(error));
+			},
+		);
+	}, [session]);
 	// The search in force is the store's, so a refresh from elsewhere — another
 	// tab retiring rows, this pane's own sweep — cannot leave the box saying
 	// something the rows do not answer.
 	useEffect(() => {
-		if (search !== asked.current) {
-			asked.current = search;
+		if (search !== asked.current.search || referenceKind !== asked.current.referenceKind) {
+			generation.current += 1;
+			setBusy(false);
+			setWhy("");
+			asked.current = { search, referenceKind };
 			setTyped(search);
 		}
-	}, [search]);
+	}, [search, referenceKind]);
 	useEffect(() => {
-		if (typed === asked.current) return;
+		if (typed === asked.current.search) return;
 		const timer = setTimeout(() => {
-			const wanted = typed;
-			asked.current = wanted;
-			setBusy(true);
-			setWhy("");
-			void session.searchOperator(wanted).then((refused) => {
-				setBusy(false);
-				if (refused !== "") setWhy(refused);
-			});
+			submit(typed, referenceKind);
 		}, settleMs);
 		return () => clearTimeout(timer);
-	}, [typed, session]);
+	}, [typed, referenceKind, submit]);
 
 	return (
 		<div className="ops-search">
@@ -66,17 +86,22 @@ export function OperatorSearch({ search }: { search: string }) {
 					value={typed}
 					autoComplete="off"
 					spellCheck={false}
+					disabled={activity.sweeping}
 					aria-label="Search everything this directory holds"
 					placeholder="Search rooms, names, connections, references…"
 					onChange={(event) => setTyped(event.currentTarget.value)}
 				/>
-				{typed !== "" && (
+				{(typed !== "" || referenceKind !== null) && (
 					<Button
 						id="operatorSearchClear"
 						className="ops-search-clear"
 						type="button"
 						variant="link"
-						onClick={() => setTyped("")}
+						disabled={activity.sweeping}
+						onClick={() => {
+							setTyped("");
+							if (referenceKind !== null) submit("", null);
+						}}
 					>
 						Clear
 					</Button>
@@ -85,6 +110,8 @@ export function OperatorSearch({ search }: { search: string }) {
 			<p className="hint" id="operatorSearchSaid" role="status">
 				{busy
 					? "Searching this directory…"
+					: referenceKind !== null
+					? `Retained references are filtered to the exact ${referenceKind} kind.`
 					: search === ""
 					? "Every inventory below counts what this directory holds."
 					: `Every inventory below counts what matches “${search}”.`}

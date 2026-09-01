@@ -5,7 +5,7 @@
 
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { fail, fillSettled } from "./harness.ts";
+import { fail, fillSettled, reachDirectoryOnCard } from "./harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 export async function run(
@@ -35,13 +35,19 @@ export async function run(
 		// them, not this tab's intention.
 		await tab.click("#standingBtn");
 		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(" — where")[0];
-		const releaseRows = (await tab.locator(".standing-actions [role=menuitem]").allTextContents())
+		// Every row the menu holds, compared whole rather than filtered: one
+		// reading of the reader first, then exactly one release per live grant.
+		// Whole, because a filter would let a junk row in beside the ones it
+		// keeps, and the count of releases is half of what this proves.
+		const menuRows = (await tab.locator(".standing-actions [role=menuitem]").allTextContents())
 			.map((row) => row.trim());
-		const expectedReleases = identity === "" ? [] : identity.split(", ").map((grant) => `Release ${grant}`);
-		if (JSON.stringify(releaseRows) !== JSON.stringify(expectedReleases)) {
+		const expectedRows = ["About you…"].concat(
+			identity === "" ? [] : identity.split(", ").map((grant) => `Release ${grant}`),
+		);
+		if (JSON.stringify(menuRows) !== JSON.stringify(expectedRows)) {
 			fail(
 				`the identity menu does not match its live directory grants: ` +
-					JSON.stringify({ identity, releaseRows }),
+					JSON.stringify({ identity, menuRows, expectedRows }),
 			);
 		}
 		// Typed a character at a time, not filled: a menu holding a field
@@ -281,6 +287,7 @@ export async function run(
 			await finger.waitForSelector("#joinForm", { timeout: 10_000 })
 				.catch(() => fail("the rail under a finger offered no way to reach another directory"));
 			await fillSettled(finger, "#locator", foreignLocator);
+			await reachDirectoryOnCard(finger);
 			await finger.click("#joinBtn");
 			await finger.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 				.catch(() => fail("the tab under a finger could not reach a room on the second directory"));

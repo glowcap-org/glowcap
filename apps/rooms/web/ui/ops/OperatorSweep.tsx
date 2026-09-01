@@ -18,6 +18,8 @@ import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Said } from "../Said.tsx";
 import { useRoomsSession } from "../controller/session.ts";
+import type { OperatorReferenceKind } from "../../../lib/operator.ts";
+import { useOperatorActivity } from "./operator_activity.tsx";
 
 /** How many rows one call retires. The directory bounds this too; asking for
  * its whole allowance keeps the number of round trips down while leaving each
@@ -25,7 +27,7 @@ import { useRoomsSession } from "../controller/session.ts";
 const batch = 256;
 
 export function OperatorSweep(
-	{ category, act, past, subject, effect, search, total }: {
+	{ category, act, past, subject, effect, search, total, referenceKind = null }: {
 		category: OperatorCategory;
 		/** The act, in the words of this inventory: "Release", "Disconnect". */
 		act: string;
@@ -39,9 +41,11 @@ export function OperatorSweep(
 		search: string;
 		/** How many rows match the search now. */
 		total: number;
+		referenceKind?: OperatorReferenceKind | null;
 	},
 ) {
 	const session = useRoomsSession();
+	const activity = useOperatorActivity();
 	const [asking, setAsking] = useState(false);
 	const [running, setRunning] = useState(false);
 	const [done, setDone] = useState(0);
@@ -53,14 +57,17 @@ export function OperatorSweep(
 	useEffect(() => {
 		setSaid("");
 		setWhy("");
-	}, [search]);
+	}, [search, referenceKind]);
 
 	// What a sweep said outlives the rows it took: finishing one empties the
 	// inventory it swept, and a control that disappears at the moment it
 	// succeeds is an act with no answer.
-	if (search === "" || (total === 0 && said === "" && why === "" && !running)) return null;
+	if ((search === "" && referenceKind === null) || (total === 0 && said === "" && why === "" && !running)) {
+		return null;
+	}
 
 	const sweep = async () => {
+		if (!activity.beginSweep()) return;
 		stopped.current = false;
 		setRunning(true);
 		setAsking(false);
@@ -70,29 +77,38 @@ export function OperatorSweep(
 		setLeft(total);
 		let retired = 0;
 		let firstRefusal = "";
-		while (!stopped.current) {
-			const answer = await session.retireMatchingOperator(category, search, batch);
-			if (typeof answer === "string") {
-				setWhy(answer);
-				break;
+		try {
+			while (!stopped.current) {
+				const answer = await session.retireMatchingOperator(category, search, batch, referenceKind);
+				if (typeof answer === "string") {
+					firstRefusal ||= answer;
+					break;
+				}
+				retired += answer.retired;
+				setDone(retired);
+				setLeft(answer.remaining);
+				if (answer.refused !== "" && firstRefusal === "") firstRefusal = answer.refused;
+				// Nothing went and nothing is left to try: stop rather than spin.
+				if (answer.remaining === 0 || answer.retired === 0) break;
 			}
-			retired += answer.retired;
-			setDone(retired);
-			setLeft(answer.remaining);
-			if (answer.refused !== "" && firstRefusal === "") {
-				firstRefusal = answer.refused;
-				setWhy(answer.refused);
+			const refreshFailure = await session.searchOperator(search, referenceKind);
+			if (refreshFailure !== "" && firstRefusal === "") firstRefusal = refreshFailure;
+			setRunning(false);
+			if (firstRefusal === "") {
+				setSaid(
+					stopped.current
+						? `Stopped after ${retired} of ${total} ${subject}.`
+						: `${past} ${retired} ${subject}.`,
+				);
+			} else {
+				setWhy(`${firstRefusal} ${past} ${retired} ${subject} before the refusal.`);
 			}
-			// Nothing went and nothing is left to try: stop rather than spin.
-			if (answer.remaining === 0 || answer.retired === 0) break;
+		} catch (error) {
+			setWhy(error instanceof Error ? error.message : String(error));
+		} finally {
+			setRunning(false);
+			activity.endSweep();
 		}
-		// The pane read nothing while this ran; this is the one read that puts
-		// the inventories and their counts back in step with the directory.
-		await session.searchOperator(search);
-		setRunning(false);
-		setSaid(
-			stopped.current ? `Stopped after ${retired} of ${total} ${subject}.` : `${past} ${retired} ${subject}.`,
-		);
 	};
 
 	return (
@@ -102,7 +118,9 @@ export function OperatorSweep(
 					<Confirm
 						id={`operatorSweep-${category}`}
 						label={`${act} every matching row`}
-						say={`${total} ${subject} match “${search}”. ${effect} Rows that come to match while this runs go too.`}
+						say={`${total} ${subject} match ${
+							referenceKind === null ? `“${search}”` : `the ${referenceKind} kind`
+						}. ${effect} Rows that come to match while this runs go too.`}
 						keep="Keep them"
 						commit={`${act} ${total}`}
 						commitId={`operatorSweepGo-${category}`}
@@ -118,7 +136,7 @@ export function OperatorSweep(
 							? (
 								<>
 									<span className="ops-sweep-progress" role="status">
-										{past} {done}; {left} left
+										{past} {done}, {left} left
 									</span>
 									<Button
 										type="button"

@@ -45,6 +45,19 @@ const INTERRUPTED_EXIT_CODE = 130;
 const owned = new Set<Deno.ChildProcess>();
 let doorsOpen = false;
 
+/** Environment a rooms child runs with.
+ *
+ * Deno overlays `options.env` onto the parent (`clearEnv` defaults false), so
+ * deleting a key from a copied map does not hide it. The pane that launches
+ * `check` sets `PANCAKE_ROOMS_STATE` for a live server; hermetic proofs must
+ * not inherit that directory. A caller that names the variable in
+ * `options.env` is asking for a specific directory and keeps it. */
+function childEnv(extra?: Record<string, string>): Record<string, string> {
+	const env = { ...Deno.env.toObject(), ...extra };
+	if (extra?.PANCAKE_ROOMS_STATE === undefined) delete env.PANCAKE_ROOMS_STATE;
+	return env;
+}
+
 /** Start a child this proof owns, in a process group of its own.
  *
  * Takes what `new Deno.Command(command, options).spawn()` takes and answers the
@@ -56,8 +69,13 @@ let doorsOpen = false;
  * report we want: a proof that quietly lost its group would leak again. */
 export function spawnOwned(command: string, options: Deno.CommandOptions = {}): Deno.ChildProcess {
 	openDoors();
-	const { args = [], ...rest } = options;
-	const proc = new Deno.Command("setsid", { ...rest, args: [command, ...args] }).spawn();
+	const { args = [], env: extra, ...rest } = options;
+	const proc = new Deno.Command("setsid", {
+		...rest,
+		args: [command, ...args],
+		env: childEnv(extra),
+		clearEnv: true,
+	}).spawn();
 	owned.add(proc);
 	return proc;
 }

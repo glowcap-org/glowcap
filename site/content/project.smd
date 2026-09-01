@@ -28,8 +28,8 @@ defines the current security posture and the private reporting process.
 The repository keeps the detailed project record: [what ships
 today](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md), [known
 limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md),
-the [1.0 ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md),
+the [steps toward 1.0](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md),
 and the [remaining work](https://github.com/jimisaacs/pancake/blob/main/docs/roadmap.md).
 The [vision](https://github.com/jimisaacs/pancake/blob/main/docs/vision.md)
-defines the destination; accepted and superseded choices are recorded in the
+defines what 1.0 is aiming for; accepted and superseded choices are recorded in the
 [decision index](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/README.md).

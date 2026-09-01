@@ -18,27 +18,36 @@ import {
 	setRememberedWorkspaceOperation,
 	setRememberedWorkspaceOperations,
 } from "../workspace_state.ts";
+import type { RoomsPageContext } from "../page.ts";
 
 /** Keep `pasted` for `cap` on `home`, replacing any earlier memory. */
-export function rememberOpsSwiss(cap: OpsCap, home: OpsScope, pasted: string): boolean {
+export function rememberOpsSwiss(
+	page: RoomsPageContext,
+	cap: OpsCap,
+	home: OpsScope,
+	pasted: string,
+): boolean {
 	if (pasted !== pasted.trim()) return false;
-	return setRememberedWorkspaceOperation(cap, home, pasted);
+	return setRememberedWorkspaceOperation(page, cap, home, pasted);
 }
 
 /** Erase what was remembered for `cap` on `home`. Idempotent. */
-export function forgetOpsSwiss(cap: OpsCap, home: OpsScope): boolean {
-	return setRememberedWorkspaceOperation(cap, home, null);
+export function forgetOpsSwiss(page: RoomsPageContext, cap: OpsCap, home: OpsScope): boolean {
+	return setRememberedWorkspaceOperation(page, cap, home, null);
 }
 
 /** What this browser remembers for `cap` on `home`, or null. */
-export function rememberedOpsSwiss(cap: OpsCap, home: OpsScope): string | null {
-	return rememberedWorkspaceOperation(cap, home);
+export function rememberedOpsSwiss(page: RoomsPageContext, cap: OpsCap, home: OpsScope): string | null {
+	return rememberedWorkspaceOperation(page, cap, home);
 }
 
-export function rememberedOpsCredentials() {
-	return rememberedWorkspaceOperations();
+export function rememberedOpsCredentials(page: RoomsPageContext) {
+	return rememberedWorkspaceOperations(page);
 }
 
-export function replaceOpsCredentials(credentials: ReturnType<typeof rememberedWorkspaceOperations>): boolean {
-	return setRememberedWorkspaceOperations(credentials);
+export function replaceOpsCredentials(
+	page: RoomsPageContext,
+	credentials: ReturnType<typeof rememberedWorkspaceOperations>,
+): boolean {
+	return setRememberedWorkspaceOperations(page, credentials);
 }

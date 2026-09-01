@@ -17,44 +17,34 @@ import { isUriLocator } from "../lib/locator.ts";
 import { notifyMember } from "./discovery.ts";
 import { DIRECT_REQUEST_COALESCE_MS, MAX_DM_INBOXES, MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES } from "../lib/limits.ts";
 import { NOTIFY, SIG_REJECT, VOUCHER } from "../lib/protocol.ts";
-import {
-	handBack,
-	hex,
-	type Introduction,
-	introductions,
-	introductionsById,
-	introductionsBySession,
-	nickKey,
-	signalExchanges,
-	webrtcDesignators,
-} from "./registry.ts";
-import { noteOperatorChange } from "./operator/revision.ts";
-import { noteTrouble } from "./journal.ts";
+import type { RoomServerContext } from "./context.ts";
+import type { RoomLiveIndex } from "./live_index.ts";
+import { hex, type Introduction, nickKey } from "./registry.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
-export function dropSignalExchange(id: string, reason?: string): void {
-	const exchange = signalExchanges.get(id);
+export function dropSignalExchange(live: RoomLiveIndex, id: string, reason?: string): void {
+	const exchange = live.signalExchanges.get(id);
 	if (exchange === undefined) return;
-	signalExchanges.delete(id);
+	live.signalExchanges.delete(id);
 	clearTimeout(exchange.expires);
 	if (reason == null) {
-		handBack(exchange.originator, exchange.reply);
+		live.journal.release(exchange.originator, exchange.reply);
 		return;
 	}
 	// Queue the reject before releasing the remote import. Retirement is joined
 	// to the send so a slow carrier cannot invert those two protocol effects.
 	void exchange.originator.tell(exchange.reply, SIG_REJECT, [reason]).then(
-		() => handBack(exchange.originator, exchange.reply),
-		() => handBack(exchange.originator, exchange.reply),
+		() => live.journal.release(exchange.originator, exchange.reply),
+		() => live.journal.release(exchange.originator, exchange.reply),
 	);
 }
 
 /** The exchange `session` originated toward `designator`, if one is live. A
  * scan, bounded by the exchange cap. */
-export function originatedExchange(session: Session, designator: string): string | null {
-	const targetKey = webrtcDesignators.get(designator);
+export function originatedExchange(live: RoomLiveIndex, session: Session, designator: string): string | null {
+	const targetKey = live.webrtcDesignators.get(designator);
 	if (targetKey === undefined) return null;
-	for (const [id, exchange] of signalExchanges) {
+	for (const [id, exchange] of live.signalExchanges) {
 		if (exchange.originator === session && exchange.targetKey === targetKey) return id;
 	}
 	return null;
@@ -133,6 +123,7 @@ export function claimsOwnLocator(session: Session, locator: string): boolean {
  * Synchronous: the name is claimed and acknowledged in one turn, so no window
  * exists in which the registry has no holder for it. */
 export function registerMember(
+	ctx: RoomServerContext,
 	nick: string,
 	locator: string,
 	inbox: Ref,
@@ -158,11 +149,12 @@ export function registerMember(
 			if (parsed.transport === TRANSPORT_WEBRTC) webrtcDesignator = parsed.designator;
 		}
 	} catch (error) {
-		handBack(session, inbox, "unregistered member inbox");
+		ctx.journal.release(session, inbox, "unregistered member inbox");
 		throw error;
 	}
 	let registrationId: string;
-	do registrationId = crypto.randomUUID(); while (introductionsById.has(registrationId));
+	const live = ctx.live;
+	do registrationId = crypto.randomUUID(); while (live.introductionsById.has(registrationId));
 	const intro: Introduction = {
 		nick,
 		registrationId,
@@ -194,7 +186,7 @@ export function registerMember(
 			}
 			if (verb !== VOUCHER) throw new Error(`a name capability has no method ${verb}`);
 			if (args.length !== 0) throw new Error("voucher takes no arguments");
-			if (introductions.get(key) !== intro) {
+			if (live.introductions.get(key) !== intro) {
 				throw new Error("this name capability is no longer current");
 			}
 			if (intro.vouchers.size >= MAX_NAME_VOUCHERS) {
@@ -205,43 +197,43 @@ export function registerMember(
 			return bytes;
 		});
 	} catch (error) {
-		handBack(session, inbox, "unregistered member inbox");
+		ctx.journal.release(session, inbox, "unregistered member inbox");
 		throw error;
 	}
 	try {
-		const priorForSession = introductionsBySession.get(session);
-		if (priorForSession != null && priorForSession !== introductions.get(key)) {
-			withdrawIntroduction(nickKey(priorForSession.nick), priorForSession);
+		const priorForSession = live.introductionsBySession.get(session);
+		if (priorForSession != null && priorForSession !== live.introductions.get(key)) {
+			withdrawIntroduction(ctx, nickKey(priorForSession.nick), priorForSession);
 		}
 		// Only ever this member replacing its own registration: a live one held by
 		// another connection was refused at the verb, and a dead one is theirs to
 		// lose. The name frees when its holder's connection goes, and nothing else
 		// can take it while that connection stands.
-		const prior = introductions.get(key);
-		if (prior != null) withdrawIntroduction(key, prior);
+		const prior = live.introductions.get(key);
+		if (prior != null) withdrawIntroduction(ctx, key, prior);
 	} catch (error) {
-		handBack(session, nameCap, "uncommitted name capability");
-		handBack(session, inbox, "unregistered member inbox");
+		ctx.journal.release(session, nameCap, "uncommitted name capability");
+		ctx.journal.release(session, inbox, "unregistered member inbox");
 		throw error;
 	}
-	introductions.set(key, intro);
-	introductionsById.set(registrationId, intro);
-	introductionsBySession.set(session, intro);
-	noteOperatorChange();
+	live.introductions.set(key, intro);
+	live.introductionsById.set(registrationId, intro);
+	live.introductionsBySession.set(session, intro);
+	ctx.operator.noteChange();
 	// A `webrtc` locator is reached by signaling, not a socket, so index the
 	// member under its designator for `signalOffer` routing.
-	if (webrtcDesignator != null) webrtcDesignators.set(webrtcDesignator, key);
+	if (webrtcDesignator != null) live.webrtcDesignators.set(webrtcDesignator, key);
 	try {
 		session.tell(inbox, NOTIFY, ["registered", nick, intro.registrationId]).catch((error) => {
-			noteTrouble("a registration acknowledgement failed", error);
+			ctx.journal.note("a registration acknowledgement failed", error);
 		});
 	} catch (error) {
-		noteTrouble("a registration acknowledgement failed", error);
+		ctx.journal.note("a registration acknowledgement failed", error);
 	}
 	try {
-		notifyMember("registered", nick, intro.registrationId, 1);
+		notifyMember(ctx, "registered", nick, intro.registrationId, 1);
 	} catch (error) {
-		noteTrouble("a registration discovery notification failed", error);
+		ctx.journal.note("a registration discovery notification failed", error);
 	}
 	return nameCap;
 }
@@ -254,29 +246,30 @@ export function registerMember(
  * *other* members offered for this name. Skipping that second sweep is what would
  * hand the next holder of "bob" the inbox Carol minted for the previous one, and
  * her interface would paint their messages as his with full confidence. */
-function withdrawIntroduction(key: string, intro: Introduction): void {
-	if (introductionsById.get(intro.registrationId) !== intro) {
+function withdrawIntroduction(ctx: RoomServerContext, key: string, intro: Introduction): void {
+	const live = ctx.live;
+	if (live.introductionsById.get(intro.registrationId) !== intro) {
 		throw new Error("registration ID index does not name its nickname registration");
 	}
-	if (introductionsBySession.get(intro.registrar) !== intro) {
+	if (live.introductionsBySession.get(intro.registrar) !== intro) {
 		throw new Error("registration session index does not name its nickname registration");
 	}
-	introductions.delete(key);
-	introductionsById.delete(intro.registrationId);
-	introductionsBySession.delete(intro.registrar);
-	noteOperatorChange();
-	releaseInboxes(intro);
-	forgetOfferedInboxes(intro.registrationId);
-	for (const [designator, owner] of [...webrtcDesignators]) {
-		if (owner === key) webrtcDesignators.delete(designator);
+	live.introductions.delete(key);
+	live.introductionsById.delete(intro.registrationId);
+	live.introductionsBySession.delete(intro.registrar);
+	ctx.operator.noteChange();
+	releaseInboxes(ctx, intro);
+	forgetOfferedInboxes(live, intro.registrationId);
+	for (const [designator, owner] of [...live.webrtcDesignators]) {
+		if (owner === key) live.webrtcDesignators.delete(designator);
 	}
-	if (intro.signaling !== null) handBack(intro.registrar, intro.signaling);
+	if (intro.signaling !== null) ctx.journal.release(intro.registrar, intro.signaling);
 	// The register inbox is the last export the room held for this member, and
 	// the only one that was not being given back — a retained import per nick
 	// change until the connection died. Every other stop-holding site routes
-	// through handBack; this one now does too. A replace-own re-register files a
+	// through the journal's release; this one now does too. A replace-own re-register files a
 	// freshly spawned inbox, so releasing the old Ref is safe.
-	handBack(intro.registrar, intro.inbox);
+	ctx.journal.release(intro.registrar, intro.inbox);
 	// A bring-up toward this name cannot complete now its target is gone, and
 	// the originator is a live third party mid-dial: tell them, rather than
 	// leaving their offer to wait out its 30-second timeout and report a lie.
@@ -284,27 +277,27 @@ function withdrawIntroduction(key: string, intro: Introduction): void {
 	// belongs to the disconnect path, because this also runs on a live
 	// re-register, where killing the session's own in-flight dials to other
 	// peers would be wrong.
-	for (const [id, exchange] of [...signalExchanges]) {
-		if (exchange.targetKey === key) dropSignalExchange(id, `"${intro.nick}" is no longer registered`);
+	for (const [id, exchange] of [...live.signalExchanges]) {
+		if (exchange.targetKey === key) dropSignalExchange(live, id, `"${intro.nick}" is no longer registered`);
 	}
-	notifyMember("unregistered", intro.nick, intro.registrationId, 0);
+	notifyMember(ctx, "unregistered", intro.nick, intro.registrationId, 0);
 }
 
 /** Hand back every inbox an introduction collected. */
-function releaseInboxes(intro: Introduction): void {
-	for (const ref of intro.inboxes.values()) handBack(intro.registrar, ref);
+function releaseInboxes(ctx: RoomServerContext, intro: Introduction): void {
+	for (const ref of intro.inboxes.values()) ctx.journal.release(intro.registrar, ref);
 	intro.inboxes.clear();
 }
 
 /** Drop the inbox every other member offered for `registrationId`, so an `introduce` naming
  * it is refused `introduction-pending` and the member mints a fresh one. */
-function forgetOfferedInboxes(registrationId: string): void {
-	for (const intro of introductions.values()) {
+function forgetOfferedInboxes(live: RoomLiveIndex, registrationId: string): void {
+	for (const intro of live.introductions.values()) {
 		intro.directRequests.delete(registrationId);
 		const ref = intro.inboxes.get(registrationId);
 		if (ref === undefined) continue;
 		intro.inboxes.delete(registrationId);
-		handBack(intro.registrar, ref);
+		live.journal.release(intro.registrar, ref);
 	}
 }
 
@@ -312,13 +305,13 @@ function forgetOfferedInboxes(registrationId: string): void {
  * trustworthy source of a caller's own name is the registration the directory
  * granted, never an argument the caller passes. A scan, bounded by the members
  * present. */
-export function registeredNickOf(session: Session): string | null {
-	return registrationOf(session)?.nick ?? null;
+export function registeredNickOf(live: RoomLiveIndex, session: Session): string | null {
+	return registrationOf(live, session)?.nick ?? null;
 }
 
 /** The exact live registration held by `session`, or null when it holds none. */
-export function registrationOf(session: Session): Introduction | null {
-	return introductionsBySession.get(session) ?? null;
+export function registrationOf(live: RoomLiveIndex, session: Session): Introduction | null {
+	return live.introductionsBySession.get(session) ?? null;
 }
 
 /** Whether another live connection holds `nick` for direct messages.
@@ -332,8 +325,8 @@ export function registrationOf(session: Session): Introduction | null {
  * directory still answers for: the roster shows one person and an introduction
  * under that name reaches another, with nothing on either side saying so. One
  * name, one holder, one lifetime — the connection's. */
-export function registeredByAnother(session: Session, nick: string): boolean {
-	const holder = introductions.get(nickKey(nick));
+export function registeredByAnother(live: RoomLiveIndex, session: Session, nick: string): boolean {
+	const holder = live.introductions.get(nickKey(nick));
 	return holder !== undefined && holder.registrar !== session && holder.registrar.sessionOpen;
 }
 
@@ -342,24 +335,24 @@ export function registeredByAnother(session: Session, nick: string): boolean {
  * A voucher redeems only while the registration that minted it stands — its
  * set rides the introduction, so a withdrawn or replaced registration takes
  * every outstanding voucher with it and a stale one fails closed. */
-export function redeemNameVoucher(nick: string, voucher: Uint8Array): boolean {
-	const intro = introductions.get(nickKey(nick));
+export function redeemNameVoucher(live: RoomLiveIndex, nick: string, voucher: Uint8Array): boolean {
+	const intro = live.introductions.get(nickKey(nick));
 	if (intro == null || !intro.registrar.sessionOpen) return false;
 	return intro.vouchers.delete(hex(voucher));
 }
 
 /** Withdraw every introduction a closing connection registered. */
-export function dropIntroductions(session: Session): void {
-	const intro = introductionsBySession.get(session);
-	if (intro != null) withdrawIntroduction(nickKey(intro.nick), intro);
+export function dropIntroductions(ctx: RoomServerContext, session: Session): void {
+	const intro = ctx.live.introductionsBySession.get(session);
+	if (intro != null) withdrawIntroduction(ctx, nickKey(intro.nick), intro);
 }
 
 /** Remove exactly the registration still owned by `session`. A nickname alone
  * is not an operator target because it may have changed hands since inventory. */
-export function revokeIntroduction(nick: string, session: Session): boolean {
+export function revokeIntroduction(ctx: RoomServerContext, nick: string, session: Session): boolean {
 	const key = nickKey(nick);
-	const intro = introductions.get(key);
+	const intro = ctx.live.introductions.get(key);
 	if (intro == null || intro.registrar !== session) return false;
-	withdrawIntroduction(key, intro);
+	withdrawIntroduction(ctx, key, intro);
 	return true;
 }

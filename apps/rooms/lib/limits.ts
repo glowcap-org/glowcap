@@ -1,10 +1,8 @@
-import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
-
 // Transport-neutral wire shapes the rooms app shares: the caps a room enforces
 // on names, lines, files, and the bring-ups it carries between members, the
 // waits it will not exceed, and the presence-change shape a room line carries.
 // These belong to the room vocabulary, not to any one carrier, so the rendering
-// layer (ui/) and the CapTP client (lib/room_client.ts) read them directly.
+// layer (ui/) and the CapTP client (lib/room/client.ts) read them directly.
 // (The JSON bridge and its schema were retired with the browser-peer page.)
 //
 // A few of the rules that *apply* a cap live here too, and only those whose
@@ -16,27 +14,26 @@ import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
 // keeps its rule there — an attachment's is in `attachment.ts` beside the
 // record it describes.
 
+import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
+
 /** Hard length caps a room enforces, so an oversize name or line is refused at
  * the edge instead of silently truncated (a lying path that delivered half a
  * line as if it were whole). */
 export const MAX_NICK = 32;
 export const MAX_ROOM = 32;
-/** How many bytes of entropy name a private room.
- *
- * The table a public room is entered from is keyed by folded name; a private
- * room's key is these bytes as hex, so nothing can search that table for one.
- * Sixteen is the shape of a swissnum, and this is the same kind of secret. */
-export const PRIVATE_ROOM_KEY_BYTES = 16;
-/** The longest durable room record a server keeps: a public room's name, or a
- * private room's key, whichever is longer. Both are durable names — the string
- * a room's sturdyref is minted from — so one bound covers them. */
-export const MAX_DURABLE_ROOM = Math.max(MAX_ROOM, 1 + PRIVATE_ROOM_KEY_BYTES * 2);
+/** How many bytes of entropy identify a managed room independently of its
+ * human name and admission policy. Sixteen is the shape of a swissnum: this is
+ * opaque application identity, never a directory lookup key. */
+export const ROOM_ID_BYTES = 16;
+/** The longest durable room identifier a server keeps: an unmanaged room's
+ * public name, or a managed room's opaque id, whichever is longer. */
+export const MAX_DURABLE_ROOM = Math.max(MAX_ROOM, 1 + ROOM_ID_BYTES * 2);
 
-/** Whether a durable room name is in the private-key namespace. Length is
- * load-bearing: listed names are one character shorter at most, so a public
- * room beginning with `~` remains public when linked. */
-export function isPrivateRoomKey(value: string): boolean {
-	if (value.length !== 1 + PRIVATE_ROOM_KEY_BYTES * 2 || value[0] !== "~") return false;
+/** Whether a durable room identifier is in the opaque managed-room namespace.
+ * Length is load-bearing: public names are one character shorter at most, so a
+ * baseline room beginning with `~` cannot be mistaken for managed identity. */
+export function isManagedRoomId(value: string): boolean {
+	if (value.length !== 1 + ROOM_ID_BYTES * 2 || value[0] !== "~") return false;
 	for (let at = 1; at < value.length; at += 1) {
 		const code = value.charCodeAt(at);
 		if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) return false;
@@ -44,11 +41,11 @@ export function isPrivateRoomKey(value: string): boolean {
 	return true;
 }
 
-/** Mint the opaque recovery authority for one private-room creation.
- * Repeating an open with this exact value reaches the same room; the label is
- * presentation and never participates in its identity. */
-export function newPrivateRoomKey(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(PRIVATE_ROOM_KEY_BYTES));
+/** Mint opaque identity for one managed-room creation. Repeating a private
+ * open with this exact value recovers the same room; ordinary managed opens
+ * mint it inside the directory. */
+export function newManagedRoomId(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(ROOM_ID_BYTES));
 	return "~" + [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export const MAX_LINE = 8192;
@@ -106,17 +103,17 @@ export function suggestedNick(nick: string): string {
 	return base + suffix;
 }
 
+/** The names a line addresses a whole room by. Mentions understand every
+ * spelling, completion proposes two of them, and granting reserves all of
+ * them, so the words stay vocabulary rather than becoming people. */
+export const ROOM_MENTIONS: readonly string[] = ["here", "room", "channel", "everyone", "all"];
+
 /** Why this app will not answer to `nick`, or null when it will.
  *
  * A room grants a name, the directory registers one, and a member offers an
  * inbox to one, and all three hand out or hold the same thing: what somebody is
  * called in front of everyone else. One answer, so three places cannot come to
  * describe one ceiling differently. */
-/** The names a line addresses a whole room by. Mentions understand every
- * spelling, completion proposes two of them, and granting reserves all of
- * them, so the words stay vocabulary rather than becoming people. */
-export const ROOM_MENTIONS: readonly string[] = ["here", "room", "channel", "everyone", "all"];
-
 export function nickRefusal(nick: string): string | null {
 	if (nick.length === 0) return "a name may not be empty";
 	if (nick.length > MAX_NICK) return `a name may be at most ${MAX_NICK} characters`;
@@ -159,8 +156,6 @@ export function nickRefusal(nick: string): string | null {
 export function lineCost(text: string): number {
 	return utf8ByteLengthUpTo(text);
 }
-/** The longest topic a room accepts. Shorter than a line because a topic is
- * read at a glance, above every message, on a phone as well as a screen. */
 /** How many lines of one conversation this window keeps.
  *
  * A log grew with whatever arrived, for as long as the tab was open, and every
@@ -179,11 +174,69 @@ export const MAX_SCROLLBACK = 2000;
  * read pending, so this is outage/flood protection rather than scrollback. */
 export const MAX_ROOM_MESSAGE_BACKLOG = 256;
 
+/** The longest topic a room accepts. Shorter than a line because a topic is
+ * read at a glance, above every message, on a phone as well as a screen. */
 export const MAX_TOPIC = 300;
 /** The longest reason a member may leave when they step away. Short because it
  * sits beside a name in the member list, where a sentence would push the names
  * off the edge. */
 export const MAX_AWAY = 120;
+
+/** The longest attribution prefix a bridge may claim on this room's roster.
+ *
+ * A prefix is a namespace rather than a decoration: `irc/bo` is a name in the
+ * room's namespace and `bo` is a name in the service's, and the prefix is what
+ * keeps a foreign member from taking a Rooms member's name. Short because it is
+ * carried on every roster row a reader ever sees. */
+export const MAX_SEAT_PREFIX = 12;
+
+/** What a bridge may write into a form it asks Rooms to draw.
+ *
+ * A form is a peer's description of an interface, so every part of it is
+ * admitted the way inbound text is. The bounds are drawn from what the one real
+ * form needs and a little over, rather than from what seems generous: a bridge
+ * that wants a longer label is asking for a different interface, and should say
+ * so rather than discover the ceiling.
+ *
+ * A value is bounded well above a nick because a token or a passphrase is a
+ * credential for somebody else's service and this is not the place that decides
+ * what shape those take. */
+export const MAX_FORM_TITLE = 60;
+export const MAX_FORM_SAID = 240;
+/** A label sits on a control, so it is short. Sixty rather than forty because
+ * the real case names its service inside the label — "Disconnect from libera"
+ * — and a service name is itself bounded at `MAX_ROOM`. A bridge that shortened
+ * that to fit would be truncating the one word telling a reader where they are
+ * about to stop appearing. */
+export const MAX_FORM_LABEL = 60;
+export const MAX_FORM_HINT = 120;
+export const MAX_FORM_VALUE = 512;
+export const MAX_FORM_FIELDS = 8;
+export const MAX_FORM_ACTIONS = 3;
+
+/** The JSON one form, or one set of answers to it, may cross as.
+ *
+ * Derived rather than picked: the widest form these bounds allow is a title, a
+ * sentence, eight fields carrying a label, a hint and a value each, and three
+ * actions, which is a few kilobytes with its punctuation. This is that with room
+ * to spare, and it is still a ceiling rather than a wish. */
+export const MAX_FORM_JSON = 16 * 1024;
+
+/** What a bridge may name as the reach of one form's answers. Sized like a
+ * room or a network name, because on every bridge so far it is one of those. */
+export const MAX_FORM_SCOPE = 64;
+/** The longest badge a bridge may put on one of its members, and the longest
+ * sentence it may say under their name.
+ *
+ * A bridge writes its own words now, so these are attacker-controlled the way
+ * every other inbound string is: bounded here, rendered as text, never markup.
+ * The badge is short because it sits in a chip beside a name that must not be
+ * pushed out of a rail; the sentence has the second roster line to itself and
+ * is capped near an away reason, which is the neighbouring line it must not
+ * out-shout. */
+export const MAX_SEAT_BADGE = 12;
+export const MAX_SEAT_SAID = 120;
+
 /** How many name vouchers one registration may have outstanding, and how many
  * bytes each carries.
  *
@@ -212,12 +265,16 @@ export const MAX_PENDING_ARCHIVE_SHARES = 16;
  * this window's choice: a room cycling join-and-leave under fresh names grew
  * the map — and the rendered list — for the life of the membership. Past the
  * ceiling the oldest offline rows go; the online rows are bounded by the
- * server's live connections and are never evicted. */
+ * room's admission ceiling and are never evicted. */
 export const MAX_ROSTER_SEEN = 512;
+/** Live memberships one room admits. The server enforces this before seating
+ * a new member, and separately checks the actual UTF-8 roster line so long
+ * Unicode names cannot turn a valid count into an oversized notification. */
+export const MAX_ROOM_MEMBERS = 256;
 /** Aggregate live facts carried by one durable-session snapshot. These sit
  * below the per-object bounds so many valid rooms cannot multiply into an
  * oversized CapTP answer. */
-export const MAX_SESSION_ROOM_MEMBERS = 256;
+export const MAX_SESSION_ROOM_MEMBERS = MAX_ROOM_MEMBERS;
 export const MAX_SESSION_DIRECTORY_ROWS = 128;
 export const MAX_DIRECTORY_DISCOVERY_ROWS = 256;
 /** What a reader who steps away without writing a reason is away for.
@@ -253,6 +310,7 @@ export const MAX_OPERATOR_MEMBERS_PER_ROOM = 64;
  * spends this one registry-owned budget. Generous, because a legitimate host (a
  * bot serving many rooms) is a real shape; past it, creation refuses by name. */
 export const MAX_ROOMS_PER_CREATOR = 256;
+export const MAX_ROOM_INVITATIONS = 64;
 
 /** Foreign rooms one directory retains in total and from one source session.
  * Both counts include the held room capability and its directory metadata. */
@@ -392,8 +450,6 @@ export const MAX_BLOB_READERS = 256;
  * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
  * peer and the Goblins one. */
 export const MAX_DM_INBOXES = 256;
-/** Opaque directory-issued identity for one live nickname registration. It is
- * compared as data and grants no authority by itself. */
 /** Repeated requests for the same reciprocal direct route inside this window
  * produce one notification. Expired rows are removed lazily, so the bound is
  * on active request pressure rather than every peer seen by a registration. */
@@ -415,6 +471,15 @@ export const MAX_SIGNAL_EXCHANGES = 64;
 export const MAX_ACTIVE_SESSION_GRANTS = 32;
 export const MAX_LIFETIME_SESSION_GRANTS = 256;
 export const MAX_SESSION_GRANT_LABEL = 80;
+/** Room for a sentence saying why a link has gone quiet, and no more: it is
+ * read by whoever is holding that link, in place of the session. */
+export const MAX_SESSION_GRANT_NOTE = 200;
+
+/** Durable attenuated archive-peer shares. Active shares cost a Host
+ * publication; lifetime rows include revocation tombstones so no old sturdyref
+ * can return through identifier reuse. */
+export const MAX_ACTIVE_ARCHIVE_SHARES = 32;
+export const MAX_LIFETIME_ARCHIVE_SHARES = 256;
 
 /** How much WebRTC bring-up text the directory will carry between two members.
  * A description follows the sidecar's signal bound; one ICE candidate stays a

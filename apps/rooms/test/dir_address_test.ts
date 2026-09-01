@@ -22,27 +22,28 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const { directoryId } = await import("../web/ui/net/bootstrap.ts");
-const { dirAddress, directoryLocators } = await import("../web/ui/net/live.ts");
+const { dirAddress } = await import("../web/ui/net/live.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
 const { dirId } = await import("../web/ui/types.ts");
+const store = await import("../web/ui/store.ts");
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
 }
 
 Deno.test("a shared directory address keeps the route's hints", () => {
+	const page = new RoomsPage();
 	const id = dirId("ocapn://abcdefabcdef.iroh");
 	const route = "ocapn://abcdefabcdef.iroh?direct-addresses=192.0.2.7:9045";
-	directoryLocators.set(id, route);
-	try {
-		assert(dirAddress(id) === route, "the shared address dropped the routing hints this tab dialed with");
-	} finally {
-		directoryLocators.delete(id);
-	}
+	page.live.directoryLocators.set(id, route);
+	assert(dirAddress(page, id) === route, "the shared address dropped the routing hints this tab dialed with");
 });
 
-Deno.test("a directory with no recorded route shares its bare authority", () => {
+Deno.test("a restored directory falls back to its route, not its authority", () => {
+	const page = new RoomsPage();
 	const id = dirId("ocapn://bareauthority.iroh");
-	assert(dirAddress(id) === "ocapn://bareauthority.iroh", "the fallback changed the authority");
+	store.openDir(page.projection, id, "ocapn://routekey.iroh");
+	assert(dirAddress(page, id) === "ocapn://routekey.iroh", "the fallback laundered the authority into an address");
 });
 
 Deno.test("identity-proving room routes file one Host as one directory", () => {
@@ -55,4 +56,42 @@ Deno.test("identity-proving room routes file one Host as one directory", () => {
 		directoryId(`${key}:9099`) !== identity,
 		"an unauthenticated TCP address was merged into a Host identity route",
 	);
+});
+
+Deno.test("two pages do not share directory sessions", () => {
+	const first = new RoomsPage();
+	const second = new RoomsPage();
+	const id = dirId("ocapn://abcdefabcdef.iroh");
+	const session = { page: first, id } as import("../web/ui/net/live.ts").Live;
+	first.live.dirs.set(id, session);
+	assert(first.live.dirSession(id) === session, "the page that seated the session cannot find it");
+	assert(second.live.dirSession(id) === null, "a second page saw another page's directory session");
+});
+
+Deno.test("two pages do not share direct-message back-channels", () => {
+	const first = new RoomsPage();
+	const second = new RoomsPage();
+	first.directs.saidIgnoredDm.add("dm:peer");
+	assert(second.directs.saidIgnoredDm.size === 0, "a second page saw another page's ignored-DM notes");
+});
+
+Deno.test("two pages do not share inbox offerers", () => {
+	const first = new RoomsPage();
+	const second = new RoomsPage();
+	first.reachable.saidRendezvousTrouble = true;
+	assert(second.reachable.saidRendezvousTrouble === false, "a second page saw another page's rendezvous latch");
+});
+
+Deno.test("two pages do not share workspace working copies", () => {
+	const first = new RoomsPage();
+	const second = new RoomsPage();
+	first.workspace.retained.dmMode = "relay";
+	assert(second.workspace.retained.dmMode === "webrtc", "a second page saw another page's workspace working copy");
+});
+
+Deno.test("two pages do not share history recorder queues", () => {
+	const first = new RoomsPage();
+	const second = new RoomsPage();
+	first.recorder.keepHistory = false;
+	assert(second.recorder.keepHistory === true, "a second page saw another page's history retention");
 });

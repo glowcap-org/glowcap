@@ -12,7 +12,7 @@
 // conversation before.
 
 import { type ChatItem, type Item, silencedByIgnore } from "./types.ts";
-import { dayKey, dayLabel, GROUP_WINDOW_MS } from "./text.ts";
+import { dayKey, dayLabel, fmtTime, GROUP_WINDOW_MS } from "./text.ts";
 import { actionIn, noticeIn } from "./commands.ts";
 
 /** A run of lines from one speaker, as the log groups them. */
@@ -20,6 +20,16 @@ export interface Group {
 	from: string;
 	mine: boolean;
 	items: ChatItem[];
+	/** Whether this group's stamp says something the one above it did not.
+	 *
+	 * A stamp answers "when". Down a back-and-forth every change of speaker
+	 * opens a group, and those are seconds apart, so every group printing one
+	 * gave a column of the same four characters saying nothing after the first.
+	 * It is printed where it differs; where it is not, the answer is the stamp
+	 * a row or two above. A day heading or the unread rule starts the reckoning
+	 * again, because across either of those the same clock time is a different
+	 * time. */
+	showTime: boolean;
 }
 
 export type SysLine = { key: string; text: string };
@@ -129,10 +139,21 @@ export function blocksOf(history: readonly Item[], rule: number | null, ignored:
 		if (open && open.from === item.from && item.at - openAt < GROUP_WINDOW_MS) {
 			open.items.push(item);
 		} else {
-			open = { from: item.from, mine: item.mine, items: [item] };
+			open = { from: item.from, mine: item.mine, items: [item], showTime: true };
 			blocks.push({ kind: "group", key: "g-" + item.id, group: open });
 		}
 		openAt = item.at;
+	}
+	let shown = "";
+	for (const block of blocks) {
+		if (block.kind === "day" || block.kind === "unread") {
+			shown = "";
+			continue;
+		}
+		if (block.kind !== "group") continue;
+		const at = fmtTime(new Date(block.group.items[block.group.items.length - 1].at));
+		block.group.showTime = at !== shown;
+		shown = at;
 	}
 	return blocks;
 }

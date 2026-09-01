@@ -28,6 +28,7 @@ import type {
 	ConnectorRequest,
 	FeatureSet,
 	Host,
+	HostProfile,
 	Locator,
 	Runtime,
 } from "@pancake/runtime";
@@ -40,6 +41,8 @@ export type WasmSource =
 	| Promise<Response>;
 
 export interface WebRuntimeOptions {
+	/** Core-authored coherent codec/version pair. */
+	profile?: HostProfile;
 	/** Wire codec for this managed Runtime. */
 	codec?: Codec;
 	/** CapTP profile for this managed Runtime. */
@@ -185,6 +188,7 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 					...browserConnectors(runtimeApi, options),
 					...(runtimeOptions.connectors ?? []),
 				],
+				profile: runtimeOptions.profile,
 				codec: runtimeOptions.codec,
 				captpVersion: runtimeOptions.captpVersion,
 				features: runtimeOptions.features,
@@ -193,6 +197,7 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 			});
 		};
 		const runtime = await openRuntime({
+			profile: options.profile,
 			codec: options.codec,
 			captpVersion: options.captpVersion,
 			features: options.features,

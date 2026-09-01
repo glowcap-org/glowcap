@@ -13,7 +13,7 @@
 // accumulated meanwhile.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { handOffNow } from "./boot.ts";
+import { coveringReload, handOffNow } from "./boot.ts";
 import { Button } from "./Button.tsx";
 import { Said } from "./Said.tsx";
 
@@ -49,6 +49,7 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 	}
 
 	override componentDidCatch(failed: Error, info: ErrorInfo) {
+		if (coveringReload()) return;
 		console.error(
 			`rooms: the ${this.props.part} ran into a problem:`,
 			failed,
@@ -64,6 +65,7 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 	override render() {
 		const { failed } = this.state;
 		if (!failed) return this.props.children;
+		if (coveringReload()) return null;
 		return (
 			<CrashCard
 				part={this.props.part}

@@ -1,23 +1,26 @@
 # Deploy the Rooms browser app
 
 This Compose stack runs the Rooms browser UI, an iroh room server, and one
-durable shared workspace session in small Deno containers. It expects an
-existing reverse proxy, such as Cloudflare Tunnel, on a shared Docker network.
+durable shared workspace session in small Deno containers. The tracked base
+publishes no host port. An ignored `docker-compose.override.yml` says how this
+machine reaches the page, so a host's ports and network names never enter the
+repository.
 
 Build artifacts stay outside the image. The container mounts this repository
 and `zig-out/lib` read-only, then serves the prebuilt browser bundle and loads
 the pancake shared libraries at runtime.
+
+This is the source distribution described in the Rooms
+[prerelease scope](../../README.md#prerelease-distribution), not a standalone
+application image. Check out the announced commit and run `rooms-deploy-prep`
+from that same checkout before recreating the containers.
 
 ## Before you start
 
 You need:
 
 - the pancake devcontainer, with Zig, Deno, and Cargo;
-- Docker Compose;
-- an existing Docker network used by your reverse proxy.
-
-The examples call the proxy network `cloudflare-tunnel-net`. Substitute the
-network that exists on your host.
+- Docker Compose.
 
 ## Run it
 
@@ -27,44 +30,61 @@ From the repository root, build everything the container mounts:
 zig build rooms-deploy-prep
 ```
 
-Then configure and start the stack:
-
-```sh
-cd apps/rooms/web/deploy
-cp .env.example .env
-```
-
-Set the proxy network in `.env`:
-
-```dotenv
-EGRESS_NET=cloudflare-tunnel-net
-```
-
-Create the two external networks if they do not already exist:
+Create the external network shared with the pancake devcontainer if it does not
+already exist:
 
 ```sh
 docker network create rooms-net
-docker network create cloudflare-tunnel-net
 ```
 
 If Docker reports that a network already exists, continue.
 
-Start Rooms:
+Create the local override from its tracked example, then bring the deployment
+up:
 
 ```sh
-docker compose up -d --build
-docker compose logs -f rooms
+cd apps/rooms/web/deploy
+cp docker-compose.override.yml.example docker-compose.override.yml
+./up.sh
 ```
 
-The container is named `pancake-rooms` and listens on port 8000 inside the
-proxy network. It serves the browser page, its `/relay` WebSocket, and
-`GET /locator`.
+The example override publishes the page on this host's loopback. Its comments
+carry the other way in: joining the Docker network that a reverse proxy or
+tunnel container already runs on. That neighbor reaches
+`http://pancake-rooms:8000` over the network and needs no published port. A
+host may use either way, or both.
 
-`docker compose ps` shows whether it is *serving*, which is not the same as
+`./up.sh` is the front door. It builds, recreates both containers, waits for
+each to serve, and prints one handoff block with the room locator and every
+capability. Underneath it, `./compose.sh` is the front for everything else. It
+always selects `docker-compose.yml`, explicitly adds the ignored override when
+it exists, and disables Compose's implicit `.env` loading, so operator values
+come from the exported process environment unless an explicit `--env-file` is
+passed:
+
+```sh
+./compose.sh logs -f rooms
+```
+
+Open `http://127.0.0.1:8000`. The `pancake-rooms` container serves the browser
+page, its same-origin `/relay` WebSocket, and `GET /locator`. The Compose port
+mapping names host loopback explicitly, so no other machine reaches this HTTP
+surface through a host LAN address. Reaching further than this machine is the
+separate, deliberate choice of attaching a site network above. Containers on
+`rooms-net` reach the same service as `http://pancake-rooms:8000` (or the
+`rooms` service alias).
+
+The application still listens on port 8000 inside its container. Docker's port
+mapping, not a second application bind setting, is what makes that container
+port available as host localhost. Change the host side only when port 8000 is
+already occupied, for example `127.0.0.1:18000:8000`, then open
+`http://127.0.0.1:18000`.
+
+`./compose.sh ps` shows whether it is *serving*, which is not the same as
 running: the health probe asks `/locator`, and that answers only once the page
 is being served and the room server it supervises has announced itself. A
 container stuck at `starting` or turning `unhealthy` is telling you the room
-server is not coming up, and `docker compose logs rooms` says why.
+server is not coming up, and `./compose.sh logs rooms` says why.
 
 The most likely why, after pulling new work, is that the prebuilt shared
 libraries under `zig-out/lib` are older than the source mounted beside them.
@@ -85,12 +105,12 @@ remain visible as disconnected until they return.
 
 Run `./up.sh`. After both peers are ready, its single capability handoff block
 includes a **shared-session administrator capability**. Open the page and paste
-that sturdyref into **Choose a session → Shared session**, then press **Attach**.
+that sturdyref into **Choose a session**, then **Shared session**, then press **Attach**.
 A new empty session adopts the workspace saved in that browser; otherwise its
 durable workspace becomes current.
 
 If this browser already has a local workspace open, the same Attach form lives
-under **Settings → Session**. Subsequent browsers attach and become views of
+under **Settings**, then **Session**. Subsequent browsers attach and become views of
 the same durable workspace.
 
 The printed sturdyref is bearer authority over the whole session. Anyone who
@@ -99,16 +119,17 @@ The page therefore does not fetch it from a public endpoint and Compose does
 not inject it into HTML. Read it again from the operator side with:
 
 ```sh
-docker compose exec -T rooms-session deno run \
+./compose.sh exec -T rooms-session deno run \
   --allow-read=/run/rooms-session --no-lock \
   /repo/apps/rooms/web/deploy/session_healthcheck.ts --print
 ```
 
 That readiness mirror lives on a mode-0700 tmpfs, not in the durable session
 volume. Every container start therefore begins without a stale ready marker;
-the session writes the mirror only after restoring grants and reconciling its
-workspace. The authority itself remains durable because its identity and
-publication entropy live in `rooms-session-state`.
+the session writes the mirror after restoring grants, publishing its listener,
+and scheduling workspace reconciliation. Network reachability is recoverable
+workspace state, not process readiness. The authority itself remains durable
+because its identity and publication entropy live in `rooms-session-state`.
 
 This is one deliberate owner session, not an account system and not an ambient
 session for every site visitor. A future per-user service would need to own
@@ -138,7 +159,7 @@ deployment. The viz endpoint requires its capability of every socket, so
 reaching the port neither reads the timeline nor writes traces into it.
 
 `./up.sh` is the one-step restart: it runs
-`docker compose up -d --build --force-recreate`, waits for the room server and
+`compose.sh up -d --build --force-recreate`, waits for the room server and
 shared session to become ready, and prints one handoff block containing the
 room's operator capabilities, room locator, and session administrator
 capability.
@@ -149,51 +170,21 @@ read them, any time:
 
 ```sh
 # The capability printer reads the state volume and prints the token lines:
-docker compose exec rooms deno run --allow-read --allow-env --no-lock \
+./compose.sh exec rooms deno run --allow-read --allow-env --no-lock \
   /repo/apps/rooms/server/capabilities.ts
 
 # The startup logs carry the same lines:
-docker compose logs rooms | grep 'ROOMS-'
+./compose.sh logs rooms | grep 'ROOMS-'
 
 # Or read a single one straight from the volume:
-docker compose exec rooms cat /state/diagnostics
+./compose.sh exec rooms cat /state/diagnostics
 ```
 
 Whoever can read the room volume or logs holds those directory-operation
 capabilities, which is the whole of their access control: paste a swiss number
-when flipping its toggle on in the page's Settings → Capabilities. The shared
+when flipping its toggle on under Settings, Holdings. The shared
 session administrator is separate authority in `rooms-session-state` and goes
 through the Session form described above.
-
-## Put it behind a tunnel
-
-The page and WebSocket share one origin, so one Cloudflare ingress rule is
-enough:
-
-```yaml
-ingress:
-  - hostname: rooms.example.com
-    service: http://pancake-rooms:8000
-  - service: http_status:404
-```
-
-Route the hostname to your tunnel:
-
-```sh
-cloudflared tunnel route dns <tunnel-name> rooms.example.com
-```
-
-Open the public hostname and join a room. To verify the CapTP bootstrap
-separately:
-
-```sh
-curl https://rooms.example.com/locator
-```
-
-The response is a live `ocapn://<nodeid>.iroh` locator. HTTP only delivers that
-locator to native and terminal peers; they then dial through iroh discovery.
-The browser cannot dial iroh itself, so its CapTP bytes travel through the
-`/relay` WebSocket and Cloudflared carries that opaque relay stream.
 
 ## Connect a Rooms peer
 
@@ -222,26 +213,24 @@ Then restart the service from a shell with Docker access, at the repository
 root:
 
 ```sh
-docker compose -f apps/rooms/web/deploy/docker-compose.yml restart rooms
+apps/rooms/web/deploy/compose.sh restart rooms
 ```
 
-Browser-to-browser WebRTC uses `stun:stun.cloudflare.com:3478` by default so
-ordinary NATs can advertise server-reflexive candidates. Set
-`PANCAKE_ROOMS_ICE_SERVERS` in Compose to a comma-separated STUN list to choose
-another discovery service, or to an empty string for host candidates only. The
-server validates the value at startup and serves that exact configuration to
-both browser halves.
+Browser-to-browser WebRTC uses the application's public STUN default. Set
+`PANCAKE_ROOMS_ICE_SERVERS` in Compose to a comma-separated STUN list, or to an
+empty string for host candidates only. The server validates the value at
+startup and serves that exact configuration to both browser halves.
 
 Symmetric NATs and restrictive firewalls need a TURN candidate. Rooms keeps the
 long-lived credential authority on the server and publishes only short-lived
-username/password rows to browsers. For Cloudflare Realtime TURN, create a TURN
-key and configure its [credential-generation endpoint](https://developers.cloudflare.com/realtime/turn/generate-credentials/):
+username/password rows to browsers. Configure any HTTPS issuer that answers
+the bounded ICE-server credential document:
 
 ```sh
-export PANCAKE_ROOMS_TURN_CREDENTIALS_URL="https://rtc.live.cloudflare.com/v1/turn/keys/<TURN_KEY_ID>/credentials/generate-ice-servers"
-export PANCAKE_ROOMS_TURN_BEARER_TOKEN="<TURN_KEY_API_TOKEN>"
+export PANCAKE_ROOMS_TURN_CREDENTIALS_URL="https://turn.example/credentials"
+export PANCAKE_ROOMS_TURN_BEARER_TOKEN="<issuer bearer token>"
 export PANCAKE_ROOMS_TURN_TTL_SECONDS=86400
-docker compose -f apps/rooms/web/deploy/docker-compose.yml up -d
+./compose.sh up -d
 ```
 
 The URL and token must be present together, the issuer must use HTTPS, and the
@@ -262,7 +251,7 @@ is already linked into `libpancake_net_transport_iroh.so`.
 - the pancake shared libraries;
 - the iroh transport library;
 - the WebAssembly Host loaded by the browser;
-- `apps/rooms/web/ui/page.js`, the browser bundle.
+- `apps/rooms/web/ui/bundle/`, the browser entry and its async chunks.
 
 Prebuilding the bundle keeps deployment startup independent of package-cache
 state and avoids bundling on boot. The server can bundle at runtime when its
@@ -277,23 +266,28 @@ developing is the unminified one, for that reason. To rebuild the deployment
 artifact by hand:
 
 ```sh
-deno bundle --platform browser --no-lock --quiet --minify \
-  --config bindings/ts/web/browser-bundle.json \
-  apps/rooms/web/ui/main.tsx -o apps/rooms/web/ui/page.js
+deno bundle --platform browser --quiet --minify --code-splitting \
+  --config apps/rooms/web/browser-bundle.json \
+  --outdir apps/rooms/web/ui/bundle apps/rooms/web/ui/main.tsx
 ```
 
-`page.js` is generated and gitignored.
+The bundle directory is generated and gitignored.
 
 ## Network and transport reference
 
-The service joins two external Docker networks:
+The base service joins one external Docker network, `rooms-net`, which connects
+the deployment to the pancake devcontainer. The ignored local override adds
+whatever else this host needs:
 
-- `rooms-net` connects the deployment to the pancake devcontainer.
-- `EGRESS_NET` connects it to the reverse proxy.
+- `127.0.0.1:8000` reaches the browser page and `/relay` from the Docker host.
+- A site network puts the page beside a reverse proxy or tunnel container, and
+  that neighbor reaches `http://pancake-rooms:8000` over it. An override adding
+  one must keep `rooms-net` in the same list, or terminal peers in the
+  devcontainer lose the room.
 
-The shared-session container joins only `rooms-net`. It publishes no host or
-proxy port: browser bytes reach its authenticated iroh identity through the
-Rooms page's existing opaque `/relay` path.
+The shared-session container also joins `rooms-net`, but publishes no host
+port: browser bytes reach its authenticated iroh identity through the Rooms
+page's existing opaque `/relay` path.
 
 The deployment defaults to `PANCAKE_ROOMS_REACHABILITY=discovery`. The room announces
 only its iroh node id; peers resolve it through n0 relay and DNS/pkarr
@@ -303,10 +297,8 @@ For a self-contained same-host setup, set `PANCAKE_ROOMS_REACHABILITY=direct`. T
 TCP room instead, remove `--transport=iroh` and configure `PANCAKE_ROOMS_BIND` and
 `PANCAKE_ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
 
-The devcontainer and this deployment each have an `EGRESS_NET`, but they
-usually name different networks. Their shared network is always `rooms-net`.
-See [devcontainer networking](../../../../.devcontainer/docs/networking.md) for that
-side of the setup.
+See [devcontainer networking](../../../../.devcontainer/docs/networking.md) for
+the `rooms-net` side of the setup.
 
 ## Use it from a larger Compose project
 
@@ -320,9 +312,10 @@ volumes:
   - rooms-deno-cache:/deno-dir
 ```
 
-Keep the command, environment, image build, and networks unchanged. To deploy
-without mounting a working checkout, copy the required source and shared
-libraries into stable read-only directories and mount those instead.
+Keep the command, environment, image build, network, and ignored override's
+loopback port mapping unchanged. To deploy without mounting a working checkout,
+copy the required source and shared libraries into stable read-only directories
+and mount those instead.
 
 ## Storage
 
@@ -330,12 +323,15 @@ Kept room lines live in the state volume by default. To keep them in a managed
 database instead, bring up the optional service and point the server at it:
 
 ```sh
-echo 'STORAGE_DB_PASSWORD=<a long secret>' >> .env
-echo 'PANCAKE_ROOMS_STORAGE=postgres://rooms:<that secret>@rooms-storage-db:5432/rooms' >> .env
-docker compose --profile storage-db up -d
+export STORAGE_DB_PASSWORD='<a long secret>'
+export PANCAKE_ROOMS_STORAGE='postgres://rooms:<that secret>@rooms-storage-db:5432/rooms'
+./compose.sh --profile storage-db up -d
 ./up.sh
 ```
 
 The database is reachable only on the private compose network. A destination
 that cannot be opened stops the server at startup with the reason, so a typo
 here is a loud boot failure rather than quiet forgetting.
+
+Project provenance and upstream-contact policy live in
+[`PROVENANCE.md`](../../../../PROVENANCE.md).

@@ -8,11 +8,10 @@
 import type { Session } from "@pancake/runtime";
 import { MAX_OPERATOR_MEMBERS_PER_ROOM } from "../../lib/limits.ts";
 import { notifyLocalRoom, notifyPublicRoom } from "../discovery.ts";
-import { dropRoomFiles } from "../files.ts";
 import { operatorBridgeMembers, operatorPartBridge } from "../irc_gateway.ts";
 import { leaveRoom } from "../presence.ts";
-import { operatorPendingPeering, removeOperatorPendingPeering } from "../peering.ts";
-import { forgetForeignRoom, forgetRoom, publicRoomById, publicRooms, rooms, type RoomState } from "../registry.ts";
+import type { RoomServerContext } from "../context.ts";
+import type { RoomState } from "../registry.ts";
 import { type OperatorRowPage, type OperatorRowSource, queryPage, searchText } from "./page.ts";
 
 export type OperatorRoomKind = "local" | "private" | "peered" | "pending-peered" | "irc";
@@ -39,7 +38,9 @@ export interface OperatorRoomRow {
 
 function localRetained(state: RoomState): number {
 	let retained = 0;
-	for (const member of state.members) retained += 2 + member.lines.length; // inbox + topic + line refs
+	for (const member of state.members) {
+		retained += 1 + Number(member.seat !== null) + Number(member.topic !== null) + member.lines.length;
+	}
 	for (const uploads of state.uploads.values()) {
 		for (const upload of uploads) if (upload.ref !== null) retained += 1;
 	}
@@ -50,9 +51,9 @@ function localRetained(state: RoomState): number {
  * The text is the row's identity — its id, what kind of owner it is, its name
  * and where it came from — so a hundred thousand rooms cost a hundred thousand
  * string tests rather than a hundred thousand member lists. */
-export function* operatorRoomFaces(): Iterable<OperatorRowSource<OperatorRoomRow>> {
-	for (const state of rooms.values()) {
-		const kind: OperatorRoomKind = state.private ? "private" : "local";
+export function* operatorRoomFaces(ctx: RoomServerContext): Iterable<OperatorRowSource<OperatorRoomRow>> {
+	for (const state of ctx.live.rooms.values()) {
+		const kind: OperatorRoomKind = state.policy.visibility === "secret" ? "private" : "local";
 		yield {
 			text: searchText(state.entryId, kind, state.name),
 			build: () => ({
@@ -71,7 +72,7 @@ export function* operatorRoomFaces(): Iterable<OperatorRowSource<OperatorRoomRow
 			}),
 		};
 	}
-	for (const entry of publicRooms.values()) {
+	for (const entry of ctx.live.publicRooms.values()) {
 		if (entry.kind === "local") continue;
 		if (entry.kind === "foreign") {
 			yield {
@@ -92,7 +93,7 @@ export function* operatorRoomFaces(): Iterable<OperatorRowSource<OperatorRoomRow
 		yield {
 			text: searchText(entry.id, "irc", entry.name, entry.origin),
 			build: () => {
-				const members = operatorBridgeMembers(entry.id);
+				const members = operatorBridgeMembers(ctx, entry.id);
 				return {
 					id: entry.id,
 					kind: "irc" as const,
@@ -106,7 +107,7 @@ export function* operatorRoomFaces(): Iterable<OperatorRowSource<OperatorRoomRow
 			},
 		};
 	}
-	for (const pending of operatorPendingPeering()) {
+	for (const pending of ctx.peering.rows()) {
 		yield {
 			text: searchText(pending.id, "pending-peered", pending.name, pending.origin),
 			build: () => ({
@@ -123,51 +124,56 @@ export function* operatorRoomFaces(): Iterable<OperatorRowSource<OperatorRoomRow
 	}
 }
 
-export function operatorRoomPage(offset: number, limit: number, query = ""): OperatorRowPage<OperatorRoomRow> {
-	return queryPage(operatorRoomFaces(), query, offset, limit);
+function operatorRoomPage(
+	ctx: RoomServerContext,
+	offset: number,
+	limit: number,
+	query = "",
+): OperatorRowPage<OperatorRoomRow> {
+	return queryPage(operatorRoomFaces(ctx), query, offset, limit);
 }
 
-function localById(id: string): RoomState | null {
-	for (const state of rooms.values()) if (state.entryId === id) return state;
+function localById(ctx: RoomServerContext, id: string): RoomState | null {
+	for (const state of ctx.live.rooms.values()) if (state.entryId === id) return state;
 	return null;
 }
 
-function closeLocal(state: RoomState): void {
+function closeLocal(ctx: RoomServerContext, state: RoomState): void {
 	const sessions = new Set(state.members.map((member) => member.session));
-	for (const session of sessions) leaveRoom(state, session);
-	if (rooms.get(state.key) !== state) return;
+	for (const session of sessions) leaveRoom(ctx, state, session, { ended: "An operator removed this room." });
+	if (ctx.live.rooms.get(state.key) !== state) return;
 	// An opened room may not have subscribed yet. It owns no membership to drive
 	// the ordinary last-member cleanup, so close that empty generation here.
-	dropRoomFiles(state);
-	forgetRoom(state);
-	notifyLocalRoom(state, "closed", 0);
+	ctx.files.dropRoomFiles(state);
+	ctx.live.forgetRoom(state);
+	notifyLocalRoom(ctx, state, "closed", 0);
 }
 
 /** Remove one exact room owner and every capability occurrence it owns. */
-export async function removeOperatorRoom(id: string): Promise<boolean> {
-	if (removeOperatorPendingPeering(id)) return true;
-	const local = localById(id);
+export async function removeOperatorRoom(ctx: RoomServerContext, id: string): Promise<boolean> {
+	if (ctx.peering.remove(id)) return true;
+	const local = localById(ctx, id);
 	if (local !== null) {
-		closeLocal(local);
+		closeLocal(ctx, local);
 		return true;
 	}
-	const published = publicRoomById(id);
+	const published = ctx.live.publicRoomById(id);
 	if (published?.kind === "foreign") {
-		const removed = forgetForeignRoom(id);
-		if (removed !== null) notifyPublicRoom(removed, "closed", null);
+		const removed = ctx.live.forgetForeignRoom(id);
+		if (removed !== null) notifyPublicRoom(ctx, removed, "closed", null);
 		return removed !== null;
 	}
-	if (published?.kind === "bridge") return await operatorPartBridge(id);
+	if (published?.kind === "bridge") return await operatorPartBridge(ctx, id);
 	return false;
 }
 
 /** Remove the snapshot present at admission. Exact ids prevent a replacement
  * generation from being swept by an older reset walk. */
-export async function resetOperatorRooms(): Promise<number> {
+export async function resetOperatorRooms(ctx: RoomServerContext): Promise<number> {
 	let removed = 0;
 	while (true) {
-		const row = operatorRoomPage(0, 1).rows[0];
-		if (row == null || !await removeOperatorRoom(row.id)) return removed;
+		const row = operatorRoomPage(ctx, 0, 1).rows[0];
+		if (row == null || !await removeOperatorRoom(ctx, row.id)) return removed;
 		removed += 1;
 	}
 }

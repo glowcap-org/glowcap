@@ -27,12 +27,16 @@ export async function run(tab: Page): Promise<void> {
 		fail(`typing in the rail did not reach the join card (its room field says ${JSON.stringify(mirrored)})`);
 	}
 	await tab.click(".newroom-private");
-	if (await tab.getAttribute("#joinPrivate", "aria-pressed") !== "true") {
-		fail("the rail's lock did not press the join card's");
+	if (!(await tab.getAttribute("#joinPrivate", "aria-label"))?.includes("Room access: moderated")) {
+		fail("the rail's access control did not move the join card to moderated");
 	}
 	await tab.click("#joinPrivate");
-	if (await tab.getAttribute(".newroom-private", "aria-pressed") !== "false") {
-		fail("unpressing the join card's lock did not release the rail's");
+	if (!(await tab.getAttribute(".newroom-private", "aria-label"))?.includes("Room access: private")) {
+		fail("the join card's access control did not move the rail to private");
+	}
+	await tab.click("#joinPrivate");
+	if (!(await tab.getAttribute(".newroom-private", "aria-label"))?.includes("Room access: open")) {
+		fail("the join card's access control did not move the rail back to open");
 	}
 	await tab.fill("#room", "half");
 	if (!await railShowing()) fail("typing in the join card put the rail's own view of it away");

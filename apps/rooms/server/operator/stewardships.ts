@@ -7,9 +7,12 @@
 // and by the answer a give or a revoke returns.
 
 import type { Argument, Session } from "@pancake/runtime";
-import { isPrivateRoomKey } from "../../lib/limits.ts";
-import { roomKey, rooms, type RoomState } from "../registry.ts";
+import { isManagedRoomId } from "../../lib/limits.ts";
+import type { RoomServerContext } from "../context.ts";
+import { roomKey, type RoomState } from "../registry.ts";
+import { roomIsListed } from "../../lib/room/policy.ts";
 import type { RoomLinks } from "../room_links.ts";
+import type { IrcBridgeAuthorities } from "../irc_gateway/authority.ts";
 
 export type StewardshipVisibility = "listed" | "private";
 
@@ -29,11 +32,11 @@ export interface StewardshipRow {
 	steward: string | null;
 }
 
-export function liveRoom(name: string): RoomState | null {
-	const privateRoom = rooms.get(name);
-	if (privateRoom?.private === true) return privateRoom;
-	const listed = rooms.get(roomKey(name));
-	return listed?.private === false ? listed : null;
+export function liveRoom(ctx: RoomServerContext, name: string): RoomState | null {
+	const exact = ctx.live.rooms.get(name.toLowerCase());
+	if (exact != null) return exact;
+	const listed = ctx.live.publicRooms.get(roomKey(name));
+	return listed?.kind === "local" ? listed.state : null;
 }
 
 function compareRows(a: StewardshipRow, b: StewardshipRow): number {
@@ -42,10 +45,15 @@ function compareRows(a: StewardshipRow, b: StewardshipRow): number {
 	return left < right ? -1 : left > right ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-/** Build the bounded operator inventory from live local rooms and durable room
- * publications. Foreign and IRC-bridged rooms never enter either table: their
- * source owns their moderation, so this server has no steward to hand out. */
-export function stewardshipRows(links: RoomLinks, session: Session): StewardshipRow[] {
+/** Build the bounded operator inventory from each room source that can issue
+ * moderation: native room registrations and the IRC bridge authority owner.
+ * Peered rooms remain with their remote source. */
+export function stewardshipRows(
+	ctx: RoomServerContext,
+	links: RoomLinks,
+	session: Session,
+	bridges: IrcBridgeAuthorities | null = null,
+): StewardshipRow[] {
 	const authorities = new Map(links.stewardships(session).map((row) => [row.name.toLowerCase(), row]));
 	const out = new Map<string, StewardshipRow>();
 	const add = (name: string, label: string, visibility: StewardshipVisibility): void => {
@@ -59,22 +67,37 @@ export function stewardshipRows(links: RoomLinks, session: Session): Stewardship
 			steward: authority?.steward ?? null,
 		});
 	};
-	for (const state of rooms.values()) {
-		add(state.private ? state.key : state.name, state.name, state.private ? "private" : "listed");
+	for (const state of ctx.live.rooms.values()) {
+		add(state.key, state.name, roomIsListed(state.policy) ? "listed" : "private");
 	}
 	for (const { name } of links.named()) {
 		if (out.has(name.toLowerCase())) continue;
-		const isPrivate = isPrivateRoomKey(name);
-		add(name, isPrivate ? "" : name, isPrivate ? "private" : "listed");
+		const managed = links.managedRoom(name);
+		add(
+			name,
+			managed?.name ?? (isManagedRoomId(name) ? "" : name),
+			managed == null
+				? (isManagedRoomId(name) ? "private" : "listed")
+				: roomIsListed(managed.policy)
+				? "listed"
+				: "private",
+		);
 	}
 	for (const authority of authorities.values()) {
 		if (out.has(authority.name.toLowerCase())) continue;
-		const isPrivate = isPrivateRoomKey(authority.name);
+		const managed = links.managedRoom(authority.name);
 		add(
 			authority.name,
-			isPrivate ? "" : authority.name,
-			isPrivate ? "private" : "listed",
+			managed?.name ?? (isManagedRoomId(authority.name) ? "" : authority.name),
+			managed == null
+				? (isManagedRoomId(authority.name) ? "private" : "listed")
+				: roomIsListed(managed.policy)
+				? "listed"
+				: "private",
 		);
+	}
+	for (const authority of bridges?.stewardships(session) ?? []) {
+		out.set(authority.name, authority);
 	}
 	return [...out.values()].sort(compareRows);
 }

@@ -15,7 +15,7 @@
 import type { Behavior, Host, Ref } from "@pancake/runtime";
 import { MAX_DM_INBOXES, nickRefusal } from "./limits.ts";
 import { isRegistrationId } from "./directory_publications.ts";
-import type { Directory } from "./room_client.ts";
+import type { Directory } from "./room/client.ts";
 
 /** Mints and offers direct-message inboxes for exact live registrations. */
 export interface InboxOfferer {

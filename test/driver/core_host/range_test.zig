@@ -201,8 +201,8 @@ test "cross-session: an adopted peer gets its own export range too" {
     const from_b = try b.served.spawn(&b.host.vat, Pad, .{});
     try std.testing.expect(from_a.position != from_b.position);
 
-    // And neither session holds the other's position, which is what makes the
-    // held-export check refuse a capability offered to the wrong one.
+    // And neither session holds the other's position, so the held-export
+    // check refuses a capability offered to the wrong one.
     try std.testing.expect(a.served.refForExport(from_b.position) == null);
     try std.testing.expect(b.served.refForExport(from_a.position) == null);
 }

@@ -109,11 +109,13 @@ fn expectEncodeBudget(
 }
 
 test "encoding a small deliver holds its outbound allocation budget" {
-    // Syrup renders measure-then-fill: one exact allocation, no growable
-    // buffer, no shrink. Cap'n Proto still builds into a growable buffer and
-    // hands it to an owned `Frame`, its measured cost on this frame.
+    // Syrup renders measure-then-fill into one exact allocation. Cap'n Proto
+    // reserves one owned word buffer and transfers it into the Frame. Its
+    // segment-table word is reserved ahead of the segment, so finishing copies
+    // none of the encoded bytes, and `Builder.initial_words` covers an ordinary
+    // control message so none of it is re-copied by a growth realloc either.
     try expectEncodeBudget("syrup", 1, syrup.encodeMessage);
-    try expectEncodeBudget("capnp", 2, capnp.encodeMessage);
+    try expectEncodeBudget("capnp", 1, capnp.encodeMessage);
 }
 
 test "encoding a large deliver costs one exact allocation and zero reallocs" {

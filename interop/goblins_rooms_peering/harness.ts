@@ -7,7 +7,7 @@
 
 import { runChild } from "../../apps/_demo/orchestrator.ts";
 import { loopbackTcpDesignator, roomsHost } from "../../apps/rooms/lib/locator.ts";
-import { Directory, DirectoryPeering, Room } from "../../apps/rooms/lib/room_client.ts";
+import { Directory, DirectoryPeering, Room } from "../../apps/rooms/lib/room/client.ts";
 import { assert, TestRuntimeScope, withPeeringServer, withServer } from "../../apps/rooms/test/support/rooms_server.ts";
 import { nextMessage } from "../../apps/rooms/test/support/subscribe.ts";
 
@@ -29,7 +29,9 @@ try {
 			const connect = (locator: string) => Directory.connect(locator, (address) => runtimes.dial(address, host));
 			const source = await connect(loopbackTcpDesignator(sourcePort));
 			const publisher = await connect(loopbackTcpDesignator(destinationPort));
-			const owner = await Room.subscribe(source.session, await source.open(ROOM), OWNER);
+			const managed = await source.openManaged(ROOM);
+			const owner = await Room.subscribe(source.session, managed.room, OWNER);
+			await owner.takeManager(managed.managerLink);
 			const peering = await DirectoryPeering.fetch(publisher, peeringSwiss);
 			const publication = await peering.publish(LISTED_AS, owner, source);
 

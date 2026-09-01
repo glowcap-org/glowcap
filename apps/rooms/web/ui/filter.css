@@ -18,14 +18,19 @@
    restated, so a heading that is pressable and one that is not read as the
    same words.
 
-   What it adds is the funnel in front of them and the room to be aimed at. Both
-   are taken as padding against a matching negative margin, so the line it sits
+   What it adds is the funnel after them and the room to be aimed at. That room
+   is taken as padding against a matching negative margin, so the line it sits
    on is no taller and no wider for being pressable: the "+" beside it does not
    move, the two rails' headings stay level, and the ground the press takes
-   reaches the same left edge a room's pill below it reaches. What the funnel
-   does move is the words, a mark's width to the right. That is how a room's own
-   name sits beside its sigil, so the heading is built like one of the rows it
-   is over. */
+   reaches the same left edge a room's pill below it reaches.
+
+   The funnel follows the words rather than leading them, which is what lets
+   this heading and the direct-message heading start at one left edge. Leading
+   it built the heading like one of the rows under it, sigil then name, but that
+   only worked for this list: a direct line leads with a face rather than a
+   sigil, so following the rule in both places would have set the two headings
+   at two different indents. They are a pair in one column and a reader compares
+   them to each other before comparing either to the rows beneath it. */
 .rail-filter-head {
 	all: unset;
 	box-sizing: border-box;
@@ -76,10 +81,6 @@
 	background: var(--hover);
 	color: var(--ink);
 }
-.rail-filter-head:focus-visible {
-	outline: 2px solid var(--teal);
-	outline-offset: 1px;
-}
 /* A finger cannot approach, so where there is no pointer this grows a hit area
    to be tapped by, taken as padding against a negative margin the way the
    button family's own small variants take theirs. The line it sits on is no
@@ -127,7 +128,7 @@
 	z-index: 8;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	border-radius: 10px;
@@ -138,7 +139,7 @@
    onto a second line keeps its label where every other question's label is. */
 .filter-ask {
 	display: grid;
-	row-gap: 4px;
+	row-gap: var(--gap-line);
 	min-width: 0;
 }
 /* What a question is called. Quieter and smaller than the answers under it, at
@@ -200,7 +201,7 @@
    up with the mark: the mark is the answer and the ink follows it, so a reader
    who cannot use either colour still has the drawn check. */
 .filter-choice {
-	gap: 8px;
+	gap: var(--gap-row);
 	min-width: 0;
 	min-height: var(--filter-row-h);
 	padding: 0 8px;

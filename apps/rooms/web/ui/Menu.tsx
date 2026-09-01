@@ -10,7 +10,9 @@
 // tells its reader it is one, and a reader who is told so reaches for the
 // arrows. Tab still leaves, which is what a reader who was not told will try.
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useTopModalLayer } from "./modal.ts";
 import { Icon, type IconName } from "./icons.tsx";
 
 /** Open state and the wiring that closes it, for one menu.
@@ -18,20 +20,28 @@ import { Icon, type IconName } from "./icons.tsx";
  * `holder` goes on the element that contains both the control and the menu, so
  * a press inside it — including on the control itself — is not "somewhere
  * else". `trigger` goes on the control, so Escape hands the keyboard back to
- * what a reader opened it with rather than dropping it at the top of the page. */
+ * what a reader opened it with rather than dropping it at the top of the page.
+ * `layer` goes to `MenuLayer`, which is where the menu itself ends up: it is
+ * drawn somewhere else in the document, so "inside" is two places rather than
+ * one and a press on a row would otherwise read as a press elsewhere and take
+ * the row away before it could be pressed. */
 export function useMenu(): {
 	open: boolean;
 	setOpen: (open: boolean | ((was: boolean) => boolean)) => void;
 	holder: { current: HTMLDivElement | null };
 	trigger: { current: HTMLButtonElement | null };
+	layer: { current: HTMLDivElement | null };
 } {
 	const [open, setOpen] = useState(false);
 	const holder = useRef<HTMLDivElement>(null);
 	const trigger = useRef<HTMLButtonElement>(null);
+	const layer = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (!open) return;
 		const outside = (event: MouseEvent) => {
-			if (!holder.current?.contains(event.target as Node)) setOpen(false);
+			const at = event.target as Node;
+			if (holder.current?.contains(at) === true || layer.current?.contains(at) === true) return;
+			setOpen(false);
 		};
 		const key = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
@@ -48,7 +58,111 @@ export function useMenu(): {
 			document.removeEventListener("keydown", key);
 		};
 	}, [open]);
-	return { open, setOpen, holder, trigger };
+	return { open, setOpen, holder, trigger, layer };
+}
+
+/** The layer a menu opens into, so nothing above it can cut it off.
+ *
+ * A menu hangs below the control that opened it and is routinely taller than
+ * the card holding that control, which used to mean every such card had to
+ * promise never to clip. That is backwards: it makes a card's overflow depend
+ * on what somebody put inside it. `popover` promotes an element to the browser's
+ * top layer, above every ancestor's clipping and above an open dialog, and it
+ * does so without moving the element in the document — so a press inside the
+ * menu is still a press inside the holder, and closing on a press elsewhere
+ * needs no second answer about where the menu went.
+ *
+ * What it costs is a containing block. The top layer is laid out against the
+ * viewport, so a menu written as `top: calc(100% + 6px); right: 0` would resolve
+ * those against the screen rather than against the control. This box is that
+ * missing block: it stands exactly where the holder stands, so every menu keeps
+ * saying where it sits in its own stylesheet and none of them had to be
+ * rewritten in coordinates. It is kept over the holder while it is open,
+ * because a page that scrolls under a menu would otherwise leave it behind.
+ *
+ * It passes presses through. The box covers the control that opened it, and a
+ * layer that swallowed the second press would make a menu impossible to close
+ * by pressing the same button again.
+ *
+ * `popover` rather than `position: fixed` alone, measured rather than assumed.
+ * A fixed box already escapes an ancestor's `overflow: hidden`, so on a plain
+ * card the two are indistinguishable — the first harness written for this
+ * reported success for both and was therefore reporting nothing. What separates
+ * them is an ancestor that creates a containing block: give one a `transform`
+ * and the fixed box is clipped by it and lands at the wrong coordinates, while
+ * the popover is unmoved. That is not a hypothetical here, because a card's
+ * entrance animation is a transform, and a menu opened while one runs would be
+ * the case nobody could reproduce afterwards. */
+export function MenuLayer(
+	{ holder, layer: box, owner, className, children }: {
+		holder: { current: HTMLElement | null };
+		layer: { current: HTMLDivElement | null };
+		/** What this menu is, for the rules that place it. A menu used to be
+		 * reached through whatever it sat inside — a message from somebody else,
+		 * the rail's foot — and drawn elsewhere it is inside none of them, so
+		 * what it is has to travel with it rather than be read off its
+		 * surroundings. */
+		className?: string;
+		/** The id of the panel this menu belongs to, for a surface that decides
+		 * what to dismiss by asking which elements a press passed through. Drawn
+		 * elsewhere, this menu is no longer on that path, so it says whose it is
+		 * and the panel can name it. Named rather than blanket, because two
+		 * things can be open at once and a press in one menu is not a press
+		 * inside every panel. */
+		owner?: string;
+		children: ReactNode;
+	},
+) {
+	// Where it lands: the dialog on top when there is one, so an open modal's
+	// inertness does not reach it, and the end of the document otherwise.
+	const host = useTopModalLayer();
+	useLayoutEffect(() => {
+		const layer = box.current;
+		const host = holder.current;
+		if (layer === null || host === null) return;
+		const place = () => {
+			const at = host.getBoundingClientRect();
+			layer.style.top = `${at.top}px`;
+			layer.style.left = `${at.left}px`;
+			layer.style.width = `${at.width}px`;
+			layer.style.height = `${at.height}px`;
+		};
+		place();
+		layer.showPopover();
+		// Capture, because the scroll that moves the control is a scroll inside
+		// some box on the way up rather than the document's own.
+		globalThis.addEventListener("scroll", place, true);
+		globalThis.addEventListener("resize", place);
+		const watching = new ResizeObserver(place);
+		watching.observe(host);
+		return () => {
+			globalThis.removeEventListener("scroll", place, true);
+			globalThis.removeEventListener("resize", place);
+			watching.disconnect();
+		};
+	}, [holder, box, host]);
+	// Rendered outside where it was written. The top layer settles what is drawn
+	// over what, but not what a scroll reaches: a menu left inside the log is
+	// still a row of that log to anything asking the page to bring it into view,
+	// so scrolling to a menu row scrolled the conversation, which moved the
+	// control, which moved the menu out from under the press that asked for it.
+	//
+	// Out of the scroller, but not out of an open dialog. A modal dialog makes
+	// the whole document outside itself inert, and inert is not a paint rule: a
+	// menu sent to the end of the document from inside a modal is drawn exactly
+	// where it belongs, on top, and takes no press at all. `Toast` learned this
+	// first and answers it the same way. */
+	return createPortal(
+		<div
+			className={className === undefined ? "menu-layer" : `menu-layer ${className}`}
+			popover="manual"
+			ref={box}
+			data-menu-in={owner}
+		>
+			{children}
+		</div>,
+		host ?? document.body,
+	);
 }
 
 /** The menu itself: the rows, walked with the arrows. */

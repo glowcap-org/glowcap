@@ -48,8 +48,8 @@ pancake peers. Set `codec = .capnp` and the version you need in Zig
 
 # Choosing
 
-Stay on Syrup for ordinary CapTP traffic. It is the interoperability floor, the
-signing format, and the smaller wire representation.
+Stay on Syrup for ordinary CapTP traffic. Other OCapN implementations expect
+it, pancake signs with it, and small messages stay compact.
 
 Consider Cap'n Proto only when both peers are pancake and your payloads are
 large or field-heavy enough for fixed-offset access to matter. Measure your
@@ -57,8 +57,9 @@ actual messages: the
 [performance page]($link.page('performance')) shows one small mixed-argument
 call, not a universal result.
 
-Both codecs decode borrowed views and materialize owned values only when the
-session must retain a message. [Concepts]($link.page('concepts')) explains how
+Either codec can hand the session a temporary view of a message. pancake copies
+into owned memory only when it must keep that message after decode finishes.
+[Concepts]($link.page('concepts')) explains how
 peers negotiate the surrounding protocol profile. The
 [architecture doc](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 defines the codec extension boundary for Zig consumers.

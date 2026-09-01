@@ -24,16 +24,16 @@
 // This is the same application as the Python, Racket, Rust, and Zig clients, on
 // one OCapN wire; the room cannot tell which language a member is written in.
 
-import { Directory, readPresence } from "../../lib/room_client.ts";
+import { Directory, readPresence } from "../../lib/room/client.ts";
 import { releaseUnclaimedCapabilityArguments } from "../../lib/argument_custody.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
-import { dial, isUriLocator, type RoomsDial } from "../../lib/locator.ts";
+import { dialDirectory, isUriLocator, type RoomsDirectoryDial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { Reachability } from "@pancake/iroh";
 
 export interface RunClientOptions {
-	readonly dial: RoomsDial;
+	readonly dial: RoomsDirectoryDial;
 	readonly roster?: readonly string[];
 	readonly timeoutMs?: number;
 }
@@ -149,7 +149,7 @@ if (import.meta.main) {
 			nick,
 			line,
 			{
-				dial: (address) => dial(address, runtime),
+				dial: (address) => dialDirectory(address, runtime),
 				roster: rosterStr ? rosterStr.split(",") : [nick],
 			},
 		);

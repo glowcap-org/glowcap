@@ -8,26 +8,28 @@ import type { DirId } from "../types.ts";
 import type {
 	DiagnosticRow,
 	IrcGatewayRow,
+	IrcNetworkRow,
 	ListenerRow,
 	OperatorCategory,
 	OperatorLinkRow,
+	OperatorReferenceKind,
 	OperatorReferenceRow,
 	OperatorRegistrationRow,
 	OperatorRoomRow,
 	OperatorSessionRow,
 	OperatorTroubleRow,
 	StewardshipRow,
-} from "../../../lib/room_client.ts";
+} from "../../../lib/room/client.ts";
 
 /** One named object the inspect capability reported on this directory. */
-export type { DiagnosticRow } from "../../../lib/room_client.ts";
-export type { OperatorCategory } from "../../../lib/room_client.ts";
-export type { OperatorReferenceRow } from "../../../lib/room_client.ts";
+export type { DiagnosticRow } from "../../../lib/room/client.ts";
+export type { OperatorCategory } from "../../../lib/room/client.ts";
+export type { OperatorReferenceRow } from "../../../lib/room/client.ts";
 
 /** One live listener the admin capability reported on this directory. */
-export type { ListenerRow } from "../../../lib/room_client.ts";
+export type { ListenerRow } from "../../../lib/room/client.ts";
 
-/** The operations capabilities the page knows how to hold. Advanced keeps one
+/** The operations capabilities the page knows how to hold. Holdings keeps one
  * toggle per capability; the Operations page draws one pane per held one.
  * The order here is the tab order when more than one is held. */
 export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../../../lib/boot_caps.ts";
@@ -67,17 +69,20 @@ export interface PeeringSource {
 	directory: string;
 }
 
-/** What this tab knows about its own timeline publishing while it holds the
- * viz capability: where it publishes, and whether the socket is up right now.
- * Unlike its two siblings this capability is presented to the timeline
- * endpoint rather than fetched on the directory session, so it survives a
- * directory reconnect and dies only by the reader's drop or the endpoint's
- * refusal. */
+/** What this session knows about timeline publishing while it holds the
+ * viz capability: where it publishes, whether the socket is up, and the
+ * endpoint's sentence when that swiss is dead. Unlike its two siblings this
+ * capability is presented to the timeline endpoint rather than fetched on the
+ * directory session, so it survives a directory reconnect and dies only by
+ * the reader's drop or the endpoint's refusal. */
 export interface VizPublishState {
-	/** The endpoint this tab publishes to: Settings' URL, or the page's own. */
+	/** The endpoint this session publishes to: Settings' URL, or the page's own. */
 	readonly url: string;
-	/** Whether the publish socket is connected; false while it redials. */
+	/** Whether the publish socket is connected. False while it redials, and
+	 * after a refusal — `refusal` is how those two differ. */
 	readonly connected: boolean;
+	/** Why the endpoint refused this swiss. A refusal is final; it is not a redial. */
+	readonly refusal: string | null;
 }
 
 /** One IRC channel the gateway currently bridges into this directory: the
@@ -88,6 +93,7 @@ export type IrcBridgeRow = IrcGatewayRow;
  * bridged channels as the gateway last listed them. Possession is this row
  * being non-null, the same rule as its siblings. */
 export interface IrcGatewayState {
+	readonly networks: readonly IrcNetworkRow[];
 	readonly bridged: readonly IrcBridgeRow[];
 }
 
@@ -115,6 +121,8 @@ export interface RoomsOperatorState {
 	/** The search these rows and totals answer, empty when the pane is showing
 	 * the whole directory. */
 	readonly search: string;
+	/** An exact retained-reference subtype filter, independent of free text. */
+	readonly referenceKind: OperatorReferenceKind | null;
 }
 
 /** Where a remembered operations swiss was redeemed: a directory for the
@@ -125,7 +133,7 @@ export type OpsScope = DirId | string;
  *
  * Never stored: possession's one authority is whether each capability's rows
  * are in the store, which the data layer sets on take and clears on drop or
- * reconnect. The Capabilities toggles, the Operations control, and the modal's
+ * reconnect. The Holdings toggles, the Operations control, and the modal's
  * panes are all derived from this, so none of them can disagree with the
  * capability actually being in hand. */
 export interface OpsHeld {

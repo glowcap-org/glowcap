@@ -12,7 +12,7 @@ import { installProvider, provider } from "@pancake/onion";
 import { runClient } from "../clients/deno/client.ts";
 import type { RoomsDial } from "../lib/locator.ts";
 import { roomsHost } from "../lib/locator.ts";
-import { serveDirectory } from "../server/main.ts";
+import { RoomServer } from "../server/room_server.ts";
 
 const TRANSPORT_ONION = "onion";
 const DIRECTORY_PUBLISH_BUDGET_MS = 240_000;
@@ -96,7 +96,8 @@ const accepted = {
 		}
 	},
 };
-const serving = serveDirectory(listener.host, accepted);
+const server = new RoomServer();
+const serving = server.serve(listener.host, accepted);
 
 const roster = ["onion-ada", "onion-grace"];
 console.log(`rooms onion demo: server at ${locator}`);
@@ -117,6 +118,7 @@ try {
 	try {
 		await serving;
 	} finally {
+		await server.close();
 		await serverLoop.requestClose();
 	}
 }

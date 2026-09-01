@@ -1,0 +1,89 @@
+/* Durable work waiting on the reader: one calm status line in the application,
+   and the focused card it opens. The bar carries only the fact and the door;
+   explanation and consequential choices belong in the card.
+
+   It stands above the conversation, in the column the workarea is, and the
+   workarea needs no rule for it: it is another item in that column and the
+   conversation below takes what is left. */
+.session-effect-notice {
+	/* Where a bar's words start, and how wide a bar may mark itself. One number
+	   each, because a bar that carries a mark has to take it out of its own
+	   padding to line its words up with a bar that does not, and a bar that
+	   restated either number would drift the moment the other moved: the phone
+	   inset below is a later rule of the same weight, so it silently replaced a
+	   hand-written padding and left the two bars a mark's width out of line. */
+	--notice-inset: 16px;
+	--notice-mark: 3px;
+	/* It stays with the topbar rather than scrolling off. What it carries is a
+	   decision the session is waiting on, so it is not news that has been read
+	   once: a reader who scrolls down to catch up and then wants to act should
+	   find the door where they left it, not by scrolling back for it.
+
+	   Directly under the chrome, and below it in the stack, so the two read as
+	   one band and the topbar's own frosted edge stays in front. Both variants
+	   of this bar take it, because both are the same bar. */
+	position: sticky;
+	top: var(--header-total);
+	z-index: 4;
+	flex: none;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-column);
+	padding: 7px var(--notice-inset);
+	border-bottom: 1px solid color-mix(in srgb, var(--warn) 18%, var(--rule));
+	background: color-mix(in srgb, var(--warn) 4%, var(--paper-raised));
+}
+.session-effect-notice p {
+	margin: 0;
+	color: var(--ink);
+	font-size: var(--type-ui);
+	font-weight: 650;
+	line-height: 1.35;
+	text-wrap: pretty;
+}
+/* A link held at nothing. It must stay below the rule it borrows from: these
+   selectors carry the same weight, so the one written second is the one that
+   wins, and moved above it this whole block is read and discarded.
+
+   One column, because unlike the bar it borrows from there is no act at the end
+   of the line: nothing here is for the reader to do, and a second column left
+   an empty track at the end of the row. It carries a mark instead, in the
+   colour the page gives to a state somebody else set, so it reads as a
+   condition rather than as an error this reader caused. */
+.session-paused-notice {
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0;
+	padding-left: calc(var(--notice-inset) - var(--notice-mark));
+	/* The mark carries the emphasis so the band does not have to: the page's full
+	   warning ink, over a fill left at a ninth of it. Mixed with `transparent`
+	   instead, one declaration would land at a different strength in each theme,
+	   because what it composites onto is the bar behind it, and the strength it
+	   landed on in light was too faint to see. */
+	border-left: var(--notice-mark) solid var(--warn);
+	border-bottom-color: color-mix(in srgb, var(--warn) 30%, var(--rule));
+	background: color-mix(in srgb, var(--warn) 9%, var(--paper-raised));
+}
+.session-paused-notice p {
+	font-weight: 600;
+}
+/* Rows: each session it found is a name with the act that takes it at the end
+   of the line. */
+.session-recovery-modal {
+	width: min(var(--card-rows), 100%);
+}
+.session-recovery-modal > .lead {
+	margin-bottom: 2px;
+}
+.session-recovery-modal .entry > .actions {
+	justify-content: flex-end;
+}
+@media (max-width: 520px) {
+	.session-effect-notice {
+		gap: var(--gap-group);
+		--notice-inset: 12px;
+	}
+	.session-effect-notice p {
+		font-size: var(--type-caption);
+	}
+}

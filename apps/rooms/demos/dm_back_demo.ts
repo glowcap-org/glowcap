@@ -1,8 +1,8 @@
 // A member replies to a non-listening sender across a redeemed introduction —
 // the bidirectional completion of the three-party handoff, over loopback TCP.
 //
-// This is the native, headless-Chromium-free sibling of `web_dm_test.ts`: it
-// drives the same `room_client.ts` `DirectMessage` the browser page uses, so it
+// This is the native, headless-Chromium-free sibling of `web/dm_test.ts`: it
+// drives the same `lib/room/client.ts` `DirectMessage` the browser page uses, so it
 // proves the sender half (`Session.sendRedeeming` surfacing the direct exporter
 // session, ADR-0088) without a browser. Carol never listens, exactly like a
 // browser peer.
@@ -23,10 +23,10 @@ import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { serveDirectory } from "../server/main.ts";
+import { RoomServer } from "../server/room_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
-import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
+import { DirectMessage, Directory, Room } from "../lib/room/client.ts";
 import { waitUntil } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
@@ -49,7 +49,8 @@ async function main(): Promise<void> {
 	// The room.
 	const room = await roomsListen("127.0.0.1", 0);
 	const roomLocator = loopbackTcpDesignator(room.port);
-	const roomServe = serveDirectory(room.host, room);
+	const server = new RoomServer();
+	const roomServe = server.serve(room.host, room);
 
 	// Bob: one Host that listens (the redeem target) and dials the room (so
 	// `register` can fetch his `dm` on the room session).
@@ -119,6 +120,7 @@ async function main(): Promise<void> {
 	await bobRuntime.close();
 	await room.close();
 	await roomServe.catch(() => {});
+	await server.close();
 	process.exit(0);
 }
 

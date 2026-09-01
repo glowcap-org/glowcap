@@ -1,17 +1,17 @@
 # ocapnviz — OCapN network topology visualizer
 
-A real-time visualizer for OCapN networks. Peers and sessions animate as a
+ocapnviz draws CapTP sessions and messages on a timeline so you can watch a
+live Rooms server or replay a recorded run. Peers and sessions animate as a
 deterministic entity world advanced by a playback clock and drawn with PixiJS.
 Each peer carries an implementation profile (`goblins`, `pancake`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
-ocapnviz is the protocol-timeline plane of pancake's observability surface. The
-[active backlog](../../docs/planning/ocapnviz-backlog.md) records remaining viz
-work; [the roadmap](../../docs/roadmap.md) owns the object-layer and control
-capability items that sit above it. It replays
-timelines that `pancake griddle run` produces, converted by
-`scripts/griddle-import.ts`, and it reads the same schema live from a running
-pancake host. It runs on its own Deno toolchain under `apps/ocapnviz/`.
+The [active backlog](../../docs/planning/ocapnviz-backlog.md) records remaining viz
+work; [the roadmap](../../docs/roadmap.md) lists the object-layer and control
+capability items that sit above it. ocapnviz replays timelines that
+`pancake griddle run` produces, converted by `scripts/griddle-import.ts`, and it
+reads the same schema live from a running pancake host. It runs on its own Deno
+toolchain under `apps/ocapnviz/`.
 
 ## Quick start
 
@@ -46,7 +46,7 @@ npm-compat layer and keep holding the port. A vite process showing `PPID 1` in
 Switch the top-bar mode to **Live** and give the left pane the trace sturdyref
 printed as `ROOMS-VIZ-LISTENING`. The rooms server publishes one when started
 with `--viz` (see
-[rooms developing](../rooms/developing.md)). ocapnviz lazily loads its wasm
+[rooms operating](../rooms/operating.md#watching-the-room-live)). ocapnviz lazily loads its wasm
 Host, enlivens that read capability, and grants the endpoint an inbox. The
 endpoint admits no socket without its capability; the sturdyref's swissnum is
 that capability and the viewer presents it on the socket itself, so the pasted

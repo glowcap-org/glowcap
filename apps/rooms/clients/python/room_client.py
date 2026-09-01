@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
+import re
 import sys
 from dataclasses import dataclass
 
@@ -30,8 +31,8 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import (
-    tcp,  # noqa: E402
+from pancake import (  # noqa: E402
+    tcp,
     Host,
     Session,
     Runtime,
@@ -44,7 +45,7 @@ from pancake.iroh import IrohConfig, Reachability, provider as iroh_provider  # 
 DIRECTORY = "directory"
 OPEN, ENTER = "open", "enter"
 LIST_PUBLICATIONS, WATCH_PUBLICATIONS = "listPublications", "watchPublications"
-REGISTER, INTRODUCE = "register", "introduce"
+REGISTER, INTRODUCE, MEMBER_REGISTRATION = "register", "introduce", "memberRegistration"
 SUBSCRIBE, POST, LEAVE, NOTIFY = "subscribe", "post", "leave", "notify"
 DM = "dm"
 
@@ -54,6 +55,17 @@ DM = "dm"
 # retry, not a silent hang, and the window sits far above the round-trip a
 # healthy directory answers within.
 REGISTER_ACK_TIMEOUT_S = 10.0
+MAX_UNREAD_LINES = 256
+REGISTRATION_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _registration_id(raw, context: str) -> str:
+    if not isinstance(raw, str) or REGISTRATION_ID.fullmatch(raw) is None:
+        raise ValueError(f"{context} did not name a valid registration ID")
+    return raw
 
 
 @dataclass(frozen=True)
@@ -66,19 +78,22 @@ class RoomInfo:
     kind: str
     origin: str
     proof: str
+    offers: str | None
 
 
 def _room(raw) -> RoomInfo | None:
-    if not isinstance(raw, list) or len(raw) != 6:
+    if not isinstance(raw, list) or len(raw) != 7:
         return None
-    name, count_raw, entry_id, kind, origin, proof = raw[:6]
+    name, count_raw, entry_id, kind, origin, proof, offers = raw
     if not all(isinstance(value, str) for value in (name, entry_id, kind, origin, proof)):
         return None
     if count_raw is not None and (
         isinstance(count_raw, bool) or not isinstance(count_raw, int) or count_raw < 0
     ):
         return None
-    return RoomInfo(name, count_raw, entry_id, kind, origin, proof)
+    if offers is not None and offers not in ("observer", "participant"):
+        return None
+    return RoomInfo(name, count_raw, entry_id, kind, origin, proof, offers)
 
 
 def _rooms(raw) -> "list[RoomInfo]":
@@ -114,20 +129,44 @@ def _watch_rooms(raw) -> "list[RoomInfo]":
     return _rooms(rooms)
 
 
-# Every rooms peer is a pancake peer, so the room speaks pancake's own
-# profile rather than the interop floor: the ``pancake-next`` CapTP version
-# over the word-aligned Cap'n Proto codec. The two are named together because
-# they are one decision, agreed out of band by every peer reading the same
-# configuration. This is the Python spelling of the pair
-# `apps/rooms/lib/protocol.ts` carries for the TypeScript peers.
-ROOMS_CODEC = "capnp"
-ROOMS_CAPTP_VERSION = "next"
+def _watch_room_event(args) -> "tuple[str, RoomInfo | None]":
+    """Decode one complete watcher callback without treating malformed rows as
+    an event the terminal simply did not care to display."""
+    if not isinstance(args, list) or not args or not isinstance(args[0], str):
+        raise ValueError("the directory sent a malformed watch notification")
+    kind = args[0]
+    if kind in ("opened", "closed", "count"):
+        room = _room(args[1:])
+        if room is None:
+            raise ValueError("the directory sent a malformed room watch notification")
+        return kind, room
+    if kind in ("registered", "unregistered"):
+        if (
+            len(args) != 4
+            or not isinstance(args[1], str)
+            or not args[1]
+            or isinstance(args[2], bool)
+            or not isinstance(args[2], int)
+            or args[2] < 0
+        ):
+            raise ValueError("the directory sent a malformed member watch notification")
+        _registration_id(args[3], f'watch {kind} for "{args[1]}"')
+        return kind, None
+    if kind == "truncated":
+        if (
+            len(args) != 2
+            or isinstance(args[1], bool)
+            or not isinstance(args[1], int)
+            or args[1] < 0
+        ):
+            raise ValueError("the directory sent a malformed watch truncation")
+        return kind, None
+    raise ValueError(f"the directory sent an unknown watch event {kind!r}")
 
 
 def rooms_host() -> Host:
-    """A Host wearing the room's profile. Every dial below goes through it, so
-    the profile is stated once rather than per transport."""
-    return Host(codec=ROOMS_CODEC, captp_version=ROOMS_CAPTP_VERSION)
+    """A Host wearing the core-authored native profile."""
+    return Host(profile="native")
 
 
 async def _dial(locator: str) -> "tuple[Runtime, Session]":
@@ -196,8 +235,7 @@ class Directory:
         def observer(verb: str, args: list):
             if verb != NOTIFY:
                 raise ValueError(f"watch inbox has no method {verb!r}")
-            kind = args[0] if args and isinstance(args[0], str) else "count"
-            room = _room(args[1:])
+            kind, room = _watch_room_event(args)
             if room is not None:
                 on_event(kind, room)
             return None
@@ -205,7 +243,7 @@ class Directory:
         inbox = self.session.spawn(observer)
         return _watch_rooms(await self.session.send(self._directory, WATCH_PUBLICATIONS, [inbox]))
 
-    async def register(self, nick: str, locator: str) -> None:
+    async def register(self, nick: str, locator: str) -> str:
         """Announce a dialable DM member. Resolves once the directory acks
         ``registered``, and raises
         :class:`TimeoutError` if that ack never lands, so a caller can retry
@@ -215,14 +253,23 @@ class Directory:
 
         def inbox(verb: str, args: list):
             if verb == NOTIFY and args and args[0] == "registered" and not done.done():
-                done.set_result(None)
+                if len(args) != 3 or args[1] != nick:
+                    raise ValueError(f'register("{nick}") received a malformed acknowledgement')
+                done.set_result(_registration_id(args[2], f'register("{nick}")'))
             return None
 
         observer = self.session.spawn(inbox)
         await self.session.send(self._directory, REGISTER, [nick, locator, observer])
-        await asyncio.wait_for(done, REGISTER_ACK_TIMEOUT_S)
+        return await asyncio.wait_for(done, REGISTER_ACK_TIMEOUT_S)
 
-    async def introduce(self, nick: str):
+    async def member_registration(self, peer: str) -> str:
+        """Return the exact live generation of ``peer``'s nickname."""
+        return _registration_id(
+            await self.session.send(self._directory, MEMBER_REGISTRATION, [peer]),
+            f'memberRegistration("{peer}")',
+        )
+
+    async def introduce(self, nick: str, registration_id: str | None = None):
         """Ask the directory to introduce us to a registered member; returns a
         live capability to the inbox that member minted for us (redeemed by direct
         dial). Refused ``introduction-pending`` on genuine first contact; retry
@@ -231,7 +278,9 @@ class Directory:
 
         :meth:`register` first: the directory reads the asker's name off its own
         registration, so an unregistered caller is refused ``not-registered``."""
-        ref = await self.session.send(self._directory, INTRODUCE, [nick])
+        expected = registration_id or await self.member_registration(nick)
+        expected = _registration_id(expected, f'introduce("{nick}")')
+        ref = await self.session.send(self._directory, INTRODUCE, [nick, expected])
         if ref is None:
             raise ValueError(f'introduce("{nick}") did not return a capability')
         return ref
@@ -299,8 +348,10 @@ class Room:
     def __init__(self, session: Session, room) -> None:
         self._session = session
         self._room = room
-        self._lines: asyncio.Queue = asyncio.Queue()
+        self._lines: asyncio.Queue = asyncio.Queue(maxsize=MAX_UNREAD_LINES)
         self._leaving = False
+        self._ended = False
+        self._failure: Exception | None = None
 
     @classmethod
     async def subscribe(cls, session: Session, room_ref, nick: str) -> "Room":
@@ -333,6 +384,10 @@ class Room:
 
     async def _messages(self):
         while True:
+            if self._ended and self._lines.empty():
+                if self._failure is not None:
+                    raise self._failure
+                return
             message = await self._lines.get()
             if message is None:  # sentinel: the stream has ended
                 return
@@ -347,7 +402,28 @@ class Room:
         return None
 
     def _emit(self, sender: str, text: str, presence: "Presence | None" = None) -> None:
-        self._lines.put_nowait(Message(sender, text, sender == "room", presence))
+        if self._ended:
+            raise RuntimeError("the room inbox is closed")
+        try:
+            self._lines.put_nowait(Message(sender, text, sender == "room", presence))
+        except asyncio.QueueFull:
+            self._failure = RuntimeError(
+                f"the room retained its maximum {MAX_UNREAD_LINES} unread lines"
+            )
+            self._ended = True
+            raise self._failure
+
+    def _finish(self) -> None:
+        if self._ended:
+            return
+        self._ended = True
+        # If the queue is full, no wake is needed: its reader is not parked and
+        # observes `_ended` after draining the last retained line. Otherwise the
+        # sentinel wakes an empty reader and follows every already-admitted line.
+        try:
+            self._lines.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
 
     async def _until_closed(self) -> None:
         try:
@@ -358,4 +434,4 @@ class Room:
             if not self._leaving:
                 print(f"rooms: lost the connection, {err}", file=sys.stderr)
         finally:
-            self._lines.put_nowait(None)  # end the messages stream
+            self._finish()

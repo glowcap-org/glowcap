@@ -4,6 +4,11 @@ import {
 	WORKSPACE_STATE_VERSION,
 } from "../../lib/rooms_state.ts";
 import { registrationId } from "./registration.ts";
+import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+
+export function fixtureSturdyref(authority: string, swiss: string): string {
+	return formatRoomsSturdyref(roomsLocator(authority), swiss);
+}
 
 /** A fresh, complete workspace document for persistence and schema scenarios. */
 export function workspaceFixture(): RoomsWorkspaceState {
@@ -26,9 +31,14 @@ export function workspaceFixture(): RoomsWorkspaceState {
 					directory: "ocapn://directory.id",
 					name: "general",
 					held: false,
-					link: "ocapn://directory.id/s/room-link",
-					steward: "ocapn://directory.id/s/moderator",
-					irc: { nick: "pancake", account: "acct", password: "secret" },
+					link: fixtureSturdyref("ocapn://directory.id", "room-link"),
+					steward: fixtureSturdyref("ocapn://directory.id", "moderator"),
+					bridgeIntent: {
+						scope: "Libera",
+						action: "link",
+						answers: { nick: "pancake", account: "acct" },
+						secretsGiven: true,
+					},
 					standing: null,
 					draft: "half written",
 				},
@@ -50,7 +60,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 				nick: "ada",
 				label: "private study",
 				from: "bo",
-				link: "ocapn://directory.id/s/invited-room",
+				link: fixtureSturdyref("ocapn://directory.id", "invited-room"),
 			}],
 			active: "dm-id",
 			standing: "",
@@ -68,7 +78,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 					{ capability: "peering", scope: "ocapn://directory.id", swiss: "peering-swiss" },
 					{ capability: "viz", scope: "ws://rooms.test/viz", swiss: "viz-swiss" },
 				],
-				archivePeer: "ocapn://archive.iroh/s/archive",
+				archivePeer: fixtureSturdyref("ocapn://archive.iroh", "archive"),
 			},
 			peering: [],
 		},
@@ -77,7 +87,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 			notifyOn: true,
 			railOpen: false,
 			rosterOpen: true,
-			settingsTab: "capabilities",
+			settingsTab: "holdings",
 			opsPane: "operator",
 		},
 	};

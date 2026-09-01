@@ -79,13 +79,11 @@ same forwarding, backpressure, and idle-reclaim behavior.
 A transport symbol (`iroh`, `noise-tcp`, `keyed-tcp`, `webrtc`, `inproc`, and
 the rest) is how you name a peer.
 The relay is a WebSocket that forwards bytes to someone who already has one of
-those names. A dial dispatches on a
-[locator]($link.page('concepts'))'s transport symbol, and the relay registers
-none of those residents.
+those names. It does not publish itself as a transport.
 [Choosing a transport]($link.page('transports/choosing')) lists them.
 
-A `keyed-relay` locator names the waiting peer's key. The dialing host's
-configured relay URL is how that resident reaches the peer
+A `keyed-relay` locator names the waiting peer's key. The dialing host uses its
+configured relay URL to reach that waiting peer
 ([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 `noise-relay` uses the same forwarding path and seals the CapTP stream before
 it begins. Peers dialing an ordinary netlayer never touch the relay service.
@@ -287,8 +285,9 @@ A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
 the advertised locator survives a restart. TypeScript, Python, Rust, and
 Racket provide managed `noise-relay` listeners. Zig registers through the
-native relay provider (`pancake.module("pancake_native_relay")`, which builds
-Mbed TLS from source) and `driver.listen`, with platform trust for `wss://`.
+native relay provider (the `"pancake_native_relay"` build module, which
+builds Mbed TLS from source) and `driver.listen`, with platform trust for
+`wss://`.
 A browser never listens.
 
 Cleartext keyed registration uses the same constructor with the keyed profile:

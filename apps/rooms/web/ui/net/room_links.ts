@@ -1,23 +1,23 @@
 // Durable room links on an already-open directory session.
 
-import { type Ref } from "@pancake/runtime";
-import { roomCalledAs } from "../../../lib/room_client.ts";
-import { joinedForLink } from "../joining.ts";
 import * as store from "../store.ts";
+import { PublicationNotFound, type Ref } from "@pancake/runtime";
+import { roomCalledAs } from "../../../lib/room/client.ts";
+import { roomAuthorityToken } from "../../../lib/room/authority.ts";
+import { joinedForLink, roomLinkDestination } from "../joining.ts";
 import type { DirId } from "../types.ts";
-import { reason, trouble } from "./common.ts";
-import { convSession, directoryLocators, dirSession, isCurrent, type Live } from "./live.ts";
-import { linkDirectory } from "./bootstrap.ts";
+import { MEMBERSHIP_NOT_CONNECTED, reason, trouble } from "./common.ts";
+import { convSession, dirSession, isCurrent, type Live } from "./live.ts";
 import { enterRoom } from "./rooms.ts";
-import { roomsSturdyrefForSession } from "../../../lib/locator.ts";
+import type { RoomsPageContext } from "../page.ts";
 
 /** Create or recover one room's durable link, keeping operational failure as
  * the answer to the control that asked instead of turning it into a transient
  * conversation line. */
-export async function createRoomLink(key: string): Promise<string> {
-	const session = convSession(key);
+export async function createRoomLink(page: RoomsPageContext, key: string): Promise<string> {
+	const session = convSession(page, key);
 	if (session === null || !session.rooms.has(key)) {
-		return "This room membership is not connected right now.";
+		return MEMBERSHIP_NOT_CONNECTED;
 	}
 	try {
 		await mintRoomLink(session, key);
@@ -29,20 +29,27 @@ export async function createRoomLink(key: string): Promise<string> {
 
 /** Mint a complete durable authority for one room this tab is in. */
 export async function mintRoomLink(session: Live, key: string): Promise<string> {
+	const page = session.page;
 	const room = session.rooms.get(key);
 	if (room === undefined) throw new Error("this tab is not in that room");
 	const minted = await room.link();
-	const linked = linkDirectory(minted);
+	const linked = roomLinkDestination(minted, "");
 	if (linked === null) throw new Error("the room Host answered with an invalid sturdyref");
-	store.noteRoomLink(key, minted);
-	directoryLocators.set(session.id, linked.address);
-	store.patchDir(session.id, { locator: linked.address });
+	store.noteRoomLink(page.projection, key, minted);
+	session.page.live.directoryLocators.set(session.id, linked.address);
+	store.patchDir(page.projection, session.id, { locator: linked.address });
 	return minted;
 }
 
 /** Redeem a reader-supplied link on the directory session its locator selected. */
-export function redeemRoomLink(dir: DirId, link: string, label: string, nick: string): Promise<string> {
-	return redeemOn(dir, link, label, nick);
+export function redeemRoomLink(
+	page: RoomsPageContext,
+	dir: DirId,
+	link: string,
+	label: string,
+	nick: string,
+): Promise<string> {
+	return redeemOn(page, dir, link, label, nick);
 }
 
 /** Re-enter one retained private-room conversation on the new session for its
@@ -50,13 +57,14 @@ export function redeemRoomLink(dir: DirId, link: string, label: string, nick: st
  * conversation identity; unlike a reader's paste, reconnect must not mint a
  * second row or switch what they are reading. */
 export function reenterRoomLink(
+	page: RoomsPageContext,
 	dir: DirId,
 	key: string,
 	link: string,
 	label: string,
 	nick: string,
 ): Promise<string> {
-	return redeemOn(dir, link, label, nick, key);
+	return redeemOn(page, dir, link, label, nick, key);
 }
 
 /** Bring the link to life on the directory it names, and enter the room.
@@ -65,19 +73,35 @@ export function reenterRoomLink(
  * not know that durable authority. A room that refuses `subscribe` is a live
  * room saying no, which is a different and often actionable answer. */
 async function redeemOn(
+	page: RoomsPageContext,
 	dir: DirId,
 	link: string,
 	label: string,
 	nick: string,
 	reentryKey?: string,
 ): Promise<string> {
-	const session = dirSession(dir);
+	const projection = page.projection;
+	const session = dirSession(page, dir);
 	if (session === null) return "not connected to the room directory yet";
 	let room: Ref;
 	try {
-		room = await session.dir.session.enliven(roomsSturdyrefForSession(link, session.dir.session));
+		room = await session.dir.session.enliven(link);
 	} catch (err) {
 		if (!isCurrent(session)) return "the connection to that directory ended before the link was answered";
+		if (err instanceof PublicationNotFound && reentryKey != null) {
+			const retained = store.getConv(projection, reentryKey);
+			if (retained?.type === "room" && retained.link === link) {
+				store.clearRoomAuthority(projection, reentryKey, {
+					kind: "room",
+					token: roomAuthorityToken(link),
+					claimable: false,
+				});
+				store.setRoomMembership(projection, reentryKey, "unavailable");
+				return retained.held
+					? "that room entry link was retired. Somebody in the room must share a current link"
+					: "that room entry link was retired. Open the room controls and restore access by name";
+			}
+		}
 		return `that directory has no room by that link: ${reason(err)}`;
 	}
 	if (!isCurrent(session)) {
@@ -86,9 +110,9 @@ async function redeemOn(
 	}
 	const already = (key: string): "" => {
 		session.dir.session.release(room);
-		store.noteRoomLink(key, link);
-		if (reentryKey == null) store.switchTo(key);
-		store.deliver(key, store.sysItem("You are already in this room."));
+		store.noteRoomLink(projection, key, link);
+		if (reentryKey == null) store.switchTo(projection, key);
+		store.deliver(projection, key, store.sysItem(projection, "You are already in this room."));
 		return "";
 	};
 	for (const [key, held] of session.rooms) {
@@ -106,13 +130,20 @@ async function redeemOn(
 		releaseUnseated(session, room);
 		return "";
 	}
-	const here = joinedForLink(store.joinedRooms(dir), new Set(session.rooms.keys()), link, null);
+	const here = joinedForLink(store.joinedRooms(projection, dir), new Set(session.rooms.keys()), link, null);
 	if (here !== null) return already(here);
+	const reentryConv = reentryKey == null ? null : store.getConv(projection, reentryKey);
 	return await enterRoom(
+		page,
 		dir,
 		name,
-		store.dirNick(dir) || nick,
-		reentryKey == null ? { room, link, select: true } : { held: { key: reentryKey, room }, link, reentry: true },
+		store.dirNick(projection, dir) || nick,
+		reentryKey == null ? { room, link, select: true } : {
+			held: { key: reentryKey, room },
+			link,
+			manager: reentryConv?.type === "room" ? reentryConv.manager : undefined,
+			reentry: true,
+		},
 	);
 }
 
@@ -124,6 +155,6 @@ function releaseUnseated(session: Live, room: Ref): void {
 	try {
 		session.dir.session.release(room);
 	} catch (error) {
-		trouble("an unseated room-link reference could not be released", error);
+		trouble(session.page.projection, "an unseated room-link reference could not be released", error);
 	}
 }

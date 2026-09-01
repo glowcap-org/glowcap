@@ -3,16 +3,19 @@
 // Reached by name or by a held reference; everything after that meeting is the
 // same subscribe. Callers still go through `rooms.ts`.
 
-import { Ref } from "@pancake/runtime";
-import { Room } from "../../../lib/room_client.ts";
+import * as store from "../store.ts";
+import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
+import type { RoomPolicy } from "../../../lib/room/policy.ts";
+import { PublicationNotFound, Ref, retainCleanupFailures } from "@pancake/runtime";
+import { Room } from "../../../lib/room/client.ts";
 import { enterOrOpenResult } from "../../../lib/enter_room.ts";
 import { mayPresentNameVoucher, suggestedNick } from "../../../lib/limits.ts";
 import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
-import * as store from "../store.ts";
 import { type DirId } from "../types.ts";
 import { listedOccupancy } from "../joining.ts";
 import { reason, trouble } from "./common.ts";
 import { dirAddress, dirSession, isCurrent } from "./live.ts";
+import type { RoomsPageContext } from "../page.ts";
 import { tellStanding } from "./standing.ts";
 import { setRoomTyping } from "./typing.ts";
 import { restoreStewardship } from "./stewardship.ts";
@@ -22,6 +25,9 @@ import { hydrateRoom } from "./history.ts";
 import { advertisePresence } from "./reachable.ts";
 import { automaticSelectionAvailable } from "./bootstrap.ts";
 import { projectRoomMessage } from "./room_messages.ts";
+import { retireRoomMembership } from "./room_membership.ts";
+import { RoomManagerMismatch } from "../../../lib/room/manager.ts";
+import { roomAuthorityToken } from "../../../lib/room/authority.ts";
 
 interface EnterRoomOptions {
 	attempt?: number;
@@ -47,6 +53,7 @@ interface EnterRoomOptions {
 	/** A room link this join already holds, so the conversation can copy it
 	 * without asking the room to mint another. */
 	link?: string;
+	manager?: string;
 }
 
 const REENTRY_CLAIM_RETRY_MS = 500;
@@ -60,11 +67,13 @@ const REENTRY_CLAIM_RETRIES = 8;
 // duplicated, which the room reads as the same connection re-claiming its place
 // and answers without telling the other members anything happened.
 export async function enterRoom(
+	page: RoomsPageContext,
 	dir: DirId,
 	name: string,
 	nick: string,
 	options: EnterRoomOptions = {},
 ): Promise<string> {
+	const projection = page.projection;
 	const {
 		attempt = 0,
 		held,
@@ -75,8 +84,8 @@ export async function enterRoom(
 		signal,
 	} = options;
 	if (signal?.aborted) return "";
-	store.setRequestedDirNick(dir, requested);
-	const session = dirSession(dir);
+	store.setRequestedDirNick(projection, dir, requested);
+	const session = dirSession(page, dir);
 	if (session === null) {
 		// Never silently: a caller that reaches here with no session has a live
 		// "Joining…" button waiting on an answer that will not come.
@@ -88,41 +97,76 @@ export async function enterRoom(
 	// two copies of the subscribe, the nick retry, and the bookkeeping.
 	const given = held?.room ?? options.room;
 	const publicationId = options.publicationId ??
-		(given === undefined && held === undefined ? store.enteredPublication(dir, name)?.id : undefined);
+		(given === undefined && held === undefined ? store.enteredPublication(projection, dir, name)?.id : undefined);
 	const shown = name === "" ? "a room" : name;
 	// A link-join does not know listed-ness until subscribe answers. Seat
 	// provisionally as held; a listed arrival moves it onto the public key
 	// before the conversation is committed.
 	let key = held?.key ??
 		(options.room !== undefined
-			? store.heldRoomKey()
-			: publicationId === undefined
-			? store.roomKey(dir, name)
-			: store.publishedRoomKey(dir, publicationId));
+			? store.heldRoomKey(projection)
+			: store.resolveRoomKey(projection, dir, name, publicationId));
 	let seatedHeld = held !== undefined || options.room !== undefined;
+	let roomLink = options.link;
+	let managerLink = options.manager;
 	try {
 		let ref = given;
 		if (ref === undefined) {
 			if (publicationId === undefined) {
 				const found = await enterOrOpenResult(session.dir, name);
 				ref = found.ref;
-				if (found.opened) session.stewardClaimable.add(key);
+				// Only a managed open mints these, so an ordinary entry answers
+				// with neither. Keep what the caller already holds when it does:
+				// re-entering a room this workspace manages goes down this arm
+				// every time, and overwriting here drops the saved capability
+				// while the store keeps its string, leaving the page showing a
+				// manager it can no longer use.
+				roomLink = found.roomLink ?? roomLink;
+				managerLink = found.managerLink ?? managerLink;
 			} else {
 				ref = await session.dir.enterPublication(publicationId);
 			}
 		}
 		if (signal?.aborted) return "";
-		const saved = store.getConv(key);
-		const savedIrc = saved?.type === "room" ? saved.irc : undefined;
+		const saved = store.getConv(projection, key);
+		const savedBridge = saved?.type === "room" ? saved.bridgeIntent : undefined;
 		const next = await Room.subscribe(
 			session.dir.session,
 			ref,
 			nick,
-			(from, on) => setRoomTyping(key, from, on),
-			voucher,
+			{
+				onTyping: (from, on) => setRoomTyping(page, key, from, on),
+				voucher,
+				onAuthorityChanged: (changedRoom, change) => {
+					const current = dirSession(page, dir);
+					const active = current?.rooms.get(key);
+					if (current == null || (active != null && active !== changedRoom)) return;
+					store.clearRoomAuthority(projection, key, change);
+				},
+				onPolicyChanged: (_changedRoom, policy) => store.setRoomPolicy(projection, key, policy),
+			},
 		);
+		const policy = await next.policy();
+		let retiredManager = "";
+		if (managerLink != null) {
+			try {
+				await next.takeManager(managerLink);
+			} catch (error) {
+				if (error instanceof PublicationNotFound || error instanceof RoomManagerMismatch) {
+					store.clearRoomAuthority(projection, key, {
+						kind: "manager",
+						token: roomAuthorityToken(managerLink),
+						claimable: false,
+					});
+					managerLink = undefined;
+					retiredManager = error instanceof PublicationNotFound
+						? "This room's saved manager capability was retired."
+						: "This room's saved manager capability belongs to a different room.";
+				} else throw await retainCleanupFailures(error, [() => next.leave()]);
+			}
+		}
 		if (options.room !== undefined && held === undefined && listedOccupancy(next.listed, name)) {
-			key = store.roomKey(dir, name);
+			key = store.resolveRoomKey(projection, dir, name);
 			seatedHeld = false;
 		}
 		if (!isCurrent(session) || signal?.aborted) {
@@ -133,8 +177,12 @@ export async function enterRoom(
 			return "";
 		}
 		const prev = session.rooms.get(key);
+		if (prev != null) {
+			store.retireRoomLineIds(projection, key);
+			session.refiling.delete(key);
+		}
 		session.rooms.set(key, next);
-		void replayPeering();
+		void replayPeering(page);
 		// A membership held on this same session has just been replaced by the
 		// subscribe above, which the room treats as this connection re-claiming its
 		// place. Only the old stream is ours to end: telling the room we are
@@ -146,20 +194,22 @@ export async function enterRoom(
 			// The new membership is already committed. Cleanup of the replaced
 			// wrapper is therefore diagnostic, never grounds to report that joining
 			// failed or to remove the new room.
-			trouble("replaced membership cleanup failed", error);
+			trouble(projection, "replaced membership cleanup failed", error);
 		}
 		// Commit the nick we actually claimed. Two tabs of one browser share the
 		// persisted nick, so a collision may have suffixed it below; reflect the
 		// real name in the store so a member never sees a stale one.
-		store.setDirNick(dir, nick);
+		store.setDirNick(projection, dir, nick);
 		// And say so where the reader types. Their own bubbles carry no name, so
 		// the only other trace of a rename was the rail foot — far away, absent
 		// on a phone — while everyone else saw the new name, and mentions of the
 		// asked-for one no longer reached them.
 		if (requested.toLowerCase() !== nick.toLowerCase()) {
 			store.deliver(
+				projection,
 				key,
 				store.sysItem(
+					projection,
 					`You are "${nick}" here. "${requested}" is taken. Mentions of ${requested} will not reach you.`,
 				),
 			);
@@ -173,56 +223,60 @@ export async function enterRoom(
 			session.rooms.delete(key);
 			return "";
 		}
-		enteredRoom(dir, shown, requested, {
+		enteredRoom(page, dir, shown, requested, {
 			key: seatedHeld ? key : undefined,
 			held: seatedHeld,
 			publicationId,
-			link: options.link,
-			stewardClaimable: session.stewardClaimable.has(key),
+			link: roomLink,
+			manager: managerLink,
+			policy,
+			membershipKind: next.membershipKind,
 		}, select);
-		if (savedIrc === null) {
-			try {
-				await next.disconnectIrc();
-			} catch (error) {
-				store.deliver(
-					key,
-					store.sysItem(`Could not restore your Rooms-only IRC choice: ${reason(error)}`),
-				);
-			}
-		} else if (savedIrc != null) {
-			try {
-				await next.ircIdentity(savedIrc.nick, savedIrc.account, savedIrc.password);
-			} catch (error) {
-				store.deliver(
-					key,
-					store.sysItem(`Could not restore your IRC identity: ${reason(error)}`),
-				);
+		if (retiredManager !== "") store.deliver(projection, key, store.sysItem(projection, retiredManager));
+		// What this reader last told the bridge, told again on the new membership.
+		// A secret is never in the workspace, so a submission that needed one is
+		// handed back to the reader rather than replayed with a blank where the
+		// credential was.
+		if (savedBridge != null) {
+			if (savedBridge.secretsGiven) {
+				store.setRoomBridgeIssue(projection, key, "Answer this bridge again to restore its saved identity.");
+			} else {
+				try {
+					await next.submitBridgeForm(savedBridge.action, savedBridge.answers);
+				} catch (error) {
+					store.deliver(
+						projection,
+						key,
+						store.sysItem(projection, `Could not restore what you told this bridge: ${reason(error)}`),
+					);
+				}
 			}
 		}
-		const entered = store.getConv(key);
-		if (entered?.type === "room") hydrateRoom(entered);
+		const entered = store.getConv(projection, key);
+		if (entered?.type === "room") hydrateRoom(page, entered);
 		// What this membership was handed. Recorded after the conversation exists
 		// and from the membership that answered, so a reader's command list is the
 		// room's answer rather than this file's opinion of what rooms offer.
-		store.setGrants(key, next.canSetTopic ? new Set(["topic"]) : new Set());
+		store.setGrants(projection, key, next.canSetTopic ? new Set(["topic"]) : new Set());
 		// A durable steward is minted only by an explicit act. Reconnecting a
 		// conversation that already retained one is different: take that exact
 		// bearer authority back up, and surface any failure rather than silently
 		// losing moderation while leaving the interface looking privileged.
-		restoreStewardship(key, next, () => isCurrent(session));
+		restoreStewardship(page, key, next, () => isCurrent(session));
 		// What the room kept of itself, stood under a log that has nothing yet.
 		// The membership identity is checked again when the answer lands: a slow
 		// answer from the room we replaced must not prepend itself to the new room's
 		// log or settle its loading state.
-		if (store.getConv(key)?.history.length === 0) {
-			store.setEarlierHistory(key, "loading");
+		if (store.historyOf(projection, key).length === 0) {
+			store.setEarlierHistory(projection, key, "loading");
 			void next.history().then((lines) => {
 				if (!isCurrent(session) || session.rooms.get(key) !== next) return;
 				if (lines.length === 0) {
-					store.setEarlierHistory(key, "empty");
+					store.setEarlierHistory(projection, key, "empty");
 					return;
 				}
 				store.prependHistory(
+					projection,
 					key,
 					lines.map((line) => ({
 						from: line.from,
@@ -232,12 +286,12 @@ export async function enterRoom(
 					})),
 					"Earlier messages, kept by this room",
 				);
-				store.setEarlierHistory(key, "shown");
+				store.setEarlierHistory(projection, key, "shown");
 			}).catch(() => {
 				if (!isCurrent(session) || session.rooms.get(key) !== next) return;
 				// History is an optional room verb. A refusal says that this room did
 				// not provide earlier messages; it must still settle the visible wait.
-				store.setEarlierHistory(key, "unavailable");
+				store.setEarlierHistory(projection, key, "unavailable");
 			});
 		}
 		// A membership is a connection's, and this reader's own standing is not.
@@ -245,23 +299,25 @@ export async function enterRoom(
 		// them back in. This membership has heard nothing, whatever the one it
 		// replaced was told, so the record is dropped before asking.
 		session.standingTold.delete(key);
-		tellStanding(key);
+		tellStanding(page, key);
 		// The one failure here that used to be perfectly silent: the reader's own
 		// granted name sitting on their own ignore list — put there against a
 		// previous holder of the name, or by a slip — hid every line from that
 		// name. Their own lines are exempt now, so what remains hidden is other
 		// people using it, and that is still worth a sentence where they will
 		// type: nothing else on the screen says why those lines never arrive.
-		if (store.get().ignored.has(nick.toLowerCase())) {
+		if (projection.get().ignored.has(nick.toLowerCase())) {
 			store.deliver(
+				projection,
 				key,
 				store.sysItem(
+					projection,
 					`Your name "${nick}" is on your ignore list, so lines from anybody else using it ` +
 						`stay hidden. Your own messages are shown. /unignore ${nick} lifts it.`,
 				),
 			);
 		}
-		void pump(dir, key, shown, next);
+		void pump(page, dir, key, shown, next);
 		return "";
 	} catch (err) {
 		if (signal?.aborted) return "";
@@ -294,47 +350,57 @@ export async function enterRoom(
 				nickTaken: re?.code === NICK_TAKEN,
 				attempt,
 				presented: voucher !== undefined,
-				ownName: nick === store.dirNick(dir),
+				ownName: nick === store.dirNick(projection, dir),
 			})
 		) {
 			const minted = await session.dir.nameVoucher().catch(() => null);
 			if (minted !== null && isCurrent(session)) {
-				return await enterRoom(dir, name, nick, { ...options, attempt, voucher: minted, requested, trusted });
+				return await enterRoom(page, dir, name, nick, {
+					...options,
+					attempt,
+					voucher: minted,
+					requested,
+					trusted,
+				});
 			}
 		}
 		if (
 			re?.code === NICK_TAKEN && options.reentry === true &&
 			(options.claimRetries ?? 0) < REENTRY_CLAIM_RETRIES
 		) {
-			store.setDirStatus(dir, `waiting for the previous "${nick}" claim to close…`);
+			store.setDirStatus(projection, dir, `waiting for the previous "${nick}" claim to close…`);
 			await new Promise((resolve) => setTimeout(resolve, REENTRY_CLAIM_RETRY_MS));
 			if (!isCurrent(session) || signal?.aborted) return "";
-			return await enterRoom(dir, name, nick, {
+			return await enterRoom(page, dir, name, nick, {
 				...options,
 				claimRetries: (options.claimRetries ?? 0) + 1,
 			});
 		}
 		if (re?.code === NICK_TAKEN) {
 			const refusal = `${re.detail} Try "${suggestedNick(nick)}" instead.`;
-			if (store.getConv(key) != null) {
-				store.setRoomMembership(key, "unavailable");
-				store.setDirStatus(dir, "");
-				store.deliver(key, store.sysItem(`Could not re-enter #${shown}: ${refusal}`));
+			if (store.getConv(projection, key) != null) {
+				store.setRoomMembership(projection, key, "unavailable");
+				store.setDirStatus(projection, dir, "");
+				store.deliver(
+					projection,
+					key,
+					store.sysItem(projection, `Could not re-enter #${shown}: ${refusal}`),
+				);
 			} else {
-				store.showJoinCard();
-				store.setStatus(refusal);
+				store.showJoinCard(projection);
+				store.setStatus(projection, refusal);
 			}
 			return refusal;
 		}
-		if (store.joinedRooms().length === 0) {
-			store.setStatus("could not join");
+		if (store.joinedRooms(projection).length === 0) {
+			store.setStatus(projection, "could not join");
 			return reason(err);
 		}
 		// Whoever asked for this set the foot to "entering #x…" or "rejoining N
 		// rooms…". It speaks for the whole tab, nothing else refreshes it when an
 		// attempt ends this way, and a run where every room refused left it
 		// announcing an attempt that was over for the life of the session.
-		store.setDirStatus(dir, "");
+		store.setDirStatus(projection, dir, "");
 		// A room already on screen is one this is about, so it is where this goes,
 		// named. A reconnect re-enters every room at once and a reader is reading
 		// one of them: a bare reason in whichever conversation happened to be open
@@ -344,10 +410,15 @@ export async function enterRoom(
 		// With no conversation for it yet, the reader is somewhere else with one in
 		// front of them, so it goes there rather than sending them back to the card
 		// and taking away the rooms that are working.
-		if (store.getConv(key) !== null) {
-			store.deliver(key, store.sysItem(`Could not re-enter #${shown}: ${reason(err)}`));
-		} else if (store.activeConv()) store.deliverActive(store.sysItem(reason(err)));
-		else store.toast("failure", reason(err));
+		if (store.getConv(projection, key) !== null) {
+			store.deliver(
+				projection,
+				key,
+				store.sysItem(projection, `Could not re-enter #${shown}: ${reason(err)}`),
+			);
+		} else if (store.activeConv(projection)) {
+			store.deliverActive(projection, store.sysItem(projection, reason(err)));
+		} else store.toast(projection, "failure", reason(err));
 		return "";
 	}
 }
@@ -360,6 +431,7 @@ export async function enterRoom(
 // all three, and a room entered from the rail while reading another should not
 // interrupt the one being read unless that is what the tap meant.
 function enteredRoom(
+	page: RoomsPageContext,
 	dir: DirId,
 	name: string,
 	asked: string,
@@ -368,10 +440,13 @@ function enteredRoom(
 		held: boolean;
 		publicationId?: string;
 		link?: string;
-		stewardClaimable: boolean;
+		manager?: string;
+		policy?: RoomPolicy;
+		membershipKind?: RoomMembershipKind;
 	},
 	select: boolean,
 ): void {
+	const projection = page.projection;
 	// The one moment a join is known to have worked, so it is the one place this
 	// browser writes down what to offer next time: the room, the directory it
 	// was on, and the name that was asked for. A room reached by name is worth
@@ -382,15 +457,15 @@ function enteredRoom(
 	// without changing it and may offer a separate suggestion, so this records
 	// no server-invented identity.
 	if (!identity.held) {
-		store.remember({
+		store.remember(projection, {
 			room: name,
-			locator: dir === store.get().homeDir ? "" : dirAddress(dir),
+			locator: dir === projection.get().homeDir ? "" : dirAddress(page, dir),
 			nick: asked,
 		});
 	}
-	const conv = store.ensureRoom(dir, name, identity);
-	store.setRoomMembership(conv.key, "joined");
-	store.clearMembers(conv.key);
+	const conv = store.ensureRoom(projection, dir, name, identity);
+	store.setRoomMembership(projection, conv.key, "joined");
+	store.clearMembers(projection, conv.key);
 	// The entering is over, so the "entering #x…" the foot was narrating is too.
 	//
 	// Cleared against the directory the room is on, not against whichever one is
@@ -399,8 +474,10 @@ function enteredRoom(
 	// directory being left and is read from the directory being entered, which
 	// still holds whatever it last said. Entering the first room on a directory
 	// reached from the join card left the foot announcing that entry for good.
-	store.setDirStatus(dir, "");
-	if (select || (automaticSelectionAvailable() && store.activeConv() === null)) store.switchTo(conv.key);
+	store.setDirStatus(projection, dir, "");
+	if (select || (automaticSelectionAvailable(page) && store.activeConv(projection) === null)) {
+		store.switchTo(projection, conv.key);
+	}
 }
 
 // Deliver a room's lines to its conversation until we switch away (a newer pump
@@ -413,11 +490,11 @@ function enteredRoom(
 // Safari built before that lacks it, iOS 26 included. Where it is missing the
 // loop throws before the first read, and the room then looks entirely healthy —
 // it joins, it sends, presence and the typing indicator both arrive, because
-// `room_client` routes those around the stream as callbacks — while not one
+// `lib/room/client.ts` routes those around the stream as callbacks — while not one
 // line is ever delivered. `getReader` works wherever ReadableStream does, and
 // is already how `bindings/ts/web` reads its socket. The date is written down
 // because it is checkable against the bug, and the answer is not guessable.
-async function pump(dir: DirId, key: string, name: string, room: Room): Promise<void> {
+async function pump(page: RoomsPageContext, dir: DirId, key: string, name: string, room: Room): Promise<void> {
 	const seated = key;
 	const reader = room.messages.getReader();
 	try {
@@ -429,15 +506,19 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 				// retire the membership row first. A dead room drawn as a healthy
 				// one is the failure mode here, so the hangup says so where the
 				// reader is reading, with the way back beside it.
-				if (dirSession(dir)?.rooms.get(seated) === room) {
-					store.deliver(
+				if (dirSession(page, dir)?.rooms.get(seated) === room) {
+					retireRoomMembership(
+						page,
 						seated,
-						store.sysItem(`The room ended this conversation. Type /join ${name} to re-enter it.`),
+						room,
+						room.endedReason == null
+							? `The room ended this membership. Select #${name} in the rooms list to re-enter.`
+							: `${room.endedReason} Select #${name} in the rooms list to re-enter.`,
 					);
 				}
 				return;
 			}
-			if (dirSession(dir)?.rooms.get(seated) !== room) {
+			if (dirSession(page, dir)?.rooms.get(seated) !== room) {
 				// This membership has been replaced or left, so a newer pump owns the
 				// conversation. Drop this stream rather than leave it locked and
 				// half-read; `for await` used to do this on return.
@@ -448,7 +529,7 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 				await reader.cancel().catch(() => {});
 				return;
 			}
-			projectRoomMessage(dir, seated, name, room, value);
+			projectRoomMessage(page, dir, seated, name, room, value);
 		}
 	} catch (err) {
 		// Leaving a room ends the stream cleanly, which arrives as `done` above,
@@ -456,16 +537,16 @@ async function pump(dir: DirId, key: string, name: string, room: Room): Promise<
 		// what made the missing-iterator failure take so long to find: the room
 		// simply never spoke. Say so in the room it happened to, which is not
 		// necessarily the one being read.
-		if (dirSession(dir)?.rooms.get(seated) === room) {
+		if (dirSession(page, dir)?.rooms.get(seated) === room) {
 			// With the way back in the same breath. The connection is still up and
 			// the room takes a re-claim on it, keeping this member's place and the
 			// references to what they have already said, so there is something to
 			// do here rather than a dead conversation and a reason for it.
-			store.deliver(
+			retireRoomMembership(
+				page,
 				seated,
-				store.sysItem(
-					`This room stopped delivering messages: ${reason(err)}. Type /join ${name} to re-enter it.`,
-				),
+				room,
+				`This room stopped delivering messages: ${reason(err)}. Select #${name} in the rooms list to re-enter.`,
 			);
 		}
 	} finally {

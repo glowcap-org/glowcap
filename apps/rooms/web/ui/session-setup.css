@@ -10,10 +10,13 @@
 	background: var(--page-bg);
 	color: var(--ink);
 }
+/* Not one of the card steps, and not by accident: this is the whole page
+   rather than a card standing on a backdrop, so it takes the measure a page
+   takes and answers to nothing the modals answer to. */
 .session-setup-inner {
 	width: min(680px, 100%);
 	display: grid;
-	gap: 26px;
+	gap: var(--gap-section);
 }
 /* The lockup as the opening screen draws it — the mark over the logotype,
    centred, the same lift — because this page is what that screen fades into
@@ -24,22 +27,20 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 12px;
+	gap: var(--gap-group);
 	color: var(--accent);
-}
-.session-setup-brand .icon-mark {
-	filter: drop-shadow(0 2px 5px var(--shadow-color)) drop-shadow(0 8px 22px var(--shadow-color));
-}
-.session-setup-brand .wordmark {
-	filter: drop-shadow(0 3px 12px var(--shadow-sm-color));
 }
 .session-setup-heading {
 	display: grid;
-	gap: 8px;
+	gap: var(--gap-row);
 	text-align: center;
 }
 .session-setup-heading h1 {
 	margin: 0;
+	/* Off the chrome ramp on purpose, for the reason the page's own measure is:
+	   this is the whole screen rather than a card on one, so its heading is
+	   sized against the page it fills. The ramp tops out at the largest heading
+	   that has to sit inside a card, and nothing here has to. */
 	font-size: 30px;
 	line-height: 1.15;
 	letter-spacing: 0;
@@ -104,7 +105,7 @@
 .session-setup-advanced summary {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 	width: fit-content;
 	margin: 0 auto;
 	/* The word sits on the page's centre line and the chevron hangs off its
@@ -143,21 +144,17 @@
 		background: var(--hover);
 	}
 }
-.session-setup-advanced summary:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-}
 .session-setup-advanced[open] {
 	display: grid;
 	justify-items: center;
-	gap: 14px;
+	gap: var(--gap-group);
 }
 .session-setup-advanced > .actions {
 	justify-content: center;
 }
 @media (max-width: 620px) {
 	.session-setup-inner {
-		gap: 22px;
+		gap: var(--gap-section);
 	}
 	.session-setup-choice {
 		padding: 20px;

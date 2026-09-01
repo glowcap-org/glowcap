@@ -59,6 +59,19 @@ export function Foot(
 	const named = grants.find((held) => held.id === home) ?? grants[0];
 	if (primary === "") return null;
 	const mark = named === undefined ? undefined : dirMarkIn(named.id, home, dirs);
+	// What is known about the reader, from the one seat on the page that is about
+	// the reader. It comes first because the menu's other rows all take something
+	// away, and this one only reads.
+	//
+	// It rides the standing menu, so a view that may not act cannot reach it here:
+	// the trigger is disabled whole, and opening a read-only menu to hold one live
+	// row would be a second meaning for a control that already has one. The reader
+	// still has a door in that case, because a roster row opens the same card for
+	// anyone including themselves, and that row is ungated.
+	const aboutAction = {
+		label: "About you…",
+		onPick: () => browser.aboutMember({ conv: null, name: primary }),
+	};
 	const releaseActions = canInteract
 		? grants.map((grant) => {
 			const where = directoryName(grant.id, home);
@@ -91,7 +104,7 @@ export function Foot(
 				faceClass="foot-lockup"
 				label={primary === "" ? undefined : `${whoSaid} — where you are: ${foot.said}`}
 				onSay={(said) => rooms.setStanding(said ?? "")}
-				actions={releaseActions}
+				actions={[aboutAction, ...releaseActions]}
 				disabled={!canInteract}
 				face={
 					/* While the session cannot reach anybody the chip dims the way an

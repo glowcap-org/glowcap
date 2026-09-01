@@ -88,8 +88,8 @@ try {
 	const gifterPort = gifter.port;
 
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. That
-	// reply ref's home is the gifter↔Bob connection, which is what lets pancake
-	// re-gift it across to the recipient without an enrollment verb.
+	// reply ref's home is the gifter↔Bob connection, so pancake can re-gift
+	// it across to the recipient without an enrollment verb.
 	const toBob = await runtime.connect(tcp.locator(HOST, PORT));
 	toBob.serve().catch(() => {});
 	const vendor = await toBob.fetch(VENDOR_SWISS);

@@ -9,8 +9,25 @@
 import * as store from "../store.ts";
 import { OPS_CATALOG } from "../ops/catalog.ts";
 import type { OpsCap, SendState } from "../types.ts";
-import { convSession, type Live } from "./live.ts";
+import { type Live } from "./live.ts";
+import type { PageProjection } from "../store/core.ts";
+import type { RoomsPageContext } from "../page.ts";
 
+/** The one wording for a capability act refused because the home directory has
+ * no live session, beside the lookup every such act makes first. Five
+ * capability modules each spelled both, and a sentence said five ways is a
+ * sentence that drifts. The returned session's `id` is the home directory. */
+export const DIRECTORY_NOT_CONNECTED = "This directory is not connected yet.";
+
+/** The home directory's live session, or null while there is none to ask. */
+export function liveHomeDir(page: RoomsPageContext): Live | null {
+	const home = page.projection.get().homeDir;
+	return home === null ? null : page.live.dirs.get(home) ?? null;
+}
+
+/** The one wording for a room act refused because its membership holds no live
+ * session right now. */
+export const MEMBERSHIP_NOT_CONNECTED = "This room membership is not connected right now.";
 /** What a thrown value says, for a reader.
  *
  * Every failure this layer reports crosses a redeem, a dial, or a carrier of
@@ -18,6 +35,16 @@ import { convSession, type Live } from "./live.ts";
  * answer, so a caught value never reaches a person as `[object Object]`. */
 export function reason(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
+}
+
+/** File a failure that has no reader-facing surface of its own: the console
+ * keeps the full object for whoever is debugging with a stack in hand, and
+ * the page's trouble journal keeps the sentence an operator can actually
+ * find. Never the only copy of a failure a reader must act on — that is a
+ * store.toast's or the conversation's job, with this beside it. */
+export function trouble(projection: PageProjection, source: string, err: unknown): void {
+	console.error(`rooms: ${source}:`, err);
+	store.noteTrouble(projection, source, reason(err));
 }
 
 /** Say that an operations capability has stopped answering, and why.
@@ -28,24 +55,23 @@ export function reason(err: unknown): string {
  * or the thing it names refuses. Only the third is news, and it arrives while
  * the reader may be looking at the pane it draws, so it is said out loud
  * rather than left to the toggle falling off on its own. */
-/** File a failure that has no reader-facing surface of its own: the console
- * keeps the full object for whoever is debugging with a stack in hand, and
- * the page's trouble journal keeps the sentence an operator can actually
- * find. Never the only copy of a failure a reader must act on — that is a
- * toast's or the conversation's job, with this beside it. */
-export function trouble(source: string, err: unknown): void {
-	console.error(`rooms: ${source}:`, err);
-	store.noteTrouble(source, reason(err));
-}
-
-export function opsLost(cap: OpsCap, why: string): void {
-	store.toast("failure", `${OPS_CATALOG[cap].short}: this tab no longer holds that capability. ${why}`);
+export function opsLost(projection: PageProjection, cap: OpsCap, why: string): void {
+	store.toast(
+		projection,
+		"failure",
+		`${OPS_CATALOG[cap].short}: this tab no longer holds that capability. ${why}`,
+	);
 }
 
 /** Mark how far one of our own messages has got, which is what its bubble
  * draws from. */
-export function markSend(key: string, id: number, sendState: SendState | undefined): void {
-	store.updateItem(key, id, { state: sendState });
+export function markSend(
+	projection: PageProjection,
+	key: string,
+	id: number,
+	sendState: SendState | undefined,
+): void {
+	store.updateItem(projection, key, id, { state: sendState });
 }
 
 /** Said wherever this tab holds a room's conversation but no membership on the
@@ -54,16 +80,16 @@ export function markSend(key: string, id: number, sendState: SendState | undefin
  * every room it holds a moment later, while a re-entry that was refused waits for
  * them to ask for it. Without this the send looks like a broken control. */
 export const NOT_IN_THIS_ROOM =
-	"Not in this room at the moment. It is re-entered when the connection returns, or press it in the room list to go back in now.";
+	"Not in this room at the moment. It is re-entered when the connection returns. Otherwise, open the room controls and restore access.";
 
 /** A room line that cannot be confirmed: drop it from the echo queue and tint it failed. */
-export function failRoomSend(key: string, id: number, session: Live | null = convSession(key)): void {
+export function failRoomSend(projection: PageProjection, key: string, id: number, session: Live | null): void {
 	if (session === null) {
 		// No session is no echo queue, and so nothing this line could be waiting
 		// on: mark it. Returning here instead left a retry pressed while the
 		// directory was away drawn as still going, for good — the optimistic tint
 		// says the room has it, and nothing was ever coming to say otherwise.
-		markSend(key, id, "failed");
+		markSend(projection, key, id, "failed");
 		return;
 	}
 	const at = session.echoes.findIndex((row) => row.id === id);
@@ -73,5 +99,5 @@ export function failRoomSend(key: string, id: number, session: Live | null = con
 	// contradict the echo the user can see.
 	if (at < 0) return;
 	const [row] = session.echoes.splice(at, 1);
-	markSend(row.key, row.id, "failed");
+	markSend(projection, row.key, row.id, "failed");
 }

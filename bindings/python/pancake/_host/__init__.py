@@ -36,6 +36,10 @@ from .._abi_value import (
     _DEFAULT_CAPTP_VERSION,
     _DEFAULT_CODEC,
     _DEFAULT_FEATURES,
+    _INTEROP_CAPTP_VERSION,
+    _INTEROP_CODEC,
+    _NATIVE_CAPTP_VERSION,
+    _NATIVE_CODEC,
     _captp_version_id,
     _codec_id,
     _feature_mask,
@@ -86,8 +90,10 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
 
     ``seed`` is the Host's 32-byte Ed25519 identity (``None`` draws a fresh
     random one — entropy at the binding boundary, never inside the sans-io
-    host). ``codec``, ``captp_version``, and ``features`` are the Host's
-    signed profile offer. Each session settles version and codec with its
+    host). ``profile`` selects the core-authored ``native`` or ``interop``
+    codec/version pair. The individual ``codec`` and ``captp_version`` knobs
+    remain available when no profile is named. ``features`` completes the Host's
+    signed offer. Each session settles version and codec with its
     partner, falling back to v1.0/Syrup when needed, and runs only the
     intersection of the two offered feature sets. Omitted profile options use
     the generated C ABI defaults. ``context`` routes every byte the host owns
@@ -99,8 +105,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self,
         seed: Optional[bytes] = None,
         *,
-        codec: str = _DEFAULT_CODEC,
-        captp_version: str = _DEFAULT_CAPTP_VERSION,
+        profile: Optional[str] = None,
+        codec: Optional[str] = None,
+        captp_version: Optional[str] = None,
         features=_DEFAULT_FEATURES,
         context: "Optional[Context]" = None,
         local_turn_budget: int = 0,
@@ -116,6 +123,29 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             raise PancakeError(
                 _ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop"
             )
+        if profile not in (None, "interop", "native"):
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}"
+            )
+        if profile is not None and (codec is not None or captp_version is not None):
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT,
+                "Host profile cannot be combined with codec or captp_version",
+            )
+        codec = (
+            _NATIVE_CODEC
+            if profile == "native"
+            else _INTEROP_CODEC
+            if profile == "interop"
+            else (_DEFAULT_CODEC if codec is None else codec)
+        )
+        captp_version = (
+            _NATIVE_CAPTP_VERSION
+            if profile == "native"
+            else _INTEROP_CAPTP_VERSION
+            if profile == "interop"
+            else (_DEFAULT_CAPTP_VERSION if captp_version is None else captp_version)
+        )
         self._driver_loop: "Optional[DriverLoop]" = _driver_loop
         _drain_deferred_finalizer_states()
         self._raw: ctypes.c_void_p | None = None
@@ -280,7 +310,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             self._finalizer_state,
             checked=False,
         )
-        # The host's own key designator, which is what a partner names it by:
+        # The host's own key designator, the name a partner knows it by:
         # the live trace reports it as this host's endpoint so one peer stays
         # one node in a feed several producers share. The raw-only finalizer is
         # already armed in case this setup call refuses.

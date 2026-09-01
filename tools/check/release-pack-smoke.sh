@@ -54,6 +54,15 @@ fi
 # redirect the other, and archive ownership never crosses this boundary.
 LC_ALL=C TAR_OPTIONS= tar -xzf "$archive_dir/$archive_name" -C "$workdir" --no-same-owner
 
+if [[ ! -f $workdir/PROVENANCE.md ]]; then
+	printf 'release-pack-smoke: missing project provenance disclosure: PROVENANCE.md\n' >&2
+	exit 1
+fi
+if ! cmp -s "$repo_root/PROVENANCE.md" "$workdir/PROVENANCE.md"; then
+	printf 'release-pack-smoke: packaged PROVENANCE.md differs from the release source\n' >&2
+	exit 1
+fi
+
 readonly include_dir=$workdir/include
 readonly lib_dir=$workdir/lib
 for binary in pancake rooms-peer; do

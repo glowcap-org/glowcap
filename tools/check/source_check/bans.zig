@@ -278,7 +278,10 @@ const local_forward = @import("bans/local_forward.zig");
 const authority = @import("bans/authority.zig");
 const surfaces = @import("bans/surfaces.zig");
 const failure = @import("bans/failure.zig");
+const failure_retention = @import("bans/failure_retention.zig");
+const profiles = @import("bans/profiles.zig");
 const route_bundle = @import("bans/route_bundle.zig");
+const rooms_session_host = @import("bans/rooms_session_host.zig");
 
 const nullish_absence = [_]Ban{.{
     .where = .{ .files = &.{
@@ -347,11 +350,38 @@ const attached_session_authority = [_]Ban{
     },
 };
 
+const deno_dependency_reproducibility = [_]Ban{
+    .{
+        .where = .{ .files = &.{
+            "deno.lock",
+            "bindings/ts/deno.lock",
+            "apps/ocapnviz/deno.lock",
+            "apps/rooms/web/deno.lock",
+        } },
+        .kind = .file_present,
+        .check = "Deno dependency locks",
+        .why = "the checked TypeScript graphs and Rooms production bundle use committed transitive dependency locks",
+    },
+    .{
+        .where = .{ .files = &.{
+            "deno.json",
+            "bindings/ts/deno.json",
+            "apps/ocapnviz/deno.json",
+            "apps/rooms/web/browser-bundle.json",
+        } },
+        .kind = .require,
+        .needles = &.{"\"frozen\": true"},
+        .check = "Deno dependency locks",
+        .why = "a committed lock is evidence only when ordinary checks refuse to rewrite it",
+    },
+};
+
 pub const all: []const Ban =
     nullish_absence ++
     neutral_alerts ++
     readable_rooms_loops ++
     attached_session_authority ++
+    deno_dependency_reproducibility ++
     captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
@@ -378,8 +408,8 @@ pub const all: []const Ban =
     binding_policy.iroh_read_chunk_rows ++
     binding_policy.trace_payload_cap_rows ++
     binding_relay_policy.rows ++
-    binding_policy.default_profile_rows ++
-    binding_policy.secondary_failure_cap_rows ++
+    profiles.rows ++
+    failure_retention.rows ++
     layers.iroh_node_id_bytes_rows ++
     layers.iroh_direct_address_rows ++
     route_bundle.rows ++
@@ -388,6 +418,7 @@ pub const all: []const Ban =
     layers.relay_route_hint_cap_rows ++
     layers.goblins_runtime_portability ++
     layers.rooms_lib_layer ++
+    rooms_session_host.rows ++
     layers.signature_arm_reads ++
     transport.transport_provider_architecture ++
     authority.sturdyref_authority ++

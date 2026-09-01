@@ -360,7 +360,7 @@ const usage_text =
 
 /// Print usage and hand back the soft failure `verbExit` maps to the usage
 /// code. Exiting the process here instead would skip `main`'s context
-/// teardown, which is what releases the identity state lock.
+/// teardown, and the identity state lock is released there.
 fn usageFailed(io: Io) error{UsageFailed} {
     emitStdout(io, usage_text) catch return error.UsageFailed;
     return error.UsageFailed;

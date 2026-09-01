@@ -57,6 +57,11 @@ async fn enliven_round_trips_then_caches() {
 			assert_eq!(reply2, Argument::Symbol("alive".into()));
 
 			let session_host = session.host();
+			let fetched = session_host.fetch_at(&locator, "greeter").await.unwrap();
+			assert_eq!(
+				session.send(&fetched, "hello", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
 			let host_cap = session_host
 				.enliven_for_version(&sturdyref, crate::CaptpVersion::V1_0)
 				.await

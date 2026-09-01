@@ -8,13 +8,15 @@ Object.defineProperty(globalThis, "matchMedia", {
 const { emptyRoomsSessionState } = await import("../lib/rooms_state.ts");
 const { AttachedSessionProjection } = await import("../web/ui/session/projection.ts");
 const store = await import("../web/ui/store.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
 const { assertEquals } = await import("./assert.ts");
 const { roomsSessionSnapshot } = await import("./support/session_snapshot.ts");
 const { registrationId } = await import("./support/registration.ts");
 
 Deno.test("mixed DM projection recovers liveness without crossing lines", () => {
-	store.set(store.initial);
-	const projection = new AttachedSessionProjection();
+	const page = new RoomsPage();
+	page.projection.reset();
+	const projection = new AttachedSessionProjection(page);
 	const checkpoint = {
 		...emptyRoomsSessionState(),
 		directories: [{ id: "directory", locator: "127.0.0.1:1", home: true, nick: "alice", standing: null }],
@@ -33,10 +35,12 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		checkpoint,
 		issues: [{ subject: "direct:directory:alice-bob", reason: "bob was unavailable" }],
 	}));
-	const direct = [...store.get().convs.values()].find((conversation) => conversation.persistId === "alice-bob");
+	const direct = [...page.projection.get().convs.values()].find((conversation) =>
+		conversation.type !== "directory" && conversation.persistId === "alice-bob"
+	);
 	if (direct?.type !== "dm") throw new Error("the mixed direct fixture was not projected");
 	const lineState = () => {
-		const conversation = store.getConv(direct.key);
+		const conversation = store.getConv(page.projection, direct.key);
 		return conversation?.type === "dm" ? conversation.line : null;
 	};
 	assertEquals(direct.line, "introducing");
@@ -70,11 +74,14 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		attachments: [],
 	});
 	assertEquals(lineState(), "live");
-	assertEquals(store.getConv(direct.key)?.history.map((item) => item.kind === "chat" ? item.text : ""), [
-		"first",
-		"second",
-	]);
-	assertEquals(store.getConv(direct.key)?.unread.kind, "unread");
+	assertEquals(
+		store.historyOf(page.projection, direct.key).map((item) => item.kind === "chat" ? item.text : ""),
+		[
+			"first",
+			"second",
+		],
+	);
+	assertEquals(store.unreadOf(page.projection, direct.key).kind, "unread");
 
 	projection.apply(roomsSessionSnapshot({
 		revision: 1,
@@ -112,10 +119,11 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		history: { source: "archive", generation: "direct-generation", id: "2" },
 		attachments: [],
 	});
-	const lines = store.getConv(direct.key)?.history.filter((item) => item.kind === "chat") ?? [];
+	const lines = store.historyOf(page.projection, direct.key).filter((item) => item.kind === "chat");
 	assertEquals(lines.map((item) => item.kind === "chat" ? item.text : ""), ["first edited", "second"]);
 	assertEquals(lines.map((item) => item.kind === "chat" ? item.withdrawn === true : false), [false, true]);
 
+	const beforeTyping = store.getConv(page.projection, direct.key);
 	projection.line({
 		source: "mixed-lines",
 		sequence: 5,
@@ -131,7 +139,8 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		history: null,
 		attachments: [],
 	});
-	assertEquals([...(store.getConv(direct.key)?.typers ?? [])], ["bob"]);
+	assertEquals([...(store.typersOf(page.projection, direct.key))], ["bob"]);
+	assertEquals(store.getConv(page.projection, direct.key), beforeTyping);
 	projection.line({
 		source: "mixed-lines",
 		sequence: 6,
@@ -147,5 +156,6 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		history: null,
 		attachments: [],
 	});
-	assertEquals([...(store.getConv(direct.key)?.typers ?? [])], []);
+	assertEquals([...(store.typersOf(page.projection, direct.key))], []);
+	assertEquals(store.getConv(page.projection, direct.key), beforeTyping);
 });

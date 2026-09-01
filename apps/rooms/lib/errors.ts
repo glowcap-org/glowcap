@@ -28,6 +28,9 @@ export const ROOM_EXISTS = "room-exists";
 export const ROOM_TOO_LONG = "room-too-long";
 /** `open` from a connection that already holds `MAX_ROOMS_PER_CREATOR` rooms. */
 export const TOO_MANY_ROOMS = "too-many-rooms";
+/** A room already holds its live membership ceiling, or another member would
+ * make its exact roster notification exceed the line byte contract. */
+export const ROOM_FULL = "room-full";
 /** A peering source or the destination directory reached its retained foreign
  * room ceiling. */
 export const TOO_MANY_PEERED_ROOMS = "too-many-peered-rooms";
@@ -44,9 +47,19 @@ export const PEER_OFFLINE = "peer-offline";
  * asked them; retry when the register inbox hears `notify("introducible", peer)`
  * (see `protocol.ts`). */
 export const INTRODUCTION_PENDING = "introduction-pending";
+/** A direct inbox no longer has an open conversation for the exact sender
+ * registration. The sender must retire that thread rather than retry it. */
+export const DIRECT_NOT_ACCEPTED = "direct-not-accepted";
 /** A verb that needs the caller's own registered name, from a connection holding
  * none. `register` first. */
 export const NOT_REGISTERED = "not-registered";
+/** A room verb that requires the caller's current membership after that
+ * membership ended or was replaced. */
+export const NOT_ROOM_MEMBER = "not-room-member";
+export const READ_ONLY_MEMBERSHIP = "read-only-membership";
+/** A retained room capability whose exact room publication has been retired.
+ * Retrying it must not target a later publication with the same display name. */
+export const ROOM_RETIRED = "room-retired";
 /** A register whose nick is longer than `MAX_NICK`. The nick is the key every
  * member files an inbox under, so the directory caps it rather than passing an
  * arbitrary-length name on to them. */
@@ -86,6 +99,11 @@ export const LISTENER_SERVING = "listener-serving";
 export const LISTENER_TRANSPORT_HELD = "listener-transport-held";
 /** A `down` naming no live listener. */
 export const NO_SUCH_LISTENER = "no-such-listener";
+/** An `openManaged` on a directory that publishes no room managers, so there is
+ * no authority for it to hand back. Typed because it is the one refusal a
+ * caller answers by opening the room the plain way rather than by giving up:
+ * see `enterOrOpenResult`. */
+export const NO_ROOM_MANAGERS = "no-room-managers";
 
 export type RoomErrorCode =
 	| typeof NICK_TAKEN
@@ -93,12 +111,17 @@ export type RoomErrorCode =
 	| typeof ROOM_EXISTS
 	| typeof ROOM_TOO_LONG
 	| typeof TOO_MANY_ROOMS
+	| typeof ROOM_FULL
 	| typeof TOO_MANY_PEERED_ROOMS
 	| typeof ROOM_LINKS_FULL
 	| typeof NOT_STEWARD
 	| typeof PEER_OFFLINE
 	| typeof INTRODUCTION_PENDING
+	| typeof DIRECT_NOT_ACCEPTED
 	| typeof NOT_REGISTERED
+	| typeof NOT_ROOM_MEMBER
+	| typeof READ_ONLY_MEMBERSHIP
+	| typeof ROOM_RETIRED
 	| typeof NICK_TOO_LONG
 	| typeof NOT_YOUR_LOCATOR
 	| typeof BAD_ATTACHMENT
@@ -108,7 +131,8 @@ export type RoomErrorCode =
 	| typeof LISTENER_UNSUPPORTED
 	| typeof LISTENER_SERVING
 	| typeof LISTENER_TRANSPORT_HELD
-	| typeof NO_SUCH_LISTENER;
+	| typeof NO_SUCH_LISTENER
+	| typeof NO_ROOM_MANAGERS;
 
 const CODES = new Set<string>([
 	NICK_TAKEN,
@@ -116,12 +140,17 @@ const CODES = new Set<string>([
 	ROOM_EXISTS,
 	ROOM_TOO_LONG,
 	TOO_MANY_ROOMS,
+	ROOM_FULL,
 	TOO_MANY_PEERED_ROOMS,
 	ROOM_LINKS_FULL,
 	NOT_STEWARD,
 	PEER_OFFLINE,
 	INTRODUCTION_PENDING,
+	DIRECT_NOT_ACCEPTED,
 	NOT_REGISTERED,
+	NOT_ROOM_MEMBER,
+	READ_ONLY_MEMBERSHIP,
+	ROOM_RETIRED,
 	NICK_TOO_LONG,
 	NOT_YOUR_LOCATOR,
 	BAD_ATTACHMENT,
@@ -132,6 +161,7 @@ const CODES = new Set<string>([
 	LISTENER_SERVING,
 	LISTENER_TRANSPORT_HELD,
 	NO_SUCH_LISTENER,
+	NO_ROOM_MANAGERS,
 ]);
 
 /** A failure with a machine-readable code. The message the wire carries is

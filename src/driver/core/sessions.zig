@@ -153,10 +153,9 @@ fn openDialedCommitted(
     // The mint above moves none, so this is still ahead of the hello.
     //
     // Two identities, two roles (ADR-0097). `partner_designator` is the
-    // durable peer this dial races for, which is what decides *which two
-    // attempts are racing*. The identifier beside it is this outbound
-    // session attempt's own identity, which is what decides *which of
-    // the two survives*. Registering after the mint is what lets the
+    // durable peer this dial races for: it decides *which two attempts
+    // are racing*. The identifier beside it is this outbound session
+    // attempt's own identity: it decides *which of the two survives*. Registering after the mint is what lets the
     // second one be the session's key rather than the host's: they are the
     // same value only when a host signs every session with its durable
     // key, and reading the wrong one would order the tiebreak by a

@@ -214,7 +214,7 @@ Deno.test({
 });
 
 const browserWasm = new URL(
-	"../../../../zig-out/wasm/pancake_host.wasm",
+	"../../../../../../zig-out/wasm/pancake_host.wasm",
 	import.meta.url,
 );
 let browserWasmExists = true;
@@ -231,9 +231,9 @@ Deno.test({
 	sanitizeOps: false,
 	sanitizeResources: false,
 	async fn() {
-		const root = new URL("../../../../", import.meta.url);
+		const root = new URL("../../../../../../", import.meta.url);
 		const hostScript = new URL(
-			"../../../rooms/test/viz_browser_host.ts",
+			"../../../../../rooms/test/viz/browser_host.ts",
 			import.meta.url,
 		);
 		const child = new Deno.Command(Deno.execPath(), {
@@ -250,6 +250,7 @@ Deno.test({
 			const ready = await readJsonLine(reader) as {
 				port: number;
 				sturdyref: string;
+				publish: string;
 			};
 			const registry = globalThis as Record<symbol, unknown>;
 			const adapterKey = Symbol.for("pancake.runtime.adapter");
@@ -293,11 +294,18 @@ Deno.test({
 				"Live mode did not initialize wasm",
 			);
 
-			publisher = new WebSocket(`ws://127.0.0.1:${ready.port}/publish`);
+			// The endpoint refuses a producer that presents no capability, and it
+			// refuses it after the upgrade, so a bare socket opens and then goes
+			// quiet rather than failing where it was opened.
+			publisher = new WebSocket(ready.publish);
 			await new Promise<void>((resolve, reject) => {
 				publisher!.onopen = () => resolve();
 				publisher!.onerror = () => reject(new Error("publisher did not open"));
 			});
+			// A session-opened record names the transport it opened on, and the
+			// endpoint drops a record it cannot read rather than answering, so
+			// leaving the field out reads exactly like a feed that never
+			// delivers.
 			publisher.send(JSON.stringify({
 				v: 1,
 				sim_t_ns: 0,
@@ -305,6 +313,7 @@ Deno.test({
 				session: "browser-proof-s1",
 				a: "rooms",
 				b: "alice",
+				transport: "tcp",
 				codec: "syrup",
 			}));
 			await Promise.race([didReceive, didFail]);

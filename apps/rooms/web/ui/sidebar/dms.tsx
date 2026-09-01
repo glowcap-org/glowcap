@@ -7,17 +7,33 @@
 // and the rail itself only decides which sections there are.
 
 import { useMemo } from "react";
+import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { NO_MEMBERS } from "../store/core.ts";
+import { MAX_NICK } from "../../../lib/limits.ts";
 import { Avatar, PresenceAvatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
-import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, dirWhere } from "../text.ts";
-import { awayByPeer, awayOf, type Conv, type DirId, type DirView, type DmConv, type SessionPhase } from "../types.ts";
-import { dmRow, type RailRow } from "./filter.ts";
+import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, dirWhere, nothingWhilePaused } from "../text.ts";
+import {
+	awayByPeer,
+	awayOf,
+	CAUGHT_UP,
+	type Conv,
+	type DirId,
+	type DirView,
+	type DmConv,
+	type SessionPhase,
+	type Standing,
+	type Unread,
+} from "../types.ts";
+import { dmRow, type RailRow, unreadCount } from "./filter.ts";
 import { Empty, heldBack, nothingMatches, RowClose } from "./rows.tsx";
+import { RailSection } from "./Section.tsx";
 
 function DmRow(
-	{ conv, online, away, where, home, phase, here, canInteract, onOpen, onClose, onAbout }: {
+	{ conv, unread, online, away, where, home, phase, here, canInteract, onOpen, onClose, onAbout }: {
 		conv: DmConv;
+		unread: Unread;
 		online: boolean;
 		/** Why the peer has stepped away, by the shared rooms' word, or null
 		 * while they are simply here — `peerAway`'s answer, worn by the chip's
@@ -35,8 +51,9 @@ function DmRow(
 		 * naming. */
 		home: DirId | null;
 		/** How that directory is doing. A direct line is reached through the
-		 * directory that introduced it, so a directory that is away is a line this
-		 * reader cannot use, and the row says so rather than looking ordinary. */
+		 * directory that introduced it, so a directory that is not connected is a
+		 * line this reader cannot use, and the row says so rather than looking
+		 * ordinary. */
 		phase: SessionPhase;
 		here: boolean;
 		canInteract: boolean;
@@ -46,8 +63,8 @@ function DmRow(
 	},
 ) {
 	// How the directory that introduced this line is doing, and empty while it is
-	// connected. A line reached through a directory that is away is a line this
-	// reader cannot use, which is a fact about this row.
+	// connected. A line reached through a directory that is not connected is a
+	// line this reader cannot use, which is a fact about this row.
 	const standing = dirStanding(phase);
 	// Every trailing mark hangs off one group, because the close button takes the
 	// whole group's slot rather than a slot of its own. Naming the marks one by
@@ -113,7 +130,7 @@ function DmRow(
 				<span className="rname" title={conv.id}>{conv.id}</span>
 				<span className="dm-marks">
 					{lineMark}
-					{conv.unread.kind === "unread" && <span className="rcount">{conv.unread.count}</span>}
+					{unread.kind === "unread" && <span className="rcount">{unreadCount(unread)}</span>}
 				</span>
 			</button>
 			{(where.name !== null || standing !== "") && (
@@ -157,9 +174,10 @@ function DmRow(
  * The filter takes rows out of this list and puts them back, and does nothing
  * else to it: what is left is still by name, in the order it has always been
  * in. */
-export function DmRows(
-	{ convs, activeKey, inARoom, dirs, home, canInteract, shows, onOpen, onClose, onAbout }: {
+function DmRows(
+	{ convs, unreads, activeKey, inARoom, dirs, home, canInteract, shows, onOpen, onClose, onAbout }: {
 		convs: ReadonlyMap<string, Conv>;
+		unreads: ReadonlyMap<string, Unread>;
 		activeKey: string | null;
 		/** Whether this tab is in any room at all. A direct line starts from a
 		 * roster, so which room it came from does not matter here — only that
@@ -179,19 +197,25 @@ export function DmRows(
 		onAbout: (dir: DirId) => void;
 	},
 ) {
+	const paused = useSessionPaused();
+	const unreadOf = (key: string) => unreads.get(key) ?? CAUGHT_UP;
 	const rows = [...convs.values()]
 		.filter((c): c is DmConv => c.type === "dm")
 		.sort((a, b) => a.id.localeCompare(b.id));
-	const open = rows.filter((conv) => shows(dmRow(conv)));
+	const open = rows.filter((conv) => shows(dmRow(conv, unreadOf(conv.key))));
 	const hidden = rows.length - open.length;
-	// One walk over every roster, shared by all the rows below; `convs` is a
-	// fresh map whenever any roster changes, so this stays current without a
-	// second walk per row.
-	const away = useMemo(() => awayByPeer(convs), [convs]);
+	// One walk over every roster, shared by all the rows below. Presence writes
+	// the members map, not the conversation, so this depends on both.
+	const members = useRoomsState((state) => state.members);
+	const away = useMemo(() => awayByPeer(convs, members), [convs, members]);
 	if (rows.length === 0) {
 		return (
 			<Empty
-				text={inARoom ? "Message a member to start one." : "Join a room to message someone from the roster."}
+				text={paused
+					? nothingWhilePaused
+					: inARoom
+					? "Message a member to start one."
+					: "Join a room to message someone from the roster."}
 			/>
 		);
 	}
@@ -204,6 +228,7 @@ export function DmRows(
 				<DmRow
 					key={conv.key}
 					conv={conv}
+					unread={unreadOf(conv.key)}
 					online={dirs.get(conv.dir)?.dmablePeers.get(conv.id.toLowerCase())?.registrationId ===
 						conv.peerRegistrationId}
 					away={awayOf(away, conv.dir, conv.id)}
@@ -219,5 +244,103 @@ export function DmRows(
 			))}
 			{hidden > 0 && <Empty text={heldBack(hidden)} />}
 		</>
+	);
+}
+
+/** Names this tab's rosters can finish a new direct line with: reachable on
+ * their directory, spelled as granted, never the reader. */
+function dmNameOffers(
+	convs: ReadonlyMap<string, Conv>,
+	dirs: ReadonlyMap<DirId, DirView>,
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>,
+): string[] {
+	const names = new Map<string, string>();
+	for (const conv of convs.values()) {
+		if (conv.type !== "room") continue;
+		const dir = dirs.get(conv.dir);
+		if (dir === undefined) continue;
+		for (const name of (members.get(conv.key) ?? NO_MEMBERS).keys()) {
+			const key = name.toLowerCase();
+			if (key === dir.nick.toLowerCase()) continue;
+			if (!dir.dmablePeers.has(key)) continue;
+			names.set(key, name);
+		}
+	}
+	return [...names.values()];
+}
+
+/** The rail's direct-message list and its "+" field. Presence belongs here,
+ * not on the rail shell: a join in one room should not rebuild the rooms list. */
+export function DirectMessages(
+	{
+		canInteract,
+		convs,
+		unreads,
+		activeKey,
+		inARoom,
+		dirs,
+		home,
+		shows,
+		open,
+		onOpen,
+		onSubmit,
+		onError,
+		onSelect,
+		onClose,
+		onAbout,
+	}: {
+		canInteract: boolean;
+		convs: ReadonlyMap<string, Conv>;
+		unreads: ReadonlyMap<string, Unread>;
+		activeKey: string | null;
+		inARoom: boolean;
+		dirs: ReadonlyMap<DirId, DirView>;
+		home: DirId | null;
+		shows: (row: RailRow) => boolean;
+		open: boolean;
+		onOpen: (shown: boolean) => void;
+		onSubmit: (name: string) => void;
+		onError: (text: string) => void;
+		onSelect: (key: string) => void;
+		onClose: (conv: DmConv) => void;
+		onAbout: (dir: DirId) => void;
+	},
+) {
+	const members = useRoomsState((state) => state.members);
+	const offers = useMemo(() => dmNameOffers(convs, dirs, members), [convs, dirs, members]);
+	return (
+		<RailSection
+			className="dms"
+			title="Direct messages"
+			listId="dmList"
+			field={{
+				id: "newDm",
+				open,
+				label: "Start a direct message",
+				placeholder: "member name",
+				max: MAX_NICK,
+				noun: "name",
+				canAdd: canInteract && inARoom,
+				offers,
+				sigil: "@",
+				onOpen,
+				onSubmit,
+				onError,
+			}}
+		>
+			<DmRows
+				canInteract={canInteract}
+				convs={convs}
+				unreads={unreads}
+				activeKey={activeKey}
+				inARoom={inARoom}
+				dirs={dirs}
+				home={home}
+				shows={shows}
+				onOpen={onSelect}
+				onClose={onClose}
+				onAbout={onAbout}
+			/>
+		</RailSection>
 	);
 }

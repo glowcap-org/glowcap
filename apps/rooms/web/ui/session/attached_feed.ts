@@ -1,6 +1,6 @@
 // Revisioned observations from one attached durable Rooms session.
 
-import type { RoomsSessionLineEvent, RoomsSessionSnapshot } from "../../../lib/rooms_session.ts";
+import type { RoomsSessionLineEvent, RoomsSessionSnapshot } from "../../../lib/session/client.ts";
 import type { AttachedRoomsRemote } from "./remote.ts";
 import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 
@@ -89,6 +89,19 @@ export class AttachedSessionFeed {
 		return this.requireSnapshot();
 	}
 
+	/** Hand the page the snapshot it already holds.
+	 *
+	 * Nothing is fetched: this is the same answer read again, because something
+	 * the page needs changed outside it — which of the session's pending
+	 * operations this tab is still driving. The session does not report that
+	 * and cannot, so when a command ends without a new revision to carry the
+	 * news, this is what carries it. */
+	reannounce(): void {
+		const snapshot = this.#snapshot;
+		if (snapshot == null || this.#closed) return;
+		for (const listener of [...this.#snapshots]) listener(snapshot);
+	}
+
 	requireSnapshot(): RoomsSessionSnapshot {
 		if (this.#snapshot == null) throw new Error("the attached Rooms session has not produced a snapshot");
 		return this.#snapshot;
@@ -159,7 +172,7 @@ export class AttachedSessionFeed {
 		this.#eventSource = event.source;
 		this.#eventSequence = event.sequence;
 		if (gap) {
-			this.#reportEventGap("The shared event stream skipped a sequence; history is reconciling.");
+			this.#reportEventGap(event.conversationId, "The shared event stream skipped a sequence.");
 			// The event exposing a gap is not trustworthy enough to project.
 			this.#releaseLine(event);
 			return;
@@ -170,9 +183,7 @@ export class AttachedSessionFeed {
 				if (evicted != null) this.#releaseLine(evicted);
 				if (!this.#initialEventGapReported) {
 					this.#initialEventGapReported = true;
-					this.#reportEventGap(
-						"The shared event stream exceeded its initial buffer; history is reconciling.",
-					);
+					this.#reportEventGap(event.conversationId, "The shared event stream exceeded its initial buffer.");
 				}
 			}
 			this.#pendingLines.push(event);
@@ -190,20 +201,27 @@ export class AttachedSessionFeed {
 		}
 	}
 
-	#reportEventGap(reason: string): void {
+	#reportEventGap(conversationId: string, reason: string): void {
 		if (this.#snapshot != null) {
+			const detail = this.#snapshot.checkpoint.keepHistory
+				? `${reason} Retained history is reconciling for this conversation.`
+				: `${reason} Retained history is disabled, so the missed lines are unavailable.`;
+			const subject = `event-gap:${conversationId}`;
 			this.#accept({
 				...this.#snapshot,
 				issues: [
-					...this.#snapshot.issues.filter((issue) => issue.subject !== "event-gap"),
-					{ subject: "event-gap", reason },
+					...this.#snapshot.issues.filter((issue) => issue.subject !== subject),
+					{ subject, reason: detail },
 				],
 			});
 		}
-		void this.#refreshAfterEventGap(reason);
+		const detail =
+			this.#snapshot?.issues.find((issue) => issue.subject === `event-gap:${conversationId}`)?.reason ??
+				reason;
+		void this.#refreshAfterEventGap(`event-gap:${conversationId}`, detail);
 	}
 
-	async #refreshAfterEventGap(gapReason: string): Promise<void> {
+	async #refreshAfterEventGap(subject: string, gapReason: string): Promise<void> {
 		try {
 			await this.refresh();
 		} catch (error) {
@@ -213,8 +231,8 @@ export class AttachedSessionFeed {
 			this.#accept({
 				...snapshot,
 				issues: [
-					...snapshot.issues.filter((issue) => issue.subject !== "event-gap"),
-					{ subject: "event-gap", reason: `${gapReason} Snapshot refresh failed: ${reason}` },
+					...snapshot.issues.filter((issue) => issue.subject !== subject),
+					{ subject, reason: `${gapReason} Snapshot refresh failed: ${reason}` },
 				],
 			});
 		}

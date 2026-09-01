@@ -10,6 +10,7 @@
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Conv, DirId, DirView, LiveRooms, SendControlPolicy, SessionPhase } from "./types.ts";
+import { CAUGHT_UP, NO_HISTORY } from "./types.ts";
 import type { DirectoryDestinationContext, JoinAnswers } from "./joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";
@@ -21,6 +22,7 @@ import { useRoomsSession } from "./controller/session.ts";
 import { IconButton } from "./IconButton.tsx";
 import { useRoomsState } from "./hooks.ts";
 import { NO_DRAFT } from "./store.ts";
+import { ScrollMemory } from "./scroll_memory.ts";
 
 // How close to the end still counts as "reading the newest message".
 const AT_BOTTOM_SLACK = 80;
@@ -68,6 +70,8 @@ export function Stream(
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	const draft = useRoomsState((state) => conv == null ? NO_DRAFT : state.drafts.get(conv.key) ?? NO_DRAFT);
+	const history = useRoomsState((state) => conv == null ? NO_HISTORY : state.histories.get(conv.key) ?? NO_HISTORY);
+	const unread = useRoomsState((state) => conv == null ? CAUGHT_UP : state.unreads.get(conv.key) ?? CAUGHT_UP);
 	const log = useRef<HTMLElement>(null);
 	// Whether the reader was at the end of the conversation before whatever just
 	// happened. Content growing does not raise a scroll event, so this is read at
@@ -76,17 +80,15 @@ export function Stream(
 	// moment a message lands.
 	const pinned = useRef(true);
 	// The conversation on screen, read through a ref rather than depended on.
-	// Every store change replaces it — a member coming online, a keystroke in the
-	// composer — and its readers below measure the scroll region, which forces
+	// A member coming online replaces it; a typing flag and a composer
+	// keystroke do not. Its readers below measure the scroll region, which forces
 	// layout. Only arriving somewhere new, and a line landing, are worth that.
 	const latest = useRef(conv);
 	latest.current = conv;
-	// Where each conversation was left, so coming back to one returns you to the
-	// message you were reading rather than to the bottom. One number per
-	// conversation this tab has visited, and nothing removes a row when a
-	// conversation is closed: the cost is bounded by how many conversations a
-	// person opens in one sitting, which is not a number worth sweeping for.
-	const positions = useRef(new Map<string, number>());
+	// Where each recent conversation was left, so coming back returns to the
+	// message being read rather than the bottom. Closed conversations leave the
+	// store, while ScrollMemory keeps this long-lived view bounded independently.
+	const positions = useRef(new ScrollMemory());
 	const seen = useRef<{ key: string | null; count: number }>({ key: null, count: 0 });
 	const [showJump, setShowJump] = useState(false);
 
@@ -124,7 +126,7 @@ export function Stream(
 			const e = scroller();
 			if (!e) return;
 			pinned.current = atBottom();
-			if (seen.current.key) positions.current.set(seen.current.key, e.scrollTop);
+			if (seen.current.key) positions.current.remember(seen.current.key, e.scrollTop);
 			if (pinned.current) setShowJump(false);
 		};
 		const region = log.current;
@@ -140,7 +142,7 @@ export function Stream(
 	// Both are the same question — what should be on screen now — so they are one
 	// effect rather than an append path and a switch path that have to agree.
 	const key = conv?.key ?? null;
-	const count = conv?.history.length ?? 0;
+	const count = history.length;
 	useLayoutEffect(() => {
 		const e = scroller();
 		if (!e) return;
@@ -153,10 +155,10 @@ export function Stream(
 			setShowJump(false);
 			return;
 		}
-		const last = latest.current?.history[count - 1];
+		const last = history[count - 1];
 		const mine = last?.kind === "chat" && last.mine;
 		if (seen.current.key !== key) {
-			const saved = key === null ? undefined : positions.current.get(key);
+			const saved = positions.current.recall(key);
 			if (saved === undefined) e.scrollTop = e.scrollHeight;
 			else e.scrollTop = saved;
 			// A long conversation may not have finished laying out yet, especially
@@ -169,14 +171,14 @@ export function Stream(
 		seen.current = { key, count };
 		pinned.current = atBottom();
 		setShowJump(!pinned.current && count > 0);
-	}, [key, count, scroller, atBottom, keepLatestInView]);
+	}, [key, count, history, scroller, atBottom, keepLatestInView]);
 
 	// Dropping a file anywhere over the conversation posts it, which is where a
 	// person aims. The counter is what makes the highlight survive dragging over
 	// a child element: `dragleave` fires as the pointer crosses into one, so a
 	// boolean would flicker off under the cursor.
 	const [dragDepth, setDragDepth] = useState(0);
-	const dropEnabled = composerEnabled;
+	const dropEnabled = composerEnabled && conv?.type !== "directory";
 	const carriesFiles = (e: React.DragEvent): boolean => [...e.dataTransfer.types].includes("Files");
 
 	return (
@@ -250,6 +252,8 @@ export function Stream(
 				<Log
 					ref={log}
 					conv={conv}
+					history={history}
+					unread={unread}
 					nick={nick}
 					sendControls={sendControls}
 					ignored={ignored}
@@ -282,6 +286,7 @@ export function Stream(
 				<span>Latest messages</span>
 			</button>
 			<Composer
+				canInteract={canInteract}
 				conv={conv}
 				nick={nick}
 				draft={draft.text}

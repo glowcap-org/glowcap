@@ -16,7 +16,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	await tab.press("#newRoomInput", "Enter");
 	await namedRoomRow(tab, "operator-proof", true).waitFor({ timeout: 10_000 });
 	await tab.click("#settingsBtn");
-	await tab.click("#settingsTab");
+	await tab.click("#holdingsTab");
 	await takeCapability(tab, "#opsOperatorToggle", operatorSwiss);
 	await tab.waitForSelector("#opsBtn");
 	await tab.click("#opsBtn");
@@ -52,7 +52,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	if (await reset.getByRole("button", { name: "Disconnect other peer sessions…" }).count() !== 1) {
 		fail("operator reset implies it can disconnect its own answering connection");
 	}
-	const operated = tab.locator('#roomModerationCapabilities .entry[data-room="operator-proof"]');
+	const operated = tab.locator("#roomModerationCapabilities .entry", { hasText: "operator-proof" });
 	await operated.waitFor({ timeout: 10_000 });
 	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
 	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
@@ -68,6 +68,12 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	await operated.getByRole("button", { name: "Grant moderator capability" }).waitFor({ timeout: 10_000 });
 	if (await operated.locator(".copy-field").count() !== 0) {
 		fail("a revoked moderator capability still exposed its old copyable capability");
+	}
+	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
+	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
+	const rotatedModeratorLink = await operated.locator(".copy-field-text").textContent();
+	if (rotatedModeratorLink === null || rotatedModeratorLink === moderatorLink) {
+		fail("moderator reissue did not mint a fresh generation");
 	}
 	// The search is over the directory, not over the page: it narrows every
 	// inventory at once and its counts are the directory's own. Then the bulk
@@ -111,8 +117,20 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 
 	const linked = tab.locator("#operatorRoomLinks .entry", { hasText: "operator-proof" });
 	await linked.getByRole("button", { name: "Remove…" }).click();
-	await linked.getByRole("button", { name: "Remove room link" }).click();
+	await linked.getByRole("button", { name: "Remove room entry link" }).click();
 	await linked.waitFor({ state: "detached", timeout: 10_000 });
+	await operated.getByRole("button", { name: "Grant moderator capability" }).waitFor({ timeout: 10_000 });
+	await operated.getByRole("button", { name: "Grant moderator capability" }).click();
+	await operated.locator(".copy-field").waitFor({ timeout: 10_000 });
+	const reissuedAfterRoomRevoke = await operated.locator(".copy-field-text").textContent();
+	if (reissuedAfterRoomRevoke === null || reissuedAfterRoomRevoke === rotatedModeratorLink) {
+		fail("revoking a room link prevented a fresh room and moderator generation");
+	}
+	const reissuedLink = tab.locator("#operatorRoomLinks .entry", { hasText: "operator-proof" });
+	await reissuedLink.waitFor({ timeout: 10_000 });
+	await reissuedLink.getByRole("button", { name: "Remove…" }).click();
+	await reissuedLink.getByRole("button", { name: "Remove room entry link" }).click();
+	await reissuedLink.waitFor({ state: "detached", timeout: 10_000 });
 	// Retire the room through the search rather than through its own row: the
 	// bulk act names how many match and takes exactly those.
 	await tab.fill("#operatorSearch", "operator-proof");
@@ -153,6 +171,6 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	}
 	await tab.setViewportSize({ width: 1280, height: 800 });
 	await tab.click("#settingsBtn");
-	await tab.click("#settingsTab");
+	await tab.click("#holdingsTab");
 	await removeCapability(tab, "#opsOperatorToggle");
 }

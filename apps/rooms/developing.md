@@ -36,8 +36,8 @@ by everyone on that network.
 Keep the browser page on a trustworthy origin. From another development machine, forward the web port and open the
 local end; for example, `ssh -N -L 8000:127.0.0.1:8000 development-host`, then open `http://localhost:8000`. A page
 served over bare network HTTP could be replaced before it becomes a peer, and browsers withhold APIs Rooms needs there,
-so the page refuses that origin with the same directions. For a shared browser deployment, terminate HTTPS at a reverse
-proxy or tunnel as described in [`web/deploy/README.md`](web/deploy/README.md). For anything beyond a trusted LAN, use
+so the page refuses that origin with the same directions. The Compose deployment described in
+[`web/deploy/README.md`](web/deploy/README.md) binds only to host loopback. For anything beyond a trusted LAN, use
 iroh for the room transport (`zig build rooms-web`) rather than TCP as well.
 
 On a Tailscale host, [Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) is the short path to the same
@@ -316,11 +316,11 @@ does not change whether messages, typing levels, room invitations, or archive sh
 capability-bearing verb that the receiver does not implement returns that imported occurrence before refusing. The
 requester whose ordinary dial fails can ask the directory to wake the target, which may establish the reciprocal carrier
 and hand over a reply capability without inventing an empty message. This lets a browser dial a durable session even when
-the session does not implement the browser's chosen carrier, without racing the ordinary WebRTC path. It creates no conversation until a real message arrives. `session_mixed_dm_peer_test.ts` and
+the session does not implement the browser's chosen carrier, without racing the ordinary WebRTC path. It creates no conversation until a real message arrives. `test/session/mixed_dm_peer_test.ts` and
 `rooms-web-shared-session` prove messages, typing, files, archive sharing, restart, and replacement-route adoption in
 both mixed directions.
 
-A member-owned archive is another ordinary object, defined in `lib/archive.ts`. `put(record)` upserts one standing or
+A member-owned archive is another ordinary object, defined in `lib/archive/protocol.ts`. `put(record)` upserts one standing or
 line under its recorder source, conversation generation, and record id; `read(filter, afterRevision, limit)` answers a
 bounded revision page. `narrow(filter, access)` synchronously returns a facet whose exact scope can only shrink and
 whose write authority can only be removed. The tab's implementation owns the `rooms-history` IndexedDB database and
@@ -332,11 +332,14 @@ index; the index does not rebuild or clone its text-bearing record. One passable
 
 `web/ui/net/archive_target.ts` owns a selected peer's sturdyref, session, and reference below the presentation store.
 It validates a candidate with one bounded read, then asks `web/ui/history.ts` to drain the old target before swapping.
-The archive-peer card the Data tab opens may retain the bearer only by explicit opt-in. A failed selected peer becomes unavailable and never
-falls back to the device archive; retry preserves the original retention choice. The direct-conversation card waits
-for earlier writes, mints a read-only facet for that line, and hands it to the other member. The receiver validates the
-scope before retaining it, keeps a bounded offer list, and releases the facet after one read or an explicit give-back.
-`zig build rooms-web-archive` proves this handover, selection, and fresh-profile recovery through a live iroh peer.
+The archive-peer card the Holdings tab opens may retain the bearer only by explicit opt-in. A failed selected peer becomes unavailable and never
+falls back to the device archive; retry preserves the original retention choice. The conversation card waits
+for earlier writes, mints a read-only facet for the named archive coordinate, and hands it over a DM. Room and
+standing shares name a member and use that pipe without stealing the reader's selection. A selected archive peer
+can also mint an independently revocable durable share and offer its sturdyref the same way; the tab recorder
+refuses that mint. The receiver validates the live directory, keeps a bounded offer list, and treats live
+facets as one-shot while durable offers survive until the issuer revokes them.
+`zig build rooms-web-archive` proves live handover, selection, and fresh-profile recovery through a live iroh peer.
 
 `archive/main.ts` hosts the same behavior on a durable v1/Syrup Host. `archive/storage.ts` appends and syncs one
 revision before applying the shared `ArchiveIndex` transition, then atomically compacts a bounded delta tail. Its state
@@ -350,29 +353,43 @@ export positions, and frame movement remain below them.
 
 ## The browser interface
 
-The page is a conversation. A rail lists rooms and direct lines. The workarea is the column for the one you have open: a
-topbar, a log of messages, and a composer that floats over the bottom of that column. The log owns the messages and the
-fade at their lower edge. The composer holds the controls that sit on that edge. Pressing the room or direct-message
-name in the topbar opens what this tab already knows about that conversation — the directory that carries it, the
-session, the path a direct line takes — and `/details` (also `/info`) opens the same card. The room's Capabilities tab
+The layout is a rail of rooms and direct lines, plus a workarea for the one you have open: a
+topbar, a message log, and a composer at the bottom of that column. The [Rooms overview](README.md) is the user
+walk. What follows is the layout the UI has to keep.
+
+Pressing the room or direct-message
+name in the topbar opens what this tab already knows about that conversation: the directory that carries it, the
+session, and the path a direct line takes. `/details` (also `/info`) opens the same card. The room's Capabilities tab
 creates its durable bearer link with an explicit press, then exposes that sturdyref for copying. Creating a link keeps
 the room reachable across a server restart; it does not enable history or grant moderation. `/link` reaches the same
-operation from the composer: with no argument it links this room, and `/link lobby` links a listed room. `/join` is a
-destination — a name or a locator — never the conversation it was typed in. `/join` of a locator seats from what
-subscribe says about that occupancy — listed or unlisted — not from a method asked first, and not from the label a
+operation from the composer: with no argument it links this room, and `/link lobby` links a listed room. `/join` names a destination
+(a name or a locator), never the conversation it was typed in. `/join` of a locator seats from what
+subscribe says about that occupancy, listed or unlisted, not from a method asked first, and not from the label a
 private room may share with a public one. The directory named on it opens that directory's card. A room's card is also
 where you say where you are in it, and where you leave it; a direct line's card closes the conversation. A long refusal
 stays two lines where it appeared; Show opens the rest on its own card. The topbar stripe and the welcome card take
 their color from the rail row that opened the conversation, room or direct line. On the join screen the topbar keeps a
 stripe from rail selection, which is not the join card's aim. The rail's teal-to-orange header fade stays static.
-Orange controls stay orange.
+Orange controls stay orange. Wrapping prose on a card, the rail's empty lines, a notice, or the
+welcome panel keeps a last line of one word from dangling. A heading on a card or the welcome panel
+breaks into even halves.
 
-It is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`. Styles
-live in `page.css` plus the sheets it imports, split along those sections. One Zustand store projects the facts the
-page draws. Components subscribe through `useRoomsState` selectors; the store has no persistence middleware and holds
-no live capability authority. State that belongs to one control stays in that component: an open emoji tray or the
-composer caret. UI state must not live in the DOM. An element's own value outlives closing the control or switching
-conversations, and comes back carrying an earlier intention.
+It is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`. Deno
+splits that graph at the waits a reader can name. The opening screen in `page.html` covers the boot module, the wasm
+runtime, and whichever of session choice or the session shell is next — that next chunk starts as soon as the branch
+is known, so the splash does not fade onto a second wait. After a session exists, Operations is its own chunk, each
+pane another except Directory — its shell stays with Operations so opening it is not two sheens, and the operator and
+inspect halves are two more chunks — and Help's parts catalog the last. A hover or
+focus on the control that opens one starts that download; a prefetch that refuses is silent, and opening the surface
+is what can explain a missing chunk. A required chunk that `import()` refuses stamps the opening screen lost, because
+that rejection is not a window error. Leaving or deleting the session stands the address at `/`, so the next choice
+does not reopen Operations — including a reload in another tab of the same profile that finds no session. The wait on
+screen is the same quiet sheen a pane already uses for its first answer from the server. Styles live in
+`page.css` plus the sheets it imports, split along those sections. One Zustand store projects the facts the page draws.
+Components subscribe through `useRoomsState` selectors;
+the store has no persistence middleware and holds no live capability authority. State that belongs to one control stays
+in that component: an open emoji tray or the composer caret. UI state must not live in the DOM. An element's own value
+outlives closing the control or switching conversations, and comes back carrying an earlier intention.
 
 Every card and pane draws its forms from one vocabulary, held in `forms.css` and the components beside it (`Field`,
 `Confirm`, `ModalHead`, `Button`), and Help's parts catalog shows each piece next to its siblings. A question is a
@@ -385,13 +402,13 @@ a red commitment, so a leave, a delete, or a revoke can never wear the same butt
 onto the way out, Escape is the way out and stays inside the card, and keeping hands focus back to the act that asked. A
 list of things the surface knows about is `entries`, each with a head (name, a short fact, the acts at the line's end) and its longer facts
 under it. A door to another card is a `launch` row: a mark, a name and one sentence, and the act at the end. Sections
-are an overline title over a `well`. Session setup, the Data and Advanced tabs, the room and directory
+are an overline title over a `well`. Session setup, the Session, Holdings, and Network tabs, the room and directory
 cards, and every Operations pane are built from these and nothing else, which is what keeps a form in one of them
 looking like a form in the rest.
 
 A form that takes a pasted capability opens a card of its own rather than standing on the tab that owns the subject.
-The Data tab is written that way: each of its cards says where something is kept and offers the acts that change it,
-and attaching a session, choosing an archive peer, issuing access, and replacing the stored state each open a
+The Session and Holdings tabs are written that way: each card says who keeps data or authority and offers the acts that
+change it. Attaching a session, choosing an archive peer, issuing access, and replacing stored state each open a
 `SettingsSubmodal`. Ending a door's label with an ellipsis says the press opens rather than commits, and the
 commitment then lives at the foot of the card that opened. Closing Settings over an unsaved form asks first: the
 window selects the tab holding the change and puts a `Confirm` above that form, so the reader sees what is at stake
@@ -419,10 +436,9 @@ stays until `boot.ts` has the controller's first answer. `zig build source-check
 
 ### Form answers
 
-A field a reader did not fill is not state to be kept. It is an answer, and an answer only makes sense beside the
-question that was asked. Following a link to a room asks a different question from pressing "add a room" in the rail,
-and both differ from opening the page cold, so a form that keeps one set of values for all three will get two of them
-wrong.
+Empty fields are answers to a question, not leftover state. Opening a room from a
+link, pressing "add a room" in the rail, and loading the page cold ask different
+questions; one saved form cannot answer all three.
 
 `intent.ts` is where that is decided. Every surface that can put the reader in front of a question files an **act**
 saying where it came from and what it names, and presentation resolves each field from the strongest evidence available:
@@ -441,7 +457,7 @@ itself files no act, which is the whole answer to "what happens when there is no
 the reader's mouth; filing none leaves the last real answer standing and leaves anything half-typed where the reader
 left it.
 
-Two consequences are worth stating because they are easy to get wrong. An act naming an _empty_ value still beats a
+Two consequences are easy to get wrong. An act naming an _empty_ value still beats a
 remembered one, since a link to a room in this page's directory says "here" by saying nothing about where; that silence
 is an answer. And an override the reader types belongs to the act they typed it under, so going somewhere else drops it
 without anybody having to clear anything.
@@ -451,7 +467,14 @@ rather than annotating each field it filled: a card reached by following an addr
 card opened from the rail is answering nothing in particular, so that is the one sentence that differs between them. A
 room link pasted into the locator field is the same idea from the other direction: the swissnum path is what makes it a
 way in rather than a directory address, so the card retitles that field and redeems the link instead of asking to enter
-a name on a peer.
+a name on a peer. The card's one button is Connect while the named directory has not answered this tab: that press waits
+for an answer and names a refusal on the locator, and an address that has never answered is let go rather than kept
+dialling. A directory that has answered and then dropped is a standing condition on the memberships already held — the
+rooms stay, and they say not connected — not an establishment to unwind. The four connection words follow that same
+split: connecting while the first answer is still coming, reconnecting or not connected after a directory that has
+already answered drops. Restore and both controllers derive those words from whether the directory has answered, so a
+first Connect cannot read as a drop. Those words are a directory's. A person who is not in the room is offline.
+
 While that card is the workarea, the rail's room panel is a second view of it: one room name, one lock, and one
 destination, all read from the card's own answers and all changed from either side. Picking a directory on the panel's
 line writes the card's locator exactly as typing in the panel's field writes the card's room name, so the panel's line,
@@ -474,7 +497,7 @@ The rooms list holds one panel however many directories this tab is on. Where a 
 and offers to change, rather than something the place the panel sits in decides, so a second directory adds no second
 field: the destination line names the directory the room is going to, and the menu under it picks another one the tab
 already holds or steps out to an address it does not. `intent_test.ts` drives the precedence itself and
-`web_routes_test.ts` drives which act each route files. Other forms in the page hold values that belong to one control
+`web/routes_test.ts` drives which act each route files. Other forms in the page hold values that belong to one control
 and are cleared when it closes, so they have no act to answer; a form that starts keeping a value across screens needs
 one.
 
@@ -555,8 +578,8 @@ These are decided directions, so a session picking one up starts from the decisi
   value. `web/ui/complete.ts` is written for exactly that, and the two parts that make it work — which sigil the caret
   is in, and how accepting splices back into the draft — are ours whatever draws the list.
 
-  Every other filterable list in this interface owns its own input. The rail's filter already does, and it is
-  deliberately small: one question per property of a room, drawn from `web/ui/sidebar/filter.ts`, with no ranking and no
+  Every other filterable list in this interface owns its own input. The rail's filter already does:
+  one question per property of a room, drawn from `web/ui/sidebar/filter.ts`, with no ranking and no
   reordering to speak of. The ones still to come are larger: a command palette, a searchable emoji picker over the same
   table the tray reads, settings search. Those are where [`cmdk`](https://github.com/pacocoursey/cmdk) fits, and it is
   the one pre-approved dependency candidate for them. It is a combobox primitive rather than a palette widget: it
@@ -585,19 +608,22 @@ These are decided directions, so a session picking one up starts from the decisi
 | -------------------- | ---------------------------------------------------------------- |
 | `server/main.ts`     | Directory and room host.                                         |
 | `lib/protocol.ts`    | Directory, room, and direct-message verbs.                       |
-| `lib/archive.ts`     | Member-owned archive records, bounds, behavior, and client.       |
+| `lib/protocol_irc.ts`, `lib/protocol_operator.ts` | IRC bridging and operator verbs.    |
+| `lib/archive/`       | Member-owned archive records, bounds, behavior, and client.       |
 | `archive/`           | Durable archive peer identity, JSONL store, and listener.         |
-| `lib/room_client.ts` | Shared application wrapper used by Deno and the browser.         |
+| `lib/room/client.ts` | Shared application wrapper used by Deno and the browser.         |
+| `lib/session/`       | Client contract for a durable session.                           |
 | `lib/dm_*.ts`        | Direct inboxes, replies, and handoff choreography.               |
 | `lib/locator.ts`     | TCP and iroh dialing for Deno clients.                           |
 | `clients/`           | Deno, Python, Racket, Rust, and Zig clients.                     |
 | `irc/`               | Bounded IRC grammar, channel bridge, and native Rooms front.     |
+| `session/`           | Durable session actor, document store, and Deno process host.    |
 | `web/serve.ts`       | Page server, room supervisor, and relay endpoint.                |
 | `web/relay.ts`       | Byte relay and browser rendezvous bridge.                        |
 | `web/ui/`            | Browser Rooms client and interface.                              |
 | `web/ui/controller/` | Browser and established-session React controller boundaries.     |
 | `web/ui/net.ts`      | Local session, rooms, and direct-message effects.                |
-| `web/ui/session/`    | Attached session client, projection, and UI adapter.             |
+| `web/ui/session/`    | Attached client, in-tab host bind, projection, and UI adapter.   |
 | `web/ui/store.ts`    | Non-authoritative page projection and its domain updates.        |
 | `web/ui/intent.ts`   | What the reader meant, and how firmly, for forms to answer from. |
 | `web/ui/boot.ts`     | Hands the page from the opening screen to the React app.         |

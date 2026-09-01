@@ -10,7 +10,7 @@
 // the name you go by on one is not a name you own anywhere else.
 
 import type { DirView } from "./types.ts";
-import { dirConnection } from "./text.ts";
+import { dirConnection, directoryDmBlocked } from "./text.ts";
 
 /** Whether anyone can message you on this directory.
  *
@@ -18,12 +18,22 @@ import { dirConnection } from "./text.ts";
  * leaves this window in every roster looking ordinary while no direct message
  * can arrive. The name and the connection come first because both are needed
  * before the question means anything: no name, nothing to register; no
- * connection, nothing registered. */
-function dmSaid(dir: DirView) {
+ * connection, nothing registered.
+ *
+ * The person card asks this too, about the reader on the directory it is
+ * reading them through. One answer, because two would drift and the drift would
+ * be a card telling somebody they are reachable while the directory is not
+ * connected. */
+export function dmSaid(dir: DirView) {
 	if (dir.nick === "") return "Not yet: no name granted here";
-	if (dir.session !== "connected") return "Not while this directory is away";
+	if (dir.session !== "connected") return directoryDmBlocked(dir.session);
 	if (dir.dmUnreachable === "") return "Others can reach you here";
 	return <span className="dirfact-why">{dir.dmUnreachable}</span>;
+}
+
+export function grantedNameSaid(dir: Pick<DirView, "nick"> | null): string {
+	if (dir == null || dir.nick === "") return "Not granted yet";
+	return dir.nick;
 }
 
 export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) {
@@ -51,8 +61,8 @@ export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) 
 				}
 				{connection.why !== "" && <span className="dirfact-why">{connection.why}</span>}
 			</dd>
-			<dt>Your name here</dt>
-			<dd>{dir.nick === "" ? "Not granted yet" : dir.nick}</dd>
+			<dt>Your name</dt>
+			<dd>{grantedNameSaid(dir)}</dd>
 			{
 				/* Whether anyone can message you here, which is the next question a
 				    granted name raises and the one nothing used to answer. Being

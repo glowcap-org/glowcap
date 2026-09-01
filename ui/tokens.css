@@ -168,14 +168,35 @@
 	--accent-fill: var(--accent-deep);
 	--accent-fill-deep: #8a4708;
 	--on-accent: #fff8ef;
-	/* The ground the page stands on: warm paper with a little of the accent
-	   poured in at the top. Rooms' body and boot screen, and the documentation
-	   site, share it, so opening either does not announce a different room. */
+	/* The neutral reference each paper cools toward, never shown whole: the
+	   feet below mix partway to these. Each holds its paper's OKLab lightness
+	   with the chroma dropped (#211911's tone as #1b1b1b, cream's as #e9e9e9),
+	   so the cooling is pure temperature, never a shadow. The raised reference
+	   is capped at the same perceptual journey the page's makes: dark raised
+	   paper carries more chroma than the ground paper, and a full drop to
+	   neutral cooled raised surfaces visibly harder than the page beside them,
+	   so #262421 keeps the sliver of warmth that equal travel leaves. Light
+	   raised paper travels less than its page does even at full neutral, so
+	   #fafafa stands. */
+	--paper-floor: var(--paper);
+	--raised-floor: var(--paper-raised);
+	/* Where the ground comes to rest: a little past halfway from the paper to
+	   its neutral reference, so the cooling reads as gray without the weight
+	   the full journey carried. The fade above the composer and its tucked
+	   banner resolve to this, because it is the color behind them. */
+	--page-foot: color-mix(in srgb, var(--paper) 45%, var(--paper-floor));
+	--raised-foot: color-mix(in srgb, var(--paper-raised) 45%, var(--raised-floor));
+	/* The ground the page stands on: amber poured in at the top, holding warm
+	   past the middle, then cooling gently onto the gray foot. Rooms' body and
+	   boot screen, and the documentation site, share it, so opening either
+	   does not announce a different room. */
 	--page-bg:
 		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
-		12%, var(--paper))
-		0%, var(--paper) 55%) no-repeat,
-		var(--paper);
+		12%, transparent)
+		0%, transparent 55%) no-repeat,
+		linear-gradient(180deg, var(--paper) 55%, color-mix(in srgb, var(--paper) 50%,
+		var(--page-foot)) 78%, var(--page-foot) 94%) no-repeat,
+		var(--page-foot);
 	/* The brand hairline across sticky chrome. One thickness, so the rooms
 	   topbar and the site header draw the same stripe. */
 	--accent-line: 3px;
@@ -196,9 +217,22 @@
 	/* Application chrome. A new size is a claim this ramp is wrong. Site
 	   article type stays in rem on that surface; rooms chrome uses these. */
 	--type-tiny: 10px;
+	/* The step between them. Nine rules in the chrome reached for eleven
+	   pixels on their own — a copy mark, an overline, a caption button, a
+	   badge, an initial — and four more landed either side of it at halves.
+	   The ramp's own rule is that a new size is a claim it is wrong, and nine
+	   independent claims are the ramp being wrong rather than nine authors
+	   being careless. */
+	--type-fine: 11px;
 	--type-caption: 12px;
 	--type-ui: 13px;
 	--type-body: 14px;
+	/* What the page is set in, and so what everything inherits until a rule
+	   says otherwise. The conversation is read at this size, which makes it the
+	   most-read type in the application and the one step that was never on the
+	   ramp: it lived as a number in the body rule, so the ramp described every
+	   size except the one under all the others. */
+	--type-read: 15px;
 	--type-title: 17px;
 	--type-display: 21px;
 }
@@ -251,5 +285,7 @@
 		--accent-fill: light-dark(var(--accent-deep), var(--accent));
 		--accent-fill-deep: light-dark(#8a4708, var(--accent-deep));
 		--on-accent: light-dark(#fff8ef, #241a10);
+		--paper-floor: light-dark(#e9e9e9, #1b1b1b);
+		--raised-floor: light-dark(#fafafa, #262421);
 	}
 }

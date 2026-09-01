@@ -1,6 +1,6 @@
 # Timeline authoring
 
-This page describes the shipped lane model and authoring verbs. Flash is the
+The shipped lane model and authoring verbs are below. Flash is the
 taste target, not a dependency.
 
 The lane model and the authoring verbs turn "I can edit one event" into "I can

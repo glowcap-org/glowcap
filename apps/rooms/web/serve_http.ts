@@ -60,10 +60,10 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	// The browser UI lives in ui/: page.html, the rooms stylesheets, and a set of React components
 	// entered through main.tsx. page.html and the stylesheets are read fresh on each request, so
 	// editing them shows on a browser refresh with no restart. The components are authored in
-	// TypeScript and JSX (ui/deno.json targets the DOM libs) and served as JavaScript: a
-	// pre-built ui/page.js is used if present — the deploy builds it ahead of time with
-	// `deno bundle`, so the runtime does not need to download bundler dependencies —
-	// otherwise the bundle is built here. Either way it is rebuilt whenever a module it was
+	// TypeScript and JSX (ui/deno.json targets the DOM libs) and served as code-split JavaScript.
+	// A pre-built ui/bundle directory is used if present. The deploy builds it ahead of time
+	// with `deno bundle`, so the runtime does not need bundler dependencies. Otherwise the
+	// graph is built here. Either way it is rebuilt whenever a module it was
 	// built from is newer than it, so a reload shows an edit. Everything is served with
 	// no-store, so a browser always fetches the current build.
 	const UI_DIR = `${ROOT}ui/`;
@@ -73,28 +73,42 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	const SOURCE_DIRS = [UI_DIR, `${ROOT}../lib/`, `${ROOT}../../../bindings/ts/`];
 	// Not minified, so the served bundle stays readable in the browser's view-source.
 	// A production build can shrink it a lot by adding "--minify" to a pre-built
-	// page.js (see deploy/README.md).
-	const BROWSER_BUNDLE_CONFIG = `${ROOT}../../../bindings/ts/web/browser-bundle.json`;
+	// bundle directory (see deploy/README.md).
+	const BROWSER_BUNDLE_CONFIG = `${ROOT}browser-bundle.json`;
 	const WASM_PATH = `${ROOT}../../../zig-out/wasm/pancake_host.wasm`;
-	async function bundleClient(): Promise<string> {
-		const { code, stdout, stderr } = await new Deno.Command("deno", {
-			args: [
-				"bundle",
-				"--platform",
-				"browser",
-				"--no-lock",
-				"--quiet",
-				"--config",
-				BROWSER_BUNDLE_CONFIG,
-				`${UI_DIR}main.tsx`,
-			],
-			stdout: "piped",
-			stderr: "piped",
-		}).output();
-		if (code !== 0) {
-			throw new Error(new TextDecoder().decode(stderr).trim() || "deno bundle failed");
+	async function bundleClient(): Promise<Map<string, string>> {
+		const outdir = await Deno.makeTempDir({ prefix: "pancake-rooms-browser-" });
+		try {
+			const { code, stderr } = await new Deno.Command("deno", {
+				args: [
+					"bundle",
+					"--platform",
+					"browser",
+					"--quiet",
+					"--code-splitting",
+					"--config",
+					BROWSER_BUNDLE_CONFIG,
+					"--outdir",
+					outdir,
+					`${UI_DIR}main.tsx`,
+				],
+				stdout: "null",
+				stderr: "piped",
+			}).output();
+			if (code !== 0) {
+				throw new Error(new TextDecoder().decode(stderr).trim() || "deno bundle failed");
+			}
+			const bundles = new Map<string, string>();
+			for await (const entry of Deno.readDir(outdir)) {
+				if (entry.isFile && entry.name.endsWith(".js")) {
+					bundles.set(entry.name, await Deno.readTextFile(`${outdir}/${entry.name}`));
+				}
+			}
+			if (!bundles.has("main.js")) throw new Error("deno bundle produced no main browser entry");
+			return bundles;
+		} finally {
+			await Deno.remove(outdir, { recursive: true }).catch(() => {});
 		}
-		return new TextDecoder().decode(stdout);
 	}
 	// The newest modification time across every module the bundle is built from, or
 	// null if none can be read. It walks, rather than reading one directory, so
@@ -135,7 +149,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	 * the rooms stylesheets, and the wasm module are all read fresh per request, so a stale
 	 * bundle serves old code inside a page that otherwise reloaded, and the edit
 	 * looks like it did nothing. */
-	let pageJs = "";
+	let browserBundles = new Map<string, string>();
 	let pageJsAt = 0;
 	/** The source time a rebuild already failed on, so a broken edit is reported
 	 * once rather than on every page load. Moving a source retries. */
@@ -146,8 +160,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	let rebuilding: { at: number; done: Promise<void> } | null = null;
 
 	async function bundleInto(sourceAt: number): Promise<void> {
-		const code = await bundleClient();
-		pageJs = code;
+		browserBundles = await bundleClient();
 		pageJsAt = sourceAt;
 	}
 
@@ -180,34 +193,63 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	// bundler. `refreshPageJs` holds it to the same staleness rule as one built
 	// here, and if there is no bundler to rebuild with, this is what stands.
 	try {
-		pageJs = await Deno.readTextFile(`${UI_DIR}page.js`);
-		pageJsAt = (await Deno.stat(`${UI_DIR}page.js`)).mtime?.getTime() ?? 0;
+		const bundleDir = `${UI_DIR}bundle/`;
+		let oldest = Number.POSITIVE_INFINITY;
+		for await (const entry of Deno.readDir(bundleDir)) {
+			if (!entry.isFile || !entry.name.endsWith(".js")) continue;
+			browserBundles.set(entry.name, await Deno.readTextFile(`${bundleDir}${entry.name}`));
+			oldest = Math.min(oldest, (await Deno.stat(`${bundleDir}${entry.name}`)).mtime?.getTime() ?? 0);
+		}
+		if (!browserBundles.has("main.js")) browserBundles.clear();
+		else pageJsAt = Number.isFinite(oldest) ? oldest : 0;
 	} catch {
-		// No prepared bundle: one is built below, which is the dev default.
+		browserBundles.clear();
+		pageJsAt = 0;
 	}
 	// Build at startup rather than on the first page load, so a bundler failure is
 	// an error in the terminal the server was started from.
 	const startupFailure = await refreshPageJs();
-	if (pageJs === "") {
+	if (!browserBundles.has("main.js")) {
 		console.error(
 			`rooms: could not build the browser UI: ${startupFailure ?? "no bundle produced"}`,
 		);
 		await stop(1);
 	}
 	if (startupFailure !== null) {
-		console.warn(`rooms: could not rebundle (${startupFailure}); serving ui/page.js as built`);
+		console.warn(`rooms: could not rebundle (${startupFailure}); serving the prepared browser bundles`);
 	}
 
-	// no-store so a browser (iOS Safari especially) never serves a stale asset after the
-	// server is updated — every load fetches the current build.
 	// A short human reason from any thrown value.
 	function reasonOf(err: unknown): string {
 		return err instanceof Error ? err.message : String(err);
 	}
 
-	function asset(body: string, type: string): Response {
+	/** A strong validator for one asset body: two independent 32-bit FNV-1a
+	 * passes over the text. The pair only has to tell versions of one URL
+	 * apart, so a collision needs one exact 64-bit accident between an old
+	 * build and its replacement. */
+	function contentTag(body: string): string {
+		let a = 0x811c9dc5;
+		let b = 0x1000193;
+		for (let i = 0; i < body.length; i++) {
+			const c = body.charCodeAt(i);
+			a = Math.imul(a ^ c, 0x01000193);
+			b = Math.imul(b ^ c, 0x01000197);
+		}
+		return `"${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}"`;
+	}
+
+	/** Serve one page asset so a browser never uses a stale copy and never
+	 * re-downloads a current one. `no-cache` (not `no-store`) makes every use
+	 * revalidate against the tag — the freshness `no-store` bought, at the
+	 * price of one round trip instead of the whole body when nothing moved. */
+	function asset(req: Request, body: string, type: string): Response {
+		const tag = contentTag(body);
+		if (req.headers.get("if-none-match")?.split(",").some((held) => held.trim() === tag)) {
+			return new Response(null, { status: 304, headers: { etag: tag } });
+		}
 		return new Response(body, {
-			headers: { "content-type": type, "cache-control": "no-store" },
+			headers: { "content-type": type, "cache-control": "no-cache", etag: tag },
 		});
 	}
 
@@ -256,9 +298,9 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 
 	// Read a UI file fresh for each request, so editing page.html or a stylesheet shows on a
 	// browser refresh without restarting this process.
-	async function serveUi(name: string, type: string): Promise<Response> {
+	async function serveUi(req: Request, name: string, type: string): Promise<Response> {
 		try {
-			return asset(await Deno.readTextFile(`${UI_DIR}${name}`), type);
+			return asset(req, await Deno.readTextFile(`${UI_DIR}${name}`), type);
 		} catch (err) {
 			return new Response(`rooms: could not read ui/${name}: ${reasonOf(err)}`, { status: 500 });
 		}
@@ -325,9 +367,11 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 					if (!isRendezvousDesignator(rendezvousId)) {
 						return new Response("rooms: invalid rendezvous designator\n", { status: 400 });
 					}
-					if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
-						return new Response("rooms: cross-origin relay refused\n", { status: 403 });
-					}
+					// Not a proxy: the designator is the capability to request a
+					// bridge, and native dialers already arrive without Origin.
+					// `relayOriginAllowed` would refuse a browser attaching to a
+					// tab-hosted session from another page origin (ADR-0134),
+					// which the client reports only as `WebSocket connect failed`.
 					const { socket, response } = Deno.upgradeWebSocket(req, {
 						idleTimeout: RELAY_WS_IDLE_TIMEOUT_S,
 					});
@@ -456,20 +500,33 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 							`rooms: could not rebuild the browser UI (${failed}); serving the last build`,
 						);
 					}
-					return asset(pageJs, "text/javascript; charset=utf-8");
+					return asset(req, browserBundles.get("main.js") ?? "", "text/javascript; charset=utf-8");
 				})();
+			}
+			const browserChunk = /^\/([A-Za-z0-9_-]+\.js)$/.exec(url.pathname)?.[1];
+			if (browserChunk != null && browserBundles.has(browserChunk)) {
+				return asset(req, browserBundles.get(browserChunk)!, "text/javascript; charset=utf-8");
 			}
 			// The browser peer's wasm Host module (ADR-0070), fetched by the page's
 			// `@pancake/web` init. Read fresh so a rebuilt module serves without a
-			// restart, like the page assets.
+			// restart, like the page assets. Its validator is the file's size and
+			// write time rather than a content hash, because hashing megabytes on
+			// every page load would spend more than the revalidation saves; a
+			// rebuilt module moves both.
 			if (url.pathname === "/pancake_host.wasm") {
 				return (async () => {
 					try {
+						const stat = await Deno.stat(WASM_PATH);
+						const tag = `"${stat.size.toString(16)}-${(stat.mtime?.getTime() ?? 0).toString(16)}"`;
+						if (req.headers.get("if-none-match")?.split(",").some((held) => held.trim() === tag)) {
+							return new Response(null, { status: 304, headers: { etag: tag } });
+						}
 						const bytes = await Deno.readFile(WASM_PATH);
 						return new Response(bytes, {
 							headers: {
 								"content-type": "application/wasm",
-								"cache-control": "no-store",
+								"cache-control": "no-cache",
+								etag: tag,
 							},
 						});
 					} catch {
@@ -482,12 +539,12 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 					}
 				})();
 			}
-			if (url.pathname === "/tokens.css") return serveUi("tokens.css", "text/css; charset=utf-8");
+			if (url.pathname === "/tokens.css") return serveUi(req, "tokens.css", "text/css; charset=utf-8");
 			// Rooms stylesheets besides the shared core. Names are an allowlist
 			// shape (one path segment, letters and dashes) so a crafted path cannot
 			// walk out of ui/.
 			if (/^\/[a-z0-9-]+\.css$/.test(url.pathname)) {
-				return serveUi(url.pathname.slice(1), "text/css; charset=utf-8");
+				return serveUi(req, url.pathname.slice(1), "text/css; charset=utf-8");
 			}
 			// The typefaces ui/tokens.css declares. Served from an allowlist rather than
 			// by joining the request path onto a directory, so a crafted path cannot
@@ -495,7 +552,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 			if (url.pathname.startsWith("/fonts/")) {
 				return serveFont(url.pathname.slice("/fonts/".length));
 			}
-			return serveUi("page.html", "text/html; charset=utf-8");
+			return serveUi(req, "page.html", "text/html; charset=utf-8");
 		});
 	} catch (err) {
 		// The usual cause is a second serve.ts on the same HTTP port; say so and stop the

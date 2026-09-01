@@ -12,7 +12,7 @@
 
 import type { Host, Ref } from "@pancake/runtime";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import type { Directory } from "../lib/room_client.ts";
+import type { Directory } from "../lib/room/client.ts";
 import { MAX_DM_INBOXES } from "../lib/limits.ts";
 import { registrationId } from "./support/registration.ts";
 

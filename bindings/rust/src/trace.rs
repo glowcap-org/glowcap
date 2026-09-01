@@ -40,7 +40,7 @@ pub struct TraceEvent {
 	/// which is therefore the only one that can merge two producers' views.
 	pub session: String,
 	/// `SessionOpened`: the two ends and the negotiated codec. `a` is this
-	/// host's own OCapN Designator, which is what a partner names it by, so
+	/// host's own OCapN Designator, the name a partner knows it by, so
 	/// one peer stays one node in a feed several producers share; `b` the
 	/// partner's Designator.
 	pub a: Option<String>,
@@ -226,7 +226,7 @@ struct TracedHost {
 	/// which host it came from (the Names rule: a bare host-scoped id needs
 	/// its namespace named, or two hosts in one process collide).
 	cookie: usize,
-	/// The host's own key designator, which is what a partner names it by.
+	/// The host's own key designator, the name a partner knows it by.
 	designator: String,
 	context: Rc<crate::ContextInner>,
 	diagnostic_id: u64,
@@ -453,8 +453,8 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 /// registers itself). Returns an uninstall that also clears the native tap.
 /// `self_label`, when given, is what the producing application would like its
 /// own endpoint CALLED — a display name beside the identity, never instead of
-/// it: the `a` endpoint stays the host's own key designator, which is what a
-/// partner names it by and so the only name two producers can agree on.
+/// it: the `a` endpoint stays the host's own key designator, the name a
+/// partner knows it by and the only one two producers can agree on.
 pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() {
 	let installation = Rc::new(());
 	let hosts = STATE.with(|state| {

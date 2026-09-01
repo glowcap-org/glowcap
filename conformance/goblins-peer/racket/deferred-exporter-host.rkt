@@ -12,8 +12,8 @@
 ;; direction matters. An answer carrying a local promise chains through Goblins'
 ;; own promise machinery and stays pending on the wire, so pancake would be
 ;; handed a pending answer rather than a promise it can name. An argument
-;; marshals as `desc:import-promise`, which is what pancake needs in order to
-;; introduce it to somebody else.
+;; marshals as `desc:import-promise`, the form pancake needs to introduce it
+;; to somebody else.
 ;;
 ;; Bob settles the promise on the first line of stdin, so the driver decides
 ;; when. Once it settles, Bob's listener fire carries the greeter to pancake,

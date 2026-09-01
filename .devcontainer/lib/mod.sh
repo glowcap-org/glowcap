@@ -18,7 +18,8 @@
 # the host, so the two tmux launchers source it directly and it pulls this
 # file in for them. The update-pins-*.sh modules sit beside them on the same
 # terms, sourced only by bin/update-pins.sh, so a pin bump's machinery is not
-# loaded into every shell that reads a pin.
+# loaded into every shell that reads a pin, and playwright.sh likewise,
+# sourced only by the image verifier and its test.
 #
 # Each module is named on its own line rather than looped over, because a
 # path shellcheck cannot resolve is a module it cannot read: every consumer

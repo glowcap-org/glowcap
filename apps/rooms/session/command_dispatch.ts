@@ -1,14 +1,24 @@
 // Admission and execution of commands issued through a durable Rooms session.
 
 import { type Argument, type Behavior, type Session } from "@pancake/runtime";
-import { type RoomsSessionFacet } from "../lib/rooms_session.ts";
+import { mayInteract, type RoomsSessionAccess } from "../lib/session/client.ts";
 import { lineCost, MAX_LINE, MAX_TOPIC, nickRefusal } from "../lib/limits.ts";
 import { DurableRoomsSessionState } from "./state.ts";
 import { DurableRoomsRuntime } from "./runtime.ts";
-import { applyRoomsSessionCommand, prepareRoomOffer, roomsSessionCommandImpact } from "./commands.ts";
-import { performResultCommand } from "./result_effect.ts";
+import {
+	applyRoomsSessionCommand,
+	parseRoomBridgeFormCommand,
+	prepareRoomOffer,
+	type RoomsSessionCommandFacts,
+	roomsSessionCommandImpact,
+} from "./commands.ts";
+import { performResultCommand, type ResultEffectCoordinator } from "./result_effect.ts";
 import { validateOperationId } from "./effects.ts";
 import { prepareConversationEffect } from "./conversation_admission.ts";
+import { ROOM_RETIRED, roomErrorOf } from "../lib/errors.ts";
+import { parseRoomsSturdyref, roomsAddress } from "../lib/locator.ts";
+import { roomsPeerAuthority } from "../lib/routes.ts";
+import { isRoomEntry, isRoomPolicy, isRoomSpeaking, isRoomVisibility } from "../lib/room/policy.ts";
 
 export const MAX_SESSION_COMMAND_ARGUMENTS = 64;
 export const MAX_SESSION_COMMAND_BYTES = 512 * 1024;
@@ -75,6 +85,10 @@ async function performExternalEffect(
 	try {
 		await effect();
 	} catch (error) {
+		if (roomErrorOf(error)?.code === ROOM_RETIRED) {
+			await state.resolveEffect(operationId, "abandoned");
+			throw new Error("This room publication was retired. Reopen the current room before trying again.");
+		}
 		throw new Error(
 			`the ${label} outcome is unresolved; the operation will not be retried automatically: ${
 				error instanceof Error ? error.message : error
@@ -88,6 +102,7 @@ export interface RoomsSessionCommandContext {
 	readonly state: DurableRoomsSessionState;
 	readonly runtime: DurableRoomsRuntime;
 	readonly session: Session;
+	readonly resultEffects: ResultEffectCoordinator;
 }
 
 function requiresAdministration(command: string): boolean {
@@ -98,11 +113,11 @@ function requiresAdministration(command: string): boolean {
  * runtime effect ledger. All command arms live here so the behavior module
  * remains responsible for CapTP facets and observation only. */
 export function dispatchRoomsSessionCommand(
-	rights: RoomsSessionFacet,
+	rights: RoomsSessionAccess,
 	args: Argument[],
 	context: RoomsSessionCommandContext,
 ): ReturnType<Behavior> {
-	if (rights === "observe") throw new Error("this Rooms session facet cannot issue commands");
+	if (!mayInteract(rights)) throw new Error("this Rooms session facet cannot issue commands");
 	if (
 		args.length < 3 || typeof args[0] !== "string" || typeof args[1] !== "bigint" || args[1] < 0n ||
 		args[1] > BigInt(Number.MAX_SAFE_INTEGER) || typeof args[2] !== "string"
@@ -119,7 +134,67 @@ export function dispatchRoomsSessionCommand(
 	if (commandArgs.some((argument) => argument.length > 64 * 1024)) {
 		throw new Error("session command contains an oversized argument");
 	}
-	const operationMaterial = JSON.stringify([command, ...commandArgs]);
+	let materialArgs = commandArgs;
+	let stagedSecrets: { directoryId: string; scope: string; token: symbol } | null = null;
+	if (command === "submitRoomBridgeForm") {
+		const parsed = parseRoomBridgeFormCommand(commandArgs);
+		const room = context.state.snapshot().checkpoint.conversations.find((entry) =>
+			entry.kind === "room" && entry.id === parsed.conversationId
+		);
+		if (room == null) throw new Error("submitRoomBridgeForm names no room in this session");
+		const token = context.runtime.bridgeSecrets.stage(room.directory, parsed.intent.scope, parsed.secrets);
+		if (token !== null) stagedSecrets = { directoryId: room.directory, scope: parsed.intent.scope, token };
+		// The secrets do not go into the operation's material. What a command is
+		// remembered as having done must not carry what the reader typed into a
+		// secret field, whatever else changes about how one is dispatched.
+		materialArgs = [
+			parsed.conversationId,
+			parsed.intent.scope,
+			parsed.intent.action,
+			JSON.stringify(parsed.intent.answers),
+		];
+	}
+	const operationMaterial = JSON.stringify([command, ...materialArgs]);
+	if (command === "acceptInvitation" && context.runtime.handedRooms.has(commandArgs[0] ?? "")) {
+		if (commandArgs.length !== 2 || commandArgs[1] === "") {
+			throw new Error("acceptInvitation takes an invitation id and conversation id");
+		}
+		return context.runtime.handedRooms.accept(commandArgs[0], async (view, link) => {
+			const locator = parseRoomsSturdyref(link).locator;
+			const directory = roomsPeerAuthority(locator);
+			const nick = context.state.snapshot().checkpoint.directories.find((entry) =>
+				entry.id === view.directory
+			)?.nick ??
+				"";
+			const invitation = {
+				kind: "room-link",
+				id: view.id,
+				directory,
+				locator: roomsAddress(locator),
+				nick,
+				label: view.label,
+				from: view.from,
+				link,
+			};
+			return await context.state.mutate({
+				operationId,
+				baseRevision,
+				material: operationMaterial,
+				impact: "realization",
+				change: (current) => {
+					const admitted = applyRoomsSessionCommand(current, "receiveRoomLinkInvitation", [
+						JSON.stringify(invitation),
+					]);
+					return applyRoomsSessionCommand(admitted, "acceptInvitation", [view.id, commandArgs[1]]);
+				},
+			});
+		}).then(BigInt) as ReturnType<Behavior>;
+	}
+	if (command === "dismissInvitation" && context.runtime.handedRooms.has(commandArgs[0] ?? "")) {
+		if (commandArgs.length !== 1) throw new Error("dismissInvitation takes one invitation id");
+		context.runtime.handedRooms.drop(commandArgs[0]);
+		return BigInt(context.state.snapshot().revision);
+	}
 	if (command === "offerRoom") {
 		const offer = prepareRoomOffer(context.state.snapshot().checkpoint, commandArgs);
 		return performExternalEffect(
@@ -128,24 +203,34 @@ export function dispatchRoomsSessionCommand(
 			baseRevision,
 			operationMaterial,
 			() =>
-				context.runtime.offerRoom(
+				context.runtime.roomActions.offer(
+					context.runtime.settled(),
 					offer.roomConversationId,
 					offer.directConversationId,
 					offer.label,
 					offer.link,
+					(directId) => context.runtime.realizeConversation("direct", directId),
 				),
 			"room invitation",
 		).then(BigInt) as ReturnType<Behavior>;
 	}
-	if (command === "openPrivateRoom" || command === "ensureRoomLink" || command === "takeRoomModerator") {
-		return performResultCommand(
-			context.state,
-			context.runtime,
+	if (
+		command === "openManagedRoom" || command === "ensureRoomLink" || command === "takeRoomManager" ||
+		command === "takeRoomModerator" || command === "recoverRoomManager"
+	) {
+		return context.resultEffects.run(
 			operationId,
-			baseRevision,
-			command,
-			commandArgs,
 			operationMaterial,
+			() =>
+				performResultCommand(
+					context.state,
+					context.runtime,
+					operationId,
+					baseRevision,
+					command,
+					commandArgs,
+					operationMaterial,
+				),
 		).then(BigInt) as ReturnType<Behavior>;
 	}
 	if (command === "setRoomTopic" || command === "kickRoomMember") {
@@ -158,8 +243,8 @@ export function dispatchRoomsSessionCommand(
 			if (refusal != null) throw new Error(refusal);
 		}
 		const effect = command === "setRoomTopic"
-			? () => context.runtime.setRoomTopic(commandArgs[0], commandArgs[1])
-			: () => context.runtime.kickRoomMember(commandArgs[0], commandArgs[1]);
+			? () => context.runtime.roomActions.setTopic(commandArgs[0], commandArgs[1])
+			: () => context.runtime.roomActions.kick(commandArgs[0], commandArgs[1]);
 		return performExternalEffect(
 			context.state,
 			operationId,
@@ -193,6 +278,10 @@ export function dispatchRoomsSessionCommand(
 			try {
 				await context.runtime.say(conversationKind, conversationId, commandArgs[1]);
 			} catch (error) {
+				if (roomErrorOf(error)?.code === ROOM_RETIRED) {
+					await context.state.resolveEffect(operationId, "abandoned");
+					throw new Error("This room publication was retired. Reopen the current room before sending again.");
+				}
 				throw new Error(
 					`the ${conversationKind === "room" ? "room send" : "direct message send"} outcome is unresolved; ` +
 						`the operation will not be retried automatically: ${
@@ -238,6 +327,69 @@ export function dispatchRoomsSessionCommand(
 		const effect = context.runtime.operatorEffect(commandArgs[0], commandArgs[1], commandArgs.slice(2));
 		return ledgeredEffect(context, operationId, baseRevision, operationMaterial, effect, "operator");
 	}
+	if (command === "revokeManagedRoomAuthority") {
+		if (
+			commandArgs.length !== 3 || (commandArgs[1] !== "room" && commandArgs[1] !== "steward") ||
+			commandArgs[2] === ""
+		) throw new Error("managed room revocation takes a room, authority kind, and exact token");
+		const effect = () =>
+			context.runtime.roomActions.revokeAuthority(
+				commandArgs[0],
+				commandArgs[1] as "room" | "steward",
+				commandArgs[2],
+			);
+		return ledgeredEffect(
+			context,
+			operationId,
+			baseRevision,
+			operationMaterial,
+			effect,
+			"room-manager",
+		) as ReturnType<
+			Behavior
+		>;
+	}
+	if (command === "unregisterManagedRoom") {
+		if (commandArgs.length !== 1 || commandArgs[0] === "") {
+			throw new Error("managed room unregistration takes one room");
+		}
+		const conversation = context.state.snapshot().checkpoint.conversations.find((entry) =>
+			entry.id === commandArgs[0]
+		);
+		if (conversation?.kind !== "room" || conversation.manager == null) {
+			throw new Error("managed room unregistration needs a retained manager");
+		}
+		return ledgeredEffect(
+			context,
+			operationId,
+			baseRevision,
+			operationMaterial,
+			() => context.runtime.unregisterManagedRoom(conversation.id),
+			"room-registration",
+		) as ReturnType<Behavior>;
+	}
+	if (command === "setManagedRoomPolicy") {
+		if (
+			commandArgs.length !== 4 || commandArgs[0] === "" || !isRoomVisibility(commandArgs[1]) ||
+			!isRoomEntry(commandArgs[2]) || !isRoomSpeaking(commandArgs[3])
+		) throw new Error("managed room policy takes one room and three policy modes");
+		const conversation = context.state.snapshot().checkpoint.conversations.find((entry) =>
+			entry.id === commandArgs[0]
+		);
+		if (conversation?.kind !== "room" || conversation.manager == null) {
+			throw new Error("managed room policy needs a retained manager");
+		}
+		const policy = { visibility: commandArgs[1], entry: commandArgs[2], speaking: commandArgs[3] };
+		if (!isRoomPolicy(policy)) throw new Error("managed room policy is not a supported Rooms access state");
+		return ledgeredEffect(
+			context,
+			operationId,
+			baseRevision,
+			operationMaterial,
+			() => context.runtime.roomActions.setPolicy(conversation.id, conversation.name, policy),
+			"room-policy",
+		) as ReturnType<Behavior>;
+	}
 	if (command === "operations") {
 		if (commandArgs.length < 3) {
 			throw new Error("operations takes a scope, capability, action, and action arguments");
@@ -274,13 +426,31 @@ export function dispatchRoomsSessionCommand(
 			);
 		})() as ReturnType<Behavior>;
 	}
-	return context.state.mutate({
+	const mutation = context.state.mutate({
 		operationId,
 		baseRevision,
 		material: operationMaterial,
 		impact: roomsSessionCommandImpact(command),
-		change: (current) => applyRoomsSessionCommand(current, command, commandArgs),
+		change: (current) => applyRoomsSessionCommand(current, command, commandArgs, commandFacts(context)),
+	});
+	return mutation.catch((error) => {
+		if (stagedSecrets !== null) {
+			context.runtime.bridgeSecrets.discard(stagedSecrets.directoryId, stagedSecrets.scope, stagedSecrets.token);
+		}
+		throw error;
 	}).then(BigInt) as ReturnType<Behavior>;
+}
+
+/** What a pure checkpoint command may ask about the live runtime.
+ *
+ * One authority for the set, so the two mutation paths cannot come to know
+ * different facts and make a command mean different things depending on which
+ * one dispatched it. */
+function commandFacts(context: RoomsSessionCommandContext): RoomsSessionCommandFacts {
+	return {
+		roomPublicationId: (directoryId, roomName) => context.runtime.roomPublicationId(directoryId, roomName),
+		roomBridgeScope: (conversationId) => context.runtime.roomBridgeScope(conversationId),
+	};
 }
 
 async function settledCheckpointMutation(
@@ -296,7 +466,7 @@ async function settledCheckpointMutation(
 		baseRevision,
 		material: operationMaterial,
 		impact: roomsSessionCommandImpact(command),
-		change: (current) => applyRoomsSessionCommand(current, command, commandArgs),
+		change: (current) => applyRoomsSessionCommand(current, command, commandArgs, commandFacts(context)),
 	});
 	await context.runtime.settled();
 	return BigInt(revision);

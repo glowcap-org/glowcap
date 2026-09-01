@@ -16,22 +16,28 @@ There is a cleartext `zig build rooms-web-tcp` that needs only Deno; it proves
 nothing about who is on the other end, so keep it for a peer that speaks nothing
 else.
 
-Open `http://localhost:8000`, pick a room and a nickname, then open another tab.
-When the process runs on another machine or in a remote workspace, forward that
-port and keep the browser URL on `localhost`; a shared browser origin needs
-HTTPS. The [development guide](developing.md#serving-on-a-lan) gives both paths.
+Open `http://localhost:8000`, pick a room and a nickname, then open another
+tab. Entering a room that does not exist creates it. You can post messages,
+direct messages, and files. When the process runs on another machine or in a
+remote workspace, forward that port and keep the browser URL on `localhost`; a
+shared browser origin needs HTTPS. The
+[development guide](developing.md#serving-on-a-lan) gives both paths.
+
 The join card also accepts another directory's OCapN locator, so one page can
-hold rooms on several directories. A room's Capabilities card can create its
-durable bearer link. Paste that sturdyref into the join card or `/join` to open
-the exact room it names. The server authors the whole link from its durable
-room authority and the routes it advertises to this connection, so a link can
-follow the same server across a restart and changed network hints. Anyone who
-has it can enter and pass it on. `/link` remains the terminal form: with no
-argument it links the current room, while `/link lobby` links a listed room.
-Entering a room that does not exist creates it. You can post messages, direct
-messages, and files. Without `--history`, rooms and messages live in memory and
-restarting the server drops them; the retention section below covers keeping
-them.
+hold rooms on several directories. Pressing a directory in the rail opens its
+command view (`/directory`): commands run there and their results stay in that
+view, which is not a chat. `/leave` puts the view away; the title's close asks
+to give the directory back.
+
+A room's Capabilities card can create its durable bearer link. Paste that
+sturdyref into the join card or `/join` to open the exact room it names. The
+server authors the whole link from its durable room authority and the routes it
+advertises to this connection, so a link can follow the same server across a
+restart and changed network hints. Anyone who has it can enter and pass it on.
+`/link` remains the terminal form: with no argument it links the current room,
+while `/link lobby` links a listed room. Without `--history`, rooms and
+messages live in memory and restarting the server drops them; the retention
+section below covers keeping them.
 
 [Developing and operating Rooms](developing.md) covers the rail, Settings,
 operator capabilities (`--diagnostics`, `--admin-listeners`, `--viz`,
@@ -48,6 +54,30 @@ checks that each member receives every message. Deno and the Zig client are
 required. Python, Racket, and Rust join when `python3`, `racket`, or `cargo` is
 on `PATH`; missing optional runtimes are reported and skipped.
 
+The scripted clients also have a focused contract check for malformed directory
+events and slow-reader backpressure:
+
+```sh
+zig build rooms-terminal-client-test
+```
+
+It runs the Rust, Python, and Racket tests and therefore requires all three
+language toolchains.
+
+## Prerelease distribution
+
+Rooms currently ships from this repository's source, identified by the exact
+Git commit. There is no separately versioned Rooms package or standalone OCI
+application image yet. The Compose image is a pinned, toolchain-free Deno
+runtime; it mounts the checkout and the native artifacts produced by `zig build
+rooms-deploy-prep`. Both inputs must come from the same commit.
+
+This prerelease also has no state-migration contract. Persistent room, archive,
+and shared-session stores accept their current schema and refuse an older or
+unknown version without rewriting it. A release announcement therefore names
+the Git commit, its green release evidence, and any state reset required by
+that commit.
+
 ## Durable workspaces
 
 A local browser owns one reconstructible workspace. For the same workspace and
@@ -58,7 +88,7 @@ zig build rooms-session -- --state=.local/rooms-session --transport=iroh
 ```
 
 The command prints one session-administration sturdyref. Attach it from the
-Data tab in Settings. On the first attachment to a newly created session,
+Session tab in Settings. On the first attachment to a newly created session,
 the admin capability transfers that browser's complete workspace once. The
 session records that transition explicitly; an intentionally empty or imported
 checkpoint is still established and will not later be replaced merely because
@@ -71,13 +101,33 @@ browser remains a view of that authority, so refreshing or opening another
 profile reconstructs the same workspace without repeating network effects in
 every tab.
 
-Session administration can issue separate observe, interact, and admin
-sturdyrefs. Observe is read-only. Interact can use ordinary room and workspace
-actions without seeing or replacing retained administration bearers. Admin can
-manage those bearers, import or reset the checkpoint, and issue or revoke other
-session grants. The sturdyref is the authority; Rooms does not consult an
-ambient account role. Revocation stops live references and survives a session
-peer restart.
+A local session can also Share from Settings. This tab hosts the session until
+you close or reload it. Join a room on this page's directory first, then Share.
+Other browsers Attach with a capability from Holdings, including from a
+different Rooms page: the capability names this directory so they can reach it
+without the hosting tab joining theirs. Share waits until this tab has joined
+that directory, so an attacher finds a session that can already answer.
+Reloading this tab ends sharing. The durable peer above is the owner that
+survives a closed browser.
+
+Session administration can issue separate access links. Observe is read-only.
+Interact can use ordinary room and workspace actions without seeing or replacing
+retained administration bearers. Admin can manage those bearers, import or reset
+the checkpoint, and issue or revoke other session grants. Whether a link may also
+read what the session recorded before that link existed is a separate answer,
+given when the link is issued.
+
+What a link carries is read from the session when it asks to do something,
+rather than stamped into the link when it was issued. So administration can
+narrow a link, hand it the earlier messages or take them back, and pause it,
+while somebody is holding it, and the link itself never changes. A paused link
+is answered with no session at all, and the browser holding it is told that its
+access is paused and whatever reason came with the pause. Lifting the pause
+gives back the access the link was issued with, without anyone having to
+remember what that was.
+
+The sturdyref is the authority; Rooms does not consult an ambient account role.
+Revocation stops live references and survives a session peer restart.
 
 The browser reconnects to the same durable peer after transport loss. Initial
 attachment requires a complete session snapshot from a still-live connection,
@@ -138,7 +188,30 @@ issues an opaque registration ID and requires it again for inbox
 offers and introductions. Direct conversations retain that registration ID,
 so a later holder of the same nickname cannot inherit the thread or its
 history. The direct capability remains the authority; the registration ID only
-prevents data keyed by a nickname from changing hands.
+prevents data keyed by a nickname from changing hands. A browser-owned session
+releases the claim when its directory connection ends. A shared session keeps
+the connection and claim while its browser views detach, like a bouncer; it
+releases them when the shared session leaves that directory or is cleared.
+
+Room registration is different from a room link. Managed creation returns the
+room's passable manager capability; that authority registers a public room name
+and its durable management identity without keeping an empty room live. The
+name remains reserved when the last member leaves, and entering it by name
+reconstitutes the same registered room. The room link is only bearer entry
+authority to that room. Holding a link neither owns the public name nor grants
+management. The manager can release the registration explicitly. That one act
+retires the public entrance and moves the room to private access while leaving
+current members and independently held room, moderator, and manager
+capabilities in place. The public name becomes available immediately. The same
+manager can register the room again if nobody else has claimed that name.
+
+Managed rooms have three access states. An open registration offers a
+participant membership. A moderated registration offers a visible observer
+membership that can read and appear in the roster but cannot speak. A private
+room has no public registration. A reusable room link offers participant
+membership in any state. A participant can instead mint a bounded live
+invitation for one observer or participant membership. Copies of that
+invitation compete over the same single admission.
 
 The connection that opens a room can claim its moderator capability from the
 room's details card or with `/moderator`. Claiming publishes one durable capability, so
@@ -160,10 +233,8 @@ revokes the room-scoped steward capabilities the server owns. Revoking rotates
 the durable authority, so copied sturdyrefs and references already in use stop
 governing together. Its inventories stand on the directory pane at
 `/ops/directory`, where a Room moderator authority section asks for
-confirmation before invalidating every old holder. One search over that pane
-narrows every inventory at once, counted by the directory rather than by the
-page, and each inventory can retire everything a search matches in bounded
-batches the operator watches and can stop.
+confirmation before invalidating every old holder;
+[operating Rooms](operating.md) covers the pane's search and bulk retirement.
 Peered and IRC-bridged rooms remain under their source's moderation.
 
 The directory can also introduce two members. They redeem that introduction
@@ -189,13 +260,16 @@ one. The browser store implements the separate member-owned archive capability:
 bounded `put`, paged `read`, and monotonic `narrow` on one ordinary OCapN object, with an opaque
 recorder source and live-conversation generation on every line. A separately
 run archive peer hosts that same object behind a durable sturdyref. The
-archive-peer card the Data tab in Settings opens lets the reader select that
+archive-peer card the Holdings tab in Settings opens lets the reader select that
 peer for new history and optionally remember its bearer in this browser.
 A peer that cannot be reached is
-shown as unavailable and receives no silent browser-store fallback. A direct
-conversation's details can hand its other member a read-only facet for exactly
-that line. The recipient chooses whether to read it once or give it back, and
-shared records stay under the sender's archive attribution.
+shown as unavailable and receives no silent browser-store fallback. A conversation
+card can hand a live read-only facet or offer a durable archive-peer share over a
+direct line. Room and standing accounts use that pipe without taking the DM's
+identity as their facet scope. A live facet is read once or given back. A durable
+share stays until the issuer revokes it. Shared records stay under the sender's
+archive attribution. Holdings lists issued archive-peer shares so they can be
+copied or revoked.
 
 A server started with `--peering` publishes a separate capability that can list
 a durable room from another directory. Each foreign listing belongs to the
@@ -207,7 +281,7 @@ the source has several listeners, its durable room link uses
 one identity route: key-proving iroh and Noise paths are preferred, with onion
 or baseline sockets retained only as handoff fallbacks. Servers without the
 flag publish no peering authority. The browser makes the capability a pane:
-take it from the Capabilities toggles in Settings, and the Operations page at
+take it from the Holdings toggles in Settings, and the Operations page at
 `/ops` gains a Peering pane that publishes a room this tab has joined on
 another directory and revokes what this tab published. The pane says that
 dropping its capability without revoking leaves those listings until the
@@ -308,9 +382,10 @@ zig build rooms-web -Dviz
 
 The endpoint refuses any socket that does not present that capability, reader
 and writer alike; the sturdyref carries it, and the same swiss number prints as
-a `ROOMS-VIZ` line beside the other operator capabilities. A browser tab
+a `ROOMS-VIZ` line beside the other operator capabilities. A local browser tab
 publishes its own sessions only while it holds that swiss, from the Protocol
-visualizer toggle in Settings under Advanced.
+visualizer toggle in Settings under Holdings. A shared session publishes from
+the session process instead; attached tabs do not arm a second producer.
 
 Start the viewer with `cd apps/ocapnviz && bash dev.sh`. More detail is in
 [Developing and operating Rooms](developing.md).
@@ -395,3 +470,6 @@ See [Developing and operating Rooms](developing.md) for attach mode, the main
 test commands, browser relay boundaries, and one-shot client commands. See the
 [deployment guide](web/deploy/README.md) to serve the browser UI behind a
 reverse proxy.
+
+Project provenance and upstream-contact policy live in
+[`PROVENANCE.md`](../../PROVENANCE.md).

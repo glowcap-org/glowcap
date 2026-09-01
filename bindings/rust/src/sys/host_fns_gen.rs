@@ -233,6 +233,13 @@ extern "C" {
 		sturdyref_uri_len: usize,
 		out_vow: *mut u64,
 	) -> c_int;
+	pub fn pancake_host_fetch_at(
+		host: *mut PancakeHost,
+		locator: *const PancakeLocatorView,
+		name: *const c_uchar,
+		name_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
 	pub fn pancake_host_set_trace(host: *mut PancakeHost, callback: PancakeTraceCallback, ctx: *mut c_void) -> c_int;
 	pub fn pancake_host_resolver_fulfill(
 		host: *mut PancakeHost,

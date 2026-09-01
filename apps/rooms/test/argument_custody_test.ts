@@ -1,6 +1,6 @@
 import { PSet, PStruct, Ref, type Session, Tagged } from "@pancake/runtime";
 import { hasCapabilityArguments, releaseCapabilityArguments } from "../lib/argument_custody.ts";
-import { ROOMS_SESSION_FILES } from "../lib/rooms_session.ts";
+import { ROOMS_SESSION_FILES } from "../lib/session/client.ts";
 import { admitSessionFacetArguments, takeSessionObserver } from "../session/facet_arguments.ts";
 import { assertEquals } from "./assert.ts";
 

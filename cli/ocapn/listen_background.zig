@@ -4,8 +4,8 @@
 //! loop that carried the command. The thread owns the bound server and every
 //! accepted session; the fronts share only the stop latch, the accepted
 //! counter, and byte copies written before the thread starts. The process
-//! `gpa` and `Io` are documented threadsafe, which is what lets the thread
-//! use them at all.
+//! `gpa` and `Io` are documented threadsafe. Without that the thread could
+//! not use them at all.
 //!
 //! One listener per process context. A second `listen` refuses while one is
 //! held; `close` (which also drops the held session) and process teardown

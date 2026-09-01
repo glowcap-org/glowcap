@@ -1,6 +1,6 @@
 # ocapnviz — Design Principles
 
-This page names code that exists today. When the code moves, this page moves
+These principles describe code that exists today. When the code moves, this page moves
 with it.
 
 Two bars, and a change has to clear both. **It feels obvious to use:** the same

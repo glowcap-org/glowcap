@@ -9,131 +9,33 @@
 // retention has its own storage seam.
 
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
-import * as z from "zod/mini";
 import { NO_SUCH_ROOM, NOT_STEWARD, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
-import { isPrivateRoomKey, MAX_DURABLE_ROOM, MAX_ROOM_LINKS, MAX_TOPIC } from "../lib/limits.ts";
-import { fixedHex, nonemptyText, nonnegativeSafeInteger, positiveSafeInteger } from "../lib/schema.ts";
+import { isManagedRoomId, MAX_ROOM_LINKS, MAX_TOPIC } from "../lib/limits.ts";
+import { roomIsListed, roomPoliciesEqual, type RoomPolicy } from "../lib/room/policy.ts";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
-import { noteOperatorChange } from "./operator/revision.ts";
+import {
+	decodeRoomStateHex,
+	encodeRoomStateHex,
+	freshRoomServerDocument,
+	type ManagedRoomState,
+	MAX_ROOM_STATE_BYTES,
+	parseRoomServerDocument,
+	ROOM_STATE_FILE,
+	ROOM_STATE_KEY_BYTES,
+	ROOM_STATE_VERSION,
+	type RoomServerDiskState,
+	type StewardState,
+	validateRoomServerDocument,
+} from "./room_state_document.ts";
 
-const FILE = "rooms.json";
-const VERSION = 1;
-const KEY_BYTES = 32;
-const MAX_STATE_BYTES = 4 * 1024 * 1024;
 const encoder = new TextEncoder();
 
 const STEWARD_DOMAIN = "steward\u0000";
+const MANAGER_DOMAIN = "manager\u0000";
+const MANAGED_ROOM_DOMAIN = "managed-room\u0000";
+const ROOM_GENERATION_DOMAIN = "room-generation\u0000";
 
 export class RoomServerStateError extends Error {}
-
-const durableRoomName = nonemptyText(MAX_DURABLE_ROOM);
-const boundedTopic = nonemptyText(MAX_TOPIC);
-
-export const StewardStateSchema = z.strictObject({
-	name: durableRoomName,
-	generation: nonnegativeSafeInteger,
-	issued: z.boolean(),
-});
-
-const DurableStewardStateSchema = z.strictObject({
-	name: durableRoomName,
-	generation: positiveSafeInteger,
-	issued: z.boolean(),
-});
-
-export const RoomTopicStateSchema = z.strictObject({
-	name: durableRoomName,
-	topic: boundedTopic,
-});
-
-const RoomServerDiskStateShapeSchema = z.strictObject({
-	version: z.literal(VERSION),
-	identitySeed: fixedHex(KEY_BYTES),
-	roomLinkSecret: fixedHex(KEY_BYTES),
-	linkedRooms: z.array(durableRoomName).check(z.maxLength(MAX_ROOM_LINKS)),
-	revokedRooms: z.array(durableRoomName).check(z.maxLength(MAX_ROOM_LINKS)),
-	stewards: z.array(DurableStewardStateSchema).check(z.maxLength(MAX_ROOM_LINKS)),
-	topics: z.array(RoomTopicStateSchema).check(z.maxLength(MAX_ROOM_LINKS)),
-});
-
-type RoomServerDiskStateShape = z.infer<typeof RoomServerDiskStateShapeSchema>;
-
-function hasValidAuthorityRelations(disk: RoomServerDiskStateShape): boolean {
-	const linked = new Set<string>();
-	for (const name of disk.linkedRooms) {
-		const key = name.toLowerCase();
-		if (linked.has(key)) return false;
-		linked.add(key);
-	}
-	const revoked = new Set<string>();
-	for (const name of disk.revokedRooms) {
-		const key = name.toLowerCase();
-		if (linked.has(key) || revoked.has(key)) return false;
-		revoked.add(key);
-	}
-	const stewarded = new Set<string>();
-	for (const steward of disk.stewards) {
-		const key = steward.name.toLowerCase();
-		if (!linked.has(key) || stewarded.has(key)) return false;
-		stewarded.add(key);
-	}
-	const topics = new Set<string>();
-	for (const topic of disk.topics) {
-		const key = topic.name.toLowerCase();
-		if ((isPrivateRoomKey(topic.name) && !linked.has(key)) || topics.has(key)) return false;
-		topics.add(key);
-	}
-	return true;
-}
-
-export const RoomServerDiskStateSchema = RoomServerDiskStateShapeSchema.check(
-	z.refine(hasValidAuthorityRelations, "linked, revoked, and stewarded room authority is inconsistent"),
-);
-
-export type StewardState = z.infer<typeof StewardStateSchema>;
-export type RoomTopicState = z.infer<typeof RoomTopicStateSchema>;
-type DiskState = z.infer<typeof RoomServerDiskStateSchema>;
-
-function hex(bytes: Uint8Array): string {
-	return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function unhex(value: string, bytes: number, field: string): Uint8Array<ArrayBuffer> {
-	if (value.length !== bytes * 2 || !/^[0-9a-f]+$/.test(value)) {
-		throw new Error(`rooms state has an invalid ${field}`);
-	}
-	const out = new Uint8Array(bytes);
-	for (let i = 0; i < bytes; i++) out[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
-	return out;
-}
-
-function freshState(): DiskState {
-	return {
-		version: VERSION,
-		identitySeed: hex(crypto.getRandomValues(new Uint8Array(KEY_BYTES))),
-		roomLinkSecret: hex(crypto.getRandomValues(new Uint8Array(KEY_BYTES))),
-		linkedRooms: [],
-		revokedRooms: [],
-		stewards: [],
-		topics: [],
-	};
-}
-
-function parseState(text: string): DiskState {
-	let decoded: unknown;
-	try {
-		decoded = JSON.parse(text);
-	} catch {
-		throw new Error("rooms state is not JSON");
-	}
-	const version = typeof decoded === "object" && decoded != null ? (decoded as { version?: unknown }).version : null;
-	if (version !== VERSION) {
-		throw new Error(`rooms state version ${String(version)} is not supported`);
-	}
-	const parsed = z.safeParse(RoomServerDiskStateSchema, decoded);
-	if (!parsed.success) throw new Error(`rooms state is invalid:\n${z.prettifyError(parsed.error)}`);
-	return parsed.data;
-}
 
 /** The state a Rooms server restores. With no directory it is intentionally
  * process-local, preserving the application's existing ephemeral default. */
@@ -143,17 +45,31 @@ export class RoomServerState {
 	readonly #directory: string | null;
 	readonly #linked = new Map<string, string>();
 	readonly #revoked = new Map<string, string>();
+	readonly #linkGenerations = new Map<string, number>();
 	readonly #stewards = new Map<string, StewardState>();
+	readonly #managers = new Map<string, StewardState>();
+	readonly #managedRooms = new Map<string, ManagedRoomState>();
+	readonly #managedRoomByName = new Map<string, string>();
 	readonly #topics = new Map<string, { name: string; topic: string }>();
 	#writeTail: Promise<void> = Promise.resolve();
+	#changed: () => void;
 
-	private constructor(disk: DiskState, directory: string | null) {
-		this.#identitySeed = unhex(disk.identitySeed, KEY_BYTES, "identity seed");
-		this.#secret = unhex(disk.roomLinkSecret, KEY_BYTES, "room-link secret");
+	private constructor(disk: RoomServerDiskState, directory: string | null, changed: () => void = () => {}) {
+		this.#changed = changed;
+		this.#identitySeed = decodeRoomStateHex(disk.identitySeed, ROOM_STATE_KEY_BYTES, "identity seed");
+		this.#secret = decodeRoomStateHex(disk.roomLinkSecret, ROOM_STATE_KEY_BYTES, "room-link secret");
 		this.#directory = directory;
 		for (const name of disk.linkedRooms) this.#linked.set(name.toLowerCase(), name);
 		for (const name of disk.revokedRooms) this.#revoked.set(name.toLowerCase(), name);
+		for (const row of disk.roomLinkGenerations) {
+			this.#linkGenerations.set(row.name.toLowerCase(), row.generation);
+		}
 		for (const steward of disk.stewards) this.#stewards.set(steward.name.toLowerCase(), { ...steward });
+		for (const manager of disk.managers) this.#managers.set(manager.name.toLowerCase(), { ...manager });
+		for (const room of disk.managedRooms) {
+			this.#managedRooms.set(room.id.toLowerCase(), { ...room });
+			if (roomIsListed(room.policy)) this.#managedRoomByName.set(room.name.toLowerCase(), room.id);
+		}
 		for (const topic of disk.topics) this.#topics.set(topic.name.toLowerCase(), { ...topic });
 	}
 
@@ -161,22 +77,23 @@ export class RoomServerState {
 		return this.#identitySeed.slice();
 	}
 
-	static async open(directory?: string): Promise<RoomServerState> {
-		if (directory == null) return new RoomServerState(freshState(), null);
+	static async open(directory?: string, changed: () => void = () => {}): Promise<RoomServerState> {
+		if (directory == null) return new RoomServerState(freshRoomServerDocument(), null, changed);
 		await Deno.mkdir(directory, { recursive: true, mode: 0o700 });
-		const path = `${directory}/${FILE}`;
+		const path = `${directory}/${ROOM_STATE_FILE}`;
 		try {
 			return new RoomServerState(
-				parseState(await readBoundedText(path, MAX_STATE_BYTES, "rooms state")),
+				parseRoomServerDocument(await readBoundedText(path, MAX_ROOM_STATE_BYTES, "rooms state")),
 				directory,
+				changed,
 			);
 		} catch (err) {
 			if (!(err instanceof Deno.errors.NotFound)) {
 				if (err instanceof RoomServerStateError) throw err;
 				throw new RoomServerStateError(err instanceof Error ? err.message : String(err), { cause: err });
 			}
-			const disk = freshState();
-			const state = new RoomServerState(disk, directory);
+			const disk = freshRoomServerDocument();
+			const state = new RoomServerState(disk, directory, changed);
 			await state.#write(disk);
 			return state;
 		}
@@ -188,6 +105,14 @@ export class RoomServerState {
 
 	roomLinkActive(name: string): boolean {
 		return this.#linked.has(name.toLowerCase());
+	}
+
+	roomLinkGeneration(name: string): number {
+		return this.#linkGenerations.get(name.toLowerCase()) ?? 0;
+	}
+
+	roomLinkGenerationIsCurrent(name: string, generation: number): boolean {
+		return this.roomLinkActive(name) && this.roomLinkGeneration(name) === generation;
 	}
 
 	revokedRooms(): string[] {
@@ -211,6 +136,57 @@ export class RoomServerState {
 		return this.#stewards.get(name.toLowerCase())?.generation ?? 0;
 	}
 
+	managers(): StewardState[] {
+		return [...this.#managers.values()].map((manager) => ({ ...manager }));
+	}
+
+	hasManager(name: string): boolean {
+		return this.#managers.get(name.toLowerCase())?.issued === true;
+	}
+
+	managerGeneration(name: string): number {
+		return this.#managers.get(name.toLowerCase())?.generation ?? 0;
+	}
+
+	managedRoom(id: string): ManagedRoomState | null {
+		const room = this.#managedRooms.get(id.toLowerCase());
+		return room == null ? null : { ...room };
+	}
+
+	managedRoomGenerationIsCurrent(id: string, generation: number): boolean {
+		return this.#managedRooms.get(id.toLowerCase())?.generation === generation;
+	}
+
+	managedRoomIdForName(name: string): string | null {
+		return this.#managedRoomByName.get(name.toLowerCase()) ?? null;
+	}
+
+	setManagedRoomPolicy(id: string, name: string, policy: RoomPolicy): Promise<void> {
+		const run = this.#writeTail.then(async () => {
+			const key = id.toLowerCase();
+			const current = this.#managedRooms.get(key);
+			if (current == null || this.#managers.get(key)?.issued !== true) {
+				throw new Error("this manager has no current managed room");
+			}
+			if (current.name === name && roomPoliciesEqual(current.policy, policy)) return;
+			const next = new Map(this.#managedRooms);
+			if (current.generation === Number.MAX_SAFE_INTEGER) {
+				throw new Error(`room "${current.name}" exhausted public entrance generations`);
+			}
+			next.set(key, { id: current.id, name, policy, generation: current.generation + 1 });
+			await this.#write(this.#document({ managedRooms: [...next.values()] }));
+			this.#managedRooms.clear();
+			this.#managedRoomByName.clear();
+			for (const [roomKey, room] of next) {
+				this.#managedRooms.set(roomKey, room);
+				if (roomIsListed(room.policy)) this.#managedRoomByName.set(room.name.toLowerCase(), room.id);
+			}
+			this.#changed();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run;
+	}
+
 	topic(name: string): string | null {
 		return this.#topics.get(name.toLowerCase())?.topic ?? null;
 	}
@@ -219,7 +195,7 @@ export class RoomServerState {
 		if (topic.length > MAX_TOPIC) throw new Error(`a topic may be at most ${MAX_TOPIC} characters`);
 		const run = this.#writeTail.then(async () => {
 			const key = name.toLowerCase();
-			const durableName = this.#linked.get(key) ?? (isPrivateRoomKey(name) ? null : name);
+			const durableName = this.#linked.get(key) ?? (isManagedRoomId(name) ? null : name);
 			if (durableName == null || this.#topics.get(key)?.topic === topic) return;
 			const nextTopics = new Map(this.#topics);
 			if (topic === "") nextTopics.delete(key);
@@ -229,18 +205,10 @@ export class RoomServerState {
 				}
 				nextTopics.set(key, { name: durableName, topic });
 			}
-			await this.#write({
-				version: VERSION,
-				identitySeed: hex(this.#identitySeed),
-				roomLinkSecret: hex(this.#secret),
-				linkedRooms: [...this.#linked.values()],
-				revokedRooms: [...this.#revoked.values()],
-				stewards: [...this.#stewards.values()],
-				topics: [...nextTopics.values()],
-			});
+			await this.#write(this.#document({ topics: [...nextTopics.values()] }));
 			this.#topics.clear();
 			for (const [topicKey, value] of nextTopics) this.#topics.set(topicKey, value);
-			noteOperatorChange();
+			this.#changed();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run;
@@ -255,6 +223,11 @@ export class RoomServerState {
 		return steward?.issued === true && steward.generation === generation;
 	}
 
+	managerGenerationIsCurrent(name: string, generation: number): boolean {
+		const manager = this.#managers.get(name.toLowerCase());
+		return manager?.issued === true && manager.generation === generation;
+	}
+
 	/** The entropy one room's durable sturdyref is minted from.
 	 *
 	 * The Host derives a durable swiss name from bytes the embedder supplies, so
@@ -266,16 +239,47 @@ export class RoomServerState {
 	 *
 	 * The room name is not recoverable from the result, so holding one link
 	 * discloses the room it opens and nothing about any other. */
-	async roomEntropyFor(name: string): Promise<Uint8Array<ArrayBuffer>> {
-		return await this.#entropyFor(name.toLowerCase());
+	async roomEntropyFor(
+		name: string,
+		generation = this.roomLinkGeneration(name),
+	): Promise<Uint8Array<ArrayBuffer>> {
+		const durable = name.toLowerCase();
+		return await this.#entropyFor(
+			generation === 0 ? durable : `${ROOM_GENERATION_DOMAIN}${generation}\u0000${durable}`,
+		);
 	}
 
 	/** A steward's durable name is reproducible with its room but cannot collide
 	 * with, reveal, or be substituted for the room publication itself. */
 	async stewardEntropyFor(name: string, generation = this.stewardGeneration(name)): Promise<Uint8Array<ArrayBuffer>> {
 		const durable = name.toLowerCase();
-		const message = generation === 0 ? STEWARD_DOMAIN + durable : `${STEWARD_DOMAIN}${generation}\u0000${durable}`;
+		const roomGeneration = this.roomLinkGeneration(name);
+		const steward = generation === 0 ? STEWARD_DOMAIN + durable : `${STEWARD_DOMAIN}${generation}\u0000${durable}`;
+		const message = roomGeneration === 0 ? steward : `${ROOM_GENERATION_DOMAIN}${roomGeneration}\u0000${steward}`;
 		return await this.#entropyFor(message);
+	}
+
+	async managerEntropyFor(name: string, generation = this.managerGeneration(name)): Promise<Uint8Array<ArrayBuffer>> {
+		const durable = name.toLowerCase();
+		return await this.#entropyFor(`${MANAGER_DOMAIN}${generation}\u0000${durable}`);
+	}
+
+	async managerIdentityFor(name: string): Promise<string> {
+		return encodeRoomStateHex(await this.#entropyFor(MANAGED_ROOM_DOMAIN + name.toLowerCase()));
+	}
+
+	#generationRows(
+		generations = this.#linkGenerations,
+		linked = this.#linked,
+		revoked = this.#revoked,
+	): Array<{ name: string; generation: number }> {
+		const rows: Array<{ name: string; generation: number }> = [];
+		for (const [key, generation] of generations) {
+			if (generation === 0) continue;
+			const name = linked.get(key) ?? revoked.get(key);
+			if (name != null) rows.push({ name, generation });
+		}
+		return rows;
 	}
 
 	async #entropyFor(message: string): Promise<Uint8Array<ArrayBuffer>> {
@@ -296,28 +300,70 @@ export class RoomServerState {
 	 * serialized and replace one complete file atomically, so two concurrent link
 	 * requests cannot lose one another. */
 	remember(name: string, topic?: string): Promise<void> {
-		return this.#remember(name, false, topic);
+		return this.#remember(name, false, false, topic);
 	}
 
 	rememberSteward(name: string, topic?: string): Promise<void> {
-		return this.#remember(name, true, topic);
+		return this.#remember(name, true, false, topic);
 	}
 
-	#remember(name: string, steward: boolean, topic?: string): Promise<void> {
+	rememberManager(
+		name: string,
+		topic?: string,
+		managed?: Pick<ManagedRoomState, "name" | "policy">,
+	): Promise<void> {
+		return this.#remember(name, false, true, topic, managed);
+	}
+
+	#remember(
+		name: string,
+		steward: boolean,
+		manager: boolean,
+		topic?: string,
+		managed?: Pick<ManagedRoomState, "name" | "policy">,
+	): Promise<void> {
 		const run = this.#writeTail.then(async () => {
 			const key = name.toLowerCase();
-			if (this.#revoked.has(key)) throw new RoomError(NO_SUCH_ROOM, `room link "${name}" was revoked`);
 			const needsTopic = topic != null && topic !== "" && !this.#topics.has(key);
-			if (this.#linked.has(key) && (!steward || this.#stewards.get(key)?.issued === true) && !needsTopic) return;
-			if (!this.#linked.has(key) && this.#linked.size + this.#revoked.size >= MAX_ROOM_LINKS) {
+			const existingManaged = this.#managedRooms.get(key);
+			const needsManaged = managed != null &&
+				(existingManaged == null || existingManaged.name !== managed.name ||
+					!roomPoliciesEqual(existingManaged.policy, managed.policy));
+			if (
+				this.#linked.has(key) && (!steward || this.#stewards.get(key)?.issued === true) &&
+				(!manager || this.#managers.get(key)?.issued === true) && !needsTopic && !needsManaged
+			) return;
+			if (managed != null && !isManagedRoomId(name)) {
+				throw new Error("managed room state needs opaque room identity");
+			}
+			if (
+				existingManaged != null && managed != null &&
+				(existingManaged.name !== managed.name || !roomPoliciesEqual(existingManaged.policy, managed.policy))
+			) throw new Error("managed room creation does not replace existing room state");
+			if (
+				!this.#linked.has(key) && !this.#revoked.has(key) &&
+				this.#linked.size + this.#revoked.size >= MAX_ROOM_LINKS
+			) {
 				throw new RoomError(
 					ROOM_LINKS_FULL,
 					`this server has already made ${MAX_ROOM_LINKS} room names durable`,
 				);
 			}
 			const next = new Map(this.#linked);
+			const nextRevoked = new Map(this.#revoked);
+			const nextGenerations = new Map(this.#linkGenerations);
+			if (!next.has(key) && nextRevoked.has(key)) {
+				const generation = (nextGenerations.get(key) ?? 0) + 1;
+				if (generation > Number.MAX_SAFE_INTEGER) {
+					throw new Error(`room "${name}" has exhausted link generations`);
+				}
+				nextGenerations.set(key, generation);
+				nextRevoked.delete(key);
+			}
 			next.set(key, name);
 			const nextStewards = new Map(this.#stewards);
+			const nextManagers = new Map(this.#managers);
+			const nextManagedRooms = new Map(this.#managedRooms);
 			const nextTopics = new Map(this.#topics);
 			if (topic != null && topic !== "" && !nextTopics.has(key)) {
 				if (nextTopics.size === MAX_ROOM_LINKS) {
@@ -341,29 +387,52 @@ export class RoomServerState {
 					},
 				);
 			}
-			await this.#write({
-				version: VERSION,
-				identitySeed: hex(this.#identitySeed),
-				roomLinkSecret: hex(this.#secret),
+			if (manager && nextManagers.get(key)?.issued !== true) {
+				const existing = nextManagers.get(key);
+				const generation = existing == null ? 1 : existing.generation + 1;
+				if (generation > Number.MAX_SAFE_INTEGER) {
+					throw new Error(`room "${name}" exhausted manager generations`);
+				}
+				nextManagers.set(key, { name, generation, issued: true });
+			}
+			if (managed != null) nextManagedRooms.set(key, { id: name, generation: 1, ...managed });
+			await this.#write(this.#document({
 				linkedRooms: [...next.values()],
-				revokedRooms: [...this.#revoked.values()],
+				revokedRooms: [...nextRevoked.values()],
+				roomLinkGenerations: this.#generationRows(nextGenerations, next, nextRevoked),
 				stewards: [...nextStewards.values()],
+				managers: [...nextManagers.values()],
+				managedRooms: [...nextManagedRooms.values()],
 				topics: [...nextTopics.values()],
-			});
+			}));
 			this.#linked.clear();
 			for (const [roomKey, room] of next) this.#linked.set(roomKey, room);
+			this.#revoked.clear();
+			for (const [roomKey, room] of nextRevoked) this.#revoked.set(roomKey, room);
+			this.#linkGenerations.clear();
+			for (const [roomKey, generation] of nextGenerations) this.#linkGenerations.set(roomKey, generation);
 			this.#stewards.clear();
 			for (const [roomKey, room] of nextStewards) this.#stewards.set(roomKey, room);
+			this.#managers.clear();
+			for (const [roomKey, room] of nextManagers) this.#managers.set(roomKey, room);
+			this.#managedRooms.clear();
+			this.#managedRoomByName.clear();
+			for (const [roomKey, room] of nextManagedRooms) {
+				this.#managedRooms.set(roomKey, room);
+				if (roomIsListed(room.policy)) this.#managedRoomByName.set(room.name.toLowerCase(), room.id);
+			}
 			this.#topics.clear();
 			for (const [topicKey, value] of nextTopics) this.#topics.set(topicKey, value);
-			noteOperatorChange();
+			this.#changed();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run;
 	}
 
-	/** Permanently tombstone one room publication. Keeping the name prevents a
-	 * later mint from recreating the same derived swiss and reviving old copies. */
+	/** Tombstone the current room publication generation. The name stays in the
+	 * bounded registry until a later issue advances its generation; the old
+	 * generation then remains permanently inactive while the new one gets an
+	 * unrelated swiss. */
 	revokeRoomLink(name: string): Promise<void> {
 		const run = this.#writeTail.then(async () => {
 			const key = name.toLowerCase();
@@ -375,26 +444,25 @@ export class RoomServerState {
 			revoked.set(key, held);
 			const stewards = new Map(this.#stewards);
 			stewards.delete(key);
-			const topics = isPrivateRoomKey(held)
+			const forgetTopic = isManagedRoomId(held) && !this.#managedRooms.has(key);
+			const topics = forgetTopic
 				? [...this.#topics.values()].filter((value) => value.name.toLowerCase() !== key)
 				: [...this.#topics.values()];
-			await this.#write({
-				version: VERSION,
-				identitySeed: hex(this.#identitySeed),
-				roomLinkSecret: hex(this.#secret),
+			await this.#write(this.#document({
 				linkedRooms: [...linked.values()],
 				revokedRooms: [...revoked.values()],
+				roomLinkGenerations: this.#generationRows(this.#linkGenerations, linked, revoked),
 				stewards: [...stewards.values()],
 				topics,
-			});
+			}));
 			this.#linked.clear();
 			for (const [entryKey, value] of linked) this.#linked.set(entryKey, value);
 			this.#revoked.clear();
 			for (const [entryKey, value] of revoked) this.#revoked.set(entryKey, value);
 			this.#stewards.clear();
 			for (const [entryKey, value] of stewards) this.#stewards.set(entryKey, value);
-			if (isPrivateRoomKey(held)) this.#topics.delete(key);
-			noteOperatorChange();
+			if (forgetTopic) this.#topics.delete(key);
+			this.#changed();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run;
@@ -405,24 +473,29 @@ export class RoomServerState {
 	 * can never collide with authorities minted after this reset. */
 	factoryResetAuthorities(): Promise<void> {
 		const run = this.#writeTail.then(async () => {
-			const secret = crypto.getRandomValues(new Uint8Array(KEY_BYTES));
-			const topics = [...this.#topics.values()].filter((topic) => !isPrivateRoomKey(topic.name));
-			await this.#write({
-				version: VERSION,
-				identitySeed: hex(this.#identitySeed),
-				roomLinkSecret: hex(secret),
+			const secret = crypto.getRandomValues(new Uint8Array(ROOM_STATE_KEY_BYTES));
+			const topics = [...this.#topics.values()].filter((topic) => !isManagedRoomId(topic.name));
+			await this.#write(this.#document({
+				roomLinkSecret: encodeRoomStateHex(secret),
 				linkedRooms: [],
 				revokedRooms: [],
+				roomLinkGenerations: [],
 				stewards: [],
+				managers: [],
+				managedRooms: [],
 				topics,
-			});
+			}));
 			this.#secret = secret;
 			this.#linked.clear();
 			this.#revoked.clear();
+			this.#linkGenerations.clear();
 			this.#stewards.clear();
+			this.#managers.clear();
+			this.#managedRooms.clear();
+			this.#managedRoomByName.clear();
 			this.#topics.clear();
 			for (const topic of topics) this.#topics.set(topic.name.toLowerCase(), topic);
-			noteOperatorChange();
+			this.#changed();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run;
@@ -446,28 +519,60 @@ export class RoomServerState {
 			generation = existing.generation + 1;
 			const nextStewards = new Map(this.#stewards);
 			nextStewards.set(key, { name: existing.name, generation, issued: false });
-			await this.#write({
-				version: VERSION,
-				identitySeed: hex(this.#identitySeed),
-				roomLinkSecret: hex(this.#secret),
-				linkedRooms: [...this.#linked.values()],
-				revokedRooms: [...this.#revoked.values()],
+			await this.#write(this.#document({
 				stewards: [...nextStewards.values()],
-				topics: [...this.#topics.values()],
-			});
+			}));
 			this.#stewards.clear();
 			for (const [roomKey, steward] of nextStewards) this.#stewards.set(roomKey, steward);
-			noteOperatorChange();
+			this.#changed();
 		});
 		this.#writeTail = run.catch(() => {});
 		return run.then(() => generation);
 	}
 
-	async #write(disk: DiskState): Promise<void> {
-		const parsed = z.safeParse(RoomServerDiskStateSchema, disk);
-		if (!parsed.success) throw new Error(`rooms state change is invalid:\n${z.prettifyError(parsed.error)}`);
+	revokeManager(name: string): Promise<number> {
+		let generation = 0;
+		const run = this.#writeTail.then(async () => {
+			const key = name.toLowerCase();
+			const existing = this.#managers.get(key);
+			if (existing?.issued !== true) throw new Error(`room "${name}" has no current manager capability`);
+			if (existing.generation === Number.MAX_SAFE_INTEGER) {
+				throw new Error(`room "${name}" exhausted manager generations`);
+			}
+			generation = existing.generation + 1;
+			const managers = new Map(this.#managers);
+			managers.set(key, { name: existing.name, generation, issued: false });
+			await this.#write(this.#document({
+				managers: [...managers.values()],
+			}));
+			this.#managers.clear();
+			for (const [roomKey, manager] of managers) this.#managers.set(roomKey, manager);
+			this.#changed();
+		});
+		this.#writeTail = run.catch(() => {});
+		return run.then(() => generation);
+	}
+
+	#document(overrides: Partial<RoomServerDiskState> = {}): RoomServerDiskState {
+		return {
+			version: ROOM_STATE_VERSION,
+			identitySeed: encodeRoomStateHex(this.#identitySeed),
+			roomLinkSecret: encodeRoomStateHex(this.#secret),
+			linkedRooms: [...this.#linked.values()],
+			revokedRooms: [...this.#revoked.values()],
+			roomLinkGenerations: this.#generationRows(),
+			stewards: [...this.#stewards.values()],
+			managers: [...this.#managers.values()],
+			managedRooms: [...this.#managedRooms.values()],
+			topics: [...this.#topics.values()],
+			...overrides,
+		};
+	}
+
+	async #write(disk: RoomServerDiskState): Promise<void> {
+		const parsed = validateRoomServerDocument(disk, "rooms state change is invalid");
 		if (this.#directory === null) return;
-		const path = `${this.#directory}/${FILE}`;
-		await atomicWrite(path, encoder.encode(JSON.stringify(parsed.data) + "\n"));
+		const path = `${this.#directory}/${ROOM_STATE_FILE}`;
+		await atomicWrite(path, encoder.encode(JSON.stringify(parsed) + "\n"));
 	}
 }

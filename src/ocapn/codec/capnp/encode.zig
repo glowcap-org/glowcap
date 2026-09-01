@@ -58,7 +58,7 @@ fn encodeMessageOptionalProfile(allocator: std.mem.Allocator, profile: ?model.Ca
     // a protocol refusal rather than an allocation-dependent partial encode.
     try validation.validateMessageUtf8(message);
 
-    var builder = wire.Builder{};
+    var builder = try wire.Builder.init(allocator);
     defer builder.deinit(allocator);
 
     const root_idx = try builder.allocWords(allocator, 1);
@@ -69,7 +69,7 @@ fn encodeMessageOptionalProfile(allocator: std.mem.Allocator, profile: ?model.Ca
     const body = try encodeBody(&builder, allocator, profile, message);
     setStructPtr(&builder, env.data_idx + env.data_words, body);
 
-    return builder.finish(allocator);
+    return builder.finishOwned(allocator);
 }
 
 fn messageKind(message: model.Message) Kind {
@@ -464,9 +464,9 @@ fn encodeArgumentList(b: *wire.Builder, allocator: std.mem.Allocator, args: []co
 }
 
 const EncodedSetElement = struct {
-    /// The element's standalone message bytes, the canonical sort key. Owned as
-    /// the `finish` frame itself, not a second copy of its bytes; `builder`
-    /// stays live so the graft reads the encoded struct directly.
+    /// The element's standalone message bytes, the canonical sort key. It is a
+    /// copying snapshot because `builder` stays live afterward, holding the
+    /// encoded struct the graft reads directly.
     key_frame: foundation.Frame,
     builder: wire.Builder,
     loc: StructLoc,
@@ -497,15 +497,15 @@ fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, args: [
     defer deinitEncodedSetElements(allocator, encoded[0..built]);
 
     for (args) |arg| {
-        var tb = wire.Builder{};
+        var tb = try wire.Builder.init(allocator);
         errdefer tb.deinit(allocator);
         const root_idx = try tb.allocWords(allocator, 1);
         const loc = try encodeArgument(&tb, allocator, arg);
         setStructPtr(&tb, root_idx, loc);
-        // `finish` copies the segment into a frame whose bytes are the sort key;
-        // the builder stays live for graft, so adopt the frame rather than copy
-        // its bytes a second time.
-        const frame = try tb.finish(allocator);
+        // The builder must stay live for the graft below, so this is the one
+        // named copying finish. Its frame is itself the sort key, so those
+        // bytes are never copied a second time.
+        const frame = try tb.finishCopying(allocator);
         encoded[built] = .{
             .key_frame = frame,
             .builder = tb,
@@ -531,7 +531,7 @@ fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, args: [
     const block = try b.allocWords(allocator, args.len * stride);
     for (order, 0..) |src, i| {
         const enc = encoded[src];
-        const copy_start: usize = 1;
+        const copy_start: usize = wire.Builder.frame_header_words + 1;
         const src_tail = enc.builder.words.items[copy_start..];
         const base = try b.allocWords(allocator, src_tail.len);
         for (src_tail, 0..) |word, j| b.set(base + j, word);

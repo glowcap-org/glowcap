@@ -322,8 +322,8 @@ const bare_handle_types = [_][]const u8{ "Fd", "c.fd_t", "std.posix.fd_t", "posi
 /// Whether `key` names a shape that carries no owner and no epoch of its own.
 ///
 /// A primitive integer or a byte array says how wide a name is and nothing
-/// about whose it is. A named type is not bare, which is what exempts a
-/// composite key like `WithdrawKey` without an entry: the type carries the
+/// about whose it is. A named type is not bare, so a composite key like
+/// `WithdrawKey` is exempt without an entry: the type carries the
 /// dimensions itself.
 fn isBareKeyType(key: []const u8) bool {
     const t = std.mem.trim(u8, key, " \t");

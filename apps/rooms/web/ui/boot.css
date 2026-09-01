@@ -40,12 +40,27 @@
 	opacity: 0;
 	pointer-events: none;
 }
+/* A reload that has already committed. The opening element is gone, so the
+   body itself wears the sheet until the next parse puts a real one up. */
+:root[data-boot="leaving"] body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: var(--page-bg);
+}
 .boot-wait {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 12px;
+	gap: var(--gap-group);
 	text-align: center;
+}
+.boot-lockup {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--gap-group);
 }
 /* The product's own mark rather than a spinner, and the mark being made
    rather than sitting there: the pancakes fall in from above and land with a
@@ -65,18 +80,6 @@
 	width: 44px;
 	height: 44px;
 	color: var(--accent);
-	/* The lift every floating surface here wears, in the one shape a mark can
-	   wear it: a `drop-shadow` filter follows the alpha it is given rather than
-	   a box, so the pieces below — masks over `currentColor` — cast it from
-	   their own silhouettes, and the stack reads as lit rather than as a card
-	   sitting on the page. A `box-shadow` would draw the 44px square instead.
-
-	   Two passes of the shared `--shadow-color`, because one is not enough at
-	   this size: the near pass is the stack's contact with the page, the far
-	   one the soft spread a floating surface carries. The far pass alone
-	   spreads wider than the mark itself and dilutes to nothing — the page's
-	   own `--shadow` geometry belongs to a card, not to a 44px mark. */
-	filter: drop-shadow(0 2px 5px var(--shadow-color)) drop-shadow(0 8px 22px var(--shadow-color));
 	animation: boot-cycle 1.6s ease-in .15s infinite backwards;
 }
 .boot-mark .mark-piece {
@@ -218,15 +221,25 @@
    adds only what the boot layout owns. */
 .boot-name {
 	margin: 0;
-	/* The same alpha-following lift as the mark above it, quieter: the
-	   wordmark is type, and type carries a shadow at a fraction of what a
-	   solid shape can wear before it reads as blur. */
-	filter: drop-shadow(0 3px 12px var(--shadow-sm-color));
 }
 .boot-note {
 	margin: 0;
-	font-size: 13.5px;
+	font-size: var(--type-body);
 	color: var(--ink-soft);
+	/* The aside under it has this, and on a phone both of them wrap. */
+	text-wrap: pretty;
+}
+/* Something to read while the note above says what is actually happening. It
+   is quieter than the note and holds a line's height whether or not it is
+   saying anything, so the lockup above it does not shift when one arrives. */
+.boot-aside {
+	margin: 5px 0 0;
+	min-height: 1.3em;
+	max-width: 26rem;
+	font-size: var(--type-caption);
+	line-height: 1.3;
+	color: color-mix(in srgb, var(--ink-soft) 72%, transparent);
+	text-wrap: pretty;
 }
 /* Why there is nothing here to use. An opening page hides both explanations.
    Nothing stamped the document means scripting is off; `lost` means the bundle
@@ -236,7 +249,7 @@
 	display: none;
 	max-width: 34rem;
 	color: var(--ink);
-	font-size: 15px;
+	font-size: var(--type-read);
 	line-height: 1.55;
 }
 :root:not([data-boot]) .boot-wait,
@@ -254,18 +267,17 @@
 .boot-explain h1,
 .boot-insecure h1 {
 	margin: 0 0 10px;
-	font-size: 19px;
+	font-size: var(--type-display);
+	/* Balanced rather than pretty, the same as every heading on the card
+	   plane: these are short enough that evening the lines out beats pulling
+	   one word down from the last of them. */
+	text-wrap: balance;
 }
 .boot-explain p,
 .boot-insecure p {
 	margin: 0 0 10px;
 	color: var(--ink-soft);
 }
-.boot-insecure code {
-	font-family: var(--font-mono);
-	font-size: .92em;
-}
-
 /* The reason the screen is still up, when it has been up long enough to owe
    one: a single quiet line under the note, carrying whatever the newest
    attempt said. It appears only when the entry module puts it there. */

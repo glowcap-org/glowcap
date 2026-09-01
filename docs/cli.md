@@ -281,4 +281,4 @@ pancake --json ocapn listen \
 [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the
 product boundary. [`shipped.md`](shipped.md) lists the commands that exist,
 [`boundaries.md`](boundaries.md) records user-facing limits, and the
-[`roadmap`](roadmap.md) owns unbuilt product work.
+[`roadmap`](roadmap.md) lists unbuilt product work.

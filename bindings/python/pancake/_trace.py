@@ -32,8 +32,8 @@ TraceSink = Callable[[dict], None]
 
 _sink: Optional[TraceSink] = None
 # The display label the application chose for its own endpoint, or None. The
-# ``a`` endpoint itself is always the host's own key designator, which is what
-# a partner names it by, so one peer stays one node in a feed several producers
+# ``a`` endpoint itself is always the host's own key designator, the name a
+# partner knows it by, so one peer stays one node in a feed several producers
 # share.
 _self_label: Optional[str] = None
 # What this producer answers when a record asks what it runs. A constant and
@@ -252,8 +252,8 @@ def enable_trace(
     ``self_label``, when given, is what the producing application would like
     its own endpoint CALLED -- a display name beside the identity, never
     instead of it: the ``a`` endpoint stays the host's own key designator,
-    which is what a partner names it by and so the only name two producers can
-    agree on."""
+    the name a partner knows it by and the only one two producers can agree
+    on."""
     global _sink, _self_label, _t0
     with _hosts_lock:
         _sink = sink

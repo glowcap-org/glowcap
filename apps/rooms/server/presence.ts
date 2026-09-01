@@ -11,22 +11,13 @@
 
 import { annotateSession, type Session } from "@pancake/runtime";
 import type { Argument } from "@pancake/runtime";
-import { NOTIFY } from "../lib/protocol.ts";
-import {
-	findBySession,
-	forgetForeignRoomsFrom,
-	forgetRoom,
-	handBack,
-	rooms,
-	type RoomState,
-	signalExchanges,
-} from "./registry.ts";
-import { dropRoomFiles, dropUploads } from "./files.ts";
+import { MEMBERSHIP_ENDED, NOTIFY, ROOM_AUTHORITY_CHANGED, ROOM_POLICY_CHANGED } from "../lib/protocol.ts";
+import type { RoomServerContext } from "./context.ts";
+import { findBySession, type Member, type RoomState } from "./registry.ts";
 import { dropIntroductions, dropSignalExchange } from "./introductions.ts";
 import { notifyLocalRoom, notifyPublicRoom } from "./discovery.ts";
 import { dropWatchers } from "./watchers.ts";
-import { noteTrouble } from "./journal.ts";
-import { noteOperatorChange } from "./operator/revision.ts";
+import { retireInvitationsFrom } from "./invitation.ts";
 
 /** Push `from: text` to every subscriber of `state` by calling the inbox
  * capability it gave us. `tell` is the fire-and-forget eventual-send: a notify
@@ -34,6 +25,7 @@ import { noteOperatorChange } from "./operator/revision.ts";
  * notify is diagnostic only: a member is retired by the session lifecycle hook,
  * never by a failed tell used as a liveness probe (see the catch below). */
 export function broadcast(
+	ctx: RoomServerContext,
 	state: RoomState,
 	from: string,
 	text: string,
@@ -50,7 +42,7 @@ export function broadcast(
 			// Membership retirement is owned by the session lifecycle hook below.
 			// A failed notify is therefore always diagnostic; it is never used as
 			// an opportunistic liveness probe or as authority to mutate presence.
-			noteTrouble(`a presence notify to ${m.nick} failed`, e);
+			ctx.journal.note(`a presence notify to ${m.nick} failed`, e);
 		});
 	}
 }
@@ -62,6 +54,7 @@ export function broadcast(
  * does not care skips it. A failed tell is ignored — retirement is the session
  * lifecycle hook's, never a failed notify's. */
 export function broadcastTyping(
+	ctx: RoomServerContext,
 	state: RoomState,
 	nick: string,
 	on: boolean,
@@ -70,7 +63,7 @@ export function broadcastTyping(
 	for (const m of [...state.members]) {
 		if (m.session === exceptSession) continue;
 		m.session.tell(m.inbox, NOTIFY, ["room", "", "typing", nick, on]).catch((error) => {
-			noteTrouble(`a typing notify to ${m.nick} failed`, error);
+			ctx.journal.note(`a typing notify to ${m.nick} failed`, error);
 		});
 	}
 }
@@ -80,8 +73,8 @@ export function broadcastTyping(
  * a presence, and presence is the fact a timeline viewer wants. A DM
  * registration is a directory entry rather than a presence, and naming a
  * connection by one would keep calling a member present after it left. */
-function membershipNick(session: Session): string | null {
-	for (const state of rooms.values()) {
+function membershipNick(ctx: RoomServerContext, session: Session): string | null {
+	for (const state of ctx.live.rooms.values()) {
 		const member = findBySession(state, session);
 		if (member !== null) return member.nick;
 	}
@@ -93,8 +86,47 @@ function membershipNick(session: Session): string | null {
  * it — and stating it here means a member joining, changing rooms, or leaving
  * is one visible change in the picture rather than a name frozen at whatever
  * was said first. */
-export function statePresence(session: Session): void {
-	annotateSession(session, { label: membershipNick(session) });
+export function statePresence(ctx: RoomServerContext, session: Session): void {
+	annotateSession(session, { label: membershipNick(ctx, session) });
+}
+
+export function notifyRoomAuthorityChanged(
+	ctx: RoomServerContext,
+	name: string,
+	kind: "manager" | "steward" | "room",
+	token: string,
+): void {
+	const key = name.toLowerCase();
+	for (const state of ctx.live.rooms.values()) {
+		const durable = state.key.toLowerCase();
+		if (durable !== key) continue;
+		for (const member of state.members) {
+			member.session.tell(member.inbox, NOTIFY, [
+				"room",
+				"",
+				ROOM_AUTHORITY_CHANGED,
+				kind,
+				token,
+				false,
+			])
+				.catch(
+					(error) => ctx.journal.note(`notifying ${member.nick} of room authority rotation failed`, error),
+				);
+		}
+	}
+}
+
+export function notifyRoomPolicyChanged(ctx: RoomServerContext, state: RoomState): void {
+	for (const member of state.members) {
+		member.session.tell(member.inbox, NOTIFY, [
+			"room",
+			"",
+			ROOM_POLICY_CHANGED,
+			state.policy.visibility,
+			state.policy.entry,
+			state.policy.speaking,
+		]).catch((error) => ctx.journal.note(`notifying ${member.nick} of room policy failed`, error));
+	}
 }
 
 /** Remove `session`'s membership from one room, announcing its departure, and
@@ -103,134 +135,160 @@ export function statePresence(session: Session): void {
  * neither announce a spurious leave nor garbage-collect a room it is about to
  * reuse. */
 export function leaveRoom(
+	ctx: RoomServerContext,
 	state: RoomState,
 	session: Session,
-	silent = false,
-	preserveLines = false,
+	options: { silent?: boolean; preserveLines?: boolean; ended?: string } = {},
 ): boolean {
-	let removed = false;
+	const member = state.members.find((candidate) => candidate.session === session);
+	return member === undefined ? false : leaveMember(ctx, state, member, options);
+}
+
+/** End the exact membership capability, regardless of which session currently
+ * holds or calls a delegated occurrence. */
+export function leaveMember(
+	ctx: RoomServerContext,
+	state: RoomState,
+	member: Member,
+	options: { silent?: boolean; preserveLines?: boolean; ended?: string } = {},
+): boolean {
+	const { silent = false, preserveLines = false, ended } = options;
+	const at = state.members.indexOf(member);
+	if (at < 0) return false;
 	// A silent leave is the same connection re-claiming its place, so its
 	// uploads are still that member's; only a real departure drops them.
-	if (!silent) dropUploads(state, session);
-	for (let i = state.members.length - 1; i >= 0; i -= 1) {
-		if (state.members[i].session === session) {
-			const member = state.members[i];
-			state.members.splice(i, 1);
-			removed = true;
-			// Every membership is answered with a topic capability of its own, so
-			// this record's is finished either way: a resubscribe is about to mint
-			// another, and a departure ends the membership that held it.
-			handBack(session, member.inbox, "room member inbox");
-			handBack(session, member.topic, "room topic authority");
-			if (!preserveLines) {
-				// Leaving gives back the authority over what was said here. The
-				// connection may stay, and a membership moving to another connection
-				// cannot transfer local occurrences from the old one.
-				for (const line of member.lines) handBack(session, line, "room line authority");
-				member.lines.length = 0;
-			}
-			if (!silent) {
-				broadcast(
-					state,
-					"room",
-					`${member.nick} left (${state.members.length} here)`,
-					"leave",
-					member.nick,
-				);
-			}
-		}
+	//
+	// What this membership let into the room goes on the same cut, and for the
+	// same reason. An invitation carries its minter's say-so, so a membership
+	// that is over stops vouching for anybody: a kicked member's outstanding
+	// invitations do not go on admitting people after them.
+	if (!silent) {
+		ctx.files.dropMemberUploads(state, member);
+		retireInvitationsFrom(ctx.journal, state, member.session);
 	}
-	if (!silent && removed && state.members.length === 0) {
-		dropRoomFiles(state);
-		forgetRoom(state);
+	if (ended != null) {
+		member.session.tell(member.inbox, NOTIFY, ["room", ended, MEMBERSHIP_ENDED]).catch((error) => {
+			ctx.journal.note(`ending ${member.nick}'s room membership failed`, error);
+		});
+	}
+	state.members.splice(at, 1);
+	ctx.journal.release(member.session, member.inbox, "room member inbox");
+	if (member.topic !== null) ctx.journal.release(member.session, member.topic, "room topic authority");
+	if (member.seat !== null) ctx.journal.release(member.session, member.seat, "room membership");
+	if (!preserveLines) {
+		for (const line of member.lines) ctx.journal.release(line.session, line.ref, "room line authority");
+		member.lines.length = 0;
+	}
+	if (!silent) {
+		broadcast(ctx, state, "room", `${member.nick} left (${state.members.length} here)`, "leave", member.nick);
+	}
+	if (!silent && state.members.length === 0) {
+		ctx.files.dropRoomFiles(state);
+		ctx.live.forgetRoom(state);
 	}
 	// A real departure also changes what this connection IS: the member is
 	// gone but the connection stays, which is exactly the moment the room
 	// stops knowing it by that name.
-	if (!silent && removed) statePresence(session);
-	if (removed) noteOperatorChange();
+	if (!silent) statePresence(ctx, member.session);
+	ctx.operator.noteChange();
 	// A real departure changes the live room list: the room closed if it emptied,
 	// else its count dropped. A silent resubscribe leaves the count unchanged.
-	if (!silent && removed) {
-		if (state.members.length === 0) notifyLocalRoom(state, "closed", 0);
-		else notifyLocalRoom(state, "count", state.members.length);
+	if (!silent) {
+		if (state.members.length === 0) notifyLocalRoom(ctx, state, "closed", 0);
+		else notifyLocalRoom(ctx, state, "count", state.members.length);
 	}
-	return removed;
+	return true;
 }
 
 // Transport events arrive in loop-drain batches. Retire every connection from
 // such a batch before announcing any departure, so one member's leave cannot
 // be sent to a sibling whose native session is already condemned but whose
 // lifecycle callback was next in the same batch.
-const disconnectedSessions = new Set<Session>();
+export class RoomDisconnects {
+	readonly #sessions = new Set<Session>();
+	#flushQueued = false;
 
-let disconnectFlushQueued = false;
+	constructor(readonly ctx: RoomServerContext) {}
 
-export function scheduleDisconnect(session: Session): void {
-	disconnectedSessions.add(session);
-	if (disconnectFlushQueued) return;
-	disconnectFlushQueued = true;
-	queueMicrotask(flushDisconnects);
-}
+	schedule(session: Session): void {
+		this.#sessions.add(session);
+		if (this.#flushQueued) return;
+		this.#flushQueued = true;
+		queueMicrotask(() => this.#flush());
+	}
 
-function flushDisconnects(): void {
-	disconnectFlushQueued = false;
-	const departing = new Set(disconnectedSessions);
-	disconnectedSessions.clear();
-	if (departing.size === 0) return;
+	#flush(): void {
+		this.#flushQueued = false;
+		const departing = new Set(this.#sessions);
+		this.#sessions.clear();
+		if (departing.size === 0) return;
 
-	for (const state of [...rooms.values()]) {
-		const removed = state.members.filter((member) => departing.has(member.session));
-		if (removed.length !== 0) {
-			noteOperatorChange();
-			for (const session of new Set(removed.map((member) => member.session))) dropUploads(state, session);
-			state.members = state.members.filter((member) => !departing.has(member.session));
-
-			// Presence mutation is now complete for the whole batch. Only live
-			// survivors receive leave records; no failed tell is used as liveness
-			// authority.
-			for (const member of removed) {
-				handBack(member.session, member.inbox, "disconnected room member inbox");
-				handBack(member.session, member.topic, "disconnected room topic authority");
-				for (const line of member.lines) {
-					handBack(member.session, line, "disconnected room line authority");
+		const { live, watchers } = this.ctx;
+		for (const state of [...live.rooms.values()]) {
+			const removed = state.members.filter((member) => departing.has(member.session));
+			if (removed.length !== 0) {
+				this.ctx.operator.noteChange();
+				// A dropped connection ends its memberships as surely as leaving
+				// does, and this path does not go through `leaveMember`, so it
+				// says the same two things itself.
+				for (const session of new Set(removed.map((member) => member.session))) {
+					this.ctx.files.dropUploads(state, session);
+					retireInvitationsFrom(this.ctx.journal, state, session);
 				}
-				member.lines.length = 0;
-				broadcast(
-					state,
-					"room",
-					`${member.nick} left (${state.members.length} here)`,
-					"leave",
-					member.nick,
-				);
-			}
+				state.members = state.members.filter((member) => !departing.has(member.session));
 
-			if (state.members.length === 0) {
-				dropRoomFiles(state);
-				forgetRoom(state);
-				notifyLocalRoom(state, "closed", 0);
-			} else {
-				notifyLocalRoom(state, "count", state.members.length);
-			}
-		} else if (state.members.length === 0 && departing.has(state.creator)) {
-			dropRoomFiles(state);
-			forgetRoom(state);
-		}
-	}
+				// Presence mutation is now complete for the whole batch. Only live
+				// survivors receive leave records; no failed tell is used as liveness
+				// authority.
+				for (const member of removed) {
+					this.ctx.journal.release(member.session, member.inbox, "disconnected room member inbox");
+					if (member.topic !== null) {
+						this.ctx.journal.release(member.session, member.topic, "disconnected room topic authority");
+					}
+					if (member.seat !== null) {
+						this.ctx.journal.release(member.session, member.seat, "disconnected room membership");
+					}
+					for (const line of member.lines) {
+						this.ctx.journal.release(line.session, line.ref, "disconnected room line authority");
+					}
+					member.lines.length = 0;
+					broadcast(
+						this.ctx,
+						state,
+						"room",
+						`${member.nick} left (${state.members.length} here)`,
+						"leave",
+						member.nick,
+					);
+				}
 
-	for (const session of departing) {
-		for (const entry of forgetForeignRoomsFrom(session)) notifyPublicRoom(entry, "closed", null);
-		dropWatchers(session);
-		dropIntroductions(session);
-		// The exchanges this session originated die with it: its reply
-		// capability is gone, so there is nobody to reject and nothing to say.
-		for (const [id, exchange] of [...signalExchanges]) {
-			if (exchange.originator === session) dropSignalExchange(id);
+				if (state.members.length === 0) {
+					this.ctx.files.dropRoomFiles(state);
+					live.forgetRoom(state);
+					notifyLocalRoom(this.ctx, state, "closed", 0);
+				} else {
+					notifyLocalRoom(this.ctx, state, "count", state.members.length);
+				}
+			} else if (state.members.length === 0 && departing.has(state.lifetimeOwner)) {
+				this.ctx.files.dropRoomFiles(state);
+				live.forgetRoom(state);
+			}
 		}
-	}
-	// A disconnect may have landed while this flush ran.
-	if (disconnectedSessions.size !== 0 && !disconnectFlushQueued) {
-		disconnectFlushQueued = true;
-		queueMicrotask(flushDisconnects);
+
+		for (const session of departing) {
+			for (const entry of live.forgetForeignRoomsFrom(session)) notifyPublicRoom(this.ctx, entry, "closed", null);
+			dropWatchers(watchers, session);
+			dropIntroductions(this.ctx, session);
+			// The exchanges this session originated die with it: its reply
+			// capability is gone, so there is nobody to reject and nothing to say.
+			for (const [id, exchange] of [...live.signalExchanges]) {
+				if (exchange.originator === session) dropSignalExchange(live, id);
+			}
+		}
+		// A disconnect may have landed while this flush ran.
+		if (this.#sessions.size !== 0 && !this.#flushQueued) {
+			this.#flushQueued = true;
+			queueMicrotask(() => this.#flush());
+		}
 	}
 }

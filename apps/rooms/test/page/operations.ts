@@ -24,6 +24,7 @@ import { runOperatorScene } from "./operations_operator.ts";
 import { runIrcScene } from "./operations_irc.ts";
 import { addCapability, removeCapability, saveCapabilitySet, takeCapability } from "./capability_set.ts";
 import { runPeeringScene } from "./operations_peering.ts";
+import * as archiveOffline from "./archive_offline.ts";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 
 export async function run(tab: Page, statePath: string, foreignLocator: string): Promise<void> {
@@ -46,8 +47,55 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (await tab.$("#opsBtn") !== null) {
 		fail("the Operations control was drawn before any capability was held");
 	}
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
+
+	// A well is a surface, and its surface is a token the plane it stands on
+	// names. Read a name nothing writes in scope and CSS does not fall back to
+	// the value that name replaced: the whole declaration goes invalid and the
+	// property takes its initial value, so the well loses its fill and becomes
+	// an outline. Nothing about that is an error to a browser or to a build,
+	// and only a browser resolves whether a definition reaches a given well,
+	// so the measurement is here rather than in a stylesheet check. Validated
+	// by deleting the definition every modal well reads: without this the page
+	// still drew and every gate stayed green, and the wells came back
+	// `rgba(0, 0, 0, 0)`.
+	const wellSurfaces = await tab.evaluate(() =>
+		[...document.querySelectorAll(".card-plane .well")].map((well) => ({
+			where: well.className,
+			bg: getComputedStyle(well).backgroundColor,
+		}))
+	);
+	if (wellSurfaces.length === 0) fail("no wells were drawn to measure; this check is watching nothing");
+	const drained = wellSurfaces.filter((well) =>
+		well.bg === "" || well.bg === "transparent" || /,\s*0\s*\)$/.test(well.bg)
+	);
+	if (drained.length > 0) {
+		fail(`a well lost its surface and reads as an outline: ${JSON.stringify(drained)}`);
+	}
+
+	// The card's cap lives in its top border, where a scrolling box cannot put
+	// content, so the first row starts exactly at the border and the padding
+	// and the cap costs the column nothing. Held here because the cap has been
+	// a flex item seated on negative margins before, and that arrangement is
+	// three lengths agreeing rather than one. Read through the card's own
+	// scroll offset rather than by scrolling it, since this scene is one long
+	// conversation and moving the card would be moving somebody else's step.
+	const seat = await tab.evaluate(() => {
+		const card = document.querySelector("dialog[open] .modal-card");
+		const first = card?.firstElementChild;
+		if (card == null || first == null) return null;
+		const style = getComputedStyle(card);
+		return {
+			rowTop: Math.round(
+				first.getBoundingClientRect().top - card.getBoundingClientRect().top + card.scrollTop,
+			),
+			borderAndPad: Math.round(parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop)),
+		};
+	});
+	if (seat === null || seat.rowTop !== seat.borderAndPad) {
+		fail(`the card's cap moved its rows: ${JSON.stringify(seat)}`);
+	}
 
 	// The namespace is real: /ops can be arrived at cold. With nothing held
 	// it is the asks; a pane address it cannot name says so where it stands,
@@ -66,9 +114,15 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForFunction(() => location.pathname === "/");
 	await tab.goto(new URL("/ops/peering", tab.url()).href);
 	await tab.waitForSelector("#opsGate-peering");
+	const gateGap = await tab.locator("#opsGate-peering").evaluate((gate) => {
+		const prose = gate.querySelector("p:last-of-type")?.getBoundingClientRect();
+		const actions = gate.querySelector(".actions")?.getBoundingClientRect();
+		return prose == null || actions == null ? -1 : actions.top - prose.bottom;
+	});
+	if (gateGap < 9) fail(`the no-capability gate left only ${gateGap}px before its action`);
 	await tab.click("#opsGateTake-peering");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.waitForSelector("#settingsPanel", { state: "visible" });
+	await tab.waitForSelector("#holdingsPanel", { state: "visible" });
 	await tab.click("#settingsClose");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
 	// The shell stands under the namespace: the rail and its Settings control
@@ -76,8 +130,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (await tab.$("#roomList") === null) fail("the operations surface dropped the rail");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 
 	await runIrcScene(tab, ircSwiss);
 
@@ -91,7 +145,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.click("#opsListenersToggle");
 	await tab.waitForSelector("#capabilityValueTitle");
 	await tab.click("#capabilityValueClose");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	const afterCancel = await tab.evaluate(() => ({
 		checked: document.getElementById("opsListenersToggle")?.getAttribute("aria-checked"),
 		ops: document.getElementById("opsBtn") !== null,
@@ -283,26 +337,51 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// pane arrives holding its table.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await takeCapability(tab, "#opsDiagnosticsToggle", diagnosticsSwiss);
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#opsNav");
 	await tab.click("#directoryOpsLink");
 	await tab.waitForFunction(() => location.pathname === "/ops/directory");
+	// Inspect reads the directory's inventories under the operator's own
+	// headings, so a holder of either capability lands on one page. What it
+	// cannot do is act, so the pane draws no control at all rather than a
+	// disabled one.
 	await tab.waitForFunction(
 		() => {
-			const cells = [...document.querySelectorAll("#directoryOpsPanel td")]
-				.map((cell) => cell.textContent ?? "");
-			return cells.includes("directory");
+			const named = [...document.querySelectorAll("#directoryOpsPanel .entry-name")]
+				.map((row) => row.textContent ?? "");
+			return named.includes("directory");
 		},
 		undefined,
 		{ timeout: 10_000 },
-	).catch(() => fail("the diagnostics pane did not list the directory"));
-	// The page's own trouble journal stands beside the directory's holdings,
-	// present even when it has nothing to say.
-	await tab.waitForSelector("#pageTrouble");
+	).catch(() => fail("the diagnostics pane did not name the published bootstrap"));
+	const inspectShape = await tab.evaluate(() => {
+		const panel = document.getElementById("directoryOpsPanel");
+		return {
+			sections: [...(panel?.querySelectorAll(".ops-section .well-title") ?? [])]
+				.map((title) => (title.textContent ?? "").replace(/\d+$/, "").trim()),
+			// Everything pressable outside the head. The head's own control
+			// re-reads the directory, which is the one thing inspect may do.
+			acts: [...(panel?.querySelectorAll("button, input, select, textarea") ?? [])]
+				.filter((control) => control.closest(".ops-head") === null).length,
+		};
+	});
+	for (const heading of ["Room access", "Connections and live references", "Room moderator authority"]) {
+		if (!inspectShape.sections.includes(heading)) {
+			fail(`the diagnostics pane did not report ${heading}: ${JSON.stringify(inspectShape)}`);
+		}
+	}
+	if (inspectShape.acts !== 0) {
+		fail(`the diagnostics pane offered a control that acts: ${JSON.stringify(inspectShape)}`);
+	}
+	// Browser-only trouble stands beside the directory's holdings when there is
+	// something to inspect. An empty diagnostic well earns no space here.
+	if (await tab.locator("#pageTrouble").count() !== 0) {
+		fail("an empty browser-trouble journal still occupied the Directory pane");
+	}
 	await tab.click("#listenersOpsLink");
 	await tab.waitForSelector("#listenersList");
 
@@ -312,8 +391,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// held, the navigation counts three.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await takeCapability(tab, "#opsVizToggle", vizSwiss);
 	await tab.waitForFunction(
 		() => document.getElementById("opsVizToggle")?.getAttribute("aria-checked") === "true",
@@ -328,7 +407,9 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForSelector("#vizPublishing");
 	const publishing = await tab.evaluate(() => ({
 		connected: document.getElementById("vizPublishing")?.getAttribute("data-connected"),
-		endpoint: document.querySelector("#vizOpsPanel code")?.textContent ?? "",
+		// The endpoint is the answer beside its own question, in the pane's
+		// ordinary voice: nothing on this page is set in code type.
+		endpoint: document.querySelector("#vizOpsPanel .dirfacts dd")?.textContent ?? "",
 	}));
 	if (publishing.connected !== "true") {
 		fail(`the held viz capability is not publishing: ${JSON.stringify(publishing)}`);
@@ -359,8 +440,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (!(await rememberedCaps()).includes("viz")) fail("the viz take with Remember kept no swiss");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await removeCapability(tab, "#opsVizToggle");
 	if ((await rememberedCaps()).includes("viz")) fail("dropping the viz capability kept its secret");
 
@@ -376,8 +457,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForSelector("#listenersList");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.click("#settingsClose");
 	await tab.waitForSelector("#settingsTitle", { state: "hidden" });
 
@@ -471,14 +552,17 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (downloaded == null || await Deno.readTextFile(downloaded) !== "workspace archive bytes") {
 		fail("the device archive did not restore the direct file bytes after reload");
 	}
+	// And again with nothing to connect to, which is the state every cold start
+	// passes through before its first session lands.
+	await archiveOffline.run(tab, persistedDmName);
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#opsPage");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await tab.waitForFunction(
 		() => document.getElementById("opsListenersToggle")?.getAttribute("aria-checked") === "true",
 		undefined,
@@ -504,8 +588,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (afterSecondReload.length !== 0) fail(`a reload reminted a secret: ${JSON.stringify(afterSecondReload)}`);
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#settingsTab");
-	await tab.waitForSelector("#settingsPanel", { state: "attached" });
+	await tab.click("#holdingsTab");
+	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	const nothingHeld = await tab.evaluate(() => ({
 		listeners: document.getElementById("opsListenersToggle")?.getAttribute("aria-checked"),
 		diagnostics: document.getElementById("opsDiagnosticsToggle")?.getAttribute("aria-checked"),

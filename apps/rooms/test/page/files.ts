@@ -156,6 +156,32 @@ export async function run(
 		};
 	});
 	if (sized == null) fail("clicking the fitted picture did not put the stage at actual size");
+	// The bar crosses the column the stage draws its scrollbar in, and it cannot
+	// answer that by refusing the pointer: what lies under it reads a click as
+	// one on the backdrop and closes the viewer. So it stops short by whatever
+	// that scrollbar takes. The two links are checked apart, because this
+	// browser's scrollbars float over the content and take nothing: the stage
+	// reports what it measures, and the bar moves when the report is not zero.
+	const gutter = await second.evaluate(() => {
+		const stage = document.querySelector(".viewer-stage.is-actual") as HTMLElement | null;
+		const dialog = document.querySelector("dialog.viewer") as HTMLElement | null;
+		const bar = document.querySelector(".viewer-bar") as HTMLElement | null;
+		if (stage == null || dialog == null || bar == null) return null;
+		const inset = () => Math.round(innerWidth - bar.getBoundingClientRect().right);
+		const reported = dialog.style.getPropertyValue("--viewer-gutter");
+		const resting = inset();
+		dialog.style.setProperty("--viewer-gutter", "15px");
+		const widened = inset();
+		dialog.style.setProperty("--viewer-gutter", reported);
+		return { measured: stage.offsetWidth - stage.clientWidth, reported, resting, widened };
+	});
+	if (gutter == null) fail("the viewer bar and its stage were not both on screen at actual size");
+	if (gutter.reported !== `${gutter.measured}px`) {
+		fail(`the stage did not report the width its scrollbar takes: ${JSON.stringify(gutter)}`);
+	}
+	if (gutter.resting !== gutter.measured || gutter.widened !== 15) {
+		fail(`the viewer bar did not stop short of the stage's scrollbar: ${JSON.stringify(gutter)}`);
+	}
 	if (!sized.actual) fail("actual size is not one file pixel per CSS pixel");
 	if (!sized.scrollable) fail("a picture past the stage does not scroll");
 	if (!sized.scrolled) fail("the stage at actual size refused a native scroll");

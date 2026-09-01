@@ -120,8 +120,8 @@ test "a successful connect reply is reply code zero" {
 }
 
 test "a refused connect reports the proxy's own code" {
-    // 0x04 is host unreachable, which is what Tor answers when it cannot fetch
-    // the service's descriptor.
+    // 0x04 is host unreachable, Tor's answer when it cannot fetch the
+    // service's descriptor.
     try std.testing.expectError(
         error.ConnectRefused,
         socks5.checkConnectReply(&[_]u8{ 0x05, 0x04, 0x00, 0x01 }),

@@ -131,8 +131,8 @@ examples_watcher=$!
 # as a unit, without touching this launcher's own group and so never signalling
 # the user's shell. Bash's job control does exactly that: with `set -m`, every
 # job bash starts becomes a process-group leader, so the child's pid is also the
-# new process-group id. That is available in any bash, which is what this script
-# already requires, so it works the same on Linux and on macOS. `setsid` would
+# new process-group id. Any bash has that, and this script already requires
+# bash, so it works the same on Linux and on macOS. `setsid` would
 # only be available on Linux.
 #
 # Job control is on for the launch alone. The inner group stays in this

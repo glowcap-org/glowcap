@@ -10,15 +10,7 @@
 
 import { assertEquals } from "./assert.ts";
 import { registrationId } from "./support/registration.ts";
-import {
-	type DirId,
-	dirId,
-	type DirView,
-	type DmConv,
-	type Invitation,
-	type RoomConv,
-	type Unread,
-} from "../web/ui/types.ts";
+import { type DirId, dirId, type DirView, type DmConv, type Invitation, type RoomConv } from "../web/ui/types.ts";
 import {
 	askedNothing,
 	dirRow,
@@ -44,28 +36,26 @@ const criteria = railCriteria(new Map<DirId, DirView>(), home);
 const onlyWaiting = toggleChoice(askedNothing, offKey("unread", "caught-up"));
 const onlyRead = toggleChoice(askedNothing, offKey("unread", "unread"));
 
-function room(id: string, unread: Unread): RoomConv {
+function room(id: string): RoomConv {
 	return {
 		type: "room",
 		id,
 		persistId: "room-" + id,
 		key: home + "/" + id,
 		dir: home,
-		history: [],
 		membership: "joined",
+		membershipKind: "participant",
+		policy: { visibility: "listed", entry: "open", speaking: "open" },
+		membershipIssue: "",
 		earlierHistory: "unasked",
-		unread,
-		members: new Map(),
-		typers: new Set(),
 		grants: new Set(),
-		stewardClaimable: false,
 		standing: null,
-		ircIssue: "",
+		bridgeIssue: "",
 		held: false,
 	};
 }
 
-function line(id: string, unread: Unread): DmConv {
+function line(id: string): DmConv {
 	return {
 		type: "dm",
 		id,
@@ -73,21 +63,18 @@ function line(id: string, unread: Unread): DmConv {
 		key: "dm:" + id,
 		dir: home,
 		peerRegistrationId: registrationId(id === "alice" ? 1 : 2),
-		history: [],
-		unread,
 		line: "live",
-		typers: new Set(),
 	};
 }
 
 Deno.test("a room with lines nobody has read answers the unread question", () => {
-	const waiting = roomRow(room("council", { kind: "unread", count: 2, from: 7 }));
+	const waiting = roomRow(room("council"), { kind: "unread", count: 2, from: 7 });
 	assertEquals(rowShows(criteria, onlyWaiting, waiting), true);
 	assertEquals(rowShows(criteria, onlyRead, waiting), false);
 });
 
 Deno.test("a room the reader has caught up with is not waiting on them", () => {
-	const read = roomRow(room("lobby", { kind: "caught-up" }));
+	const read = roomRow(room("lobby"), { kind: "caught-up" });
 	assertEquals(rowShows(criteria, onlyWaiting, read), false);
 	assertEquals(rowShows(criteria, onlyRead, read), true);
 });
@@ -97,14 +84,14 @@ Deno.test("a rule still standing is a room already read", () => {
 	// left behind by reading rather than by anything arriving, so a reader
 	// asking the rail where something is waiting for them is not asking for
 	// this room.
-	const ruled = roomRow(room("orchard", { kind: "rule-only", from: 7 }));
+	const ruled = roomRow(room("orchard"), { kind: "rule-only", from: 7 });
 	assertEquals(rowShows(criteria, onlyWaiting, ruled), false);
 	assertEquals(rowShows(criteria, onlyRead, ruled), true);
 });
 
 Deno.test("a direct line answers the question the same way a room does", () => {
-	const waiting = dmRow(line("alice", { kind: "unread", count: 1, from: 3 }));
-	const read = dmRow(line("bob", { kind: "caught-up" }));
+	const waiting = dmRow(line("alice"), { kind: "unread", count: 1, from: 3 });
+	const read = dmRow(line("bob"), { kind: "caught-up" });
 	assertEquals(rowShows(criteria, onlyWaiting, waiting), true);
 	assertEquals(rowShows(criteria, onlyWaiting, read), false);
 	assertEquals(rowShows(criteria, onlyRead, waiting), false);

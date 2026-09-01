@@ -278,7 +278,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
 
     // Exporter: an owning Server on keyed-tcp, signing with the key its
     // designator is. `Server.accept` advertises the bound address through the
-    // listener's hint, which is what the give must carry.
+    // listener's hint, and the give must carry that hint.
     var exporter = try driver.listen(allocator, keyed_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .{ .keyed = exporter_secret }, opts);
     defer exporter.deinit();
     var exporter_key_buf: [128]u8 = undefined;

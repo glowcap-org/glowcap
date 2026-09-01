@@ -94,6 +94,12 @@ pub fn checkSignalAndIceCaps(
         "const rtcSendHighWaterBytes = WEBRTC_DATA_CHANNEL_QUEUE_BYTES;",
         "const rtcReceiveMaxQueuedBytes = WEBRTC_DATA_CHANNEL_QUEUE_BYTES;",
     });
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/webrtc/connector.ts", &.{
+        "Session.establishDialedLocator(",
+        "request.handshakeTimeoutMs,",
+        "// Directory signaling was scoped to this designator; DTLS binds",
+        "locator.designator,",
+    });
     if (try fileContains(io, gpa, root, ts_peer_path, "TEXT_UNITS")) {
         try appendViolation(gpa, violations, "{s}: forbidden `TEXT_UNITS` - WebRTC candidate caps are UTF-8 byte caps", .{ts_peer_path});
     }

@@ -1,16 +1,13 @@
 // Standalone durable Rooms session peer.
 
-import { TRANSPORT_IROH } from "@pancake/runtime";
+import { retainCleanupFailures, TRANSPORT_IROH } from "@pancake/runtime";
 import { Reachability } from "@pancake/iroh";
 import { DirectoryCustody } from "../lib/directory_custody.ts";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
 import { optionalEnv } from "../lib/env.ts";
-import { formatRoomsSturdyref, roomsHost, roomsLocator } from "../lib/locator.ts";
+import { roomsHost, roomsLocator } from "../lib/locator.ts";
 import { listenStandalone, serveStandalone, standaloneIrohConfig } from "../lib/standalone_peer.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
-import { DurableRoomsSessionBehavior } from "./behavior.ts";
-import { DurableRoomsSessionState } from "./state.ts";
-import { DurableRoomsRuntime } from "./runtime.ts";
 import {
 	MAX_WORKSPACE_DOCUMENT_CHARS,
 	parseRoomsSessionState,
@@ -18,9 +15,13 @@ import {
 	type RoomsSessionState,
 } from "../lib/rooms_state.ts";
 import { FileArchiveBackend } from "../archive/storage.ts";
-import { applyRoomsSessionResult, resumeRoomsSessionResult } from "./commands.ts";
-import { DurableRoomsSessionGrants } from "./grants.ts";
+import { applyRoomsSessionResult, resumeRoomsSessionResult } from "./result_commands.ts";
+import { bindDurableRoomsSession } from "./bind.ts";
+import { fileSessionDocuments } from "./file_documents.ts";
+import { DurableRoomsRuntime } from "./runtime.ts";
+import { DurableRoomsSessionState } from "./state.ts";
 import { sessionAdminPath } from "./readiness.ts";
+import { reconcileRuntimeState, runtimeStateImpact } from "./state_sync.ts";
 
 function option(name: string): string | undefined {
 	return Deno.args.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -63,11 +64,12 @@ export async function start(): Promise<void> {
 	try {
 		// This file is readiness evidence and an operator convenience, not a
 		// second authority. Clear a prior incarnation before any work that can
-		// fail, then install the exact published sturdyref only after the durable
-		// owner has reconciled its checkpoint.
+		// fail, then install the exact published sturdyref after the durable
+		// owner, listener, grants, and first reconciliation attempt are admitted.
 		await removeAdminMirror(adminPath);
+		const documents = fileSessionDocuments(directory);
 		const state = await DurableRoomsSessionState.open(
-			directory,
+			documents,
 			applyRoomsSessionResult,
 			(checkpoint, kind, intent) => {
 				resumeRoomsSessionResult(checkpoint, kind, intent);
@@ -75,7 +77,7 @@ export async function start(): Promise<void> {
 		);
 		const checkpoint = await requestedCheckpoint();
 		if (checkpoint != null) await state.replace("initial-checkpoint", 0, checkpoint);
-		const host = roomsHost(state.identitySeed, "v1-syrup");
+		const host = roomsHost(state.identitySeed);
 		const needsIroh = state.snapshot().checkpoint.directories.some((saved) =>
 			roomsLocator(saved.locator).transport === TRANSPORT_IROH
 		);
@@ -86,8 +88,12 @@ export async function start(): Promise<void> {
 		} as const;
 		const listenerIroh = standaloneIrohConfig(peerOptions);
 		const relayUrl = option("relay-url") ?? optionalEnv("PANCAKE_ROOMS_SESSION_RELAY_URL");
+		const listening = await listenStandalone(host, peerOptions).catch(async (error) => {
+			throw await retainCleanupFailures(error, [() => host.close()]);
+		});
 		const runtime = await openRoomsRuntime({
 			host,
+			installedTransport: listening.transport,
 			...(relayUrl == null ? {} : { relay: { relayUrl } }),
 			...(listenerIroh != null
 				? { iroh: listenerIroh }
@@ -96,47 +102,42 @@ export async function start(): Promise<void> {
 				: {}),
 		}).catch(
 			async (error) => {
-				await host.close();
-				throw error;
+				listening.server.close();
+				throw await retainCleanupFailures(error, [() => host.close()]);
 			},
 		);
 		const archiveSource = [...state.identitySeed].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-		const archiveBackend = await FileArchiveBackend.open(`${directory}/archive`);
-		const live = new DurableRoomsRuntime(runtime, archiveSource, archiveBackend);
+		const archiveBackend = await FileArchiveBackend.open(`${directory}/archive`).catch(async (error) => {
+			throw await retainCleanupFailures(error, [() => runtime.close()]);
+		});
+		const live = new DurableRoomsRuntime(
+			runtime,
+			archiveSource,
+			async (change) => {
+				await state.reconcile({
+					impact: runtimeStateImpact(change),
+					change: (current) => reconcileRuntimeState(current, change),
+				});
+			},
+			archiveBackend,
+		);
 		try {
-			let listeningLocator = "";
-			// Opening loads the grant ledger but publishes nothing. These callbacks
-			// first run from restore or issue, after the behavior binding below exists.
-			const grants = await DurableRoomsSessionGrants.open(directory, state.sessionEntropy, {
-				publish: (grant, entropy, active) =>
-					host.publishDurable(behavior.durableFacet(grant.rights, grant.id, active), entropy),
-				unpublish: (swiss) => host.unpublishDurable(swiss),
-				sturdyref: (_session, swiss) => {
-					if (listeningLocator === "") throw new Error("Rooms session grant publication is not listening");
-					return formatRoomsSturdyref(roomsLocator(listeningLocator), swiss);
-				},
-				revokeLive: (id) => behavior.revokeDurableFacet(id),
-			});
-			const behavior = new DurableRoomsSessionBehavior(state, live, grants);
-			const swiss = host.publishDurable(behavior.root(), state.sessionEntropy);
-			const listening = await listenStandalone(host, peerOptions);
-			listeningLocator = listening.locator;
-			live.setMemberLocator(listening.locator);
-			const sturdyref = formatRoomsSturdyref(roomsLocator(listening.locator), swiss);
-			await grants.restore();
-			await live.reconcile(state.snapshot().checkpoint);
-			await atomicWrite(adminPath, new TextEncoder().encode(`${sturdyref}\n`));
-			console.log(`ROOMS-SESSION-LISTENING ${sturdyref}`);
-			console.error(`rooms session: ${listening.transport} peer ready; the sturdyref is session administration`);
-			state.onCheckpointChange((_revision, checkpoint, impact) => {
-				void live.reconcile(checkpoint, impact).catch((error) => {
+			const bound = await bindDurableRoomsSession({
+				host,
+				advertisedLocator: listening.locator,
+				state,
+				live,
+				onReconciliationFailure: (error) => {
 					console.error(
 						`rooms session: checkpoint reconciliation failed: ${
 							error instanceof Error ? error.message : error
 						}`,
 					);
-				});
+				},
 			});
+			await atomicWrite(adminPath, new TextEncoder().encode(`${bound.sturdyref}\n`));
+			console.log(`ROOMS-SESSION-LISTENING ${bound.sturdyref}`);
+			console.error(`rooms session: ${listening.transport} peer ready; the sturdyref is session administration`);
 			await serveStandalone(listening.server, "rooms session");
 		} finally {
 			await live.close();

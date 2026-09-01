@@ -23,8 +23,9 @@ const {
 	emptyRoomsSessionState,
 	redactWorkspaceCapabilities,
 } = await import("../lib/rooms_state.ts");
-const store = await import("../web/ui/store.ts");
 const workspace = await import("../web/ui/workspace_state.ts");
+const bundle = await import("../web/ui/workspace/bundle.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
 const { dirId } = await import("../web/ui/types.ts");
 const { assertEquals } = await import("./assert.ts");
 
@@ -63,27 +64,29 @@ function documentWithIntent() {
 			notifyOn: false,
 			railOpen: true,
 			rosterOpen: true,
-			settingsTab: "overview" as const,
+			settingsTab: "session" as const,
 			opsPane: "peering" as const,
 		},
 	};
 }
 
 Deno.test("local peering intent survives refresh before a lease exists", () => {
+	const page = new RoomsPage();
 	const document = documentWithIntent();
 	memory.set(workspace.WORKSPACE_STATE_KEY, JSON.stringify(document));
-	const restored = workspace.restoreWorkspaceState((locator) => dirId(locator));
+	const restored = bundle.restoreWorkspaceState(page, (locator) => dirId(locator));
 	assertEquals(restored.foreignLocators, [destination]);
-	assertEquals(workspace.addWorkspacePeeringIntent(intent), true);
-	assertEquals(workspace.workspacePeeringIntents(), [intent]);
-	assertEquals(workspace.workspaceStateOf(store.get()).session.peering, [intent]);
+	assertEquals(workspace.addWorkspacePeeringIntent(page, intent), true);
+	assertEquals(workspace.workspacePeeringIntents(page), [intent]);
+	assertEquals(workspace.workspaceStateOf(page, page.projection.get()).session.peering, [intent]);
 });
 
 Deno.test("local peering revoke removes the intent and redaction removes publication authority", () => {
-	assertEquals(workspace.removeWorkspacePeeringIntent(intent.id), true);
-	assertEquals(workspace.workspacePeeringIntents(), []);
-	assertEquals(workspace.workspaceStateOf(store.get()).session.peering, []);
-	const redacted = redactWorkspaceCapabilities(workspace.workspaceStateOf(store.get()));
+	const page = new RoomsPage();
+	assertEquals(workspace.removeWorkspacePeeringIntent(page, intent.id), true);
+	assertEquals(workspace.workspacePeeringIntents(page), []);
+	assertEquals(workspace.workspaceStateOf(page, page.projection.get()).session.peering, []);
+	const redacted = redactWorkspaceCapabilities(workspace.workspaceStateOf(page, page.projection.get()));
 	assertEquals(redacted.session.peering, []);
 	memory.delete(workspace.WORKSPACE_STATE_KEY);
 });

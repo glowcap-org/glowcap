@@ -5,7 +5,7 @@
 import { type Behavior, currentSession, type Host, Ref, type Session } from "@pancake/runtime";
 import { directMessageReceiverBehavior } from "../../lib/direct_message.ts";
 import { type InboxOfferer, type InboxPublisher, inboxPublisher } from "../../lib/dm_inbox.ts";
-import type { Directory } from "../../lib/room_client.ts";
+import type { Directory } from "../../lib/room/client.ts";
 import { ircFold } from "../protocol.ts";
 import { IRC_FRONT_CLIENT_LIMIT, IRC_FRONT_INBOX_LIMIT } from "./limits.ts";
 

@@ -4,11 +4,13 @@
 
 import { IconButton } from "./IconButton.tsx";
 import { useRoomsBrowser } from "./controller/browser.ts";
+import { useCommitments } from "./commitment.tsx";
 
 export function SettingsButton(
 	{ id, mobile, settingsOpen }: { id: string; mobile: boolean; settingsOpen: boolean },
 ) {
 	const browser = useRoomsBrowser();
+	const commitments = useCommitments();
 	return (
 		<IconButton
 			id={id}
@@ -16,7 +18,7 @@ export function SettingsButton(
 			label="Settings"
 			size={mobile ? "large" : "normal"}
 			aria-pressed={settingsOpen}
-			onClick={() => settingsOpen ? browser.closeSettings() : browser.openSettings()}
+			onClick={() => settingsOpen ? commitments.request(() => browser.closeSettings()) : browser.openSettings()}
 		/>
 	);
 }

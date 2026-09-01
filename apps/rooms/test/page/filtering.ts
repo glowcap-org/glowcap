@@ -84,10 +84,13 @@ function isWhatIsLeftOf(all: readonly string[], shown: readonly string[]): boole
 }
 
 /** Make a room from the rail's own field, the way a reader does. */
-async function makeRoom(tab: Page, name: string, held: boolean): Promise<void> {
+async function makeRoom(tab: Page, name: string, privateRoom: boolean): Promise<void> {
 	await tab.click("#newRoomBtn");
 	await tab.waitForSelector("#newRoomInput", { state: "visible", timeout: 10_000 });
-	if (held) await tab.click(".newroom-private");
+	if (privateRoom) {
+		await tab.click(".newroom-private");
+		await tab.click(".newroom-private");
+	}
 	await tab.fill("#newRoomInput", name);
 	await tab.press("#newRoomInput", "Enter");
 	await tab.waitForFunction(

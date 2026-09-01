@@ -1,12 +1,14 @@
 // Positional CapTP encoding for a durable Rooms session snapshot.
 
 import type { Argument } from "@pancake/runtime";
-import type { RoomsSessionDirectoryView, RoomsSessionRoomView } from "../lib/rooms_session.ts";
-import type { RoomsSessionGrantView } from "../lib/rooms_session_grants.ts";
-import { MAX_SESSION_ISSUES, ROOMS_SESSION_SNAPSHOT_VERSION } from "../lib/rooms_session_messages.ts";
+import type { RoomsSessionDirectoryView, RoomsSessionRoomView } from "../lib/session/client.ts";
+import type { RoomsSessionGrantView } from "../lib/session/grants.ts";
+import type { RoomsSessionAccess } from "../lib/session/grants.ts";
+import { MAX_SESSION_ISSUES, ROOMS_SESSION_SNAPSHOT_VERSION } from "../lib/session/messages.ts";
 import type { RoomsSessionState } from "../lib/rooms_state.ts";
-import type { RoomsSessionWorkspaceAdoption } from "../lib/rooms_session_adoption.ts";
+import type { RoomsSessionWorkspaceAdoption } from "../lib/session/adoption.ts";
 import type { DurableArchiveShareView } from "./archive_shares.ts";
+import type { DurableHandedRoomView } from "./handed_rooms.ts";
 
 const MAX_SESSION_SNAPSHOT_TEXT_BYTES = 900 * 1024;
 
@@ -54,6 +56,7 @@ export function fitSessionSnapshot(values: Argument[]): Argument[] {
 		withoutLiveViews[7] = "[]";
 		withoutLiveViews[8] = "[]";
 		withoutLiveViews[9] = "[]";
+		withoutLiveViews[11] = "[]";
 		try {
 			assertSessionSnapshotSize(withoutLiveViews);
 			return withoutLiveViews;
@@ -78,9 +81,11 @@ export function encodeSessionSnapshot(
 	roomViews: readonly RoomsSessionRoomView[],
 	archiveShares: readonly DurableArchiveShareView[],
 	directoryViews: readonly RoomsSessionDirectoryView[],
-	access: RoomsSessionGrantView["rights"] = "admin",
+	access: RoomsSessionAccess = "admin",
 	workspaceAdoption: RoomsSessionWorkspaceAdoption = "closed",
 	grants: readonly RoomsSessionGrantView[] = [],
+	handedRooms: readonly DurableHandedRoomView[] = [],
+	suspendedNote = "",
 ): Argument[] {
 	const encoded = [
 		BigInt(revision),
@@ -93,15 +98,29 @@ export function encodeSessionSnapshot(
 		JSON.stringify(roomViews),
 		JSON.stringify(archiveShares),
 		JSON.stringify(directoryViews),
-		encodeSessionAccess(access, workspaceAdoption, grants),
+		encodeSessionAccess(access, workspaceAdoption, grants, suspendedNote),
+		JSON.stringify(handedRooms),
 	] as Argument[];
 	return fitSessionSnapshot(encoded);
 }
 
 export function encodeSessionAccess(
-	access: RoomsSessionGrantView["rights"],
+	access: RoomsSessionAccess,
 	workspaceAdoption: RoomsSessionWorkspaceAdoption,
 	grants: readonly RoomsSessionGrantView[],
+	/** Why this view has no access, when it has none. It travels with the access
+	 * rather than beside it, because a holder reading "none" is exactly the
+	 * holder who needs the reason. */
+	suspendedNote = "",
 ): string {
-	return JSON.stringify({ version: ROOMS_SESSION_SNAPSHOT_VERSION, rights: access, workspaceAdoption, grants });
+	// The note is sent only when there is one. Nothing is suspended most of the
+	// time, and an empty string would be a second way of saying what `rights`
+	// already says.
+	return JSON.stringify({
+		version: ROOMS_SESSION_SNAPSHOT_VERSION,
+		rights: access,
+		workspaceAdoption,
+		grants,
+		...(suspendedNote === "" ? {} : { suspendedNote }),
+	});
 }

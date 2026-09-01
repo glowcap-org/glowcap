@@ -10,8 +10,8 @@
 //! caller's `Budget`, feed those outer-framed bytes through `Host.feedBytes`,
 //! and repeat until the wait's capture fires. Because the wait spans every
 //! live wire, a sibling session's inbound (a deposit arriving while this
-//! session waits on a withdraw) is served inside the same wait, which is what
-//! makes same-Host gifter and exporter roles work on one fiber with no thread.
+//! session waits on a withdraw) is served inside the same wait. That is how
+//! same-Host gifter and exporter roles work on one fiber with no thread.
 //!
 //! The wires are `net.Connection`s used through their byte-stream face only —
 //! raw reads off `conn.r` into the core's outer framer, and

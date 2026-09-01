@@ -12,8 +12,8 @@
 //! bytes run short and then can never be topped up, so it is never decoded from
 //! and never drained. The path looks exercised and is not. So the read buffer
 //! here is small and bounded, and the stream arrives in pieces the fuzzer
-//! chooses, which is what makes a frame cross the boundary and go through the
-//! spill for real.
+//! chooses, forcing a frame to cross the boundary and go through the spill
+//! for real.
 //!
 //! What is asserted beyond not crashing and not leaking: a spill that is not
 //! accumulating anything has freed its storage, not merely emptied it. That is

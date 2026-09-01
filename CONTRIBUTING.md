@@ -32,7 +32,7 @@ These rules define what fits the project:
   list is closed to newcomers, and it is meant to reach zero. Splitting a file
   to make room for your change is the ordinary way to work here, whoever wrote
   the file, and taking a file off that list is welcome on its own.
-- Update docs kept in step with today's code in the same change as the code
+- Update docs that must match today's code in the same change as the code
   they describe. A claim that outlives the code is worse than no claim.
 
 Changes to protocol semantics, session state, negotiation, vocabulary, or

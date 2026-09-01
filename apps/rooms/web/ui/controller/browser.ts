@@ -1,20 +1,22 @@
+// Browser-owned presentation and session-establishment, independent of whether
+// the established session is local or attached.
+
 import { createContext, useContext } from "react";
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
+import type { RoomPreset } from "../../../lib/room/policy.ts";
 import type { Reach } from "../intent.ts";
-import type { AttachmentView, DirId, OpsCap, SettingsTab, ToastKind } from "../types.ts";
+import type { AttachmentView, DirId, MemberRef, OpsCap, SettingsTab, ToastKind } from "../types.ts";
 
-/** Browser-owned presentation and session-establishment behavior.
- *
- * These acts do not depend on whether the established Rooms session is local
- * or attached. Keeping them outside the session controller prevents an
- * attached view from borrowing browser behavior from the local session
- * implementation. */
+/** Keeping these outside the session controller prevents an attached view from
+ * borrowing browser behavior from the local session implementation. */
 export interface RoomsBrowserController {
 	showRail(shown: boolean): void;
 	reachFor(act: Reach): void;
 	showJoinCard(): void;
-	aboutDirectory(dir: DirId | null): void;
-	aboutConversation(): void;
+	aboutDirectory(dir: DirId | null, askingLeave?: boolean): void;
+	showDirectory(dir: DirId): void;
+	aboutMember(about: MemberRef | null): void;
+	aboutConversation(pane?: "about" | "irc" | "capabilities", askingLeave?: boolean): void;
 	manageIrcIdentity(): void;
 	closeAboutConversation(): void;
 	showError(detail: { title: string; text: string }): void;
@@ -29,6 +31,7 @@ export interface RoomsBrowserController {
 	openHelp(): void;
 	closeHelp(): void;
 	openOperations(): void;
+	showActiveConversation(): void;
 	setOpsPane(pane: OpsCap): void;
 	changeLine(id: number, text: string): void;
 	changeFiles(id: number, caption: string, keeping: readonly AttachmentView[]): void;
@@ -37,8 +40,14 @@ export interface RoomsBrowserController {
 	addFiles(files: readonly File[]): void;
 	removeFile(index: number): void;
 	closeViewer(): void;
-	editJoin(patch: { room?: string; locator?: string; nick?: string; secret?: boolean }): void;
+	editJoin(patch: {
+		room?: string;
+		locator?: string;
+		nick?: string;
+		roomPreset?: RoomPreset;
+	}): void;
 	attachRoomsSession(sturdyref: string): Promise<string>;
+	shareRoomsSession(): Promise<string>;
 	useLocalRoomsSession(): string;
 	leaveRoomsSession(): string;
 	roomsController(): RoomsControllerSelection;

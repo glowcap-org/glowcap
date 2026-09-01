@@ -13,9 +13,20 @@ import {
 	WATCH_PUBLICATIONS,
 } from "../../lib/protocol.ts";
 import { NO_SUCH_ROOM, ROOM_EXISTS, type RoomErrorCode, roomErrorOf } from "../../lib/errors.ts";
-import { type Message, Room } from "../../lib/room_client.ts";
+import { type Message, Room } from "../../lib/room/client.ts";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import { assert, delay, dial } from "./rooms_server.ts";
+
+export async function subscribeMembership(
+	session: Session,
+	room: Ref,
+	nick: string,
+	inbox: Ref,
+): Promise<Ref> {
+	const answer = await session.send(room, SUBSCRIBE, [nick, inbox]);
+	assert(Array.isArray(answer) && answer[0] instanceof Ref, "subscribe did not answer a membership capability");
+	return answer[0];
+}
 
 /** Enter the named room over `session`, opening it if it does not exist, the
  * directory dance every client does, inlined here so the tests drive the same
@@ -42,31 +53,36 @@ export async function subscribeOnceConn(
 	session: Session,
 	room: string,
 	nick: string,
-): Promise<string> {
+): Promise<readonly string[]> {
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
 	// The roster arrives as a `notify`, not as the subscribe return. Listed-ness
 	// may precede it; this helper waits for the roster tag specifically.
-	let resolveWelcome!: (w: string) => void;
-	const welcome = new Promise<string>((r) => (resolveWelcome = r));
+	//
+	// It reads the names the room sends beside the line rather than the line
+	// itself. That is what those names are for, and a test that read the
+	// sentence was a client parsing prose: it made the room's copy part of the
+	// contract, so a clearer word for one reader broke a proof about seating.
+	let resolveWelcome!: (w: readonly string[]) => void;
+	const welcome = new Promise<readonly string[]>((r) => (resolveWelcome = r));
 	const inbox = session.spawn((verb, args) => {
-		if (verb === NOTIFY && args[2] === "roster" && typeof args[1] === "string") {
-			resolveWelcome(args[1]);
+		if (verb === NOTIFY && args[2] === "roster") {
+			resolveWelcome(args.slice(3).filter((name): name is string => typeof name === "string"));
 		}
 		return null;
 	});
-	await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
-	const text = await welcome;
+	await subscribeMembership(session, roomRef, nick, inbox);
+	const names = await welcome;
 	session.close();
 	await session.serve().catch(() => {});
-	return text;
+	return names;
 }
 
 export async function subscribeOnce(
 	port: number,
 	room: string,
 	nick: string,
-): Promise<string> {
+): Promise<readonly string[]> {
 	return subscribeOnceConn(
 		await dial(loopbackTcpDesignator(port)),
 		room,
@@ -78,7 +94,7 @@ export async function subscribeOnceIroh(
 	uri: string,
 	room: string,
 	nick: string,
-): Promise<string> {
+): Promise<readonly string[]> {
 	return subscribeOnceConn(await dial(uri), room, nick);
 }
 
@@ -92,7 +108,7 @@ export async function trySubscribe(port: number, room: string, nick: string): Pr
 	try {
 		const roomRef = await enterOrOpen(session, room);
 		const inbox = session.spawn(() => null);
-		await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
+		await subscribeMembership(session, roomRef, nick, inbox);
 		return {
 			ok: true,
 			leave: async () => {
@@ -119,8 +135,8 @@ export async function subscribeTwiceAndClose(
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
-	await session.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
-	await session.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
+	await subscribeMembership(session, roomRef, "first-a", inbox);
+	await subscribeMembership(session, roomRef, "first-b", inbox);
 	session.close();
 	await session.serve().catch(() => {});
 }
@@ -132,14 +148,47 @@ export async function resubscribeAndHold(port: number, room: string): Promise<{
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
-	await session.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
-	await session.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
+	await subscribeMembership(session, roomRef, "first-a", inbox);
+	await subscribeMembership(session, roomRef, "first-b", inbox);
 	return {
 		leave: async () => {
 			session.close();
 			await session.serve().catch(() => {});
 		},
 	};
+}
+
+/** Whether a room seated exactly these names, in the order it sent them. One
+ * comparison, so the waiting form and the asserting form cannot come to differ
+ * about what a matching roster is. */
+function sameRoster(names: readonly string[], want: readonly string[]): boolean {
+	return names.length === want.length && names.every((name, at) => name === want[at]);
+}
+
+/** Assert a room seated exactly these names. */
+export function assertRoster(names: readonly string[], want: readonly string[]): void {
+	if (!sameRoster(names, want)) {
+		throw new Error(`expected the roster ${JSON.stringify(names)} to be ${JSON.stringify(want)}`);
+	}
+}
+
+/** Wait until a room seats exactly these names.
+ *
+ * The roster's own sibling of `waitForMatch`, because a room frees a name a
+ * moment after the connection holding it closes, so the next dialer's first
+ * try can still be refused it. */
+export async function waitForRoster(
+	getNames: () => Promise<readonly string[]>,
+	want: readonly string[],
+): Promise<readonly string[]> {
+	const deadline = Date.now() + 2_000;
+	let last: readonly string[] = [];
+	while (Date.now() < deadline) {
+		last = await getNames();
+		if (sameRoster(last, want)) return last;
+		await delay(25);
+	}
+	throw new Error(`expected the roster ${JSON.stringify(last)} to be ${JSON.stringify(want)}`);
 }
 
 export async function waitForMatch(
@@ -173,7 +222,7 @@ export async function watchRoomConn(
 		lines.push(`${from}: ${text}`);
 		return null;
 	});
-	await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
+	await subscribeMembership(session, roomRef, nick, inbox);
 	return {
 		lines,
 		leave: async () => {
@@ -270,6 +319,7 @@ export interface DirectoryRoomRecord {
 	kind: "local" | "foreign";
 	origin: string;
 	proof: "local" | "authenticated" | "session";
+	offers: "observer" | "participant" | null;
 }
 
 export type DirectoryWatchEvent =
@@ -278,8 +328,8 @@ export type DirectoryWatchEvent =
 	| { event: "truncated"; count: number };
 
 function directoryRoomRecord(raw: unknown): DirectoryRoomRecord {
-	assert(Array.isArray(raw) && raw.length === 6, "directory room record must have six fields");
-	const [name, countRaw, id, kind, origin, proof] = raw;
+	assert(Array.isArray(raw) && raw.length === 7, "directory room record must have seven fields");
+	const [name, countRaw, id, kind, origin, proof, offers] = raw;
 	assert(typeof name === "string" && name.length > 0, "directory room record must name a room");
 	assert(
 		countRaw === null || typeof countRaw === "number" || typeof countRaw === "bigint",
@@ -305,7 +355,8 @@ function directoryRoomRecord(raw: unknown): DirectoryRoomRecord {
 		kind !== "foreign" || (count === null && origin.length > 0 && proof !== "local"),
 		"foreign room record has local provenance",
 	);
-	return { name, count, id, kind, origin, proof };
+	assert(offers === null || offers === "observer" || offers === "participant", "invalid public membership offer");
+	return { name, count, id, kind, origin, proof, offers };
 }
 
 /** Decode the directory's canonical room-publication snapshot. */

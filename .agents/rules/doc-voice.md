@@ -11,7 +11,7 @@ Human docs explain the system to a person. Agent scaffolding instructs an execut
 
 | Audience | Surfaces                                                                                                                                                                                                                                                                                                                                                                                                    |
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Humans   | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, **all** authored `site/content/**`, binding, app, and example READMEs (`apps/**/README.md`, `ui/README.md`), user-facing app copy under `apps/**`, **all** of `examples/**` (chapters, apps, demos), interop and bench driver narration, test module `//!` headers, Zig `//!` / `///` on public APIs and `cli/`, `.devcontainer/README.md` |
+| Humans   | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, **all** authored `site/content/**`, binding, app, and example READMEs (`apps/**/README.md`, `ui/README.md`), user-facing app copy under `apps/**`, the profile summaries a transport package ships for its own listeners (`bindings/*/…` `ProfileInfo.summary`), which cross the wire and are drawn to a reader, **all** of `examples/**` (chapters, apps, demos), interop and bench driver narration, test module `//!` headers, Zig `//!` / `///` on public APIs and `cli/`, `.devcontainer/README.md` |
 | Agents   | `.agents/**`, plus root `AGENTS.md` / `CLAUDE.md` as agent entry points                                                                                                                                                                                                                                                                                                                                     |
 
 CapTP vocabulary cheat-sheets (symbol maps, “sticky note” dumps) live in the [architecture rule](architecture.md), not
@@ -121,6 +121,11 @@ fence) is being used as the default joint so the content thins and the tactic go
   sentence as well, the dash has not earned its place. `zig build source-check` (`banHabitualEmDash`) rejects the two
   patterns habit reaches for most, `— which` and `— and then`, across `src/`, `cli/`, `docs/`, `site/content`, and
   `README.md`. The rest of this bullet is still yours to hold.
+- The justification tic. "X, which is what lets Y" restates a causal joint the sentence already has. Write a comma
+  apposition, "so", or a second sentence. `zig build source-check` (`banHabitualJustification`) refuses the phrase
+  across the first-party prose trees. The `apps/` files still carrying it are listed in
+  `tools/check/source_check/docs/voice_debt.zig`, a closed list going to zero on the file-length contract: rewrite a
+  listed file's instances and retire its row in the same change.
 - Telegraphic fragments with the verb cut out: "Bounded recursion. Depth-capped. Fails loud."
 - Bare citation dumps like "(Invariant 14)" or "(ADR-0025)" dropped in with no sentence saying what they mean. Make the
   point in words first, then cite.

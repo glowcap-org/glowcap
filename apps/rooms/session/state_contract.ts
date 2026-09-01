@@ -20,3 +20,15 @@ export interface NewOrdinaryEffectInspection {
 export type OrdinaryEffectInspection =
 	| NewOrdinaryEffectInspection
 	| { readonly kind: "committed"; readonly revision: number };
+
+export type RoomsSessionResultApplier = (
+	checkpoint: import("../lib/rooms_state.ts").RoomsSessionState,
+	kind: string,
+	intent: string,
+	result: string,
+) => import("../lib/rooms_state.ts").RoomsSessionState;
+export type RoomsSessionResultValidator = (
+	checkpoint: import("../lib/rooms_state.ts").RoomsSessionState,
+	kind: string,
+	intent: string,
+) => void;

@@ -1,9 +1,15 @@
 // Pure topology projections for durable Rooms reconciliation.
 
-import type { RoomsSessionState, WorkspaceConversation, WorkspaceDirectory } from "../lib/rooms_state.ts";
+import type {
+	RoomsSessionState,
+	WorkspaceConversation,
+	WorkspaceDirectConversation,
+	WorkspaceDirectory,
+	WorkspaceRoomConversation,
+} from "../lib/rooms_state.ts";
 
-export type RoomConversation = Extract<WorkspaceConversation, { kind: "room" }>;
-export type DirectConversation = Extract<WorkspaceConversation, { kind: "direct" }>;
+export type RoomConversation = WorkspaceRoomConversation;
+export type DirectConversation = WorkspaceDirectConversation;
 
 export function directoryRooms(
 	directoryId: string,
@@ -32,14 +38,17 @@ export function roomsConversationTopology(conversation: RoomConversation): strin
 		id: conversation.id,
 		name: conversation.name,
 		held: conversation.held,
-		link: conversation.link ?? null,
-		steward: conversation.steward ?? null,
 		publicationId: conversation.publicationId ?? null,
 	});
 }
 
-export function roomsIrcIntentTopology(conversation: RoomConversation): string {
-	return conversation.irc === undefined ? "automatic" : JSON.stringify(conversation.irc);
+/** What this room's reader has told its bridge, as one comparable value.
+ *
+ * Absent is not the same as null: never having answered a form leaves a bridge
+ * to do whatever it does by default, and answering it with nothing is a choice
+ * to stay out. Realization compares these to know whether anything changed. */
+export function roomsBridgeIntentTopology(conversation: RoomConversation): string {
+	return conversation.bridgeIntent === undefined ? "automatic" : JSON.stringify(conversation.bridgeIntent);
 }
 
 export function roomsDirectoryTopology(
@@ -68,14 +77,4 @@ export function roomsSessionTopology(checkpoint: RoomsSessionState): string {
 			peering: checkpoint.peering,
 		},
 	);
-}
-
-export function roomsStandingTopology(checkpoint: RoomsSessionState): string {
-	const directories = new Map(checkpoint.directories.map((directory) => [directory.id, directory]));
-	return JSON.stringify(checkpoint.conversations.flatMap((conversation) =>
-		conversation.kind !== "room" ? [] : [[
-			conversation.id,
-			conversation.standing ?? directories.get(conversation.directory)?.standing ?? checkpoint.standing,
-		]]
-	));
 }

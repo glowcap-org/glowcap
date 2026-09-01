@@ -10,8 +10,9 @@
 // simply stops running on Enter, which looks like a dead key rather than like
 // a wrong flag. So each is asked of every command here.
 
-import { type Command, type CommandPowers, held, known } from "../web/ui/commands.ts";
-import { prepareComposerSend } from "../web/ui/composer/send.ts";
+import { type Command, type CommandHere, type CommandPowers, held, hereOf, known } from "../web/ui/commands.ts";
+import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/commands/targets.ts";
+import { DIRECTORY_NO_CHAT, prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/types.ts";
 
@@ -76,10 +77,10 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
  * says. Each returns the empty answer, which is what a fresh window holds. */
 const QUIET: CommandPowers = {
 	say: () => {},
-	joinRoom: () => {},
-	joinLink: () => {},
+	joinRoom: () => NOT_ON_A_DIRECTORY,
+	joinLink: () => null,
 	leaveHere: () => {},
-	directMessage: () => {},
+	directMessage: () => NOT_ON_A_DIRECTORY,
 	you: () => "",
 	setTheme: () => {},
 	clearHere: () => {},
@@ -100,7 +101,7 @@ const QUIET: CommandPowers = {
 	showRoster: () => {},
 	liveRooms: () => new Map(),
 	roster: () => [],
-	quitDirectory: () => {},
+	quitDirectory: () => NO_DIRECTORY_TO_GIVE_BACK,
 	aboutConversation: () => {},
 };
 
@@ -136,12 +137,29 @@ Deno.test("a command that needs nothing runs on nothing", () => {
 });
 
 Deno.test("a command names the grant it waits on, and says so when it is missing", () => {
-	// A command that waits on a reference has to name which one, because that
+	// A command that waits on a membership reference has to name which one,
+	// because that name is what the room's answer is matched against. One that
+	// says it is granted without naming a grant would never become held however
+	// much the room handed over. `/edit` and `/delete` are granted per line, so
+	// they name none.
+	for (const command of known()) {
+		if (command.kind !== "granted") continue;
+		if (command.name === "edit" || command.name === "delete") {
+			if (command.grant !== undefined) {
+				fail(`/${command.name} is granted per line but names a membership grant`);
+			}
+			continue;
+		}
+		if (command.grant === undefined) {
+			fail(
+				`/${command.name} is granted but names no grant, so /help cannot list it from what the room handed over`,
+			);
+		}
+	}
 });
 
 Deno.test("the reader's list is what this conversation has actually handed over", () => {
-	const names = (grants: string[], here: "room" | "direct") =>
-		held(new Set(grants), here).map((command) => command.name);
+	const names = (grants: string[], here: CommandHere) => held(new Set(grants), here).map((command) => command.name);
 	// Editing and withdrawing are granted commands that are genuinely granted:
 	// the room answers each post with a reference to the line, so a reader holds
 	// the authority for their own lines as a matter of course, with nothing
@@ -165,15 +183,26 @@ Deno.test("the reader's list is what this conversation has actually handed over"
 	if (names([], "direct").includes("invite")) fail("a direct line listed /invite");
 	if (names([], "direct").includes("members")) fail("a direct line listed /members");
 	if (names(["topic"], "direct").includes("topic")) fail("a direct line listed /topic");
+	if (names([], "directory").includes("me")) fail("a directory listed /me, which travels in a message");
+	if (names([], "directory").includes("invite")) fail("a directory listed /invite");
+	if (names([], "directory").includes("members")) fail("a directory listed /members");
+	if (names(["topic"], "directory").includes("topic")) fail("a directory listed /topic");
+	if (names([], "directory").includes("edit")) fail("a directory listed /edit");
+	if (!names([], "directory").includes("help")) fail("a directory omitted /help");
+	if (!names([], "directory").includes("join")) fail("a directory omitted /join");
+	if (!names([], "directory").includes("list")) fail("a directory omitted /list");
 });
 
 Deno.test("a room-only command refuses in a direct line", () => {
 	const dm = { type: "dm" } as unknown as Conv;
-	for (const command of known()) {
-		if (command.place !== "room") continue;
-		const outcome = command.run(someArgument(command), QUIET, dm);
-		if (outcome.kind !== "refused") {
-			fail(`/${command.name} is room-only but ran in a direct line: ${outcome.kind}`);
+	const directory = { type: "directory" } as unknown as Conv;
+	for (const conv of [dm, directory]) {
+		for (const command of known()) {
+			if (command.place !== "room") continue;
+			const outcome = command.run(someArgument(command), QUIET, conv);
+			if (outcome.kind !== "refused") {
+				fail(`/${command.name} is room-only but ran in a ${conv.type}: ${outcome.kind}`);
+			}
 		}
 	}
 	for (const command of known()) {
@@ -251,6 +280,7 @@ Deno.test("handing a room or a line to yourself is refused before any line opens
 		},
 		directMessage: (who) => {
 			messaged = who;
+			return null;
 		},
 	};
 	const invite = known().find((command) => command.name === "invite") ?? fail("there is no /invite command");
@@ -281,6 +311,7 @@ Deno.test("a room-wide word is refused as a person to message or invite", () => 
 		},
 		directMessage: (who) => {
 			messaged = who;
+			return null;
 		},
 	};
 	const invite = known().find((command) => command.name === "invite") ?? fail("there is no /invite command");
@@ -325,9 +356,11 @@ Deno.test("/join with a room link takes it up rather than treating it as a name"
 		...QUIET,
 		joinLink: (link, label) => {
 			took.push({ link, label });
+			return null;
 		},
 		joinRoom: (name) => {
 			named = name;
+			return null;
 		},
 	};
 	const join = known().find((command) => command.name === "join") ?? fail("there is no /join command");
@@ -379,4 +412,71 @@ Deno.test("/link is this room, or a listed name it is given", () => {
 		fail(`/link lobby did not name the listed room: ${JSON.stringify(named[1])}`);
 	}
 	if (thisRoom !== 1) fail("a named /link also minted this room");
+});
+
+Deno.test("a directory is a command place, not a direct line", () => {
+	if (hereOf({ type: "directory" } as Conv) !== "directory") {
+		fail("a directory conversation listed commands as if it were a direct line");
+	}
+	if (hereOf({ type: "room", lineBytes: 8192 } as Conv) !== "room") fail("a room was not a room");
+	if (hereOf({ type: "dm" } as Conv) !== "direct") fail("a direct line was not a direct line");
+	if (hereOf(null) !== "direct") fail("no conversation was not treated as a direct line");
+});
+
+Deno.test("a directory composer runs commands and refuses chat", () => {
+	const directory = { type: "directory" } as Conv;
+	let joined = "";
+	const joining: CommandPowers = {
+		...QUIET,
+		joinRoom: (name) => {
+			joined = name;
+			return null;
+		},
+	};
+	const join = prepareComposerSend(directory, draft("/join lobby"), joining);
+	if (join.kind !== "handled" || joined !== "lobby") {
+		fail(`a directory /join did not enter the room: ${JSON.stringify(join)} joined=${joined}`);
+	}
+	const leave = prepareComposerSend(directory, draft("/leave"), QUIET);
+	if (leave.kind !== "handled" || leave.retires !== "conversation") {
+		fail(`a directory /leave did not put the view away: ${JSON.stringify(leave)}`);
+	}
+	const chat = prepareComposerSend(directory, draft("hello"), QUIET);
+	if (chat.kind !== "refused" || chat.why !== DIRECTORY_NO_CHAT) {
+		fail(`plain text on a directory did not refuse: ${JSON.stringify(chat)}`);
+	}
+	const action = prepareComposerSend(directory, draft("/me waves"), QUIET);
+	if (action.kind !== "refused" || action.why !== DIRECTORY_NO_CHAT) {
+		fail(`/me on a directory did not refuse: ${JSON.stringify(action)}`);
+	}
+	const unknown = prepareComposerSend(directory, draft("/etc/hosts"), QUIET);
+	if (unknown.kind !== "refused" || unknown.why !== DIRECTORY_NO_CHAT) {
+		fail(`unknown slash text on a directory was treated as chat: ${JSON.stringify(unknown)}`);
+	}
+});
+
+Deno.test("a missing handle is a catalog refusal, not a successful command", () => {
+	const join = known().find((command) => command.name === "join") ?? fail("there is no /join command");
+	const entered = join.run("lobby", QUIET, null);
+	if (entered.kind !== "refused") fail(`/join without a directory ran: ${entered.kind}`);
+	if (entered.why !== NOT_ON_A_DIRECTORY) {
+		fail(`/join without a directory said ${JSON.stringify(entered.why)}`);
+	}
+	const msg = known().find((command) => command.name === "msg") ?? fail("there is no /msg command");
+	const lined = msg.run("alice", QUIET, null);
+	if (lined.kind !== "refused") fail(`/msg without a directory ran: ${lined.kind}`);
+	if (lined.why !== NOT_ON_A_DIRECTORY) {
+		fail(`/msg without a directory said ${JSON.stringify(lined.why)}`);
+	}
+	const quit = known().find((command) => command.name === "quit") ?? fail("there is no /quit command");
+	const given = quit.run("", QUIET, null);
+	if (given.kind !== "refused") fail(`/quit without a directory ran: ${given.kind}`);
+	if (given.why !== NO_DIRECTORY_TO_GIVE_BACK) {
+		fail(`/quit without a directory said ${JSON.stringify(given.why)}`);
+	}
+	const holding: CommandPowers = { ...QUIET, quitDirectory: () => null };
+	const retired = quit.run("", holding, null);
+	if (retired.kind !== "done" || retired.retires !== "directory") {
+		fail(`/quit with a directory did not retire it: ${JSON.stringify(retired)}`);
+	}
 });

@@ -1,4 +1,4 @@
-// The one place the page's state lives.
+// The one place a page's presentation state lives.
 //
 // Everything the interface shows is a field here, and everything that changes it
 // is a verb here. That is the whole rule, and it is worth stating because the
@@ -8,18 +8,20 @@
 // keep the two agreeing. Reading a class back to decide what a control should
 // announce is that code, and there is none of it here.
 //
-// The store knows nothing about React and nothing about the wire. `hooks.ts`
-// subscribes the components to it, and `net.ts` drives it from the CapTP side
+// A `RoomsPage` owns one `PageProjection`. Two pages in one isolate do not share
+// drafts, conversations, rosters, histories, or unreads. The projection knows
+// nothing about React and nothing about the wire. `hooks.ts` subscribes the
+// components to the page's instance, and `net.ts` drives it from the CapTP side
 // without importing a single view.
 
 import type { Act, Edits, Remembered } from "../intent.ts";
-import { createStore } from "zustand/vanilla";
+import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ArchiveShareView, ArchiveTargetView } from "../archive_model.ts";
 import type {
-	RoomsSessionFacet,
+	RoomsSessionAccess,
 	RoomsSessionGrantView,
 	RoomsSessionPendingEffect,
-} from "../../../lib/rooms_session.ts";
+} from "../../../lib/session/client.ts";
 import {
 	type AttachmentView,
 	type Conv,
@@ -30,19 +32,22 @@ import {
 	type IrcGatewayState,
 	type Item,
 	type ListenerRow,
+	type MemberRef,
 	type OpsCap,
 	type PeeringState,
 	type RoomsOperatorState,
 	type SettingsTab,
+	type Standing,
 	type ToastNotice,
 	type TroubleRow,
+	type Unread,
 	type VizPublishState,
 } from "../types.ts";
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
 // the grid into the list/conversation stack, and this decides which layout's
 // field a control writes. They are two files that have to agree.
-export const mobileQuery = matchMedia("(max-width: 820px)");
+const mobileQuery = matchMedia("(max-width: 820px)");
 
 /** A conversation's unsent composer: what is typed, and what is attached.
  *
@@ -72,6 +77,14 @@ export interface Draft {
  * typed in it keeps no row, so this is what the common case reads. */
 export const NO_DRAFT: Draft = { text: "", files: [] };
 
+/** Nobody is composing. Shared so a conversation with no row and a missing
+ * key compare equal by identity rather than allocating an empty set per read. */
+export const NO_TYPERS: ReadonlySet<string> = new Set();
+
+/** Nobody is in the room yet. Shared so a missing roster and an empty one
+ * compare equal by identity rather than allocating a map per read. */
+export const NO_MEMBERS: ReadonlyMap<string, Standing> = new Map();
+
 export interface State {
 	/** The conversation on screen, or null while the join card is up. */
 	activeKey: string | null;
@@ -80,7 +93,10 @@ export interface State {
 	 * This is also the answer to which rooms we are in. A room conversation is
 	 * made when the room admits us and forgotten when we leave, so membership has
 	 * no separate field to disagree with it — and a tab is in as many rooms at
-	 * once as it likes, the way it already holds as many direct lines. */
+	 * once as it likes, the way it already holds as many direct lines. The rail's
+	 * identity rows subscribe here. History, unread, drafts, typing, and rosters
+	 * do not: a line, a keystroke, or a join must not rebuild Settings, overlays,
+	 * and directory cards. */
 	convs: ReadonlyMap<string, Conv>;
 	/** Every directory this tab holds, in the order it opened them.
 	 *
@@ -102,7 +118,7 @@ export interface State {
 	toasts: readonly ToastNotice[];
 	/** Whether the tab is being looked at, and a count that rises each time it is
 	 * returned to. One subscriber writes both; everything that asks reads here,
-	 * so `document.hidden` is read in exactly one place in the tree. */
+	 * so `document.hidden` is read in exactly one place in the tree (`hooks.ts`). */
 	visible: boolean;
 	returns: number;
 	/** Whether the narrow layout is in force. It is state, not a hook's answer,
@@ -127,6 +143,34 @@ export interface State {
 	/** Last composer text successfully submitted in each conversation, including
 	 * slash commands that never appear as chat. Forgotten with the conversation. */
 	lastSent: ReadonlyMap<string, string>;
+	/** Who is composing in each conversation, keyed the way `convs` is.
+	 *
+	 * Not a field on the conversation: a typing flag is not identity, and putting
+	 * it there replaces the conversation on every peer keystroke. Only the
+	 * composer draws this, so it is its own map, forgotten with the conversation
+	 * the way a draft is. */
+	typers: ReadonlyMap<string, ReadonlySet<string>>;
+	/** Who is in each room, keyed the way `convs` is.
+	 *
+	 * Not a field on the conversation: a roster is not identity, and putting it
+	 * there replaces the conversation on every join, leave, or away word. The
+	 * rail, the member column, and a direct line's away chip subscribe here; the
+	 * shell does not. Forgotten with the conversation. */
+	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>;
+	/** What was said in each conversation, keyed the way `convs` is.
+	 *
+	 * Not a field on the conversation: a line is not identity, and putting it
+	 * there replaces the conversation on every arrival. The log and the viewer
+	 * subscribe here; the shell keeps the open conversation's identity. Forgotten
+	 * with the conversation. A missing row is an empty log. */
+	histories: ReadonlyMap<string, readonly Item[]>;
+	/** Unread marks for each conversation, keyed the way `convs` is.
+	 *
+	 * Not a field on the conversation: a badge is not identity, and putting it
+	 * there replaces the conversation on every arrival in a room you are not
+	 * looking at. The rail badges and the title total subscribe here. Forgotten
+	 * with the conversation. A missing row is caught up. */
+	unreads: ReadonlyMap<string, Unread>;
 	/** Rooms somebody has offered this tab and it has not answered yet, oldest
 	 * first. Empty for almost every reader almost always.
 	 *
@@ -188,8 +232,14 @@ export interface State {
 	sessionEffects: readonly RoomsSessionPendingEffect[];
 	/** Restart-stable attenuated grants visible only through session administration. */
 	sessionGrants: readonly RoomsSessionGrantView[];
-	/** Authority carried by the attached session facet; null for a local controller. */
-	sessionAccess: RoomsSessionFacet | null;
+	/** What the shared session this browser is attached to lets it do now,
+	 * including nothing at all while that access is suspended. Null when this
+	 * browser owns its own session. */
+	sessionAccess: RoomsSessionAccess | null;
+	/** Why this browser's access to a shared session carries nothing, when it
+	 * carries nothing. Empty otherwise. A link that has gone quiet has to be able
+	 * to account for itself, or the application simply looks broken. */
+	sessionSuspendedNote: string;
 	/** Whether the selected archive keeps room and direct-message history; `ui/history.ts` owns
 	 * the bytes and the same key. */
 	keepHistory: boolean;
@@ -215,19 +265,25 @@ export interface State {
 	 * capability, or null while it holds none. Same split again: net.ts holds
 	 * the authority and each publication's lease, this is only what to draw. */
 	peering: PeeringState | null;
-	/** Where this tab publishes its own trace while it holds the viz
-	 * capability, or null while it holds none. Same split again: net.ts owns
-	 * the publisher and the swiss, this is only what to draw. */
+	/** Where this session publishes its own trace while it holds the viz
+	 * capability, or null while it holds none. A local tab owns the publisher;
+	 * a shared session projects the durable one. This is only what to draw. */
 	viz: VizPublishState | null;
 	/** The directory whose card is open, or null. */
 	aboutDir: DirId | null;
+	/** Whether that card opened already asking to leave the directory. */
+	aboutDirLeave: boolean;
+	/** The person whose card is open, or null. */
+	aboutMember: MemberRef | null;
 	/** The rest of a long refusal, while its card is up. */
 	errorDetail: { title: string; text: string } | null;
 	/** Whether the card about the conversation on screen is up. */
 	aboutConv: boolean;
+	/** Whether that card opened already asking to leave the conversation. */
+	aboutConvLeave: boolean;
 	/** Which room-specific surface asked to open that card. Ordinary title and
 	 * /details routes use About; the reader's roster row opens IRC directly. */
-	aboutConvPane: "about" | "irc";
+	aboutConvPane: "about" | "irc" | "capabilities";
 	/** Changes for every request to open the conversation card, including a
 	 * repeated request for the same pane while its retained dialog still exists. */
 	aboutConvRequest: number;
@@ -238,120 +294,221 @@ export interface State {
 	viewing: { key: string; id: number } | null;
 }
 
-export const initial: State = {
-	activeKey: null,
-	standing: "",
-	invites: [],
-	convs: new Map(),
-	dirs: new Map(),
-	homeDir: null,
-	toasts: [],
-	visible: true,
-	returns: 0,
-	mobile: mobileQuery.matches,
-	drafts: new Map(),
-	lastSent: new Map(),
-	ignored: new Set(),
-	// The page opening is this browser reopening what it had, and it names
-	// nothing: every field falls through to what was remembered, which is the
-	// cold open a returning reader expects. The first act a reader files
-	// supersedes it.
-	reaching: { source: "restore", seq: 0 },
-	edits: { seq: 0 },
-	remembered: { room: "", locator: "", nick: "" },
-	theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
-	notifyOn: false,
-	railOpen: true,
-	listScreen: false,
-	rosterOpen: true,
-	rosterSheet: false,
-	settingsOpen: false,
-	// The panel selections survive a reload: a reader working the
-	// Capabilities toggles or one operations pane lands back where they were.
-	settingsTab: "overview",
-	helpOpen: false,
-	opsPane: "listeners",
-	keepHistory: true,
-	archiveTarget: { kind: "device" },
-	archiveShares: [],
-	irc: null,
-	operator: null,
-	sessionEffects: [],
-	sessionGrants: [],
-	sessionAccess: null,
-	trouble: [],
-	diagnostics: null,
-	listeners: null,
-	peering: null,
-	viz: null,
-	aboutDir: null,
-	errorDetail: null,
-	aboutConv: false,
-	aboutConvPane: "about",
-	aboutConvRequest: 0,
-	viewing: null,
-};
-
-/** The live state. Read it; only `set` writes it, which is what keeps the one
- * authority claim above true across the modules that share this. */
-const store = createStore<State>()(() => initial);
-
-/** React may observe the projection, but only the domain modules may write it. */
-export const roomsProjection = {
-	getState: store.getState,
-	getInitialState: store.getInitialState,
-	subscribe: store.subscribe,
-};
-
-// The layout is a query, not a document, and the store's own verbs depend on it:
-// which field "show the rooms list" writes is decided here, so a control can ask
-// for it without knowing what it means on the layout in force. Whether the tab is
-// being *looked at* is a document fact, so `hooks.ts` subscribes to that one and
-// reports it through `noteVisibility`.
-mobileQuery.addEventListener("change", (e) => set({ mobile: e.matches }));
-
-/** The current state.
- *
- * Read-only all the way down, so "never write through it" is a thing the
- * compiler refuses rather than a rule a reader has to keep. Every write in this
- * file already copies before it mutates; this is what stops the next one from
- * forgetting, and it is the whole of the one-authority claim above. */
-export function get(): Readonly<State> {
-	return store.getState();
-}
-
-export function subscribe(listener: () => void): () => void {
-	return store.subscribe(listener);
-}
-
-/** Replace the named fields and tell every reader. The object identity changes
- * on every write, which is how React knows to look again. */
-export function set(patch: Partial<State>): void {
-	store.setState(patch);
-}
-
-let lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
-
-/** Hear about lines this tab is giving up.
- *
- * A line carries things the store knows nothing about: the URL a picture is
- * drawn from, the capability its bytes come from, the reference that governs
- * one of our own. The store knows when a line stops being drawn and nothing
- * about what it was holding; the data layer knows the opposite, so it listens
- * here.
- *
- * It sits in the store's plumbing rather than beside the log, because lines
- * leave three ways and only two of them are the log's doing: the scrollback
- * passing its far end, a reader emptying a conversation, and a conversation
- * being forgotten outright. */
-export function onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): () => void {
-	lettingGo = hook;
-	return () => {
-		if (lettingGo === hook) lettingGo = null;
+/** A fresh empty projection. Each page starts from its own maps and document
+ * facts, so two pages cannot share an empty conversation map by identity. */
+export function initialState(): State {
+	return {
+		activeKey: null,
+		standing: "",
+		invites: [],
+		convs: new Map(),
+		dirs: new Map(),
+		homeDir: null,
+		toasts: [],
+		visible: true,
+		returns: 0,
+		mobile: mobileQuery.matches,
+		drafts: new Map(),
+		lastSent: new Map(),
+		typers: new Map(),
+		members: new Map(),
+		histories: new Map(),
+		unreads: new Map(),
+		ignored: new Set(),
+		// The page opening is this browser reopening what it had, and it names
+		// nothing: every field falls through to what was remembered, which is the
+		// cold open a returning reader expects. The first act a reader files
+		// supersedes it.
+		reaching: { source: "restore", seq: 0 },
+		edits: { seq: 0 },
+		remembered: { room: "", locator: "", nick: "" },
+		theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+		notifyOn: false,
+		railOpen: true,
+		listScreen: false,
+		rosterOpen: true,
+		rosterSheet: false,
+		settingsOpen: false,
+		// The panel selections survive a reload: a reader working the
+		// Holdings toggles or one operations pane lands back where they were.
+		settingsTab: "session",
+		helpOpen: false,
+		opsPane: "listeners",
+		keepHistory: true,
+		archiveTarget: { kind: "owned", owner: "browser" },
+		archiveShares: [],
+		irc: null,
+		operator: null,
+		sessionEffects: [],
+		sessionGrants: [],
+		sessionAccess: null,
+		sessionSuspendedNote: "",
+		trouble: [],
+		diagnostics: null,
+		listeners: null,
+		peering: null,
+		viz: null,
+		aboutDir: null,
+		aboutDirLeave: false,
+		aboutMember: null,
+		errorDetail: null,
+		aboutConv: false,
+		aboutConvLeave: false,
+		aboutConvPane: "about",
+		aboutConvRequest: 0,
+		viewing: null,
 	};
 }
 
-/** Give `gone` up, from whichever of those three ways it was. */
-export function letLinesGo(key: string, gone: readonly Item[]): void {
-	if (gone.length > 0) lettingGo?.(key, gone);
+type LineRecorder = (conv: Conv, item: Item, change?: "withdrawn" | "edited") => void;
+
+/** One page's non-authoritative presentation. Domain verbs take this instance;
+ * React observes `api` through the page's provider. */
+export class PageProjection {
+	readonly api: StoreApi<State>;
+	readonly #abort = new AbortController();
+	#nextItemId = 0;
+	#nextToastId = 1;
+	#introductions = 0;
+	#heldRooms = 0;
+	#lettingGo: ((key: string, gone: readonly Item[]) => void) | null = null;
+	#lineRecorder: LineRecorder | null = null;
+
+	constructor() {
+		this.api = createStore<State>()(() => initialState());
+		const { signal } = this.#abort;
+		// The layout is a query, not a document, and the store's own verbs depend
+		// on it: which field "show the rooms list" writes is decided here. Whether
+		// the tab is being *looked at* is a document fact, so `hooks.ts` subscribes
+		// to that one and reports it through `noteVisibility`.
+		mobileQuery.addEventListener("change", (e) => {
+			this.set({ mobile: e.matches });
+		}, { signal });
+	}
+
+	/** Stop mirroring layout queries. A page that outlives the tab does not call
+	 * this; tests that construct many projections do. */
+	dispose(): void {
+		this.#abort.abort();
+	}
+
+	/** The current state.
+	 *
+	 * Read-only all the way down, so "never write through it" is a thing the
+	 * compiler refuses rather than a rule a reader has to keep. Every write
+	 * already copies before it mutates; this is what stops the next one from
+	 * forgetting, and it is the whole of the one-authority claim above. */
+	get(): Readonly<State> {
+		return this.api.getState();
+	}
+
+	/** Replace the named fields and tell every reader. The object identity
+	 * changes on every write, which is how React knows to look again. */
+	set(patch: Partial<State>): void {
+		this.api.setState(patch);
+	}
+
+	subscribe(listener: () => void): () => void {
+		return this.api.subscribe(listener);
+	}
+
+	/** Empty presentation and presentation counters. Recorder and line-drop
+	 * wiring stay: those are I/O seats, not snapshot fields. */
+	reset(): void {
+		this.#nextItemId = 0;
+		this.#nextToastId = 1;
+		this.#introductions = 0;
+		this.#heldRooms = 0;
+		this.api.setState(initialState(), true);
+	}
+
+	/** Report whether the tab is being looked at.
+	 *
+	 * The count rises on the change to visible, not on every report, so telling
+	 * the projection what it already believes is free — which is what lets
+	 * construction sync the real value without it reading as a return. */
+	noteVisibility(visible: boolean): void {
+		const state = this.get();
+		if (state.visible === visible) return;
+		this.set({ visible, returns: visible ? state.returns + 1 : state.returns });
+	}
+
+	/** Hear about lines this tab is giving up.
+	 *
+	 * A line carries things the projection knows nothing about: the URL a
+	 * picture is drawn from, the capability its bytes come from, the reference
+	 * that governs one of our own. The projection knows when a line stops being
+	 * drawn and nothing about what it was holding; the data layer knows the
+	 * opposite, so it listens here.
+	 *
+	 * Lines leave three ways and only two of them are the log's doing: the
+	 * scrollback passing its far end, a reader emptying a conversation, and a
+	 * conversation being forgotten outright. */
+	onLinesDropped(hook: (key: string, gone: readonly Item[]) => void): () => void {
+		this.#lettingGo = hook;
+		return () => {
+			if (this.#lettingGo === hook) this.#lettingGo = null;
+		};
+	}
+
+	/** Give `gone` up, from whichever of those three ways it was. */
+	letLinesGo(key: string, gone: readonly Item[]): void {
+		if (gone.length > 0) this.#lettingGo?.(key, gone);
+	}
+
+	setLineRecorder(fn: LineRecorder | null): void {
+		this.#lineRecorder = fn;
+	}
+
+	recordLine(conv: Conv, item: Item, change?: "withdrawn" | "edited"): void {
+		this.#lineRecorder?.(conv, item, change);
+	}
+
+	allocItemId(): number {
+		return this.#nextItemId++;
+	}
+
+	allocToastId(): number {
+		return this.#nextToastId++;
+	}
+
+	nextIntroduction(): number {
+		this.#introductions += 1;
+		return this.#introductions;
+	}
+
+	nextHeldRoom(): string {
+		this.#heldRooms += 1;
+		return "held:" + this.#heldRooms;
+	}
+}
+
+/** Projection the page shell reads. Drafts, last-sent recall, typing flags,
+ * rosters, history, unread, and the conversation map stay out so a keystroke,
+ * a join, or a line does not rebuild Settings, overlays, and directory cards. */
+export function appShellState({
+	drafts: _drafts,
+	lastSent: _lastSent,
+	typers: _typers,
+	members: _members,
+	histories: _histories,
+	unreads: _unreads,
+	convs: _convs,
+	...state
+}: State): Omit<State, "drafts" | "lastSent" | "typers" | "members" | "histories" | "unreads" | "convs"> {
+	return state;
+}
+
+/** The conversation on screen. Identity is preserved when history is replaced. */
+export function activeConvOf(state: Pick<State, "activeKey" | "convs">): Conv | null {
+	return state.activeKey == null ? null : state.convs.get(state.activeKey) ?? null;
+}
+
+/** Unread lines across every conversation, for the title and the rail toggle. */
+export function unreadTotal(state: Pick<State, "unreads">): number {
+	let total = 0;
+	for (const unread of state.unreads.values()) {
+		if (unread.kind === "unread") total += unread.count;
+	}
+	return total;
 }

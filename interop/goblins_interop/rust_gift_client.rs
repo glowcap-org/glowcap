@@ -136,8 +136,8 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	});
 
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
-	// reply ref's home is this gifter↔Bob connection, which is what lets pancake
-	// re-gift it without an enrollment verb.
+	// reply ref's home is this gifter↔Bob connection, so pancake can re-gift
+	// it without an enrollment verb.
 	let runtime =
 		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&host)).await?;
 	let to_bob = runtime

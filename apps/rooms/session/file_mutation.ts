@@ -5,7 +5,7 @@ import { fetchBlob } from "../lib/attachment.ts";
 import type { Attachment, AttachmentSource } from "../lib/attachment.ts";
 import type { LiveDirectory } from "./live.ts";
 import type { RuntimeAttachment } from "./room_files.ts";
-import type { Message } from "../lib/room_client.ts";
+import type { Message } from "../lib/room/client.ts";
 import { MAX_SCROLLBACK } from "../lib/limits.ts";
 import type { PostedLine } from "../lib/posted_line.ts";
 import { settleCapabilityCleanup } from "../lib/capability_cleanup.ts";

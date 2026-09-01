@@ -7,10 +7,12 @@ import { useRoomsSession } from "../controller/session.ts";
 import type { OperatorCategory, RoomsOperatorState } from "../types.ts";
 import type { OperatorResetScope } from "../../../lib/operator.ts";
 import { OpsHead } from "./Head.tsx";
-import { OperatorReferences } from "./OperatorReferences.tsx";
-import { SectionTitle, useOperatorActs } from "./operator_acts.tsx";
+import { OperatorReferences, referencesFilterKey } from "./OperatorReferences.tsx";
+import { useOperatorActs } from "./operator_acts.tsx";
+import { SectionTitle } from "./Section.tsx";
 import { OperatorSearch } from "./OperatorSearch.tsx";
 import { OperatorSweep } from "./OperatorSweep.tsx";
+import { OperatorActivityProvider } from "./operator_activity.tsx";
 
 const OPERATOR_RESETS: readonly {
 	scope: OperatorResetScope;
@@ -23,10 +25,10 @@ const OPERATOR_RESETS: readonly {
 }[] = [
 	{
 		scope: "links",
-		subject: "Room links",
+		subject: "Room entry links",
 		act: "Revoke all",
-		label: "Revoke all room links",
-		effect: "Every current durable room link is permanently revoked.",
+		label: "Revoke all room entry links",
+		effect: "Every current durable room entry link is permanently revoked.",
 	},
 	{
 		scope: "registrations",
@@ -55,7 +57,7 @@ const OPERATOR_RESETS: readonly {
 		act: "Reset",
 		label: "Reset directory runtime",
 		effect:
-			"All rooms, nickname claims, other peer sessions, and current trouble are retired. Durable room links and server identity remain.",
+			"All rooms, nickname claims, other peer sessions, and current trouble are retired. Durable room entry links and server identity remain.",
 	},
 	{
 		scope: "all",
@@ -63,11 +65,44 @@ const OPERATOR_RESETS: readonly {
 		act: "Factory reset",
 		label: "Factory reset Rooms authority",
 		effect:
-			"The room-authority secret is rotated; active links, tombstones, and moderator grants are cleared; then all rooms, nickname claims, other peer sessions, and current trouble are retired. This operator connection, server identity, and retained message history remain. Old authorities stay revoked, and room names can mint unrelated new links.",
+			"The room-authority secret is rotated. Active links, tombstones, and moderator grants are cleared, and then all rooms, nickname claims, other peer sessions, and current trouble are retired. This operator connection, server identity, and retained message history remain. Old authorities stay revoked, and room names can mint unrelated new links.",
 	},
 ];
 
+/** What a room row is, and how its origin is known.
+ *
+ * These are two facts, and one of them is about trust: an authenticated origin
+ * proved the publisher's durable identity, while a session origin proved only
+ * which connection carried it. They were drawn as `kind · proof`, two bare
+ * words either side of a middot, which for a local room read "local · local"
+ * and said nothing twice.
+ *
+ * A local room's origin is forced to `local` by the server, so it restates the
+ * kind and is left out rather than drawn as a second chip saying the same
+ * word. */
+const ROOM_KIND_LABEL: Readonly<Record<string, string>> = {
+	local: "local",
+	private: "private",
+	peered: "peered",
+	"pending-peered": "pending",
+	irc: "IRC",
+};
+
+const ROOM_PROOF_FACE: Readonly<Record<string, { label: string; tone?: "quiet" | "warn" }>> = {
+	authenticated: { label: "identity proved" },
+	session: { label: "session only", tone: "warn" },
+	bridge: { label: "through the bridge", tone: "quiet" },
+};
+
 export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
+	return (
+		<OperatorActivityProvider>
+			<OperatorPaneContent state={state} />
+		</OperatorActivityProvider>
+	);
+}
+
+function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 	const session = useRoomsSession();
 	const acts = useOperatorActs();
 	const location = useLocation();
@@ -95,24 +130,25 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 				This tab holds the Rooms operator capability. Its inventories are the state it can change, not roles
 				inferred from a nickname or room membership.
 			</OpsHead>
-			<OperatorSearch search={state.search} />
+			<OperatorSearch search={state.search} referenceKind={state.referenceKind} />
 			<section className="ops-section" id="operatorRoomLinks">
 				<SectionTitle count={state.totals.links}>Room access</SectionTitle>
 				<div className="group well">
 					<p className="hint">
-						Durable room links admit future holders and already-live copies. Removing one invalidates both.
+						Durable room entry links admit future holders and already-live copies. Removing one invalidates
+						both.
 					</p>
 					{state.links.length === 0
-						? <p className="empty">No durable room links are active.</p>
+						? <p className="empty">No durable room entry links are active.</p>
 						: (
 							<ul className="entries">
 								{state.links.map((row) => {
 									const key = `link:${row.name}`;
 									return (
 										<li className="entry" key={row.name}>
-											<div className="entry-head">
+											<div className="entry-head" data-one-line>
 												<span className="entry-name">{row.label || "Private room"}</span>
-												<span className="entry-meta">{row.visibility}</span>
+												<span className="tag" data-tone="quiet">{row.visibility}</span>
 												<div className="actions">
 													<Button
 														variant="quiet"
@@ -125,8 +161,8 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 											</div>
 											{acts.confirm(
 												key,
-												"Copied links and references already in use stop opening this room. This durable name cannot be reissued.",
-												"Remove room link",
+												"Copied links and references already in use stop opening this room. A later link for the same room will be a fresh capability.",
+												"Remove room entry link",
 												() => session.revokeRoomLink(row.name),
 											)}
 											{acts.why[key] != null && <Said kind="failure">{acts.why[key]}</Said>}
@@ -140,8 +176,8 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 						category="links"
 						act="Revoke"
 						past="Revoked"
-						subject="room links"
-						effect="Copied links and references already in use stop opening those rooms, and those durable names cannot be reissued."
+						subject="room entry links"
+						effect="Copied links and references already in use stop opening those rooms. Later links for the same rooms will be fresh capabilities."
 						search={state.search}
 						total={state.totals.links}
 					/>
@@ -163,9 +199,16 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 									const key = `nick:${row.sessionId}:${row.nick}`;
 									return (
 										<li className="entry" key={key}>
-											<div className="entry-head">
+											<div className="entry-head" data-one-line>
 												<span className="entry-name">{row.nick}</span>
-												<code>{row.sessionId.slice(0, 8)}</code>
+												{row.sessionId.slice(0, 8)}
+												{
+													/* The answer to "which session is that": when the
+												    holder is the very connection this operator view
+												    reads the directory through, say so, because a
+												    holder the sessions list hid read as a leak. */
+												}
+												{row.you && <span className="tag" data-tone="quiet">yours</span>}
 												<div className="actions">
 													<Button
 														variant="quiet"
@@ -210,26 +253,38 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 						references together.
 					</p>
 					{state.sessions.length === 0
-						? <p className="empty">No other peer sessions are active.</p>
+						? <p className="empty">No peer sessions are connected.</p>
 						: (
 							<ul className="entries">
 								{state.sessions.map((row) => {
 									const key = `session:${row.id}`;
 									return (
 										<li className="entry" key={row.id}>
-											<div className="entry-head">
+											<div className="entry-head" data-one-line>
 												<span className="entry-name">{row.nick || "Unnamed peer"}</span>
-												<span className="entry-meta">
-													{row.transport} · {row.id.slice(0, 8)}
-												</span>
+												<span className="tag" data-tone="quiet">{row.transport}</span>
+												{
+													/* The same eight characters, in the same clothes, as the
+												    name rows above: it is what ties a registered nickname
+												    to the connection holding it. */
+												}
+												{row.id.slice(0, 8)}
+												{row.you && <span className="tag" data-tone="quiet">yours</span>}
+												{
+													/* No disconnect on your own connection: the server
+												    refuses it, and a control that can only refuse is
+												    not offered. */
+												}
 												<div className="actions">
-													<Button
-														variant="quiet"
-														disabled={acts.confirming === key}
-														onClick={() => acts.ask(key)}
-													>
-														Disconnect…
-													</Button>
+													{!row.you && (
+														<Button
+															variant="quiet"
+															disabled={acts.confirming === key}
+															onClick={() => acts.ask(key)}
+														>
+															Disconnect…
+														</Button>
+													)}
 												</div>
 											</div>
 											{acts.confirm(
@@ -272,6 +327,7 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 							<ul className="entries">
 								{state.rooms.map((row) => {
 									const key = `room:${row.id}`;
+									const proof = ROOM_PROOF_FACE[row.proof];
 									const action = row.kind === "peered"
 										? "Remove peered publication"
 										: row.kind === "pending-peered"
@@ -288,11 +344,16 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 										: "Every membership and room-owned capability occurrence is released. The peer sessions and any separately issued durable link remain.";
 									return (
 										<li className="entry" key={row.id} data-kind={row.kind}>
-											<div className="entry-head">
+											<div className="entry-head" data-one-line>
 												<span className="entry-name">
 													{row.name || "Unnamed private room"}
 												</span>
-												<span className="entry-meta">{row.kind} · {row.proof}</span>
+												<span className="tag" data-tone="quiet">
+													{ROOM_KIND_LABEL[row.kind] ?? row.kind}
+												</span>
+												{proof != null && (
+													<span className="tag" data-tone={proof.tone}>{proof.label}</span>
+												)}
 												<div className="actions">
 													<Button
 														variant="quiet"
@@ -305,20 +366,18 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 											</div>
 											{row.origin !== "" && (
 												<p className="entry-meta">
-													from <code>{row.origin}</code>
+													from {row.origin}
 												</p>
 											)}
 											{row.retainedCapabilities !== null && (
-												<p className="hint">
-													{row.retainedCapabilities}{" "}
-													retained capability occurrence{row.retainedCapabilities === 1
-														? ""
-														: "s"}
+												<p className="entry-meta">
+													retains {row.retainedCapabilities}{" "}
+													capability occurrence{row.retainedCapabilities === 1 ? "" : "s"}
 												</p>
 											)}
 											{row.members.length > 0 && (
-												<p className="hint">
-													Here: {row.members.map((member) =>
+												<p className="entry-meta">
+													with {row.members.map((member) =>
 														member.state === ""
 															? member.nick
 															: `${member.nick} (${member.state})`
@@ -349,22 +408,28 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 				rows={state.references}
 				total={state.totals.references}
 				search={state.search}
-				onFilter={(kind) => void session.searchOperator(kind)}
+				referenceKind={state.referenceKind}
+				// Through the pane's own acts, which is what every other press here
+				// goes through: it marks the filter busy and keeps the refusal. The
+				// bare call beside it drew nothing and said nothing, while the
+				// search box above ran the same verb with a wait, an answer, and a
+				// guard against a stale one landing late.
+				onFilter={(kind) => acts.run(referencesFilterKey, () => session.searchOperator("", kind))}
 				acts={acts}
 				more={more("references")}
 			/>
 			<section className="ops-section" id="operatorRoomModeration">
 				<SectionTitle
 					id="roomModerationTitle"
-					count={state.stewardships.length}
-					more={state.next.stewardships != null}
+					count={state.totals.stewardships}
 				>
 					Room moderator authority
 				</SectionTitle>
 				<div className="group well" id="roomModerationCapabilities">
 					<p className="hint">
 						Grant a room moderator capability for recovery or handoff. Rotating it stops copied and
-						already-live old holders.
+						already-live old holders. Active IRC bridges appear through their own source authority, and
+						peered rooms remain with their remote source.
 					</p>
 					{state.stewardships.length === 0
 						? <p className="empty">This server owns no rooms right now.</p>
@@ -375,9 +440,9 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 									const key = `moderator:${row.name}`;
 									return (
 										<li className="entry" key={row.name} data-room={row.name}>
-											<div className="entry-head">
+											<div className="entry-head" data-one-line>
 												<span className="entry-name">{title}</span>
-												<span className="entry-meta">{row.visibility}</span>
+												<span className="tag" data-tone="quiet">{row.visibility}</span>
 												<div className="actions">
 													{row.issued
 														? (
@@ -433,7 +498,7 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 				</SectionTitle>
 				<div className="group well">
 					<p className="hint">
-						The same bounded process journal diagnostics reports. Clearing acknowledges these rows; it
+						The same bounded process journal diagnostics reports. Clearing acknowledges these rows. It
 						changes no room, session, or retained history.
 					</p>
 					{state.trouble.length === 0 ? <p className="empty">The directory has reported no trouble.</p> : (
@@ -474,7 +539,7 @@ export function OperatorPane({ state }: { state: RoomsOperatorState | null }) {
 					<p className="hint">
 						Reset one authority class at a time. This operator connection remains so the action can answer.
 					</p>
-					<ul className="entries">
+					<ul className="entries ops-two-up">
 						{OPERATOR_RESETS.map(({ scope, subject, act, label, effect }) => {
 							const key = `reset:${scope}`;
 							return (

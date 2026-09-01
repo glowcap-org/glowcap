@@ -18,8 +18,19 @@
  * query is lowercased once and a per-row `toLowerCase()` over a large
  * inventory is the whole cost of the scan. */
 export interface OperatorRowSource<T> {
+	/** Stable row identity when the inventory has one. */
+	readonly id?: string;
 	readonly text: string;
+	/** Allocation-free field matching for hot inventories. Falls back to
+	 * `text` where a category is small enough to precompose it. */
+	readonly matches?: (words: readonly string[]) => boolean;
 	build(): T;
+	/** Borrowed direct act for a row already selected by this scan. */
+	readonly retire?: () => boolean;
+	/** Whether the owner still holds this cached row after an in-place sweep. */
+	readonly active?: () => boolean;
+	/** Exact structured subtype, when an inventory has one. */
+	readonly kind?: string;
 }
 
 export interface OperatorRowPage<T> {
@@ -44,6 +55,10 @@ export function matchesQuery(text: string, words: readonly string[]): boolean {
 	return true;
 }
 
+export function sourceMatches<T>(source: OperatorRowSource<T>, words: readonly string[]): boolean {
+	return source.matches?.(words) ?? matchesQuery(source.text, words);
+}
+
 /** The query as the words a row has to carry, empty when nothing was asked. */
 export function queryWords(query: string): readonly string[] {
 	return query.trim().toLowerCase().split(/\s+/).filter((word) => word !== "");
@@ -59,7 +74,7 @@ export function queryPage<T>(
 	const rows: T[] = [];
 	let total = 0;
 	for (const source of sources) {
-		if (words.length > 0 && !matchesQuery(source.text, words)) continue;
+		if (words.length > 0 && !sourceMatches(source, words)) continue;
 		if (total >= offset && rows.length < limit) rows.push(source.build());
 		total += 1;
 	}
@@ -78,7 +93,7 @@ export function queryBatch<T>(
 	const rows: T[] = [];
 	let total = 0;
 	for (const source of sources) {
-		if (words.length > 0 && !matchesQuery(source.text, words)) continue;
+		if (words.length > 0 && !sourceMatches(source, words)) continue;
 		total += 1;
 		if (rows.length < limit) rows.push(source.build());
 	}

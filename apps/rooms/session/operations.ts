@@ -5,9 +5,11 @@ import * as z from "zod/mini";
 import type { Directory } from "../lib/directory.ts";
 import { type DiagnosticRow, snapshotDiagnostics } from "../lib/diagnostics.ts";
 import {
-	type IrcGatewayRow,
-	IrcJoinChoiceSchema,
+	closeIrcNetwork,
+	type IrcGatewaySnapshot,
+	IrcNetworkChoiceSchema,
 	joinIrcChannel,
+	openIrcNetwork,
 	partIrcChannel,
 	snapshotIrcGateway,
 } from "../lib/irc_gateway_client.ts";
@@ -15,10 +17,12 @@ import { listenerDown, ListenerOptionsSchema, type ListenerRow, listenerUp, list
 import {
 	clearOperatorTrouble,
 	disconnectSession,
+	giveRoomManager,
 	giveStewardship,
 	type OperatorCategory,
 	type OperatorPage,
 	operatorPage,
+	type OperatorReferenceKind,
 	type OperatorResetScope,
 	type OperatorRetireBatch,
 	operatorRetireMatching,
@@ -27,6 +31,7 @@ import {
 	removeOperatorRoom,
 	resetOperatorScope,
 	revokeNick,
+	revokeRoomAuthority,
 	revokeRoomLink,
 	revokeStewardship,
 	snapshotOperator,
@@ -52,7 +57,7 @@ type OperationCredential = RoomsSessionState["capabilities"]["operations"][numbe
 export type DurableOperationsSnapshot =
 	| { capability: "listeners"; rows: ListenerRow[] }
 	| { capability: "diagnostics"; rows: DiagnosticRow[] }
-	| { capability: "irc"; rows: IrcGatewayRow[] };
+	| { capability: "irc"; snapshot: IrcGatewaySnapshot };
 
 const MAX_OPERATION_JSON_CHARS = 128 * 1024;
 
@@ -89,6 +94,11 @@ export class DurableRoomsOperations {
 		};
 	}
 
+	issueRoomManager(scope: string, roomIdentity: string): Promise<string> {
+		const held = this.#operator(scope);
+		return giveRoomManager(held.session, held.capability, roomIdentity);
+	}
+
 	async snapshot(
 		scope: string,
 		capability: DurableOperationsSnapshot["capability"],
@@ -100,7 +110,7 @@ export class DurableRoomsOperations {
 		if (capability === "diagnostics") {
 			return { capability, rows: await snapshotDiagnostics(held.session, held.capability) };
 		}
-		return { capability, rows: await snapshotIrcGateway(held.session, held.capability) };
+		return { capability, snapshot: await snapshotIrcGateway(held.session, held.capability) };
 	}
 
 	operationEffect(scope: string, capability: string, action: string, args: string[]): () => Promise<void> {
@@ -143,10 +153,17 @@ export class DurableRoomsOperations {
 
 	#ircEffect(scope: string, action: string, args: string[]): () => Promise<void> {
 		const held = this.#capability(scope, "irc");
-		if (action === "join" && args.length === 1) {
-			const choice = jsonValue(args[0], "IRC join settings", IrcJoinChoiceSchema);
+		if (action === "openNetwork" && args.length === 1) {
+			const choice = jsonValue(args[0], "IRC network settings", IrcNetworkChoiceSchema);
 			return async () => {
-				await joinIrcChannel(held.session, held.capability, choice);
+				const network = await openIrcNetwork(held.session, held.capability, choice);
+				settleCapabilityCleanup("IRC network capability release failed", () => held.session.release(network));
+				this.#invalidated(scope);
+			};
+		}
+		if (action === "closeNetwork" && args.length === 1 && args[0] !== "") {
+			return async () => {
+				await closeIrcNetwork(held.session, held.capability, args[0]);
 				this.#invalidated(scope);
 			};
 		}
@@ -156,12 +173,25 @@ export class DurableRoomsOperations {
 				this.#invalidated(scope);
 			};
 		}
+		if (action === "joinChannel" && args.length === 2 && args[0] !== "" && args[1] !== "") {
+			return async () => {
+				await joinIrcChannel(held.session, held.capability, args[0], args[1]);
+				this.#invalidated(scope);
+			};
+		}
 		throw new Error(`shared IRC action ${action} has invalid arguments`);
 	}
 
 	#operatorAction(held: HeldOperation, action: string, args: string[]): () => Promise<void> {
 		if (action === "revokeRoomLink" && args.length === 1) {
 			return () => revokeRoomLink(held.session, held.capability, args[0]);
+		}
+		if (
+			action === "revokeRoomAuthority" && args.length === 2 &&
+			(args[0] === "room" || args[0] === "steward" || args[0] === "manager")
+		) {
+			const kind = args[0];
+			return () => revokeRoomAuthority(held.session, held.capability, kind, args[1]);
 		}
 		if (action === "revokeNick" && args.length === 2) {
 			return () => revokeNick(held.session, held.capability, args[0], args[1]);
@@ -202,19 +232,30 @@ export class DurableRoomsOperations {
 		category: OperatorCategory,
 		query: string,
 		limit: number,
+		referenceKind: OperatorReferenceKind | null = null,
 	): Promise<OperatorRetireBatch> {
 		const held = this.#operator(scope);
-		return operatorRetireMatching(held.session, held.capability, category, query, limit);
+		return operatorRetireMatching(held.session, held.capability, category, query, limit, referenceKind);
 	}
 
-	operatorSnapshot(scope: string, query = ""): Promise<OperatorSnapshot> {
+	operatorSnapshot(
+		scope: string,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorSnapshot> {
 		const held = this.#operator(scope);
-		return snapshotOperator(held.session, held.capability, query);
+		return snapshotOperator(held.session, held.capability, query, referenceKind);
 	}
 
-	operatorPage(scope: string, category: OperatorCategory, cursor: number, query = ""): Promise<OperatorPage> {
+	operatorPage(
+		scope: string,
+		category: OperatorCategory,
+		cursor: number,
+		query = "",
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorPage> {
 		const held = this.#operator(scope);
-		return operatorPage(held.session, held.capability, category, cursor, query);
+		return operatorPage(held.session, held.capability, category, cursor, query, referenceKind);
 	}
 
 	async reconcile(

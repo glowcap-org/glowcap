@@ -4,7 +4,8 @@ import { type Argument, type Behavior, currentSession } from "@pancake/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../../lib/argument_custody.ts";
 import { LISTENER_OPTION_NAMES, LISTENER_TRANSPORTS } from "../../lib/listeners.ts";
 import { LISTENER_UNSUPPORTED, RoomError } from "../../lib/errors.ts";
-import { DOWN, LIST, UP } from "../../lib/protocol.ts";
+import { LIST } from "../../lib/protocol.ts";
+import { DOWN, UP } from "../../lib/protocol_operator.ts";
 import { type AdminTransport, ListenerRegistry, type ListenerUpOptions } from "../listeners.ts";
 
 /** Run listener lifecycle work after the behavior turn returns. The native

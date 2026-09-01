@@ -25,7 +25,7 @@
 // stands back up.
 
 import type { Locator, Page } from "playwright";
-import { fail, ROOT } from "./harness.ts";
+import { fail, openDirectoryCardFromCaption, ROOT } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { spawnOwned } from "../support/children.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
@@ -313,9 +313,28 @@ export async function run(
 	).catch(() => fail("opening a room on a directory that had gone away showed no conversation, only the join card"));
 	const refusing = await tab.evaluate(() => {
 		const line = document.getElementById("line") as HTMLTextAreaElement | null;
+		const availability = document.getElementById("composerAvailability");
+		const typing = document.getElementById("typing");
+		const availabilityStyle = availability == null ? null : getComputedStyle(availability);
+		const typingStyle = typing == null ? null : getComputedStyle(typing);
 		return line === null ? null : {
 			disabled: line.disabled,
 			said: line.placeholder,
+			detail: availability?.textContent?.trim() ?? "",
+			statusStyle: availabilityStyle == null || typingStyle == null ? null : {
+				availability: {
+					color: availabilityStyle.color,
+					fontSize: availabilityStyle.fontSize,
+					fontStyle: availabilityStyle.fontStyle,
+					fontWeight: availabilityStyle.fontWeight,
+				},
+				typing: {
+					color: typingStyle.color,
+					fontSize: typingStyle.fontSize,
+					fontStyle: typingStyle.fontStyle,
+					fontWeight: typingStyle.fontWeight,
+				},
+			},
 			// What the rail and the header actually hold, so a wrong answer names
 			// the state it was taken in rather than leaving it to be guessed at.
 			open: document.getElementById("roomName")?.textContent ?? "(none)",
@@ -328,22 +347,51 @@ export async function run(
 	if (refusing === null) fail("the conversation on a directory that went away drew no composer at all");
 	else if (!refusing.disabled) {
 		fail("the composer stayed usable on a directory that had gone away");
-	} else if (refusing.said === "" || /^Message\b/.test(refusing.said)) {
+	} else if (refusing.said !== "") {
+		// A field that cannot be sent from does not invite a message, and does not
+		// carry the reason either: whatever the reader had already typed covers a
+		// placeholder, and the reason has to be readable then. It goes below the
+		// control, once.
 		fail(
-			`a disabled composer says ${JSON.stringify(refusing.said)} instead of what the directory is doing, with ` +
+			`a disabled composer still put ${JSON.stringify(refusing.said)} in the field, with ` +
 				`${JSON.stringify(refusing.open)} open and the ` +
 				`rail holding ${JSON.stringify(refusing.rows)}`,
 		);
+	} else if (refusing.detail === "") {
+		fail(
+			`a disabled composer said nothing about what the directory is doing, with ` +
+				`${JSON.stringify(refusing.open)} open and the ` +
+				`rail holding ${JSON.stringify(refusing.rows)}`,
+		);
+	} else if (
+		refusing.statusStyle == null ||
+		JSON.stringify(refusing.statusStyle.availability) !== JSON.stringify(refusing.statusStyle.typing)
+	) {
+		fail(`composer availability did not keep the typing line's quiet treatment: ${JSON.stringify(refusing)}`);
 	}
+	const priorViewport = tab.viewportSize();
+	await tab.setViewportSize({ width: 390, height: 720 });
+	await tab.waitForSelector("#composerAvailability.said-more", { timeout: 60_000 })
+		.catch(() => fail("a long directory failure did not offer its dynamically measured detail from the composer"));
+	const availabilityBounds = await tab.evaluate(() => {
+		const status = document.querySelector<HTMLElement>(".composer-status");
+		const availability = document.getElementById("composerAvailability");
+		if (status == null || availability == null) return null;
+		const outer = status.getBoundingClientRect();
+		const inner = availability.getBoundingClientRect();
+		return { left: inner.left - outer.left, right: outer.right - inner.right };
+	});
+	if (availabilityBounds == null || availabilityBounds.left < 14 || availabilityBounds.right < 14) {
+		fail(`the phone composer's Show affordance escaped its status inset: ${JSON.stringify(availabilityBounds)}`);
+	}
+	if (priorViewport != null) await tab.setViewportSize(priorViewport);
 
 	// And the card that exists to answer "what is wrong with this one" says what.
 	// The row's caption carries the phase, which is all a narrow line has room
-	// for beside the name it also carries, and pressing that caption opens this.
-	// So the phase word on its own here would be the single thing the reader
-	// already knew.
-	await (aboutOf("elsewhere")).click();
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
-		.catch(() => fail("the directory named on a room that went away no longer opens its card"));
+	// for beside the name it also carries, and pressing that caption opens the
+	// directory, whose title opens this. So the phase word on its own here would
+	// be the single thing the reader already knew.
+	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));
 	await tab.waitForFunction(
 		() => {
 			const dt = [...document.querySelectorAll(".modal .dirfacts dt")]
@@ -362,6 +410,13 @@ export async function run(
 		fail(`the card for a directory that went away says only ${JSON.stringify(said)}`);
 	});
 	await tab.keyboard.press("Escape");
+	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
+	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
+	await tab.waitForFunction(
+		() => (document.getElementById("roomName")?.textContent ?? "").includes("elsewhere"),
+		undefined,
+		{ timeout: 10_000 },
+	).catch(() => fail("returning from the directory did not put the room back"));
 
 	{
 		// The line that was in flight when the server went. It is not sent, it says
@@ -502,7 +557,7 @@ export async function run(
 		// through. What this is here to prove is that a reader who waits and then
 		// presses gets their line sent, so it presses when the room is back.
 		await tab.waitForFunction(
-			() => ((document.getElementById("log")?.textContent ?? "").match(/in the room:/g) ?? []).length >= 2,
+			() => ((document.getElementById("log")?.textContent ?? "").match(/in the room\./g) ?? []).length >= 2,
 			undefined,
 			{ timeout: 90_000 },
 		).catch(() => fail("the page never re-entered the room on the second server after it came back"));
@@ -512,7 +567,7 @@ export async function run(
 		// room beside the joins and leaves everybody was told about.
 		const roster = await tab.evaluate(() => {
 			const line = [...document.querySelectorAll("#log .sys-line")]
-				.find((el) => (el.textContent ?? "").includes("in the room:"));
+				.find((el) => (el.textContent ?? "").includes("in the room."));
 			if (line == null) return null;
 			const run = line.closest(".sys");
 			return {

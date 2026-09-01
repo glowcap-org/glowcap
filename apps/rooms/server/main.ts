@@ -12,10 +12,12 @@
 // The directory is the server's one published bootstrap object; rooms are the
 // references it hands back. A room exists only while someone is in it — when its
 // last member leaves, the room is removed and its name frees up. The directory
-// also answers `list` (the live rooms, as six-field publication records) and `watch`
-// (hand it an inbox; it pushes a `notify(event, ...record)` delta on every
-// open/close/count change), so a client can discover and follow rooms, not just
-// open and enter them.
+// also answers `list` (live occupancy as name and count), `listPublications`
+// (the same rooms as seven-field publication records, including what membership
+// the public registration offers), and `watch` / `watchPublications` (hand it an
+// inbox; it pushes a `notify(event, ...record)` delta on every open/close/count
+// change), so a client can discover and follow rooms, not just open and enter
+// them.
 //
 // The directory is published on the Host, which makes it fetchable by name and
 // there before any connection is; the directory and room
@@ -43,41 +45,43 @@
 //          PANCAKE_ROOMS_TRANSPORT=iroh deno run -A --unstable-ffi server.ts
 //          PANCAKE_ROOMS_TRANSPORT=iroh PANCAKE_ROOMS_REACHABILITY=discovery deno run -A --unstable-ffi server.ts
 
-import { enableTrace, formatPeerUri, type Host, type Session, TRANSPORT_IROH } from "@pancake/runtime";
+import { enableTrace, formatPeerUri, type Host, TRANSPORT_IROH } from "@pancake/runtime";
 import * as irohTransport from "@pancake/iroh";
+import { isWildcardHost } from "../lib/bind_host.ts";
 import { announceToLocator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { flagOrEnv, optionalEnv, transportChoice, vizPortChoice } from "../lib/env.ts";
 import { BOOT_CAPS } from "../lib/boot_caps.ts";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
 import { startViz } from "./viz.ts";
 import { impossibleStatus } from "../lib/errors.ts";
-import { DIRECTORY } from "../lib/protocol.ts";
 import { RoomServerState, RoomServerStateError } from "./state.ts";
 import { RoomLinks } from "./room_links.ts";
-import { linkedRoomBehavior } from "./room.ts";
+import { linkedRoomBehavior } from "./room_link.ts";
 import { linkedStewardBehavior } from "./lines.ts";
-import { useRoomLinks } from "./registry.ts";
-import { serveAccepted } from "./sessions.ts";
+import { roomManagerBehavior } from "./room_manager.ts";
 import { type AdminTransport, irohReachability, ListenerRegistry, refuseHeldPort } from "./listeners.ts";
 import { listenersBehavior } from "./listeners/behavior.ts";
-import { directoryBehavior, inspectBehavior } from "./directory_behavior.ts";
+import { inspectBehavior } from "./inspect.ts";
 import { peeringBehavior } from "./peering.ts";
-import { noteTrouble } from "./journal.ts";
-import { closeHistory, initHistory } from "./history.ts";
+import { notifyRoomAuthorityChanged } from "./presence.ts";
+import { RoomServer } from "./room_server.ts";
 import { openHistoryStorage } from "./storage.ts";
 import { closeIrcBridges, restoreIrcBridges } from "./irc_gateway.ts";
 import { ircGatewayBehavior } from "./irc_gateway_behavior.ts";
+import { IrcBridgeAuthorities } from "./irc_gateway/authority.ts";
 import { RoomServerOperationsState, RoomServerOperationsStateError } from "./operations_state.ts";
 import { DirectoryCustody } from "../lib/directory_custody.ts";
 import { roomsOperatorBehavior } from "./operator/behavior.ts";
-export { directoryBehavior } from "./directory_behavior.ts";
+
+let serving: RoomServer | undefined;
 
 // One stray async failure (a register fetch, a notify) must not take CapTP
 // down. Deno exits on unhandled rejections unless prevented; `serve.ts` already
 // has this backstop, and the CapTP child needs the same.
 globalThis.addEventListener("unhandledrejection", (event) => {
 	event.preventDefault();
-	noteTrouble("an unhandled rejection (continuing)", event.reason);
+	if (serving != null) serving.journal.note("an unhandled rejection (continuing)", event.reason);
+	else console.error("rooms: an unhandled rejection (continuing):", event.reason);
 });
 
 function diagnosticsEnabled(): boolean {
@@ -139,17 +143,21 @@ interface BootCapability {
 
 /** Publish the inspect object under an unguessable swiss. The swiss is the
  * capability: whoever can fetch it can snapshot this directory. */
-async function maybePublishInspect(host: Host): Promise<BootCapability | null> {
+async function maybePublishInspect(
+	host: Host,
+	ctx: RoomServer,
+	links: RoomLinks,
+): Promise<BootCapability | null> {
 	if (!diagnosticsEnabled()) return null;
 	const swiss = await persistentSwiss(BOOT_CAPS.diagnostics.file);
-	host.publishGiftable(swiss, inspectBehavior());
+	host.publishGiftable(swiss, inspectBehavior(ctx, ctx.sessions, links));
 	return { token: BOOT_CAPS.diagnostics.token, swiss };
 }
 
-async function maybePublishPeering(host: Host): Promise<BootCapability | null> {
+async function maybePublishPeering(host: Host, ctx: RoomServer): Promise<BootCapability | null> {
 	if (!peeringEnabled()) return null;
 	const swiss = await persistentSwiss(BOOT_CAPS.peering.file);
-	host.publishGiftable(swiss, peeringBehavior());
+	host.publishGiftable(swiss, peeringBehavior(ctx));
 	return { token: BOOT_CAPS.peering.token, swiss };
 }
 
@@ -157,21 +165,28 @@ async function maybePublishPeering(host: Host): Promise<BootCapability | null> {
  * authority to bridge channels into this directory and part them again. */
 async function maybePublishIrcGateway(
 	host: Host,
+	server: RoomServer,
 	state: RoomServerOperationsState,
+	authorities: IrcBridgeAuthorities,
 ): Promise<BootCapability | null> {
 	if (!flagOrEnv(Deno.args, BOOT_CAPS.irc.flag, BOOT_CAPS.irc.env)) return null;
 	const swiss = await persistentSwiss(BOOT_CAPS.irc.file);
-	host.publishGiftable(swiss, ircGatewayBehavior(state));
+	host.publishGiftable(swiss, ircGatewayBehavior(server, state, authorities));
 	return { token: BOOT_CAPS.irc.token, swiss };
 }
 
 /** Publish the server-wide authority over room steward capabilities. It is
  * minted only on an explicit boot ask and stays separate from the public
  * directory and from each room's own moderation authority. */
-async function maybePublishOperator(host: Host, links: RoomLinks): Promise<BootCapability | null> {
+async function maybePublishOperator(
+	host: Host,
+	links: RoomLinks,
+	server: RoomServer,
+	bridges: IrcBridgeAuthorities,
+): Promise<BootCapability | null> {
 	if (!operatorEnabled()) return null;
 	const swiss = await persistentSwiss(BOOT_CAPS.operator.file);
-	host.publishGiftable(swiss, roomsOperatorBehavior(links));
+	host.publishGiftable(swiss, roomsOperatorBehavior(server, links, server.sessions, bridges));
 	return { token: BOOT_CAPS.operator.token, swiss };
 }
 
@@ -238,7 +253,7 @@ function printBootBlock(transport: AdminTransport, locator: string, caps: readon
 // the same timeline. Each session's `a` endpoint is this host's own key
 // designator, the name a partner knows it by and so the one name two producers
 // can agree on; "rooms" rides beside it as what a reader should see.
-async function maybeStartViz(): Promise<BootCapability | null> {
+async function maybeStartViz(roomServer: RoomServer): Promise<BootCapability | null> {
 	if (!vizEnabled()) return null;
 	let port: number;
 	try {
@@ -248,7 +263,7 @@ async function maybeStartViz(): Promise<BootCapability | null> {
 		Deno.exit(2);
 	}
 	const swiss = await persistentSwiss(BOOT_CAPS.viz.file);
-	const viz = startViz(port, swiss);
+	const viz = startViz(port, swiss, (source, error) => roomServer.journal.note(source, error));
 	enableTrace(viz.sink, { selfLabel: "rooms" });
 	return { token: BOOT_CAPS.viz.token, swiss };
 }
@@ -292,24 +307,6 @@ async function composedStorage(stateDirectory: string | null) {
 	}
 }
 
-/** Serve the directory on every connection `server` accepts until it closes. */
-export async function serveDirectory(
-	host: Host,
-	server: AsyncIterable<Session>,
-	links?: RoomLinks,
-	advertisedLocation?: (session: Session) => string,
-): Promise<void> {
-	// Published on the Host before the first session is taken, and not onto each
-	// one as it arrives. A loop-backed listener dispatches an accepted session's
-	// first message as it steps, which can be before this loop's body has run at
-	// all: publishing per session left a dial that fetched immediately racing the
-	// accept, and losing it was answered `unknown swissnum`. A Host-wide object
-	// exists before any connection does, so there is no window to lose.
-	useRoomLinks(links ?? null);
-	host.publishGiftable(DIRECTORY, directoryBehavior(links, advertisedLocation));
-	await serveAccepted(server);
-}
-
 // The top-level bootstrap runs only when this file is the program, so the demo
 // orchestrator (and tests) can import the behaviors without binding a socket.
 /** Everything between "this process was asked to be a room server" and "it is
@@ -321,9 +318,11 @@ export async function serveDirectory(
 async function runServer(stateDirectory: string | undefined): Promise<void> {
 	// Positional args are the port (TCP only); iroh has no port to pin.
 	const positional = Deno.args.filter((a) => !a.startsWith("--"));
-	const viz = await maybeStartViz();
+	const roomServer = new RoomServer();
+	serving = roomServer;
+	const viz = await maybeStartViz(roomServer);
 	const transport = transportArg();
-	const state = await RoomServerState.open(stateDirectory);
+	const state = await RoomServerState.open(stateDirectory, () => roomServer.operator.noteChange());
 	const operationsState = await RoomServerOperationsState.open(stateDirectory ?? null);
 	// Retention is a stated policy: nothing records until the operator says
 	// `--history` (or names a storage destination, which is the same
@@ -331,7 +330,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 	// whatever `--storage` composed. Which backend that is stays inside
 	// `storage.ts`; a named destination that cannot be opened is a startup
 	// refusal in the operator's own terms, never a silent fall back.
-	await initHistory(
+	await roomServer.history.open(
 		await composedStorage(optionalEnv("PANCAKE_ROOMS_STATE") ?? null),
 		flagOrEnv(Deno.args, "--history", "PANCAKE_ROOMS_HISTORY") || storageDestination() !== undefined,
 	);
@@ -342,28 +341,40 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 	const stop = () => {
 		if (stopping) return;
 		stopping = true;
-		void registry?.close().catch((error) => noteTrouble("could not close room listeners", error));
+		void registry?.close().catch((error) => roomServer.journal.note("could not close room listeners", error));
 	};
 	try {
 		const host = roomsHost(state.identitySeed);
-		const active = new ListenerRegistry(host, operationsState);
+		const active = new ListenerRegistry(host, roomServer.sessions, roomServer.journal, operationsState);
 		registry = active;
 		Deno.addSignalListener("SIGINT", stop);
 		sigintInstalled = true;
 		Deno.addSignalListener("SIGTERM", stop);
 		sigtermInstalled = true;
 		const links = await RoomLinks.restore(
+			roomServer,
 			state,
 			{
-				room: (name, entropy, active) => host.publishDurable(linkedRoomBehavior(name, active), entropy),
+				room: (name, entropy, active) =>
+					host.publishDurable(
+						linkedRoomBehavior(roomServer, name, () => links, roomServer.history, { active }),
+						entropy,
+					),
 				steward: (name, roomIdentity, entropy, active) =>
-					host.publishDurable(linkedStewardBehavior(name, roomIdentity, active), entropy),
+					host.publishDurable(linkedStewardBehavior(roomServer, name, roomIdentity, active), entropy),
+				manager: (name, entropy, active) =>
+					host.publishDurable(roomManagerBehavior(name, () => links, active), entropy),
 				unpublish: (swiss) => host.unpublishDurable(swiss),
 			},
 			(session) => active.advertisedLocation(session),
+			(name, kind, token) => notifyRoomAuthorityChanged(roomServer, name, kind, token),
 		);
-		useRoomLinks(links);
-		await restoreIrcBridges(operationsState);
+		const ircAuthorities = new IrcBridgeAuthorities(operationsState, {
+			publish: (entropy, behavior) => host.publishDurable(behavior, entropy),
+			unpublish: (swiss) => host.unpublishDurable(swiss),
+			advertisedLocation: (session) => active.advertisedLocation(session),
+		}, () => roomServer.operator.noteChange());
+		await restoreIrcBridges(roomServer, operationsState, ircAuthorities);
 		// The boot capabilities publish before the listener opens (a reused swiss must
 		// never have a window answering `unknown swissnum`), but their swiss lines
 		// wait for the boot block below: the last thing an operator sees is what
@@ -373,13 +384,13 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 		const caps: BootCapability[] = [];
 		const listeners = await maybePublishListeners(host, active);
 		if (listeners !== null) caps.push(listeners);
-		const inspect = await maybePublishInspect(host);
+		const inspect = await maybePublishInspect(host, roomServer, links);
 		if (inspect !== null) caps.push(inspect);
-		const ircGateway = await maybePublishIrcGateway(host, operationsState);
+		const ircGateway = await maybePublishIrcGateway(host, roomServer, operationsState, ircAuthorities);
 		if (ircGateway !== null) caps.push(ircGateway);
-		const operator = await maybePublishOperator(host, links);
+		const operator = await maybePublishOperator(host, links, roomServer, ircAuthorities);
 		if (operator !== null) caps.push(operator);
-		const peering = await maybePublishPeering(host);
+		const peering = await maybePublishPeering(host, roomServer);
 		if (peering !== null) caps.push(peering);
 		if (viz !== null) caps.push(viz);
 
@@ -402,7 +413,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			await active.restore();
 			console.log(`ROOMS-SERVER-LISTENING ${token}`);
 			printBootBlock(bootTransport, announceToLocator(token), caps);
-			await serveDirectory(host, bootServer, links, (session) => active.advertisedLocation(session));
+			await roomServer.serve(host, bootServer, links, (session) => active.advertisedLocation(session));
 		};
 
 		// The harness and the web bridge parse the announce line: a bare port is a
@@ -458,7 +469,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 				}
 			}
 			// Imported here rather than at the top, so the hermetic suite (which
-			// imports this module for `serveDirectory`) never touches the onion
+			// imports the server aggregate) never touches the onion
 			// archive it does not install.
 			const onion = await import("@pancake/onion");
 			const server = await onion.listen({
@@ -479,7 +490,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			// A wildcard bind has no address of its own to sign, so it needs the
 			// dialable hostname before the listener opens; saying which knob is
 			// missing beats surfacing the core's refusal after the fact.
-			if ((bindHost === "0.0.0.0" || bindHost === "::" || bindHost === "[::]") && announceHost === undefined) {
+			if (isWildcardHost(bindHost) && announceHost === undefined) {
 				throw new Error(
 					`PANCAKE_ROOMS_BIND=${bindHost} binds every interface, so PANCAKE_ROOMS_ANNOUNCE_HOST must name the dialable hostname to advertise`,
 				);
@@ -497,9 +508,9 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 	} finally {
 		if (sigintInstalled) Deno.removeSignalListener("SIGINT", stop);
 		if (sigtermInstalled) Deno.removeSignalListener("SIGTERM", stop);
-		await registry?.close().catch((error) => noteTrouble("could not close room listeners", error));
-		closeIrcBridges();
-		await closeHistory();
+		await registry?.close().catch((error) => roomServer.journal.note("could not close room listeners", error));
+		closeIrcBridges(roomServer);
+		await roomServer.close();
 	}
 	if (stopping) Deno.exit(0);
 }

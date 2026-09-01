@@ -6,11 +6,10 @@
 .draft = false,
 ---
 
-The rule is the one object references already live by inside a single
-process: a peer can call only the references it has been handed, and it
-cannot construct one it was not given. That is
-[OCapN](https://github.com/ocapn/ocapn). pancake is a
-[Zig](https://ziglang.org/) library that speaks it.
+pancake is a [Zig](https://ziglang.org/) library for
+[OCapN](https://github.com/ocapn/ocapn). Two programs hand each other
+references to objects and call them across a session, under the same rule as a
+local call: a peer can use the references it was given and cannot forge others.
 
 pancake is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.

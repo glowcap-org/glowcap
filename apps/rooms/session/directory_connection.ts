@@ -2,43 +2,43 @@
 
 import type { Runtime } from "@pancake/runtime";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { dial } from "../lib/locator.ts";
-import { Directory } from "../lib/room_client.ts";
-import type { WorkspaceConversation, WorkspaceDirectory } from "../lib/rooms_state.ts";
-import type { DurableRoomsArchive } from "./archive.ts";
+import { dialDirectory } from "../lib/locator.ts";
+import { Directory } from "../lib/room/client.ts";
+import type { WorkspaceDirectory } from "../lib/rooms_state.ts";
 import { DurableDirectoryView } from "./directory_view.ts";
 import {
 	cancelDirectRouteAttempts,
 	directInbox,
 	type DirectRealizationCallbacks,
 	establishRequestedDirectRoute,
-	reconcileDirects,
 } from "./directory_directs.ts";
 import type { LiveDirectory, LiveRoom } from "./live.ts";
 import { RoomRealization } from "./room_realization.ts";
-import { makeRoomCallbacks, reconcileRooms, type RoomMessageReceiver } from "./room_reconcile.ts";
 import { roomsDirectoryConnectionTopology } from "./topology.ts";
+import type { RuntimeStateReconciliation } from "./state_sync.ts";
+import { adoptedRegistrationNick, takeAdoptedDirectory } from "./directory_adopt.ts";
+import { answerWebrtcSignaling } from "./webrtc_answer.ts";
 
 interface DirectoryConnectionOptions {
 	runtime: Runtime;
 	saved: WorkspaceDirectory;
-	conversations: readonly WorkspaceConversation[];
 	memberLocator: string;
-	archive: DurableRoomsArchive;
-	keepHistory: () => boolean;
-	messages: ReadonlySet<RoomMessageReceiver>;
 	directCallbacks: DirectRealizationCallbacks;
 	releaseRoom(live: LiveRoom): void;
 	onClosed(live: LiveDirectory): void;
-	retry(): void;
 	notifyView(): void;
+	roomPublicationsChanged(): void;
 	setIssue(subject: string, error: unknown | null): boolean;
 	cleanup(work: Promise<unknown>, label: string): Promise<void>;
+	reconcileState(change: RuntimeStateReconciliation): Promise<void>;
 }
 
 export async function connectDirectory(options: DirectoryConnectionOptions): Promise<LiveDirectory> {
 	const { saved } = options;
-	const directory = await Directory.connect(saved.locator, (address) => dial(address, options.runtime));
+	const adopted = takeAdoptedDirectory(saved.id, saved.locator);
+	const directory = adopted?.directory ??
+		await Directory.connect(saved.locator, (address) => dialDirectory(address, options.runtime));
+	const nick = adoptedRegistrationNick(saved.nick, adopted);
 	const view = new DurableDirectoryView(saved.id);
 	const slot: { live: LiveDirectory | null } = { live: null };
 	const offerer = inboxPublisher(options.runtime.host).offerer({
@@ -48,13 +48,13 @@ export async function connectDirectory(options: DirectoryConnectionOptions): Pro
 			if (live == null) throw new Error("the durable directory connection is not ready for inbox offers");
 			return directInbox(live, peer, registrationId, options.directCallbacks);
 		},
-		skip: (peer) => peer.toLowerCase() === saved.nick.toLowerCase(),
+		skip: (peer) => peer.toLowerCase() === nick.toLowerCase(),
 		onError: (peer, error) => options.setIssue(`direct-inbox:${saved.id}:${peer.toLowerCase()}`, error),
 	});
 	const live: LiveDirectory = {
 		id: saved.id,
 		topology: roomsDirectoryConnectionTopology(saved),
-		nick: saved.nick,
+		nick,
 		directory,
 		view,
 		roomRealization: new RoomRealization(),
@@ -64,12 +64,14 @@ export async function connectDirectory(options: DirectoryConnectionOptions): Pro
 		directConversationByRegistration: new Map(),
 		offerer,
 		stopClose: () => {},
+		signaling: null,
 	};
 	slot.live = live;
 	live.stopClose = directory.session.onClose(() => options.onClosed(live));
 	try {
 		const rooms = await directory.watch((event) => {
 			if (!view.apply(event)) return;
+			if (event.kind === "opened" || event.kind === "closed") options.roomPublicationsChanged();
 			options.setIssue(
 				`directory-view:${saved.id}`,
 				view.snapshot().truncated
@@ -79,16 +81,33 @@ export async function connectDirectory(options: DirectoryConnectionOptions): Pro
 			options.notifyView();
 		});
 		view.replaceRooms(rooms);
+		await options.reconcileState({
+			type: "directory-reached",
+			directoryId: saved.id,
+			locator: saved.locator,
+		});
 		options.setIssue(
 			`directory-view:${saved.id}`,
 			view.snapshot().truncated ? "this directory has more live rooms than a shared view can carry" : null,
 		);
-		await reconcileDirects(live, options.conversations, options.directCallbacks);
-		if (saved.nick !== "") {
+		if (nick !== "") {
 			await directory.register(
-				saved.nick,
+				nick,
 				options.memberLocator,
-				(peer, registrationId) => offerer.offer(peer, registrationId),
+				(peer, registrationId) => {
+					const accept = options.directCallbacks.acceptDirect;
+					if (accept == null) {
+						offerer.offer(peer, registrationId);
+						return;
+					}
+					void accept(live, peer, registrationId).then(
+						() => {
+							options.setIssue(`direct-inbox:${saved.id}:${peer.toLowerCase()}`, null);
+							offerer.offer(peer, registrationId);
+						},
+						(error) => options.setIssue(`direct-inbox:${saved.id}:${peer.toLowerCase()}`, error),
+					);
+				},
 				(_peer, registrationId) => {
 					const subject = `direct-request:${saved.id}:${registrationId}`;
 					void establishRequestedDirectRoute(live, registrationId, options.directCallbacks).then(
@@ -97,23 +116,13 @@ export async function connectDirectory(options: DirectoryConnectionOptions): Pro
 					);
 				},
 			);
-		} else return live;
-		await reconcileRooms(
-			live.roomRealization,
-			live,
-			options.conversations,
-			makeRoomCallbacks({
-				held: live,
-				archive: options.archive,
-				keepHistory: options.keepHistory,
-				receivers: options.messages,
-				release: options.releaseRoom,
-				retry: options.retry,
-				notifyView: options.notifyView,
-				setIssue: options.setIssue,
-				cleanup: options.cleanup,
-			}),
-		);
+			live.signaling = await answerWebrtcSignaling({
+				host: options.runtime.host,
+				directory,
+				memberLocator: options.memberLocator,
+				onError: (error) => options.setIssue(`webrtc-signaling:${saved.id}`, error),
+			});
+		}
 		return live;
 	} catch (error) {
 		live.directIntents.clear();
@@ -126,6 +135,9 @@ export async function connectDirectory(options: DirectoryConnectionOptions): Pro
 		for (const room of [...live.roomRealization.rooms.values()].reverse()) {
 			options.releaseRoom(room);
 			await options.cleanup(room.room.leave(), "a partial room would not leave");
+		}
+		if (live.signaling != null) {
+			await options.cleanup(live.signaling.close(), "partial WebRTC signaling would not close");
 		}
 		await options.cleanup(directory.close(), "a partial directory would not close");
 		await openings;

@@ -40,6 +40,7 @@ import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 export {
 	FetchFailed,
 	PancakeError,
+	PublicationNotFound,
 	retainCleanupFailures,
 	retainSecondaryFailure,
 	secondaryFailureCount,
@@ -80,7 +81,13 @@ export {
 	type FailureScope,
 	takeRuntimeFailures,
 } from "./context.ts";
-export { DURABLE_SWISS_ENTROPY_BYTES, Host, type HostOptions, type SessionLimitOptions } from "./host.ts";
+export {
+	DURABLE_SWISS_ENTROPY_BYTES,
+	Host,
+	type HostOptions,
+	type HostProfile,
+	type SessionLimitOptions,
+} from "./host.ts";
 export { type CloseOptions } from "./lifecycle.ts";
 export { RemotePromise } from "./promise.ts";
 export { SignalingSendOwner } from "./signaling.ts";

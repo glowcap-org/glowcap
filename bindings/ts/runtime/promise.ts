@@ -176,10 +176,6 @@ export function promiseFor(
 	}
 }
 
-/** Far-send mint→`RemotePromise`: encode args, mint the host vow
- * (`pancake_host_session_send` / `pancake_host_vow_send`), register it, and
- * hand back `promiseFor`.
- * Local-hosted targets stay in Session (trampoline `sendLocal`). */
 /** `Session.listen`'s wire half: mint the listen vow over a held far reference
  * (CapTP `op:listen`, ADR-0095) and hand back the settle handle. The Session API
  * owns profile-specific target legality. The vow is plain — a listen may settle
@@ -191,6 +187,10 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	return promiseFor(h, vow, false);
 }
 
+/** Far-send mint→`RemotePromise`: encode args, mint the host vow
+ * (`pancake_host_session_send` / `pancake_host_vow_send`), register it, and
+ * hand back `promiseFor`.
+ * Local-hosted targets stay in Session (trampoline `sendLocal`). */
 export function sendFar(
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,

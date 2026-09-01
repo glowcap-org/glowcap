@@ -1,30 +1,68 @@
 // Pure checkpoint commands for a durable Rooms session.
 
 import * as z from "zod/mini";
+import { type BridgeAnswers, readBridgeAnswers } from "../lib/bridge/form.ts";
 import {
-	peeringIntentsForOperations,
 	RoomsIgnoredNamesSchema,
 	type RoomsSessionState,
 	WorkspaceDirectConversationSchema,
 	WorkspaceDirectorySchema,
 	WorkspaceInvitationSchema,
-	WorkspaceOperationCredentialsSchema,
-	WorkspacePeeringIntentSchema,
-	WorkspaceRoomConversationSchema,
-	WorkspaceRoomIrcIdentitySchema,
+	type WorkspaceRoomBridgeIntent,
+	WorkspaceRoomBridgeIntentSchema,
 } from "../lib/rooms_state.ts";
 import { vizOverrideRefusal } from "../lib/viz_publish.ts";
-import { isPrivateRoomKey, MAX_PENDING_INVITES, nickRefusal } from "../lib/limits.ts";
-import { validateIrcNick, validateSaslPlain } from "../irc/registration.ts";
+import { MAX_PENDING_INVITES, nickRefusal } from "../lib/limits.ts";
 import { roomsLocator } from "../lib/locator.ts";
 import { roomsPeerAuthority } from "../lib/routes.ts";
-import { commandJson as jsonValue, validatedRoomsSessionState as validated } from "./command_data.ts";
+import { roomAuthorityToken } from "../lib/room/authority.ts";
+import { commandJson as jsonValue, roomConversation, validatedRoomsSessionState as validated } from "./command_data.ts";
 import { applyRoomJoin } from "./join_command.ts";
+import { applyPeeringCommand } from "./peering_commands.ts";
 
 const MAX_COMMAND_TEXT = 64 * 1024;
-const MAX_BEARER_TEXT = 16 * 1024;
-
 export type RoomsCheckpointImpact = "presentation" | "standing" | "realization";
+export interface RoomsSessionCommandFacts {
+	roomPublicationId?(directoryId: string, roomName: string): string | null;
+	/** How far one bridge answer reaches in this room, as the room stated it.
+	 *
+	 * A live fact rather than a checkpoint one, so it is asked for here instead
+	 * of read off the conversation: a channel nobody has linked on yet has no
+	 * saved intent naming its scope, and is exactly the room a spreading answer
+	 * needs to reach. Absent when no live view has heard from the room, and the
+	 * saved intent's scope is the fallback then. */
+	roomBridgeScope?(conversationId: string): string | null;
+}
+
+/** One bridge form submission, as a durable command carries it.
+ *
+ * The answers and the secrets arrive apart because the client drew the form and
+ * so knows which is which. The alternative was for this to fetch the form and
+ * work it out, which would mean a checkpoint's contents depending on what a
+ * bridge happened to answer at the time — and a bridge that changed its mind
+ * about a field could turn a stored answer into a stored password.
+ *
+ * Nothing here judges whether the answers are any good. A form says what a
+ * field is called; what makes it valid belongs to the service, and the bridge
+ * checks it when this is replayed to it. */
+export function parseRoomBridgeFormCommand(args: string[]): {
+	conversationId: string;
+	intent: WorkspaceRoomBridgeIntent;
+	secrets: BridgeAnswers;
+} {
+	if (args.length !== 5) {
+		throw new Error("submitRoomBridgeForm takes a room, scope, action, answers, and secrets");
+	}
+	const secrets = readBridgeAnswers(args[4]);
+	const intent = z.safeParse(WorkspaceRoomBridgeIntentSchema, {
+		scope: args[1],
+		action: args[2],
+		answers: readBridgeAnswers(args[3]),
+		secretsGiven: Object.keys(secrets).length > 0,
+	});
+	if (!intent.success) throw new Error("submitRoomBridgeForm received an invalid submission");
+	return { conversationId: args[0], intent: intent.data, secrets };
+}
 
 /** Name which runtime owner a pure checkpoint command can affect. This keeps a
  * draft or selection change from projecting every directory and conversation
@@ -41,268 +79,27 @@ export function roomsSessionCommandImpact(command: string): RoomsCheckpointImpac
 	return "realization";
 }
 
-const sturdyrefText = z.string().check(
-	z.minLength(1),
-	z.maxLength(MAX_BEARER_TEXT),
-	z.startsWith("ocapn://"),
-	z.includes("/s/"),
-);
-
-export interface RoomsSessionResultPlan {
-	readonly kind: "private-room" | "room-link" | "room-steward";
-	readonly intent: string;
-	readonly directory?: string;
-	readonly label?: string;
-	readonly recoveryKey?: string;
-	readonly conversationId?: string;
-	readonly stewardLink?: string | null;
-}
-
-interface PrivateRoomIntent {
-	conversation: Extract<RoomsSessionState["conversations"][number], { kind: "room" }>;
-	recoveryKey: string;
-}
-
-const PrivateRoomConversationSchema = WorkspaceRoomConversationSchema.check(
-	z.refine((conversation) =>
-		conversation.held && conversation.link == null && conversation.steward == null &&
-		conversation.publicationId == null
-	),
-);
-const PrivateRoomIntentSchema = z.strictObject({
-	conversation: PrivateRoomConversationSchema,
-	recoveryKey: z.string().check(z.refine(isPrivateRoomKey)),
-});
-
-const RoomAuthorityIntentSchema = z.strictObject({
-	conversation: WorkspaceRoomConversationSchema,
-	stewardLink: z.optional(sturdyrefText),
-});
-const RoomLinkResultSchema = z.strictObject({ roomLink: sturdyrefText });
-const RoomStewardResultSchema = z.strictObject({ roomLink: sturdyrefText, stewardLink: sturdyrefText });
-
-function privateRoomIntent(intentText: string): PrivateRoomIntent {
-	return jsonValue(intentText, "private-room result", PrivateRoomIntentSchema);
-}
-
-type RoomAuthorityIntent = z.infer<typeof RoomAuthorityIntentSchema>;
-
-function roomAuthorityIntent(intentText: string): RoomAuthorityIntent {
-	return jsonValue(intentText, "room authority result", RoomAuthorityIntentSchema);
-}
-
-function roomModeratorSturdyref(raw: string, command: string): string {
-	const parsed = z.safeParse(sturdyrefText, raw);
-	if (!parsed.success) throw new Error(`${command} needs a valid room moderator sturdyref`);
-	return parsed.data;
-}
-
-function roomConversation(
-	current: RoomsSessionState,
-	conversationId: string,
-	command: string,
-): Extract<RoomsSessionState["conversations"][number], { kind: "room" }> {
-	const conversation = current.conversations.find((entry) => entry.id === conversationId);
-	if (conversation?.kind !== "room") throw new Error(`${command} names no room in this session`);
-	const directory = current.directories.find((entry) => entry.id === conversation.directory);
-	if (directory == null || directory.nick === "") {
-		throw new Error(`${command} needs a named directory in this session`);
-	}
-	return conversation;
-}
-
 export function prepareRoomOffer(
 	current: RoomsSessionState,
 	args: string[],
-): { roomConversationId: string; directConversationId: string; label: string; link: string } {
+): { roomConversationId: string; directConversationId: string; label: string; link: string | null } {
 	if (args.length !== 2) throw new Error("offerRoom takes a room and direct conversation id");
 	const room = current.conversations.find((entry) => entry.id === args[0]);
 	const direct = current.conversations.find((entry) => entry.id === args[1]);
-	if (room?.kind !== "room" || room.link == null) {
-		throw new Error("offerRoom needs a room with a durable link");
+	if (room?.kind !== "room") {
+		throw new Error("offerRoom needs a room in this session");
 	}
 	if (direct?.kind !== "direct" || direct.closed || direct.directory !== room.directory) {
 		throw new Error("offerRoom needs an open direct conversation on the room's directory");
 	}
-	return { roomConversationId: room.id, directConversationId: direct.id, label: room.name, link: room.link };
-}
-
-export function prepareRoomsSessionResult(
-	current: RoomsSessionState,
-	command: string,
-	args: string[],
-	allowExisting = false,
-): RoomsSessionResultPlan {
-	if (command === "ensureRoomLink" || command === "linkRoom" || command === "takeRoomModerator") {
-		const takingModerator = command === "takeRoomModerator";
-		if ((takingModerator && (args.length < 1 || args.length > 2)) || (!takingModerator && args.length !== 1)) {
-			throw new Error(`${command} takes a room${takingModerator ? " and optional moderator" : ""}`);
-		}
-		const conversation = roomConversation(current, args[0], command);
-		if (!takingModerator && conversation.link != null && !allowExisting) {
-			throw new Error("ensureRoomLink names a room that already has a durable link");
-		}
-		const stewardLink = takingModerator
-			? args[1] == null ? conversation.steward : roomModeratorSturdyref(args[1], command)
-			: undefined;
-		return {
-			kind: takingModerator ? "room-steward" : "room-link",
-			intent: JSON.stringify({ conversation, ...(stewardLink == null ? {} : { stewardLink }) }),
-			directory: conversation.directory,
-			conversationId: conversation.id,
-			stewardLink,
-		};
-	}
-	if (command !== "openPrivateRoom") throw new Error(`Rooms session has no result-bearing command ${command}`);
-	if (args.length !== 2 || !isPrivateRoomKey(args[1])) {
-		throw new Error("openPrivateRoom takes one room record and an opaque recovery key");
-	}
-	const conversation = jsonValue(args[0], command, PrivateRoomConversationSchema);
-	const existing = current.conversations.find((entry) => entry.id === conversation.id);
-	let planned = conversation;
-	if (existing != null) {
-		if (!allowExisting || existing.kind !== "room" || existing.link == null) {
-			throw new Error("openPrivateRoom names a different conversation in this session");
-		}
-		if (
-			existing.directory !== conversation.directory || existing.name !== conversation.name ||
-			existing.held !== true
-		) {
-			throw new Error("openPrivateRoom changed its room record");
-		}
-	} else {
-		const candidate = validated({ ...current, conversations: [...current.conversations, conversation] });
-		const accepted = candidate.conversations.at(-1);
-		if (accepted?.kind !== "room") throw new Error("openPrivateRoom did not produce a room record");
-		planned = accepted;
-	}
-	const directory = current.directories.find((entry) => entry.id === planned.directory);
-	if (directory == null || directory.nick === "") {
-		throw new Error("openPrivateRoom needs a named directory in this session");
-	}
-	const intent = JSON.stringify({ conversation: planned, recoveryKey: args[1] });
-	return {
-		kind: "private-room",
-		intent,
-		directory: planned.directory,
-		label: planned.name,
-		recoveryKey: args[1],
-	};
-}
-
-export function applyRoomsSessionResult(
-	current: RoomsSessionState,
-	kind: string,
-	intentText: string,
-	result: string,
-): RoomsSessionState {
-	if (kind === "room-link" || kind === "room-steward") {
-		const intent = roomAuthorityIntent(intentText);
-		let roomLink: string;
-		let stewardLink: string | null;
-		if (kind === "room-steward") {
-			const authority = jsonValue(result, "room authority result", RoomStewardResultSchema);
-			roomLink = authority.roomLink;
-			stewardLink = authority.stewardLink;
-		} else {
-			roomLink = jsonValue(result, "room authority result", RoomLinkResultSchema).roomLink;
-			stewardLink = null;
-		}
-		const existing = current.conversations.find((entry) => entry.id === intent.conversation.id);
-		if (existing?.kind !== "room") throw new Error("room authority result names no current room");
-		if (
-			existing.directory !== intent.conversation.directory || existing.name !== intent.conversation.name ||
-			existing.held !== intent.conversation.held || existing.publicationId !== intent.conversation.publicationId
-		) throw new Error("room authority result conflicts with the current checkpoint");
-		if (existing.link != null && existing.link !== roomLink) {
-			throw new Error("room authority result changed the room link");
-		}
-		if (kind === "room-steward" && existing.steward != null && existing.steward !== stewardLink) {
-			throw new Error("room authority result changed the moderator capability");
-		}
-		if (kind === "room-steward" && intent.stewardLink != null && intent.stewardLink !== stewardLink) {
-			throw new Error("room authority result did not retain the requested moderator capability");
-		}
-		const updated = {
-			...existing,
-			link: roomLink,
-			...(kind === "room-steward" && stewardLink != null ? { steward: stewardLink } : {}),
-		};
-		return validated({
-			...current,
-			conversations: current.conversations.map((entry) => entry.id === existing.id ? updated : entry),
-		});
-	}
-	if (kind !== "private-room") throw new Error(`Rooms session cannot apply result kind ${kind}`);
-	const privateLink = jsonValue(result, "private-room result", sturdyrefText);
-	const saved = privateRoomIntent(intentText).conversation;
-	const conversation = {
-		kind: "room" as const,
-		id: saved.id,
-		directory: saved.directory,
-		name: saved.name,
-		held: true,
-		link: privateLink,
-		standing: saved.standing,
-		draft: saved.draft,
-	};
-	const id = saved.id;
-	const existing = current.conversations.find((entry) => entry.id === id);
-	if (existing != null) {
-		if (current.active === id && JSON.stringify(existing) === JSON.stringify(conversation)) return current;
-		throw new Error("private-room result conflicts with the current checkpoint");
-	}
-	const directory = current.directories.find((entry) => entry.id === conversation.directory);
-	if (directory == null) throw new Error("private-room result names no current directory");
-	return applyRoomsSessionCommand(current, "joinRoom", [JSON.stringify({
-		locator: directory.locator,
-		nick: directory.nick,
-		conversation,
-	})]);
-}
-
-export function resumeRoomsSessionResult(
-	current: RoomsSessionState,
-	kind: string,
-	intentText: string,
-): RoomsSessionResultPlan {
-	if (kind === "room-link" || kind === "room-steward") {
-		const intent = roomAuthorityIntent(intentText);
-		const args = kind === "room-steward" && intent.stewardLink != null
-			? [intent.conversation.id, intent.stewardLink]
-			: [intent.conversation.id];
-		return prepareRoomsSessionResult(
-			current,
-			kind === "room-link" ? "ensureRoomLink" : "takeRoomModerator",
-			args,
-			true,
-		);
-	}
-	if (kind !== "private-room") throw new Error(`Rooms session cannot resume result kind ${kind}`);
-	const intent = privateRoomIntent(intentText);
-	return prepareRoomsSessionResult(
-		current,
-		"openPrivateRoom",
-		[JSON.stringify(intent.conversation), intent.recoveryKey],
-		true,
-	);
-}
-
-export function describeRoomsSessionResult(kind: string, intentText: string): string {
-	if (kind === "room-link") {
-		return `Save a durable link for room "${roomAuthorityIntent(intentText).conversation.name}"`;
-	}
-	if (kind === "room-steward") {
-		return `Take the moderator capability for room "${roomAuthorityIntent(intentText).conversation.name}"`;
-	}
-	if (kind !== "private-room") return "Recover an external session operation";
-	return `Create private room "${privateRoomIntent(intentText).conversation.name}"`;
+	return { roomConversationId: room.id, directConversationId: direct.id, label: room.name, link: room.link ?? null };
 }
 
 export function applyRoomsSessionCommand(
 	current: RoomsSessionState,
 	command: string,
 	args: string[],
+	facts: RoomsSessionCommandFacts = {},
 ): RoomsSessionState {
 	if (command === "setDraft") {
 		if (args.length !== 2 || args[1].length > MAX_COMMAND_TEXT) {
@@ -459,7 +256,7 @@ export function applyRoomsSessionCommand(
 		return validated({ ...current, directories });
 	}
 	if (command === "joinRoom") {
-		return applyRoomJoin(current, args);
+		return applyRoomJoin(current, args, facts.roomPublicationId);
 	}
 	if (command === "startDirect" || command === "openDirect") {
 		if (args.length !== 1) throw new Error(`${command} takes one conversation record`);
@@ -475,31 +272,11 @@ export function applyRoomsSessionCommand(
 			active: command === "startDirect" ? current.active : conversation.id,
 		});
 	}
-	if (command === "publishPeeredRoom") {
-		if (args.length !== 1) throw new Error("publishPeeredRoom takes one publication intent");
-		const intent = jsonValue(args[0], command, WorkspacePeeringIntentSchema);
-		if (
-			!current.capabilities.operations.some((entry) =>
-				entry.capability === "peering" && entry.scope === intent.destination
-			)
-		) {
-			throw new Error("publishPeeredRoom needs a peering capability for its destination");
-		}
-		if (current.peering.some((entry) => entry.id === intent.id)) {
-			const existing = current.peering.find((entry) => entry.id === intent.id);
-			if (JSON.stringify(existing) !== JSON.stringify(intent)) {
-				throw new Error("publishPeeredRoom reuses an id for different intent");
-			}
-			return current;
-		}
-		return validated({ ...current, peering: [...current.peering, intent] });
-	}
-	if (command === "revokePeeredRoom") {
-		if (args.length !== 1) throw new Error("revokePeeredRoom takes one publication id");
-		if (!current.peering.some((entry) => entry.id === args[0])) {
-			throw new Error("revokePeeredRoom names no publication in this session");
-		}
-		return validated({ ...current, peering: current.peering.filter((entry) => entry.id !== args[0]) });
+	if (
+		command === "publishPeeredRoom" || command === "revokePeeredRoom" ||
+		command === "replaceOperationsCapabilities"
+	) {
+		return applyPeeringCommand(current, command, args);
 	}
 	if (command === "leaveConversation") {
 		if (args.length !== 1 || !current.conversations.some((entry) => entry.id === args[0])) {
@@ -547,30 +324,58 @@ export function applyRoomsSessionCommand(
 		if (!found) throw new Error("setRoomStanding names no room in this session");
 		return validated({ ...current, conversations });
 	}
-	if (command === "connectRoomIrc") {
-		if (args.length !== 4) throw new Error("connectRoomIrc takes a room, IRC nick, account, and password");
-		const room = roomConversation(current, args[0], command);
-		validateIrcNick(args[1]);
-		if (args[2] !== "") validateSaslPlain({ account: args[2], password: args[3] });
-		const identity = z.safeParse(WorkspaceRoomIrcIdentitySchema, {
-			nick: args[1],
-			account: args[2],
-			password: args[3],
+	if (command === "dropRoomModerator") {
+		if (args.length !== 2 || args[1] === "") {
+			throw new Error("dropRoomModerator takes one room and moderator generation");
+		}
+		let found = false;
+		const conversations = current.conversations.map((entry) => {
+			if (entry.id !== args[0] || entry.kind !== "room") return entry;
+			found = true;
+			if (entry.steward == null || roomAuthorityToken(entry.steward) !== args[1]) {
+				throw new Error("that room's retained moderator capability changed");
+			}
+			const { steward: _steward, ...withoutSteward } = entry;
+			return withoutSteward;
 		});
-		if (!identity.success) throw new Error("connectRoomIrc received invalid IRC identity data");
+		if (!found) throw new Error("dropRoomModerator names no room in this session");
+		return validated({ ...current, conversations });
+	}
+	if (command === "dropRoomManager") {
+		if (args.length !== 2 || args[1] === "") {
+			throw new Error("dropRoomManager takes one room and manager generation");
+		}
+		let found = false;
+		const conversations = current.conversations.map((entry) => {
+			if (entry.id !== args[0] || entry.kind !== "room") return entry;
+			found = true;
+			if (entry.manager == null || roomAuthorityToken(entry.manager) !== args[1]) {
+				throw new Error("that room's retained manager capability changed");
+			}
+			const { manager: _manager, ...withoutManager } = entry;
+			return withoutManager;
+		});
+		if (!found) throw new Error("dropRoomManager names no room in this session");
+		return validated({ ...current, conversations });
+	}
+	if (command === "submitRoomBridgeForm") {
+		const parsed = parseRoomBridgeFormCommand(args);
+		const room = roomConversation(current, parsed.conversationId, command);
+		// Every room in the same scope, because a scope is the bridge's own word
+		// for how far one answer reaches: linking on one IRC channel links on
+		// every channel of that network, and this is where that becomes true.
+		// The room's stated scope decides, so a channel nobody has linked on yet
+		// is reached too; its saved intent is the fallback when no live view has
+		// heard from it.
+		const inScope = (entry: RoomsSessionState["conversations"][number]): boolean =>
+			entry.kind === "room" &&
+			((facts.roomBridgeScope?.(entry.id) ?? null) === parsed.intent.scope ||
+				entry.bridgeIntent?.scope === parsed.intent.scope);
 		return validated({
 			...current,
 			conversations: current.conversations.map((entry) =>
-				entry.id === room.id ? { ...entry, irc: identity.data } : entry
+				entry.id === room.id || inScope(entry) ? { ...entry, bridgeIntent: parsed.intent } : entry
 			),
-		});
-	}
-	if (command === "disconnectRoomIrc") {
-		if (args.length !== 1) throw new Error("disconnectRoomIrc takes one room");
-		const room = roomConversation(current, args[0], command);
-		return validated({
-			...current,
-			conversations: current.conversations.map((entry) => entry.id === room.id ? { ...entry, irc: null } : entry),
 		});
 	}
 	if (command === "setIgnoredNames") {
@@ -590,18 +395,6 @@ export function applyRoomsSessionCommand(
 		const vizRefusal = vizOverrideRefusal(args[1]);
 		if (vizRefusal != null) throw new Error(vizRefusal);
 		return validated({ ...current, dmMode: args[0], vizOverride: args[1] });
-	}
-	if (command === "replaceOperationsCapabilities") {
-		if (args.length !== 1) throw new Error("replaceOperationsCapabilities takes one credential list");
-		const operations = jsonValue(args[0], command, WorkspaceOperationCredentialsSchema);
-		return validated({
-			...current,
-			peering: peeringIntentsForOperations(operations, current.peering),
-			capabilities: {
-				...current.capabilities,
-				operations,
-			},
-		});
 	}
 	if (command === "selectArchive") {
 		if (args.length > 1) throw new Error("selectArchive takes zero or one sturdyref");

@@ -1,4 +1,11 @@
-import { retainCleanupFailures, retainSecondaryFailure, secondaryFailureCount, secondaryFailures } from "../errors.ts";
+import {
+	PublicationNotFound,
+	retainCleanupFailures,
+	retainSecondaryFailure,
+	secondaryFailureCount,
+	secondaryFailures,
+	vowFailure,
+} from "../errors.ts";
 import { assert } from "../../dogfood/assert.ts";
 
 Deno.test("secondary failures retain the exact primary, including when frozen", () => {
@@ -50,4 +57,14 @@ Deno.test("rollback runs every cleanup and preserves construction as primary", a
 	assert(order.join(",") === "listener,loop", "rollback skipped or reordered an owner");
 	assert(secondaryFailures(primary)[0] === listener, "listener cleanup did not stay first");
 	assert(secondaryFailures(primary)[1] === loop, "loop cleanup was not retained");
+});
+
+Deno.test("an unknown durable publication is a typed lifecycle failure", () => {
+	const missing = vowFailure(-12, "unknown swissnum");
+	assert(missing instanceof PublicationNotFound, "unknown swissnum remained protocol text");
+	assert(missing.reason === "unknown swissnum", "the canonical wire break changed");
+	assert(
+		!(vowFailure(-12, "application refusal") instanceof PublicationNotFound),
+		"an ordinary break was misclassified",
+	);
 });

@@ -27,17 +27,18 @@
 .card-plane .group {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 }
-/* The quiet well every plane wearer shares: a hairline and a breath of ink over the
-   card's paper, so a panel reads as a few labeled clusters rather than one
-   undifferentiated column. One class and one authority — Settings groups,
-   the directory card's clusters, the take form, and the Operations panes all
-   opt in with `well` rather than each restating the treatment. Recessed
-   rather than raised in both themes, because a raised surface on the
-   already-raised card has no edge to catch; the ground-versus-raised step in
-   ui/tokens.css is what keeps the recess and the fields inside it readable
-   in light exactly as in dark. */
+/* The quiet well every plane wearer shares: a hairline and a breath of ink
+   over whatever the plane stands on, so a panel reads as a few labeled
+   clusters rather than one undifferentiated column. One class and one
+   authority — Settings groups, the directory card's clusters, the take form,
+   and the Operations panes all wear `well` rather than each restating the
+   treatment, on a card and on the page ground alike, so the same cluster is
+   the same drawing wherever a reader meets it. Recessed rather than raised in
+   both themes: the translucent wash takes the tone of whatever it sits over,
+   so the recess stays readable in light exactly as in dark and a well shares
+   the ground's settle toward the floor. */
 .card-plane .well {
 	padding: 12px 14px;
 	border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
@@ -56,9 +57,18 @@
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr);
 	align-items: baseline;
-	gap: 6px 14px;
+	gap: var(--gap-tight) var(--gap-group);
 	margin: 2px 0 0;
 	font-size: var(--type-ui);
+}
+/* What follows the facts is a different shape: a labeled field, an action row,
+   a sentence. At the list's own row rhythm the first line of it reads as one
+   more question whose answer went missing, so the end of the list gets a beat
+   the eye can see. Said here, on the list, rather than on what follows it,
+   because what follows varies — a bare label in one well, a whole `Field` with
+   its own wrapper in the next — and only the list is in every case. */
+.card-plane .dirfacts:not(:last-child) {
+	margin-bottom: 6px;
 }
 .dirfacts dt {
 	color: var(--ink-soft);
@@ -72,7 +82,7 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 7px;
+	gap: var(--gap-tight);
 }
 /* The connection dot sits on the text's own line rather than on the row's, so
    it lines up with the word beside it the way it does in the rail's foot. */
@@ -96,11 +106,26 @@
 	font-weight: 700;
 	color: var(--ink-soft);
 }
+/* A question with more than one answer: its name, and under it the answers,
+   each a choice row of its own. Two surfaces ask one this way — which access
+   a session link grants, and what to hand out of an archive — so the shape
+   lives beside the row it is made of rather than in either of them. */
+.card-plane .question {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-tight);
+}
+.card-plane .choices {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--gap-row);
+}
 .card-plane .choice {
 	display: grid;
 	grid-template-columns: auto 1fr;
-	gap: 10px 12px;
+	gap: var(--gap-row) var(--gap-group);
 	align-items: start;
+	min-width: 0;
 	padding: 10px 12px;
 	border: 1px solid var(--rule);
 	border-radius: 11px;
@@ -110,7 +135,22 @@
 }
 .card-plane .choice:has(input:checked) {
 	border-color: var(--accent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+	box-shadow: var(--ring);
+}
+/* The whole row is the target, so the ring goes round the row rather than
+   round the mark inside it. */
+.card-plane .choice:has(input:focus-visible) {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.card-plane .choice input:focus-visible {
+	outline: none;
+}
+/* An answer this reader cannot give, faded like any refused control. The row
+   still says what it is and why it is closed. */
+.card-plane .choice:has(input:disabled) {
+	opacity: .55;
+	cursor: not-allowed;
 }
 .card-plane .choice input {
 	margin-top: 3px;
@@ -131,6 +171,7 @@
    for the plane as a whole so no surface has to remember it per paragraph. */
 .card-plane p,
 .card-plane dd,
+.card-plane .hint,
 .card-plane .choice span,
 .card-plane .check-row > span,
 .card-plane .empty,

@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 
 	// The broker dials Bob as a member would — keyed with the broker node's own
 	// identity — and fetches Bob's giftable dm. The fetched ref's home is this
-	// broker-to-Bob connection, which is what lets the broker re-gift it.
+	// broker-to-Bob connection, so the broker can re-gift it.
 	const brokerToBob = await brokerRuntime.connect(locator("127.0.0.1", bobPort));
 	brokerToBob.serve().catch(() => {});
 	const bobDm = await brokerToBob.fetch("dm");

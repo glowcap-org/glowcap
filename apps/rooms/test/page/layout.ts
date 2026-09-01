@@ -58,6 +58,40 @@ export async function run(
 	if (Math.abs(sheetCover.w - sheetCover.view) > 1) {
 		fail("the members cover is not the whole page");
 	}
+	// Same contract as the wide roster: the heading and the names share one
+	// region, and the sheet handle is chrome around it, not inside it.
+	const sheetScroll = await tab.evaluate(() => {
+		const scrolling = (el: Element | null) => {
+			if (el == null) return false;
+			const y = getComputedStyle(el).overflowY;
+			return y === "auto" || y === "scroll";
+		};
+		const ancestor = (el: Element | null) => {
+			for (let at = el?.parentElement ?? null; at != null; at = at.parentElement) {
+				if (scrolling(at)) return at;
+			}
+			return null;
+		};
+		const pane = document.querySelector(".members");
+		const body = document.querySelector(".members-body");
+		const list = document.querySelector("#members");
+		const head = pane?.querySelector("h2") ?? null;
+		if (pane == null || body == null || list == null || head == null) return null;
+		return {
+			pane: scrolling(pane),
+			body: scrolling(body),
+			list: scrolling(list),
+			shared: ancestor(list) === body && ancestor(head) === body,
+		};
+	});
+	if (sheetScroll == null) fail("the roster sheet had no pane, body, heading, and list to compare");
+	const sheetBroken = [
+		sheetScroll.pane && "the sheet still scrolls around its body",
+		!sheetScroll.body && "the region under the handle does not scroll",
+		sheetScroll.list && "the member list still scrolls on its own",
+		!sheetScroll.shared && "the heading and the names do not share that region",
+	].filter((said) => said !== false);
+	if (sheetBroken.length > 0) fail(`the roster sheet is not one scroller: ${sheetBroken.join("; ")}`);
 	await tab.locator("#cover").click({ position: { x: 24, y: 24 } });
 	await tab.waitForSelector(opened, { state: "detached", timeout: 5_000 })
 		.catch(() => fail("tapping the cover did not close the roster sheet"));
@@ -291,6 +325,37 @@ export async function run(
 			}
 		}
 
+		// A speaker's identity and a message are siblings, not one shared pill.
+		// Prove the layout rule with a synthetic row so the test can isolate one
+		// short bubble without waiting for the grouping clock to start a new row.
+		// The long identity includes the kind of origin label an IRC speaker wears;
+		// it may widen its stack, but must never stretch the short message under it.
+		const identityStretchedBubble = await tab.evaluate(() => {
+			const row = document.createElement("div");
+			row.className = "row them";
+			const stack = document.createElement("div");
+			stack.className = "stack";
+			const who = document.createElement("div");
+			who.className = "who";
+			who.textContent = "a-very-long-network-display-name-with-an-origin-label IRC";
+			const bubble = document.createElement("div");
+			bubble.className = "bubble";
+			bubble.textContent = "ok";
+			stack.append(who, bubble);
+			row.append(stack);
+			document.querySelector("#log")?.append(row);
+			const identityWidth = who.getBoundingClientRect().width;
+			const bubbleWidth = bubble.getBoundingClientRect().width;
+			row.remove();
+			return { identityWidth, bubbleWidth };
+		});
+		if (identityStretchedBubble.bubbleWidth >= identityStretchedBubble.identityWidth - 20) {
+			fail(
+				`a ${identityStretchedBubble.identityWidth}px speaker identity stretched its short message to ` +
+					`${identityStretchedBubble.bubbleWidth}px, instead of letting the bubble hug its own text`,
+			);
+		}
+
 		// Reaching the mark with a pointer, the way a hand does it: across the space
 		// between the bubble and the mark rather than teleported onto it. That space
 		// hovered neither of them, so the mark a reader was reaching for went away
@@ -371,14 +436,14 @@ export async function run(
 			}
 			const own = page === tab ? said.first : said.second;
 			const mine = await items(page, own);
-			if (!mine.includes("Copy") || !mine.includes("Edit") || !mine.includes("Delete")) {
+			if (!mine.includes("Copy") || !mine.includes("Edit") || !mine.includes("Withdraw")) {
 				fail(`${who} was not offered everything on a line of its own; the menu said ${JSON.stringify(mine)}`);
 			}
 			const theirs = await items(page, page === tab ? said.second : said.first);
 			if (!theirs.includes("Copy")) {
 				fail(`${who} could not copy somebody else's line; the menu said ${JSON.stringify(theirs)}`);
 			}
-			if (theirs.includes("Edit") || theirs.includes("Delete")) {
+			if (theirs.includes("Edit") || theirs.includes("Withdraw")) {
 				fail(`${who} was offered to change somebody else's line; the menu said ${JSON.stringify(theirs)}`);
 			}
 		}
@@ -434,7 +499,7 @@ export async function run(
 		// And the pane still knows they were here, which is what makes the badge's
 		// number a different question rather than the same one counted twice.
 		const summary = (await tab.textContent("#presenceSummary")) ?? "";
-		if (!summary.includes("1 online") || !summary.includes("2 seen")) {
+		if (!summary.includes("1 of 2 here")) {
 			fail(`the members pane lost the distinction the badge depends on: ${JSON.stringify(summary)}`);
 		}
 	}

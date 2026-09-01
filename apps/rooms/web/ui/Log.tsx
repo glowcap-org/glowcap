@@ -5,13 +5,17 @@
 // see a banner is decided here.
 
 import { memo, type ReactNode, type Ref, useMemo } from "react";
-import type { ChatItem, Conv, SendControlPolicy, Unread } from "./types.ts";
+import type { BridgeFacts, ChatItem, Conv, Item, SendControlPolicy, Unread } from "./types.ts";
 import { MessageGroup } from "./Message.tsx";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { type Block, blocksOf } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
+import { roomMarkGlyph, roomMarkTitle } from "./room_mark.tsx";
+import { roomPreset } from "../../lib/room/policy.ts";
+import { directoryName } from "./text.ts";
+import { useRoomsState } from "./hooks.ts";
 
 /** The line the "New messages" rule hangs above, or null when there is none. */
 function rulePlace(unread: Unread): number | null {
@@ -34,15 +38,18 @@ function rulePlace(unread: Unread): number | null {
 // looking at it, so it is derived from the conversation's current state and
 // rewrites itself when the introduction lands.
 function introBody(conv: Conv): string {
+	if (conv.type === "directory") {
+		return "Rooms you join on this directory appear in the list. Commands typed here run on this directory. Their results stay in this view.";
+	}
 	if (conv.type === "room") {
 		const beginning = conv.earlierHistory === "loading"
 			? "Your live view begins with this arrival. Checking whether the room kept earlier messages. "
 			: conv.earlierHistory === "shown"
-			? "The room placed its kept recent messages above the point where you joined. New lines arrive live. "
+			? "Earlier messages the room kept sit above where you joined. New lines arrive live. "
 			: conv.earlierHistory === "empty"
-			? "The room returned no earlier messages, so your view starts with this arrival. "
+			? "The room kept no earlier messages. Your live view begins with this arrival. "
 			: conv.earlierHistory === "unavailable"
-			? "The room did not provide earlier messages, so your view starts with this arrival. "
+			? "The room did not provide earlier messages. Your live view begins with this arrival. "
 			: "Your live view begins with this arrival. ";
 		// The two rooms say opposite things about who can walk in, and the panel
 		// is where a reader finds out which kind they are in. Saying the open
@@ -50,30 +57,22 @@ function introBody(conv: Conv): string {
 		if (conv.held) {
 			return beginning +
 				"The room is private: it is in no list, and nobody can enter it by name. " +
-				"Everybody here was handed it by somebody who was already in. Hand it on " +
-				"with /invite, and whoever holds it can do the same.";
+				"Everyone here was handed it. /invite hands it on, and whoever holds it can do the same.";
 		}
 		return beginning +
-			"Anyone who knows the room's name can join, and nobody had to make an account: " +
-			"the name you picked is a display name, not an identity anyone checked.";
+			"Anyone who knows the room's name can join. The name you picked is a display name, not an account.";
 	}
 	if (conv.line === "closed") {
 		return "This conversation is closed. " + conv.id +
-			" left the room, which takes their name back and may grant it to " +
-			"someone else, so there is no way from here to tell a later " +
-			conv.id + " from the one you were talking to. The messages above are " +
-			"yours to keep. Starting a new conversation with that name reaches " +
-			"whoever holds it now.";
+			" left the room. Their name may go to someone else, so there is no way from here to tell a later " +
+			conv.id + " from the one you were talking to. The messages above are yours to keep. " +
+			"A new conversation with that name reaches whoever holds it now.";
 	}
 	return conv.line === "live"
-		? "This line is direct. The directory introduced the exact live registration that held this name when the conversation opened. " +
-			"A later holder cannot inherit it, though the registration is not a durable account identity. " +
-			"The directory then stepped " +
-			"out of the path, so these messages travel peer to peer and the directory never " +
-			"sees them."
-		: "This line is not open yet. Sending the first message asks the directory to introduce the exact " +
-			"registration this conversation recorded; if the name changed hands, it refuses. The introduction is redeemed, and the directory then " +
-			"drops out of the path so what you say travels peer to peer.";
+		? "This line is direct. The directory introduced the person who held this name when the conversation opened, then stepped out. " +
+			"These messages travel peer to peer. The directory never sees them. A later holder of the name cannot inherit this line."
+		: "This line is not open yet. The first message asks the directory to introduce the person this conversation recorded. " +
+			"If the name has changed hands, it refuses. After that, messages travel peer to peer.";
 }
 
 function drawBlock(
@@ -87,6 +86,9 @@ function drawBlock(
 	onMention: (who: string) => void,
 	sendControls: SendControlPolicy,
 	changing: number | undefined,
+	/** What the bridge behind this room calls its own, so an author line can name
+	 * a foreign member the way the roster does. Undefined in an ordinary room. */
+	bridge: BridgeFacts | undefined,
 ): ReactNode {
 	switch (block.kind) {
 		case "day":
@@ -146,6 +148,7 @@ function drawBlock(
 					onWithdraw={onWithdraw}
 					onMention={onMention}
 					sendControls={sendControls}
+					bridge={bridge}
 					changing={changing}
 				/>
 			);
@@ -153,8 +156,15 @@ function drawBlock(
 }
 
 function LogPane(
-	{ conv, nick, hidden, ignored, sendControls, changing, ref }: {
+	{ conv, history, unread, nick, hidden, ignored, sendControls, changing, ref }: {
 		conv: Conv | null;
+		/** This conversation's log. Passed rather than read here so the log stays
+		 * a function of its props, and so an arriving line repaints without the
+		 * conversation identity changing. */
+		history: readonly Item[];
+		/** Where the "New messages" rule hangs, from the unread map rather than
+		 * the conversation. */
+		unread: Unread;
 		nick: string;
 		hidden: boolean;
 		/** The line this window is part way through rewriting, so the log can say
@@ -174,14 +184,15 @@ function LogPane(
 	// coming online). The rows below memoise on their own group, so an arriving
 	// line repaints the newest row alone.
 	const blocks = useMemo(
-		() => (conv ? blocksOf(conv.history, rulePlace(conv.unread), ignored) : []),
-		[conv?.history, conv?.unread, ignored],
+		() => (conv ? blocksOf(history, rulePlace(unread), ignored) : []),
+		[conv, history, unread, ignored],
 	);
 	// Bound once per conversation, so the rows below keep comparing equal while
 	// you type. The verb table never changes, so this only moves when the
 	// conversation does.
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
+	const homeDir = useRoomsState((state) => state.homeDir);
 	const retry = useMemo(
 		() => (id: number) => conv && session.retry(conv.key, id),
 		[conv?.key, session],
@@ -222,15 +233,18 @@ function LogPane(
 								<span
 									className={conv.held ? "hash held-lock" : "hash"}
 									aria-hidden="true"
-									title={conv.held
-										? "A private room: it is not listed, and only people it was handed to are here"
-										: undefined}
+									title={roomMarkTitle(roomPreset(conv.policy))}
 								>
-									{conv.held ? <Icon name="lock" size={15} /> : "#"}
+									{roomMarkGlyph(roomPreset(conv.policy), 15)}
+								</span>
+							)}
+							{conv.type === "directory" && (
+								<span className="hash" aria-hidden="true">
+									<Icon name="directory" size={15} />
 								</span>
 							)}
 							{conv.type === "dm" && <Avatar name={conv.id} />}
-							{conv.id}
+							{conv.type === "directory" ? directoryName(conv.dir, homeDir) : conv.id}
 						</h2>
 						<p>{introBody(conv)}</p>
 					</div>
@@ -252,6 +266,7 @@ function LogPane(
 							session.mention,
 							sendControls,
 							changing,
+							conv.type === "room" ? conv.bridge : undefined,
 						)
 					)}
 				</>

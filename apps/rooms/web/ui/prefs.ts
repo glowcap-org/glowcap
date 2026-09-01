@@ -10,6 +10,8 @@
 import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
 import { originVizUrl, vizOverrideRefusal } from "../../lib/viz_publish.ts";
 import { setWorkspaceConnectionSettings, workspaceConnectionSettings } from "./workspace_state.ts";
+import type { RoomsPageContext } from "./page.ts";
+import { coverForReload, finishCoveredReload, uncoverReload } from "./boot.ts";
 
 export { originVizUrl } from "../../lib/viz_publish.ts";
 
@@ -93,13 +95,17 @@ export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
  * reload so the peer opens with the new locator and viz tap. A caller names
  * only what it owns — Settings the DM transport, the visualizer pane its
  * endpoint — and what it leaves out keeps its current value. */
-export function apply(next: { dm?: DmMode; viz?: string }): boolean {
+export function apply(page: RoomsPageContext, next: { dm?: DmMode; viz?: string }): boolean {
 	const whole = { ...current(), ...next };
 	if (vizOverrideRefusal(whole.viz) != null) return false;
-	if (!setWorkspaceConnectionSettings({ dmMode: whole.dm, vizOverride: whole.viz })) return false;
+	coverForReload();
+	if (!setWorkspaceConnectionSettings(page, { dmMode: whole.dm, vizOverride: whole.viz })) {
+		uncoverReload();
+		return false;
+	}
 	const url = new URL(location.href);
 	writeSearch(url, whole);
 	history.replaceState(null, "", url);
-	location.reload();
+	finishCoveredReload();
 	return true;
 }

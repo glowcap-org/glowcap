@@ -240,8 +240,8 @@ never connect.
 
 A direct message between two browser tabs appears on the same timeline as the
 room's own sessions, with the room off its path;
-`apps/rooms/test/web_dm_viz_test.ts` drives that end to end and reads the
-endpoint as a viewer would. `apps/rooms/test/web_viz_lifecycle_test.ts` drives
+`apps/rooms/test/web/dm_viz_test.ts` drives that end to end and reads the
+endpoint as a viewer would. `apps/rooms/test/web/viz_lifecycle_test.ts` drives
 a member's whole life in a room — join, direct message, leave, close, reopen,
 go away — and after every step counts the peers and sessions through ocapnviz's
 own converter, so the picture rather than the feed is what is held.

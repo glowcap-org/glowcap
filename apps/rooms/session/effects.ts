@@ -2,9 +2,8 @@
 
 import * as z from "zod/mini";
 import { fixedHex, nonemptyText, nonnegativeSafeInteger } from "../lib/schema.ts";
-import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
+import { decodeSessionDocument, type RoomsSessionDocumentStore, SESSION_DOCUMENT_CEILINGS } from "./documents.ts";
 
-const FILE = "effects.json";
 const VERSION = 1;
 export const RECENT_OPERATIONS = 64;
 export const PENDING_OPERATIONS = 64;
@@ -12,7 +11,8 @@ const MAX_OPERATION_ID_CHARS = 128;
 const MAX_RESULT_KIND_CHARS = 64;
 const MAX_RESULT_TEXT_CHARS = 32 * 1024;
 const MAX_EFFECT_SUBJECT_CHARS = 256;
-const MAX_EFFECTS_STATE_BYTES = 4 * 1024 * 1024;
+const MAX_EFFECTS_STATE_BYTES = SESSION_DOCUMENT_CEILINGS.effects;
+const encoder = new TextEncoder();
 
 const operationId = nonemptyText(MAX_OPERATION_ID_CHARS);
 
@@ -105,30 +105,11 @@ export const EffectsStateSchema = EffectsStateShapeSchema.check(
 	z.refine(hasValidEffectRelations, "effect operation identities or result concurrency are inconsistent"),
 );
 
-export type RecentOperation = z.infer<typeof RecentOperationSchema>;
 export type OrdinaryPendingEffect = z.infer<typeof OrdinaryPendingEffectSchema>;
 export type PendingResultEffect = z.infer<typeof PendingResultEffectSchema>;
 export type PendingEffect = z.infer<typeof PendingEffectSchema>;
 export type RecentEffect = z.infer<typeof RecentEffectSchema>;
 export type EffectsState = z.infer<typeof EffectsStateSchema>;
-
-export function parseRecent(raw: unknown, minimumRevision = 1): RecentOperation[] {
-	const parsed = z.safeParse(
-		z.array(RecentOperationSchema).check(z.maxLength(RECENT_OPERATIONS)),
-		raw,
-	);
-	if (!parsed.success) {
-		throw new Error(`Rooms session has an invalid retry ledger:\n${z.prettifyError(parsed.error)}`);
-	}
-	const ids = new Set<string>();
-	for (const operation of parsed.data) {
-		if (operation.revision < minimumRevision || ids.has(operation.id)) {
-			throw new Error("Rooms session has an invalid retry row");
-		}
-		ids.add(operation.id);
-	}
-	return parsed.data;
-}
 
 export function effectText(raw: unknown, field: string, max = MAX_RESULT_TEXT_CHARS): string {
 	if (typeof raw !== "string" || raw === "" || raw.length > max) {
@@ -197,24 +178,31 @@ function parse(text: string): EffectsState {
 	return parsed.data;
 }
 
-export async function writeEffects(directory: string, effects: EffectsState): Promise<void> {
+export async function writeEffects(
+	documents: RoomsSessionDocumentStore,
+	effects: EffectsState,
+): Promise<void> {
 	const parsed = z.safeParse(EffectsStateSchema, effects);
 	if (!parsed.success) {
 		throw new Error(`Rooms session refused invalid effect state:\n${z.prettifyError(parsed.error)}`);
 	}
-	await atomicWrite(`${directory}/${FILE}`, new TextEncoder().encode(JSON.stringify(parsed.data) + "\n"));
+	const bytes = encoder.encode(JSON.stringify(parsed.data) + "\n");
+	if (bytes.length > MAX_EFFECTS_STATE_BYTES) {
+		throw new Error(`Rooms session effect state exceeds its ${MAX_EFFECTS_STATE_BYTES}-byte ceiling`);
+	}
+	await documents.write("effects", bytes);
 }
 
-export async function openEffects(directory: string, checkpointCreated: boolean): Promise<EffectsState> {
-	try {
-		return parse(
-			await readBoundedText(`${directory}/${FILE}`, MAX_EFFECTS_STATE_BYTES, "Rooms session effect state"),
-		);
-	} catch (error) {
-		if (!(error instanceof Deno.errors.NotFound)) throw error;
+export async function openEffects(
+	documents: RoomsSessionDocumentStore,
+	checkpointCreated: boolean,
+): Promise<EffectsState> {
+	const raw = await documents.read("effects");
+	if (raw == null) {
 		if (!checkpointCreated) throw new Error("Rooms session effect state is missing beside an existing checkpoint");
 		const effects: EffectsState = { version: VERSION, recent: [], pending: [] };
-		await writeEffects(directory, effects);
+		await writeEffects(documents, effects);
 		return effects;
 	}
+	return parse(decodeSessionDocument(raw, MAX_EFFECTS_STATE_BYTES, "Rooms session effect state"));
 }

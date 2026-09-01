@@ -28,9 +28,8 @@ never creates a misspelled name. Delete the ignored `.devcontainer/.env` and
 run `configure.sh` again to change between the isolated default and a custom
 network.
 
-The rooms deployment has its own `EGRESS_NET`, usually
-`cloudflare-tunnel-net`. The two stacks share only `rooms-net` unless the
-operator explicitly gives them the same egress network.
+The Rooms deployment publishes its web surface on host loopback and shares
+only `rooms-net` with the devcontainer.
 
 ## How the rooms peer connects
 

@@ -83,7 +83,7 @@ export function dial(locator: string, host?: Host): Promise<Session> {
 // the suite. Only the loader's own "not built here" refusal counts as absent;
 // a server that fails any other way is still a failure, because a skip that
 // swallows a real iroh regression would be worse than the wrong question.
-export const IROH_UNAVAILABLE = "iroh transport unavailable";
+const IROH_UNAVAILABLE = "iroh transport unavailable";
 
 let irohProbe: Promise<boolean> | null = null;
 
@@ -92,7 +92,7 @@ export function irohUsable(): Promise<boolean> {
 	return irohProbe;
 }
 
-export async function probeIroh(): Promise<boolean> {
+async function probeIroh(): Promise<boolean> {
 	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "0", "--transport=iroh"],
 		cwd: ROOT,
@@ -199,10 +199,23 @@ export async function readPort(proc: Deno.ChildProcess): Promise<number> {
 	throw new Error("rooms server never announced its port");
 }
 
+/** Child servers that mean no durable state must not inherit a live
+ * `PANCAKE_ROOMS_STATE` from the pane that launched the suite.
+ *
+ * `spawnOwned` is the authority that actually hides the pane directory
+ * (Deno overlays `env` unless `clearEnv` is set). This helper still names
+ * that absence for callers who pass an explicit environment map. */
+export function ephemeralRoomsEnv(): Record<string, string> {
+	const env = { ...Deno.env.toObject() };
+	delete env.PANCAKE_ROOMS_STATE;
+	return env;
+}
+
 export async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
 		cwd: ROOT,
+		env: ephemeralRoomsEnv(),
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -239,6 +252,7 @@ export async function withCapturedServer(fn: (port: number) => Promise<void>): P
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, SERVER, "0"],
 		cwd: ROOT,
+		env: ephemeralRoomsEnv(),
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -377,6 +391,7 @@ export async function withIrohServer(
 	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "--transport=iroh"],
 		cwd: ROOT,
+		env: ephemeralRoomsEnv(),
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -388,6 +403,7 @@ export async function withIrohServer(
 }
 
 export {
+	assertRoster,
 	enterOrOpen,
 	listRooms,
 	nextMessage,
@@ -396,6 +412,7 @@ export {
 	registerAndWatch,
 	resubscribeAndHold,
 	roomLines,
+	subscribeMembership,
 	subscribeOnce,
 	subscribeOnceConn,
 	subscribeOnceIroh,
@@ -404,6 +421,7 @@ export {
 	until,
 	waitForLine,
 	waitForMatch,
+	waitForRoster,
 	watchDirectory,
 	watchRoom,
 	watchRoomConn,

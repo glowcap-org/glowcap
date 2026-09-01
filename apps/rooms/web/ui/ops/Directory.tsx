@@ -1,20 +1,25 @@
 // The directory pane: what this directory holds, and the authority to change
 // it.
 //
-// Two capabilities fill this one address. Inspect lists what the directory
-// holds; operator lists the same things as the aggregates it can retire, plus
-// the ones inspect never sees. So a tab holding operator is shown the
-// operator's inventories alone, because drawing the read-only table beside
-// them would be the same rooms twice with only one of the two able to act.
-// A tab holding only inspect is shown the table.
+// Two capabilities fill this one address, and they list the same inventories:
+// the operator's rows carry the handles that retire them, and inspect's do
+// not. So a tab holding operator is shown the operator's page alone, because
+// drawing the read-only one beside it would be the same rooms twice with only
+// one of the two able to act. A tab holding only inspect is shown that page
+// with nothing to press.
 //
 // The page's own trouble journal belongs to the address rather than to either
 // capability, so it stands under whichever half drew.
 
+import { lazy, Suspense, useEffect } from "react";
 import type { DiagnosticRow, RoomsOperatorState, TroubleRow } from "../types.ts";
-import { DiagnosticsPane } from "./Diagnostics.tsx";
+import { loadDiagnosticsPane, loadOperatorPane, prefetch } from "../chunks.ts";
+import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
-import { OperatorPane } from "./Operator.tsx";
+import { SectionTitle } from "./Section.tsx";
+
+const OperatorPane = lazy(() => loadOperatorPane());
+const DiagnosticsPane = lazy(() => loadDiagnosticsPane());
 
 export function DirectoryPane(
 	{ operatorHeld, operator, inspectHeld, rows, trouble }: {
@@ -25,25 +30,36 @@ export function DirectoryPane(
 		trouble: readonly TroubleRow[];
 	},
 ) {
+	useEffect(() => {
+		if (operatorHeld) prefetch(loadOperatorPane);
+		else if (inspectHeld) prefetch(loadDiagnosticsPane);
+	}, [operatorHeld, inspectHeld]);
+	const wait = operatorHeld ? "operator state" : "what this directory holds";
+	const crash = operatorHeld ? "operator pane" : "inspect pane";
 	return (
-		<>
-			{operatorHeld
-				? (operator === null ? <OpsLoading what="operator state" /> : <OperatorPane state={operator} />)
-				: inspectHeld
-				? (rows === null ? <OpsLoading what="what this directory holds" /> : <DiagnosticsPane rows={rows} />)
-				: null}
-			{
-				/* Failures with no reader-facing surface of their own land here
+		<div className="ops-pane">
+			<ErrorBoundary part={crash}>
+				<Suspense fallback={<OpsLoading what={wait} />}>
+					{operatorHeld
+						? (operator === null ? <OpsLoading what="operator state" /> : <OperatorPane state={operator} />)
+						: inspectHeld
+						? (rows === null
+							? <OpsLoading what="what this directory holds" />
+							: <DiagnosticsPane rows={rows} />)
+						: null}
+				</Suspense>
+			</ErrorBoundary>
+			{trouble.length > 0 && (
+				<>
+					{
+						/* Failures with no reader-facing surface of their own land here
 				   instead of dying in the console, newest first, repeats folded
-				   into a count. Drawn even when empty, so an operator checking on
-				   the page learns "nothing" instead of nothing. */
-			}
-			<section className="ops-section">
-				<h3 className="well-title overline">This page</h3>
-				<div className="group well" id="pageTrouble">
-					{trouble.length === 0
-						? <p className="empty">Nothing has gone wrong on this page.</p>
-						: (
+				   into a count. No empty well is drawn: the absence of a browser
+				   failure already says there is nothing to inspect. */
+					}
+					<section className="ops-section">
+						<SectionTitle>Browser trouble</SectionTitle>
+						<div className="group well" id="pageTrouble">
 							<ul className="ops-trouble">
 								{trouble.map((row, at) => (
 									<li key={row.source + row.reason + String(at)}>
@@ -53,9 +69,10 @@ export function DirectoryPane(
 									</li>
 								))}
 							</ul>
-						)}
-				</div>
-			</section>
-		</>
+						</div>
+					</section>
+				</>
+			)}
+		</div>
 	);
 }

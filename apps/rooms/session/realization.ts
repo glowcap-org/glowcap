@@ -1,12 +1,13 @@
 // Live conversation lookup and bounded waiting for session effects.
 
-import type { Room } from "../lib/room_client.ts";
+import type { Room } from "../lib/room/client.ts";
 import type { DurableDirectLine } from "./direct_line.ts";
 import type { LiveDirectory } from "./live.ts";
 import { type DirectRealizationCallbacks, ensureDirectRoute } from "./directory_directs.ts";
 
 const REALIZATION_WAIT_MS = 10_000;
 export type DurableTypingTarget = { room: Room } | { direct: DurableDirectLine };
+export type RealizeDirect = (conversationId: string) => Promise<void>;
 
 export function durableTypingTarget(
 	directories: ReadonlyMap<string, LiveDirectory>,

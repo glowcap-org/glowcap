@@ -85,8 +85,8 @@ def locator(service_id: str) -> Locator:
     """Build the standardized hint-free locator for an onion service."""
     return Locator(_c.TRANSPORT_ONION, service_id, {}, "boolean-false")
 
-#: An unauthenticated control endpoint, which is what a Unix control socket with no
-#: authentication gives and what upstream Goblins assumes.
+#: An unauthenticated control endpoint, the form a Unix control socket with no
+#: authentication gives and the one upstream Goblins assumes.
 AUTH_NONE = _c.ONION_AUTH_NONE
 #: Authenticate with the bytes of the file ``CookieAuthFile`` names, which the
 #: transport sends as hexadecimal. The common default on a distribution's Tor.

@@ -1,7 +1,7 @@
 // Browser-only staging for archive blob transactions.
 
-import type { ArchiveLine, ArchiveRecord } from "../../lib/archive.ts";
-import type { ArchiveAttachmentAddress, ArchivedAttachmentSource } from "../../lib/archive_blobs.ts";
+import type { ArchiveLine, ArchiveRecord } from "../../lib/archive/protocol.ts";
+import type { ArchiveAttachmentAddress, ArchivedAttachmentSource } from "../../lib/archive/blobs.ts";
 import { BLOB_CHUNK } from "../../lib/limits.ts";
 
 export function archiveCoordinatesKey(record: ArchiveRecord | Omit<ArchiveAttachmentAddress, "index">): string {

@@ -83,10 +83,10 @@ is the planned next step and is not designed here.
 
 ## Evidence
 
-- `apps/rooms/test/viz_cap_test.ts`: the write refusal (the headline), the
+- `apps/rooms/test/viz/cap_test.ts`: the write refusal (the headline), the
   viewer refusal, the admission mark, viz-off minting nothing with a stale
   swiss answering nothing, and the announcement carrying the persisted swiss.
-- `apps/rooms/test/viz_test.ts`: the endpoint's merged-feed contracts,
+- `apps/rooms/test/viz/endpoint_test.ts`: the endpoint's merged-feed contracts,
   unchanged, with every socket presenting the capability.
 - `zig build rooms-web-page`: the third toggle's take flow, three-pane tab
   bar, and drop-erases in a real Chromium.

@@ -3,6 +3,7 @@ import { emptyRoomsSessionState, type RoomsSessionState } from "../lib/rooms_sta
 import { type IncomingRoomInvitation, RoomInvitationAdmission } from "../session/invitation_admission.ts";
 import type { DurableRoomsSessionState } from "../session/state.ts";
 import { assertEquals } from "./assert.ts";
+import { fixtureSturdyref } from "./support/workspace.ts";
 
 interface InvitationMutation {
 	change(checkpoint: RoomsSessionState): RoomsSessionState;
@@ -47,7 +48,7 @@ function invitation(at: number): IncomingRoomInvitation {
 	return {
 		directory: "ocapn://directory.id",
 		label: `room-${at}`,
-		link: `ocapn://directory.id/s/room-${at}`,
+		link: fixtureSturdyref("ocapn://directory.id", `room-${at}`),
 		from: "bo",
 		locator: "ocapn://directory.id",
 		nick: "ada",

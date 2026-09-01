@@ -15,21 +15,25 @@
 /* A pane is a column on the card's own gap: the lead and its refresh first,
    then one well per question. The knob rows in a pane are inline fields
    (forms.css); this is the one width their name column takes here. */
+/* A pane is its sections, and a section is a title with the well it names.
+   The two gaps are not the same number on purpose: a title standing as far
+   from the well it belongs to as from the one that ended above it belongs to
+   neither, which is what one box around the whole pane used to hide. */
 .ops-pane {
 	--field-name-w: 88px;
 	display: flex;
 	flex-direction: column;
-	gap: 13px;
+	gap: var(--gap-section);
 }
 .ops-section {
 	display: flex;
 	flex-direction: column;
-	gap: 13px;
+	gap: var(--gap-row);
 }
 .ops-head {
 	display: flex;
 	align-items: flex-start;
-	gap: 10px;
+	gap: var(--gap-row);
 }
 .ops-head .lead {
 	flex: 1;
@@ -38,45 +42,6 @@
 	text-wrap: pretty;
 }
 
-/* The panes' table rhythm: caption-weight column heads, a hairline between
-   rows, and a numberless third column that keeps actions at the line's end.
-   Locators and swiss numbers are wire text, so they sit in mono a step under
-   the prose around them. */
-.ops-table {
-	width: 100%;
-	border-collapse: collapse;
-	font-size: var(--type-ui);
-}
-.ops-table th,
-.ops-table td {
-	text-align: start;
-	padding: 6px 10px 6px 0;
-	vertical-align: baseline;
-	overflow-wrap: anywhere;
-}
-.ops-table th {
-	font-size: var(--type-caption);
-	font-weight: 700;
-	color: var(--ink-soft);
-	padding-top: 0;
-}
-.ops-table tbody tr td {
-	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
-}
-/* Without a heading row there is nothing for the first hairline to divide. */
-.ops-table tbody tr:first-child td {
-	border-top: 0;
-}
-/* A column that is code throughout carries itself in mono alone: a chip per
-   cell would checker the table, and the publication rows' source line keeps
-   the same voice. */
-.ops-table code,
-.entry-meta code {
-	font-size: 11px;
-	background: transparent;
-	padding: 0;
-	border-radius: 0;
-}
 .ops-kind {
 	font-size: var(--type-caption);
 	font-weight: 700;
@@ -93,7 +58,7 @@
 .ops-serving {
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	font-size: var(--type-caption);
 	font-weight: 700;
 	color: var(--teal-ink);
@@ -115,12 +80,12 @@
 	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 .ops-trouble li {
 	display: flex;
 	align-items: baseline;
-	gap: 10px;
+	gap: var(--gap-row);
 }
 .ops-trouble li + li {
 	padding-top: 8px;
@@ -136,18 +101,14 @@
 	color: var(--ink-soft);
 	white-space: nowrap;
 }
-/* A held capability's first answer. The card is already here, so reserve the
-   same lead-and-well rhythm its contents will use instead of flashing blank.
-   The traveling sheen is deliberately quiet and stops with reduced motion. */
-.ops-loading {
-	display: flex;
-	flex-direction: column;
-	gap: 13px;
-}
+/* A held capability's first answer. The address is already here, so it stands
+   in the pane's own rhythm — it wears `ops-pane` for that — instead of
+   flashing blank. The traveling sheen is deliberately quiet and stops with
+   reduced motion. */
 .ops-loading .well {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: var(--gap-row);
 }
 .ops-loading-line {
 	display: block;
@@ -187,6 +148,31 @@
 	}
 }
 
+/* A code chunk for a whole surface: the operations page in the content cell,
+   or the parts catalog inside Help. Same sheen as a pane's first answer. */
+.chunk-loading {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-section);
+}
+.chunk-loading-page {
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: var(--gap-section);
+	background: var(--page-bg);
+}
+.chunk-loading-page .well,
+.chunk-loading-catalog .well {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-row);
+	padding: var(--gap-section);
+}
+.chunk-loading-catalog {
+	padding-block: var(--gap-row);
+}
+
 /* ── The Operations surface ──────────────────────────────────────────────
    /ops stands in the shell's content cell, where the conversation stands:
    the rail, the topbar, and Settings stay up, and the way back is the rail
@@ -222,7 +208,7 @@
 	flex: none;
 	display: grid;
 	grid-template-columns: repeat(6, minmax(0, 1fr));
-	gap: 4px;
+	gap: var(--gap-line);
 	width: min(960px, calc(100% - 32px));
 	box-sizing: border-box;
 	margin: 14px auto 0;
@@ -234,6 +220,12 @@
 	border-radius: var(--radius-well);
 	background: var(--paper);
 	box-shadow: inset 0 1px 2px var(--shadow-sm-color), var(--shadow-sm);
+}
+/* One address is a bar with one tab across it, not a sixth of a bar with five
+   empty sixths beside it. Every count names its own tracks, because the base
+   six is the full set and nothing else divides into it evenly. */
+.ops-nav[data-count="1"] {
+	grid-template-columns: minmax(0, 1fr);
 }
 .ops-nav[data-count="2"] {
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -284,9 +276,21 @@
 	.ops-nav[data-count="4"] {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
-	.ops-nav[data-count="5"],
 	.ops-nav[data-count="6"] {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+	/* Five across three columns would end on two tabs and an empty third,
+	   which reads as a tab that failed to draw rather than as the end of the
+	   list. Six tracks say thirds and halves at once: three tabs of two
+	   tracks, then two of three that finish the row. */
+	.ops-nav[data-count="5"] {
+		grid-template-columns: repeat(6, minmax(0, 1fr));
+	}
+	.ops-nav[data-count="5"] > * {
+		grid-column: span 2;
+	}
+	.ops-nav[data-count="5"] > :nth-child(n + 4) {
+		grid-column: span 3;
 	}
 }
 @container (max-width: 430px) {
@@ -295,19 +299,38 @@
 	.ops-nav[data-count="6"] {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
+	/* Two columns put the wider rule above back on one track each. */
+	.ops-nav[data-count="5"] > *,
+	.ops-nav[data-count="5"] > :nth-child(n + 4) {
+		grid-column: auto;
+	}
+	/* An odd count ends on a tab alone beside a hole. It takes the row. */
+	.ops-nav[data-count="3"] > :last-child,
+	.ops-nav[data-count="5"] > :last-child {
+		grid-column: 1 / -1;
+	}
 }
+/* The same width as the chooser above it, said the same way, so the column
+   below a tab lines up with the tab rather than sitting a margin inside it. */
 .ops-page-body {
-	width: 100%;
-	max-width: 960px;
+	width: min(960px, calc(100% - 32px));
 	margin-inline: auto;
 	box-sizing: border-box;
-	padding: 16px 16px 32px;
+	padding: 16px 0 32px;
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	gap: var(--gap-group);
 }
-/* A pane's body stands on the raised card plane, the same paper a rooms
-   card or bubble stands on. */
+/* A pane is a column of wells on the page's own ground, with nothing drawn
+   around the column. One box around a whole pane says the pane is one thing,
+   and it is not: it is several inventories a reader takes one at a time, each
+   of which already carries its own edge. Dropping it also lets the column
+   stand at the chooser's width instead of inside it. The wells themselves are
+   plane.css's one recessed treatment, the same drawing the Settings dialog
+   uses, so a cluster of controls reads identically on the ground and on a
+   card. */
+/* The gate keeps the card, because a pane this tab cannot open really is one
+   thing to read. */
 .ops-card {
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-card);
@@ -326,13 +349,26 @@
 	font-size: var(--type-caption);
 	color: var(--ink-soft);
 }
+.ops-gate > .actions {
+	margin-top: 10px;
+}
+/* Each capability behind one address, told the way a single one is told: its
+   name, what holding it gives, and the flag that mints it. */
+.ops-gate-cap + .ops-gate-cap {
+	margin-top: 14px;
+	padding-top: 14px;
+	border-top: 1px solid var(--rule);
+}
+.ops-gate-cap h3 {
+	margin: 0 0 4px;
+	font-size: var(--type-ui);
+	font-weight: 700;
+}
 
-/* The narrow content cell keeps its cards readable: less inset, and the
-   entry rows and confirms already wrap their acts under the words. */
+/* The gate card gives back inset as the cell narrows. Nothing else needs it:
+   the panes carry no card of their own, and their entry rows and confirms
+   already wrap their acts under the words. */
 @container (max-width: 560px) {
-	.ops-page-body {
-		padding-inline: 12px;
-	}
 	.ops-card {
 		padding: 14px;
 	}
@@ -342,12 +378,71 @@
 	.ops-card {
 		padding: 12px;
 	}
+	/* Both, together, because the chooser and the column under it are one
+	   edge to a reader. */
+	.ops-nav,
 	.ops-page-body {
-		padding-inline: 8px;
+		width: calc(100% - 16px);
 	}
 	.ops-nav {
-		width: calc(100% - 16px);
 		margin-top: 10px;
+	}
+}
+
+/* ── Two columns, where the rows are peers ──────────────────────────────── */
+/* A list earns a second column when nothing in it is read in order and each
+   row is short enough that a full line is mostly empty. Both lists below are
+   that; every other inventory on these pages carries a locator or a sentence
+   that needs the width, and stays one column.
+
+   The rule between rows belongs between rows: in a grid the first row's items
+   are each the top of their own column, so they drop it.
+
+   A row that opens its question keeps its column. Giving the question the full
+   width reads better standing still and is wrong in motion, because the row
+   has to leave the grid to take it: the act just pressed jumps to the far
+   edge, and every row after it changes column. Nothing a reader did not touch
+   should move, which is the same reason the transport tiles hold their places
+   when a switch changes one of their heights. */
+@container (min-width: 620px) {
+	.ops-two-up {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		/* Twice a column, because each half ends in an act and the next half
+		   begins with a name; at one column the two crowd. */
+		column-gap: calc(var(--gap-column) * 2);
+		align-items: start;
+	}
+	.ops-two-up > .entry:nth-child(-n + 2) {
+		padding-top: 0;
+		border-top: none;
+	}
+}
+
+/* Seven transports, each its own switch and its own knobs, and an operator
+   reads them by comparing rather than in sequence. Each is a tile carrying its
+   own edge at every width, so between a phone and a desk the only thing that
+   changes is how many stand side by side. A rule between rows would have been
+   the cheaper separator, but it cannot survive the second column: their
+   heights differ too much for it to line up with anything.
+
+   The edge is the `well` every other pane draws, worn by the row instead of by
+   something around it, so this grid states only how many stand side by side.
+   A well around the list as well would be a third box drawn for nothing: a
+   well tells a panel's clusters apart, and this pane has one.
+
+   Tiles take their row's height rather than their own. A grid of cards ending
+   at different heights reads as one that failed to fill, and this list is not
+   free to reorder around it: a switch changes its own tile's height, and the
+   packing that would close the gap moves every tile after it. */
+.ops-tiles {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--gap-group) var(--gap-column);
+}
+@container (min-width: 900px) {
+	.ops-tiles {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }
 
@@ -376,7 +471,7 @@
 .ops-kind-group {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 .ops-kind-group + .ops-kind-group {
 	margin-top: 4px;
@@ -386,7 +481,7 @@
 .ops-kind-head {
 	display: flex;
 	align-items: baseline;
-	gap: 8px;
+	gap: var(--gap-row);
 	margin: 0;
 	font-size: var(--type-ui);
 	font-weight: 700;
@@ -412,7 +507,7 @@
 .ops-search {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--gap-tight);
 }
 .ops-search-field {
 	position: relative;

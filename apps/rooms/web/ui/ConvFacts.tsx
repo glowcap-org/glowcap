@@ -3,16 +3,19 @@
 // The directory card answers for the place this room or line lives on. This
 // answers for the conversation itself: what kind of thing it is, how this tab
 // reaches it, and the facts a reader would open the title to check. The
-// directory's name is the door to that card. The locator below the facts is
-// that directory's address unless this tab already holds a room link — from
-// `/link`, or from `/join` of one. Opening the card never mints that link.
+// directory's name is the door to that directory's conversation. The locator
+// below the facts is that directory's address for a public room. A private room
+// has no name-based entry, so its held room link is the only honest locator.
+// Durable authority for either kind remains visible in the separate
+// Capabilities tab.
 
 import { type Conv, type DirView, membersHere } from "./types.ts";
+import { useConversationMembers } from "./hooks.ts";
 import { conversationReach, dirConnection } from "./text.ts";
+import { grantedNameSaid } from "./DirectoryFacts.tsx";
 import { dmMode } from "./prefs.ts";
 import { CopyField } from "./Copy.tsx";
 import { Button } from "./Button.tsx";
-import { openModalFrom } from "./modal.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 
@@ -40,19 +43,20 @@ export function ConvFacts(
 ) {
 	const browser = useRoomsBrowser();
 	const rooms = useRoomsSession();
+	const roster = useConversationMembers(conv.type === "room" ? conv.key : null);
 	const phase = dir?.session;
 	const connection = dir == null ? null : dirConnection(dir.session, dir.statusText);
-	const here = conv.type === "room" ? membersHere(conv.members) : 0;
-	const roomLink = conv.type === "room" ? conv.link : undefined;
+	const here = conv.type === "room" ? membersHere(roster) : 0;
+	const roomLink = conv.type === "room" && conv.held ? conv.link : undefined;
 	const locator = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
-	const locatorKind = roomLink === undefined ? "Directory locator" : "Room link";
-	const locatorLabel = roomLink === undefined ? "Copy the locator for " + directory : "Copy the room link";
+	const locatorKind = roomLink === undefined ? "Directory locator" : "Room entry link";
+	const locatorLabel = roomLink === undefined ? "Copy the locator for " + directory : "Copy the room entry link";
 	return (
 		<div className="group well">
 			<dl className="dirfacts">
 				<dt>This is</dt>
 				<dd>
-					{conv.type === "room" ? roomKind(conv.held) : "Direct message"}
+					{conv.type === "room" ? roomKind(conv.held) : conv.type === "dm" ? "Direct message" : "Directory"}
 				</dd>
 				<dt>Directory</dt>
 				<dd>
@@ -60,9 +64,7 @@ export function ConvFacts(
 						<Button
 							id="convcardDir"
 							variant="link"
-							aria-haspopup="dialog"
-							onClick={(event) =>
-								openModalFrom(event.currentTarget, () => browser.aboutDirectory(dir.id))}
+							onClick={() => browser.showDirectory(dir.id)}
 						>
 							{directory}
 						</Button>
@@ -78,8 +80,8 @@ export function ConvFacts(
 						</dd>
 					</>
 				)}
-				<dt>Your name here</dt>
-				<dd>{dir === null || dir.nick === "" ? "Not granted yet" : dir.nick}</dd>
+				<dt>Your name</dt>
+				<dd>{grantedNameSaid(dir)}</dd>
 				{conv.type === "room" && (
 					<>
 						{bridgeOrigin !== null && (
@@ -115,7 +117,7 @@ export function ConvFacts(
 				text={locator}
 				label={locatorLabel}
 			/>
-			<p className="hint" id="convcardReach">{conversationReach(conv)}</p>
+			{conv.type !== "directory" && <p className="hint" id="convcardReach">{conversationReach(conv)}</p>}
 		</div>
 	);
 }

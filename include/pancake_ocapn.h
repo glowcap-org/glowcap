@@ -74,6 +74,14 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_DEFAULT_CAPTP_VERSION 0
 /* Default feature bitmask for byte-fed Host constructors. */
 #define PANCAKE_DEFAULT_FEATURES 31
+/* Codec half of pancake's coherent native Host profile. */
+#define PANCAKE_NATIVE_CODEC 2
+/* CapTP-version half of pancake's coherent native Host profile. */
+#define PANCAKE_NATIVE_CAPTP_VERSION 1
+/* Codec half of pancake's coherent interop Host profile. */
+#define PANCAKE_INTEROP_CODEC 1
+/* CapTP-version half of pancake's coherent interop Host profile. */
+#define PANCAKE_INTEROP_CAPTP_VERSION 0
 #define PANCAKE_FRAME_SHAPE_WORD 1
 #define PANCAKE_ARG_INTEGER 0
 #define PANCAKE_ARG_FLOAT64 1

@@ -79,6 +79,10 @@ def _feature_name(features: int):
 _DEFAULT_CODEC = _codec_name(_abi.DEFAULT_CODEC)
 _DEFAULT_CAPTP_VERSION = _captp_version_name(_abi.DEFAULT_CAPTP_VERSION)
 _DEFAULT_FEATURES = _feature_name(_abi.DEFAULT_FEATURES)
+_INTEROP_CODEC = _codec_name(_abi.INTEROP_CODEC)
+_INTEROP_CAPTP_VERSION = _captp_version_name(_abi.INTEROP_CAPTP_VERSION)
+_NATIVE_CODEC = _codec_name(_abi.NATIVE_CODEC)
+_NATIVE_CAPTP_VERSION = _captp_version_name(_abi.NATIVE_CAPTP_VERSION)
 
 
 def _captp_version_id(version: str) -> int:

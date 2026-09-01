@@ -50,6 +50,22 @@
 (define DEFAULT-CODEC-SYMBOL (codec<-id DEFAULT-CODEC))
 (define DEFAULT-CAPTP-VERSION-SYMBOL (captp-version<-id DEFAULT-CAPTP-VERSION))
 (define DEFAULT-FEATURES-SYMBOL (features<-mask DEFAULT-FEATURES))
+(define INTEROP-CODEC-SYMBOL (codec<-id INTEROP-CODEC))
+(define INTEROP-CAPTP-VERSION-SYMBOL (captp-version<-id INTEROP-CAPTP-VERSION))
+(define NATIVE-CODEC-SYMBOL (codec<-id NATIVE-CODEC))
+(define NATIVE-CAPTP-VERSION-SYMBOL (captp-version<-id NATIVE-CAPTP-VERSION))
+
+(define (host-profile-values who profile codec captp-version)
+  (unless (memq profile '(#f interop native))
+    (raise-pancake who ERR-INVALID-ARGUMENT "unknown Host profile ~a" profile))
+  (when (and profile (or codec captp-version))
+    (raise-pancake who ERR-INVALID-ARGUMENT
+                   "#:profile cannot be combined with #:codec or #:captp-version"))
+  (case profile
+    [(native) (values NATIVE-CODEC-SYMBOL NATIVE-CAPTP-VERSION-SYMBOL)]
+    [(interop) (values INTEROP-CODEC-SYMBOL INTEROP-CAPTP-VERSION-SYMBOL)]
+    [else (values (or codec DEFAULT-CODEC-SYMBOL)
+                  (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL))]))
 
 (define (captp-version-id version)
   (case version

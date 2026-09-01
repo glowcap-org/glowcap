@@ -2,7 +2,7 @@
 
 import type { DirectoryMember, RoomEvent, RoomInfo } from "../lib/directory_publications.ts";
 import { MAX_SESSION_DIRECTORY_ROWS } from "../lib/limits.ts";
-import type { RoomsSessionDirectoryView } from "../lib/rooms_session.ts";
+import type { RoomsSessionDirectoryView } from "../lib/session/client.ts";
 
 function sameRoom(left: RoomInfo, right: RoomInfo): boolean {
 	return left.id === right.id && left.name === right.name && left.kind === right.kind && left.count === right.count &&
@@ -23,6 +23,18 @@ export class DurableDirectoryView {
 		this.#rooms.clear();
 		for (const room of rooms.slice(0, MAX_SESSION_DIRECTORY_ROWS)) this.#rooms.set(room.id, room);
 		if (rooms.length > MAX_SESSION_DIRECTORY_ROWS) this.#markTruncated();
+	}
+
+	roomNamed(name: string): RoomInfo | null {
+		const key = name.toLowerCase();
+		for (const room of this.#rooms.values()) {
+			if (room.name.toLowerCase() === key) return room;
+		}
+		return null;
+	}
+
+	room(id: string): RoomInfo | null {
+		return this.#rooms.get(id) ?? null;
 	}
 
 	apply(event: RoomEvent): boolean {

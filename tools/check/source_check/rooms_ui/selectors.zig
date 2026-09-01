@@ -21,69 +21,69 @@ const Selector = struct {
 };
 
 const selectors = [_]Selector{
-    .{ .literal = "id=\"log\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"line\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"nick\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"room\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"joinBtn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"log\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"line\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"nick\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"room\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"joinBtn\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // Stopping a join that is still waiting. A rename here reads as "joining did
     // not offer a way to stop waiting", a claim about the card, made by the mark
     // that moved. The DOM id is `joinStop`; the component writes it as `stopId`
     // because `id` on WorkingAction is the busy button.
     .{ .literal = "stopId=\"joinStop\"", .proven_by = "apps/rooms/test/page/foreign.ts" },
-    .{ .literal = "id=\"joinPrivate\"", .proven_by = "apps/rooms/test/web_private_room_test.ts" },
+    .{ .literal = "id=\"joinPrivate\"", .proven_by = "apps/rooms/test/web/private_room_test.ts" },
     // The directory mark on the join card opens the locators this tab already
     // holds. A rename here reads as "the join card offered no addresses", a
     // claim about holding more than one directory, made by a control that moved.
-    .{ .literal = "id=\"joinLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"locator-picks\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"status\"", .proven_by = "apps/rooms/test/web_relay_peer_test.ts" },
-    .{ .literal = "id=\"backBtn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"railToggle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"membersToggle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"joinLocator\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"locator-picks\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"status\"", .proven_by = "apps/rooms/test/web/relay_peer_test.ts" },
+    .{ .literal = "id=\"backBtn\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"railToggle\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"membersToggle\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // Settings travels with the list: the rail title while it is up, the
     // conversation bar when it is away. A rename here reads as "the page offered
     // no Settings", a claim about the chrome, made by a control that moved.
-    .{ .literal = "id=\"settingsBtn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"members\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "listId=\"dmList\"", .proven_by = "apps/rooms/test/web_dm_retarget_test.ts" },
-    .{ .literal = "\"bubble\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"settingsBtn\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"members\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "listId=\"dmList\"", .proven_by = "apps/rooms/test/web/dm_retarget_test.ts" },
+    .{ .literal = "\"bubble\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // Posting a file: the picker the proof feeds a file to, and the two shapes
     // a posted file takes in a bubble. A rename here reads as "the second peer
     // never drew the posted image", which is a claim about the room relaying a
     // capability, made by a class that moved.
-    .{ .literal = "id=\"filePick\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "attach-image", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "attach-file", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"viewer\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "is-actual", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"viewerZoom\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"sidebar-body\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"dm-open\"", .proven_by = "apps/rooms/test/web_dm_retarget_test.ts" },
-    .{ .literal = "\"dm-btn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"filePick\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "attach-image", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "attach-file", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"viewer\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "is-actual", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"viewerZoom\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"sidebar-body\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"dm-open\"", .proven_by = "apps/rooms/test/web/dm_retarget_test.ts" },
+    .{ .literal = "\"dm-btn\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // The mark in the title ends whatever is on screen: it leaves a room, and it
     // closes a direct line. The two-tab proof closes a conversation with it and
     // then checks the member is still reachable, so a rename here would report
     // as "the members list stopped offering a direct line" — a claim about the
     // roster, made by a button that moved.
-    .{ .literal = "id=\"leaveBtn\"", .proven_by = "apps/rooms/test/web_dm_tabs_test.ts" },
-    .{ .literal = "show-list", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "members-open", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"leaveBtn\"", .proven_by = "apps/rooms/test/web/dm_tabs_test.ts" },
+    .{ .literal = "show-list", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "members-open", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // Copying a locator: the field that is itself the control, the chip that
     // says the copy happened, and the toast a refused write answers with above
     // Settings. The proof watches the reply arrive and then go, so a rename
     // here reads as "the copy control never answered", which is a claim about
     // the clipboard made by a class that moved.
-    .{ .literal = "\"copy-field\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"copy-said\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"toasts\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"toast\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"toast-dismiss\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"directoryLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "\"copy-field\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"copy-said\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"toasts\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"toast\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"toast-dismiss\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"directoryLocator\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // Double-clicking Help's title opens the parts catalog in that same dialog.
     // A rename here reads as "Help did not open the catalog", a claim about the
     // glossary made by a name that moved.
-    .{ .literal = "id=\"kitchenSink\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"kitchenSink\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // A room's row says which directory it is on, and that line opens the card
     // that describes it — this page's own included. Settings keeps the page
     // locator and a button that opens that same card. The proof presses both
@@ -91,39 +91,39 @@ const selectors = [_]Selector{
     // "holding two servers did not say which server each room is on" or "the
     // caption did not open a card about it" — claims about holding more than
     // one directory, made by a name that moved.
-    .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // A card's title is drawn by `ModalHead`, so the id a proof presses is
     // written as `titleId`, the way `stopId` is above.
-    .{ .literal = "titleId=\"dircardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "titleId=\"dircardTitle\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // The conversation's name opens what this tab knows about it, and a long
     // refusal's Show opens the rest of the words. A rename here reads as "the
     // title did nothing" or "Show did not open the rest" — claims about those
     // cards, made by a name that moved.
-    .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "titleId=\"convcardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"kitchenLongWhy\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "titleId=\"errorTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"errorBody\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardUriKind\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardReach\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardDir\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardStanding\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardLeaveAsk\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"convcardLeaveSaid\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"dirfacts\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"settingsAboutDir\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"dircardLeaveAsk\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "titleId=\"convcardTitle\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"kitchenLongWhy\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "titleId=\"errorTitle\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"errorBody\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardLocator\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardUriKind\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardReach\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardDir\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardStanding\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardLeaveAsk\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"convcardLeaveSaid\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "\"dirfacts\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"settingsAboutDir\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "id=\"dircardLeaveAsk\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // The commitment inside the leave confirm. Its id is written as `commitId`
     // because `Confirm` owns the button and `id` names the confirm itself.
-    .{ .literal = "commitId=\"dircardLeave\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "commitId=\"dircardLeave\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
     // The opening screen is written in the document rather than by a component,
-    // which is what lets it paint before the bundle exists. The proof watches
+    // so it can paint before the bundle exists. The proof watches
     // both of its faces from the first frame, so the names are load-bearing in
     // the same way every name above is.
-    .{ .literal = "id=\"boot\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "class=\"boot-wait\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "class=\"boot-explain\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "id=\"boot\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "class=\"boot-wait\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
+    .{ .literal = "class=\"boot-explain\"", .proven_by = "apps/rooms/test/web/page_test.ts" },
 };
 
 /// Every load-bearing selector is still emitted, and still proven.

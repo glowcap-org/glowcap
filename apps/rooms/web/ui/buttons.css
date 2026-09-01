@@ -27,7 +27,7 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: 7px;
+	gap: var(--gap-tight);
 	font: inherit;
 	line-height: 1.2;
 	text-align: center;
@@ -157,7 +157,7 @@
 .button[data-variant="caption"] {
 	justify-content: center;
 	text-align: center;
-	font-size: 11px;
+	font-size: var(--type-fine);
 	/* Taller than the rest of the family, because this is the family's smallest
 	   text and it truncates. An element that clips sideways for an ellipsis
 	   clips top and bottom too, and at eleven pixels a line box of 1.25 is a
@@ -270,7 +270,7 @@
 .working-action {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 .working-action .button {
 	flex: 1 1 auto;

@@ -18,27 +18,29 @@ The browser previously remembered one recent room, locator, and nickname. Its sa
 every room still present in memory, but a page reload started with no directories, conversations, selection, or drafts.
 The member archive recorded direct messages even though its record vocabulary also supported room lines.
 
-The Rooms operator capability had a second mismatch. Its name described application-wide authority while its contract and
-browser pane managed only room moderator capabilities. Diagnostics could show room links, registrations, and members,
-but those display rows were not safe mutation targets.
+The Rooms operator capability had a second mismatch. Its name described application-wide authority while its contract
+and browser pane managed only room moderator capabilities. Diagnostics could show room links, registrations, and
+members, but those display rows were not safe mutation targets.
 
 ## Decision
 
-The browser owns one versioned Rooms state bundle in local storage. Its independently versioned session section keeps directory routes, names,
-rooms, direct conversations, drafts, selection, standings, and the capability vault. Its view section keeps theme,
-notification, rail, roster, and panel preferences. The writer and parser share document and category limits, so the app
-never writes a bundle its own parser would reject.
+The browser owns one versioned Rooms state bundle in local storage. Its independently versioned session section keeps
+directory routes, names, rooms, direct conversations, drafts, selection, standings, and the capability vault. Its view
+section keeps theme, notification, rail, roster, and panel preferences. The writer and parser share document and
+category limits, so the app never writes a bundle its own parser would reject.
 
 The document contains no live session, reference, room wrapper, promise, timer, file handle, object URL, roster, or
-transfer state. Boot validates and projects the document into placeholder store rows before dialing. The network layer
+transfer state. It also contains no directory conversation: that view is this tab's, recreated when the address names
+it, and it is a command surface for that directory rather than a chat. Boot validates and projects the document into
+placeholder store rows before dialing. The network layer
 then opens each directory, re-enters public rooms by name or publication, redeems private rooms through their retained
 links, and acquires fresh direct routes when a conversation is used. A handed room with no durable link remains visible
 as unrecoverable instead of being silently discarded.
 
 The page directory is restored first; the remaining directory order stays as the reader left it. A root-page open
-restores the saved active conversation. An explicit room, direct-message, join, or operations address reserves selection
-for that route, so reconnecting rooms cannot replace it before the route acts. A reader's later room choice still takes
-the screen immediately.
+restores the saved active conversation. An explicit room, direct-message, join, directory, or operations address
+reserves selection for that route, so reconnecting rooms cannot replace it before the route acts. A reader's later
+room choice still takes the screen immediately.
 
 The member archive records room and direct lines through the same ordered, bounded writer. Recovered room records are
 the member's observed account. A room's retained history remains the room's own account. Both accounts stay separately
@@ -54,18 +56,21 @@ local and private room generations, pending and committed peering publications, 
 capabilities. Its initial response takes one synchronous revision across every category; later pages carry the revision
 and an exact continuation cursor. Registrations and sessions carry server-minted session IDs, and room owners carry
 generation IDs, so an action cannot hit a replacement that happens to reuse a display name. Disconnecting a session
-retires its connection-scoped references through the existing session lifecycle.
-An operator watch becomes active only after its first revision callback is delivered. Later callback refusal drops that
-watcher, so a dead observer cannot occupy the bounded watcher table while appearing reactive.
+retires its connection-scoped references through the existing session lifecycle. An operator watch becomes active only
+after its first revision callback is delivered. Later callback refusal drops that watcher, so a dead observer cannot
+occupy the bounded watcher table while appearing reactive.
 
 Removing a durable room link persists a tombstone before removing the Host publication. Every linked-room behavior
 checks the durable active state on each call, so removal stops already-enlivened references as well as later
-redemptions. A tombstoned name cannot be minted again because the same derived swiss would revive old copies.
-Room-owner removal delegates to the application owner that can complete the cleanup: local membership custody, peering,
-or the IRC gateway. Trouble clearing acknowledges the bounded process journal. Scoped reset operations cover links,
-registrations, sessions, rooms, and volatile runtime state. Factory reset rotates room authority and clears its active
-and revoked publication registries before retiring runtime state; neither form erases message history or server identity.
-Reset acknowledges existing trouble before retiring owners, so a failure caused by the reset remains in the journal.
+redemptions. The tombstone records the retired generation. A later request for the same room advances that generation
+and derives an unrelated room sturdyref, so the old capability remains dead while the room can be shared again. A
+moderator sturdyref includes the room-link generation in its derivation, so reissuing the room cannot revive an old
+moderator capability either. Room-owner removal delegates to the application owner that can complete the cleanup: local
+membership custody, peering, or the IRC gateway. Trouble clearing acknowledges the bounded process journal. Scoped reset
+operations cover links, registrations, sessions, rooms, and volatile runtime state. Factory reset rotates room authority
+and clears its active and revoked publication registries before retiring runtime state; neither form erases message
+history or server identity. Reset acknowledges existing trouble before retiring owners, so a failure caused by the reset
+remains in the journal.
 
 ## Consequences
 

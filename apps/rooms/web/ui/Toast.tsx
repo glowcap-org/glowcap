@@ -12,20 +12,21 @@
 // still not take a press. While a modal is open the stack is a child of it,
 // already in the top layer and in the tree that still accepts input.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import * as store from "./store.ts";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
-import * as store from "./store.ts";
 import type { ToastKind, ToastNotice } from "./types.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
-import { openModalFrom } from "./modal.ts";
+import { useRoomsProjection } from "./hooks.ts";
+import { useOpenModal, useTopModalLayer } from "./modal.ts";
 import { errorDetailTitle, needsErrorDetail } from "./error_text.ts";
 
 /** How long a notice stands before it leaves on its own. Long enough to read
  * after the eye has left the control, short enough that a run of them does not
  * become furniture. Hover or focus holds the remaining time. */
-export const TOAST_MS = 4000;
+const TOAST_MS = 4000;
 
 const kindIcon: Record<ToastKind, IconName> = {
 	success: "check",
@@ -46,6 +47,7 @@ export function ToastCard(
 	},
 ) {
 	const browser = useRoomsBrowser();
+	const openModalFrom = useOpenModal();
 	const expandable = needsErrorDetail(text);
 	return (
 		<div className="toast" data-kind={kind} role={kind === "failure" ? "alert" : "status"}>
@@ -83,32 +85,10 @@ export function ToastCard(
 	);
 }
 
-/** The modal that currently has the top layer, or null when the page does. */
-function liveModal(): HTMLDialogElement | null {
-	const opened = document.querySelectorAll("dialog.modal[open]");
-	for (let i = opened.length - 1; i >= 0; i--) {
-		const layer = opened[i];
-		if (!(layer instanceof HTMLDialogElement) || layer.inert) continue;
-		return layer;
-	}
-	return null;
-}
-
-export function Toasts({ toasts }: { toasts: readonly ToastNotice[] }) {
-	const [modal, setModal] = useState<HTMLDialogElement | null>(null);
+export const Toasts = memo(function Toasts({ toasts }: { toasts: readonly ToastNotice[] }) {
+	const projection = useRoomsProjection();
+	const modal = useTopModalLayer();
 	const [leaving, setLeaving] = useState<ReadonlySet<number>>(() => new Set());
-
-	useLayoutEffect(() => {
-		const sync = () => setModal(liveModal());
-		sync();
-		const observer = new MutationObserver(sync);
-		observer.observe(document.documentElement, {
-			subtree: true,
-			attributes: true,
-			attributeFilter: ["open", "inert"],
-		});
-		return () => observer.disconnect();
-	}, []);
 
 	useEffect(() => {
 		setLeaving((was) => {
@@ -133,14 +113,14 @@ export function Toasts({ toasts }: { toasts: readonly ToastNotice[] }) {
 	}, []);
 
 	const gone = useCallback((id: number) => {
-		store.dismissToast(id);
+		store.dismissToast(projection, id);
 		setLeaving((was) => {
 			if (!was.has(id)) return was;
 			const next = new Set(was);
 			next.delete(id);
 			return next;
 		});
-	}, []);
+	}, [projection]);
 
 	const stack = (
 		<div id="toasts" className="toasts" role="region" aria-label="Notices">
@@ -157,7 +137,7 @@ export function Toasts({ toasts }: { toasts: readonly ToastNotice[] }) {
 	);
 
 	return modal != null ? createPortal(stack, modal) : stack;
-}
+});
 
 function ToastSlot(
 	{ notice, leaving, onDismiss, onGone }: {
@@ -167,6 +147,7 @@ function ToastSlot(
 		onGone: (id: number) => void;
 	},
 ) {
+	const projection = useRoomsProjection();
 	const slot = useRef<HTMLDivElement>(null);
 	const remaining = useRef(TOAST_MS);
 	const deadline = useRef(0);
@@ -244,7 +225,7 @@ function ToastSlot(
 					kind={notice.kind}
 					text={notice.text}
 					onDismiss={() => onDismiss(notice.id)}
-					onExpand={() => store.dismissToast(notice.id)}
+					onExpand={() => store.dismissToast(projection, notice.id)}
 				/>
 			</div>
 		</div>

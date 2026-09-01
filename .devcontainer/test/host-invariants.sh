@@ -6,6 +6,8 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # lib/launcher.sh sources lib/mod.sh, so this covers both surfaces under test.
 # shellcheck source=../lib/launcher.sh
 source "${dir}/lib/launcher.sh"
+# shellcheck source=../lib/playwright.sh
+source "${dir}/lib/playwright.sh"
 
 # These tests build checkouts of their own and configure them. Run inside a
 # devcontainer, the surrounding checkout's identity is exported into this
@@ -22,6 +24,48 @@ cleanup() {
     rm -rf -- "${scratch}"
 }
 trap cleanup EXIT
+
+# Playwright's Linux archives use different inner names on x86_64 and arm64.
+# The image verifier must find one full browser and one headless shell on both,
+# and must not accept a partial installation merely because one binary exists.
+for playwright_layout in arm64 x86_64; do
+    playwright_root="${scratch}/playwright-${playwright_layout}"
+    if [[ "${playwright_layout}" == arm64 ]]; then
+        chromium_rel="chromium-1234/chrome-linux/chrome"
+        headless_rel="chromium_headless_shell-1234/chrome-linux/headless_shell"
+    else
+        chromium_rel="chromium-1234/chrome-linux64/chrome"
+        headless_rel="chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"
+    fi
+    mkdir -p "${playwright_root}/${chromium_rel%/*}" "${playwright_root}/${headless_rel%/*}"
+    touch "${playwright_root}/${chromium_rel}" "${playwright_root}/${headless_rel}"
+    if ! pancake_playwright_binaries "${playwright_root}"; then
+        echo "test/host-invariants: Playwright resolver missed the ${playwright_layout} browser layout" >&2
+        exit 1
+    fi
+    [[ "${playwright_bins[0]}" == "${playwright_root}/${chromium_rel}" ]]
+    [[ "${playwright_bins[1]}" == "${playwright_root}/${headless_rel}" ]]
+    rm "${playwright_root}/${headless_rel}"
+    if pancake_playwright_binaries "${playwright_root}"; then
+        echo "test/host-invariants: Playwright resolver accepted a missing headless shell" >&2
+        exit 1
+    fi
+done
+
+# A pin bump that leaves the previous build number behind is ambiguous, not
+# satisfied twice: the resolver refuses a store holding two full browsers.
+playwright_root="${scratch}/playwright-stale"
+mkdir -p "${playwright_root}/chromium-1111/chrome-linux" \
+    "${playwright_root}/chromium-2222/chrome-linux64" \
+    "${playwright_root}/chromium_headless_shell-2222/chrome-headless-shell-linux64"
+touch "${playwright_root}/chromium-1111/chrome-linux/chrome" \
+    "${playwright_root}/chromium-2222/chrome-linux64/chrome" \
+    "${playwright_root}/chromium_headless_shell-2222/chrome-headless-shell-linux64/chrome-headless-shell"
+if pancake_playwright_binaries "${playwright_root}"; then
+    echo "test/host-invariants: Playwright resolver accepted two full browsers" >&2
+    exit 1
+fi
+unset playwright_layout playwright_root chromium_rel headless_rel playwright_bins
 
 expect_launcher_error() {
     local launcher="$1" expected="$2" output

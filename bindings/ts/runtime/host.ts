@@ -17,7 +17,10 @@ import { Context } from "./context.ts";
 import { type CaptpVersion, type Codec, type FeatureSet } from "./value.ts";
 
 export const DURABLE_SWISS_ENTROPY_BYTES = HOST_DURABLE_ENTROPY_LEN;
+export type HostProfile = "interop" | "native";
 export interface HostOptions {
+	/** Select a core-authored coherent codec/version pair. */
+	profile?: HostProfile;
 	codec?: Codec;
 	captpVersion?: CaptpVersion;
 	features?: FeatureSet;

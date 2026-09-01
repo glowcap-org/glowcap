@@ -55,20 +55,25 @@
                             grace-mode
                             grace-value))
 
-;; `#:codec`, `#:captp-version`, and `#:features` are this host's signed
-;; profile offer. Each session settles version and codec with its partner,
+;; `#:profile` selects the core-authored `native` or `interop` codec/version
+;; pair. The individual `#:codec` and `#:captp-version` knobs remain available
+;; when no profile is named; `#:features` completes this host's signed offer.
+;; Each session settles version and codec with its partner,
 ;; falling back to v1.0/Syrup when needed, and runs only the intersection of the
 ;; two offered feature sets. Omitted `#:features` selects the generated default
 ;; offer; experimental multi-location routing requires explicit opt-in.
 ;; The host remembers the symbols so
 ;; `connect` can refuse explicit profile options that conflict with a shared
 ;; host's.
-(define (make-host seed #:codec [codec DEFAULT-CODEC-SYMBOL]
-                   #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
+(define (make-host seed #:profile [profile #f]
+                   #:codec [codec #f]
+                   #:captp-version [captp-version #f]
                    #:features [features DEFAULT-FEATURES-SYMBOL]
                    #:local-turn-budget [local-turn-budget 0])
   (unless (and (bytes? seed) (= (bytes-length seed) 32))
     (raise-pancake 'make-host ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
+  (define-values (selected-codec selected-captp-version)
+    (host-profile-values 'make-host profile codec captp-version))
   ;; Keep an owned copy so caller mutation cannot split the native identity from
   ;; the seed used to derive the host's designator.
   (define durable-seed (bytes->immutable-bytes (bytes-copy seed)))
@@ -83,8 +88,8 @@
   (define-values (context-rc context) (pancake_context_new))
   (check context-rc)
   (define-values (rc ptr)
-    (pancake_host_new_in context sbuf 64 HOST-FRAME-CAP 1 (codec-id codec)
-                        (captp-version-id captp-version) (feature-mask features)
+    (pancake_host_new_in context sbuf 64 HOST-FRAME-CAP 1 (codec-id selected-codec)
+                        (captp-version-id selected-captp-version) (feature-mask features)
                         local-turn-budget))
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
@@ -109,8 +114,8 @@
                                 error)))])
     (check/host identity-rc))
   (define m (host ptr context diagnostic-id durable-seed (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) (box #f) codec captp-version features (box #f) (make-hash)))
-  ;; The host's own key designator, which is what a partner names it by: the
+                  (make-hasheq) (make-hash) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) (box #f) selected-codec selected-captp-version features (box #f) (make-hash)))
+  ;; The host's own key designator, the name a partner knows it by: the
   ;; live trace reports it as this host's endpoint so one peer stays one node
   ;; in a feed several producers share.
   (trace-attach-host!
@@ -122,11 +127,12 @@
 
 ;; A host with a fresh random identity seed — entropy drawn at the binding
 ;; boundary, never inside the sans-io host.
-(define (make-fresh-host #:codec [codec DEFAULT-CODEC-SYMBOL]
-                         #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
+(define (make-fresh-host #:profile [profile #f]
+                         #:codec [codec #f]
+                         #:captp-version [captp-version #f]
                          #:features [features DEFAULT-FEATURES-SYMBOL]
                          #:local-turn-budget [local-turn-budget 0])
-  (make-host (crypto-random-bytes 32) #:codec codec #:captp-version captp-version
+  (make-host (crypto-random-bytes 32) #:profile profile #:codec codec #:captp-version captp-version
              #:features features
              #:local-turn-budget local-turn-budget))
 
@@ -359,6 +365,16 @@
 
 (module+ test
   (require rackunit)
+  (define-values (native-codec native-version)
+    (host-profile-values 'test 'native #f #f))
+  (check-equal? native-codec NATIVE-CODEC-SYMBOL)
+  (check-equal? native-version NATIVE-CAPTP-VERSION-SYMBOL)
+  (define-values (interop-codec interop-version)
+    (host-profile-values 'test 'interop #f #f))
+  (check-equal? interop-codec INTEROP-CODEC-SYMBOL)
+  (check-equal? interop-version INTEROP-CAPTP-VERSION-SYMBOL)
+  (check-exn exn:fail:pancake?
+             (lambda () (host-profile-values 'test 'native 'syrup #f)))
   (define failed 0)
   (answer-gift-id!
    (lambda () (error 'entropy "unavailable"))

@@ -5,5 +5,5 @@ export function isStateOnlyRoomEvent(
 	presence: { readonly kind: string } | null | undefined,
 	attachments: readonly unknown[],
 ): boolean {
-	return presence?.kind === "irc-seat" && text === "" && attachments.length === 0;
+	return presence?.kind === "seat" && text === "" && attachments.length === 0;
 }

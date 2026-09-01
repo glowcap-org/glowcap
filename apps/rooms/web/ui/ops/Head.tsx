@@ -4,9 +4,9 @@
 // belongs to the whole pane and a button under a table reads as acting on the
 // table's last row.
 //
-// A pane with no `refresh` has nothing to ask: the visualizer draws this
-// tab's own publishing socket, which the store already knows about, so it
-// gets the lead and no control that could only redraw what is there.
+// A pane with no `refresh` has nothing to ask: the visualizer draws the
+// publishing socket the store already knows about, so it gets the lead and
+// no control that could only redraw what is there.
 
 import { type ReactNode, useState } from "react";
 import { IconButton } from "../IconButton.tsx";

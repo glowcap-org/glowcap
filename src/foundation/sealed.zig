@@ -470,7 +470,7 @@ pub const SealedChannel = struct {
 
     /// Drain the pending handshake message as one owned wire frame the
     /// embedder writes verbatim, or null. Always drained before any sealed
-    /// frame, which is what keeps handshake bytes ahead of CapTP bytes.
+    /// frame, keeping handshake bytes ahead of CapTP bytes.
     pub fn takeWire(self: *SealedChannel, gpa: std.mem.Allocator) std.mem.Allocator.Error!?frame.Frame {
         if (self.pending_len == 0) return null;
         const storage = try gpa.dupe(u8, self.pending[0..self.pending_len]);

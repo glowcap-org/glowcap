@@ -41,6 +41,7 @@
          "action.rkt"
          "promise.rkt"
          "gc.rkt"
+         "locator.rkt"
          "session/state.rkt")
 
 (provide (all-defined-out)
@@ -440,7 +441,29 @@
     (raise-session-terminal-failure! c)
     (void)))
 
-;; ── Host-level select-or-dial enliven (ADR-0098) ──────────────────────────────
+;; ── Host-level select-or-dial capability lookup (ADR-0098) ───────────────────
+(define (await-host-capability m v who subject)
+  (dynamic-wind
+    void
+    (lambda ()
+      (with-host-drain m (lambda () (drain-host-actions! m)))
+      (let loop ()
+        (define s (session-vow-state v))
+        (cond
+          [(eq? s 'pending)
+           (define gen (host-progress-evt m))
+           (when (eq? (session-vow-state v) 'pending) (sync gen))
+           (loop)]
+          [(eq? (car s) 'ok)
+           (define val (cdr s))
+           (unless (ref? val)
+             (raise-pancake who ERR-UNSUPPORTED-VALUE
+                            "~a did not resolve to a capability: ~a" subject val))
+           val]
+          [else
+           (raise-pancake who ERR-BROKEN "~a broke: ~a" subject (cdr s))])))
+    (lambda () (release-vow-from-host! m v))))
+
 ;; Enliven a complete sturdyref against the host: select a live session this
 ;; host already dialed to the sturdyref's peer, or stage a dial and settle
 ;; over the opened session. The blocking wait is host-scoped — the vow
@@ -472,32 +495,27 @@
                (bytes-length sturdyref-bytes))))
         (check/host rc)
         (adopt-minted-vow! m #f id #f #f))))
-  (dynamic-wind
-    void
-    (lambda ()
-      ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial action
-      ;; whose executor uses the connector explicitly registered on this Host.
-      (with-host-drain m (lambda () (drain-host-actions! m)))
-      (let loop ()
-        (define s (session-vow-state v))
-        (cond
-          [(eq? s 'pending)
-           ;; Snapshot, re-check, then park: the bump posts the snapshot under
-           ;; the host lock, so a settle between the check and the sync still
-           ;; wakes this waiter (the pump-until idiom, host-scoped).
-           (define gen (host-progress-evt m))
-           (when (eq? (session-vow-state v) 'pending) (sync gen))
-           (loop)]
-          [(eq? (car s) 'ok)
-           (define val (cdr s))
-           (unless (ref? val)
-             (raise-pancake 'host-enliven ERR-UNSUPPORTED-VALUE
-                            "enliven \"~a\" did not resolve to a capability: ~a" sturdyref val))
-           val]
-          [else
-           (raise-pancake 'host-enliven ERR-BROKEN
-                          "enliven \"~a\" broke: ~a" sturdyref (cdr s))])))
-    (lambda () (release-vow-from-host! m v))))
+  (await-host-capability m v 'host-enliven (format "enliven ~s" sturdyref)))
+
+;; Fetch a named publication at a typed locator. The Host's configured profile
+;; owns version, codec, route admission, and physical dial selection.
+(define (host-fetch-at m locator name #:connector [connector #f])
+  (when (unbox (host-released? m))
+    (raise-pancake 'host-fetch-at ERR-CLOSED "host released"))
+  (when connector (host-register-connector! m connector))
+  (define name-bytes (string->bytes/utf-8 name))
+  (define v
+    (call-with-locator-view
+     locator
+     (lambda (view)
+       (call-with-host m
+         (lambda ()
+           (define-values (rc id)
+             (pancake_host_fetch_at
+              (host-ptr m) view (pin-immobile name-bytes) (bytes-length name-bytes)))
+           (check/host rc)
+           (adopt-minted-vow! m #f id #f #f))))))
+  (await-host-capability m v 'host-fetch-at (format "publication ~s" name)))
 
 ;; ── Off-turn settlement: the resolver pair ────────────────────────────────────
 ;; A behavior atomically defers with `host-defer-turn`, parks the resolver for

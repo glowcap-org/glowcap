@@ -58,7 +58,7 @@ const introducer_swiss = "introducer";
 const deadline_ms: u64 = 60_000;
 
 /// The profile both pancake hosts ask for. Neither gets it on every session,
-/// which is what the run is about.
+/// and that mismatch is what the run is about.
 fn nativeOptions() Host.Options {
     var o = Host.Options.withFrameCap(frame_cap);
     o.local_turn_budget = 64;

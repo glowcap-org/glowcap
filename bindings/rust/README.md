@@ -96,7 +96,7 @@ provider ABI. Blocking TCP handles remain available through that same feature.
 configures one, so `Config` names where an existing daemon listens.
 With `async,onion`, `onion::listen` and `onion::connect` compose that provider
 into the generic driver and yield ordinary Sessions; `onion::Netlayer` remains
-the raw frame surface. The Rust binding dogfood uses a fake daemon and makes no
+the raw frame surface. The Rust binding check (`zig build rust-dogfood`) uses a fake daemon and makes no
 live-Tor claim of its own. Repository-level on-demand checks cross Tor with two
 pancake peers, Goblins in both directions, upstream conformance, service
 restoration, and Rooms; they require Tor and outbound network access.

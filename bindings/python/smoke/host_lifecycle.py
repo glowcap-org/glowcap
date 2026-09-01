@@ -23,6 +23,19 @@ def run() -> None:
         else:
             raise AssertionError("Host must reject a seed that is not 32 bytes")
 
+    native = Host(profile="native")
+    interop = Host(profile="interop")
+    assert (native.codec, native.captp_version) == ("capnp", "next")
+    assert (interop.codec, interop.captp_version) == ("syrup", "v1_0")
+    asyncio.run(native.close())
+    asyncio.run(interop.close())
+    try:
+        Host(profile="native", codec="syrup")
+    except PancakeError as exc:
+        assert exc.code == ERR_INVALID_ARGUMENT, exc.code
+    else:
+        raise AssertionError("Host profile must reject an independent codec")
+
     caller_seed = bytearray(range(32))
     owned_seed_host = Host(seed=caller_seed)
     try:

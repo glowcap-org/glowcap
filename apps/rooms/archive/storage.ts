@@ -18,13 +18,13 @@ import {
 	MAX_ARCHIVE_ID_BYTES,
 	MAX_ARCHIVE_RECORDS,
 	parseArchiveRecord,
-} from "../lib/archive.ts";
+} from "../lib/archive/protocol.ts";
 import type {
 	ArchiveAttachmentAddress,
 	ArchivedAttachmentRead,
 	ArchivedAttachmentSource,
 	ErasableBlobArchiveBackend,
-} from "../lib/archive_blobs.ts";
+} from "../lib/archive/blobs.ts";
 import {
 	MAX_ATTACHMENT_BYTES,
 	MAX_FILE_NAME,
@@ -38,7 +38,7 @@ import { boundedText, fixedHex, nonemptyText, nonnegativeSafeInteger, positiveSa
 import * as z from "zod/mini";
 import { appendSynced, atomicWrite } from "./file_io.ts";
 import { FileArchiveBlobs } from "./blob_storage.ts";
-import { MAX_ARCHIVE_BLOB_BYTES } from "../lib/archive_blobs.ts";
+import { MAX_ARCHIVE_BLOB_BYTES } from "../lib/archive/blobs.ts";
 
 const FILE = "archive.jsonl";
 const FORMAT = "pancake-rooms-member-archive";
@@ -46,7 +46,7 @@ const VERSION = 1;
 const DEFAULT_COMPACT_DELTA = 512;
 /** The protocol's worst-case 5,000-record snapshot fits below this ceiling;
  * the loader refuses a larger file before allocating a string for it. */
-export const MAX_ARCHIVE_FILE_BYTES = 128 * 1024 * 1024;
+const MAX_ARCHIVE_FILE_BYTES = 128 * 1024 * 1024;
 const encoder = new TextEncoder();
 
 interface OpenOptions {
@@ -391,6 +391,10 @@ export class FileArchiveBackend implements ErasableArchiveBackend, ErasableBlobA
 	async read(filter: ArchiveFilter, after: number, limit: number): Promise<ArchivePage> {
 		await this.#tail;
 		return this.#index.read(filter, after, limit);
+	}
+
+	peekLine(filter: ArchiveFilter): ArchiveLine | null {
+		return this.#index.matchingLine(filter);
 	}
 
 	async #compact(): Promise<void> {

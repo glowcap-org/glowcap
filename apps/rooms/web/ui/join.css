@@ -31,14 +31,41 @@
 .join,
 .modal-card {
 	--card-stripe-to: var(--teal);
-	--card-stripe: linear-gradient(90deg in oklch, var(--accent), var(--card-stripe-to)) 0 0 / 100% 4px no-repeat;
+	/* The gradient and the line that ends it, together, because they are one
+	   mark. On a card that scrolls its own rows the line is also where a row
+	   passing behind the cap is cut; on one that does not it is only the cap's
+	   own edge. Both wear it, so the two cards cannot come to disagree about
+	   what the top of a card looks like. */
+	--card-stripe-edge: color-mix(in srgb, var(--rule) 70%, transparent);
+	--card-stripe:
+		linear-gradient(90deg in oklch, var(--accent), var(--card-stripe-to)) 0 0 / 100% 4px no-repeat,
+		linear-gradient(var(--card-stripe-edge), var(--card-stripe-edge)) 0 4px / 100% 1px no-repeat;
+}
+/* The cap, drawn once for both cards.
+   It sits against the padding box, so it starts inside the card's own border,
+   and both cards clip to the radius that border leaves, which is what carves
+   its ends. It paints over the rows
+   rather than beside them: the rows really do pass behind it, which is what a
+   card that scrolls under a cap should look like, and there is no band they are
+   fenced out of to arrange it. Nothing is pressable in five pixels of paint, so
+   a press there belongs to whatever is under it. */
+.join::before,
+.modal-card::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	height: 5px;
+	background: var(--card-stripe);
+	pointer-events: none;
+	z-index: 1;
 }
 .join {
 	margin: auto;
-	width: min(390px, 100%);
+	/* One question: a name and a room. */
+	width: min(var(--card-ask), 100%);
 	display: flex;
 	flex-direction: column;
-	gap: 13px;
+	gap: var(--gap-group);
 	/* One gap separates everything in this form, which is right between one
 	   question and the next and too much inside a single one. A field's label
 	   pulls itself back by this much, so a reader sees three groups rather than
@@ -46,13 +73,17 @@
 	--field-tuck: 7px;
 	border: 1px solid var(--rule);
 	border-radius: 18px;
-	padding: 28px;
-	background: var(--card-stripe), var(--paper-raised);
+	/* Less above and below than at the sides. The card is tall and narrow, so
+	   equal padding reads as more at the ends than it does at the edges, and the
+	   space above the title was carrying the heading's own margin on top of it. */
+	padding: 22px 28px;
+	background: var(--paper-raised);
 	box-shadow: var(--shadow);
 	position: relative;
-	/* Visible so the locator menu can hang off its field. The stripe is a
-	   background layer, so the card's own radius still clips it. */
-	overflow: visible;
+	/* It clips, like the modal card, because nothing inside it needs to leave any
+	   more: the directory menu and the list of room names this card can finish
+	   both open into their own layer (`Menu.tsx`). */
+	overflow: hidden;
 }
 /* The join screen is not a modal — it is the whole of the page until there is a
    room — but it arrives the way one does, and for the same reason: it is a card
@@ -73,12 +104,14 @@
 	--card-stripe-to: var(--dir-mark);
 }
 .join h2 {
-	margin: 4px 0 0;
+	/* No margin of its own: the card's padding is the space above the title,
+	   said once. */
+	margin: 0;
 	font-size: var(--type-display);
 	letter-spacing: -.01em;
 	display: flex;
 	align-items: center;
-	gap: 9px;
+	gap: var(--gap-row);
 }
 .join p.lead {
 	margin: -4px 0 6px;
@@ -98,12 +131,31 @@
 	opacity: .72;
 	margin-left: 4px;
 }
-/* The questions, held together so they can go inert while a join is in flight
-   without the card's own gap having to know they are a group. */
+/* The questions, held together so they can go inert — while a join is in
+   flight, and whenever this capability cannot join at all — without the card's
+   own gap having to know they are a group. */
 .join-fields {
 	display: flex;
 	flex-direction: column;
-	gap: 13px;
+	gap: var(--gap-group);
+}
+/* And when they cannot be answered, they look it. Drawn as ordinary fields they
+   invite three answers the card has just finished saying it will not take, and
+   under a lead explaining why there is nothing to join that reads as a
+   contradiction rather than a state.
+
+   The page's fade for a refused control, at the depth its rows take rather than
+   the deeper one a bare icon needs: this is a group of questions with their
+   words, not a glyph. Nothing inside carries the fade already, so unlike the
+   composer's disabled card it lands once and `opacity` is open to us here.
+
+   The fade without the pointer, which is the half of that treatment `inert` does
+   not admit: hit testing skips an inert subtree, so a `cursor` declared on it is
+   never the one resolved — measured, and the pointer lands on the form outside.
+   The refused rows this borrows from hold a `disabled` input rather than an
+   inert group, and are still hit-tested, which is why they can say both. */
+.join-fields[inert] {
+	opacity: .55;
 }
 /* One box around a prefix and the text, so the three questions share a
    silhouette: a mark that looks like a preview, then the name it belongs to.
@@ -115,7 +167,7 @@
 .join-field {
 	display: flex;
 	align-items: center;
-	gap: 2px;
+	gap: var(--gap-hair);
 	width: 100%;
 	padding: 3px 8px 3px 3px;
 	border-radius: 11px;
@@ -126,6 +178,10 @@
 [data-dir] .join-field {
 	border-color: color-mix(in srgb, var(--dir-mark) 32%, var(--rule));
 }
+/* The one ring that writes itself out. Its hue is the directory's own mark,
+   which is set on the element and not known where the named rings are
+   composed, so there is nothing up there for this to name. The shape and the
+   strength are the same as theirs, and have to be kept so by reading. */
 .join-field:focus-within {
 	border-color: var(--dir-mark, var(--accent));
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--dir-mark, var(--accent)) 28%, transparent);
@@ -135,7 +191,7 @@
 }
 .join-field[data-invalid="true"]:focus-within {
 	border-color: var(--danger);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+	box-shadow: var(--ring-danger);
 }
 .join-field input {
 	flex: 1;
@@ -169,6 +225,10 @@
 }
 .join-hash {
 	font-weight: 700;
+	/* Relative, and not a ramp step: this is the sigil in front of a room's
+	   name, drawn a shade larger than whatever that name is set in so the two
+	   read as one word. Pinning it to a size would break that pairing wherever
+	   the name is set differently. */
 	font-size: 1.15em;
 	line-height: 1;
 	letter-spacing: -.04em;
@@ -179,7 +239,7 @@
 .join-prefix .avatar-chip {
 	width: 28px;
 	height: 28px;
-	font-size: 11px;
+	font-size: var(--type-fine);
 	border-radius: 9px;
 }
 /* Held locators, hanging off the directory mark. The same rows a message menu
@@ -188,7 +248,7 @@
 /* Under the field it finishes, spanning its width. The card is a short stack of
    short fields, so a list beside it would leave the page and a list that pushed
    the fields down would move the button out from under the reader's hand. */
-.join-field-wrap .suggest-pop {
+.menu-layer.join-offers .suggest-pop {
 	top: calc(100% + 6px);
 	bottom: auto;
 	left: 0;
@@ -205,7 +265,7 @@
 	z-index: 7;
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--gap-hair);
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	border-radius: 10px;

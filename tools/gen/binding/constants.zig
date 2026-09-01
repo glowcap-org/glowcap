@@ -137,6 +137,10 @@ const constants = [_]Const{
     con("DEFAULT_CODEC", c.PANCAKE_DEFAULT_CODEC, .uint, null),
     con("DEFAULT_CAPTP_VERSION", c.PANCAKE_DEFAULT_CAPTP_VERSION, .uint, null),
     con("DEFAULT_FEATURES", c.PANCAKE_DEFAULT_FEATURES, .uint, null),
+    con("INTEROP_CODEC", c.PANCAKE_INTEROP_CODEC, .uint, null),
+    con("INTEROP_CAPTP_VERSION", c.PANCAKE_INTEROP_CAPTP_VERSION, .uint, null),
+    con("NATIVE_CODEC", c.PANCAKE_NATIVE_CODEC, .uint, null),
+    con("NATIVE_CAPTP_VERSION", c.PANCAKE_NATIVE_CAPTP_VERSION, .uint, null),
     // PancakeLastAbort.domain (c_uint).
     con("ABORT_DOMAIN_CODEC", c.PANCAKE_ABORT_DOMAIN_CODEC, .uint, null),
     con("ABORT_DOMAIN_SESSION", c.PANCAKE_ABORT_DOMAIN_SESSION, .uint, null),

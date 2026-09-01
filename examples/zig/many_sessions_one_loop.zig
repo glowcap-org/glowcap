@@ -3,7 +3,7 @@
 //! Chapter 02 shows the introduction on the plain application surface, where
 //! one `call` settles as the introduced service. This program shows the same
 //! move on the completion-loop tier — `driver.core.Host` + `driver.Bridge` +
-//! `net.TcpLoop` (ADR-0068, ADR-0076) — which is what you reach for when one
+//! `net.TcpLoop` (ADR-0068, ADR-0076) — the tier you reach for when one
 //! thread must serve many connections rather than one.
 //!
 //! What it costs is visible below: explicit readiness flags, a loop that owns

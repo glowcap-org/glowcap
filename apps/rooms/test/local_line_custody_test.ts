@@ -3,7 +3,7 @@
 import { type Argument, type Behavior, Ref, type Session } from "@pancake/runtime";
 import type { Attachment } from "../lib/attachment.ts";
 import { MAX_LINE } from "../lib/limits.ts";
-import type { Message, Room } from "../lib/room_client.ts";
+import type { Message, Room } from "../lib/room/client.ts";
 import type { Live } from "../web/ui/net/live.ts";
 import { assertEquals } from "./assert.ts";
 import { registrationId } from "./support/registration.ts";
@@ -15,7 +15,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const { receiveDm } = await import("../web/ui/net/direct.ts");
 const { releaseHeldFile } = await import("../web/ui/net/files.ts");
-const { dirs } = await import("../web/ui/net/live.ts");
+const { RoomsPage } = await import("../web/ui/page.ts");
 const { projectRoomMessage } = await import("../web/ui/net/room_messages.ts");
 const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
@@ -36,16 +36,32 @@ function message(name: string, overrides: Partial<Message> = {}): Message {
 	};
 }
 
-function resetStore(): void {
-	store.set({
-		...store.initial,
+function resetStore(page: InstanceType<typeof RoomsPage>): void {
+	page.projection.set({
+		...store.initialState(),
 		activeKey: null,
 		convs: new Map(),
 		dirs: new Map(),
 		drafts: new Map(),
 		ignored: new Set(),
 	});
-	dirs.clear();
+	page.live.dirs.clear();
+}
+
+function live(page: InstanceType<typeof RoomsPage>, id: ReturnType<typeof dirId>): Live {
+	const session = {
+		page,
+		id,
+		files: new Map(),
+		objectUrls: new Map(),
+		echoes: [],
+		refiling: new Map(),
+		outgoing: new Map(),
+		posted: new Map(),
+		progress: { pending: new Map(), frame: null },
+	} as unknown as Live;
+	page.live.dirs.set(id, session);
+	return session;
 }
 
 function withExpectedTrouble(work: () => void): void {
@@ -58,36 +74,24 @@ function withExpectedTrouble(work: () => void): void {
 	}
 }
 
-function live(id: ReturnType<typeof dirId>): Live {
-	return {
-		id,
-		files: new Map(),
-		objectUrls: new Map(),
-		echoes: [],
-		refiling: new Map(),
-		outgoing: new Map(),
-		posted: new Map(),
-		progress: { pending: new Map(), frame: null },
-	} as unknown as Live;
-}
-
 Deno.test("local room projection releases rejected, orphaned, and mismatched file occurrences", () => {
-	resetStore();
+	const page = new RoomsPage();
+	resetStore(page);
 	const directory = dirId("directory");
-	store.openDir(directory, "127.0.0.1:1");
-	store.patchDir(directory, { nick: "ada" });
-	const owner = live(directory);
-	dirs.set(directory, owner);
+	store.openDir(page.projection, directory, "127.0.0.1:1");
+	store.patchDir(page.projection, directory, { nick: "ada" });
+	const owner = live(page, directory);
 	const released: string[] = [];
 	const room = {
 		release: (file: Attachment) => released.push(file.name),
 	} as unknown as Room;
 	const key = store.roomKey(directory, "general");
 
-	projectRoomMessage(directory, key, "general", room, message("too-long.txt", { from: "x".repeat(257) }));
-	projectRoomMessage(directory, key, "general", room, message("system.txt", { system: true }));
-	projectRoomMessage(directory, key, "general", room, message("edited.txt", { change: "edited" }));
+	projectRoomMessage(page, directory, key, "general", room, message("too-long.txt", { from: "x".repeat(257) }));
+	projectRoomMessage(page, directory, key, "general", room, message("system.txt", { system: true }));
+	projectRoomMessage(page, directory, key, "general", room, message("edited.txt", { change: "edited" }));
 	projectRoomMessage(
+		page,
 		directory,
 		key,
 		"general",
@@ -99,11 +103,12 @@ Deno.test("local room projection releases rejected, orphaned, and mismatched fil
 	);
 	assertEquals(released, ["too-long.txt", "system.txt", "edited.txt", "missing-refile.txt"]);
 
-	const optimistic = store.chatItem("ada", "mine", true, "sending");
-	store.deliver(key, optimistic);
+	const optimistic = store.chatItem(page.projection, "ada", "mine", true, "sending");
+	store.deliver(page.projection, key, optimistic);
 	owner.echoes.push({ key, id: optimistic.id, attachmentIds: [], text: "mine" });
 	withExpectedTrouble(() =>
 		projectRoomMessage(
+			page,
 			directory,
 			key,
 			"general",
@@ -115,12 +120,13 @@ Deno.test("local room projection releases rejected, orphaned, and mismatched fil
 		)
 	);
 	assertEquals(released.at(-1), "extra-echo.txt");
-	const missingView = store.attachmentView({ name: "missing.txt", mime: "text/plain", size: 1 });
-	const missingItem = store.chatItem("ada", "missing", true, "sending", [missingView]);
-	store.deliver(key, missingItem);
+	const missingView = store.attachmentView(page.projection, { name: "missing.txt", mime: "text/plain", size: 1 });
+	const missingItem = store.chatItem(page.projection, "ada", "missing", true, "sending", [missingView]);
+	store.deliver(page.projection, key, missingItem);
 	owner.echoes.push({ key, id: missingItem.id, attachmentIds: [missingView.id], text: "missing" });
 	withExpectedTrouble(() =>
 		projectRoomMessage(
+			page,
 			directory,
 			key,
 			"general",
@@ -132,23 +138,37 @@ Deno.test("local room projection releases rejected, orphaned, and mismatched fil
 			}),
 		)
 	);
-	const missing = store.getConv(key)?.history.find((item) => item.id === missingItem.id);
+	const missing = store.historyOf(page.projection, key).find((item) => item.id === missingItem.id);
 	assertEquals(missing?.kind === "chat" ? missing.attachments?.[0]?.lost : false, true);
 
-	projectRoomMessage(directory, key, "general", room, message("held.txt", { lineId: 2 }));
-	const held = store.getConv(key)?.history.find((item) => item.kind === "chat" && item.lineId === 2);
+	projectRoomMessage(page, directory, key, "general", room, message("held.txt", { lineId: 2 }));
+	const held = store.historyOf(page.projection, key).find((item) => item.kind === "chat" && item.lineId === 2);
 	if (held?.kind !== "chat") throw new Error("the local room fixture retained no ordinary file line");
 	const heldView = held.attachments?.[0];
 	if (heldView == null) throw new Error("the local room fixture retained no ordinary file");
 	releaseHeldFile(owner, heldView.id);
 	assertEquals(released.at(-1), "held.txt");
 
-	projectRoomMessage(directory, key, "general", room, message("before-refile.txt", { lineId: 3 }));
-	const beforeRefile = store.getConv(key)?.history.find((item) => item.kind === "chat" && item.lineId === 3);
+	projectRoomMessage(page, directory, key, "general", room, message("before-refile.txt", { lineId: 3 }));
+	const beforeRefile = store.historyOf(page.projection, key).find((item) =>
+		item.kind === "chat" && item.lineId === 3
+	);
 	if (beforeRefile?.kind !== "chat") throw new Error("the local room fixture retained no refile target");
-	owner.refiling.set(3, []);
+	owner.refiling.set(key, new Map([[3, []]]));
+	const otherKey = store.roomKey(directory, "other");
+	projectRoomMessage(page, directory, otherKey, "other", room, message("other-before.txt", { lineId: 3 }));
+	projectRoomMessage(
+		page,
+		directory,
+		otherKey,
+		"other",
+		room,
+		message("other-after.txt", { change: "refiled", lineId: 3 }),
+	);
+	assertEquals(owner.refiling.get(key)?.has(3), true);
 	withExpectedTrouble(() =>
 		projectRoomMessage(
+			page,
 			directory,
 			key,
 			"general",
@@ -159,22 +179,26 @@ Deno.test("local room projection releases rejected, orphaned, and mismatched fil
 			}),
 		)
 	);
-	const afterRefile = store.getConv(key)?.history.find((item) => item.kind === "chat" && item.lineId === 3);
+	const afterRefile = store.historyOf(page.projection, key).find((item) => item.kind === "chat" && item.lineId === 3);
 	assertEquals(afterRefile?.kind === "chat" ? afterRefile.attachments?.[0]?.name : null, "after-refile.txt");
 	const afterRefileView = afterRefile?.kind === "chat" ? afterRefile.attachments?.[0] : null;
 	if (afterRefileView != null) releaseHeldFile(owner, afterRefileView.id);
-	dirs.clear();
-	store.forgetConv(key);
+	const other = store.historyOf(page.projection, otherKey).find((item) => item.kind === "chat" && item.lineId === 3);
+	const otherView = other?.kind === "chat" ? other.attachments?.[0] : null;
+	if (otherView != null) releaseHeldFile(owner, otherView.id);
+	page.live.dirs.clear();
+	store.forgetConv(page.projection, otherKey);
+	store.forgetConv(page.projection, key);
 });
 
 Deno.test("local direct delivery releases files and surplus line-capability arguments", () => {
-	resetStore();
+	const page = new RoomsPage();
+	resetStore(page);
 	const directory = dirId("directory");
-	store.openDir(directory, "127.0.0.1:1");
-	store.patchDir(directory, { nick: "ada" });
-	const owner = live(directory);
-	dirs.set(directory, owner);
-	const direct = store.restoreDm(directory, "bo", registrationId(1), "direct", false);
+	store.openDir(page.projection, directory, "127.0.0.1:1");
+	store.patchDir(page.projection, directory, { nick: "ada" });
+	live(page, directory);
+	const direct = store.restoreDm(page.projection, directory, "bo", registrationId(1), "direct", false);
 	if (direct == null) throw new Error("the local direct fixture created no conversation");
 	const hosted: Behavior[] = [];
 	const released: Ref[] = [];
@@ -187,9 +211,9 @@ Deno.test("local direct delivery releases files and surplus line-capability argu
 	} as unknown as Session;
 
 	const refusedFile = attachment("refused.txt");
-	receiveDm(direct.key, "bo", "x".repeat(MAX_LINE + 1), [refusedFile], via);
+	receiveDm(page, direct.key, "bo", "x".repeat(MAX_LINE + 1), [refusedFile], via);
 	assertEquals(released, [refusedFile.blob]);
-	receiveDm(direct.key, "bo", "line", [], via);
+	receiveDm(page, direct.key, "bo", "line", [], via);
 	const behavior = hosted[0];
 	if (behavior == null) throw new Error("the local direct fixture received no line capability");
 
@@ -221,6 +245,6 @@ Deno.test("local direct delivery releases files and surplus line-capability argu
 	}
 	assertEquals(refileRefused, true);
 	assertEquals(released.at(-1), refile.blob);
-	dirs.clear();
-	store.forgetConv(direct.key);
+	page.live.dirs.clear();
+	store.forgetConv(page.projection, direct.key);
 });

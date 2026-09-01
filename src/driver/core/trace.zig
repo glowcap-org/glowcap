@@ -98,8 +98,8 @@ pub const Event = union(enum) {
         ///
         /// One frame crosses one wire, so both ends hold the same bytes and
         /// derive the same tag with no coordination and no counter — nothing
-        /// per-session is retained for it, which is what keeps it off the
-        /// footprint budget. That is what lets a consumer merge two
+        /// per-session is retained for it, keeping it off the footprint
+        /// budget. A consumer can therefore merge two
         /// observers' views of one session instead of discarding one, and it
         /// is derived rather than claimed: a producer cannot assert that some
         /// other message is this one without holding its bytes.

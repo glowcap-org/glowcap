@@ -127,7 +127,7 @@ impl<'a> Config<'a> {
 		}
 	}
 
-	/// Add a control endpoint, which is what makes hosting possible.
+	/// Add a control endpoint, the piece that makes hosting possible.
 	pub fn with_control(mut self, control: &'a str, auth: Auth<'a>) -> Config<'a> {
 		self.control = control;
 		self.auth = auth;

@@ -9,6 +9,7 @@
 //! or settlement consequence unsettled.
 
 const shared = @import("c_abi_shared");
+const model = @import("model");
 const c = @import("mod.zig");
 const common = @import("common.zig");
 
@@ -68,6 +69,32 @@ pub fn enlivenForVersion(
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err|
         return shared.marshalErrorToCode(err);
     slot.* = inst.core.enlivenUriForVersion(version, uri) catch |err| return common.errToCode(err);
+    return shared.PANCAKE_OK;
+}
+
+pub fn fetchAt(
+    host: ?*c.PancakeHost,
+    locator_view: ?*const shared.PancakeLocatorView,
+    name: ?[*]const u8,
+    name_len: usize,
+    out_vow: ?*u64,
+) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const view = locator_view orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const slot = out_vow orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const swiss = shared.sliceFromC(name, name_len) catch |err|
+        return shared.marshalErrorToCode(err);
+    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
+    var locator = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
+        if (err == error.OutOfMemory) return common.errToCode(err);
+        shared.setLastError("host: fetch_at received an invalid locator view", .{});
+        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    defer locator.deinit(inst.allocator);
+    slot.* = inst.core.enlivenSelectOrDial(.{
+        .peer = locator.value,
+        .swissnum = swiss,
+    }) catch |err| return common.errToCode(err);
     return shared.PANCAKE_OK;
 }
 

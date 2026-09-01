@@ -26,6 +26,7 @@ pancake_pins_companion_source() {
 
 pancake_pins_companions() {
     local dep="$1" old="$2" new="$3"
+    local old_digest="${4:-${DENO_IMAGE_DIGEST:-}}" new_digest="${5:-${DENO_IMAGE_DIGEST:-}}"
     case "${dep}" in
         debian)
             printf '%s\t%s\t%s\n' \
@@ -34,7 +35,9 @@ pancake_pins_companions() {
             ;;
         deno)
             printf '%s\t%s\t%s\n' \
-                apps/rooms/web/deploy/rooms.Dockerfile "denoland/deno:bin-${old}" "denoland/deno:bin-${new}"
+                apps/rooms/web/deploy/rooms.Dockerfile \
+                "denoland/deno:bin-${old}@${old_digest}" \
+                "denoland/deno:bin-${new}@${new_digest}"
             ;;
         playwright)
             # The root deno.json resolves the browser proofs' playwright import
@@ -74,7 +77,8 @@ pancake_pins_companion_stage_for() {
 # Stage every companion of one dep. Replacement is literal text, never a
 # pattern, because a version string carries dots that a regex would widen.
 pancake_pins_stage_companions() {
-    local dep="$1" old="$2" new="$3" relative from to staged edited
+    local dep="$1" old="$2" new="$3" old_digest="${4:-}" new_digest="${5:-}"
+    local relative from to staged edited
     while IFS=$'\t' read -r relative from to; do
         [[ -n "${relative}" ]] || continue
         pancake_pins_companion_stage_for "${relative}"
@@ -100,5 +104,5 @@ pancake_pins_stage_companions() {
             return 1
         }
         mv "${edited}" "${staged}"
-    done < <(pancake_pins_companions "${dep}" "${old}" "${new}")
+    done < <(pancake_pins_companions "${dep}" "${old}" "${new}" "${old_digest}" "${new_digest}")
 }

@@ -486,6 +486,9 @@
 (expect (ref? hs-cap) "host-enliven: selected a live dialed session")
 (expect (equal? (sym "alive") (session-send en-session hs-cap 'hello))
         "host-enliven: explicit v1.0 swiss semantics select the live authority")
+(define fetched-at (host-fetch-at (session-host en-session) en-locator "greeter"))
+(expect (equal? (sym "alive") (session-send en-session fetched-at 'hello))
+        "host-fetch-at: typed locator uses the host's configured profile")
 ;; DIAL: a fresh host with no session stages a dial through the action queue,
 ;; the executor opens the exporter session on its own serve thread, and the
 ;; host-scoped wait settles over it.

@@ -12,17 +12,18 @@
 // revoke.
 
 import type { Argument, Session } from "@pancake/runtime";
-import { isPrivateRoomKey } from "../../lib/limits.ts";
-import type { OperatorCategory } from "../../lib/protocol.ts";
-import { introductions } from "../registry.ts";
+import { roomIsListed } from "../../lib/room/policy.ts";
+import type { OperatorCategory, OperatorReferenceKind } from "../../lib/operator_vocabulary.ts";
+import type { RoomServerContext } from "../context.ts";
 import { revokeIntroduction } from "../introductions.ts";
-import { troubleRows } from "../journal.ts";
-import { disconnectOperatorSession, operatorIdForSession, operatorSessionFaces } from "../sessions.ts";
+import type { RoomServerSessions } from "../sessions.ts";
 import type { RoomLinks } from "../room_links.ts";
 import { operatorRoomFaces, removeOperatorRoom } from "./rooms.ts";
-import { operatorReferenceFaces, releaseOperatorReference } from "./references.ts";
-import { type OperatorRowSource, searchText } from "./page.ts";
+import type { OperatorReferenceInventory } from "./references.ts";
+import { matchesQuery, type OperatorRowSource, searchText } from "./page.ts";
 import { liveRoom, type StewardshipRow, stewardshipRows, wireStewardshipRow } from "./stewardships.ts";
+import type { IrcBridgeAuthorities } from "../irc_gateway/authority.ts";
+import { isManagedRoomId } from "../../lib/limits.ts";
 
 /** One inventory row: what the wire sends, and how this server retires it.
  * `retire` is null when the row is not something to retire one at a time. */
@@ -40,35 +41,74 @@ function face(
 }
 
 export function operatorFaces(
+	ctx: RoomServerContext,
 	links: RoomLinks,
 	session: Session,
+	sessions: RoomServerSessions,
+	references: OperatorReferenceInventory,
 	category: OperatorCategory,
+	referenceKind: OperatorReferenceKind | null = null,
+	bridges: IrcBridgeAuthorities | null = null,
 ): Iterable<OperatorRowSource<OperatorRowFace>> {
-	if (category === "stewardships") return stewardshipFaces(links, session);
-	if (category === "links") return linkFaces(links);
-	if (category === "registrations") return registrationFaces();
-	if (category === "sessions") return sessionFaces(session);
-	if (category === "rooms") return roomFaces();
-	if (category === "references") return referenceFaces();
-	return troubleFaces();
+	if (category === "stewardships") return stewardshipFaces(ctx, links, session, bridges);
+	if (category === "links") return linkFaces(ctx, links);
+	if (category === "registrations") return registrationFaces(ctx, sessions, session);
+	if (category === "sessions") return sessionFaces(sessions, session);
+	if (category === "rooms") return roomFaces(ctx, sessions);
+	if (category === "references") return referenceFaces(references, referenceKind);
+	return troubleFaces(ctx);
 }
 
-function* stewardshipFaces(links: RoomLinks, session: Session): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const row of stewardshipRows(links, session)) {
+function* stewardshipFaces(
+	ctx: RoomServerContext,
+	links: RoomLinks,
+	session: Session,
+	bridges: IrcBridgeAuthorities | null,
+): Iterable<OperatorRowSource<OperatorRowFace>> {
+	for (const row of stewardshipRows(ctx, links, session, bridges)) {
+		const bridge = bridges?.stewardship(row.name, session) ?? null;
 		yield face(
 			searchText(row.name, row.label, row.visibility, row.issued ? "issued" : ""),
 			() => wireStewardshipRow(row),
-			row.issued ? () => links.revokeSteward(row.name).then(() => undefined) : null,
+			row.issued
+				? () =>
+					(bridge == null ? links.revokeSteward(row.name) : bridges!.revokeSteward(row.name))
+						.then(() => undefined)
+				: null,
 		);
 	}
 }
 
-function* linkFaces(links: RoomLinks): Iterable<OperatorRowSource<OperatorRowFace>> {
+/** How this directory names one durable room link: the durable name its verbs
+ * take, the label a person reads, and whether the room is listed. A private
+ * room has no label, because its label was never its identity.
+ *
+ * Exported because the inspect capability lists the same links and has to name
+ * them the same way. Two copies of this resolution would drift, and the way it
+ * showed would be one page calling a room `design` while the other called the
+ * same room by its durable key. */
+export function linkFace(
+	ctx: RoomServerContext,
+	links: RoomLinks,
+	name: string,
+): { name: string; label: string; visibility: "listed" | "private" } {
+	const live = liveRoom(ctx, name);
+	const managed = links.managedRoom(name);
+	const privateRoom = live != null
+		? !roomIsListed(live.policy)
+		: managed != null
+		? !roomIsListed(managed.policy)
+		: isManagedRoomId(name);
+	return {
+		name,
+		label: live?.name ?? managed?.name ?? (privateRoom ? "" : name),
+		visibility: privateRoom ? "private" : "listed",
+	};
+}
+
+function* linkFaces(ctx: RoomServerContext, links: RoomLinks): Iterable<OperatorRowSource<OperatorRowFace>> {
 	for (const { name } of links.named()) {
-		const live = liveRoom(name);
-		const privateRoom = live?.private ?? isPrivateRoomKey(name);
-		const label = live?.name ?? (privateRoom ? "" : name);
-		const visibility = privateRoom ? "private" : "listed";
+		const { label, visibility } = linkFace(ctx, links, name);
 		yield face(
 			searchText(name, label, visibility),
 			() => [name, label, visibility] as Argument,
@@ -77,30 +117,39 @@ function* linkFaces(links: RoomLinks): Iterable<OperatorRowSource<OperatorRowFac
 	}
 }
 
-function* registrationFaces(): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const intro of introductions.values()) {
-		const id = operatorIdForSession(intro.registrar);
+function* registrationFaces(
+	ctx: RoomServerContext,
+	sessions: RoomServerSessions,
+	caller: Session,
+): Iterable<OperatorRowSource<OperatorRowFace>> {
+	for (const intro of ctx.live.introductions.values()) {
+		const id = sessions.operatorIdFor(intro.registrar);
 		if (id == null) continue;
 		yield face(
 			searchText(intro.nick, id),
-			() => [intro.nick, id] as Argument,
+			() => [intro.nick, id, intro.registrar === caller] as Argument,
 			() => {
-				revokeIntroduction(intro.nick, intro.registrar);
+				revokeIntroduction(ctx, intro.nick, intro.registrar);
 			},
 		);
 	}
 }
 
-function* sessionFaces(caller: Session): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const source of operatorSessionFaces(caller)) {
+function* sessionFaces(
+	sessions: RoomServerSessions,
+	caller: Session,
+): Iterable<OperatorRowSource<OperatorRowFace>> {
+	for (const source of sessions.operatorFaces(caller)) {
 		yield {
 			text: source.text,
 			build: () => {
 				const row = source.build();
 				return {
-					wire: () => [row.id, row.transport, row.nick] as Argument,
+					wire: () => [row.id, row.transport, row.nick, row.you] as Argument,
 					retire: () => {
-						disconnectOperatorSession(row.id, caller);
+						if (!sessions.disconnect(row.id, caller)) {
+							throw new Error("this operator's own connection stays");
+						}
 					},
 				};
 			},
@@ -108,8 +157,11 @@ function* sessionFaces(caller: Session): Iterable<OperatorRowSource<OperatorRowF
 	}
 }
 
-function* roomFaces(): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const source of operatorRoomFaces()) {
+function* roomFaces(
+	ctx: RoomServerContext,
+	sessions: RoomServerSessions,
+): Iterable<OperatorRowSource<OperatorRowFace>> {
+	for (const source of operatorRoomFaces(ctx)) {
 		yield {
 			text: source.text,
 			build: () => {
@@ -124,35 +176,57 @@ function* roomFaces(): Iterable<OperatorRowSource<OperatorRowFace>> {
 							row.proof,
 							row.retainedCapabilities === null ? null : BigInt(row.retainedCapabilities),
 							row.members.flatMap((member) => {
-								const id = operatorIdForSession(member.session);
+								const id = sessions.operatorIdFor(member.session);
 								return id == null ? [] : [[member.nick, id, member.state]];
 							}),
 							row.membersMore,
 						] as Argument,
-					retire: () => removeOperatorRoom(row.id).then(() => undefined),
+					retire: () => removeOperatorRoom(ctx, row.id).then(() => undefined),
 				};
 			},
 		};
 	}
 }
 
-function* referenceFaces(): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const source of operatorReferenceFaces()) {
-		yield {
-			text: source.text,
-			build: () => {
-				const row = source.build();
-				return {
-					wire: () => [row.id, row.kind, row.owner, row.room, row.member, row.detail] as Argument,
-					retire: () => releaseOperatorReference(row.id),
-				};
-			},
-		};
+function* referenceFaces(
+	references: OperatorReferenceInventory,
+	kind: OperatorReferenceKind | null,
+): Iterable<OperatorRowSource<OperatorRowFace>> {
+	let current: OperatorRowSource<import("./references.ts").OperatorReferenceRow> | null = null;
+	const projected: OperatorRowSource<OperatorRowFace> = {
+		get text() {
+			return current?.text ?? "";
+		},
+		get kind() {
+			return current?.kind;
+		},
+		get active() {
+			return current?.active;
+		},
+		matches: (words) => current?.matches?.(words) ?? (current != null && matchesQuery(current.text, words)),
+		build: () => {
+			if (current == null) throw new Error("operator reference projection has no current row");
+			const selected = current;
+			const row = selected.build();
+			return {
+				wire: () => [row.id, row.kind, row.owner, row.room, row.member, row.detail] as Argument,
+				retire: () => {
+					if (selected.retire?.()) return;
+					throw new Error("that retained reference is no longer present");
+				},
+			};
+		},
+	};
+	for (const source of references.faces()) {
+		if (kind !== null && source.kind !== kind) continue;
+		if (source.active?.() === false) continue;
+		current = source;
+		yield projected;
 	}
 }
 
-function* troubleFaces(): Iterable<OperatorRowSource<OperatorRowFace>> {
-	for (const row of troubleRows()) {
+function* troubleFaces(ctx: RoomServerContext): Iterable<OperatorRowSource<OperatorRowFace>> {
+	for (const row of ctx.journal.rows()) {
 		yield face(
 			searchText(row.source, row.reason),
 			() => [row.source, row.reason, BigInt(row.count)] as Argument,

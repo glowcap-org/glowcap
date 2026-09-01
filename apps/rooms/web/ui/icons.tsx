@@ -117,6 +117,12 @@ const paths = {
 			<path d="M8.2 10.4V7.6a3.8 3.8 0 0 1 7.6 0v2.8" />
 		</>
 	),
+	observer: (
+		<>
+			<path d="M2.8 12s3.4-6 9.2-6 9.2 6 9.2 6-3.4 6-9.2 6-9.2-6-9.2-6z" />
+			<circle cx="12" cy="12" r="2.7" />
+		</>
+	),
 	arrowDown: <path d="M12 4.6v14.8M6 13.4l6 6 6-6" />,
 	send: (
 		<>
@@ -241,8 +247,6 @@ export const iconNames: readonly IconName[] = [
 	"mark",
 ];
 
-/** One icon. Decorative by default: the control around it carries the accessible
- * name, so the icon itself is hidden from assistive software. */
 /** The logotype lockup — "pancake" beside its small-caps rooms — as one
  * component so every home shares one structure; every metric lives on the
  * `.wordmark` class in ui/mark.css, where the lockup's pixel contract is owned.
@@ -258,6 +262,8 @@ export function Wordmark() {
 	);
 }
 
+/** One icon. Decorative by default: the control around it carries the accessible
+ * name, so the icon itself is hidden from assistive software. */
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	if (name === "mark") {
 		// Four layered pieces rather than one masked box, so the boot screen,

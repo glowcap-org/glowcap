@@ -269,7 +269,7 @@ pub const Peer = struct {
     /// Nothing outside this file names this field. Reads go through
     /// `demandedPartnerKey`, `verifiedChannelKey`, and
     /// `partnerDurableProvenance`; writes go through the two verbs below,
-    /// which is what makes them the whole story. `source-check`'s
+    /// so those two are the whole story. `source-check`'s
     /// `checkDurablePinWriters` holds both halves.
     durable_pin: DurablePin = .{},
     /// The typed cause of the most recent local dispatch failure — read it

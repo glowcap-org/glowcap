@@ -321,7 +321,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     try std.testing.expectEqual(contexts_built, contexts_freed);
 }
 
-/// Whether every live connection has retired its operations, which is what
+/// Whether every live connection has retired its operations, the state
 /// `Loop.deinit` requires of a caller that has not drained.
 fn quiescent(loop: anytype) bool {
     for (loop.conns) |*c| {

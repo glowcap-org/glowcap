@@ -2,7 +2,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const iroh = @import("iroh");
-const rooms_profile = @import("rooms_profile");
 const signals = @import("../../operability/signals.zig");
 const identity_mod = @import("../../operability/identity.zig");
 const log = @import("../../operability/log.zig");
@@ -340,8 +339,8 @@ fn runStack(
     var host = try Host.init(gpa, seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = driver.core.default_loop_local_turn_budget,
-        .codec = rooms_profile.codec,
-        .captp_version = rooms_profile.captp_version,
+        .codec = model.Preference.native.codec,
+        .captp_version = model.Preference.native.captp_version,
     });
     defer host.deinit();
 

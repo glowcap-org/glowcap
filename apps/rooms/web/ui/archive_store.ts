@@ -18,7 +18,7 @@ import {
 	MAX_ARCHIVE_RECORDS,
 	MemoryArchiveBackend,
 	parseArchiveRecord,
-} from "../../lib/archive.ts";
+} from "../../lib/archive/protocol.ts";
 import {
 	type ArchiveAttachmentAddress,
 	archiveAttachmentKey,
@@ -28,7 +28,7 @@ import {
 	type ErasableBlobArchiveBackend,
 	lineAttachmentAddress,
 	MAX_ARCHIVE_BLOB_BYTES,
-} from "../../lib/archive_blobs.ts";
+} from "../../lib/archive/blobs.ts";
 import { BLOB_CHUNK } from "../../lib/limits.ts";
 import {
 	archiveCoordinatesKey as coordinatesKey,
@@ -43,8 +43,8 @@ import {
 	BlobBytesMetaRowSchema,
 	BLOBS,
 	COORDINATES_INDEX,
-	historyDatabase,
 	META,
+	type PageArchiveDatabase,
 	RECORDS,
 	RETENTION_EPOCH_KEY,
 	type RetentionEpochMetaRow,
@@ -119,8 +119,8 @@ function retentionEpochFrom(held: IDBDatabase): Promise<string> {
 	});
 }
 
-export async function historyRetentionEpoch(): Promise<string> {
-	const held = await historyDatabase();
+export async function historyRetentionEpoch(db: PageArchiveDatabase): Promise<string> {
+	const held = await db.open();
 	return held == null ? uuid() : await retentionEpochFrom(held);
 }
 
@@ -134,10 +134,12 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 	readonly #fallbackSource = uuid();
 	#source: Promise<string> | null = null;
 
+	constructor(readonly db: PageArchiveDatabase) {}
+
 	async source(): Promise<string> {
 		if (this.#source != null) return await this.#source;
 		this.#source = (async () => {
-			const held = await historyDatabase();
+			const held = await this.db.open();
 			if (held == null) return this.#fallbackSource;
 			return await sourceFrom(held);
 		})();
@@ -151,7 +153,7 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 
 	async clear(): Promise<void> {
 		this.#fallback.clear();
-		const held = await historyDatabase();
+		const held = await this.db.open();
 		if (held == null) return;
 		await new Promise<void>((resolve, reject) => {
 			const tx = held.transaction([RECORDS, BLOBS, META], "readwrite");
@@ -205,7 +207,7 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 		if (expectedEpoch != null && !z.safeParse(archiveIdentity, expectedEpoch).success) {
 			throw new Error("history retention identity is invalid");
 		}
-		const held = await historyDatabase();
+		const held = await this.db.open();
 		if (held == null) {
 			return staged.length > 0 && record.kind === "line"
 				? await this.#fallback.putWithAttachments(record, sourcesFromStaged(record, staged))
@@ -230,8 +232,18 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 							tx.abort();
 							return;
 						}
-						const found = parseArchiveRecord(parsed.data.row);
-						if (found.kind === "line") prior = found;
+						// A stored row this build cannot read is not a prior worth
+						// honouring, and throwing here would leave the request handler
+						// by a path IndexedDB does not carry: this put's promise would
+						// settle neither way and its caller would wait for good. Treat
+						// it as absent instead, which lets this write replace it and
+						// puts the key back in a readable state.
+						try {
+							const found = parseArchiveRecord(parsed.data.row);
+							if (found.kind === "line") prior = found;
+						} catch {
+							// tolerant: nothing is borrowed from a row this build cannot read.
+						}
 					}
 					const checked = record.kind === "line"
 						? {
@@ -353,8 +365,19 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 										tx.abort();
 										return;
 									}
-									const evicted = parseArchiveRecord(parsed.data.row);
-									if (evicted.kind === "line") {
+									// Retiring a row this build cannot read is still retiring it,
+									// and this pass exists to retire rows. Its blob bytes cannot be
+									// named, so none are reclaimed for it; the row itself still
+									// goes. Throwing here would leave the cursor handler the way
+									// the put's own read could, and hang this write for good.
+									let evicted: ArchiveLine | null = null;
+									try {
+										const found = parseArchiveRecord(parsed.data.row);
+										if (found.kind === "line") evicted = found;
+									} catch {
+										// tolerant: an unreadable row is retired naming no bytes.
+									}
+									if (evicted !== null) {
 										for (let index = 0; index < evicted.attachments.length; index += 1) {
 											if (evicted.attachments[index].blob == null) continue;
 											blobs.delete(archiveAttachmentKey(lineAttachmentAddress(evicted, index)));
@@ -398,7 +421,7 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 	}
 
 	async read(filter: ArchiveFilter, after: number, limit: number): Promise<ArchivePage> {
-		const held = await historyDatabase();
+		const held = await this.db.open();
 		if (held == null) return await this.#fallback.read(filter, after, limit);
 		return await new Promise((resolve, reject) => {
 			const tx = held.transaction([RECORDS, META], "readonly");
@@ -447,8 +470,14 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 		});
 	}
 
+	peekLine(filter: ArchiveFilter): ArchiveLine | null {
+		// IndexedDB cannot answer on the inbound turn. Tab-hosted CapTP does not
+		// serve `blob()`; local reads use `attachment(record, index)`.
+		return this.#fallback.peekLine(filter);
+	}
+
 	async readAttachment(address: ArchiveAttachmentAddress): Promise<ArchivedAttachmentRead | null> {
-		const held = await historyDatabase();
+		const held = await this.db.open();
 		if (held == null) return await this.#fallback.readAttachment(address);
 		return await new Promise((resolve, reject) => {
 			const tx = held.transaction([RECORDS, BLOBS], "readonly");
@@ -514,12 +543,11 @@ export class TabArchiveBackend implements ErasableArchiveBackend, ErasableBlobAr
 	}
 }
 
-export const tabArchiveBackend = new TabArchiveBackend();
-
 /** Read a complete bounded context for the local conversation view. The
  * archive itself remains paged; only this tab-owned helper walks every page,
  * and the whole store ceiling makes that walk finite. */
 export async function readTabArchiveContext(
+	archive: TabArchiveBackend,
 	conversationKind: "room" | "direct",
 	directory: string,
 	conversation: string,
@@ -534,18 +562,22 @@ export async function readTabArchiveContext(
 	const records: ArchiveRecord[] = [];
 	let after = 0;
 	while (true) {
-		const page = await tabArchiveBackend.read(filter, after, MAX_ARCHIVE_READ);
-		records.push(...page.records.map((entry) => entry.record));
-		if (!page.more) return records;
-		after = page.next;
+		const batch = await archive.read(filter, after, MAX_ARCHIVE_READ);
+		records.push(...batch.records.map((entry) => entry.record));
+		if (!batch.more) return records;
+		after = batch.next;
 	}
 }
 
 /** Advance the device recorder's admission boundary, optionally erasing every
  * retained row in that same transaction. */
-export async function setHistoryRetentionEpoch(epoch: string, erase: boolean): Promise<void> {
+export async function setHistoryRetentionEpoch(
+	db: PageArchiveDatabase,
+	epoch: string,
+	erase: boolean,
+): Promise<void> {
 	if (!z.safeParse(archiveIdentity, epoch).success) throw new Error("history retention identity is invalid");
-	const held = await historyDatabase();
+	const held = await db.open();
 	if (held == null) return;
 	await new Promise<void>((resolve, reject) => {
 		const tx = held.transaction(erase ? [RECORDS, BLOBS, META] : [META], "readwrite");

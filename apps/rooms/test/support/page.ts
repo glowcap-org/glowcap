@@ -41,3 +41,42 @@ export async function awaitBubble(tab: Page, text: string, who: string): Promise
 		fail(`${who} never rendered "${text}"`);
 	});
 }
+
+/** End the conversation on screen with the title's mark. The mark asks in that
+ * conversation's card; this confirms. */
+export async function confirmTitleLeave(tab: Page): Promise<void> {
+	await tab.click("#leaveBtn");
+	const commit = tab.locator("#convcardLeave, #dircardLeave");
+	await commit.waitFor({ state: "visible", timeout: 10_000 });
+	await commit.click();
+}
+
+/** Press the join card's one act until it is offering the room question.
+ *
+ * The card asks for the directory first and the room after, so an address this
+ * tab has not reached takes two presses: one that reaches it, and one that
+ * joins. A directory already reached needs no first press, which is why this
+ * looks at what the button says rather than counting. It returns once the room
+ * field is there to be typed into; the caller presses Join itself, because what
+ * it is joining is the caller's business. */
+export async function reachDirectoryOnCard(tab: Page): Promise<void> {
+	const label = async () => ((await tab.textContent("#joinBtn")) ?? "").trim();
+	if (await label() !== "Connect") return;
+	await tab.click("#joinBtn");
+	await tab.waitForFunction(
+		() => {
+			const room = document.getElementById("room");
+			return room !== null && (room as HTMLInputElement).offsetParent !== null;
+		},
+		undefined,
+		{ timeout: 60_000 },
+	).catch(async () =>
+		fail(
+			"connecting to the directory never offered the room question: " +
+				JSON.stringify({
+					button: await label(),
+					refused: await tab.evaluate(() => document.getElementById("joinError")?.textContent?.trim() ?? ""),
+				}),
+		)
+	);
+}

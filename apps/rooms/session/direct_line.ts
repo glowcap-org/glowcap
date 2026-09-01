@@ -2,9 +2,9 @@
 
 import { currentSession, type Session } from "@pancake/runtime";
 import type { Argument, Behavior } from "@pancake/runtime";
-import type { Message, PostedLine } from "../lib/room_client.ts";
+import type { Message, PostedLine } from "../lib/room/client.ts";
 import { DirectMessage } from "../lib/direct_message.ts";
-import type { AttachmentSource } from "../lib/attachment.ts";
+import type { Attachment, AttachmentSource } from "../lib/attachment.ts";
 import { lineCost, MAX_LINE, MAX_SCROLLBACK } from "../lib/limits.ts";
 import { EDIT, REFILE, WITHDRAW } from "../lib/protocol.ts";
 import { DirectFileCustody } from "./direct_files.ts";
@@ -121,7 +121,7 @@ export class DurableDirectLine {
 export function directReceivedLineBehavior(
 	from: string,
 	lineId: number,
-	initialFiles: import("../lib/attachment.ts").Attachment[],
+	initialFiles: Attachment[],
 	changed: (message: Message) => void | Promise<void>,
 	sessionFor: () => Session | null = currentSession,
 ): Behavior {

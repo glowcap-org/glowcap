@@ -10,11 +10,11 @@ An OCapN locator names one transport and one designator, so a program listening
 on two transports is two peers as far as the wire can say. A sturdyref written
 against one of them is welded to that path. pancake's multi-home prototype
 closes that gap: the `id` locator names a peer by a durable public key, and the
-paths that reach it ride underneath as hints. This page explains what ships,
-what it proves, and what a peer that never opted in sees. The machinery is
-complete and tested; what is not settled is the wire vocabulary, which stays a
-`pancake-next` prototype until upstream picks a shape. The standing section at
-the end says exactly what that means.
+paths that reach it ride underneath as hints. Use this page when one program
+should be reachable over more than one transport without giving every sturdyref
+a new address. The feature works in pancake today, but the on-the-wire names
+are still pancake's private trial profile (`pancake-next`) until OCapN
+standardizes them. The standing section at the end says exactly what that means.
 
 # One peer, several routes
 
@@ -121,10 +121,7 @@ list but no proof that its entries reached one peer, drove no dial, and backed
 no sturdyref, so keeping it would have grown the vocabulary without growing
 what the product could do. What stays open is the wire vocabulary itself,
 which remains a `pancake-next` extension until OCapN specifies a compatible
-shape — the reason every claim on this page is gated behind negotiation and a
-baseline peer sees none of it.
-
-The whole surface is negotiation-gated: nothing on this page changes what a
-baseline or Goblins peer receives.
+shape. Peers that never agree on the extension never see these route hints. A
+Goblins peer keeps getting ordinary locators.
 [What you can depend on]($link.page('stability')) is the wider evidence
 picture behind every claim like that one.

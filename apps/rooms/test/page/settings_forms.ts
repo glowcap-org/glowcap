@@ -8,6 +8,7 @@ import { WORKSPACE_STATE_VERSION } from "../../lib/rooms_state.ts";
 import { fail } from "./harness.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
+import { proveReturnToSetupDoesNotFlashACrash } from "./shared_session_moves.ts";
 
 export async function run(browser: Browser, httpPort: number): Promise<void> {
 	const context = await browser.newContext();
@@ -150,11 +151,60 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		) {
 			fail("Message history remembered an erase that failed");
 		}
-		await page.click("#settingsTab");
+		await page.click("#holdingsTab");
+		await page.click("#opsListenersToggle");
+		await page.fill("#capabilityValueSwiss", "discard-this-capability-draft");
+		await page.getByRole("button", { name: "Save to capability set" }).click();
+		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
+		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "true") {
+			fail("the capability draft did not survive its value editor");
+		}
+		await page.click("#sessionTab");
+		await page.click("#holdingsTab");
+		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "true") {
+			fail("a tab switch discarded the capability draft");
+		}
+		await page.click("#settingsClose");
+		await page.waitForSelector("#settingsUnsavedTitle");
+		await page.click("#settingsUnsavedDiscard");
+		await page.waitForSelector("#settingsTitle", { state: "detached" });
+		await page.click("#settingsBtn");
+		await page.click("#holdingsTab");
+		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "false") {
+			fail("discarding Settings left the capability draft in its long-lived provider");
+		}
+		await page.click("#reachabilityTab");
 		await page.click('input[name="dm"][value="relay"]');
+		await page.click("#sessionTab");
+		await page.click("#reachabilityTab");
+		if (!await page.isChecked('input[name="dm"][value="relay"]')) {
+			fail("a tab switch discarded the direct-message draft");
+		}
+		await page.click("#settingsClose");
+		await page.waitForSelector("#settingsUnsavedTitle");
+		const unsaved = await page.evaluate(() => ({
+			message: document.getElementById("settingsUnsavedMessage")?.textContent?.trim() ?? "",
+			openDialogs: document.querySelectorAll("dialog.modal[open]").length,
+			settingsOpen: document.getElementById("settingsTitle") !== null,
+		}));
+		if (
+			unsaved.openDialogs !== 2 || !unsaved.settingsOpen || unsaved.message.includes("undefined") ||
+			!unsaved.message.includes("Your unsaved changes will be lost")
+		) fail(`the unsaved-settings guard was not a complete stacked modal: ${JSON.stringify(unsaved)}`);
+		await page.keyboard.press("Escape");
+		await page.waitForSelector("#settingsUnsavedTitle", { state: "detached" });
+		await page.waitForSelector("#settingsTitle", { state: "visible" });
+		await page.click("#holdingsTab");
+		await page.click("#opsListenersToggle");
+		await page.fill("#capabilityValueSwiss", "discard-before-reload");
+		await page.getByRole("button", { name: "Save to capability set" }).click();
+		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
+		await page.click("#reachabilityTab");
+		await page.click("#dmSave");
+		await page.waitForSelector("#settingsUnsavedTitle");
 		await Promise.all([
 			page.waitForNavigation(),
-			page.click("#dmSave"),
+			page.click("#settingsUnsavedDiscard"),
 		]);
 		await page.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 		await page.waitForSelector("#line:not([disabled])", { timeout: 20_000 })
@@ -163,9 +213,13 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			[...document.querySelectorAll("#members li")].some((row) => row.textContent?.includes("refresh-member"))
 		).catch(() => fail("refresh rejoined under no name or a changed nickname"));
 		await page.click("#settingsBtn");
-		await page.click("#settingsTab");
+		await page.click("#reachabilityTab");
 		if (!await page.isChecked('input[name="dm"][value="relay"]')) {
 			fail("Save and reload did not preserve the selected direct-message connection");
+		}
+		await page.click("#holdingsTab");
+		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "false") {
+			fail("Save and reload carried another form's discarded draft across the reload");
 		}
 		await page.click("#sessionTab");
 		await page.getByText("Local session", { exact: true }).waitFor();
@@ -205,6 +259,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			await page.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 			const restoredTheme = await page.evaluate(() => document.documentElement.dataset.theme);
 			if (restoredTheme !== importedTheme) fail("loading Rooms state did not replace the saved workspace");
+			await proveReturnToSetupDoesNotFlashACrash(page, "Leave workspace");
 		} finally {
 			await Deno.remove(importPath).catch(() => {});
 		}

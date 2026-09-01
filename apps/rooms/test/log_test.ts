@@ -132,3 +132,42 @@ Deno.test("consecutive room announcements share one centred run", () => {
 		],
 	);
 });
+
+// Measured against the defects it claims to cover: printing every group's stamp
+// the way the log did before turns the first case red, and a day heading that no
+// longer restarts the reckoning turns the third one red.
+Deno.test("a stamp is printed where it says something the one above it did not", () => {
+	// A back-and-forth inside one minute. Every change of speaker opens a group,
+	// so without this each of them printed the same four characters.
+	const minute = 60_000;
+	const stamps = (history: readonly Item[]) =>
+		blocksOf(history, null, none)
+			.filter((block) => block.kind === "group")
+			.map((block) => (block as Extract<typeof block, { kind: "group" }>).group.showTime);
+	assertEquals(
+		stamps([
+			{ kind: "chat", id: 1, from: "bo", text: "morning", mine: false, at: 0 },
+			{ kind: "chat", id: 2, from: "ada", text: "hello", mine: true, at: 1000 },
+			{ kind: "chat", id: 3, from: "bo", text: "ready?", mine: false, at: 2000 },
+		]),
+		[true, false, false],
+	);
+	// A group far enough along to land on another minute answers a new question.
+	assertEquals(
+		stamps([
+			{ kind: "chat", id: 1, from: "bo", text: "morning", mine: false, at: 0 },
+			{ kind: "chat", id: 2, from: "ada", text: "hello", mine: true, at: 1000 },
+			{ kind: "chat", id: 3, from: "bo", text: "still here?", mine: false, at: 20 * minute },
+		]),
+		[true, false, true],
+	);
+	// And across a day heading the same clock time is a different time, so the
+	// reckoning starts again.
+	assertEquals(
+		stamps([
+			{ kind: "chat", id: 1, from: "bo", text: "night", mine: false, at: 0 },
+			{ kind: "chat", id: 2, from: "ada", text: "morning", mine: true, at: 24 * 60 * minute },
+		]),
+		[true, true],
+	);
+});

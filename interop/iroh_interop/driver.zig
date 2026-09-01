@@ -161,8 +161,8 @@ fn callByIdOnly(
 /// authenticated, and the partner's OCapN session pubkey is deliberately
 /// *not* that key.
 ///
-/// This used to assert all three were one value, which is what key unification
-/// meant while a host signed every session with its durable key. Each
+/// This used to assert all three were one value, the meaning of key
+/// unification while a host signed every session with its durable key. Each
 /// session now draws its own signing key, so the durable identity and the
 /// session identity are different facts about the same peer: `node_id_hex`
 /// names who the partner is, and the session key names only this session.

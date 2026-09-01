@@ -2,11 +2,15 @@
 
 import { RoomsRoomJoinIntentSchema, type RoomsSessionState } from "../lib/rooms_state.ts";
 import { nickRefusal } from "../lib/limits.ts";
-import { roomsLocator } from "../lib/locator.ts";
+import { parseRoomsSturdyref, roomsLocator } from "../lib/locator.ts";
 import { roomsPeerAuthority } from "../lib/routes.ts";
 import { commandJson, validatedRoomsSessionState } from "./command_data.ts";
 
-export function applyRoomJoin(current: RoomsSessionState, args: string[]): RoomsSessionState {
+export function applyRoomJoin(
+	current: RoomsSessionState,
+	args: string[],
+	publicationIdFor?: (directoryId: string, roomName: string) => string | null,
+): RoomsSessionState {
 	if (args.length !== 1) throw new Error("joinRoom takes one room-join intent");
 	const intent = commandJson(
 		args[0],
@@ -37,30 +41,69 @@ export function applyRoomJoin(current: RoomsSessionState, args: string[]): Rooms
 			standing: null,
 		}
 		: { ...priorDirectory, locator: intent.locator, nick: intent.nick };
-	const existing = current.conversations.find((entry) => {
-		if (entry.kind !== "room" || entry.directory !== authority) return false;
-		if (!entry.held && !intent.conversation.held) {
-			return entry.name.toLowerCase() === intent.conversation.name.toLowerCase();
+	const byId = current.conversations.find((entry) => entry.id === intent.conversation.id);
+	const recovering = byId?.kind === "room" && byId.reconnect === "manual" ? byId : null;
+	const resolvedPublication = intent.conversation.held
+		? null
+		: publicationIdFor?.(authority, intent.conversation.name) ?? null;
+	if (recovering?.publicationId != null && resolvedPublication == null) {
+		throw new Error("this room's source has no current publication by that name");
+	}
+	if (
+		recovering?.publicationId == null &&
+		resolvedPublication != null && intent.conversation.publicationId != null &&
+		resolvedPublication !== intent.conversation.publicationId
+	) throw new Error("joinRoom's publication identity is not current");
+	const conversation = recovering?.publicationId != null
+		? { ...intent.conversation, publicationId: resolvedPublication! }
+		: resolvedPublication == null || intent.conversation.publicationId != null
+		? intent.conversation
+		: { ...intent.conversation, publicationId: resolvedPublication };
+	if (recovering != null) {
+		if (
+			recovering.directory !== conversation.directory || recovering.name !== conversation.name ||
+			recovering.held !== conversation.held
+		) throw new Error("joinRoom changed the room being recovered");
+		if (recovering.held) {
+			if (conversation.link == null) throw new Error("this private room needs a current room link");
+			if (roomsPeerAuthority(parseRoomsSturdyref(conversation.link).locator) !== authority) {
+				throw new Error("the current room link names a different directory");
+			}
 		}
-		return entry.held && intent.conversation.held && entry.link != null &&
-			entry.link === intent.conversation.link;
+	}
+	const existing = recovering ?? current.conversations.find((entry) => {
+		if (entry.kind !== "room" || entry.directory !== authority) return false;
+		if (!entry.held && !conversation.held) {
+			return entry.name.toLowerCase() === conversation.name.toLowerCase();
+		}
+		return entry.held && conversation.held && entry.link != null &&
+			entry.link === conversation.link;
 	});
 	if (
-		current.conversations.some((entry) => entry.id === intent.conversation.id) &&
-		existing?.id !== intent.conversation.id
+		current.conversations.some((entry) => entry.id === conversation.id) &&
+		existing?.id !== conversation.id
 	) {
 		throw new Error("joinRoom reuses a conversation id for a different room");
 	}
-	const selected = existing?.kind === "room" ? existing : intent.conversation;
+	const selected = existing?.kind === "room" ? existing : conversation;
+	const rejoined = recovering == null ? selected : {
+		...recovering,
+		...(recovering.held
+			? conversation.link == null ? {} : { link: conversation.link }
+			: { publicationId: conversation.publicationId }),
+		reconnect: "requested" as const,
+	};
 	return validatedRoomsSessionState({
 		...current,
 		directories: priorDirectory == null
 			? [...current.directories, directory]
 			: current.directories.map((entry) => entry.id === authority ? directory : entry),
-		conversations: existing == null ? [...current.conversations, selected] : current.conversations,
-		active: selected.id,
-		join: selected.held ? current.join : {
-			room: selected.name,
+		conversations: existing == null
+			? [...current.conversations, rejoined]
+			: current.conversations.map((entry) => entry.id === rejoined.id ? rejoined : entry),
+		active: rejoined.id,
+		join: rejoined.held ? current.join : {
+			room: rejoined.name,
 			locator: directory.home ? "" : directory.locator,
 			nick: directory.nick,
 		},

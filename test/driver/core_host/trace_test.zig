@@ -474,7 +474,7 @@ test "core host: a three-vat handoff holds native between the pancake pair and b
 test "core host: both ends of a wire tag one message identically" {
     // The property the whole merge rests on. A frame crosses one wire, so the
     // sender and the receiver hold the same bytes and derive the same tag
-    // with no coordination — which is what lets a consumer recognise two
+    // with no coordination, so a consumer can recognize two
     // observers' records as one message instead of drawing it twice, and why
     // the endpoint need not pick a winner and throw the other view away.
     //

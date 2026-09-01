@@ -2,7 +2,7 @@
 
 pancake has no stable release yet. The table below records the evidence
 available for each area, whether it crosses into code maintained outside this
-repository, and what it leaves open. Some checks run on every main-branch push
+repository, and what it leaves open. Some checks run on every main or dev push
 and pull request; others need external runtimes or network access and run on
 demand. None is a compatibility or security promise.
 
@@ -34,7 +34,7 @@ change a deployment, read [known limitations](boundaries.md).
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
-| macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | The full gate and external-runtime matrix remains Linux-only. |
+| macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | `zig build check` and the external-runtime matrix remain Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by pancake. |
 
@@ -50,7 +50,7 @@ The evidence is current only when the
 is green for the commit you are evaluating. No row freezes an API or ABI, and
 none is a security review.
 
-## Checks run on main pushes and pull requests
+## Checks run on main and dev pushes and pull requests
 
 This list is compared with [`ci/gates.sh`](../ci/gates.sh) by
 `zig build source-check`, so a removed check cannot remain documented as

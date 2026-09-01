@@ -28,8 +28,8 @@ pub struct PancakeOnionListener {
 /// The layout mirrors `PancakeOnionConfig` in
 /// `src/c_abi/net_transport/onion/contract.zig`, whose declaration documents every
 /// field. Zero-initialize and set what you use: [`Default`] gives the
-/// all-zero form, which is what makes a field added later read as absent rather
-/// than as stack contents.
+/// all-zero form, so a field added later reads as absent rather than as
+/// stack contents.
 ///
 /// Every pointer is borrowed for the constructor call only. The netlayer copies
 /// the text it needs, so the caller may free its own buffers afterwards.
@@ -65,8 +65,8 @@ const _: () = {
 	assert!(offset_of!(PancakeOnionConfig, forward_len) == PANCAKE_ONION_CONFIG_FORWARD_LEN_OFF);
 };
 
-/// An unauthenticated control endpoint, which is what a Unix control socket with
-/// no authentication gives and what upstream Goblins assumes.
+/// An unauthenticated control endpoint, the form a Unix control socket with no
+/// authentication gives and the one upstream Goblins assumes.
 pub const ONION_AUTH_NONE: core::ffi::c_uint = crate::abi_constants_gen::ONION_AUTH_NONE;
 /// Authenticate with the bytes of the file `CookieAuthFile` names, sent as
 /// hexadecimal. The common default on a distribution's Tor package.

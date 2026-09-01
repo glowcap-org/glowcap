@@ -165,6 +165,9 @@ pub fn installNodeSettlingResolver(
 /// Conclude a Node-only settling callback before its deliver event is surfaced
 /// to the Host composition hook. The Node still owns the event payload; session
 /// authority only retires the one-shot resolver and its promise claim.
+/// The deliver route classifier reaches here only after
+/// `isNodeSettlingResolver` saw this resolver's link row in the same
+/// dispatch, so the lookup below asserts presence and purpose.
 pub fn completeNodeSettlingResolverCallback(
     self: *Session,
     resolver_export: model.ExportPosition,
@@ -270,6 +273,9 @@ pub fn retiredResolverState(
 
 /// Record the one legal callback that raced with answer release. The listener
 /// claim is concluded without needing the removed answer row.
+/// The deliver route classifier reaches here only after
+/// `retiredResolverState` saw this resolver's retired link row in the same
+/// dispatch, so the lookup below asserts presence and purpose.
 pub fn completeRetiredResolverCallback(
     self: *Session,
     resolver_export: model.ExportPosition,

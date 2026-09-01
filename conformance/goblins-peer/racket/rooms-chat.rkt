@@ -88,7 +88,7 @@
 
 ;; What the typing thread needs to reach from outside the vat: the directory and
 ;; the room this member is currently in. Both are written on the vat's turn
-;; thread and read on the terminal's, which is what a box is for here. The values
+;; thread and read on the terminal's, and that crossing is what a box is for. The values
 ;; are capability references, handed straight back into `chat-vat 'run`.
 (define directory-box (box #f))
 (define room-box (box #f))
@@ -99,7 +99,7 @@
 
 ;; This member's direct-message half, once the directory has answered, and the
 ;; members it can currently reach. Both are written on the vat's turn thread and
-;; read on the terminal's, which is what the boxes are for.
+;; read on the terminal's, the same crossing the boxes above carry.
 (define dm-box (box #f))
 (define reachable-box (box (set)))
 
@@ -141,8 +141,8 @@
 ;;
 ;; The order matters twice. A directory that refuses (`/enter` naming no live
 ;; room) leaves you where you were instead of nowhere. And the leave still
-;; happens before the new subscribe, which is what makes re-entering a room you
-;; are already in harmless: the room grants one membership per connection rather
+;; happens before the new subscribe, so re-entering a room you are already in
+;; is harmless: the room grants one membership per connection rather
 ;; than per reference, so a leave sent afterwards would drop the membership just
 ;; made. Nothing can be typed into the gap, because the terminal reads the next
 ;; line only once this whole command has settled.
@@ -171,21 +171,30 @@
                      #:nick nick
                      #:locator our-locator
                      #:on-message (lambda (from text) (say "(dm) <~a> ~a" from text))
+                     #:on-sent (lambda (_peer text) (say "(dm) <~a> ~a" nick text))
                      #:on-status (lambda (text) (say "* ~a" text))
                      #:on-error (lambda (what err) (say "! could not ~a: ~v" what err))))
   (set-box! dm-box dm)
   (dm-register dm)
+  (define registrations (make-hash))
   (define watcher
     (spawn (lambda (_bcom)
              (methods
               [(notify event . rest)
                (define name (if (pair? rest) (car rest) ""))
+               (define registration-id
+                 (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
+                     (caddr rest)
+                     ""))
                (when (member event '("registered" "unregistered"))
-                 (set-box! reachable-box
-                           (if (string=? event "registered")
-                               (set-add (unbox reachable-box) name)
-                               (set-remove (unbox reachable-box) name))))
-               (dm-notify dm event name)]))))
+                 (cond
+                   [(string=? event "registered")
+                    (hash-set! registrations (string-downcase name) registration-id)
+                    (set-box! reachable-box (set-add (unbox reachable-box) name))]
+                   [(equal? (hash-ref registrations (string-downcase name) #f) registration-id)
+                    (hash-remove! registrations (string-downcase name))
+                    (set-box! reachable-box (set-remove (unbox reachable-box) name))]))
+               (dm-notify dm event name registration-id)]))))
   (on (<- directory 'watch watcher)
       void
       #:catch (lambda (err) (say "! could not watch the directory: ~v" err))))
@@ -309,11 +318,9 @@
      (define text (and who (string-join (cddr parts) " ")))
      (cond
        [(and who text (positive? (string-length text)))
-        (direct-message who text)
-        ;; Shown as sent right away. A direct message has no echo — the room
-        ;; never sees it — so nothing else would ever put it on screen, and a
-        ;; line that could not be delivered says so on its own error line.
-        (say "(dm) <~a> ~a" nick text)]
+        ;; A direct message has no room echo. Its member prints the line only
+        ;; after the far inbox fulfills the send; a refusal prints only its error.
+        (direct-message who text)]
        [else (say "! /dm takes a member and a line, as in: /dm alice hello")])]
     [(and (string=? verb "/open") rest)
      (typed-command (lambda (done) (switch-room 'open rest done)))]

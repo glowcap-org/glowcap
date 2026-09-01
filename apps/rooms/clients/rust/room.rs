@@ -28,6 +28,7 @@ use pancake::{iroh, HINT_DIRECT_ADDRESSES};
 use tokio::sync::mpsc;
 
 const DIRECTORY: &str = "directory";
+const MAX_UNREAD_LINES: usize = 256;
 
 /// Lift a capability a `send` returned (an `Argument::Reference`) into a `Ref`
 /// you can `send` to.
@@ -121,8 +122,7 @@ impl Directory {
 				if verb != "notify" {
 					return Err(format!("watch inbox has no method {verb}"));
 				}
-				let kind = as_str(args.first());
-				if let Some(room) = parse_room(args.get(1..).unwrap_or(&[])) {
+				if let Some((kind, room)) = parse_watch_event(args)? {
 					on_event(kind, room);
 				}
 				Ok(Argument::Void)
@@ -145,16 +145,26 @@ pub struct RoomInfo {
 	pub kind: String,
 	pub origin: String,
 	pub proof: String,
+	pub offers: Option<String>,
 }
 
 fn parse_room(fields: &[Argument]) -> Option<RoomInfo> {
-	if fields.len() != 6 {
+	if fields.len() != 7 {
 		return None;
 	}
 	let count = if fields[1].is_void() {
 		None
 	} else {
 		Some(fields[1].as_i64().filter(|count| *count >= 0)?)
+	};
+	let offers = if fields[6].is_void() {
+		None
+	} else {
+		let kind = fields[6].as_str()?;
+		if kind != "observer" && kind != "participant" {
+			return None;
+		}
+		Some(kind.to_string())
 	};
 	Some(RoomInfo {
 		name: fields[0].as_str()?.to_string(),
@@ -163,6 +173,7 @@ fn parse_room(fields: &[Argument]) -> Option<RoomInfo> {
 		kind: fields[3].as_str()?.to_string(),
 		origin: fields[4].as_str()?.to_string(),
 		proof: fields[5].as_str()?.to_string(),
+		offers,
 	})
 }
 
@@ -204,6 +215,55 @@ fn parse_watch_rooms(arg: &Argument) -> Result<Vec<RoomInfo>, String> {
 		return Err("the directory answered an invalid watch omission count".to_string());
 	}
 	parse_rooms(&fields[0])
+}
+
+fn valid_registration_id(value: &str) -> bool {
+	let bytes = value.as_bytes();
+	if bytes.len() != 36 || [8, 13, 18, 23].iter().any(|at| bytes[*at] != b'-') {
+		return false;
+	}
+	for (at, byte) in bytes.iter().enumerate() {
+		if [8, 13, 18, 23].contains(&at) {
+			continue;
+		}
+		if !byte.is_ascii_hexdigit() {
+			return false;
+		}
+	}
+	matches!(bytes[14], b'1'..=b'8') && matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
+}
+
+/// Parse every supported watcher shape. Registration and truncation events are
+/// valid but carry no room row for this small terminal client to print.
+fn parse_watch_event(args: &[Argument]) -> Result<Option<(String, RoomInfo)>, String> {
+	let kind = args
+		.first()
+		.and_then(Argument::as_str)
+		.ok_or_else(|| "the directory sent a malformed watch notification".to_string())?;
+	match kind {
+		"opened" | "closed" | "count" => {
+			let room = parse_room(&args[1..])
+				.ok_or_else(|| "the directory sent a malformed room watch notification".to_string())?;
+			Ok(Some((kind.to_string(), room)))
+		}
+		"registered" | "unregistered" => {
+			let valid = args.len() == 4
+				&& args[1].as_str().map(|name| !name.is_empty()).unwrap_or(false)
+				&& args[2].as_i64().map(|count| count >= 0).unwrap_or(false)
+				&& args[3].as_str().map(valid_registration_id).unwrap_or(false);
+			if !valid {
+				return Err("the directory sent a malformed member watch notification".to_string());
+			}
+			Ok(None)
+		}
+		"truncated" => {
+			if args.len() != 2 || args[1].as_i64().map(|count| count >= 0) != Some(true) {
+				return Err("the directory sent a malformed watch truncation".to_string());
+			}
+			Ok(None)
+		}
+		_ => Err(format!("the directory sent an unknown watch event {kind}")),
+	}
 }
 
 /// Dial a transport-neutral rooms locator: an `ocapn://…iroh` URI joins over
@@ -262,24 +322,15 @@ async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 
 /// Mint a Host for a rooms peer.
 ///
-/// Every rooms peer is a pancake peer, so the room speaks pancake's own
-/// profile rather than the interop floor: the `pancake-next` CapTP version
-/// over the word-aligned Cap'n Proto codec. The two are named together
-/// because they are one decision, agreed out of band by every peer reading
-/// the same configuration. This is the Rust spelling of the pair
-/// `apps/rooms/lib/protocol.ts` carries for the TypeScript peers. Rust's
-/// `connect` takes no profile argument, so the host is what names it.
+/// Every rooms peer selects the core-authored native profile. Rust's `connect`
+/// takes no profile argument, so the host is what names it.
 ///
 /// Minting one draws the Host's identity seed from the system, which can fail,
 /// so this answers with the failure rather than panicking inside a client whose
 /// callers already carry their own errors.
 fn rooms_host() -> Result<pancake::Host, String> {
-	pancake::Host::with_options(pancake::HostOptions {
-		codec: pancake::Codec::Capnp,
-		captp_version: pancake::CaptpVersion::Next,
-		..Default::default()
-	})
-	.map_err(|e| format!("rooms host: {e:?}"))
+	pancake::Host::with_options(pancake::HostOptions::with_profile(pancake::HostProfile::Native))
+		.map_err(|e| format!("rooms host: {e:?}"))
 }
 
 /// One line in the room. `system` is true for the room's own announcements (a
@@ -330,7 +381,21 @@ fn read_presence(args: &[Argument]) -> Option<Presence> {
 pub struct Room {
 	session: Rc<Session>,
 	room: pancake::Ref,
-	msg_rx: mpsc::UnboundedReceiver<Message>,
+	msg_rx: mpsc::Receiver<Message>,
+}
+
+fn message_channel() -> (mpsc::Sender<Message>, mpsc::Receiver<Message>) {
+	mpsc::channel(MAX_UNREAD_LINES)
+}
+
+fn enqueue_line(sender: &mpsc::Sender<Message>, message: Message) -> Result<(), String> {
+	match sender.try_send(message) {
+		Ok(()) => Ok(()),
+		Err(mpsc::error::TrySendError::Full(_)) => {
+			Err(format!("the room retained its maximum {MAX_UNREAD_LINES} unread lines"))
+		}
+		Err(mpsc::error::TrySendError::Closed(_)) => Err("the room inbox is closed".to_string()),
+	}
 }
 
 fn as_str(arg: Option<&Argument>) -> String {
@@ -344,7 +409,7 @@ impl Room {
 	pub async fn subscribe(session: Rc<Session>, room: pancake::Ref, nick: &str) -> Result<Room, String> {
 		// The room calls our inbox back with each line; forward it onto a channel.
 		// A system line may carry a structured presence change after its text.
-		let (msg_tx, msg_rx) = mpsc::unbounded_channel::<Message>();
+		let (msg_tx, msg_rx) = message_channel();
 		let inbox = session
 			.spawn(move |verb, args| {
 				if verb != "notify" {
@@ -353,12 +418,15 @@ impl Room {
 				let from = as_str(args.first());
 				let text = as_str(args.get(1));
 				let presence = read_presence(args);
-				let _ = msg_tx.send(Message {
-					system: from == "room",
-					from,
-					text,
-					presence,
-				});
+				enqueue_line(
+					&msg_tx,
+					Message {
+						system: from == "room",
+						from,
+						text,
+						presence,
+					},
+				)?;
 				Ok(Argument::Void)
 			})
 			.map_err(|e| format!("spawn inbox: {e:?}"))?;
@@ -396,5 +464,42 @@ impl Room {
 			.close(PendingWork::Cancel)
 			.await
 			.map_err(|err| format!("leave: {err}"))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn line(number: usize) -> Message {
+		Message {
+			from: "peer".to_string(),
+			text: number.to_string(),
+			system: false,
+			presence: None,
+		}
+	}
+
+	#[test]
+	fn unread_lines_stop_at_the_named_ceiling() {
+		let (sender, _receiver) = message_channel();
+		for at in 0..MAX_UNREAD_LINES {
+			enqueue_line(&sender, line(at)).expect("an admitted unread line");
+		}
+		let refusal = enqueue_line(&sender, line(MAX_UNREAD_LINES)).expect_err("overflow must be refused");
+		assert!(refusal.contains(&MAX_UNREAD_LINES.to_string()));
+	}
+
+	#[test]
+	fn malformed_watch_callbacks_are_refused() {
+		let malformed = [Argument::from("opened"), Argument::from("only-a-name")];
+		assert!(parse_watch_event(&malformed).is_err());
+		let registration = [
+			Argument::from("registered"),
+			Argument::from("ada"),
+			Argument::from(1_i64),
+			Argument::from("00000000-0000-4000-8000-000000000001"),
+		];
+		assert!(matches!(parse_watch_event(&registration), Ok(None)));
 	}
 }

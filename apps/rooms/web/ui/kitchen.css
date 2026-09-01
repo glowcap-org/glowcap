@@ -4,12 +4,12 @@
 .kitchen {
 	display: flex;
 	flex-direction: column;
-	gap: 16px;
+	gap: var(--gap-column);
 }
 .kitchen-sample {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 .kitchen-sample h3 {
 	margin: 0;
@@ -23,7 +23,7 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px;
+	gap: var(--gap-row);
 }
 .kitchen-plate-dark {
 	/* Inverse is light-on-dark (the viewer, a control over a picture). `--ink`
@@ -41,14 +41,14 @@
 	color: var(--on-accent);
 }
 .modal-card.kitchen-card {
-	width: min(560px, 100%);
+	width: min(var(--card-rows), 100%);
 }
 .kitchen-swatch,
 .kitchen-icon,
 .kitchen-person {
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--gap-tight);
 	font-size: var(--type-caption);
 	color: var(--ink-soft);
 }
@@ -64,7 +64,7 @@
 	line-height: 1.2;
 }
 .kitchen-person {
-	gap: 8px;
+	gap: var(--gap-row);
 	color: var(--ink);
 	font-size: var(--type-ui);
 	font-weight: 600;
@@ -84,7 +84,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: stretch;
-	gap: 8px;
+	gap: var(--gap-row);
 	width: 100%;
 }
 .kitchen-stack .field,
@@ -115,14 +115,14 @@
 .kitchen-toasts {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--gap-row);
 	width: 100%;
 }
 .kitchen-stage {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 10px;
+	gap: var(--gap-row);
 	width: 100%;
 	padding: 14px 10px;
 	border: 1px dashed var(--rule);
@@ -147,7 +147,7 @@
 	opacity: 1;
 	overflow: visible;
 	white-space: normal;
-	font-size: 11.5px;
+	font-size: var(--type-fine);
 }
 .kitchen .viewer-failure {
 	max-width: 100%;

@@ -9,6 +9,10 @@
 //! deno, and the iroh legs need cargo. What does ride `check` is the hermetic
 //! suite plus a compile guard for every client variant, so an API change
 //! cannot rot a client only the demo steps run.
+//!
+//! One row is a member: `rooms-dm-reredeem` runs a proof that lives in
+//! `apps/rooms/test/`, and a proof outside every gate is the one kind of red
+//! nobody sees. See `DmDemo.gated`.
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -17,8 +21,7 @@ const rooms_tests = @import("rooms/tests.zig");
 
 /// What the rooms family draws from the root build graph. Everything here is
 /// minted by the root before the family registers; the family adds no layer
-/// of its own. `rooms_profile_mod` stays root-minted because the product CLI
-/// imports the same instance.
+/// of its own.
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -26,7 +29,6 @@ pub const Context = struct {
     /// The public `pancake` module.
     lib_mod: *std.Build.Module,
     iroh_resident_mod: *std.Build.Module,
-    rooms_profile_mod: *std.Build.Module,
     demo_rooms_cli_mod: *std.Build.Module,
     demo_usage_mod: *std.Build.Module,
     check_step: *std.Build.Step,
@@ -68,6 +70,11 @@ const DmDemo = struct {
     step_name: []const u8,
     description: []const u8,
     source: []const u8,
+    /// Whether `check` runs it. A demo is a thing to watch and stays a thing
+    /// somebody asks for; a source under `apps/rooms/test/` is a proof, and a
+    /// proof no gate runs rots without saying so. One of these sat red for an
+    /// unknown stretch while the regression it names was already on `dev`.
+    gated: bool = false,
 };
 
 pub fn register(ctx: Context) void {
@@ -79,7 +86,6 @@ pub fn register(ctx: Context) void {
 
     const rooms_client_exe = common.pancakeExecutable(b, lib_mod, target, optimize, "pancake-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
-    rooms_client_exe.root_module.addImport("rooms_profile", ctx.rooms_profile_mod);
     rooms_client_exe.root_module.addImport("demo_usage", ctx.demo_usage_mod);
     // The default rooms client is TCP-only: a build option flips the iroh dial
     // path off so the `@import("iroh")` inside it is comptime-elided and the
@@ -136,6 +142,24 @@ pub fn register(ctx: Context) void {
     const rooms_demo_step = b.step("demo-rooms", "Run the cross-language rooms chat demo (needs deno; joins python3/racket/cargo clients when present)");
     rooms_demo_step.dependOn(&rooms_demo.step);
 
+    // The small language fronts own behavior that their compilers cannot prove:
+    // malformed watch callbacks fail closed and slow readers cannot grow an
+    // unread queue forever. Keep those contracts runnable without starting a
+    // room server, one native test runner per language.
+    const terminal_client_test_step = b.step("rooms-terminal-client-test", "Run the Rust, Python, and Racket terminal-client contract tests (needs cargo + python3 + racket)");
+    const rust_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "cargo", "test", "--manifest-path", "apps/rooms/clients/rust/Cargo.toml", "--no-default-features",
+    });
+    const python_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "python3", "-m", "unittest", "discover", "-s", "apps/rooms/clients/python", "-p", "test_room_client.py",
+    });
+    const racket_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "raco", "test", "apps/rooms/clients/racket/room-client.rkt",
+    });
+    terminal_client_test_step.dependOn(&rust_client_test.step);
+    terminal_client_test_step.dependOn(&python_client_test.step);
+    terminal_client_test_step.dependOn(&racket_client_test.step);
+
     // The standardized transport proof uses the same Rooms directory and client
     // behaviors with three independently owned native loops. The harness starts
     // Tor explicitly; each product edge installs the onion provider package into
@@ -150,7 +174,7 @@ pub fn register(ctx: Context) void {
     // bounded line parsing, and reconnect policy. Arguments after `--` select
     // the network/channel/endpoints; the default is Libera's #ocapn over TLS.
     const rooms_irc_bridge = common.addInstalledSystemRun(b, .service, &.{
-        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_IRC_SASL_PASSWORD", "apps/rooms/irc/main.ts",
+        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_IRC_SASL_PASSWORD", "apps/rooms/irc/bridge/main.ts",
     });
     rooms_irc_bridge.addPassthruArgs();
     const rooms_irc_bridge_step = b.step("rooms-irc-bridge", "Serve an IRC channel as a Rooms directory (read-only by default; needs deno + network)");
@@ -162,7 +186,7 @@ pub fn register(ctx: Context) void {
     // chat authority. It is loopback-cleartext by default and requires a TLS
     // keypair before configuration will expose it on a non-loopback bind.
     const rooms_irc_front = common.addInstalledSystemRun(b, .service, &.{
-        "deno", "run", "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR", "apps/rooms/irc/front_main.ts",
+        "deno", "run", "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR", "apps/rooms/irc/front/main.ts",
     });
     rooms_irc_front.addPassthruArgs();
     const rooms_irc_front_step = b.step("rooms-irc-front", "Serve a native Rooms directory to ordinary IRC clients (loopback by default; needs deno + network)");
@@ -218,7 +242,7 @@ pub fn register(ctx: Context) void {
     //     (`Session.sendRedeeming`), so the member replies over it without
     //     dialing the sender. The native, Chromium-free sibling of
     //     `rooms-web-dm`, driving the same `room_client.ts` DirectMessage.
-    //   demo-rooms-dm-reredeem — redeem attribution is deterministic:
+    //   rooms-dm-reredeem — redeem attribution is deterministic:
     //     `Session.sendRedeeming` resolves the direct exporter session from
     //     the reply's own route, so a re-redeem to an already-dialed exporter
     //     resolves the same live session even though it runs no new dial —
@@ -228,7 +252,7 @@ pub fn register(ctx: Context) void {
         .{ .step_name = "demo-rooms-dm", .description = "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)", .source = "apps/rooms/demos/dm_demo.ts" },
         .{ .step_name = "demo-rooms-dm-reply", .description = "A host-wide giftable replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply (needs deno)", .source = "apps/rooms/demos/dm_reply_demo.ts" },
         .{ .step_name = "demo-rooms-dm-back", .description = "A member replies to a non-listening sender across a redeemed introduction: the sender hosts a reply inbox on the redeemed direct connection (sendRedeeming), room out of the path (needs deno)", .source = "apps/rooms/demos/dm_back_demo.ts" },
-        .{ .step_name = "demo-rooms-dm-reredeem", .description = "sendRedeeming resolves the direct exporter from the reply's route: a re-redeem to an already-dialed exporter resolves the same live session with no second dial (needs deno)", .source = "apps/rooms/test/dm_reredeem_test.ts" },
+        .{ .step_name = "rooms-dm-reredeem", .description = "sendRedeeming resolves the direct exporter from the reply's route: a re-redeem to an already-dialed exporter resolves the same live session with no second dial (needs deno)", .source = "apps/rooms/test/dm_reredeem_test.ts", .gated = true },
     };
     for (dm_demos) |demo| {
         const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
@@ -238,6 +262,7 @@ pub fn register(ctx: Context) void {
         run.step.dependOn(&cache.step);
         run.step.dependOn(b.getInstallStep());
         b.step(demo.step_name, demo.description).dependOn(&run.step);
+        if (demo.gated) check_step.dependOn(&run.step);
     }
 
     // The same rooms demo over iroh's encrypted QUIC. The Zig client is built as
@@ -250,7 +275,6 @@ pub fn register(ctx: Context) void {
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);
     rooms_client_iroh_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
-    rooms_client_iroh_mod.addImport("rooms_profile", ctx.rooms_profile_mod);
     rooms_client_iroh_mod.addImport("demo_usage", ctx.demo_usage_mod);
     common.linkIrohSidecar(b, rooms_client_iroh_mod, target, ctx.iroh_sidecar_archive);
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "pancake-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
@@ -262,7 +286,6 @@ pub fn register(ctx: Context) void {
     const rooms_client_iroh_check_mod = common.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
-    rooms_client_iroh_check_mod.addImport("rooms_profile", ctx.rooms_profile_mod);
     rooms_client_iroh_check_mod.addImport("demo_usage", ctx.demo_usage_mod);
     check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
 
@@ -321,7 +344,7 @@ pub fn register(ctx: Context) void {
     // encrypts nothing, so it is not the one to reach for by default. That is
     // `rooms-web-iroh` below, which runs the same UI over encrypted QUIC and
     // costs only `cargo`.
-    const rooms_web = common.addInstalledSystemRun(b, .service, &.{
+    const rooms_web = common.addRootedSystemCommand(b, .service, &.{
         "deno",        "run",                     "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run",
         // PANCAKE_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the
         // host-derived caps; PANCAKE_RELAY_TCP_PEERS names the cleartext-TCP
@@ -335,8 +358,17 @@ pub fn register(ctx: Context) void {
     if (ctx.peering) rooms_web.addArg("--peering");
     if (ctx.viz) rooms_web.addArg("--viz");
     rooms_web.addPassthruArgs();
-    // The page's browser peer loads the wasm Host module from zig-out; serving
-    // a stale one ships a layout descriptor the freshly-bundled page refuses.
+    // This TCP-only front depends on the exact dynamic archives it opens, not
+    // the repository-wide install step: the latter includes iroh and turns a
+    // clean cleartext build into an unrelated Cargo build. The page's browser
+    // peer also loads the wasm Host module from zig-out; serving a stale one
+    // ships a layout descriptor the freshly-bundled page refuses.
+    rooms_web.has_side_effects = true;
+    rooms_web.step.dependOn(ctx.ocapn_install);
+    rooms_web.step.dependOn(ctx.host_install);
+    rooms_web.step.dependOn(ctx.driver_install);
+    rooms_web.step.dependOn(ctx.tcp_install);
+    rooms_web.step.dependOn(ctx.relay_install);
     rooms_web.step.dependOn(ctx.wasm_driver_install);
     const rooms_web_step = b.step("rooms-web-tcp", "Serve the rooms browser UI over cleartext TCP (public rooms + direct messages by introduction); open the printed URL. Prefer rooms-web, which serves the same UI over encrypted QUIC (needs deno). `-Ddiagnostics` / `-Dadmin-listeners` / `-Doperator` / `-Dpeering` / `-Dviz` mint the operations capabilities; `-- --bind=<host> --announce-host=<host>` expose the cleartext room on a LAN");
     rooms_web_step.dependOn(&rooms_web.step);
@@ -371,7 +403,7 @@ pub fn register(ctx: Context) void {
     // Zig-hermetic `check`.
     const rooms_web_relay_peer = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                   "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "apps/rooms/test/web_relay_peer_test.ts",
+        "apps/rooms/test/web/relay_peer_test.ts",
     });
     rooms_web_relay_peer.setCwd(b.path("."));
     rooms_web_relay_peer.has_side_effects = true;
@@ -401,6 +433,11 @@ pub fn register(ctx: Context) void {
     //     session delivered, and reach both rooms over the new one. Runs the
     //     room over iroh so a restart changes its routing hints while preserving
     //     its durable authority.
+    //   rooms-web-manager — a managed room's authority across a reload: the
+    //     card draws the workspace's saved manager sturdyref, while the acts
+    //     beside it need the capability the room took on entry, and re-entering
+    //     a name the directory already knows answers with no authority to take.
+    //     Presses the act rather than reading the card.
     //   rooms-web-dm — the browser sends a direct message end to end: redeem
     //     a room introduction and dial the member's iroh endpoint through the
     //     relay, delivering off-room.
@@ -455,22 +492,24 @@ pub fn register(ctx: Context) void {
     //     then recovers that history through the same authority in a fresh one.
     const web_proofs = [_]WebProof{
         .{ .step_name = "rooms-web-browser-peer", .description = "Prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/browser_peer_test.ts" },
-        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_page_test.ts" },
-        .{ .step_name = "rooms-web-shared-session", .description = "Prove two browser profiles attach to one durable Rooms session and mirror its member, selection, draft, lines, and capability vault (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_shared_session_test.ts" },
-        .{ .step_name = "rooms-web-reconnect", .description = "Prove the rooms page survives losing its iroh room server: it refreshes changed routing hints without changing authority, then re-enters a listed room by name and a private room by its retained link (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web_reconnect_test.ts", .needs_iroh = true },
-        .{ .step_name = "rooms-web-dm", .description = "Prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_test.ts", .needs_iroh = true },
-        .{ .step_name = "rooms-web-dm-tabs", .description = "Prove two browser tabs direct-message each other over the default WebRTC path, including closing and reopening the introduced line (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_tabs_test.ts" },
-        .{ .step_name = "rooms-web-dm-viz", .description = "Prove a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, the endpoint scopes both producers' session ids apart and carries both ends of the wire, and the room stays off the DM's path (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_viz_test.ts" },
-        .{ .step_name = "rooms-web-viz-lifecycle", .description = "Prove the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs in a room are three peers and two sessions, a direct message adds a session between the members with the room off its path, leaving the room keeps the session and drops the nickname, closing the direct message closes its session from either end, and a tab going away takes its peer and both its sessions (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_viz_lifecycle_test.ts" },
-        .{ .step_name = "rooms-web-dm-native", .description = "Prove a native peer cold-dials a browser member by sealed relay rendezvous (ADR-0088): the tab advertises noise-relay, the native Host redeems through its relay provider, the encrypted session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_native_dial_test.ts" },
-        .{ .step_name = "rooms-web-dm-noise", .description = "Prove two browser members direct-message through the room relay over an end-to-end Noise-sealed session: one managed browser connector cold-dials the other's rendezvous and the reply rides back off-room (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_noise_relay_test.ts" },
-        .{ .step_name = "rooms-web-dm-webrtc", .description = "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only signaling, the live timeline must name webrtc rather than keyed-relay, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_webrtc_test.ts" },
-        .{ .step_name = "rooms-web-routes", .description = "Prove the rooms page's address is a shareable place to stand: a cold /room/<name> link arrives named, opening writes its address, back and forward walk it with the view, following an address never moves the rail, a private room's key stays out of it, the join card standing in for a link reflects what that link gates rather than what was used last, and an unanswered address folds back to the front (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_routes_test.ts" },
-        .{ .step_name = "rooms-web-private", .description = "Prove a private room is reachable only by the reference to it: it is in no room list, naming the same thing opens a different room, handing it over is what puts somebody else in it, and declining leaves them out (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_private_room_test.ts" },
-        .{ .step_name = "rooms-web-dm-foreign", .description = "Prove a visitor can start a direct message in a room they joined: the tab holds its own page's directory and the one it went to, and the redeem signals through the directory that introduced the member rather than through whichever was opened first (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_foreign_room_test.ts" },
-        .{ .step_name = "rooms-web-dm-retarget", .description = "Prove a nickname changing hands cannot move a direct conversation: the member leaves, someone else is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_retarget_test.ts" },
-        .{ .step_name = "rooms-web-dm-reopen", .description = "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web_dm_reopen_test.ts" },
-        .{ .step_name = "rooms-web-archive", .description = "Prove a member explicitly selects a durable archive peer and recovers direct-message history from it in a fresh browser profile (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web_archive_peer_test.ts", .needs_iroh = true },
+        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/page_test.ts" },
+        .{ .step_name = "rooms-web-shared-session", .description = "Prove two browser profiles attach to one durable Rooms session and mirror its member, selection, draft, lines, and capability vault (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/shared_session_test.ts" },
+        .{ .step_name = "rooms-web-reconnect", .description = "Prove the rooms page survives losing its iroh room server: it refreshes changed routing hints without changing authority, then re-enters a listed room by name and a private room by its retained link (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web/reconnect_test.ts", .needs_iroh = true },
+        .{ .step_name = "rooms-web-dm", .description = "Prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_test.ts", .needs_iroh = true },
+        .{ .step_name = "rooms-web-dm-tabs", .description = "Prove two browser tabs direct-message each other over the default WebRTC path, including closing and reopening the introduced line (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_tabs_test.ts" },
+        .{ .step_name = "rooms-web-dm-viz", .description = "Prove a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, the endpoint scopes both producers' session ids apart and carries both ends of the wire, and the room stays off the DM's path (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_viz_test.ts" },
+        .{ .step_name = "rooms-web-viz-lifecycle", .description = "Prove the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs in a room are three peers and two sessions, a direct message adds a session between the members with the room off its path, leaving the room keeps the session and drops the nickname, closing the direct message closes its session from either end, and a tab going away takes its peer and both its sessions (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/viz_lifecycle_test.ts" },
+        .{ .step_name = "rooms-web-dm-native", .description = "Prove a native peer cold-dials a browser member by sealed relay rendezvous (ADR-0088): the tab advertises noise-relay, the native Host redeems through its relay provider, the encrypted session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_native_dial_test.ts" },
+        .{ .step_name = "rooms-web-dm-noise", .description = "Prove two browser members direct-message through the room relay over an end-to-end Noise-sealed session: one managed browser connector cold-dials the other's rendezvous and the reply rides back off-room (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_noise_relay_test.ts" },
+        .{ .step_name = "rooms-web-dm-webrtc", .description = "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only signaling, the live timeline must name webrtc rather than keyed-relay, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_webrtc_test.ts" },
+        .{ .step_name = "rooms-web-routes", .description = "Prove the rooms page's address is a shareable place to stand: a cold /room/<name> link arrives named, opening writes its address, back and forward walk it with the view, following an address never moves the rail, a private room's key stays out of it, the join card standing in for a link reflects what that link gates rather than what was used last, and an unanswered address folds back to the front (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/routes_test.ts" },
+        .{ .step_name = "rooms-web-manager", .description = "Prove a reloaded workspace re-enters the rooms it manages by name and keeps its saved manager capability usable rather than merely drawn (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/room_manager_test.ts" },
+        .{ .step_name = "rooms-web-boot-theme", .description = "Prove the page's first paint is the theme the reader left, guessed from the stored workspace before any application code exists, and that a browser holding no workspace is left to its own preference (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/boot_theme_test.ts" },
+        .{ .step_name = "rooms-web-private", .description = "Prove a private room is reachable only by the reference to it: it is in no room list, naming the same thing opens a different room, handing it over is what puts somebody else in it, and declining leaves them out (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/private_room_test.ts" },
+        .{ .step_name = "rooms-web-dm-foreign", .description = "Prove a visitor can start a direct message in a room they joined: the tab holds its own page's directory and the one it went to, and the redeem signals through the directory that introduced the member rather than through whichever was opened first (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_foreign_room_test.ts" },
+        .{ .step_name = "rooms-web-dm-retarget", .description = "Prove a nickname changing hands cannot move a direct conversation: the member leaves, someone else is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_retarget_test.ts" },
+        .{ .step_name = "rooms-web-dm-reopen", .description = "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/dm_reopen_test.ts" },
+        .{ .step_name = "rooms-web-archive", .description = "Prove a member explicitly selects a durable archive peer and recovers direct-message history from it in a fresh browser profile (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web/archive_peer_test.ts", .needs_iroh = true },
     };
     for (web_proofs) |proof| {
         const run = execution.addSystemCommand(b, .{ .browser_proof = 330 }, &.{ "deno", "run", "--allow-all", proof.source });
@@ -528,12 +567,12 @@ pub fn register(ctx: Context) void {
     // those belong in the browser console of whoever is editing the page, not in
     // a deployed one.
     const rooms_deploy_bundle = execution.addSystemCommand(b, .build_tool, &.{
-        "deno",                                "bundle",
-        "--platform",                          "browser",
-        "--no-lock",                           "--quiet",
-        "--minify",                            "--config",
-        "bindings/ts/web/browser-bundle.json", "apps/rooms/web/ui/main.tsx",
-        "-o",                                  "apps/rooms/web/ui/page.js",
+        "deno",                               "bundle",
+        "--platform",                         "browser",
+        "--quiet",                            "--minify",
+        "--code-splitting",                   "--config",
+        "apps/rooms/web/browser-bundle.json", "--outdir",
+        "apps/rooms/web/ui/bundle",           "apps/rooms/web/ui/main.tsx",
     });
     rooms_deploy_bundle.setCwd(b.path("."));
     rooms_deploy_bundle.has_side_effects = true;

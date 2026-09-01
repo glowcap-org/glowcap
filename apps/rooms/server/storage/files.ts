@@ -15,7 +15,7 @@ import { boundedText, nonnegativeSafeInteger } from "../../lib/schema.ts";
 const COMPACT_AT = LINES_KEPT * 2;
 /** JSON escaping can expand one admitted text byte to six disk bytes. The
  * logical index is far smaller; this is the pre-read crash/corruption ceiling. */
-export const HISTORY_DISK_BYTES = 512 * 1024 * 1024;
+const HISTORY_DISK_BYTES = 512 * 1024 * 1024;
 /** One pre-compaction room file at the worst JSON escaping expansion. This
  * bounds the single allocation made by `readTextFile`, independently of the
  * whole-directory ceiling. */

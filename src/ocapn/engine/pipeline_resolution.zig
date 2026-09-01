@@ -120,6 +120,30 @@ pub fn classifyListenerDrain(
     return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
 }
 
+/// `ListenerDrainAction` narrowed to the settled resolutions drain sites hold.
+pub const TerminalDrainAction = union(enum) {
+    fire: u64,
+    discard,
+};
+
+/// `classifyListenerDrain` for a resolution already proven settled: either
+/// `resolution_chain.Outcome.terminal`, whose `step` returns terminal only
+/// for a value that is not a same-peer promise, or a locally constructed
+/// fulfill or break. The matrix's re-anchor row is excluded by that
+/// precondition — re-anchoring is the chain walk's job before any drain site
+/// classifies — so the exclusion lives here once instead of as an arm every
+/// drain switch must refuse.
+pub fn classifyTerminalListenerDrain(
+    entry: session.ListenerEntry,
+    resolution: model.Resolution,
+) TerminalDrainAction {
+    return switch (classifyListenerDrain(entry, resolution)) {
+        .fire => |position| .{ .fire = position },
+        .discard => .discard,
+        .reinstall => unreachable,
+    };
+}
+
 /// What `projectResolution` decided for one `op:get` / `op:index`
 /// projection over a settled resolution.
 pub const Projected = union(enum) {

@@ -1,14 +1,12 @@
 // Composer helpers: the typing signal, the file chip, and how to name who is typing.
 
 import { useEffect, useRef } from "react";
-import type { Conv } from "../types.ts";
-import { commandIn } from "../commands.ts";
-import type { Trigger } from "../complete.ts";
+import { useRoomsState } from "../hooks.ts";
+import { NO_TYPERS } from "../store/core.ts";
 import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { TYPING_IDLE_MS } from "../../../lib/limits.ts";
-import { ircName } from "../member_identity.ts";
 
 /** Tell the room we are typing while the draft holds text, and stop when we
  * send, go idle, blur, or leave.
@@ -57,40 +55,6 @@ export function useTypingSignal(typing: boolean, draft: string, setTyping: (on: 
 // measures the layout it leaves behind rather than the one mid-animation.
 export const KEYBOARD_SETTLE_MS = 300;
 
-/** Whose names an `@` completes against, here.
- *
- * A mention reaches somebody in the conversation, so most `@`s complete against
- * the room's members (or the one person a direct line is with). But a command
- * whose target is somebody to bring in — `/invite`, `/msg` — wants the people
- * the members list leaves out, so its `@` completes against the directory's
- * reachable set instead. The command registry declares which (`targets`); the
- * one place that knows a name is not present is here, where the draft is.
- * Room-wide names are not in this list: they are mention vocabulary, and
- * completion keeps them off any command that declared `targets`. Your own
- * name is not either: a line to yourself is not a conversation. */
-export function nickSource(
-	trigger: Trigger | null,
-	conv: Conv | null,
-	draft: string,
-	reachable: ReadonlySet<string>,
-	you: string,
-): readonly string[] {
-	if (trigger?.kind !== "nick" || conv === null) return [];
-	if (commandIn(draft)?.command.targets === "reachable") {
-		const mine = you.toLowerCase();
-		return mine === "" ? [...reachable] : [...reachable].filter((name) => name.toLowerCase() !== mine);
-	}
-	if (conv.type !== "room") return [conv.id];
-	// `irc/` is attribution in the Rooms roster, not part of an IRC nickname or
-	// valid mention syntax. One visible spelling also covers the rare collision
-	// where a native Rooms member and an IRC participant share a name: `@alice`
-	// reaches the native reader and crosses the bridge to IRC, so two identical
-	// rows would offer no distinct act.
-	const names = new Set<string>();
-	for (const name of conv.members.keys()) names.add(ircName(name) ?? name);
-	return [...names];
-}
-
 /** One file chip in the composer: its kind, its name and size, and the × that
  * takes it back out. One shape for both a newly-picked file and a file kept from
  * a line being refiled — they differ only in what removing means, which is the
@@ -120,7 +84,17 @@ export function FileChip(
 	);
 }
 
-export function typingText(names: Iterable<string>, except: string): string {
+/** Who is composing in this conversation. Subscribes here, not at the page
+ * root, so a peer's keystroke does not rebuild the shell. */
+function useConversationTypers(key: string | null): ReadonlySet<string> {
+	return useRoomsState((state) => key == null ? NO_TYPERS : state.typers.get(key) ?? NO_TYPERS);
+}
+
+export function useTypingSaid(key: string | null, except: string): string {
+	return typingText(useConversationTypers(key), except);
+}
+
+function typingText(names: Iterable<string>, except: string): string {
 	let first = "";
 	let second = "";
 	let count = 0;

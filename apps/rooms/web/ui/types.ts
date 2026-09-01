@@ -1,6 +1,7 @@
 // Presentation types that belong to directories and page chrome.
 
 import type { DirectoryMember, RoomInfo } from "../../lib/directory_publications.ts";
+import type { RoomPolicy } from "../../lib/room/policy.ts";
 
 export * from "./conversation.ts";
 
@@ -51,6 +52,7 @@ export interface RoomDestination {
 	room: string;
 	locator: string;
 	hidden?: boolean;
+	policy?: RoomPolicy;
 }
 
 export type ToastKind = "success" | "failure" | "warning";
@@ -71,6 +73,9 @@ export interface DirView {
 	/** The nickname this live directory connection actually granted. */
 	nick: string;
 	slot: number;
+	/** Once true, this tab has had an answer from this directory. First Connect
+	 * and a standing drop are different words because of this, not because a row
+	 * exists. */
 	reached: boolean;
 	session: SessionPhase;
 	statusText: string;
@@ -78,7 +83,35 @@ export interface DirView {
 	standing: string | null;
 }
 
+/** Which person a member card is about.
+ *
+ * `conv` is the room whose roster the reading came from. It is null when the
+ * reader opened their own card from the rail's foot, which is about them on the
+ * page rather than in any one room, and the card says so rather than naming a
+ * room that was never asked about. */
+export interface MemberRef {
+	readonly conv: string | null;
+	readonly name: string;
+}
+
 export type SessionPhase = "connecting" | "connected" | "disconnected" | "reconnecting";
+
+/** How a directory's connection reads from live evidence.
+ *
+ * Opening an attempt, restore, and attached projection derive the four words
+ * from the same three facts: connected when the runtime says so, disconnected
+ * when an issue names this directory or the whole session, and otherwise
+ * connecting until this tab has had an answer, reconnecting once it has.
+ * Local still writes connected and disconnected as the dial settles. */
+export function directoryLivePhase(
+	reached: boolean,
+	connected: boolean,
+	issue: string | undefined,
+): { readonly session: SessionPhase; readonly statusText: string } {
+	if (issue != null) return { session: "disconnected", statusText: issue };
+	if (connected) return { session: "connected", statusText: "" };
+	return { session: reached ? "reconnecting" : "connecting", statusText: "" };
+}
 
 /** Actions the message log may offer for sends this controller owns. */
 export interface SendControlPolicy {
@@ -89,7 +122,7 @@ export interface SendControlPolicy {
 export const LOCAL_SEND_CONTROLS = { retry: true, stop: true } as const;
 export const SHARED_SEND_CONTROLS = { retry: false, stop: false } as const;
 
-export function sendControlsFor(kind: "local" | "attached"): SendControlPolicy {
+export function sendControlsFor(kind: "local" | "attached" | "hosted"): SendControlPolicy {
 	return kind === "local" ? LOCAL_SEND_CONTROLS : SHARED_SEND_CONTROLS;
 }
 

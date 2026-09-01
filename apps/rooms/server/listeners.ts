@@ -48,8 +48,8 @@ import {
 	NO_SUCH_LISTENER,
 	RoomError,
 } from "../lib/errors.ts";
-import { serveAccepted } from "./sessions.ts";
-import { noteTrouble } from "./journal.ts";
+import type { RoomServerSessions } from "./sessions.ts";
+import type { TroubleJournal } from "./journal.ts";
 import type { RoomServerOperationsState } from "./operations_state.ts";
 
 /** The transports an `up` may name. The set is closed here rather than passed
@@ -139,10 +139,12 @@ const CATALOG: ReadonlyMap<AdminTransport, ProfileInfo> = (() => {
 	return catalog;
 })();
 
-/** The one sentence for a missing Tor, shared by the standing answer in
- * `list` and the refusal an `up` gives anyway. */
+/** Why a missing Tor stops an onion listener, shared by the standing answer
+ * in `list` and the refusal an `up` gives anyway. Both positions render it on
+ * its own, so it is written as sentences rather than as a clause something
+ * else introduces. */
 const ONION_NEEDS_TOR =
-	"this server was started without a running Tor (PANCAKE_ONION_SOCKS and PANCAKE_ONION_CONTROL are not set), so no onion listener can come up";
+	"This server was started without a running Tor, so no onion listener can come up. PANCAKE_ONION_SOCKS and PANCAKE_ONION_CONTROL are not set.";
 
 /** How long a relay registration may take before the `up` refuses instead of
  * answering a row nothing stands behind. */
@@ -160,12 +162,12 @@ function probeRegisterEndpoint(url: string, designator: string): Promise<void> {
 		try {
 			ws = new WebSocket(`${url}?id=${designator}`);
 		} catch (error) {
-			reject(new RoomError(LISTENER_UNSUPPORTED, `the relay refused a register socket: ${error}`));
+			reject(new RoomError(LISTENER_UNSUPPORTED, `The relay refused a register socket: ${error}`));
 			return;
 		}
 		const expiry = setTimeout(() => {
 			ws.close();
-			reject(new RoomError(LISTENER_UNSUPPORTED, "the relay did not answer a register socket in time"));
+			reject(new RoomError(LISTENER_UNSUPPORTED, "The relay did not answer a register socket in time."));
 		}, RELAY_REGISTER_DEADLINE_MS);
 		ws.addEventListener("open", () => {
 			clearTimeout(expiry);
@@ -175,7 +177,7 @@ function probeRegisterEndpoint(url: string, designator: string): Promise<void> {
 		ws.addEventListener("error", () => {
 			clearTimeout(expiry);
 			reject(
-				new RoomError(LISTENER_UNSUPPORTED, `no relay answered a register socket at ${url}`),
+				new RoomError(LISTENER_UNSUPPORTED, `No relay answered a register socket at ${url}.`),
 			);
 		}, { once: true });
 	});
@@ -189,10 +191,10 @@ function rendezvousRegisterUrl(relayUrl: string): string {
 	try {
 		base = new URL(relayUrl);
 	} catch {
-		throw new RoomError(LISTENER_UNSUPPORTED, `"${relayUrl}" is not a WebSocket URL`);
+		throw new RoomError(LISTENER_UNSUPPORTED, `"${relayUrl}" is not a WebSocket URL.`);
 	}
 	if (base.protocol !== "ws:" && base.protocol !== "wss:") {
-		throw new RoomError(LISTENER_UNSUPPORTED, `a relay URL uses ws or wss, got "${relayUrl}"`);
+		throw new RoomError(LISTENER_UNSUPPORTED, `A relay URL uses ws or wss, and "${relayUrl}" uses neither.`);
 	}
 	base.pathname = "/register";
 	base.search = "";
@@ -273,6 +275,8 @@ function unavailable(error: unknown): boolean {
 export class ListenerRegistry {
 	readonly #host: Host;
 	readonly #state: RoomServerOperationsState | null;
+	readonly #sessions: RoomServerSessions;
+	readonly #journal: TroubleJournal;
 	readonly #rows: Row[] = [];
 	/** The dialable locator this server announced (`ROOMS-SERVER-LISTENING`).
 	 * The web relay dials exactly this, so the row wearing it is the one
@@ -281,9 +285,16 @@ export class ListenerRegistry {
 	#announced = "";
 	#nextId = 1;
 
-	constructor(host: Host, state: RoomServerOperationsState | null = null) {
+	constructor(
+		host: Host,
+		sessions: RoomServerSessions,
+		journal: TroubleJournal,
+		state: RoomServerOperationsState | null = null,
+	) {
 		this.#host = host;
+		this.#sessions = sessions;
 		this.#state = state;
+		this.#journal = journal;
 	}
 
 	/** Adopt the listener the boot path already opened and announced. */
@@ -299,7 +310,7 @@ export class ListenerRegistry {
 			try {
 				await this.up(intent.transport, upOption(intent.options), false);
 			} catch (error) {
-				noteTrouble(`could not restore the ${intent.transport} listener`, error);
+				this.#journal.note(`could not restore the ${intent.transport} listener`, error);
 			}
 		}
 	}
@@ -371,7 +382,7 @@ export class ListenerRegistry {
 		if (this.#rows.some((held) => held.transport === transport)) {
 			throw new RoomError(
 				LISTENER_TRANSPORT_HELD,
-				`this runtime holds one live listener per transport, and its ${transport} listener is already up; take that one down first`,
+				`This runtime holds one live listener per transport, and its ${transport} listener is already up. Take that one down first.`,
 			);
 		}
 		const brought = await this.#bringUp(transport, option).catch((error) => {
@@ -382,7 +393,7 @@ export class ListenerRegistry {
 			if (said.includes("ListenerProfileInUse")) {
 				throw new RoomError(
 					LISTENER_TRANSPORT_HELD,
-					`this runtime holds one live listener per transport, and its ${transport} listener is already up; take that one down first`,
+					`This runtime holds one live listener per transport, and its ${transport} listener is already up. Take that one down first.`,
 				);
 			}
 			throw error;
@@ -399,8 +410,8 @@ export class ListenerRegistry {
 		// Serve the new listener's sessions the same way the boot listener's are
 		// served; the directory is a Host-wide publication, so nothing more is
 		// needed for a session arriving here to reach it.
-		void serveAccepted(brought.server).catch((error) => {
-			noteTrouble(`listener ${row.id} stopped serving`, error);
+		void this.#sessions.serve(brought.server).catch((error) => {
+			this.#journal.note(`listener ${row.id} stopped serving`, error);
 		});
 		// The binding's listen selects the new listener's locator as the location
 		// signed into new sessions. An admin `up` must not move the Host's signed
@@ -436,7 +447,7 @@ export class ListenerRegistry {
 				if (unavailable(error)) {
 					throw new RoomError(
 						LISTENER_UNSUPPORTED,
-						"the iroh archive is not built into this server (zig build iroh-abi, cargo required), so no iroh listener can come up",
+						"The iroh archive is not built into this server, so no iroh listener can come up. Building it takes zig build iroh-abi, which needs cargo.",
 					);
 				}
 				throw error;
@@ -459,7 +470,7 @@ export class ListenerRegistry {
 			if (unavailable(error)) {
 				throw new RoomError(
 					LISTENER_UNSUPPORTED,
-					"the onion archive is not built into this server, so no onion listener can come up",
+					"The onion archive is not built into this server, so no onion listener can come up.",
 				);
 			}
 			throw error;
@@ -503,7 +514,7 @@ export class ListenerRegistry {
 		if (route === null) {
 			throw new RoomError(
 				LISTENER_UNSUPPORTED,
-				`a ${transport} listener registers at a relay; name its WebSocket URL with the ask, or start the server with PANCAKE_ROOMS_RELAY_URL`,
+				`A ${transport} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with PANCAKE_ROOMS_RELAY_URL.`,
 			);
 		}
 		const registerUrl = rendezvousRegisterUrl(route);
@@ -520,12 +531,12 @@ export class ListenerRegistry {
 
 	async down(id: number): Promise<void> {
 		const at = this.#rows.findIndex((row) => row.id === id);
-		if (at === -1) throw new RoomError(NO_SUCH_LISTENER, `no listener is numbered ${id}`);
+		if (at === -1) throw new RoomError(NO_SUCH_LISTENER, `No listener is numbered ${id}.`);
 		const row = this.#rows[at];
 		if (this.#serving(row)) {
 			throw new RoomError(
 				LISTENER_SERVING,
-				`listener ${id} answers the locator this server announced, which the web relay and this admin session ride, so taking it down would cut them off`,
+				`Listener ${id} answers the locator this server announced. The web relay and this admin session ride it, so taking it down would cut them off.`,
 			);
 		}
 		if (row.managed) await this.#state?.forgetListener(row.transport);

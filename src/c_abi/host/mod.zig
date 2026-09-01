@@ -47,7 +47,9 @@
 //! leaves, so the header generator and the binding mirrors see the whole ABI
 //! from one place. The exports themselves are split by responsibility:
 //! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
-//! queue, host-wide publish, GC, and the last-error slot;
+//! queue, host-wide publish, GC, and the last-error slot; `locators.zig` owns
+//! the identity-designator helper and advertised-locator admission; and
+//! `embedding.zig` owns the Zig-only driver transfer bridge;
 //! `session/lifecycle.zig` owns open/close/release; `session/pump.zig` owns the
 //! session byte and packet pump; `session.zig` owns publish/spawn, fetch/enliven,
 //! send/tell/vows, and abort diagnostics; `turn.zig` owns the turn-time verbs;
@@ -69,6 +71,7 @@ const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 
 const host = @import("host.zig");
+const locators = @import("locators.zig");
 const session_limits = @import("session_limits.zig");
 const session = @import("session.zig");
 const session_lifecycle = @import("session/lifecycle.zig");
@@ -91,72 +94,9 @@ comptime {
     std.debug.assert(PANCAKE_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
 }
 
-/// Zig-only seams for the sibling driver archive (ADR-0112): `libpancake_driver`
-/// creates hosts through this family's own constructors, then reaches the
-/// embedded core and the completion projection here. Nothing in this
-/// namespace exports a symbol; a C consumer cannot name it.
-pub const embedding = struct {
-    pub const DriverClaim = struct {
-        inst: *common.Instance,
-
-        pub fn allocator(self: DriverClaim) std.mem.Allocator {
-            return self.inst.allocator;
-        }
-
-        pub fn core(self: DriverClaim) *driver_core.Host {
-            return &self.inst.core;
-        }
-
-        /// Roll back a failed driver construction. No driver-owned operation
-        /// may have escaped while construction was fallible.
-        pub fn rollback(self: DriverClaim) void {
-            std.debug.assert(self.inst.drive_owner == .driver);
-            self.inst.drive_owner = .embedder;
-        }
-    };
-
-    pub const ClaimError = error{HostAlreadyOwned};
-
-    /// Claim the C handle's transport/action-drain ownership for a native
-    /// driver construction. `HostRuntime.initWithCore` validates whether the
-    /// core itself can transfer; rollback restores this token if it cannot.
-    pub fn claimForDriver(handle: ?*PancakeHost) ClaimError!?DriverClaim {
-        const inst = common.instanceFrom(handle) orelse return null;
-        if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
-        inst.drive_owner = .driver;
-        return .{ .inst = inst };
-    }
-
-    pub fn releaseFromDriver(handle: *PancakeHost) ?anyerror {
-        return common.releaseFromDriver(handle);
-    }
-
-    /// The C handle a core session projects as; the driver archive's events
-    /// carry sessions in the same handle vocabulary every `pancake_host_*`
-    /// verb takes.
-    pub fn sessionHandle(hs: *driver_core.HostSession) *PancakeHostSession {
-        return @ptrCast(hs);
-    }
-
-    pub fn sessionFrom(raw: ?*PancakeHostSession) ?*driver_core.HostSession {
-        return common.sessionFrom(raw);
-    }
-
-    /// Project one taken settled/failed completion onto the C action shape,
-    /// with the byte-fed queue's exact lifetime sentence: one scratch reset
-    /// per pop, then the projection allocates its views there. The caller
-    /// serializes this with `pancake_host_next_action` on the one driving
-    /// thread (a loop-tier consumer does not drain the byte-fed queue).
-    pub fn projectCompletion(
-        handle: ?*PancakeHost,
-        action: driver_core.HostAction,
-        slot: *PancakeHostAction,
-    ) i32 {
-        const inst = common.instanceFrom(handle) orelse return shared.PANCAKE_ERR_NULL_POINTER;
-        _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
-        return common.projectCompletionInto(inst, action, slot);
-    }
-};
+/// Zig-only seams for the sibling driver archive (ADR-0112). Nothing in this
+/// namespace exports a C symbol.
+pub const embedding = @import("embedding.zig");
 
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
@@ -522,10 +462,10 @@ pub const pancake_host_close_progress = host.pancake_host_close_progress;
 pub const pancake_host_close_wait_ms = host.pancake_host_close_wait_ms;
 pub const pancake_host_lifecycle_state = host.pancake_host_lifecycle_state;
 pub const pancake_host_release = host.pancake_host_release;
-pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_seed;
-pub const pancake_host_set_advertised_locator = host.pancake_host_set_advertised_locator;
-pub const pancake_host_ensure_advertised_locator = host.pancake_host_ensure_advertised_locator;
-pub const pancake_host_remove_advertised_locator = host.pancake_host_remove_advertised_locator;
+pub const pancake_host_designator_from_seed = locators.pancake_host_designator_from_seed;
+pub const pancake_host_set_advertised_locator = locators.pancake_host_set_advertised_locator;
+pub const pancake_host_ensure_advertised_locator = locators.pancake_host_ensure_advertised_locator;
+pub const pancake_host_remove_advertised_locator = locators.pancake_host_remove_advertised_locator;
 pub const pancake_host_set_session_limits = session_limits.pancake_host_set_session_limits;
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
 pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
@@ -567,6 +507,7 @@ pub const pancake_host_session_fetch = session.pancake_host_session_fetch;
 pub const pancake_host_session_enliven = session.pancake_host_session_enliven;
 pub const pancake_host_enliven = host.pancake_host_enliven;
 pub const pancake_host_enliven_for_version = host.pancake_host_enliven_for_version;
+pub const pancake_host_fetch_at = host.pancake_host_fetch_at;
 pub const pancake_host_set_trace = host.pancake_host_set_trace;
 pub const pancake_host_set_trace_queue = host.pancake_host_set_trace_queue;
 pub const pancake_host_next_trace = host.pancake_host_next_trace;

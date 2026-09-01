@@ -7,7 +7,7 @@ decision: "The standalone Rooms archive peer hosts ADR-0129's unchanged `put`/`r
 supersedes: []
 superseded_by: []
 amends: [ADR-0129]
-amended_by: [ADR-0131, ADR-0132]
+amended_by: [ADR-0131, ADR-0132, ADR-0140]
 ---
 
 # ADR-0130 Durable member archive peer

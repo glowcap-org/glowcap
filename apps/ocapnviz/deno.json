@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "exports": "./src/main.tsx",
   "tasks": {
-    "dev": "deno run -A npm:vite",
-    "build": "deno run -A npm:vite build",
-    "preview": "deno run -A npm:vite preview",
+    "dev": "deno run -A npm:vite@8.2.0",
+    "build": "deno run -A npm:vite@8.2.0 build",
+    "preview": "deno run -A npm:vite@8.2.0 preview",
     "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
     "typecheck": "deno check src/main.tsx scripts/*.ts",
     "test": "deno test -A",
@@ -23,15 +23,15 @@
     "react-dom/client": "npm:react-dom@19.2.8/client",
     "@types/react": "npm:@types/react@19.2.18",
     "@types/react-dom": "npm:@types/react-dom@19.2.4",
-    "zod": "npm:zod@^4.4.3",
-    "pixi.js": "npm:pixi.js@^8.19.0",
-    "pixi-viewport": "npm:pixi-viewport@^6.0.3",
-    "miniplex": "npm:miniplex@^2.0.0",
-    "d3-force": "npm:d3-force@^3.0.0",
-    "@types/d3-force": "npm:@types/d3-force@^3.0.10",
-    "vite": "npm:vite@^8.2.0",
-    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
-    "@deno/vite-plugin": "npm:@deno/vite-plugin@^2.0.3",
+    "zod": "npm:zod@4.4.3",
+    "pixi.js": "npm:pixi.js@8.19.0",
+    "pixi-viewport": "npm:pixi-viewport@6.0.3",
+    "miniplex": "npm:miniplex@2.0.0",
+    "d3-force": "npm:d3-force@3.0.0",
+    "@types/d3-force": "npm:@types/d3-force@3.0.10",
+    "vite": "npm:vite@8.2.0",
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@6.0.5",
+    "@deno/vite-plugin": "npm:@deno/vite-plugin@2.0.3",
     "@pancake/abi": "../../bindings/ts/abi/constants.ts",
     "@pancake/runtime": "../../bindings/ts/runtime/mod.ts",
     "@pancake/runtime/ffi": "../../bindings/ts/web/browser_ffi.ts",
@@ -44,7 +44,7 @@
     "@pancake/iroh/internal": "../../bindings/ts/web/browser_iroh_stub.ts",
     "@pancake/webrtc": "../../bindings/ts/webrtc/mod.ts",
     "@pancake/webrtc/channel": "../../bindings/ts/webrtc/channel.ts",
-    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "@std/assert": "jsr:@std/assert@1.0.19",
     // The one place this scope's Playwright version is written, for every
     // script under scripts/. Pinned exactly rather than by range: Playwright
     // resolves its browser by a build number the version chooses, the
@@ -52,6 +52,10 @@
     // a range here would let the library drift off the browser on disk.
     // `zig build source-check` holds the two together.
     "playwright": "npm:playwright@1.62.1"
+  },
+  "lock": {
+    "path": "./deno.lock",
+    "frozen": true
   },
   "compilerOptions": {
     "jsx": "react-jsx",

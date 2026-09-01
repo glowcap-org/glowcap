@@ -7,7 +7,7 @@
 // the global edge so a busy server does not rewrite another room on every
 // post. This module performs no I/O.
 
-import { lineCost, MAX_LINE, MAX_NICK, MAX_ROOM } from "../lib/limits.ts";
+import { lineCost, MAX_DURABLE_ROOM, MAX_LINE, MAX_NICK } from "../lib/limits.ts";
 
 /** One immutable retained row. */
 export interface KeptLine {
@@ -46,8 +46,8 @@ interface KeptRoom {
 }
 
 function validateRoom(room: string): void {
-	if (room.length === 0 || room.length > MAX_ROOM) {
-		throw new Error(`room history has an invalid room name ${JSON.stringify(room)}`);
+	if (room.length === 0 || room.length > MAX_DURABLE_ROOM) {
+		throw new Error(`room history has an invalid room identity ${JSON.stringify(room)}`);
 	}
 }
 

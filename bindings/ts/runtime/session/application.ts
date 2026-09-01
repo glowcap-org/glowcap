@@ -44,12 +44,6 @@ export abstract class SessionApplication extends SessionLifecycle {
 		};
 	}
 
-	/** Spawn a local actor and return a capability to it. The `Ref`
-	 * auto-marshals when passed as a `send` argument, so handing a partner a
-	 * callback is just `send(target, verb, [..., session.spawn(behavior)])`. The
-	 * returned identity is opaque and Host-scoped; wire export positions stay
-	 * inside pancake. Callable from inside a served turn (a factory's `create`
-	 * minting the task it replies with). */
 	/** Listen on a far capability this session holds (CapTP `op:listen`,
 	 * ADR-0095): the returned handle settles with the listen notification,
 	 * which may be any value, not only a capability. In 1.0, the target may be
@@ -61,6 +55,12 @@ export abstract class SessionApplication extends SessionLifecycle {
 		return listenFar(this.makePromiseFactory(), target);
 	}
 
+	/** Spawn a local actor and return a capability to it. The `Ref`
+	 * auto-marshals when passed as a `send` argument, so handing a partner a
+	 * callback is just `send(target, verb, [..., session.spawn(behavior)])`. The
+	 * returned identity is opaque and Host-scoped; wire export positions stay
+	 * inside pancake. Callable from inside a served turn (a factory's `create`
+	 * minting the task it replies with). */
 	spawn(behavior: Behavior): Ref {
 		return spawnHosted(this.#makeHosting(), behavior);
 	}
@@ -153,8 +153,9 @@ export abstract class SessionApplication extends SessionLifecycle {
 	}
 
 	/** Enliven a sturdyref against this session (ADR-0098): bring the
-	 * durable `(peer, swissnum)` to life as a live `Ref`. Passes `sturdyref`
-	 * as a complete locator. The host verifies it against this session before
+	 * durable `(peer, swissnum)` to life as a live `Ref`. `sturdyref` uses the
+	 * canonical persistent URI form, independent of this live session's CapTP
+	 * profile. The host verifies it against this session before
 	 * consulting its dedup cache — a
 	 * repeat enliven of the same swissnum on this session short-circuits with
 	 * no wire traffic (its completion is queued before the minting call

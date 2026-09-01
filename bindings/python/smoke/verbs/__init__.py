@@ -159,6 +159,8 @@ async def _enliven_round_trips_then_caches() -> None:
         assert again == cap, "cached enliven preserves Target equality"
         greeting2 = await session.send(again, "hello", [])
         assert greeting2 == Symbol("alive"), f"cached enliven answers hello, got {greeting2!r}"
+        fetched = await session.host.fetch_at(locator, "greeter")
+        assert await session.send(fetched, "hello", []) == Symbol("alive")
         host_cap = await session.host.enliven(sturdyref, captp_version="v1_0")
         assert await session.send(host_cap, "hello", []) == Symbol("alive")
         try:
@@ -363,8 +365,7 @@ async def _fetch_failed_is_typed() -> None:
         session.serve()
         await export_known.wait()
         # The granting fetch: its resolve marshals the "plain" reference,
-        # which is what makes the position addressable for the doctored
-        # deliver below.
+        # making the position addressable for the doctored deliver below.
         state["capturing"] = True
         await session.fetch("plain")
         assert plain_export, "the granting fetch exposed no import-object descriptor"

@@ -58,6 +58,7 @@
 	height: var(--composer-status-h);
 }
 .typing,
+.composer-availability,
 .composer .hint {
 	position: absolute;
 	/* Aligned with the text you are writing: the input's own left padding plus
@@ -73,6 +74,44 @@
 	color: var(--ink-soft);
 	opacity: 0;
 	transition: opacity .12s ease;
+	/* Three lines share this one row and take turns by fading, so two of them
+	   are lying over the third at any moment. Invisible is not out of the way:
+	   a press still lands on whichever is topmost, and the availability line
+	   becomes a real button when its text is too long to sit on one line. The
+	   two that are only ever furniture take no presses at all, and the one that
+	   can be a control takes them only while it is there to be seen. */
+	pointer-events: none;
+}
+.composer-availability.show {
+	pointer-events: auto;
+}
+.composer .composer-availability {
+	display: flex;
+	align-items: center;
+	gap: var(--gap-tight);
+	font-size: var(--type-caption);
+	font-style: italic;
+	font-weight: 400;
+	color: var(--ink-soft);
+}
+.composer-availability.show {
+	opacity: 1;
+}
+.composer-availability .said-clamp {
+	display: block;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.composer-availability.said-more {
+	flex-direction: row;
+	/* The absolute inset already supplies this control's width. The general
+	   Said button fills an in-flow parent; keeping that 100% here adds it on top
+	   of both insets and pushes Show past the composer's right edge. */
+	width: auto;
+}
+.composer-availability .said-show {
+	flex: none;
 }
 .typing {
 	font-size: var(--type-caption);
@@ -131,7 +170,8 @@
 	border: 1px solid var(--rule);
 	border-bottom: none;
 	border-radius: 10px 10px 0 0;
-	background: var(--paper);
+	/* The ground color where this sits: the page's cooled foot. */
+	background: var(--page-foot);
 	--tuck: 14px;
 }
 .changing-said {
@@ -141,7 +181,7 @@
 .composer form {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--gap-line);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-card);
 	padding: 8px;
@@ -152,6 +192,23 @@
 	   arcs let messages through. With paper already behind it, the ring was
 	   filling notches that are no longer there. */
 	box-shadow: var(--shadow);
+}
+/* A field nobody can type in. Resting on the column is how this card says a
+   message can be written here, so when one cannot be it stops resting: flat
+   paper, a softer edge, and a pointer that says so. It stays where it is and
+   keeps its controls, because the line that gives the reason sits directly
+   under it and because a band that vanished would move the whole conversation
+   up and back down again as access came and went.
+
+   Receding by colour rather than by `opacity`, which is what the page's refused
+   controls use elsewhere. That way is not open here: the buttons inside this
+   card are refused controls and already carry the fade, and a second one on
+   their container multiplies through them into near invisibility. */
+.composer form:has(#line:disabled) {
+	border-color: color-mix(in srgb, var(--rule) 60%, transparent);
+	background: color-mix(in srgb, var(--paper-raised) 55%, var(--paper));
+	box-shadow: none;
+	cursor: not-allowed;
 }
 .composer-input {
 	width: 100%;
@@ -166,11 +223,11 @@
 	width: 100%;
 }
 .composer-actions-left {
-	gap: 2px;
+	gap: var(--gap-hair);
 }
 .composer form:focus-within {
 	border-color: var(--accent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+	box-shadow: var(--ring);
 }
 .composer textarea {
 	flex: 1;

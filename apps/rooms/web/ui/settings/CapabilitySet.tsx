@@ -43,11 +43,6 @@ export function CapabilitySetForm() {
 	};
 	const dirty = model.dirty;
 	const actionable = dirty || model.retryPending;
-	const discard = () => {
-		model.setDraft(parseOpsBundleDraft(model.savedBundle));
-		setText(model.savedBundle);
-		setMode("controls");
-	};
 
 	return (
 		<form
@@ -141,7 +136,7 @@ export function CapabilitySetForm() {
 					type="button"
 					variant="quiet"
 					disabled={!dirty || model.busy}
-					onClick={discard}
+					onClick={model.discard}
 				>
 					Discard
 				</Button>

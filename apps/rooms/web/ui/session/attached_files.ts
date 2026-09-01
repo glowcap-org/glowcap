@@ -1,14 +1,14 @@
 // Live attachment capabilities projected from a durable Rooms session.
 
-import type { Attachment } from "../../../lib/attachment.ts";
-import type { ArchiveLine } from "../../../lib/archive.ts";
-import { blobOf } from "../net/files.ts";
 import * as store from "../store.ts";
+import { blobOf } from "../net/files.ts";
 import type { AttachmentView, Item, ViewerDirection } from "../types.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
 import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
-
+import type { PageProjection } from "../store/core.ts";
+import type { Attachment } from "../../../lib/attachment.ts";
+import type { ArchiveLine } from "../../../lib/archive/protocol.ts";
 interface HeldFile {
 	readonly mime: string;
 	readonly durable: boolean;
@@ -18,15 +18,17 @@ interface HeldFile {
 
 export class AttachedSessionFiles {
 	readonly #controller: AttachedRoomsController;
+	readonly #projection: PageProjection;
 	readonly #stopLineCustody: () => void;
 	readonly #files = new Map<number, HeldFile>();
 	readonly #urls = new Map<number, string>();
 	readonly #progress = new Map<number, { key: string; got: number }>();
 	#frame: number | null = null;
 
-	constructor(controller: AttachedRoomsController) {
+	constructor(controller: AttachedRoomsController, projection: PageProjection) {
 		this.#controller = controller;
-		this.#stopLineCustody = store.onLinesDropped((_key: string, lines: readonly Item[]) => {
+		this.#projection = projection;
+		this.#stopLineCustody = this.#projection.onLinesDropped((_key: string, lines: readonly Item[]) => {
 			for (const line of lines) {
 				if (line.kind === "chat") this.release(line.attachments ?? []);
 			}
@@ -34,7 +36,7 @@ export class AttachedSessionFiles {
 	}
 
 	hold(attachment: Attachment): AttachmentView {
-		const view = store.attachmentView({
+		const view = store.attachmentView(this.#projection, {
 			name: attachment.name,
 			mime: attachment.mime,
 			size: attachment.size,
@@ -52,7 +54,7 @@ export class AttachedSessionFiles {
 
 	holdArchived(record: ArchiveLine, index: number): AttachmentView {
 		const attachment = record.attachments[index];
-		const view = store.attachmentView({
+		const view = store.attachmentView(this.#projection, {
 			name: attachment.name,
 			mime: attachment.mime,
 			size: attachment.size,
@@ -100,14 +102,13 @@ export class AttachedSessionFiles {
 	}
 
 	open(key: string, id: number): void {
-		const conversation = store.getConv(key);
-		const item = conversation?.history.find((row) =>
+		const item = store.historyOf(this.#projection, key).find((row) =>
 			row.kind === "chat" && row.attachments?.some((attachment) => attachment.id === id)
 		);
 		const view = item?.kind === "chat" ? item.attachments?.find((attachment) => attachment.id === id) : undefined;
 		const file = this.#files.get(id);
 		if (view == null || file == null || view.url != null || view.got != null || view.lost === true) return;
-		store.updateAttachment(key, id, { got: 0, error: undefined });
+		store.updateAttachment(this.#projection, key, id, { got: 0, error: undefined });
 		void file.fetch((got) => this.#noteProgress(key, id, got))
 			.then((bytes) => {
 				if (this.#files.get(id) !== file) return;
@@ -118,12 +119,12 @@ export class AttachedSessionFiles {
 				const url = URL.createObjectURL(blobOf(bytes, file.mime));
 				this.#urls.set(id, url);
 				this.#progress.delete(id);
-				store.updateAttachment(key, id, { got: undefined, error: undefined, url });
+				store.updateAttachment(this.#projection, key, id, { got: undefined, error: undefined, url });
 			})
 			.catch((error) => {
 				if (this.#files.get(id) !== file) return;
 				this.#progress.delete(id);
-				store.updateAttachment(key, id, {
+				store.updateAttachment(this.#projection, key, id, {
 					got: undefined,
 					error: error instanceof Error ? error.message : String(error),
 				});
@@ -131,13 +132,13 @@ export class AttachedSessionFiles {
 	}
 
 	openViewer(key: string, id: number): void {
-		store.openViewer(key, id);
+		store.openViewer(this.#projection, key, id);
 		this.open(key, id);
 	}
 
 	stepViewer(direction: ViewerDirection): void {
-		const key = store.get().viewing?.key;
-		const file = store.stepViewer(direction);
+		const key = this.#projection.get().viewing?.key;
+		const file = store.stepViewer(this.#projection, direction);
 		if (key != null && file != null && file.url == null) this.open(key, file.id);
 	}
 
@@ -157,7 +158,7 @@ export class AttachedSessionFiles {
 		this.#frame = requestAnimationFrame(() => {
 			this.#frame = null;
 			for (const [file, progress] of this.#progress) {
-				store.updateAttachment(progress.key, file, { got: progress.got });
+				store.updateAttachment(this.#projection, progress.key, file, { got: progress.got });
 			}
 			this.#progress.clear();
 		});
@@ -178,10 +179,10 @@ export class AttachedSessionFiles {
 	}
 
 	#attachmentIsOn(id: number, directory: string): boolean {
-		for (const conversation of store.get().convs.values()) {
+		for (const conversation of this.#projection.get().convs.values()) {
 			if (conversation.dir !== directory) continue;
 			if (
-				conversation.history.some((item) =>
+				store.historyOf(this.#projection, conversation.key).some((item) =>
 					item.kind === "chat" && item.attachments?.some((attachment) => attachment.id === id)
 				)
 			) return true;
@@ -190,13 +191,17 @@ export class AttachedSessionFiles {
 	}
 
 	#markViewLost(id: number, reason: string): void {
-		for (const conversation of store.get().convs.values()) {
+		for (const conversation of this.#projection.get().convs.values()) {
 			if (
-				!conversation.history.some((item) =>
+				!store.historyOf(this.#projection, conversation.key).some((item) =>
 					item.kind === "chat" && item.attachments?.some((attachment) => attachment.id === id)
 				)
 			) continue;
-			store.updateAttachment(conversation.key, id, { got: undefined, error: reason, lost: true });
+			store.updateAttachment(this.#projection, conversation.key, id, {
+				got: undefined,
+				error: reason,
+				lost: true,
+			});
 		}
 	}
 }

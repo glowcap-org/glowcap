@@ -16,6 +16,11 @@
 	   hover and held state are the button's; the stack stays brand amber. */
 	color: var(--accent);
 }
+/* Opening lockups float in the page's ambient brand light. The shadow is
+   centered so it reads as a faint glow, never as a raised sticker. */
+.brand-lockup {
+	filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 18%, transparent));
+}
 .mark-piece {
 	position: absolute;
 	inset: 0;
@@ -126,9 +131,16 @@
 	min-width: 0;
 	overflow: hidden;
 	font-weight: 800;
+	/* The lockup's own drawing, not a step on the chrome ramp: this file's
+	   opening line is that a logotype is not typography, and these two sizes
+	   are the proportion the mark was drawn at. They move together with the
+	   tracking and the letterfit below, or not at all. */
 	font-size: 17px;
 	letter-spacing: -.17px;
 	line-height: 0;
+	/* Not a spacing step: this is the lockup's own letterfit, measured against
+	   the wordmark at this size the way its tracking was, and it moves when the
+	   type does rather than when the layout does. */
 	gap: 4.8px;
 	color: var(--ink);
 }
@@ -138,6 +150,8 @@
 }
 .wordmark small {
 	font-weight: 600;
+	/* The other half of the lockup's drawing, sized against the logotype above
+	   rather than against the chrome ramp. */
 	font-size: 13px;
 	letter-spacing: 1.56px;
 	text-transform: uppercase;

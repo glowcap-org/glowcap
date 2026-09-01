@@ -2,7 +2,7 @@
 
 These are the limits that can change a deployment or API choice. [What ships](shipped.md)
 is the feature inventory. [Stability](stability.md) says how each surface is
-tested. The [roadmap](roadmap.md) owns future work.
+tested. The [roadmap](roadmap.md) lists future work.
 
 ## Transports and peer identity
 
@@ -184,8 +184,8 @@ not ship a native Zig QUIC or WebRTC stack.
   binding-facing codec extension should be an extension archive or Wasm
   component registered at the codec seam, with explicit frame ownership and no
   per-frame callback into a host-language runtime.
-- **macOS runs the native suite, and Windows is not implemented.** The full
-  gate and external-runtime matrix remain Linux-only.
+- **macOS runs the native suite, and Windows is not implemented.** `zig build check`
+  and the external-runtime matrix remain Linux-only.
 
 ## API gaps
 
@@ -207,6 +207,9 @@ not ship a native Zig QUIC or WebRTC stack.
   discovery, archive choice, capabilities, peering intent, history, live files,
   operator actions, listener and IRC administration, and visualizer publication.
   Browser `File` handles and object URLs remain device-local.
+  A browser tab can bind the same actor onto its wasm Host with in-memory session
+  documents. That incarnation is the tab: reload mints a new Host, so a saved
+  hosted selector becomes local reconstruction rather than dialing a dead peer.
   A live transferred attachment remains available only while its room, direct
   line, and session custody remain valid. A selected member archive may retain
   the same message's bytes separately and serve them after restart through its
@@ -214,6 +217,16 @@ not ship a native Zig QUIC or WebRTC stack.
   promise that an archive retained one. Room-link invitations are bounded
   workspace intent: local reconstruction and a durable Rooms session retain
   the handed sturdyref until the reader accepts or dismisses it.
+  Received archive-share rows are runtime-only. A live facet dies with its
+  session or one read. A durable offer's sturdyref is the Host publication;
+  the conversation-card reminder is not workspace intent, so a restart forgets
+  the reminder without revoking the share.
+
+- **One-shot room invitations are live capabilities today.** Native rooms and
+  IRC bridges bound them and retire them with their live room generation. Their
+  claim receipt survives a lost claim answer and all retry entrances compete
+  over one membership admission. Rooms does not yet persist these invitations
+  as individually revocable sturdyrefs across a server restart.
 
 - **Ordinary session-effect deduplication is bounded.** The durable ledger keeps
   64 completed operation identities. The browser never automatically retries an
@@ -222,6 +235,22 @@ not ship a native Zig QUIC or WebRTC stack.
   indefinite at-most-once guarantee. Private-room and durable-authority effects
   instead keep a typed pending result and an idempotent recovery key until
   resolution.
+
+- **Room durability is separate authority from membership.** Ordinary
+  `open`/`enter` and a live room reference grant no right to create durable
+  entry authority. Rooms-native managed creation separately returns a passable
+  manager for that room's registered public name, entry-link, and moderator
+  generations. The live room still disappears when empty; its registration
+  reserves the name and named entry reconstitutes it. A room entry link is not
+  that registration and grants no management. Losing every manager copy
+  requires the directory operator to recover one; sharing a manager delegates
+  management rather than transferring it exclusively. Revoking an entry link
+  blocks later admission through every old copy but does not evict a membership
+  that already subscribed. The current manager can unregister the room. That
+  retires its public entrance and moves it to private access while its room
+  link, moderator, manager, and existing memberships remain. The public name
+  is then available to another room, so registering this room again may meet a
+  name collision.
 
 - **Local browser reconstruction is not a multi-writer merge protocol.** A
   local workspace uses one coalesced localStorage writer per tab. Explicit
@@ -301,8 +330,10 @@ assets are not published.
   recipient and exporter sessions negotiated it; a baseline-compatible
   override remains usable, while private vocabulary falls back to the concrete
   location the exporter claimed on its session. The generic single-path dial planner and Host open
-  path still refuse bundle transports as physical sessions; only the Node
-  pending-dial waist resolves `id` into a concrete transport. Declared `via`
+  path still refuse bundle transports as physical sessions. Host
+  `fetchAt(locator, name)` and sturdyref enlivenment send named capability
+  lookup through the Node pending-dial waist, which alone resolves `id` into a
+  concrete transport without making an application choose a CapTP profile. Declared `via`
   order ranks a two-attempt window, the first proved completion wins, and exact
   losing route attempts are cancelled before their executor state retires. A
   weak fallback serves only its authorizing ticket; it is cached as the
@@ -311,8 +342,9 @@ assets are not published.
   after one withdrawal succeeds. Rooms composes active listeners into an
   identity route and uses the existing handoff path to publish durable rooms
   between directories. A Rooms Host also authors room and steward sturdyrefs
-  with the identity route it advertises on the asking session; the browser can
-  reconnect through that route and try its concrete alternatives without
+  with the identity route it advertises on the asking session. Rooms reaches
+  the directory publication through `fetchAt`, so a browser or native binding
+  can reconnect through that route and try its concrete alternatives without
   changing room authority. Ordinary member introductions still relay the
   member's signed session location.
 - **Handoff signatures always use Syrup.** That signing domain does not change
@@ -372,7 +404,7 @@ the native process. The optional native Zig relay module and the C relay
 archive compose a pollable WSS carrier with immutable
 system or copied-PEM trust, SNI, and hostname verification. The completion-loop
 relay path drives the same neutral TLS transform below the existing WebSocket
-machine without a thread or second framing pass. Its deterministic engine gate
+machine without a thread or second framing pass. Its deterministic engine check
 proves transition, refusal, cleanup, and footprint behavior. `zig build
 native-tls-build` uses real local certificate chains for both carriers. It
 proves success, unknown and expired authorities, hostname and SNI refusal,

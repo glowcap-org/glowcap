@@ -28,3 +28,17 @@ export function commandJson<T>(
 	if (!parsed.success) throw new Error(invalid);
 	return parsed.data;
 }
+
+export function roomConversation(
+	current: RoomsSessionState,
+	conversationId: string,
+	command: string,
+): Extract<RoomsSessionState["conversations"][number], { kind: "room" }> {
+	const conversation = current.conversations.find((entry) => entry.id === conversationId);
+	if (conversation?.kind !== "room") throw new Error(`${command} names no room in this session`);
+	const directory = current.directories.find((entry) => entry.id === conversation.directory);
+	if (directory == null || directory.nick === "") {
+		throw new Error(`${command} needs a named directory in this session`);
+	}
+	return conversation;
+}

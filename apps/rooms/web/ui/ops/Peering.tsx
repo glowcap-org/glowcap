@@ -19,6 +19,7 @@ import { Said } from "../Said.tsx";
 import { identifierField } from "../field.ts";
 import type { PeeringSource, PeeringState } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
+import { SectionTitle } from "./Section.tsx";
 
 export function PeeringPane(
 	{ state, sources }: {
@@ -75,132 +76,137 @@ export function PeeringPane(
 			<OpsHead refresh={() => session.refreshOpsCap("peering")}>
 				List a durable room from another directory here, and revoke what this tab published.
 			</OpsHead>
-			<h3 className="well-title overline" id="peeringPublishLabel">Publish a room</h3>
-			<div className="group well" role="group" aria-labelledby="peeringPublishLabel">
-				{sources.length === 0
-					? (
-						<p className="empty">
-							Nothing to publish yet. Join a room on another directory first, and it will be offered here.
-						</p>
-					)
-					: (
-						<form
-							className="group"
-							onSubmit={(event) => {
-								event.preventDefault();
-								// The submitted controls are authoritative. Reading the
-								// rendered-state closure here can lag a very fast type-and-submit
-								// sequence by one React commit and publish the previous name.
-								const submitted = new FormData(event.currentTarget);
-								const sourceKey = String(submitted.get("source") ?? "");
-								const chosen = sources.find((row) => row.key === sourceKey) ?? null;
-								publish(chosen, String(submitted.get("name") ?? ""));
-							}}
-						>
-							<Field id="peeringSource" label="Room to publish">
-								{(wiring) => (
-									<span className="select-wrap">
-										<select
-											id={wiring.id}
-											name="source"
-											className="field"
-											value={source?.key ?? ""}
-											disabled={publishing}
-											onChange={(event) => {
-												setPicked(event.target.value);
-												setNamed(null);
-											}}
-										>
-											{sources.map((row) => (
-												<option key={row.key} value={row.key}>
-													{row.room} · on {row.directory}
-												</option>
-											))}
-										</select>
-									</span>
-								)}
-							</Field>
-							<Field
-								id="peeringName"
-								label="Listed here as"
-								hint="Anyone on this directory can enter it under that name. The room itself stays where it lives. The listing lasts until you revoke it or this directory connection ends."
-								said={refused ?? ""}
+			<section className="ops-section">
+				<SectionTitle id="peeringPublishLabel">Publish a room</SectionTitle>
+				<div className="group well" role="group" aria-labelledby="peeringPublishLabel">
+					{sources.length === 0
+						? (
+							<p className="empty">
+								Nothing to publish yet. Join a room on another directory first, and it will be offered
+								here.
+							</p>
+						)
+						: (
+							<form
+								className="group"
+								onSubmit={(event) => {
+									event.preventDefault();
+									// The submitted controls are authoritative. Reading the
+									// rendered-state closure here can lag a very fast type-and-submit
+									// sequence by one React commit and publish the previous name.
+									const submitted = new FormData(event.currentTarget);
+									const sourceKey = String(submitted.get("source") ?? "");
+									const chosen = sources.find((row) => row.key === sourceKey) ?? null;
+									publish(chosen, String(submitted.get("name") ?? ""));
+								}}
 							>
-								{(wiring) => (
-									<input
-										id={wiring.id}
-										name="name"
-										className="field"
-										type="text"
-										enterKeyHint="go"
-										value={name}
-										disabled={publishing}
-										onChange={(event) => setNamed(event.target.value)}
-										{...identifierField}
-										placeholder="what this directory lists it as"
-										aria-describedby={wiring.describedBy}
-										aria-invalid={wiring.invalid}
-									/>
-								)}
-							</Field>
-							<div className="actions">
-								<Button
-									id="peeringPublish"
-									type="submit"
-									busy={publishing}
-									disabled={name === ""}
+								<Field id="peeringSource" label="Room to publish">
+									{(wiring) => (
+										<span className="select-wrap">
+											<select
+												id={wiring.id}
+												name="source"
+												className="field"
+												value={source?.key ?? ""}
+												disabled={publishing}
+												onChange={(event) => {
+													setPicked(event.target.value);
+													setNamed(null);
+												}}
+											>
+												{sources.map((row) => (
+													<option key={row.key} value={row.key}>
+														{row.room} · on {row.directory}
+													</option>
+												))}
+											</select>
+										</span>
+									)}
+								</Field>
+								<Field
+									id="peeringName"
+									label="Listed here as"
+									hint="Anyone on this directory can enter it under that name. The room itself stays where it lives. The listing lasts until you revoke it or this directory connection ends."
+									said={refused ?? ""}
 								>
-									{publishing ? "Publishing…" : "Publish"}
-								</Button>
-							</div>
-							{published !== "" && <Said kind="success">{published}</Said>}
-						</form>
-					)}
-			</div>
-			<h3 className="well-title overline" id="peeringListLabel">Published by this tab</h3>
-			<div className="group well" role="group" aria-labelledby="peeringListLabel">
-				{state.publications.length === 0
-					? <p className="empty">No rooms published from this tab yet.</p>
-					: (
-						<ul className="entries" id="peeringList">
-							{state.publications.map((row) => (
-								<li key={row.id} className="entry" data-phase={row.phase}>
-									<div className="entry-head">
-										<span className="entry-name">{row.name}</span>
-										{
-											/* The row's own word on what is in flight. A busy Revoke
+									{(wiring) => (
+										<input
+											id={wiring.id}
+											name="name"
+											className="field"
+											type="text"
+											enterKeyHint="go"
+											value={name}
+											disabled={publishing}
+											onChange={(event) => setNamed(event.target.value)}
+											{...identifierField}
+											placeholder="what this directory lists it as"
+											aria-describedby={wiring.describedBy}
+											aria-invalid={wiring.invalid}
+										/>
+									)}
+								</Field>
+								<div className="actions">
+									<Button
+										id="peeringPublish"
+										type="submit"
+										busy={publishing}
+										disabled={name === ""}
+									>
+										{publishing ? "Publishing…" : "Publish"}
+									</Button>
+								</div>
+								{published !== "" && <Said kind="success">{published}</Said>}
+							</form>
+						)}
+				</div>
+			</section>
+			<section className="ops-section">
+				<SectionTitle id="peeringListLabel">Published by this tab</SectionTitle>
+				<div className="group well" role="group" aria-labelledby="peeringListLabel">
+					{state.publications.length === 0
+						? <p className="empty">No rooms published from this tab yet.</p>
+						: (
+							<ul className="entries" id="peeringList">
+								{state.publications.map((row) => (
+									<li key={row.id} className="entry" data-phase={row.phase}>
+										<div className="entry-head">
+											<span className="entry-name">{row.name}</span>
+											{
+												/* The row's own word on what is in flight. A busy Revoke
 										    while the publish is still landing would announce the
 										    wrong act, so publishing shows as a quiet word and the
 										    control arrives with the authority it names. */
-										}
-										{row.phase === "publishing"
-											? <span className="entry-meta">publishing…</span>
-											: (
-												<div className="actions">
-													<Button
-														type="button"
-														variant="quiet"
-														busy={row.phase === "revoking"}
-														onClick={() => revoke(row.id)}
-													>
-														Revoke
-													</Button>
-												</div>
-											)}
-									</div>
-									<p className="entry-meta">
-										from <code>{row.source}</code>
-									</p>
-									{rowRefusals[String(row.id)] != null && (
-										<Said id={`peeringRowWhy-${row.id}`} kind="failure">
-											{rowRefusals[String(row.id)]}
-										</Said>
-									)}
-								</li>
-							))}
-						</ul>
-					)}
-			</div>
+											}
+											{row.phase === "publishing"
+												? <span className="entry-meta">publishing…</span>
+												: (
+													<div className="actions">
+														<Button
+															type="button"
+															variant="quiet"
+															busy={row.phase === "revoking"}
+															onClick={() => revoke(row.id)}
+														>
+															Revoke
+														</Button>
+													</div>
+												)}
+										</div>
+										<p className="entry-meta">
+											from {row.source}
+										</p>
+										{rowRefusals[String(row.id)] != null && (
+											<Said id={`peeringRowWhy-${row.id}`} kind="failure">
+												{rowRefusals[String(row.id)]}
+											</Said>
+										)}
+									</li>
+								))}
+							</ul>
+						)}
+				</div>
+			</section>
 		</div>
 	);
 }

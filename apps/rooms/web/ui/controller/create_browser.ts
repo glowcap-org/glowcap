@@ -1,17 +1,41 @@
-import * as net from "../net.ts";
+// Construct the browser-owned controller: presentation, navigation, and which
+// session this tab answers to.
+
 import * as store from "../store.ts";
+import * as net from "../net.ts";
 import {
-	clearWorkspaceState,
+	forgetForkedDirectoryNames,
 	setWorkspaceControllerSelection,
 	workspaceControllerSelection,
 	workspaceStateOf,
 } from "../workspace_state.ts";
+import { clearWorkspaceState } from "../workspace/bundle.ts";
+import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
 import { connectAttachedRoomsSession } from "../session/attached_connection.ts";
 import { attachRoomsController } from "../session/controller_transition.ts";
+import type { RoomsPageContext } from "../page.ts";
 import type { RoomsBrowserController } from "./browser.ts";
 import { deleteRoomsBrowserData } from "./browser_data.ts";
+import { coverForReload, finishCoveredReload, reloadNow, uncoverReload } from "../boot.ts";
+
+function leaveAttachedSession(
+	page: RoomsPageContext,
+	controller: { kind: "local" } | { kind: "none" },
+	refusal: string,
+): string {
+	coverForReload();
+	const restore = workspaceControllerSelection(page).kind === "attached" ? forgetForkedDirectoryNames(page) : null;
+	if (!setWorkspaceControllerSelection(page, controller)) {
+		restore?.();
+		uncoverReload();
+		return refusal;
+	}
+	finishCoveredReload(controller.kind === "none");
+	return "";
+}
 
 export function createRoomsBrowserController(
+	page: RoomsPageContext,
 	navigate: (path: string) => void,
 	addressOfActive: () => string,
 ): RoomsBrowserController {
@@ -19,78 +43,102 @@ export function createRoomsBrowserController(
 		act(...args);
 		if (location.pathname.startsWith("/ops")) queueMicrotask(() => navigate(addressOfActive()));
 	};
+	const projection = page.projection;
 	return {
-		showRail: store.showRail,
-		reachFor: backToRooms(net.reachFor),
-		showJoinCard: backToRooms(store.showJoinCard),
-		aboutDirectory: net.aboutDirectory,
-		aboutConversation: store.showAboutConv,
-		manageIrcIdentity: () => store.showAboutConv("irc"),
-		closeAboutConversation: store.closeAboutConv,
-		showError: store.showErrorDetail,
-		closeError: store.closeErrorDetail,
-		toast: store.toast,
-		showRoster: store.showRoster,
-		toggleNotify: net.toggleNotify,
-		openSettings: store.openSettings,
-		closeSettings: store.closeSettings,
-		setSettingsTab: store.setSettingsTab,
-		setTheme: store.setTheme,
-		openHelp: store.openHelp,
-		closeHelp: store.closeHelp,
+		showRail: (shown) => store.showRail(projection, shown),
+		reachFor: backToRooms((act) => net.reachFor(page, act)),
+		showJoinCard: backToRooms(() => store.showJoinCard(projection)),
+		aboutDirectory: (dir, askingLeave) => net.aboutDirectory(page, dir, askingLeave),
+		showDirectory: backToRooms((dir) => net.showDirectory(page, dir)),
+		aboutMember: (about) => net.aboutMember(page, about),
+		aboutConversation: (pane, askingLeave) => {
+			const conv = store.activeConv(projection);
+			if (conv?.type === "directory") {
+				net.aboutDirectory(page, conv.dir, askingLeave);
+				return;
+			}
+			store.showAboutConv(projection, pane, askingLeave);
+		},
+		manageIrcIdentity: () => store.showAboutConv(projection, "irc"),
+		closeAboutConversation: () => store.closeAboutConv(projection),
+		showError: (detail) => store.showErrorDetail(projection, detail),
+		closeError: () => store.closeErrorDetail(projection),
+		toast: (kind, text) => store.toast(projection, kind, text),
+		showRoster: (shown) => store.showRoster(projection, shown),
+		toggleNotify: () => net.toggleNotify(page),
+		openSettings: () => store.openSettings(projection),
+		closeSettings: () => store.closeSettings(projection),
+		setSettingsTab: (tab) => store.setSettingsTab(projection, tab),
+		setTheme: (theme) => store.setTheme(projection, theme),
+		openHelp: () => store.openHelp(projection),
+		closeHelp: () => store.closeHelp(projection),
 		openOperations: () => {
-			store.closeSettings();
+			store.closeSettings(projection);
 			navigate("/ops");
 		},
-		setOpsPane: store.setOpsPane,
-		changeLine: store.startChange,
-		changeFiles: store.startRefile,
-		dropKeptFile: store.dropKeptFile,
-		cancelChange: store.cancelChange,
-		addFiles: net.addFiles,
-		removeFile: store.removeDraftFile,
-		closeViewer: store.closeViewer,
-		editJoin: store.editJoin,
+		showActiveConversation: () => navigate(addressOfActive()),
+		setOpsPane: (pane) => store.setOpsPane(projection, pane),
+		changeLine: (id, text) => store.startChange(projection, id, text),
+		changeFiles: (id, caption, keeping) => store.startRefile(projection, id, caption, keeping),
+		dropKeptFile: (index) => store.dropKeptFile(projection, index),
+		cancelChange: () => store.cancelChange(projection),
+		addFiles: (files) => net.addFiles(page, files),
+		removeFile: (index) => store.removeDraftFile(projection, index),
+		closeViewer: () => store.closeViewer(projection),
+		editJoin: (patch) => store.editJoin(projection, patch),
 		attachRoomsSession: async (sturdyref) => {
+			const before = workspaceControllerSelection(page);
 			const why = await attachRoomsController(sturdyref, {
-				current: workspaceControllerSelection,
-				localCheckpoint: () => workspaceStateOf(store.get()).session,
-				connect: connectAttachedRoomsSession,
-				select: setWorkspaceControllerSelection,
+				current: () => workspaceControllerSelection(page),
+				localCheckpoint: () => workspaceStateOf(page, page.projection.get()).session,
+				connect: (sturdyref) => connectAttachedRoomsSession(page, sturdyref),
+				verifyOverAttached: (sturdyref) => page.attachedSession.current?.verifySibling(sturdyref) ?? null,
+				select: (controller) => setWorkspaceControllerSelection(page, controller),
 				reportCleanupFailure: (error) => {
 					store.noteTrouble(
+						page.projection,
 						"shared session attachment cleanup",
 						error instanceof Error ? error.message : String(error),
 					);
 				},
 			});
-			if (why === "") location.reload();
+			if (why === "") {
+				const after = workspaceControllerSelection(page);
+				const beforeShared = sharedRoomsSession(before);
+				const afterShared = sharedRoomsSession(after);
+				if (
+					before.kind !== after.kind ||
+					beforeShared?.sturdyref !== afterShared?.sturdyref
+				) {
+					reloadNow();
+				}
+			}
 			return why;
 		},
-		useLocalRoomsSession: () => {
-			if (!setWorkspaceControllerSelection({ kind: "local" })) {
-				return "This browser refused to save local Rooms reconstruction.";
-			}
-			location.reload();
-			return "";
-		},
-		leaveRoomsSession: () => {
-			if (!setWorkspaceControllerSelection({ kind: "none" })) {
-				return "This browser refused to leave the current Rooms session.";
-			}
-			location.reload();
-			return "";
-		},
-		roomsController: workspaceControllerSelection,
+		shareRoomsSession: () => page.hostedSession.share(),
+		useLocalRoomsSession: () =>
+			leaveAttachedSession(page, { kind: "local" }, "This browser refused to save local Rooms reconstruction."),
+		leaveRoomsSession: () =>
+			leaveAttachedSession(page, { kind: "none" }, "This browser refused to leave the current Rooms session."),
+		roomsController: () => workspaceControllerSelection(page),
 		resetBrowserWorkspace: () => {
-			if (!clearWorkspaceState()) return "This browser refused to forget the saved workspace.";
-			location.reload();
+			coverForReload();
+			if (!clearWorkspaceState(page)) {
+				uncoverReload();
+				return "This browser refused to forget the saved workspace.";
+			}
+			finishCoveredReload(true);
 			return "";
 		},
 		deleteBrowserData: async () => {
-			const why = await deleteRoomsBrowserData();
-			if (why === "") location.reload();
-			return why;
+			coverForReload();
+			const why = await deleteRoomsBrowserData(page);
+			if (why !== "") {
+				uncoverReload();
+				return why;
+			}
+			finishCoveredReload(true);
+			return "";
 		},
 	};
 }

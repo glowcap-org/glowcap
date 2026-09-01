@@ -565,10 +565,6 @@ pub fn build(b: *std.Build) void {
     // `apps/_demo/zig/`: the typed room-error vocabulary, the
     // one-shot usage printer, and the tools capability checklist. Each std-only
     // leaf is minted once and imported by the clients that name it.
-    // The one Zig authority for the wire profile a rooms peer speaks, shared
-    // by the chat client and `pancake app rooms-peer` so the two cannot drift
-    // into a session neither can open.
-    const rooms_profile_mod = b.createModule(.{ .root_source_file = b.path("apps/rooms/lib/profile.zig"), .target = target, .optimize = optimize });
     const demo_rooms_cli_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/rooms_cli.zig"), .target = target, .optimize = optimize });
     const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
     const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
@@ -576,15 +572,13 @@ pub fn build(b: *std.Build) void {
     // The rooms application family (native clients, the hermetic suite that
     // rides `check`, the demos, the browser UI serves, the rooms-web proofs,
     // and deploy prep) registers as one subject from tools/build/rooms.zig.
-    // The product CLI below stays here: it is its own subject and shares only
-    // `rooms_profile_mod` with the family.
+    // The product CLI below stays here as its own subject.
     rooms_build.register(.{
         .b = b,
         .target = target,
         .optimize = optimize,
         .lib_mod = lib_mod,
         .iroh_resident_mod = iroh_resident_mod,
-        .rooms_profile_mod = rooms_profile_mod,
         .demo_rooms_cli_mod = demo_rooms_cli_mod,
         .demo_usage_mod = demo_usage_mod,
         .check_step = check_step,
@@ -613,7 +607,6 @@ pub fn build(b: *std.Build) void {
         .iroh = iroh_resident_mod,
         .native_relay = native_relay.relay,
         .check_relay = native_relay.check_relay,
-        .rooms_profile = rooms_profile_mod,
         .version = abi_version,
         .iroh_sidecar_archive = iroh_sidecar_archive,
         .check = check_step,

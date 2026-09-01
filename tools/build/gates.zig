@@ -458,9 +458,8 @@ pub fn register(ctx: Context) Registered {
     });
     // The wasm module is a shipped artifact like the archives, so fold its
     // install into the default `zig build` install. Every serve path reads the
-    // on-disk `zig-out/wasm/pancake_host.wasm`: the rooms serve steps
-    // (`rooms-web-tcp`, `rooms-web-iroh`) ride `addInstalledSystemRun`, which depends
-    // on the default install, and the compose deploy runs plain `zig build`.
+    // on-disk `zig-out/wasm/pancake_host.wasm`. Each rooms serve path depends on
+    // this exact install step, and the compose deploy runs plain `zig build`.
     // Without this edge a renamed C-ABI symbol leaves the served module stale,
     // and the browser can only report the missing export at dlopen time.
     b.getInstallStep().dependOn(&wasm_driver_install.step);

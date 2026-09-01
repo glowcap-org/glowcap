@@ -89,7 +89,7 @@ test "partner identity: each leg reports the fact it holds, not the transport's 
 
 test "verified channel key: an embedder's testimony reaches provenance on both legs" {
     // The test above is this topology with nobody to speak for the acceptor.
-    // Here the embedder says what its own transport proved, which is what a binding
+    // Here the embedder says what its own transport proved, the fact a binding
     // hosting its own iroh listener holds and had no way to state. Both legs,
     // because the proof belongs to the connection rather than to a direction.
     const allocator = std.testing.allocator;

@@ -124,7 +124,12 @@ surface; do not let old plan language masquerade as current architecture.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
   same change. A rename that updates its target file and leaves the referrers
   behind is the commonest drift here, and the compiler will not catch it in
-  prose: grep the old name across the tree before calling the rename done.
+  prose: grep the old name across the tree before calling the rename done. A
+  *moved file* is the same defect with no prose to read, because a path written
+  as a string is invisible to every typechecker;
+  `tools/check/source_check/runtime_paths.zig` holds the
+  `new URL("…", import.meta.url)` form for the trees it names, and the rest is
+  still yours to grep.
 - Write source comments in the indicative only for mechanisms that have a real
   caller. Name the implementing symbol so a reader can verify it and a rename
   can break the claim. Intended behavior belongs in an ADR's explicit scope;

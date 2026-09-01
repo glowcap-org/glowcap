@@ -59,7 +59,7 @@ pub const symbols = [_]Symbol{
     },
     // The readiness half: both return at once, so neither is blocking in either
     // sense. An embedder that polls these never reaches the blocking rows for the
-    // arrival case, which is what keeps this transport usable from an event loop.
+    // arrival case, so the transport stays usable from an event loop.
     .{ .name = "pancake_onion_listener_readiness_fd", .out_params = &.{1} },
     .{ .name = "pancake_onion_conn_readiness_fd", .out_params = &.{1} },
     .{
